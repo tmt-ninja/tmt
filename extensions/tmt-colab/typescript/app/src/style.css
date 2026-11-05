@@ -37,7 +37,13 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.tm
   ):not(.needs-filter-button):not(.work-row-button):not(.tmt-ui-rail *, .tmt-ui-shell-open):not(
     :disabled
   ):hover,
-a:not(.tmt-ui-action, .tmt-ui-rail *, .tmt-ui-module-menu *, .tmt-ui-list-title > a):hover {
+a:not(
+    .tmt-ui-action,
+    .tmt-ui-rail *,
+    .tmt-ui-module-menu *,
+    .tmt-ui-list-title > a,
+    .design-page-tree *
+  ):hover {
   color: var(--c-accent);
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(

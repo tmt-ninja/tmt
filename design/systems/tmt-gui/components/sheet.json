@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "sheet",
+  "source": "sheet.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "Sheet",
+    "SheetTrigger",
+    "SheetContent",
+    "SheetTitle",
+    "SheetDescription",
+    "Button",
+    "UiTheme"
+  ],
+  "examples": [
+    {
+      "title": "Sheet",
+      "markup": "<tmt-ui-sheet>Example content</tmt-ui-sheet>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Details",
+      "markup": "<tmt-ui-sheet label=\"Open details\" heading=\"Page details\">The page information appears here.</tmt-ui-sheet>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

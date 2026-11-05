@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "table",
+  "source": "table.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "columns": {
+      "type": "string"
+    },
+    "rows": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserTable"
+  ],
+  "examples": [
+    {
+      "title": "Pages",
+      "markup": "<tmt-ui-table label=\"Pages\" columns=\"Name,State\" rows=\"Home,Ready;Notes,Draft\"></tmt-ui-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-table label=\"Pages\" columns=\"Name,State\"></tmt-ui-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

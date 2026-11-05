@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "popover",
+  "source": "popover.js",
+  "props": {
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "Popover",
+    "PopoverTrigger",
+    "PopoverContent",
+    "Button",
+    "UiTheme"
+  ],
+  "examples": [
+    {
+      "title": "Popover",
+      "markup": "<tmt-ui-popover>Example content</tmt-ui-popover>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Help",
+      "markup": "<tmt-ui-popover label=\"Help\">More information about this control.</tmt-ui-popover>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

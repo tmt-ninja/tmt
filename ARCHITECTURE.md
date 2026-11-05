@@ -568,7 +568,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and bounded public
   `identity show`/`ls --json` reads (display, routing, advisory edit locks).
   The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
-  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned ranges and refuse changed templates before page creation.
+  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned ranges and refuse changed templates before creation.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration, and the read-only Agents view
@@ -582,8 +582,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   against the parent's authenticated thread projection ([contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)).
   `tmt colab serve` attaches to a running door, else starts a supervised one it alone stops.
   Colab reaches Remote only through its public CLI: no state files, no crate dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
-- **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
-- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow drafts or lock releases; mockup stages render in a sized scope; `tmt colab design` only reads.
+- **Message editing.** Rich input and MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority; Send records one comment and one Ask per distinct visible mention.
+- **Design systems.** `tmt:design-system` holds config, components and releases. Design draws the shipped built-in GUI; `design/systems/compiler.mjs` checks bundles. Pages follow drafts or lock releases. Runtime 4 allows declared browser-ui parts; live page lists stay in parent chrome. Work-bundle data needs proven owner-only authorship; unproven baselines fail closed. Mockups use sized scopes; `tmt colab design` reads only.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

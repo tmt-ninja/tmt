@@ -15,10 +15,6 @@
     "default"
   ],
   "css": "skeleton.css",
-  "ui": {
-    "module": "/src/ui/skeleton.tsx",
-    "component": "Skeleton"
-  },
   "examples": [
     {
       "title": "Line",
@@ -36,5 +32,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Skeleton"
   ]
 }

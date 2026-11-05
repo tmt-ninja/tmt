@@ -1,0 +1,6 @@
+// Runtime 4 supplies the real browser-ui layer components.
+export default ({ React, ui }) => function Dialog({ label = 'Open dialog', heading = 'Dialog', children }) {
+  const h = React.createElement;
+  return h(ui.UiTheme, null, h(ui.Dialog, null, h(ui.DialogTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),
+    h(ui.DialogContent, null, h(ui.DialogTitle, null, heading), h(ui.DialogDescription, null, children))));
+};

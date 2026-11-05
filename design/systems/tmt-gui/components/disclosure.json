@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "disclosure",
+  "source": "disclosure.js",
+  "props": {
+    "summary": {
+      "type": "string"
+    },
+    "divided": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserDisclosure"
+  ],
+  "examples": [
+    {
+      "title": "Expandable details",
+      "markup": "<tmt-ui-disclosure summary=\"More details\">Details appear when the disclosure opens.</tmt-ui-disclosure>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Divided",
+      "markup": "<tmt-ui-disclosure summary=\"Advanced\" divided>Additional options.</tmt-ui-disclosure>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

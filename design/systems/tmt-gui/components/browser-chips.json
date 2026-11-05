@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-chips",
+  "source": "browser-chips.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserChips"
+  ],
+  "examples": [
+    {
+      "title": "People",
+      "markup": "<tmt-ui-browser-chips label=\"People\" items=\"Alex,Sam,Jo\"></tmt-ui-browser-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Agents",
+      "markup": "<tmt-ui-browser-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-browser-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

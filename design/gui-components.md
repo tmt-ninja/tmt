@@ -73,6 +73,9 @@ The leaf's [structured-page blocks](browser-ui/README.md#structured-page-blocks)
 shell, the one shared handle, the insert and block menus, the content blocks, the @block chip
 and the undo toast, and their tmt GUI tags. Editors retain block data, editing, persistence,
 clipboard and undo history; they render the parts rather than restyling them.
+The same entry supplies question, image, mockup, work-bundle and page-view presentations. The
+page view uses the shared page-list grid; Colab owns admission and the lifetime of the read-only
+page data sent to its frame. A device mockup owns a sized scope for its overlays.
 
 ## Commands and inline code
 

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "brand-mark",
+  "source": "brand-mark.js",
+  "props": {},
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrandMark"
+  ],
+  "examples": [
+    {
+      "title": "BrandMark",
+      "markup": "<tmt-ui-brand-mark></tmt-ui-brand-mark>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

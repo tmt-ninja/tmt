@@ -1,0 +1,6 @@
+export default ({ React, ui }) => function StatusLine({ items = '[]' }) {
+  let parsed;
+  try { parsed = JSON.parse(items); } catch { parsed = []; }
+  const safe = Array.isArray(parsed) ? parsed.filter((item) => item && ['working', 'waiting', 'review', 'blocked'].includes(item.tone) && typeof item.label === 'string').slice(0, 20) : [];
+  return React.createElement(ui.BrowserStatusLine, { items: safe });
+};

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "editorial",
+  "source": "editorial.js",
+  "props": {},
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserEditorial"
+  ],
+  "examples": [
+    {
+      "title": "BrowserEditorial",
+      "markup": "<tmt-ui-editorial><h2>Notes</h2><p>Long-form content.</p></tmt-ui-editorial>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Article",
+      "markup": "<tmt-ui-editorial><h2>Page heading</h2><p>A short introduction to the work.</p><p>A second paragraph adds context.</p></tmt-ui-editorial>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

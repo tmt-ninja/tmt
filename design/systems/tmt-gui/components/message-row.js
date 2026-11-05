@@ -1,0 +1,4 @@
+export default ({ React, ui }) => function MessageRow({ author = 'Someone', state = 'delivered', detail = '', action, children }) {
+  const [status, setStatus] = React.useState(state);
+  return React.createElement(ui.BrowserMessageRow, { author, state: status, detail: status === 'sending' ? 'Sending' : detail, action: status === 'sending' ? undefined : action, onAction: () => setStatus('sending') }, children);
+};

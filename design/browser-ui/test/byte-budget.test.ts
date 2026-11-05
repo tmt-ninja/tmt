@@ -56,7 +56,7 @@ it('keeps Lexical and the rich input out of every shared entry', () => {
     }
   };
   // Its own entry, the gallery and the docs site (Colab's Design route loads it) reach it by design.
-  const showcases = ['./rich-input', './docs-embed'];
+  const showcases = ['./rich-input', './docs-embed', './docs-patterns', './docs-components'];
   for (const [name, target] of Object.entries(manifest.exports) as [string, string][])
     if (/\.tsx?$/.test(target) && !showcases.includes(name) && !name.startsWith('./gallery'))
       visit(new URL(`../${target.slice(2)}`, import.meta.url));

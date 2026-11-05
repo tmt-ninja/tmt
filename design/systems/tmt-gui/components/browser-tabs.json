@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-tabs",
+  "source": "browser-tabs.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserTabs"
+  ],
+  "examples": [
+    {
+      "title": "Views",
+      "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active,Archived\">Selected view</tmt-ui-browser-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Details and activity",
+      "markup": "<tmt-ui-browser-tabs label=\"Page\" items=\"Details,Activity\">Page information</tmt-ui-browser-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -20,13 +20,22 @@
     "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
     "./docs-embed": "./docs/embed.tsx",
+    "./docs-foundations": "./docs/foundation-page.tsx",
+    "./docs-patterns": "./docs/pattern-page.tsx",
+    "./docs-components": "./docs/component-page.tsx",
+    "./pattern-parts.css": "./src/pattern-parts.css",
+    "./pattern-parts": "./src/pattern-parts/index.ts",
     "./docs-oracle": "./docs/tui/oracle-module.mjs",
     "./test-fixtures/*": "./test/fixtures/*",
     "./list-table": "./src/list-table-host.ts",
     "./rich-input": "./src/rich-input/index.ts",
+    "./blocks": "./src/blocks/index.ts",
+    "./blocks.css": "./src/blocks/blocks.css",
     "./data-table": "./src/data-table/index.ts",
+    "./data-table.css": "./src/data-table/data-table.css",
+    "./page-list.css": "./src/data-table/page-list.css",
     "./manage-list": "./src/manage-list/index.ts",
-    "./blocks": "./src/blocks/index.ts"
+    "./rich-input.css": "./src/rich-input/rich-input.css"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write && node scripts/generate-docs-embed-css.mjs --write",

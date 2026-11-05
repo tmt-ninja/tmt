@@ -42,13 +42,7 @@
   "slots": [
     "default"
   ],
-  "css": "block.css",
-  "ui": {
-    "module": "/src/blocks/block.tsx",
-    "component": "Block",
-    "parts": [],
-    "compose": "<Block label=\"{label}\" kind=\"{kind}\" state=\"{state}\" selected=\"{selected}\" readonly=\"{readonly}\"><BlockHandle if=\"handle\"></BlockHandle>{children}</Block>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Idle, hover with the handle, selected",
@@ -66,5 +60,9 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Block",
+    "BlockHandle"
   ]
 }

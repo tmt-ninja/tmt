@@ -1,6 +1,10 @@
 // Types for compiler.mjs, the design-system compiler the Colab app shares with compile.mjs.
 export const SCHEMA: 1;
 export const RUNTIME: '2';
+export const SHARED_PARTS: readonly string[];
+export const DATA_CAPABILITIES: readonly string[];
+export const UI_PARTS: readonly string[];
+export const BLOCK_UI_PARTS: readonly string[];
 export const SKELETON: readonly string[];
 export class DesignSystemError extends Error {}
 export interface PropSpec {
@@ -14,6 +18,10 @@ export interface ComponentDoc {
   tag: string;
   props: Record<string, PropSpec>;
   slots: string[];
+  parts?: string[];
+  data?: string[];
+  uiParts?: string[];
+  requires?: string[];
   examples?: { title: string; markup: string; widths?: number[] }[];
   source: string;
   css: string;
@@ -31,7 +39,13 @@ export interface DesignSystemConfig {
   principles?: { summary: string; rules: string[] };
   patterns?: { page: string; title: string; uses: string[] }[];
   site?: { nav: string[]; controls: string[]; previewWidths: number[] };
-  releases: { version: string; bundle: string; attachment?: string; runtime: string; at?: string }[];
+  releases: {
+    version: string;
+    bundle: string;
+    attachment?: string;
+    runtime: string;
+    at?: string;
+  }[];
 }
 export interface Bundle {
   schema: number;
@@ -46,6 +60,10 @@ export interface Bundle {
     tag: string;
     props: Record<string, PropSpec>;
     slots: string[];
+    parts?: string[];
+    data?: string[];
+    uiParts?: string[];
+    requires?: string[];
     examples: { title: string; markup: string }[];
     css: string;
     code: string;
@@ -53,7 +71,12 @@ export interface Bundle {
   hash: string;
 }
 export interface Finding {
-  code: 'ds-not-pinned' | 'unknown-ds-release' | 'ds-prefix-mismatch' | 'unknown-ds-component' | 'invalid-ds-prop';
+  code:
+    | 'ds-not-pinned'
+    | 'unknown-ds-release'
+    | 'ds-prefix-mismatch'
+    | 'unknown-ds-component'
+    | 'invalid-ds-prop';
   tag: string;
   attribute?: string;
   index: number;
@@ -63,15 +86,30 @@ export function propType(spec: PropSpec): string;
 export function validateSystem(config: DesignSystemConfig, where?: string): void;
 export function checkSource(source: string, where: string): void;
 export function validateComponent(doc: ComponentDoc, where?: string): void;
+export function validateCapabilities(
+  bundle: {
+    runtime: string;
+    prefix: string;
+    components: readonly {
+      tag: string;
+      parts?: readonly string[];
+      data?: readonly string[];
+      uiParts?: readonly string[];
+      requires?: readonly string[];
+    }[];
+  },
+  prefixed?: boolean
+): void;
 export function buildBundle(
   system: string,
   config: DesignSystemConfig,
   components: ComponentDoc[],
-  sha256Hex: (text: string) => Promise<string>,
+  sha256Hex: (text: string) => Promise<string>
 ): Promise<Bundle>;
 export function checkElements(
   elements: { tag: string; attrs: Record<string, string> }[],
   pin: { system: string } | null,
   bundle: Bundle | null,
+  pageElements?: readonly string[]
 ): Finding[];
 export const findingText: Record<Finding['code'], (finding: Finding) => string>;

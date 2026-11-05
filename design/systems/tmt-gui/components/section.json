@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "section",
+  "source": "section.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "variant": {
+      "enum": [
+        "label",
+        "title"
+      ]
+    },
+    "divided": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserSection"
+  ],
+  "examples": [
+    {
+      "title": "Section title",
+      "markup": "<tmt-ui-section heading=\"Details\" variant=\"title\">Page details</tmt-ui-section>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Label and divider",
+      "markup": "<tmt-ui-section heading=\"Properties\" variant=\"label\" divided>Details about this page</tmt-ui-section>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

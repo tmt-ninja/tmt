@@ -1,0 +1,8 @@
+// The selected real Browser overlay retains its open state locally.
+export default ({ React, ui }) => function Overlay({ label = 'Details', kind = 'dialog', children }) {
+  const [open, setOpen] = React.useState(false);
+  const h = React.createElement;
+  const Part = kind === 'drawer' ? ui.BrowserDrawer : kind === 'panel' ? ui.BrowserPanel : ui.BrowserDialog;
+  return h(ui.UiTheme, null, h(ui.BrowserAction, { type: 'button', label: `Open ${label}`, variant: 'secondary', onActivate: () => setOpen(true) }),
+    h(Part, { open, title: label, mode: kind === 'panel' ? 'card' : undefined, onDismiss: () => setOpen(false) }, children));
+};

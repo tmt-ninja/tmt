@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "pager",
+  "source": "pager.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "count": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserPager"
+  ],
+  "examples": [
+    {
+      "title": "Multiple pages",
+      "markup": "<tmt-ui-pager label=\"Pages\" count=\"3\"></tmt-ui-pager>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "One page",
+      "markup": "<tmt-ui-pager label=\"Pages\" count=\"1\"></tmt-ui-pager>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

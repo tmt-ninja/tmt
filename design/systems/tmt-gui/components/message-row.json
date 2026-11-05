@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "message-row",
+  "source": "message-row.js",
+  "props": {
+    "author": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "delivered",
+        "sending",
+        "failed",
+        "unsent"
+      ]
+    },
+    "detail": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "../../../browser-ui/src/pattern-parts.css",
+  "uiParts": [
+    "BrowserMessageRow"
+  ],
+  "examples": [
+    {
+      "title": "Message Row",
+      "markup": "<tmt-ui-message-row author=\"Alex\" state=\"failed\" detail=\"Not sent\" action=\"Retry\">Please review.</tmt-ui-message-row>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

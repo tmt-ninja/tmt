@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "chips",
+  "source": "chips.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "Chips",
+    "useLayerController"
+  ],
+  "examples": [
+    {
+      "title": "Chips",
+      "markup": "<tmt-ui-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Agents",
+      "markup": "<tmt-ui-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

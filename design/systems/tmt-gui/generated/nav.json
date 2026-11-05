@@ -1,0 +1,461 @@
+{
+ "sections": [
+  {
+   "title": "Getting started",
+   "pages": [
+    {
+     "title": "Introduction",
+     "path": ""
+    },
+    {
+     "title": "Principles",
+     "path": "principles"
+    }
+   ]
+  },
+  {
+   "title": "Tokens",
+   "pages": [
+    {
+     "title": "Colour",
+     "path": "tokens/colour"
+    },
+    {
+     "title": "Type",
+     "path": "tokens/type"
+    },
+    {
+     "title": "Spacing",
+     "path": "tokens/spacing"
+    },
+    {
+     "title": "Radius",
+     "path": "tokens/radius"
+    },
+    {
+     "title": "Motion",
+     "path": "tokens/motion"
+    },
+    {
+     "title": "Elevation",
+     "path": "tokens/elevation"
+    },
+    {
+     "title": "Brand",
+     "path": "tokens/brand"
+    }
+   ]
+  },
+  {
+   "title": "Components",
+   "pages": [
+    {
+     "title": "@block chip",
+     "path": "components/block-mention"
+    },
+    {
+     "title": "Alert",
+     "path": "components/alert"
+    },
+    {
+     "title": "Badge",
+     "path": "components/badge"
+    },
+    {
+     "title": "Block document",
+     "path": "components/block-document"
+    },
+    {
+     "title": "Block menus",
+     "path": "components/block-menu"
+    },
+    {
+     "title": "Block shell",
+     "path": "components/block"
+    },
+    {
+     "title": "Button",
+     "path": "components/button"
+    },
+    {
+     "title": "Callout block",
+     "path": "components/callout"
+    },
+    {
+     "title": "Card",
+     "path": "components/card"
+    },
+    {
+     "title": "Card block",
+     "path": "components/card-block"
+    },
+    {
+     "title": "Checkbox",
+     "path": "components/checkbox"
+    },
+    {
+     "title": "Chips and combobox",
+     "path": "components/chips"
+    },
+    {
+     "title": "Code block",
+     "path": "components/code-block"
+    },
+    {
+     "title": "Command",
+     "path": "components/command"
+    },
+    {
+     "title": "Data table",
+     "path": "components/data-table"
+    },
+    {
+     "title": "Dialog",
+     "path": "components/dialog"
+    },
+    {
+     "title": "Dropdown menu",
+     "path": "components/dropdown-menu"
+    },
+    {
+     "title": "DsScope",
+     "path": "components/ds-scope"
+    },
+    {
+     "title": "Empty",
+     "path": "components/empty"
+    },
+    {
+     "title": "Floating actions and window",
+     "path": "components/floating"
+    },
+    {
+     "title": "Heading block",
+     "path": "components/heading-block"
+    },
+    {
+     "title": "Image block",
+     "path": "components/image-block"
+    },
+    {
+     "title": "Input",
+     "path": "components/input"
+    },
+    {
+     "title": "List item block",
+     "path": "components/list-item"
+    },
+    {
+     "title": "Mockup block",
+     "path": "components/mockup-block"
+    },
+    {
+     "title": "Page list",
+     "path": "components/page-list"
+    },
+    {
+     "title": "Page view",
+     "path": "components/page-view"
+    },
+    {
+     "title": "Paragraph block",
+     "path": "components/text-block"
+    },
+    {
+     "title": "Popover",
+     "path": "components/popover"
+    },
+    {
+     "title": "Question block",
+     "path": "components/question-block"
+    },
+    {
+     "title": "Rich input",
+     "path": "components/rich-input"
+    },
+    {
+     "title": "Select",
+     "path": "components/select"
+    },
+    {
+     "title": "Separator",
+     "path": "components/separator"
+    },
+    {
+     "title": "Sheet",
+     "path": "components/sheet"
+    },
+    {
+     "title": "Skeleton",
+     "path": "components/skeleton"
+    },
+    {
+     "title": "Surface",
+     "path": "components/surface"
+    },
+    {
+     "title": "Switch",
+     "path": "components/switch"
+    },
+    {
+     "title": "Table block",
+     "path": "components/table-block"
+    },
+    {
+     "title": "Tabs",
+     "path": "components/tabs"
+    },
+    {
+     "title": "Textarea",
+     "path": "components/textarea"
+    },
+    {
+     "title": "To-do block",
+     "path": "components/todo"
+    },
+    {
+     "title": "Tooltip",
+     "path": "components/tooltip"
+    },
+    {
+     "title": "Undo toast",
+     "path": "components/block-toast"
+    },
+    {
+     "title": "Work bundle",
+     "path": "components/work-bundle"
+    }
+   ]
+  },
+  {
+   "title": "Browser components",
+   "pages": [
+    {
+     "title": "Action",
+     "path": "browser/action"
+    },
+    {
+     "title": "Avatar",
+     "path": "browser/avatar"
+    },
+    {
+     "title": "Brand mark",
+     "path": "browser/brand"
+    },
+    {
+     "title": "Busy mark",
+     "path": "browser/busy-mark"
+    },
+    {
+     "title": "Card and meter",
+     "path": "browser/card-meter"
+    },
+    {
+     "title": "Chart",
+     "path": "browser/chart"
+    },
+    {
+     "title": "Checkbox (Browser)",
+     "path": "browser/browser-checkbox"
+    },
+    {
+     "title": "Chips (Browser)",
+     "path": "browser/browser-chips"
+    },
+    {
+     "title": "Choice",
+     "path": "browser/choice"
+    },
+    {
+     "title": "Command (Browser)",
+     "path": "browser/browser-command"
+    },
+    {
+     "title": "Count chip",
+     "path": "browser/count-chip"
+    },
+    {
+     "title": "Dialog, drawer and panel",
+     "path": "browser/dialog-drawer-panel"
+    },
+    {
+     "title": "Disclosure",
+     "path": "browser/disclosure"
+    },
+    {
+     "title": "Editorial prose",
+     "path": "browser/editorial"
+    },
+    {
+     "title": "Field",
+     "path": "browser/field"
+    },
+    {
+     "title": "Header",
+     "path": "browser/header"
+    },
+    {
+     "title": "Icon action",
+     "path": "browser/icon-action"
+    },
+    {
+     "title": "List and list table",
+     "path": "browser/list"
+    },
+    {
+     "title": "Menu",
+     "path": "browser/menu"
+    },
+    {
+     "title": "Message row",
+     "path": "browser/message-row"
+    },
+    {
+     "title": "Notice",
+     "path": "browser/notice"
+    },
+    {
+     "title": "Notifications",
+     "path": "browser/notifications"
+    },
+    {
+     "title": "Overview pieces",
+     "path": "browser/overview"
+    },
+    {
+     "title": "Page row",
+     "path": "browser/page-row"
+    },
+    {
+     "title": "Pager",
+     "path": "browser/pager"
+    },
+    {
+     "title": "Section",
+     "path": "browser/section"
+    },
+    {
+     "title": "Shell and rail",
+     "path": "browser/shell"
+    },
+    {
+     "title": "Status line",
+     "path": "browser/status-line"
+    },
+    {
+     "title": "Status tile",
+     "path": "browser/status-tile"
+    },
+    {
+     "title": "Table",
+     "path": "browser/table"
+    },
+    {
+     "title": "Tabs (Browser)",
+     "path": "browser/browser-tabs"
+    },
+    {
+     "title": "Toggle",
+     "path": "browser/toggle"
+    },
+    {
+     "title": "Visually hidden",
+     "path": "browser/visually-hidden"
+    },
+    {
+     "title": "Work band",
+     "path": "browser/work-band"
+    }
+   ]
+  },
+  {
+   "title": "Patterns",
+   "pages": [
+    {
+     "title": "Tabs row with actions",
+     "path": "patterns/tabs-row"
+    },
+    {
+     "title": "List controls",
+     "path": "patterns/list-controls"
+    },
+    {
+     "title": "Dense list table",
+     "path": "patterns/dense-table"
+    },
+    {
+     "title": "Floating actions and window",
+     "path": "patterns/fab-window"
+    },
+    {
+     "title": "Add or attach dialog",
+     "path": "patterns/add-dialog"
+    },
+    {
+     "title": "Needs you",
+     "path": "patterns/needs-you"
+    },
+    {
+     "title": "Work band",
+     "path": "patterns/work-band"
+    },
+    {
+     "title": "Sending, failed and unsent",
+     "path": "patterns/sending-rows"
+    },
+    {
+     "title": "Loading and error states",
+     "path": "patterns/loading-error"
+    },
+    {
+     "title": "Confirm dialog and notifications",
+     "path": "patterns/confirm-notify"
+    },
+    {
+     "title": "Blocks as one document",
+     "path": "patterns/blocks-document"
+    },
+    {
+     "title": "Insert a block",
+     "path": "patterns/blocks-insert"
+    },
+    {
+     "title": "Handle and block menu",
+     "path": "patterns/blocks-menu"
+    },
+    {
+     "title": "Drag to move",
+     "path": "patterns/blocks-drag"
+    },
+    {
+     "title": "Delete with Undo",
+     "path": "patterns/blocks-delete"
+    },
+    {
+     "title": "Keyboard selection",
+     "path": "patterns/blocks-selection"
+    },
+    {
+     "title": "List row",
+     "path": "patterns/list-row"
+    },
+    {
+     "title": "Empty state",
+     "path": "patterns/empty-state"
+    },
+    {
+     "title": "Status line",
+     "path": "patterns/status-line"
+    }
+   ]
+  }
+ ],
+ "pages": [
+  {
+   "slug": "principles",
+   "title": "Principles",
+   "html": "<div class=\"tmt-design-docs\"><article class=\"docs-article\"><h1>Principles</h1><p class=\"docs-lead\">Short rules that decide most questions before they come up.</p><ol class=\"docs-principles\"><li><h2>Red is rare</h2><p>The ninja retains its canonical pale ink on a dark tile. Accent red marks keyboard focus, the selected tab and the one primary action on a surface. Nothing else is red-filled.</p></li><li><h2>Status is never the accent</h2><p>Working, waiting, review and blocked have their own muted hues and always a mark and a word (● ◆ ◐ ✕). Blocked is a darker red with its ✕, never the accent.</p></li><li><h2>Corners are small</h2><p>Controls, fields and tags share one radius; cards and surfaces are one step larger. Only avatars and status dots are round.</p></li><li><h2>Real components only</h2><p>A mock is built from the same components the product ships, so a mock is the implementation and review compares like with like.</p></li><li><h2>One family</h2><p>One set of components and tokens serves Colab, Remote, Ops and the blog. Product code adds no colours, radii or local copies.</p></li></ol></article></div>",
+   "path": "principles"
+  }
+ ]
+}

@@ -15,13 +15,7 @@
   "slots": [
     "default"
   ],
-  "css": "text-block.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "TextBlock",
-    "parts": [],
-    "compose": "<TextBlock tone=\"{tone}\">{children}</TextBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Default and muted",
@@ -31,5 +25,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "TextBlock"
   ]
 }

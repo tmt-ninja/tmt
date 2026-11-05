@@ -24,13 +24,7 @@
   "slots": [
     "default"
   ],
-  "css": "code-block.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "CodeBlock",
-    "parts": [],
-    "compose": "<CodeBlock text=\"{children}\" language=\"{language}\" filename=\"{filename}\" variant=\"{variant}\" copied=\"{copied}\"></CodeBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "With a filename",
@@ -48,5 +42,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "CodeBlock"
   ]
 }

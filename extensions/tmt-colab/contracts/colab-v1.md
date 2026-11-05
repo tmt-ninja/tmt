@@ -2595,6 +2595,15 @@ Scripts run on every page: the frame uses `sandbox="allow-scripts"`, without
 same-origin, top navigation, popups, forms or modals. There is no static mode.
 The renderer MUST deny app storage,
 keys, cookies/session, bridge access, network APIs, other pages and top navigation.
+Page-view data about other pages MUST remain in trusted parent chrome; the frame may report only
+bounded slot geometry and MUST NOT receive the projection. The parent MUST draw a live page view only
+for a page that passes the same owner-member proof as a work bundle, with the same recheck and
+revocation. Work-bundle data about another page MUST
+enter a frame only after the trusted parent proves every content writer in its current epoch is an
+owner-member device, and MUST be limited to named pages the owner can read. The parent MUST recheck
+on every epoch or writer change and revoke the hand-off when the proof fails. An owner-signed epoch
+baseline alone does not prove earlier authorship: without proof that every prior writer was the
+owner, the parent MUST fail closed, including after a baseline carries old source forward.
 It MUST NOT claim complete exfiltration prevention: #830 observed iframe
 self-navigation leakage despite CSP. Tear down any frame navigating after its
 initial render. The tested CSP begins `default-src 'none'`, permits inline page
@@ -2619,9 +2628,15 @@ permission enters the frame. A host-generated image request ID and render ID fen
 References are resolved in document order, at most 128 unique references and 64 MiB of declared
 plaintext per render; aliases share one read/charge. Unknown, ambiguous, non-raster, unreadable
 and over-budget references produce inert alt-text placeholders, never a fetch fallback. Scope or
-binding changes clear display copies and suppress late replies. The Local object backend supports
+binding changes clear display copies and suppress late replies. The same admission and bounds apply
+to attachment images inserted later by a design-system component; inserting an image does not give
+its component an attachment read capability. The Local object backend supports
 this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
 reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
+An image or file block may request a download of a `colab-attachment:` reference. The parent
+matches it uniquely against the current page's verified descriptors and presents the filename in
+trusted chrome; only a trusted confirmation reads and downloads the attachment. A frame claim or
+gesture alone never grants that read, and an unknown or ambiguous reference is ignored.
 
 On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
@@ -2805,8 +2820,10 @@ paints only one of paper and ink paints the other. The same pages take the schem
 viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
 `data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
 roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
-a page that paints nothing is painted by the frame and measures as the viewer's scheme. Each
-measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. The
+frame's annotation fallback roles sit in `colab-frame`, below a pinned design system's token roles;
+the fallback still supplies them on ordinary pages. A tmt GUI pin uses palette B in that frame.
+Each measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
 `data-theme`, and a page the frame paints follows a change of theme in either direction. Any other page
 keeps the white canvas in both themes (#2267, #4081).
 The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
@@ -2814,6 +2831,11 @@ runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1
 decorative unless `label` is set; a name it does not have draws nothing. No network, script authority or
 sandbox rule changes. `page check` reports a `tmt-ui-*` class and a `tmt-icon` name the frame does not
 have (`unknown-ui-class`, `unknown-icon`, in the table below).
+
+Colab's own page elements (`tmt-icon`, `tmt-slot`, `tmt-question`, `tmt-questions`, `tmt-review`,
+`tmt-read`, `tmt-thread-ref`) belong to no design system. Their one list is
+[`vectors/page-elements-v1.json`](vectors/page-elements-v1.json); the design-system page check skips
+exactly those tags on a page that pins a system.
 
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
@@ -5057,7 +5079,9 @@ missing build, a missing, malformed or reshaped pin, or any mismatch fails the b
 Remote's build must run first. The hosted tree cannot supply any of the three routes.
 Files use site-root paths: `/index.html` is the HTML shell, alongside `/reader.html`,
 `/renderer.html`, `/THIRD-PARTY-NOTICES.txt` and `/assets/...`. The shell uses absolute
-`/assets/` URLs and no `<base>` so short-route rewrites preserve asset resolution.
+`/assets/` URLs and no `<base>` so short-route rewrites preserve asset resolution. Its hosted
+entry starts the hosted reader or the connection guide; the paired app and its Design and preview
+routes are not part of that entry.
 Unsafe paths, reserved `/__` paths, SDK overrides and growth reaching
 50% of Remote's v1 file-count, per-file or total-byte cap fail the build.
 
@@ -5458,19 +5482,78 @@ A lock is verified against its release's hash and never changes. Publish records
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing.
 
-The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
-owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each
-page follows `tmt-gui`, starts with a note that it is generated from `design/browser-ui`, and holds a
-`data-tmt-ds="origin"` block `{key, files}` (its docs path, such as `components/button`, and the repo
-files it is generated from); the root's block also names the shipped bundle hash. When this build
-ships another hash, the owner device rewrites each page in place by `key`, keeping ids and threads,
-makes pages for new keys and archives (never deletes) pages whose key is gone. Several owner tabs or
-devices may sync at once; they converge on one tree: a new page holds its `origin` block as soon as
-it exists, a sync reuses a root or child it finds by `key` before making one, and a closing pass
-archives any second root's tree and any second page for a `key`, keeping the lowest page ID.
-Regeneration rewrites a page's whole source, so a thread anchored on text that changed keeps its
-discussion but may lose its quote anchor. `/design/ds/gui` shows this tree once it exists; there is
-no Publish for it.
+Design-system runtime 2 supplies React, html and cn. Runtime 3 also supplies its system prefix and permits a component to declare
+named shared parts in its `parts` list; the host currently permits only `PageListTable`. The
+component's skeleton exposes only its declared names, and asking it for another part throws. That
+is a declaration check, not an isolation boundary: component code runs in the page frame and can
+reach the frame's runtime directly, which holds no host data or capability beyond what the parent
+has already sent to that frame.
+When an admitted component declares `PageListTable`, the host supplies no page-list records to the
+frame: a live list is painted by the trusted parent in the component's reserved slot, only on a page
+that passes the owner-only-content check below. The host identifies eligible tags from the verified
+bundle, including systems with a custom prefix; markup alone cannot declare that capability.
+Runtime 2 bundles keep their existing skeleton and cannot declare shared parts. A reader without
+runtime 3 reports that the page needs a newer TMT rather than executing that bundle.
+Runtime 3 components that nest another tag of their own system list its unprefixed name in
+`requires`; compilation refuses a missing or self-referential dependency. The runtime supplies
+the current system prefix so a copied system does not draw tags from another system.
+Runtime 3 separately permits a component to declare the `page` data capability: the work-bundle
+hand-off of the referenced page's bounded display metadata, read through the current viewer's
+admitted transport. It enters the frame only under the owner-only-content check, which the parent
+rechecks on every epoch or writer change and revokes when it fails, and for at most 20 named pages
+per frame mount. The frame is not given a transport, management methods or an arbitrary page-read
+function.
+Runtime 4 retains runtime 3's capabilities and adds `ui`, a renderer-owned namespace of named
+browser-ui parts running on the page runtime's React. A component declares its needed names in
+`uiParts`; the [runtime 4 UI vector](vectors/design-runtime-4-ui.json) owns the versioned allowlist. Unknown, duplicate, undeclared,
+or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
+does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
+as needing a newer TMT.
+Runtime 4 also supplies an immutable `pagePin` with the page's system identifier, resolved version,
+and lock (`follow` or `version#hash`). It describes the already admitted system; it grants no
+additional resolution or transport capability. A mockup inherits that pin when its system or lock
+is omitted. If an explicitly requested system or lock differs, it shows the page's system and
+version and does not render a stage. A locked version may be named by version alone or by its
+complete `version#hash`; a following page accepts only `follow`.
+When a component element leaves the document, its React root is released after a microtask if it
+has not reconnected. Moving a component within the same turn keeps its root; a later reconnection
+mounts a new root with the original slotted nodes. This releases component-owned resources such as
+chart resize observers on removal.
+When a page whose content only its owner wrote includes a live `tmt-ui-page-view`, the trusted
+parent renders its bounded page-list projection in the reserved slot: at most 200 records and
+64 KiB. The records' page identifiers, titles, projects, stage, update label, author and access are
+parent-only: none of them reaches the frame, nor does a transport or management capability. The
+frame receives the slot's height, which follows the rows drawn. The owner-only-content check is the
+work bundle's: the parent applies it when the view subscribes and withholds every later refresh once
+the page stops qualifying (an epoch or writer change). A page that does not qualify, or a view
+without an owner list, shows the fixed unavailable state, whose height depends only on the view's
+authored attributes. The subscription ends with the frame and follows the owner list's refreshes.
+A work bundle reads at most 20 distinct referenced pages per frame mount; each opens that page
+through the viewer's transport and reads the space home once.
+A page with design-system tags is never updated in place: an edit to it remounts the frame, so its
+page views and work bundles are always bound from the source the frame shows.
+
+The built-in tmt GUI is not stored as pages (#6060). `/design/ds/gui` draws it from the
+`generated/pages.json`, `generated/nav.json` and bundle the build ships, by the docs site's paths
+(`components/button`), in the page frame with annotations and Chat. Its nav is the docs site's own
+(`nav.json`, compiled from the docs app's model): the same sections, names and pages, Principles
+included. Its component pages use `tmt-ui-component-docs`, which
+renders the docs site's own page for a path with the same live scenes. Visiting Design writes
+nothing. The first Comment or Chat on a built-in page makes one top-level page for that path: titled
+`<page title> · tmt GUI`, in `tmt:design-system`, holding a `data-tmt-ds="annotates"` block
+`{system: "tmt-gui", path}` and the shipped source. Later visits find that page by title and block and
+use its threads, but Design always draws the shipped source, never the page's stored copy. When two
+first comments race (two tabs, or one tab's press while another's is still being made), the lowest
+page ID for the path is the discussion: every lookup by a viewer who can manage pages archives the
+path's other discussion pages, whoever made them. One tab makes at most one page per path at a time,
+and a page whose block or Design mark fails is archived. A later build may change the shipped source; a thread whose quote no longer matches keeps its
+discussion and loses its anchor. A built-in page has no Publish.
+Foundation pages render the shared live docs in the frame, so token values follow its theme and
+the motion examples respond to their controls. A copied system owns the foundation component on
+its Colour page and uses its own prefix for all seven pages.
+Live pattern pages render the shared pattern scenes in independent scoped stages; composed scenes
+show 1440 and 390 pixels in both themes. Their controls remain local to the frame. A copied system
+owns the pattern component on its Tabs row page and uses its own prefix for those pages.
 `tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
 or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
 built-in one, and VERSION (default: the latest release). A space's release is the root page's

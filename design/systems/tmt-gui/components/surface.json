@@ -19,20 +19,6 @@
     "default"
   ],
   "css": "surface.css",
-  "ui": {
-    "module": "/src/ui/surface.tsx",
-    "component": "Surface",
-    "variants": "surfaceVariants",
-    "dims": {
-      "level": [
-        "paper",
-        "sheet",
-        "raised",
-        "overlay",
-        "modal"
-      ]
-    }
-  },
   "examples": [
     {
       "title": "Sheet",
@@ -65,6 +51,17 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Paper",
+      "markup": "<tmt-ui-surface level=\"paper\">The page surface.</tmt-ui-surface>",
+      "widths": [
+        1440,
+        390
+      ]
     }
+  ],
+  "uiParts": [
+    "Surface"
   ]
 }

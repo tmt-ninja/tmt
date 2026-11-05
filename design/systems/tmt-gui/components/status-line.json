@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "status-line",
+  "source": "status-line.js",
+  "props": {
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "../../../browser-ui/src/pattern-parts.css",
+  "uiParts": [
+    "BrowserStatusLine"
+  ],
+  "examples": [
+    {
+      "title": "Status Line",
+      "markup": "<tmt-ui-status-line items='[{&quot;tone&quot;:&quot;working&quot;,&quot;label&quot;:&quot;Working&quot;}]'></tmt-ui-status-line>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

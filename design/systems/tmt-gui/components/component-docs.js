@@ -1,0 +1,3 @@
+// The runtime supplies the 5100 component page, by its docs path, with the same live scenes.
+export default ({ React, ui }) => ({ page = 'components/button' }) =>
+  React.createElement(ui.DocsComponentPage, { page });

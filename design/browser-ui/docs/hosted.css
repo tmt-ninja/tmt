@@ -3,6 +3,24 @@
    flow, just under the docs' sticky top bar, and scrolls within itself. Loaded only through the
    scoped docs-embed.css. */
 /* The host's workspace is the docs' viewport: the docs layout keeps its outline sticky inside it. */
+.docs-hero > h3,
+.docs-hero .docs-snippet,
+.ds-example-label {
+  display: none;
+}
+/* The generated page's live example owns the canvas width, so contained layouts have a real
+   sizing context while intrinsically small controls can still center within it. */
+.docs-canvas > .docs-scene {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+.docs-scene > * {
+  text-align: initial;
+}
+.docs-hero .docs-canvas {
+  gap: 0.5rem;
+}
 :root[data-chrome='hosted'] .docs {
   --docs-viewport: calc(100dvh - var(--design-header-height, var(--tmt-ui-header-height)));
 }

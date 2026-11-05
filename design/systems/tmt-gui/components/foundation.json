@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "foundation",
+  "source": "foundation.js",
+  "props": {
+    "page": {
+      "enum": ["colour", "type", "spacing", "radius", "motion", "elevation", "brand"],
+      "default": "colour"
+    }
+  },
+  "slots": ["default"],
+  "css": "button.css",
+  "uiParts": ["FoundationPage"],
+  "examples": [
+    {
+      "title": "Colour",
+      "markup": "<tmt-ui-foundation page=\"colour\"></tmt-ui-foundation>",
+      "widths": [1440, 390]
+    }
+  ]
+}

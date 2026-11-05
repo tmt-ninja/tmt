@@ -16,16 +16,6 @@
     "default"
   ],
   "css": "separator.css",
-  "ui": {
-    "module": "/src/ui/separator.tsx",
-    "component": "Separator",
-    "dims": {
-      "orientation": [
-        "horizontal",
-        "vertical"
-      ]
-    }
-  },
   "examples": [
     {
       "title": "Horizontal",
@@ -34,6 +24,17 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Vertical",
+      "markup": "<tmt-ui-separator orientation=\"vertical\"></tmt-ui-separator>",
+      "widths": [
+        1440,
+        390
+      ]
     }
+  ],
+  "uiParts": [
+    "Separator"
   ]
 }

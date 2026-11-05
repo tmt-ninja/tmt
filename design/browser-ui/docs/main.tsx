@@ -3,6 +3,7 @@
 import '../generated/static.css';
 import '../generated/ui.css';
 import '../generated/editorial.css';
+import '../src/pattern-parts.css';
 // The gallery's host metrics and demo layout: the Browser component entries reuse its sections.
 import '../gallery/gallery.css';
 import './docs.css';

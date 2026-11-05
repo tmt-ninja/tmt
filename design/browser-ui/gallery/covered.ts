@@ -84,4 +84,9 @@ export const covered = {
   BrowserPanel: 'overlays',
   BusyMark: 'busy',
   BrowserNotifications: 'notifications',
+  BrowserCardMeter: 'card',
+  BrowserOverview: 'overview',
+  BrowserEditorial: 'editorial',
+  BrowserVisuallyHidden: 'visually-hidden',
+  BrowserChart: 'charts',
 } as const satisfies Record<keyof typeof import('../src/react.js'), SectionId>;

@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "choice",
+  "source": "choice.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "radio",
+        "checkbox"
+      ]
+    },
+    "checked": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserChoice"
+  ],
+  "examples": [
+    {
+      "title": "Checkbox",
+      "markup": "<tmt-ui-choice label=\"Subscribe\" type=\"checkbox\"></tmt-ui-choice> <tmt-ui-choice label=\"Include archived\" type=\"checkbox\" checked></tmt-ui-choice>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Radio",
+      "markup": "<tmt-ui-choice label=\"Compact rail\" type=\"radio\" checked></tmt-ui-choice>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-choice label=\"Unavailable\" type=\"checkbox\" disabled></tmt-ui-choice>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

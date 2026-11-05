@@ -2,14 +2,22 @@
 // design/systems/compile.mjs runs it on the repo's template files, and the Colab app runs the same
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
+import runtime4 from '../../extensions/tmt-colab/contracts/vectors/design-runtime-4-ui.json' with { type: 'json' };
+
 export const SCHEMA = 1;
-/** The skeleton API a bundle runs on (runtime 2): the page runtime's React and htm, plus cn. */
+/** Default runtime 2 retains its original React, html and cn skeleton. Runtime 3 adds the
+ * system prefix plus explicitly declared, allowlisted parts and data capabilities. */
 export const RUNTIME = '2';
+/** Runtime 3 adds only these explicitly declared host-provided parts. */
+export const SHARED_PARTS = ['PageListTable'];
+export const DATA_CAPABILITIES = ['page'];
+/** Runtime 4's renderer-owned browser-ui exports and stylesheet-bearing block subset. */
+export const UI_PARTS = Object.freeze([...runtime4.parts, ...runtime4.blockParts]);
+export const BLOCK_UI_PARTS = Object.freeze(runtime4.blockParts);
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
-const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
-/** Custom elements the page frame defines itself; they belong to no design system. */
-const FRAME_ELEMENTS = new Set(['tmt-icon', 'tmt-slot']);
+const GLOBAL_ATTRIBUTES =
+  /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
 
 export class DesignSystemError extends Error {}
 const fail = (message) => {
@@ -38,11 +46,13 @@ export function validateSystem(config, where = 'design system') {
   if (typeof config.name !== 'string' || !config.name) fail(`${where}: needs a name`);
   if (typeof config.prefix !== 'string' || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(config.prefix))
     fail(`${where}: prefix must be lowercase words joined by hyphens`);
-  if (config.runtime !== RUNTIME) fail(`${where}: runtime ${config.runtime} is not ${RUNTIME}`);
+  if (![RUNTIME, '3', '4'].includes(config.runtime))
+    fail(`${where}: unsupported runtime ${config.runtime}`);
   if (typeof config.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.version))
     fail(`${where}: version must be major.minor.patch`);
   if (typeof config.tokens?.css !== 'string') fail(`${where}: tokens.css must be CSS text`);
-  if (/<!--|<\/style/i.test(config.tokens.css)) fail(`${where}: tokens may not contain <!-- or </style`);
+  if (/<!--|<\/style/i.test(config.tokens.css))
+    fail(`${where}: tokens may not contain <!-- or </style`);
 }
 
 /** A component source is one `export default <factory>`, with no imports and no outside reach. */
@@ -63,7 +73,9 @@ export function checkSource(source, where) {
     'globalThis',
   ])
     if (new RegExp(`\\b${banned}\\b`).test(code))
-      fail(`${where}: uses ${banned}; a component reads only the skeleton (${SKELETON.join(', ')})`);
+      fail(
+        `${where}: uses ${banned}; a component reads only the skeleton (${SKELETON.join(', ')})`
+      );
   if (/<!--|<\/script/i.test(source)) fail(`${where}: may not contain <!-- or </script`);
 }
 
@@ -88,6 +100,44 @@ export function validateComponent(doc, where = 'component') {
     fail(`${where}: css must be text without <!-- or </style`);
 }
 
+/** Validate the same capability rules for authoring documents and untrusted stored bundles. */
+export function validateCapabilities(bundle, prefixed = true) {
+  if (!bundle || !Array.isArray(bundle.components) || typeof bundle.prefix !== 'string')
+    fail('Invalid component capabilities');
+  const { runtime, prefix, components } = bundle;
+  const tags = components.map((doc) => doc?.tag);
+  if (tags.some((tag) => typeof tag !== 'string') || new Set(tags).size !== tags.length)
+    fail('two components share a tag or have an invalid tag');
+  for (const doc of components) {
+    for (const [field, allowed] of [
+      ['parts', SHARED_PARTS],
+      ['data', DATA_CAPABILITIES],
+    ]) {
+      const names = doc[field];
+      if (names === undefined) continue;
+      if (!['3', '4'].includes(runtime))
+        fail(`${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`);
+      if (!Array.isArray(names) || new Set(names).size !== names.length ||
+          names.some((name) => typeof name !== 'string' || !allowed.includes(name)))
+        fail(`${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`);
+    }
+    const ui = doc.uiParts;
+    if (ui !== undefined && (runtime !== '4' || !Array.isArray(ui) ||
+        new Set(ui).size !== ui.length ||
+        ui.some((name) => typeof name !== 'string' || !UI_PARTS.includes(name))))
+      fail(`${doc.tag}: unknown or duplicate UI part`);
+    const required = doc.requires;
+    if (required === undefined) continue;
+    if (!['3', '4'].includes(runtime) || !Array.isArray(required) ||
+        new Set(required).size !== required.length || required.some((tag) => {
+          if (typeof tag !== 'string') return true;
+          const actual = prefixed ? `${prefix}-${tag}` : tag;
+          return actual === doc.tag || !tags.includes(actual);
+        }))
+      fail(`${doc.tag}: invalid or missing component dependency`);
+  }
+}
+
 /**
  * The release bundle: the system's tokens and every component, named by its own SHA-256. It also
  * carries what an agent reads to use the release (`tmt colab design show`): the principles and
@@ -96,14 +146,13 @@ export function validateComponent(doc, where = 'component') {
 export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
-  const tags = components.map((doc) => doc.tag);
-  if (new Set(tags).size !== tags.length) fail('two components share a tag');
+  validateCapabilities({ runtime: config.runtime, prefix: config.prefix, components }, false);
   const body = {
     schema: SCHEMA,
     system,
     name: config.name,
     version: config.version,
-    runtime: RUNTIME,
+    runtime: config.runtime,
     prefix: config.prefix,
     tokensCss: config.tokens.css,
     principles: config.principles ?? null,
@@ -111,6 +160,10 @@ export async function buildBundle(system, config, components, sha256Hex) {
       tag: `${config.prefix}-${doc.tag}`,
       props: doc.props,
       slots: doc.slots,
+      ...(doc.parts === undefined ? {} : { parts: doc.parts }),
+      ...(doc.data === undefined ? {} : { data: doc.data }),
+      ...(doc.uiParts === undefined ? {} : { uiParts: doc.uiParts }),
+      ...(doc.requires === undefined ? {} : { requires: doc.requires }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
         markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),
@@ -125,13 +178,16 @@ export async function buildBundle(system, config, components, sha256Hex) {
 /**
  * The page check for design-system markup. `elements` is every element of the page as
  * `{tag, attrs}`; `pin` is the page's `tmt-ds` pin or null; `bundle` is the pinned bundle or null
- * when it cannot be read. Each finding is `{code, tag, attribute?, index}`.
+ * when it cannot be read. `pageElements` lists the host's own page elements, which belong to no
+ * design system; Colab passes its contract list (contracts/vectors/page-elements-v1.json). Each
+ * finding is `{code, tag, attribute?, index}`.
  */
-export function checkElements(elements, pin, bundle) {
+export function checkElements(elements, pin, bundle, pageElements = []) {
+  const own = new Set(pageElements);
   const findings = [];
   const candidates = elements
     .map((element, index) => ({ ...element, index }))
-    .filter(({ tag }) => tag.includes('-') && !FRAME_ELEMENTS.has(tag));
+    .filter(({ tag }) => tag.includes('-') && !own.has(tag));
   if (!pin) {
     for (const { tag, index } of candidates)
       if (tag.startsWith('tmt-ui-')) {
@@ -167,7 +223,8 @@ export function checkElements(elements, pin, bundle) {
 
 /** One line per finding, for people. */
 export const findingText = {
-  'ds-not-pinned': (f) => `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
+  'ds-not-pinned': (f) =>
+    `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
   'unknown-ds-release': () => 'The pinned design system release cannot be read.',
   'ds-prefix-mismatch': (f) => `<${f.tag}> is not from the pinned design system.`,
   'unknown-ds-component': (f) => `<${f.tag}> is not a component of the pinned design system.`,

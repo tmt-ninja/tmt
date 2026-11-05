@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "data-table",
+  "source": "data-table.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "columns": {
+      "type": "string"
+    },
+    "rows": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "DataTable"
+  ],
+  "examples": [
+    {
+      "title": "Data-Table",
+      "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\" rows=\"Alex,Ready;Sam,Draft\"></tmt-ui-data-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\"></tmt-ui-data-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Projects",
+      "markup": "<tmt-ui-data-table label=\"Projects\" columns=\"Name,Status\" rows=\"Colab,Active;Remote,Ready\"></tmt-ui-data-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Loading",
+      "markup": "<tmt-ui-page-view label=\"Pages\" state=\"loading\"></tmt-ui-page-view>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Error",
+      "markup": "<tmt-ui-page-view label=\"Pages\" state=\"error\"></tmt-ui-page-view>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

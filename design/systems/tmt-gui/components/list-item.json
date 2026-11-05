@@ -26,13 +26,7 @@
   "slots": [
     "default"
   ],
-  "css": "list-item.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "ListItemBlock",
-    "parts": [],
-    "compose": "<ListItemBlock marker=\"{marker}\" number=\"{number}\" indent=\"{indent}\">{children}</ListItemBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Bullets, nested",
@@ -50,5 +44,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "ListItemBlock"
   ]
 }

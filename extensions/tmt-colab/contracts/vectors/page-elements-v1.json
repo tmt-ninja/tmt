@@ -1,0 +1,4 @@
+{
+  "description": "Colab's own page elements (#6062): the custom elements a page writes that the page frame defines or reads itself, so they belong to no design system. The design-system page check (design/systems/compiler.mjs, checkElements) skips exactly these tags; colab-v1.md, 'Page frame', names this file as the list's owner.",
+  "elements": ["tmt-icon", "tmt-slot", "tmt-question", "tmt-questions", "tmt-review", "tmt-read", "tmt-thread-ref"]
+}

@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-command",
+  "source": "browser-command.js",
+  "props": {
+    "text": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserCommand"
+  ],
+  "examples": [
+    {
+      "title": "Status command",
+      "markup": "<tmt-ui-browser-command text=\"tmt status\"></tmt-ui-browser-command>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "List pages",
+      "markup": "<tmt-ui-browser-command text=\"tmt colab page list\"></tmt-ui-browser-command>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -12,7 +12,7 @@ import {
 import { DesignSystemDialog } from './design-system-ui.js';
 import { DesignHeader } from './design-header.js';
 import { DesignPage, designPageHref } from './design-page.js';
-import { shippedBundle, syncBuiltInMirror } from './design-mirror.js';
+import { builtInDesign, type BuiltInDesign } from './design-built-in.js';
 import { ShownReleaseContext } from './embedded-page.js';
 const DesignDocs = lazy(() =>
   import('@tmt/browser-ui/docs-embed').then((module) => ({
@@ -36,15 +36,49 @@ function Tree({
   system,
   base,
   navigate,
+  root = false,
 }: {
   node: DesignTreeNode;
+  /** The tree's root: the header already names the system, so the root reads Introduction (#6060). */
+  root?: boolean;
   current: string;
   system: DesignSystemEntry;
   base: string;
   navigate(href: string): void;
 }) {
-  const href = designPageHref(system, base, node);
   const prefix = system.prefix;
+  // The built-in tree is the docs nav: its sections are the top level, Introduction included.
+  if (root && system.builtIn)
+    return node.children.map((child) => (
+      <Tree
+        key={child.id}
+        node={child}
+        current={current}
+        system={system}
+        base={base}
+        navigate={navigate}
+      />
+    ));
+  // A built-in section groups pages, as the docs nav does; it is a heading, not a page.
+  if (node.kind === 'section')
+    return (
+      <li className="design-page-tree-section">
+        <p>{node.title}</p>
+        <ul>
+          {node.children.map((child) => (
+            <Tree
+              key={child.id}
+              node={child}
+              current={current}
+              system={system}
+              base={base}
+              navigate={navigate}
+            />
+          ))}
+        </ul>
+      </li>
+    );
+  const href = designPageHref(system, base, node);
   return (
     <li>
       <a
@@ -63,7 +97,7 @@ function Tree({
           navigate(href);
         }}
       >
-        {node.title}
+        {root ? 'Introduction' : node.title}
         {node.tag && <span className="design-page-tree-tag">{`${prefix}-${node.tag}`}</span>}
       </a>
       {node.children.length > 0 && (
@@ -147,17 +181,30 @@ export function DesignLibrary({
     void refresh();
     return () => read.current?.abort();
   }, [refresh]);
-  // The built-in tmt GUI's pages (#5969): once the space has them, `/ds/gui` shows them, by docs
-  // path, so what is annotated is what the route shows.
-  const mirror = systems?.find((entry) => entry.builtIn);
+  // The built-in tmt GUI ships with the build: `/ds/gui` draws it by docs path, with no pages to
+  // make or sync first.
+  const [builtIn, setBuiltIn] = useState<BuiltInDesign>();
+  useEffect(() => {
+    let live = true;
+    void builtInDesign().then((loaded) => {
+      if (live) setBuiltIn(loaded);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const guiPath = path === `${base}/ds/gui` || path.startsWith(`${base}/ds/gui/`);
+  // Design opens at the tmt GUI, as the docs site does.
+  const atRoot = path === base || path === `${base}/`;
+  useEffect(() => {
+    if (atRoot) navigate(`${base}/ds/gui`);
+  }, [atRoot, base, navigate]);
   const selected =
-    (guiPath ? mirror : undefined) ??
+    (guiPath ? builtIn?.entry : undefined) ??
     systems?.find(
       (entry) =>
-        !entry.builtIn &&
-        (path === `${base}/systems/${encodeURIComponent(entry.id)}` ||
-          path.startsWith(`${base}/systems/${encodeURIComponent(entry.id)}/`)),
+        path === `${base}/systems/${encodeURIComponent(entry.id)}` ||
+        path.startsWith(`${base}/systems/${encodeURIComponent(entry.id)}/`),
     );
   const userPath = path.startsWith(`${base}/systems/`);
   const pagePart = selected
@@ -173,7 +220,7 @@ export function DesignLibrary({
     ? pagePart
       ? findPage(selected.tree, (node) =>
           selected.builtIn
-            ? node.key === decodeURIComponent(pagePart)
+            ? node.kind !== 'section' && node.key === decodeURIComponent(pagePart)
             : encodeURIComponent(node.id) === pagePart,
         )
       : selected.tree
@@ -181,23 +228,6 @@ export function DesignLibrary({
   const builtin = path.startsWith(`${base}/ds/tui`) ? 'tui' : 'gui';
   const current =
     selected && !selected.builtIn ? `user:${selected.id}` : userPath ? 'unknown' : builtin;
-  // The owner device makes the built-in pages, and regenerates them when this build ships another
-  // tmt GUI; once per Design visit.
-  const mirroring = useRef(false);
-  useEffect(() => {
-    if (!systems || !transport.management || mirroring.current) return;
-    mirroring.current = true;
-    const made = systems.find((entry) => entry.builtIn);
-    void shippedBundle()
-      .then(async (hash) => {
-        if (made?.builtIn?.bundle === hash) return;
-        setNotice(made ? 'Updating the tmt GUI pages…' : 'Making the tmt GUI pages…');
-        await syncBuiltInMirror(transport, made?.id);
-        await refresh();
-        setNotice(undefined);
-      })
-      .catch((failure: unknown) => setError(errorText(failure)));
-  }, [systems, transport, refresh]);
   // One publish at a time: a second activation before the first re-renders would upload a second
   // bundle and then fail on a stale base, leaving an orphan attachment.
   const publishingNow = useRef(false);
@@ -259,9 +289,7 @@ export function DesignLibrary({
                 },
               ]
             : []),
-          ...(systems ?? [])
-            .filter((entry) => !entry.builtIn)
-            .map((entry) => ({ id: `user:${entry.id}`, name: entry.name })),
+          ...(systems ?? []).map((entry) => ({ id: `user:${entry.id}`, name: entry.name })),
         ]}
         onSelect={(id) =>
           go(
@@ -296,7 +324,7 @@ export function DesignLibrary({
                 }}
               />
             )}
-            {page && (
+            {page && !selected?.builtIn && (
               <a
                 className={browserUiClasses.action}
                 data-variant="text"
@@ -375,10 +403,10 @@ export function DesignLibrary({
             {notice}
           </p>
         )}
-        {userPath || selected ? (
+        {userPath || guiPath || atRoot || selected ? (
           <>
-            {loading && <p role="status">Loading design systems…</p>}
-            {!loading && !error && !selected && (
+            {userPath && loading && <p role="status">Loading design systems…</p>}
+            {userPath && !loading && !error && !selected && (
               <p role="alert">This design system is not in the space’s Design trees.</p>
             )}
             {selected && (
@@ -398,6 +426,7 @@ export function DesignLibrary({
                 >
                   <ul>
                     <Tree
+                      root
                       node={selected.tree}
                       current={page?.id ?? ''}
                       system={selected}
@@ -410,7 +439,9 @@ export function DesignLibrary({
                   <ShownReleaseContext.Provider value={shownRelease}>
                     <DesignPage
                       key={`${page.id}@${shownVersion ?? 'draft'}`}
+                      transport={transport}
                       pageId={page.id}
+                      shipped={selected.builtIn ? builtIn?.page(page.id) : undefined}
                       system={selected}
                       base={base}
                       anchor={anchor}

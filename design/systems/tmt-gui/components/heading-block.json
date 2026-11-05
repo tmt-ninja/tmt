@@ -15,13 +15,7 @@
   "slots": [
     "default"
   ],
-  "css": "heading-block.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "HeadingBlock",
-    "parts": [],
-    "compose": "<HeadingBlock level=\"{level}\">{children}</HeadingBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "## and ###",
@@ -31,5 +25,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "HeadingBlock"
   ]
 }

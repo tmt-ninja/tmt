@@ -5,7 +5,7 @@
     "Per file, sum every result duration in each fit run, take the upper median across observed runs, round up to seconds, minimum 1 for wholly skipped files. Default is the upper median of measured weights greater than one. search-entry.spec.ts was absent from fit and retains its previous measured weight of 6 seconds; holdout timings do not tune it. topbar-adoption.spec.ts was absent from fit and carries its measured weight of 6 seconds (local Chromium run on 2026-10-26 at the head that adds it, #5237, one worker: 7 cases passed, summed result durations 5,364 ms).",
     "Job overhead 50 seconds is the rounded-up median fit job wall minus summed result durations. Model error 142 seconds is the rounded-up maximum positive fit residual above the fitted file prediction plus overhead. Both are frozen before holdout.",
     "Independent holdout: runs 40245938517, 40247341127 and 40248892859; matched historical shard membership, 19 of 21 walls covered by the margin, two misses of 7 and 8 seconds. Median absolute central prediction error 83 seconds; maximum 307 seconds. This is observed variation, not a qualified upper bound.",
-    "Eleven shards are the smallest modeled split within the unchanged 720-second guard: 497 fitted test seconds + 50 overhead + 142 error = 689 seconds. Ten predict 739 seconds. All runs used one worker and no retries; no measured speed-up is claimed. At least five natural post-merge runs are required before claiming benefit."
+    "Design spec weights use summed result durations from CI run 41882676196 at f3e1d24b4f, rounded up. The route and frame specs were later reduced; the earlier, larger measurements remain conservative until CI supplies new evidence. The model uses 12 shards, 50 seconds overhead and 142 seconds error; no measured speed-up is claimed. At least five natural post-merge runs are required before claiming benefit."
   ],
   "jobOverheadSeconds": 50,
   "modelErrorSeconds": 142,
@@ -27,6 +27,7 @@
     "attachments.spec.ts": 55,
     "back-navigation.spec.ts": 9,
     "band-clearance.spec.ts": 14,
+    "blocks-b-captures.spec.ts": 8,
     "browser-chips.spec.ts": 14,
     "browser-dialog.spec.ts": 2,
     "browser-notifications.spec.ts": 17,
@@ -58,6 +59,8 @@
     "conversation-turn.spec.ts": 244,
     "creator-default.spec.ts": 58,
     "design-geometry.spec.ts": 6,
+    "design-route.spec.ts": 85,
+    "design-system-frame.spec.ts": 130,
     "discussion-panel.spec.ts": 30,
     "document-images.spec.ts": 21,
     "draft-retention.spec.ts": 28,
@@ -100,6 +103,7 @@
     "page-list.spec.ts": 248,
     "page-morph.spec.ts": 1,
     "page-open-failure.spec.ts": 39,
+    "page-view-frame.spec.ts": 30,
     "page-projects.spec.ts": 90,
     "page-reentry.spec.ts": 3,
     "page-size.spec.ts": 79,

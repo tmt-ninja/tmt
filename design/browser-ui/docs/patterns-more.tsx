@@ -17,7 +17,7 @@ import {
   RotateCcw,
   Search,
 } from 'lucide-react';
-import { BrowserNotifications, BusyMark, type BrowserNotification } from '../src/react.js';
+import { BrowserNotifications, type BrowserNotification } from '../src/react.js';
 import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich-input/index.js';
 import {
   Alert,
@@ -62,6 +62,7 @@ import { ScaledFrame } from '../gallery/kit.js';
 import { guiRoot } from './routes.js';
 import { PageTable, samplePages } from '../gallery/page-table.js';
 import { PageRow } from './patterns.js';
+import { BrowserWorkBand, BrowserMessageRow } from '../src/pattern-parts/index.js';
 import { blockPatterns } from './patterns-blocks.js';
 
 /**
@@ -363,85 +364,65 @@ function NeedsYou({ state }: { state: string }) {
 }
 
 function WorkBand({ state }: { state: string }) {
-  const [open, setOpen] = useState(state === 'expanded');
-  const pages = [
-    ['Remote v2 rollout', 'In progress', 3, 5],
-    ['Remote admin prototype', 'Done', 4, 4],
-    ['Remote data plan', 'Needs you', 1, 3],
-  ] as const;
+  const [pages, setPages] = useState([
+    { title: 'Remote v2 rollout', stage: 'In progress', done: 3, total: 5 },
+    { title: 'Remote admin prototype', stage: 'Done', done: 4, total: 4 },
+    { title: 'Remote data plan', stage: 'Needs you', done: 1, total: 3 },
+  ]);
   return (
-    <Surface level="sheet" className="pattern-band">
-      <button
-        type="button"
-        className="pattern-band-bar"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <Badge variant="outline">In progress</Badge>
-        <span className="pattern-meter" aria-label="3 of 5 done">
-          <span style={{ width: '60%' }} />
-        </span>
-        <span className="pattern-muted">3 of 5 done · 3 sub-pages</span>
-        <ChevronDown aria-hidden="true" data-open={open || undefined} className="pattern-chevron" />
-      </button>
-      {open && (
-        <ul className="pattern-band-pages">
-          {pages.map(([title, stage, done, total]) => (
-            <li key={title}>
-              <FileText aria-hidden="true" />
-              <span>{title}</span>
-              <span className="pattern-muted">{stage}</span>
-              <span className="pattern-muted">
-                {done}/{total}
-              </span>
-            </li>
-          ))}
-          <li>
-            <Button type="button" variant="ghost" size="sm">
-              <Plus aria-hidden="true" /> Add a sub-page
-            </Button>
-          </li>
-        </ul>
-      )}
-    </Surface>
+    <BrowserWorkBand
+      stage="In progress"
+      done={3}
+      total={5}
+      initialOpen={state === 'expanded'}
+      pages={pages}
+      onAdd={() =>
+        setPages((current) => [
+          ...current,
+          { title: `New sub-page ${current.length + 1}`, stage: 'In progress', done: 0, total: 1 },
+        ])
+      }
+    />
   );
 }
 
 function SendingRows() {
+  const [retrying, setRetrying] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<RichInputValue>({
+    value: 'Also the Needs you menu…',
+    chips: [],
+  });
   return (
     <div className="pattern-turns">
-      <div className="pattern-turn">
-        <b>You</b>
-        <p>Ship B as the default once the Colab pages are swept.</p>
-        <span className="pattern-muted">Delivered to @sample-lead · 10:15</span>
-      </div>
-      <div className="pattern-turn" data-state="sending">
-        <b>You</b>
-        <p>And the TUI docs go in with it.</p>
-        <span className="pattern-muted pattern-inline">
-          <BusyMark /> Sending to @sample-lead…
-        </span>
-      </div>
-      <div className="pattern-turn" data-state="failed">
-        <b>You</b>
-        <p>Can you check the 390 captures?</p>
-        <span className="pattern-failed">
-          ✕ Not sent: the agent is offline.{' '}
-          <Button type="button" variant="link" size="xs">
-            Retry
-          </Button>
-        </span>
-      </div>
-      <div className="pattern-turn" data-state="unsent">
-        <b>Draft</b>
-        <p>Also the Needs you menu…</p>
-        <span className="pattern-muted">
-          Unsent, kept on this device ·{' '}
-          <Button type="button" variant="link" size="xs">
-            Edit
-          </Button>
-        </span>
-      </div>
+      <BrowserMessageRow author="You" detail="Delivered to @sample-lead · 10:15">
+        Ship B as the default once the Colab pages are swept.
+      </BrowserMessageRow>
+      <BrowserMessageRow author="You" state="sending" detail="Sending to @sample-lead…">
+        And the TUI docs go in with it.
+      </BrowserMessageRow>
+      <BrowserMessageRow
+        author="You"
+        state={retrying ? 'sending' : 'failed'}
+        detail={retrying ? 'Sending to @sample-lead…' : '✕ Not sent: the agent is offline.'}
+        action={retrying ? undefined : 'Retry'}
+        onAction={() => setRetrying(true)}
+      >
+        Can you check the 390 captures?
+      </BrowserMessageRow>
+      {editing ? (
+        <RichInput label="Edit draft" shape="multi" value={draft} onChange={setDraft} />
+      ) : (
+        <BrowserMessageRow
+          author="Draft"
+          state="unsent"
+          detail="Unsent, kept on this device"
+          action="Edit"
+          onAction={() => setEditing(true)}
+        >
+          Also the Needs you menu…
+        </BrowserMessageRow>
+      )}
     </div>
   );
 }

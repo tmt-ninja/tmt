@@ -16,18 +16,6 @@
     "icon"
   ],
   "css": "empty.css",
-  "ui": {
-    "module": "/src/ui/empty.tsx",
-    "component": "Empty",
-    "parts": [
-      "EmptyHeader",
-      "EmptyMedia",
-      "EmptyTitle",
-      "EmptyDescription",
-      "EmptyContent"
-    ],
-    "compose": "<Empty><EmptyHeader><EmptyMedia if=\"icon\">{icon}</EmptyMedia><EmptyTitle>{heading}</EmptyTitle><EmptyDescription if=\"description\">{description}</EmptyDescription></EmptyHeader><EmptyContent if=\"children\">{children}</EmptyContent></Empty>"
-  },
   "examples": [
     {
       "title": "With an action",
@@ -45,5 +33,13 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Empty",
+    "EmptyHeader",
+    "EmptyMedia",
+    "EmptyTitle",
+    "EmptyDescription",
+    "EmptyContent"
   ]
 }

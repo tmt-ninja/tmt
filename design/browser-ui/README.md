@@ -23,6 +23,13 @@ lucide-react 1.52.0. React components use built-in icons for controls such as Dr
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
+The `./rich-input.css` entry exposes the RichInput stylesheet for hosts that embed the editor
+inside an isolated page frame; the `./rich-input` React entry remains the component owner.
+The React entry also exports `BrowserCardMeter`, `BrowserOverview`, `BrowserEditorial`,
+`BrowserVisuallyHidden` and `BrowserChart`. The chart uses the shared series painter and releases
+its resize observer when its React owner unmounts. `createSeriesChart` accepts an optional cleanup
+receiver for non-React owners that need the same lifetime control.
+
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
 stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
 Products import the leaf only through these entries, never by a path into
@@ -104,6 +111,11 @@ Button changes colour only (a press never shrinks its hit area); Skeleton pulses
 `vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` (export `./docs-embed`)
 is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
 (`tuiOracle()`), which reads the Ops oracle at build time.
+The `./pattern-parts` and `./pattern-parts.css` entries provide the shared page-row, work-band,
+message-row and status-line parts used by the pattern examples. Colab's generated Design pages
+render the same foundation and pattern examples through the renderer's declared runtime 4 UI
+allowlist; composed patterns use sized scopes in both themes. The runtime contract and the
+separate host-data capabilities are defined in [colab-v1](../../extensions/tmt-colab/contracts/colab-v1.md).
 
 The mark has no paint servers or document IDs; multiple live or hidden shells render independently.
 
@@ -973,12 +985,22 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   in four tones, each with its mark and word, `calloutLabels`), `CodeBlock` (header with filename,
   language and Copy; the `command` variant is `BrowserCommand`), `BlockMention` and `BlockToast`
   (Undo after a delete).
+- `QuestionBlock`, `ImageBlock`, `MockupBlock`, `WorkBundle` and `PageView` supply the
+  question, media viewer, scoped mockup, referenced work and page-list presentations. The host
+  supplies admitted data and owns persistence; `PageView` reuses `PageListTable` and one grid
+  for its grouped rows. A mockup stage owns its local overlay scope.
+  `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 
 The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-ui-block-menu`,
 `tmt-ui-heading-block`, `tmt-ui-text-block`, `tmt-ui-list-item`, `tmt-ui-todo`,
 `tmt-ui-table-block`, `tmt-ui-card-block`, `tmt-ui-callout`, `tmt-ui-code-block`,
 `tmt-ui-block-mention` and `tmt-ui-block-toast`; `block-document` carries `blocks.css` for all
-of them. `tmt-ui-table-block` takes its columns and rows as text lists, so the port drift check
+of them. The additional tags are `tmt-ui-question-block`, `tmt-ui-image-block`,
+`tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. Runtime 3 admits only named,
+declared host parts and page-data capabilities; runtime 2 bundles retain their prior skeleton.
+Colab renders live page views in trusted parent chrome and only supplies work-bundle data when
+the page has proven owner-only authorship; see the [renderer contract](../../extensions/tmt-colab/contracts/colab-v1.md).
+`tmt-ui-table-block` takes its columns and rows as text lists, so the port drift check
 skips it. The gallery's `?frame=blocks&part=<part>` frames and `part=editor` demo back the
 catalog entries, the block patterns and `e2e/blocks.spec.ts`.
 

@@ -492,7 +492,25 @@
             [...doc.documentElement.attributes].map((a) => [a.name, a.value]),
           ]);
         }
-        function install(renderId, port, theme, layout, boundSource) {
+        function install(renderId, port, theme, layout, boundSource, withRuntime) {
+          // Installed before the page runtime and removed when it registers. Author scripts run
+          // afterwards and cannot impersonate a message from the private renderer port.
+          let blockSink;
+          const pendingBlocks = [];
+          if (withRuntime)
+            Object.defineProperty(window, '__colabBlockData', {
+              configurable: true,
+              value: (sink) => {
+                if (typeof sink !== 'function' || blockSink) return;
+                blockSink = sink;
+                delete window.__colabBlockData;
+                for (const value of pendingBlocks.splice(0)) blockSink(value);
+              },
+            });
+          const sendBlockData = (value) => {
+            if (blockSink) blockSink(value);
+            else if (pendingBlocks.length < 21) pendingBlocks.push(value);
+          };
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
           // Only a framed layout selects the column rules; every page gets the frame's marker lane.
@@ -694,6 +712,7 @@
               if (!item.placeholder?.isConnected) continue;
               if (url) {
                 item.image.src = url;
+                item.resolvedUrl = url;
                 item.image.style.maxWidth = '100%';
                 item.placeholder.replaceWith(item.image);
                 item.placeholder = null;
@@ -703,6 +722,16 @@
           function configureImages(next) {
             if (next !== imageRequestId) imageResults.clear();
             imageRequestId = next;
+            // A live component can remove its images; do not retain detached React trees.
+            for (const [reference, items] of images) {
+              const live = items.filter(
+                (item) =>
+                  item.placeholder?.isConnected ||
+                  (item.image.isConnected && item.image.getAttribute('src') === item.resolvedUrl),
+              );
+              if (live.length) images.set(reference, live);
+              else images.delete(reference);
+            }
             // Retain original image attributes across authority/generation resets.
             for (const items of images.values())
               for (const item of items) imagePlaceholder(item, 'unavailable');
@@ -856,6 +885,18 @@
             if (href === null || href === undefined) return;
             // Never let an ordinary link navigate this isolated document, including a refused URL.
             event.preventDefault();
+            if (
+              link.hasAttribute('download') &&
+              /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
+                href,
+              )
+            ) {
+              parent.postMessage(
+                { type: 'colab.render.attachment-download', renderId, reference: href },
+                '*',
+              );
+              return;
+            }
             if (!href.startsWith('#')) {
               if (utf8.encode(href).length > 8 * 1024) return;
               parent.postMessage(
@@ -906,7 +947,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }tmt-thread-ref { font-size: 0; } tmt-thread-ref > :not([data-colab-ref-chip]) { display: none !important; } .colab-thread-ref-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; max-width: 100%; padding: 0 8px; border: 1px solid var(--tmt-ui-color-annotation-rule); border-radius: 999px; background: var(--tmt-ui-surface-annotation-highlight); color: var(--tmt-ui-color-annotation-rule-selected); font: 600 12px/20px system-ui, sans-serif; overflow-wrap: anywhere; } button.colab-thread-ref-chip { cursor: pointer; } .colab-thread-ref-chip[data-missing] { border-color: var(--tmt-ui-surface-rule); background: transparent; color: var(--tmt-ui-color-text); opacity: 0.65; font-weight: 400; } .colab-thread-ref-chip tmt-icon { width: 14px; height: 14px; flex: none; }';
+            '@layer colab-frame{:root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }tmt-thread-ref { font-size: 0; } tmt-thread-ref > :not([data-colab-ref-chip]) { display: none !important; } .colab-thread-ref-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; max-width: 100%; padding: 0 8px; border: 1px solid var(--tmt-ui-color-annotation-rule); border-radius: 999px; background: var(--tmt-ui-surface-annotation-highlight); color: var(--tmt-ui-color-annotation-rule-selected); font: 600 12px/20px system-ui, sans-serif; overflow-wrap: anywhere; } button.colab-thread-ref-chip { cursor: pointer; } .colab-thread-ref-chip[data-missing] { border-color: var(--tmt-ui-surface-rule); background: transparent; color: var(--tmt-ui-color-text); opacity: 0.65; font-weight: 400; } .colab-thread-ref-chip tmt-icon { width: 14px; height: 14px; flex: none; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE UI
           const pageUi =
@@ -2062,9 +2103,33 @@
               referenceChips.set(node, { key, chip });
             }
           }
+          let parentPageViews = [];
+          function resolveParentPageViews() {
+            if (stopped || !parentPageViews.length) return;
+            const positions = parentPageViews.map((slot) => {
+              const target = document.querySelectorAll(slot.tag)[slot.index];
+              if (
+                !target ||
+                target.closest('[hidden]') ||
+                hiddenByClosedDetails(target) ||
+                innerScroll
+              )
+                return null;
+              const height = `${slot.height}px`;
+              if (target.style.height !== height) target.style.height = height;
+              if (target.style.display !== 'block') target.style.display = 'block';
+              if (target.style.visibility !== 'hidden') target.style.visibility = 'hidden';
+              if (target.style.overflow !== 'hidden') target.style.overflow = 'hidden';
+              const box = target.getBoundingClientRect();
+              if (!box.width || !target.getClientRects().length) return null;
+              return { top: box.top + scrollY, left: box.left, width: box.width };
+            });
+            port.postMessage({ type: 'colab.render.parent-page-views', renderId, positions });
+          }
           function resolve() {
             resolveThreadReferences();
             resolveSlots();
+            resolveParentPageViews();
             resolveQuestions();
             resolveLocks();
             if (stopped || !requestId) return;
@@ -2428,6 +2493,44 @@
           }
           port.onmessage = (event) => {
             const v = event.data;
+            if (
+              v?.type === 'colab.render.parent-page-views' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              Array.isArray(v.slots) &&
+              v.slots.length <= 20 &&
+              v.slots.every(
+                (slot) =>
+                  slot &&
+                  Object.keys(slot).length === 3 &&
+                  typeof slot.tag === 'string' &&
+                  /^[a-z][a-z0-9-]*-[a-z0-9-]+$/.test(slot.tag) &&
+                  Number.isSafeInteger(slot.index) &&
+                  slot.index >= 0 &&
+                  slot.index < 1000 &&
+                  Number.isSafeInteger(slot.height) &&
+                  slot.height >= 1 &&
+                  slot.height <= 1000000,
+              )
+            ) {
+              parentPageViews = v.slots;
+              resolveParentPageViews();
+              scheduleHeight();
+              return;
+            }
+            if (
+              v?.type === 'colab.render.work-bundle' &&
+              Object.keys(v).length === 4 &&
+              v.renderId === renderId &&
+              typeof v.page === 'string' &&
+              /^[A-Za-z0-9_-]{1,128}$/.test(v.page) &&
+              (v.data === null ||
+                (v.data && typeof v.data === 'object' && !Array.isArray(v.data))) &&
+              utf8.encode(JSON.stringify(v)).length <= 16 * 1024
+            ) {
+              sendBlockData({ type: 'work-bundle', page: v.page, data: v.data });
+              return;
+            }
             if (
               v?.type === 'colab.render.source' &&
               Object.keys(v).length === 4 &&
@@ -2870,6 +2973,26 @@
             resolve();
           };
           const observer = new MutationObserver((mutations) => {
+            // Parts can insert images or change their source after the initial page scan.
+            // Our own resolved data URLs and removed source attributes are not new references.
+            if (
+              imageRequestId &&
+              mutations.some(
+                (m) =>
+                  (m.type === 'attributes' &&
+                    m.attributeName === 'src' &&
+                    m.target instanceof HTMLImageElement &&
+                    m.target.matches('img[src^="colab-attachment:"]')) ||
+                  (m.type === 'childList' &&
+                    [...m.addedNodes].some(
+                      (node) =>
+                        node instanceof Element &&
+                        (node.matches('img[src^="colab-attachment:"]') ||
+                          node.querySelector('img[src^="colab-attachment:"]')),
+                    )),
+              )
+            )
+              configureImages(imageRequestId);
             if (
               mutations.some(
                 (m) =>
@@ -2877,6 +3000,7 @@
                   !unsentLayer?.contains(m.target) &&
                   !markers?.contains(m.target) &&
                   !hover?.contains(m.target) &&
+                  !(m.type === 'attributes' && m.attributeName === 'src') &&
                   !(
                     m.target instanceof Element && m.target.hasAttribute('data-colab-block-slot')
                   ) &&
@@ -2899,7 +3023,7 @@
                 childList: true,
                 characterData: true,
                 attributes: true,
-                attributeFilter: ['hidden', 'open', 'data-id', 'style', 'class'],
+                attributeFilter: ['hidden', 'open', 'data-id', 'style', 'class', 'src'],
               });
               rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
@@ -3157,12 +3281,22 @@
           const port = event.ports[0];
           // The temporary callback transfers no authority; it runs before author HTML.
           window.__colabRenderStart = () =>
-            install(value.renderId, port, value.theme, value.layout, value.source);
+            install(
+              value.renderId,
+              port,
+              value.theme,
+              value.layout,
+              value.source,
+              !!value.runtime && !!value.ds,
+            );
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           const runtime = value.runtime
             ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
             : '';
+          // Even if the runtime failed to initialize, author scripts never receive the one-shot hook.
+          const closeBlockRegistration =
+            value.runtime && value.ds ? '<script>delete window.__colabBlockData;<\/script>' : '';
           // A pinned design system brings the runtime, whose reset outranks the editorial layer; a page
           // that did not ask for the runtime itself keeps the editorial ramp for its text (#5917).
           // BEGIN GENERATED DS PROSE
@@ -3182,7 +3316,7 @@
           const design = usesDesign(value.source) ? ' data-colab-design' : '';
           document.open();
           document.write(
-            `<!doctype html><html${design}><head>${acknowledgement}${runtime}${ds}</head><body>${value.source}</body></html>`,
+            `<!doctype html><html${design}><head>${acknowledgement}${runtime}${closeBlockRegistration}${ds}</head><body>${value.source}</body></html>`,
           );
           document.close();
         };

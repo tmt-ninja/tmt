@@ -35,17 +35,19 @@ export function paintAtWidth(
   host: HTMLElement,
   initial: number,
   paint: (width: number) => void,
-): void {
+): () => void {
   let current = initial;
   paint(current);
-  if (typeof ResizeObserver === 'undefined') return;
-  new ResizeObserver(() => {
+  if (typeof ResizeObserver === 'undefined') return () => {};
+  const observer = new ResizeObserver(() => {
     const width = Math.floor(host.getBoundingClientRect().width);
     if (width >= 120 && Math.abs(width - current) >= 8) {
       current = width;
       paint(width);
     }
-  }).observe(host);
+  });
+  observer.observe(host);
+  return () => observer.disconnect();
 }
 
 /** A table for assistive technology and copy-paste, in a visually hidden `tmt-ui-chart-data` box. */

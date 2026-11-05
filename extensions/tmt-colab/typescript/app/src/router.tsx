@@ -4,6 +4,9 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
+import { gatePageViewSource, watchPageView } from './page-view-source.js';
+import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
+import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
@@ -84,6 +87,7 @@ import {
   EmbeddedPageContext,
   ShownReleaseContext,
   type EmbeddedPageProps,
+  type ShippedPage,
 } from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
@@ -1313,21 +1317,81 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
  * opens the page through the transport as the route would, and gives its live connection up when the
  * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
  * route the page's own links (Design keeps its tree's pages in Design). */
-function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProps) {
+/** A shipped page as the page view draws it before it has a discussion page: its source only. */
+const shippedSnapshot = (shipped: ShippedPage): PageSnapshot => ({
+  id: `shipped:${shipped.title}`,
+  title: shipped.title,
+  source: shipped.source,
+  sharing: 'private',
+  layout: 'column',
+});
+/** A shipped page's discussion page, drawn with the shipped source: the page's stored copy (and
+ * every later version of it) is never shown, only its threads and Chat. */
+function withShippedSource(snapshot: PageSnapshot, source: string): PageSnapshot {
+  const binding = snapshot.binding;
+  return {
+    ...snapshot,
+    source,
+    ...(binding && {
+      binding: new Proxy(binding, {
+        get(target, key) {
+          if (key === 'subscribe')
+            return (publish: (view: PageView) => void, failed: (error: Error) => void) =>
+              target.subscribe((view) => publish({ ...view, source }), failed);
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    }),
+  };
+}
+
+function EmbeddedPage({
+  pageId,
+  shipped,
+  anchor,
+  routing: hostRouting,
+  design,
+}: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
+  // A shipped page opens its discussion page once found (or made); until then, only its source.
+  const [discussion, setDiscussion] = useState<{ for: ShippedPage; id: string | undefined }>();
+  const [starting, setStarting] = useState<string>();
+  useEffect(() => {
+    if (!shipped) return;
+    let live = true;
+    shipped.find().then(
+      (id) => {
+        if (live) setDiscussion({ for: shipped, id });
+      },
+      () => {
+        if (live) setDiscussion({ for: shipped, id: undefined });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [shipped]);
+  const looked = shipped ? discussion?.for === shipped : true;
+  const opened = shipped ? (looked ? discussion!.id : undefined) : pageId;
   const [loaded, setLoaded] = useState<PageSnapshot | 'failed'>();
   useEffect(() => {
-    const abort = new AbortController();
-    let opened: PageSnapshot | undefined;
     setLoaded(undefined);
-    transport.page(pageId, abort.signal).then(
+    if (!looked) return;
+    if (!opened) {
+      setLoaded(shipped ? shippedSnapshot(shipped) : 'failed');
+      return;
+    }
+    const abort = new AbortController();
+    let held: PageSnapshot | undefined;
+    transport.page(opened, abort.signal).then(
       (snapshot) => {
         if (abort.signal.aborted) snapshot.binding?.close();
         else {
-          opened = snapshot;
-          setLoaded(snapshot);
+          held = snapshot;
+          setLoaded(shipped ? withShippedSource(snapshot, shipped.source) : snapshot);
         }
       },
       () => {
@@ -1336,9 +1400,26 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProp
     );
     return () => {
       abort.abort();
-      opened?.binding?.close();
+      held?.binding?.close();
     };
-  }, [transport, pageId]);
+  }, [transport, opened, looked, shipped]);
+  // The first Comment or Chat on a shipped page makes its discussion page, then opens it.
+  const create = shipped?.create;
+  const ensureDiscussion = useMemo(
+    () =>
+      shipped && create && looked && !opened
+        ? async () => {
+            setStarting(undefined);
+            try {
+              const id = await create();
+              setDiscussion({ for: shipped, id });
+            } catch (failure) {
+              setStarting(failure instanceof Error ? failure.message : String(failure));
+            }
+          }
+        : undefined,
+    [shipped, create, looked, opened],
+  );
   const routing = useMemo<PageRouting>(() => {
     const base: PageRouting = {
       ...routePageRouting(router),
@@ -1351,6 +1432,11 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProp
   const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (
     <div className="shell-embedded" ref={wrap}>
+      {starting && (
+        <p className="shell-state" role="alert">
+          {starting}
+        </p>
+      )}
       {loaded === undefined ? (
         <p className="shell-state" role="status">
           <BusyMark /> {text.loading}
@@ -1362,8 +1448,10 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProp
       ) : (
         <PageEnvironmentProvider value={environment}>
           <OpenPage
-            key={pageId}
+            key={loaded.id}
             embedded
+            design={design}
+            ensureDiscussion={ensureDiscussion}
             transport={transport}
             space={space}
             loaded={loaded}
@@ -1385,6 +1473,8 @@ function OpenPage({
   scope,
   routing,
   embedded = false,
+  design = false,
+  ensureDiscussion,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -1396,6 +1486,12 @@ function OpenPage({
   /** The page is hosted in a panel of another page: its drawers and menus stay the app's, but the
    * panel already names it, so it keeps only its actions and status. */
   embedded?: boolean;
+  /** A Design page (#6060): only the renderer, annotations, discussion and the Chat FAB. The Design
+   * header is the page's only header, so there is no page header, `...` row, link bar or work band. */
+  design?: boolean;
+  /** A Design page with no discussion page yet: the first Comment or Chat makes it, and the page
+   * then opens again with it (#6060). */
+  ensureDiscussion?: () => Promise<void>;
 }) {
   const environment = usePageEnvironment();
   // The renderer's thread handler outlives a render, so it reads the environment through a ref.
@@ -1516,6 +1612,15 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  const attachmentDownload = usePageAttachmentDownload(
+    snapshot.binding?.files?.attachments,
+    view.attachments ?? [],
+    () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
+  );
+  const resetAttachmentDownload = attachmentDownload.reset;
+  useEffect(() => {
+    resetAttachmentDownload();
+  }, [snapshot.id, view.source, resetAttachmentDownload]);
   // The document shows before its threads and asks are verified; until they follow, nothing that
   // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
   const discussionPending = !!view.discussionPending;
@@ -1622,6 +1727,16 @@ function OpenPage({
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!design) return;
+    const bar = host.current
+      ?.closest('.tmt-ui-shell')
+      ?.querySelector<HTMLElement>('.tmt-ui-shell-bar');
+    toolbar.current = bar ?? null;
+    return () => {
+      if (toolbar.current === bar) toolbar.current = null;
+    };
+  }, [design]);
   binding.current = snapshot.binding;
   const {
     selectionMode,
@@ -1796,13 +1911,19 @@ function OpenPage({
   const discussionBlocked =
     archived || !!liveError || state === 'failed' || state === 'navigation' || discussionPending;
   const selectable =
-    view.pageType !== 'shell' && !!snapshot.binding?.discussion && state === 'ready';
+    view.pageType !== 'shell' &&
+    (!!snapshot.binding?.discussion || !!ensureDiscussion) &&
+    state === 'ready';
   const canSelect = selectable && !discussionBlocked;
   // Selecting is offered once the threads are verified; until then its button holds its place.
   const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
     if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
+    if (ensureDiscussion && !snapshot.binding?.discussion) {
+      void ensureDiscussion();
+      return true;
+    }
     const insertMention = panel !== 'chat';
     if (insertMention)
       chatOpener.current =
@@ -1826,7 +1947,10 @@ function OpenPage({
     else if (canSelect) setSelectionMode(false);
   };
   toggleSelectionMode.current = () => {
-    if (canSelect) setSelectionMode((enabled) => !enabled);
+    if (!canSelect) return;
+    // A Design page with no discussion page yet makes it first; select again once it opens.
+    if (ensureDiscussion && !snapshot.binding?.discussion) void ensureDiscussion();
+    else setSelectionMode((enabled) => !enabled);
   };
   useEffect(() => {
     renderer.current?.selectionMode(canSelect && selectionMode);
@@ -1910,6 +2034,21 @@ function OpenPage({
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
   );
+  const pageViewSource = useMemo(() => {
+    if (!transport.management || view.ownerOnlyContent !== true) return undefined;
+    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    return gatePageViewSource(
+      (publish, failed) =>
+        watchPageView(transport, space, publish, failed, (id) => routing.pageHref(id)),
+      admitted,
+    );
+  }, [transport, space, routing, view.ownerOnlyContent]);
+  const workSource = useMemo(() => {
+    if (!transport.management || view.ownerOnlyContent !== true) return undefined;
+    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    const source = workBundleSource(transport, space, (id) => routing.pageHref(id));
+    return gateWorkBundleSource(source, admitted);
+  }, [transport, space, routing, view.ownerOnlyContent]);
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -1930,6 +2069,8 @@ function OpenPage({
     requestPageLink,
     onContentApplied: () => setContentRevision((count) => count + 1),
     designSystem: designSystems,
+    pageView: pageViewSource,
+    workBundle: workSource,
     handlers: {
       onSelection,
       onAnnotate: annotate,
@@ -1956,6 +2097,7 @@ function OpenPage({
         if (annotationRef.current) closeRef.current(false);
         panelsRef.current.show('comments');
       },
+      onAttachmentDownload: (id) => attachmentDownload.request(id),
     },
   });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
@@ -2182,130 +2324,133 @@ function OpenPage({
         }
         isEligible={notifications.isEligible}
       />
-      <ColabHeader
-        embedded={embedded}
-        remoteMenu={false}
-        remoteChip={false}
-        headingSuffix={
-          <>
-            {hierarchy.subpages}
-            <PageProjects
-              transport={transport}
-              space={space}
-              pageId={snapshot.id}
-              title={view.title || snapshot.title}
-              request={projects.request}
-              from={projects.from}
-              open={() => openProjects()}
-              pinRequest={pinRequest}
-              onPinState={setPin}
-            />
-          </>
-        }
-        crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-        // A sub-page names its parent where the remembered scope would be (#5506).
-        lead={hierarchy.parent}
-        barRef={toolbar}
-        page
-        title={view.title || snapshot.title || text.unknownPageTitle}
-        remote={{ deviceName: transport.backendName }}
-        caption={
-          view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
-        }
-        home={routing.home}
-        status={
-          <div className="page-header-meta">
-            {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
-            <NeedsYouHeader
-              ready={
-                !discussionPending &&
-                questionLayer.ready &&
-                reviewLayer.ready &&
-                readingLayer.ready &&
-                attentionVersions.ready
-              }
-              menuFocus={needsYouMenuFocus}
-              href={(item) =>
-                routing.pageHref(
-                  snapshot.id,
-                  item.kind === 'reading' ? { read: item.id } : undefined,
-                )
-              }
-              items={needsYouItems}
-              onClear={
-                !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
-                  ? async (items) => {
-                      const heldBinding = attentionBinding;
-                      for (const item of items.filter((item) => item.kind === 'reading')) {
-                        const reading = readings.find((reading) => reading.id === item.id);
-                        if (!reading || !(await readingLayer.actions.mark(reading, false)))
+      {!design && (
+        <ColabHeader
+          embedded={embedded}
+          remoteMenu={false}
+          remoteChip={false}
+          headingSuffix={
+            <>
+              {hierarchy.subpages}
+              <PageProjects
+                transport={transport}
+                space={space}
+                pageId={snapshot.id}
+                title={view.title || snapshot.title}
+                request={projects.request}
+                from={projects.from}
+                open={() => openProjects()}
+                pinRequest={pinRequest}
+                onPinState={setPin}
+              />
+            </>
+          }
+          crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+          // A sub-page names its parent where the remembered scope would be (#5506).
+          lead={hierarchy.parent}
+          barRef={toolbar}
+          page
+          title={view.title || snapshot.title || text.unknownPageTitle}
+          remote={{ deviceName: transport.backendName }}
+          caption={
+            view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
+          }
+          home={routing.home}
+          status={
+            <div className="page-header-meta">
+              {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
+              <NeedsYouHeader
+                ready={
+                  !discussionPending &&
+                  questionLayer.ready &&
+                  reviewLayer.ready &&
+                  readingLayer.ready &&
+                  attentionVersions.ready
+                }
+                menuFocus={needsYouMenuFocus}
+                href={(item) =>
+                  routing.pageHref(
+                    snapshot.id,
+                    item.kind === 'reading' ? { read: item.id } : undefined,
+                  )
+                }
+                items={needsYouItems}
+                onClear={
+                  !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
+                    ? async (items) => {
+                        const heldBinding = attentionBinding;
+                        for (const item of items.filter((item) => item.kind === 'reading')) {
+                          const reading = readings.find((reading) => reading.id === item.id);
+                          if (!reading || !(await readingLayer.actions.mark(reading, false)))
+                            throw new Error(text.needsYouClearFailed);
+                        }
+                        if (binding.current?.discussion !== heldBinding)
                           throw new Error(text.needsYouClearFailed);
+                        await heldBinding.acknowledgeNeedsYou!(
+                          items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
+                        );
                       }
-                      if (binding.current?.discussion !== heldBinding)
-                        throw new Error(text.needsYouClearFailed);
-                      await heldBinding.acknowledgeNeedsYou!(
-                        items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
-                      );
-                    }
-                  : undefined
-              }
-              onPick={(item) => {
-                if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                else if (item.kind === 'answer') {
-                  if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
-                } else if (item.kind === 'review') reviewLayer.jump(item.id);
+                    : undefined
+                }
+                onPick={(item) => {
+                  if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                  else if (item.kind === 'answer') {
+                    if (!questionLayer.open(item.targetId ?? item.id))
+                      setMetadataDialog('questions');
+                  } else if (item.kind === 'review') reviewLayer.jump(item.id);
+                }}
+              />
+              {/* The connection state is not shown (a notice below the header carries trouble); its words
+                stay in the document for assistive technology and as the page's readiness signal. */}
+              <span
+                className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
+              >
+                {archived ? '○ ' : `${text[snapshot.sharing]} · `}
+                <span className="status-label">{accessLabel}</span>
+              </span>
+              <RemoteAttention />
+              {archived ? (
+                <span
+                  className="page-attention"
+                  data-attention="archived"
+                  title={text.archiveReadOnlyHint}
+                >
+                  <span aria-hidden="true">○</span>
+                  <span className="page-attention-word">{text.archived}</span>
+                </span>
+              ) : (
+                snapshot.sharing !== 'private' && (
+                  <span className="page-attention" data-attention="shared">
+                    <span aria-hidden="true">◉</span>
+                    <span className="page-attention-word">{text.shared}</span>
+                  </span>
+                )
+              )}
+            </div>
+          }
+          actions={
+            <PageHeaderActions
+              files={fileCount}
+              readOnly={archived}
+              access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
+              canExport={!!snapshot.binding && !liveError && !archived}
+              canManage={!!transport.management}
+              canFiles={!!snapshot.binding?.files}
+              canProjects={!!transport.management}
+              pin={pin}
+              creatorLabel={creatorName(view)}
+              onSelect={(action) => {
+                if (action === 'creator' || action === 'questions') {
+                  close();
+                  setMetadataDialog(action);
+                } else if (action === 'projects') openProjects(moreButtonRect());
+                else if (action === 'pin') requestPin('toggle');
+                else toggle(action);
               }}
             />
-            {/* The connection state is not shown (a notice below the header carries trouble); its words
-                stay in the document for assistive technology and as the page's readiness signal. */}
-            <span
-              className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
-            >
-              {archived ? '○ ' : `${text[snapshot.sharing]} · `}
-              <span className="status-label">{accessLabel}</span>
-            </span>
-            <RemoteAttention />
-            {archived ? (
-              <span
-                className="page-attention"
-                data-attention="archived"
-                title={text.archiveReadOnlyHint}
-              >
-                <span aria-hidden="true">○</span>
-                <span className="page-attention-word">{text.archived}</span>
-              </span>
-            ) : (
-              snapshot.sharing !== 'private' && (
-                <span className="page-attention" data-attention="shared">
-                  <span aria-hidden="true">◉</span>
-                  <span className="page-attention-word">{text.shared}</span>
-                </span>
-              )
-            )}
-          </div>
-        }
-        actions={
-          <PageHeaderActions
-            files={fileCount}
-            readOnly={archived}
-            access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
-            canExport={!!snapshot.binding && !liveError && !archived}
-            canManage={!!transport.management}
-            canFiles={!!snapshot.binding?.files}
-            canProjects={!!transport.management}
-            pin={pin}
-            creatorLabel={creatorName(view)}
-            onSelect={(action) => {
-              if (action === 'creator' || action === 'questions') {
-                close();
-                setMetadataDialog(action);
-              } else if (action === 'projects') openProjects(moreButtonRect());
-              else if (action === 'pin') requestPin('toggle');
-              else toggle(action);
-            }}
-          />
-        }
-      />
+          }
+        />
+      )}
       <MetadataDialogs
         key={snapshot.id}
         kind={metadataDialog}
@@ -2363,19 +2508,22 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
-        {pageLinkBar}
-        <PageWorkBand
-          onSize={setWorkBandSize}
-          work={view.work}
-          pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-          binding={snapshot.binding}
-          transport={transport}
-          space={space}
-          pageId={snapshot.id}
-          title={view.title}
-          pageHref={routing.pageHref}
-          openPage={(id) => routing.open(`/pages/${id}`)}
-        />
+        {!design && pageLinkBar}
+        {attachmentDownload.bar}
+        {!design && (
+          <PageWorkBand
+            onSize={setWorkBandSize}
+            work={view.work}
+            pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+            binding={snapshot.binding}
+            transport={transport}
+            space={space}
+            pageId={snapshot.id}
+            title={view.title}
+            pageHref={routing.pageHref}
+            openPage={(id) => routing.open(`/pages/${id}`)}
+          />
+        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -2604,6 +2752,10 @@ function OpenPage({
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
           toggleChat={() => {
+            if (ensureDiscussion && !snapshot.binding?.discussion) {
+              void ensureDiscussion();
+              return;
+            }
             if (panel !== 'chat') chatOpener.current = floatingChat.current;
             toggle('chat');
           }}

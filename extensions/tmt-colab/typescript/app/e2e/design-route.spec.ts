@@ -95,8 +95,7 @@ async function docsMenu(page: Page) {
 }
 /** The reader frame of the open Design page. */
 const designFrame = (page: Page) => page.locator('.design-workspace iframe').first().contentFrame();
-/** The built-in tmt GUI as pages (#5969): the owner's first Design visit makes them, and `/ds/gui`
- * shows them. Open Button from the page tree. */
+/** The built-in tmt GUI, drawn from what the build ships (#6060). Open Button from the page tree. */
 async function openGuiButton(page: Page) {
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
   const toggle = page.locator('.design-nav-toggle');
@@ -108,18 +107,25 @@ async function openGuiButton(page: Page) {
   await tree.getByRole('link', { name: /^Button/ }).click();
   await expect(page).toHaveURL(/\/ds\/gui\/components\/button$/);
   const frame = designFrame(page);
-  await expect(frame.getByRole('heading', { name: '<tmt-ui-button>', exact: true })).toBeVisible();
-  await expect(frame.locator('[data-tmt-ds-generated]')).toContainText(
-    'design/browser-ui/src/ui/button.tsx',
-  );
+  await expect(frame.getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  // The docs' own scenes: the hero groups Send, New timer and Cancel as on the docs site.
+  for (const name of ['Send', 'New timer', 'Cancel'])
+    await expect(frame.getByRole('button', { name, exact: true }).first()).toBeVisible();
+  // A Design page is only the renderer, annotations and Chat: no page header, ... row or work band.
+  const workspace = page.locator('.design-workspace');
+  await expect(workspace.locator('.colab-embedded-bar')).toHaveCount(0);
+  await expect(workspace.locator('.page-header-actions')).toHaveCount(0);
+  await expect(workspace.locator('.work-band')).toHaveCount(0);
+  // The header names the system; the tree, the docs nav, starts at Introduction (it may be collapsed).
+  await expect(page.locator('.design-page-tree a').first()).toHaveText('Introduction');
 }
-/** The owner's generated Brand page draws the product mark (the brand spec covers the viewer's
+/** The built-in Brand page draws the product mark (the brand spec covers the viewer's
  * code docs). */
 async function expectGuiBrand(page: Page) {
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
   const toggle = page.locator('.design-nav-toggle');
   if (!(await tree.isVisible())) await toggle.click();
-  await tree.getByRole('link', { name: /^Brand/ }).click();
+  await tree.getByRole('link', { name: 'Brand', exact: true }).click();
   await expect(page).toHaveURL(/\/ds\/gui\/[a-z-]+\/brand$/);
   const marks = designFrame(page).locator('svg.tmt-brand-mark');
   await expect(marks.first()).toBeVisible();
@@ -129,11 +135,274 @@ async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
 }
+/** The fixture's pages that hold a built-in page's discussion. */
+const discussionPages = (page: Page) =>
+  page.evaluate(() =>
+    [
+      ...(
+        window as unknown as {
+          designFixture: { pages: Map<string, { id: string; title: string; source: string }> };
+        }
+      ).designFixture.pages.values(),
+    ]
+      .filter((item) => item.source.includes('data-tmt-ds="annotates"'))
+      .map((item) => ({ id: item.id, title: item.title })),
+  );
+/** Turn on selection mode once the page can select (its discussion verified). */
+async function selectionOn(page: Page) {
+  const toggle = page.getByRole('button', { name: 'Selection mode', exact: true });
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
+  }).toPass();
+}
+test('tmt GUI draws the shipped pages and makes a discussion page only on the first Comment', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.addInitScript(() => {
+    // No docs fallback and no updating state may ever show in the workspace.
+    const state = window as unknown as { designSeen: string[] };
+    state.designSeen = [];
+    new MutationObserver(() => {
+      const workspace = document.querySelector('.design-workspace');
+      if (!workspace) return;
+      if (workspace.querySelector(':scope .tmt-design-docs')) state.designSeen.push('docs');
+      if (/Updating|Making|Preparing/.test(workspace.textContent ?? ''))
+        state.designSeen.push(workspace.textContent!.slice(0, 80));
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  await open(page);
+  const before = await page.evaluate(
+    () =>
+      (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages
+        .size,
+  );
+  await openGuiButton(page);
+  expect(await discussionPages(page)).toEqual([]);
+  // The first Comment makes the page's discussion page; the page still draws the shipped source.
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await expect
+    .poll(() => discussionPages(page))
+    .toEqual([{ id: expect.any(String), title: 'Button · tmt GUI' }]);
+  const [made] = await discussionPages(page);
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
+  // Comments now work as on any page, once the discussion page has opened.
+  await selectionOn(page);
+  // An edit to the stored copy never reaches Design: it draws what the build ships.
+  await page.evaluate((id) => {
+    const fixture = (
+      window as unknown as {
+        designFixture: { patch(id: string, find: string, replace: string): void };
+      }
+    ).designFixture;
+    fixture.patch(
+      id,
+      '<tmt-ui-component-docs page="components/button">',
+      '<tmt-ui-component-docs page="components/badge">',
+    );
+  }, made!.id);
+  await page.waitForTimeout(300);
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
+  // Another visit finds the same page.
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  await tree.getByRole('link', { name: /^Badge/ }).click();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Badge', exact: true }),
+  ).toBeVisible();
+  await tree.getByRole('link', { name: /^Button/ }).click();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
+  await selectionOn(page);
+  expect(await discussionPages(page)).toEqual([made]);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture
+          .pages.size,
+    ),
+  ).toBe(before + 1);
+  expect(
+    await page.evaluate(() => (window as unknown as { designSeen: string[] }).designSeen),
+  ).toEqual([]);
+});
+
+for (const width of [1440, 390])
+  test(`the Design nav scrolls on its own, apart from the page, at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await open(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    if (width === 390) await page.locator('.design-nav-toggle').click();
+    await expect(tree).toBeVisible();
+    // Scroll the nav part way, then the page: the nav keeps its place, scroll and items.
+    await tree.evaluate((nav) => {
+      nav.scrollTop = 200;
+    });
+    const read = () =>
+      tree.evaluate((nav) => {
+        const box = nav.getBoundingClientRect();
+        const visible = [...nav.querySelectorAll('a')]
+          .filter((link) => {
+            const item = link.getBoundingClientRect();
+            return item.bottom > box.top && item.top < box.bottom;
+          })
+          .map((link) => link.textContent);
+        return { scroll: nav.scrollTop, visible, top: Math.round(box.top) };
+      });
+    const before = await read();
+    expect(before.scroll).toBeGreaterThan(0);
+    await page.locator('.design-workspace').evaluate((workspace) => {
+      workspace.scrollTop = 600;
+    });
+    await expect
+      .poll(() => page.locator('.design-workspace').evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+    // On a phone the open nav sticks to the workspace's top; on a desktop it never moves.
+    const after = await read();
+    expect({ ...after, top: width === 390 ? 0 : after.top }).toEqual({
+      ...before,
+      top: width === 390 ? 0 : before.top,
+    });
+  });
+
+/** The docs site's own nav, as compile.mjs writes it from design/browser-ui/docs/app.tsx. */
+const docsNav = JSON.parse(
+  readFileSync(
+    new URL('../../../../../design/systems/tmt-gui/generated/nav.json', import.meta.url),
+    'utf8',
+  ),
+) as { sections: { title: string; pages: { title: string }[] }[] };
+
+for (const width of [1440, 390])
+  test(`the Design nav is the docs nav in its type, and the title sits where 5100's does, at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page);
+    await openGuiButton(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    const toggle = page.locator('.design-nav-toggle');
+    if (width === 390 && (await toggle.getAttribute('aria-expanded')) !== 'true')
+      await toggle.click();
+    await expect(tree).toBeVisible();
+    // The same sections, names and pages as the docs nav (Principles included), and no tag lines.
+    const drawn = await tree.evaluate((nav) =>
+      [...nav.querySelectorAll('.design-page-tree-section')].map((section) => ({
+        title: section.querySelector(':scope > p')!.textContent,
+        pages: [...section.querySelectorAll('a')].map((link) => ({ title: link.textContent })),
+      })),
+    );
+    expect(drawn).toEqual(
+      docsNav.sections.map((section) => ({
+        title: section.title,
+        pages: section.pages.map(({ title }) => ({ title })),
+      })),
+    );
+    await expect(tree.locator('.design-page-tree-tag')).toHaveCount(0);
+    // The docs nav's type (docs.css .docs-nav): 14 px headings and links, quiet links, a bold
+    // selected link on the selection surface.
+    const type = await tree.evaluate((nav) => {
+      const style = (element: Element) => getComputedStyle(element);
+      const root = style(document.documentElement);
+      const link = nav.querySelector('a:not([aria-current])')!;
+      const current = nav.querySelector('a[aria-current="page"]')!;
+      const probe = document.createElement('i');
+      nav.append(probe);
+      const paint = (value: string) => {
+        probe.style.color = value;
+        return style(probe).color;
+      };
+      const read = {
+        heading: [
+          style(nav.querySelector('.design-page-tree-section > p')!).fontSize,
+          style(nav.querySelector('.design-page-tree-section > p')!).fontWeight,
+        ],
+        link: [style(link).fontSize, style(link).fontWeight, style(link).color],
+        current: [
+          current.textContent,
+          style(current).fontWeight,
+          style(current).color,
+          style(current).backgroundColor,
+        ],
+        expected: {
+          size: root.getPropertyValue('--tmt-ui-ref-size-3').trim(),
+          secondary: paint('var(--tmt-ui-color-secondary)'),
+          text: paint('var(--tmt-ui-color-text)'),
+          selection: (() => {
+            probe.style.color = '';
+            probe.style.backgroundColor = 'var(--tmt-ui-surface-selection)';
+            return style(probe).backgroundColor;
+          })(),
+        },
+      };
+      probe.remove();
+      return read;
+    });
+    const { size, secondary, text, selection } = type.expected;
+    expect(type.heading).toEqual([size, '600']);
+    expect(type.link).toEqual([size, '400', secondary]);
+    expect(type.current).toEqual(['Button', '600', text, selection]);
+    // The title's gap below the bar above it: 5100's .docs-main top padding (32 px; 24 px at 760 px
+    // and under), measured from the Pages bar on a phone.
+    if (width === 390) await toggle.click();
+    await expect(tree)
+      .toBeHidden({ timeout: width === 390 ? 5000 : 1 })
+      .catch(() => {});
+    const bar = await page.evaluate(() => {
+      const button = document.querySelector<HTMLElement>('.design-nav-toggle')!;
+      return getComputedStyle(button).display === 'none'
+        ? document.querySelector('.design-workspace')!.getBoundingClientRect().top
+        : button.getBoundingClientRect().bottom;
+    });
+    const frameTop = await page
+      .locator('.design-workspace iframe')
+      .first()
+      .evaluate((frame) => frame.getBoundingClientRect().top);
+    const title = await designFrame(page)
+      .getByRole('heading', { name: 'Button', exact: true })
+      .evaluate((heading) => heading.getBoundingClientRect().top);
+    expect(Math.round(frameTop + title - bar)).toBe(width === 390 ? 24 : 32);
+  });
+
+for (const width of [1440, 390]) {
+  test(`block document uses its canvas width in Design at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    if (width === 390) await page.locator('.design-nav-toggle').click();
+    await tree.locator('a[href$="/components/block-document"]').click();
+    const frame = designFrame(page);
+    const document = frame.locator('.docs-canvas-hero .tmt-block-doc').first();
+    await expect(document).toBeVisible();
+    await expect.poll(async () => (await document.boundingBox())?.width ?? 0).toBeGreaterThan(150);
+    // Its text runs across the line, not one letter per line.
+    const title = document.locator(':is(h1, h2, h3, p)').first();
+    await expect(title).toBeVisible();
+    await expect.poll(async () => (await title.boundingBox())?.width ?? 0).toBeGreaterThan(150);
+  });
+}
+
+test('a Browser component page opens with a live chart example', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  await expect(tree).toBeVisible({ timeout: 60_000 });
+  await tree.getByRole('link', { name: /^Chart/ }).click();
+  const frame = designFrame(page);
+  await expect(frame.getByRole('heading', { name: 'Chart', exact: true })).toBeVisible();
+  await expect(frame.getByRole('img', { name: /Activity/ }).first()).toBeVisible();
+});
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`Design owns docs, user trees and header actions, ${width}, ${theme}`, async ({
       page,
     }) => {
+      test.skip(!captures && (width === 1440 ? theme !== 'light' : theme !== 'dark'));
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.setViewportSize({ width, height: 1000 });
@@ -147,9 +416,10 @@ for (const width of [1440, 390])
         page.getByRole('button', { name: 'New design system', exact: true }),
       ).toBeVisible();
       await openGuiButton(page);
+      await capture(page, `design-gui-button-${width}-${theme}.png`);
       await expectGuiBrand(page);
       const withDesignDocs = await chromePaint(page);
-      await capture(page, `design-gui-button-${width}-${theme}.png`);
+      await capture(page, `design-gui-brand-${width}-${theme}.png`);
       await pickSystem(page, 'tmt TUI');
       await docsMenu(page);
       await page.locator('.docs-nav a[href$="/ds/tui/roles"]').click();
@@ -191,11 +461,39 @@ for (const width of [1440, 390])
       if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
       await page
         .getByRole('navigation', { name: 'Brio pages', exact: true })
+        .getByRole('link', { name: /^Colour/ })
+        .click();
+      await expect(
+        designFrame(page).getByRole('heading', { name: 'Colour', exact: true }),
+      ).toBeVisible();
+      await expect(designFrame(page).locator('.docs-swatch .docs-value').first()).toHaveText(
+        /^#[0-9a-f]{6}/,
+      );
+      if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: 'Brio pages', exact: true })
+        .getByRole('link', { name: /^Tabs row with actions/ })
+        .click();
+      await expect(
+        designFrame(page).getByRole('heading', { name: 'Tabs row with actions', exact: true }),
+      ).toBeVisible();
+      const patternStage = designFrame(page).locator(
+        'figure[data-width="1440"][data-theme="light"]',
+      );
+      await patternStage.getByRole('tab', { name: /Needs you/ }).click();
+      await expect(patternStage.getByRole('tab', { name: /Needs you/ })).toHaveAttribute(
+        'data-state',
+        'active',
+      );
+      await capture(page, `design-user-pattern-${width}-${theme}.png`);
+      if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: 'Brio pages', exact: true })
         // The tree shows each page's title, and a component page's tag under it.
         .getByRole('link', { name: /^Button\s*brio-button$/ })
         .click();
       await expect(
-        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
       ).toBeVisible();
       await expect(
         designFrame(page).getByRole('heading', { name: 'Props', exact: true }),
@@ -242,7 +540,7 @@ for (const width of [1440, 390])
       expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
       // Each example is a live element of the page, anchored by `<component>:<example id>`.
       const examples = designFrame(page).locator('[data-ds-example]');
-      await expect(examples).toHaveCount(8);
+      await expect(examples).toHaveCount(10);
       expect(
         await examples.evaluateAll((nodes) =>
           nodes.map((node) => node.getAttribute('data-ds-example')),
@@ -256,8 +554,10 @@ for (const width of [1440, 390])
         'button:sizes',
         'button:with-an-icon',
         'button:disabled',
+        'button:variants',
+        'button:collapsing-action',
       ]);
-      for (let index = 0; index < 8; index++) {
+      for (let index = 0; index < 10; index++) {
         const button = examples.nth(index).getByRole('button').first();
         // The port of browser-ui's ui Button (#5866): its slot and the ui utility classes.
         await expect(button).toHaveAttribute('data-slot', 'button');
@@ -314,7 +614,7 @@ for (const width of [1440, 390])
         .toBe(0);
       await page.goBack();
       await expect(
-        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
       ).toBeVisible();
       expect(errors).toEqual([]);
       expect(
@@ -377,7 +677,7 @@ test('standalone Design keeps its docs, system cards and editing links on their 
     .click();
   await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
   await expect(
-    designFrame(page).getByRole('heading', { name: '<acme-button>', exact: true }),
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
     'href',
@@ -420,9 +720,25 @@ test('a click on a design-system example in selection mode quotes the whole exam
   // C in the page toggles selection mode, as on any Colab page.
   await designFrame(page).locator('h1').click();
   await page.keyboard.press('c');
+  const designHeader = page.locator('.tmt-ui-shell-bar');
+  await expect
+    .poll(async () => {
+      const [bar, actions] = await Promise.all([
+        designHeader.boundingBox(),
+        page.locator('.page-floating-actions').boundingBox(),
+      ]);
+      return !!bar && !!actions && actions.y >= bar.y + bar.height;
+    })
+    .toBe(true);
   await example.getByRole('button', { name: 'Draft', exact: true }).click();
   const popover = page.locator('.annotation-popover');
   await expect(popover).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [bar, input] = await Promise.all([designHeader.boundingBox(), popover.boundingBox()]);
+      return !!bar && !!input && input.y >= bar.y + bar.height;
+    })
+    .toBe(true);
   // The anchor is the example's text: its live label and the markup that draws it.
   await expect(popover).toContainText('<acme-button variant="secondary">Draft</acme-button>');
   await page.keyboard.type('Make this the outline variant');
@@ -439,6 +755,49 @@ test('a click on a design-system example in selection mode quotes the whole exam
   expect(anchor.exact).toBe(
     'button:secondaryDraft<acme-button variant="secondary">Draft</acme-button>',
   );
+});
+
+test('Design attachment confirmation is placed below the Design header', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await openGuiButton(page);
+  // A built-in page holds files on its discussion page, made by the first Comment.
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await expect.poll(async () => (await discussionPages(page)).length).toBe(1);
+  const id = '11111111-1111-4111-8111-111111111111';
+  await page.evaluate((attachmentId) => {
+    const fixture = (
+      window as unknown as {
+        designFixture: {
+          pages: Map<string, { title: string; source: string }>;
+          addAttachment(page: string, id: string): void;
+        };
+      }
+    ).designFixture;
+    const selected = [...fixture.pages].find(([, item]) => item.title === 'Button · tmt GUI')![0];
+    fixture.addAttachment(selected, attachmentId);
+  }, id);
+  await designFrame(page)
+    .locator('body')
+    .evaluate((body, attachmentId) => {
+      const link = body.ownerDocument.createElement('a');
+      link.href = `colab-attachment:${attachmentId}`;
+      link.download = 'example.txt';
+      link.textContent = 'Download example';
+      body.prepend(link);
+    }, id);
+  await designFrame(page).getByRole('link', { name: 'Download example' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Download attachment' });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [bar, box] = await Promise.all([
+        page.locator('.tmt-ui-shell-bar').boundingBox(),
+        dialog.boundingBox(),
+      ]);
+      return !!bar && !!box && box.y >= bar.y + bar.height;
+    })
+    .toBe(true);
 });
 
 test('an agent patch of an example re-renders the open Design page live', async ({ page }) => {
@@ -503,7 +862,9 @@ test('a component edit shows at once on the draft, and the header can show a rel
     .locator('[data-ds-example="button:secondary"]')
     .getByRole('button', { name: 'Draft', exact: true });
   await expect(button).toBeVisible();
-  const outline = () => button.evaluate((element) => getComputedStyle(element).outlineColor);
+  // A draft edit redraws the page in a new frame; a read during that swap is not an answer yet.
+  const outline = () =>
+    button.evaluate((element) => getComputedStyle(element).outlineColor).catch(() => 'detached');
   const marked = 'rgb(1, 2, 3)';
   expect(await outline()).not.toBe(marked);
   // A Design author's edit of the component's CSS, unpublished: the draft draws it.

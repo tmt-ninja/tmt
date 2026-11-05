@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "select",
+  "source": "select.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "Select",
+    "SelectTrigger",
+    "SelectValue",
+    "SelectContent",
+    "SelectItem"
+  ],
+  "examples": [
+    {
+      "title": "Select",
+      "markup": "<tmt-ui-select label=\"State\" items=\"Ready,Draft\"></tmt-ui-select>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Priority",
+      "markup": "<tmt-ui-select label=\"Priority\" items=\"Low,Normal,High\"></tmt-ui-select>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

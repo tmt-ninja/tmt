@@ -20,21 +20,18 @@
   "slots": [
     "default"
   ],
-  "css": "todo.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "TodoBlock",
-    "parts": [],
-    "compose": "<TodoBlock checked=\"{checked}\" assignee=\"{assignee}\" due=\"{due}\" overdue=\"{overdue}\">{children}</TodoBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Done, open and overdue",
-      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo checked assignee=\"gui-3\" due=\"11-03\">Move the question card into the design system</tmt-ui-todo></tmt-ui-block><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo assignee=\"gui-2\" due=\"11-04\">Page-list view: filters, grouping and sub-page progress</tmt-ui-todo></tmt-ui-block><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo due=\"✗ Overdue 11-02\" overdue>Captures at 390 and 1440, light and dark</tmt-ui-todo></tmt-ui-block></tmt-ui-block-document>",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo checked assignee=\"gui-3\" due=\"11-03\">Move the question card into the design system</tmt-ui-todo></tmt-ui-block><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo assignee=\"gui-2\" due=\"11-04\">Page-list view: filters, grouping and sub-page progress</tmt-ui-todo></tmt-ui-block><tmt-ui-block label=\"To-do\" kind=\"todo\"><tmt-ui-todo due=\"\u2717 Overdue 11-02\" overdue>Captures at 390 and 1440, light and dark</tmt-ui-todo></tmt-ui-block></tmt-ui-block-document>",
       "widths": [
         1440,
         390
       ]
     }
+  ],
+  "uiParts": [
+    "TodoBlock"
   ]
 }

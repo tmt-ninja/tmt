@@ -20,15 +20,18 @@
   "slots": [
     "default"
   ],
-  "css": "table-block.css",
+  "css": "button.css",
   "examples": [
     {
       "title": "A hidden column under 480px",
-      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Table: Ticket status\" kind=\"table\"><tmt-ui-table-block label=\"Ticket status\" columns=\"Ticket, Owner, State, Note\" rows=\"#5980 DsScope | gui-3 | ● Working | The default frame of the mockup block; #5981 Block parts | gui-2 | ◆ Waiting | The parts on this page\" hide-narrow=\"Note\"></tmt-ui-table-block></tmt-ui-block></tmt-ui-block-document>",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Table: Ticket status\" kind=\"table\"><tmt-ui-table-block label=\"Ticket status\" columns=\"Ticket, Owner, State, Note\" rows=\"#5980 DsScope | gui-3 | \u25cf Working | The default frame of the mockup block; #5981 Block parts | gui-2 | \u25c6 Waiting | The parts on this page\" hide-narrow=\"Note\"></tmt-ui-table-block></tmt-ui-block></tmt-ui-block-document>",
       "widths": [
         1440,
         390
       ]
     }
+  ],
+  "uiParts": [
+    "TableBlock"
   ]
 }

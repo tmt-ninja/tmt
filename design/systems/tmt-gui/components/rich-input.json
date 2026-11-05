@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "rich-input",
+  "source": "rich-input.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "shape": {
+      "enum": [
+        "single",
+        "multi"
+      ]
+    },
+    "placeholder": {
+      "type": "string"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "RichInput"
+  ],
+  "examples": [
+    {
+      "title": "Rich input",
+      "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Write a message\"></tmt-ui-rich-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Single line",
+      "markup": "<tmt-ui-rich-input label=\"Search\" shape=\"single\" placeholder=\"Search\"></tmt-ui-rich-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Read only\" disabled></tmt-ui-rich-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

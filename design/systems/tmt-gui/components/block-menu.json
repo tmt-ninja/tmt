@@ -35,13 +35,7 @@
   "slots": [
     "default"
   ],
-  "css": "block-menu.css",
-  "ui": {
-    "module": "/src/blocks/block-menu.tsx",
-    "component": "BlockMenu",
-    "parts": [],
-    "compose": "<BlockMenu label=\"{label}\" kind=\"{kind}\" placement=\"{placement}\"><BlockMenuItem each=\"items\">{item}</BlockMenuItem><BlockMenuFooter if=\"hints\"><span><BlockKbd>↑↓</BlockKbd> choose</span><span><BlockKbd>Enter</BlockKbd> insert</span><span><BlockKbd>Esc</BlockKbd> close</span></BlockMenuFooter></BlockMenu>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Insert menu",
@@ -53,7 +47,7 @@
     },
     {
       "title": "Block menu",
-      "markup": "<tmt-ui-block-menu label=\"Block actions\" kind=\"actions\" items=\"Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete\"></tmt-ui-block-menu>",
+      "markup": "<tmt-ui-block-menu label=\"Block actions\" kind=\"actions\" items=\"Move to\u2026, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete\"></tmt-ui-block-menu>",
       "widths": [
         1440,
         390
@@ -67,5 +61,11 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "BlockMenu",
+    "BlockMenuItem",
+    "BlockMenuFooter",
+    "BlockKbd"
   ]
 }

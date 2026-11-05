@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "toggle",
+  "source": "toggle.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "pressed": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserToggle"
+  ],
+  "examples": [
+    {
+      "title": "Off and on",
+      "markup": "<tmt-ui-toggle label=\"Grid view\"></tmt-ui-toggle> <tmt-ui-toggle label=\"List view\" pressed></tmt-ui-toggle>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-toggle label=\"Grid view\" pressed disabled></tmt-ui-toggle>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

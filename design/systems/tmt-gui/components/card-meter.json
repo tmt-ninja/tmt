@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "card-meter",
+  "source": "card-meter.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserCardMeter"
+  ],
+  "examples": [
+    {
+      "title": "BrowserCardMeter",
+      "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"72\"></tmt-ui-card-meter>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"0\"></tmt-ui-card-meter>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Full",
+      "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"100\"></tmt-ui-card-meter>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
-import { bundleHash, DesignDraftError, noticeFrame } from '../src/design-system.js';
-import { GENERATED_NOTE, shippedBundle, syncBuiltInMirror } from '../src/design-mirror.js';
+import {
+  bundleHash,
+  checkPageElements,
+  DesignDraftError,
+  noticeFrame,
+} from '../src/design-system.js';
+import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
+import type { Bundle } from '../../../../../design/systems/compiler.mjs';
+import {
+  builtInDesign,
+  builtInLink,
+  ensureBuiltInDiscussion,
+  findBuiltInDiscussion,
+} from '../src/design-built-in.js';
 import {
   adoptDesignSystem,
   createDesignSystem,
@@ -182,7 +194,7 @@ describe('template, publish and the renderer source', () => {
     // The tree follows the draft (#5967): every page names the system without a lock.
     const pin = rootId;
     expect(root.source).toContain(`<meta name="tmt-ds" content="${pin}">`);
-    const buttonId = config.components[0]!.page!;
+    const buttonId = config.components.find((entry) => entry.tag === 'button')!.page!;
     const button = pages.get(buttonId)!;
     expect(button.source).toContain(`content="${pin}">`);
     expect(button.source).toContain('<acme-button variant="outline">');
@@ -194,6 +206,7 @@ describe('template, publish and the renderer source', () => {
       hash: release!.bundle,
     });
     expect(bundle!.components.map((component) => component.tag).sort()).toEqual([
+      'acme-action',
       'acme-alert',
       'acme-badge',
       'acme-block',
@@ -201,25 +214,78 @@ describe('template, publish and the renderer source', () => {
       'acme-block-mention',
       'acme-block-menu',
       'acme-block-toast',
+      'acme-brand-mark',
+      'acme-browser-avatar',
+      'acme-browser-checkbox',
+      'acme-browser-chips',
+      'acme-browser-command',
+      'acme-browser-tabs',
+      'acme-busy-mark',
       'acme-button',
       'acme-callout',
       'acme-card',
       'acme-card-block',
+      'acme-card-meter',
+      'acme-chart',
       'acme-checkbox',
+      'acme-chips',
+      'acme-choice',
       'acme-code-block',
+      'acme-command',
+      'acme-count-chip',
+      'acme-data-table',
+      'acme-dialog',
+      'acme-dialog-drawer-panel',
+      'acme-disclosure',
+      'acme-dropdown-menu',
+      'acme-ds-scope',
+      'acme-editorial',
       'acme-empty',
+      'acme-field',
+      'acme-floating',
+      'acme-foundation',
+      'acme-header',
       'acme-heading-block',
+      'acme-icon-action',
+      'acme-image-block',
       'acme-input',
+      'acme-list',
       'acme-list-item',
+      'acme-menu',
+      'acme-message-row',
+      'acme-mockup-block',
+      'acme-notice',
+      'acme-notifications',
+      'acme-overview',
+      'acme-page-list',
+      'acme-page-row',
+      'acme-page-view',
+      'acme-pager',
+      'acme-pattern',
+      'acme-popover',
+      'acme-question-block',
+      'acme-rich-input',
+      'acme-section',
+      'acme-select',
       'acme-separator',
+      'acme-sheet',
+      'acme-shell',
       'acme-skeleton',
+      'acme-status-line',
+      'acme-status-tile',
       'acme-surface',
       'acme-switch',
+      'acme-table',
       'acme-table-block',
       'acme-tabs',
       'acme-text-block',
       'acme-textarea',
       'acme-todo',
+      'acme-toggle',
+      'acme-tooltip',
+      'acme-visually-hidden',
+      'acme-work-band',
+      'acme-work-bundle',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
     // Publish from the Design header adds a version and moves the pins.
@@ -334,17 +400,22 @@ describe('template, publish and the renderer source', () => {
       children: [
         { title: 'Foundations', kind: 'page' },
         { title: 'Components', kind: 'page' },
+        { title: 'Browser components', kind: 'page' },
         { title: 'Patterns', kind: 'page' },
       ],
     });
-    const [foundations, components, patterns] = systems[0]!.tree.children;
+    const [foundations, components, browser, patterns] = systems[0]!.tree.children;
     expect(foundations!.children.map((page) => page.title)).toContain('Colour');
     // Every page shows its title; a component page also names its tag.
-    expect(components!.children.find((page) => page.kind === 'component')).toMatchObject({
+    expect(components!.children.find((page) => page.title === 'Button')).toMatchObject({
       title: 'Button',
       tag: 'button',
     });
     expect(components!.children.length).toBeGreaterThan(20);
+    expect(browser!.children.find((page) => page.tag === 'browser-avatar')).toMatchObject({
+      title: 'Avatar',
+      kind: 'component',
+    });
     expect(patterns!.children.length).toBeGreaterThan(10);
     const listed = withoutDesignSystems(await transport.spaceHome());
     expect(listed.pages.map((page) => page.id)).toEqual([note]);
@@ -458,79 +529,204 @@ describe('live draft (#5967)', () => {
   });
 });
 
-describe('built-in tmt GUI pages (#5969)', () => {
-  it('makes the tmt GUI as pages that follow tmt-gui, name their files and list as built-in', async () => {
-    const { pages, make, transport } = space();
-    make('Notes');
-    const rootId = await syncBuiltInMirror(transport);
-    const root = pages.get(rootId)!;
-    expect(readBlock(root.source, 'origin')).toEqual({ key: '', bundle: await shippedBundle() });
-    const { systems } = await listDesignSystems(transport);
-    const entry = systems.find((system) => system.id === rootId)!;
-    expect(entry.builtIn).toEqual({ bundle: await shippedBundle() });
-    const button = entry.tree.children
-      .find((node) => node.key === 'components')!
-      .children.find((node) => node.key === 'components/button')!;
-    const source = pages.get(button.id)!.source;
-    expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
-    expect(source).toContain(GENERATED_NOTE);
-    expect(readBlock<{ files: string[] }>(source, 'origin')!.files).toContain(
-      'design/browser-ui/src/ui/button.tsx',
-    );
-    expect(source).toContain('data-ds-example="button:primary"');
-    for (const id of [rootId, button.id]) expect(pages.get(id)!.projects).toEqual([DESIGN_PROJECT]);
-  });
-
-  it('regenerates in place: same ids, an owner edit replaced, a gone entry archived, nothing edited when current', async () => {
+describe('the built-in tmt GUI in Design (#6060)', () => {
+  it('draws from what the build ships, by docs path, and writes no pages', async () => {
     const { pages, make, transport, open } = space();
     make('Notes');
-    const rootId = await syncBuiltInMirror(transport);
-    const tree = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
-    const components = tree.children.find((node) => node.key === 'components')!;
-    const button = components.children.find((node) => node.key === 'components/button')!;
-    const generated = pages.get(button.id)!.source;
-    const edits = open.edits;
-    await syncBuiltInMirror(transport, rootId);
-    expect(open.edits).toBe(edits);
-    pages.get(button.id)!.source = `${generated}<p>Owner edit</p>`;
-    // A page whose docs entry no longer exists, with its threads.
-    const gone = make('Gone');
-    pages.get(components.id)!.order.push(gone);
-    pages.get(gone)!.source =
-      '<script type="application/json" data-tmt-ds="origin">{"key":"components/gone"}</script>';
-    await syncBuiltInMirror(transport, rootId);
-    expect(pages.get(button.id)!.source).toBe(generated);
-    expect(pages.get(gone)!.archived).toBe(true);
-    expect(pages.has(gone)).toBe(true);
-    const again = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
-    expect(again.children.find((node) => node.key === 'components')!.id).toBe(components.id);
+    const before = pages.size;
+    const { entry, page } = await builtInDesign();
+    expect(entry.builtIn).toBe(true);
+    // The tree is the docs site's own nav, Principles included, with no tag lines.
+    expect(entry.tree.children.map((node) => [node.kind, node.title])).toEqual([
+      ['section', 'Getting started'],
+      ['section', 'Tokens'],
+      ['section', 'Components'],
+      ['section', 'Browser components'],
+      ['section', 'Patterns'],
+    ]);
+    expect(entry.tree.children[0]!.children.map((node) => [node.key, node.title])).toEqual([
+      ['', 'Introduction'],
+      ['principles', 'Principles'],
+    ]);
+    expect(page('principles')!.source).toContain('Red is rare');
+    const button = entry.tree.children[2]!.children.find(
+      (node) => node.id === 'components/button',
+    )!;
+    expect(button).toEqual({
+      id: 'components/button',
+      key: 'components/button',
+      title: 'Button',
+      kind: 'page',
+      children: [],
+    });
+    expect(entry.tree.children[3]!.children.map((node) => node.id)).toContain('browser/avatar');
+    const source = page('components/button')!.source;
+    expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
+    expect(source).toContain('<tmt-ui-component-docs page="components/button">');
+    expect(page('')!.source).toContain(`href="${builtInLink('components/button')}"`);
+    expect(pages.size).toBe(before);
+    expect(open.edits).toBe(0);
+    expect((await listDesignSystems(transport)).systems).toEqual([]);
   });
-  it('two syncs at once (two tabs or devices) end with one tree and one page per docs path', async () => {
+
+  it('makes one discussion page for a docs path on its first comment, and finds it after', async () => {
     const { pages, make, transport } = space();
     make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(
+      undefined,
+    );
+    const id = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    const made = pages.get(id)!;
+    expect(made.title).toBe('Button · tmt GUI');
+    expect(made.projects).toEqual([DESIGN_PROJECT]);
+    expect(readBlock(made.source, 'annotates')).toEqual({
+      system: 'tmt-gui',
+      path: 'components/button',
+    });
+    expect(made.source).toContain(shipped.source);
+    expect(await ensureBuiltInDiscussion(transport, 'components/button', shipped)).toBe(id);
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(id);
+    // Another path's page is its own, and none of them is a design system.
+    const badge = (await builtInDesign()).page('components/badge')!;
+    expect(await ensureBuiltInDiscussion(transport, 'components/badge', badge)).not.toBe(id);
+    expect((await listDesignSystems(transport)).systems).toEqual([]);
+  });
+
+  /** The live discussion pages for a docs path. */
+  const liveDiscussions = (pages: ReturnType<typeof space>['pages']) =>
+    [...pages]
+      .filter(([, page]) => !page.archived && readBlock(page.source, 'annotates'))
+      .map(([id]) => id);
+  /** Another tab on the same space: its own transport object over the same pages. */
+  const otherTab = (transport: PageTransport) => ({ ...transport }) as PageTransport;
+
+  it('two first comments at once (two tabs) leave one live page for the path', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    // Both tabs find no page before either makes one.
+    const tab = otherTab(transport);
+    let arrivals = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    for (const each of [transport, tab]) {
+      const home = each.spaceHome;
+      each.spaceHome = async (...args) => {
+        const snapshot = await home(...args);
+        if (++arrivals <= 2) {
+          if (arrivals === 2) release();
+          await together;
+        }
+        return snapshot;
+      };
+    }
     const [first, second] = await Promise.all([
-      syncBuiltInMirror(transport),
-      syncBuiltInMirror(transport),
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
+      ensureBuiltInDiscussion(tab, 'components/button', shipped),
     ]);
     expect(second).toBe(first);
-    const builtIn = (await listDesignSystems(transport)).systems.filter((system) => system.builtIn);
-    expect(builtIn.map((system) => system.id)).toEqual([first]);
-    // Each docs path has one live page, all in that tree; the other sync's pages are archived.
-    const live = [...pages].filter(([, page]) => !page.archived);
-    const keys = live.flatMap(([, page]) => {
-      const origin = readBlock<{ key: string }>(page.source, 'origin');
-      return origin ? [origin.key] : [];
+    expect(liveDiscussions(pages)).toEqual([first]);
+  });
+
+  it('a tab that finishes before the other marks its lower page still ends with one page', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    // Tab B makes its page first (the lower id) but its edit waits until tab A is done.
+    const tab = otherTab(transport);
+    let stalled!: () => void;
+    const atEdit = new Promise<void>((resolve) => {
+      stalled = resolve;
     });
-    expect(keys.length).toBeGreaterThan(3);
-    expect(new Set(keys).size).toBe(keys.length);
-    const inTree = new Set<string>();
-    const walk = (node: { id: string; children: readonly unknown[] }) => {
-      inTree.add(node.id);
-      for (const child of node.children) walk(child as typeof node);
+    let resume!: () => void;
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    tab.page = async (id) => {
+      const opened = await transport.page(id);
+      const binding = opened.binding!;
+      return {
+        ...opened,
+        binding: {
+          ...binding,
+          edit: async (...args: Parameters<typeof binding.edit>) => {
+            stalled();
+            await resumed;
+            return binding.edit(...args);
+          },
+        } as typeof binding,
+      };
     };
-    walk(builtIn[0]!.tree);
-    for (const [id, page] of live)
-      if (readBlock(page.source, 'origin')) expect(inTree.has(id), id).toBe(true);
-    expect([...pages.values()].some((page) => page.archived)).toBe(true);
+    const second = ensureBuiltInDiscussion(tab, 'components/button', shipped);
+    await atEdit;
+    // Tab A sees no finished page, makes its own and keeps it.
+    const first = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    expect(liveDiscussions(pages)).toEqual([first]);
+    resume();
+    const kept = await second;
+    expect(kept < first).toBe(true);
+    // B archived A's page, not only its own; A's next look finds B's.
+    expect(liveDiscussions(pages)).toEqual([kept]);
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(kept);
+  });
+
+  it('a double press in one tab makes one page', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    const before = pages.size;
+    const [first, second] = await Promise.all([
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
+    ]);
+    expect(second).toBe(first);
+    expect(pages.size).toBe(before + 1);
+    expect(liveDiscussions(pages)).toEqual([first]);
+  });
+
+  it('a page whose Design mark fails is archived, and the next press makes a working one', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    const management = transport.management!;
+    const setProjects = management.setProjects;
+    management.setProjects = async () => {
+      throw new Error('Mark failed');
+    };
+    const before = pages.size;
+    await expect(ensureBuiltInDiscussion(transport, 'components/button', shipped)).rejects.toThrow(
+      'Mark failed',
+    );
+    expect(pages.size).toBe(before + 1);
+    expect([...pages.values()].filter((page) => !page.archived).length).toBe(before);
+    management.setProjects = setProjects;
+    const id = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    expect(liveDiscussions(pages)).toEqual([id]);
+  });
+});
+
+describe('the design-system page check on a Colab page (#6062)', () => {
+  it('skips every Colab page element and still reports a foreign tag', async () => {
+    const bundle = (await import('../../../../../design/systems/tmt-gui/generated/bundle.json'))
+      .default as unknown as Bundle;
+    const pin = { system: 'tmt-gui' };
+    const el = (tag: string) => ({ tag, attrs: {} });
+    expect(colabElements).toEqual(
+      expect.arrayContaining([
+        'tmt-question',
+        'tmt-questions',
+        'tmt-review',
+        'tmt-read',
+        'tmt-thread-ref',
+      ]),
+    );
+    const page = [...colabElements.map(el), el('tmt-ui-button')];
+    expect(checkPageElements(page, pin, bundle)).toEqual([]);
+    expect(checkPageElements([...page, el('acme-button')], pin, bundle)).toEqual([
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: page.length },
+    ]);
   });
 });

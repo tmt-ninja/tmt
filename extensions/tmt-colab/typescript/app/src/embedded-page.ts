@@ -1,12 +1,26 @@
 import { createContext, type ComponentType } from 'react';
 import type { PageRouting } from './page-routing.js';
 
+/** A Design page drawn from what the build ships (the built-in tmt GUI, #6060): its source, and the
+ * Colab page that holds its discussion, found or made on the first Comment or Chat. */
+export interface ShippedPage {
+  title: string;
+  source: string;
+  find(): Promise<string | undefined>;
+  /** Absent where this device cannot make pages: the page then has no discussion until one exists. */
+  create?(): Promise<string>;
+}
 export interface EmbeddedPageProps {
-  pageId: string;
+  /** The page to open; for a shipped page, its discussion page once found or made. */
+  pageId?: string;
+  /** Draw this shipped source instead of a stored page; `pageId` is then ignored. */
+  shipped?: ShippedPage;
   /** The anchor to open the page at (a heading or a Design example), as the page route's search. */
   anchor?: string;
   /** The host's routing of the page's own links, over the page route's. */
   routing?(base: PageRouting): PageRouting;
+  /** Show the page as a Design page: renderer, annotations and Chat only (#6060). */
+  design?: boolean;
 }
 /** The Colab page view a lazy module hosts (#5866). The router provides it, so Design shows Colab
  * pages without importing the router (which would split the router out of the Colab module). */

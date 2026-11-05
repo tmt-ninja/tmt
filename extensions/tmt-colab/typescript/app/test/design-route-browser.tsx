@@ -48,7 +48,10 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
       layout: 'column' as const,
       work: { version: 2, order: [...page.order] },
       projects: [...page.projects],
-      attachments: page.attachments.map((entry) => ({ attachmentId: entry.id })),
+      attachments: page.attachments.map((entry) => ({
+        attachmentId: entry.id,
+        filename: 'example.txt',
+      })),
     };
   };
   const notify = (page: PageRecord) => {
@@ -172,6 +175,11 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
       if (page.source.split(find).length !== 2) throw new Error('find must match exactly once');
       page.source = page.source.replace(find, () => replace);
       counts.edits++;
+      notify(page);
+    },
+    addAttachment(pageId: string, id: string) {
+      const page = pages.get(pageId)!;
+      page.attachments.push({ id, bytes: new Uint8Array([1]) });
       notify(page);
     },
     controls,

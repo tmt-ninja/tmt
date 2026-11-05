@@ -25,16 +25,6 @@
     "default"
   ],
   "css": "switch.css",
-  "ui": {
-    "module": "/src/ui/switch.tsx",
-    "component": "Switch",
-    "dims": {
-      "size": [
-        "default",
-        "sm"
-      ]
-    }
-  },
   "examples": [
     {
       "title": "On",
@@ -68,5 +58,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Switch"
   ]
 }

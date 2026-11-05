@@ -9,6 +9,7 @@ import { SAVE_SOURCE_BYTES, SaveTooLarge } from '../src/save.js';
 
 const calls = vi.hoisted(() => [] as string[]);
 const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
+const provenance = vi.hoisted(() => ({ baseline: false, ownerOnly: true }));
 vi.mock('../src/fold.js', () => ({
   Fold: class {
     async run({ updates }: { updates?: Uint8Array[] }) {
@@ -26,7 +27,15 @@ vi.mock('../src/catchup.js', () => ({
   Catchup: class {
     updates = [];
     checkpoints = [];
-    baseline = null;
+    baseline = provenance.baseline
+      ? {
+          update: new Uint8Array([1]),
+          title: 'Title',
+          source: 'initial',
+          sourceDigest: new Uint8Array(32),
+          commitment: new Uint8Array(32),
+        }
+      : null;
     async admitValue() {
       return true;
     }
@@ -37,6 +46,9 @@ vi.mock('../src/objects.js', async (original) => ({
   ...(await original<typeof import('../src/objects.js')>()),
   Objects: class {
     ownData = false;
+    get ownerOnlyContent() {
+      return provenance.ownerOnly;
+    }
     head() {
       return { seq: 4n };
     }
@@ -79,8 +91,17 @@ const page = '10000000-0000-4000-8000-000000000001';
 const author = '30000000-0000-4000-8000-000000000001';
 const scope = { version: 1, space: 'a'.repeat(32), page, epoch: '1' };
 afterEach(() => {
+  provenance.baseline = false;
+  provenance.ownerOnly = true;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+it('fails closed for an epoch baseline without prior-writer proof', async () => {
+  provenance.baseline = true;
+  const { connection, publish } = await open();
+  expect(connection.ownerOnlyContent).toBe(false);
+  expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ ownerOnlyContent: false }));
+  connection.close();
 });
 async function open(rejectChain = false, budget?: TitleReadBudget) {
   calls.length = 0;
@@ -188,6 +209,7 @@ it('verifies live author chains before envelope admission and Worker publication
       title: 'Title',
       state: 'todo',
       ownData: false,
+      ownerOnlyContent: true,
       archived: undefined,
     });
     expect(failed).not.toHaveBeenCalled();
@@ -851,6 +873,7 @@ it('serializes a held local decoder command ahead of an arriving broadcast', asy
       title: 'Title',
       state: 'todo',
       ownData: false,
+      ownerOnlyContent: true,
       archived: undefined,
     });
     expect(failed).not.toHaveBeenCalled();

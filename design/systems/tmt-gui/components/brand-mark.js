@@ -1,0 +1,2 @@
+// Runtime 4 supplies the real browser-ui BrandMark.
+export default ({ React, ui }) => (props) => React.createElement(ui.BrandMark, props);

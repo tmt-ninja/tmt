@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { expect, test } from 'vite-plus/test';
+import { expect, test, vi } from 'vite-plus/test';
+import { shareParentPageViews } from '../src/parent-page-view.js';
 import {
   isRenderRectangle,
   MAX_RENDER_SOURCE_BYTES,
@@ -293,4 +294,42 @@ test('unsent paint admits only 64 exact selector/state pairs, never labels or id
     [{ ...item, selector: { ...item.selector, prefix: 'x'.repeat(33) } }],
   ])
     expect(admit(invalid)).toBe(false);
+});
+
+test('parent page views share one subscription and release it after the last slot', () => {
+  const stop = vi.fn();
+  let publish!: (rows: import('../src/page-view-source.js').PageViewRecord[]) => void;
+  let failed!: () => void;
+  const source = vi.fn(
+    (
+      next: (rows: import('../src/page-view-source.js').PageViewRecord[]) => void,
+      onError: () => void,
+    ) => {
+      publish = next;
+      failed = onError;
+      return stop;
+    },
+  );
+  const shared = shareParentPageViews(source);
+  const first = vi.fn(),
+    second = vi.fn(),
+    firstError = vi.fn(),
+    secondError = vi.fn();
+  const unsubscribeFirst = shared(first, firstError);
+  publish([]);
+  const unsubscribeSecond = shared(second, secondError);
+  expect(source).toHaveBeenCalledTimes(1);
+  expect(second).toHaveBeenCalledWith([]);
+  failed();
+  expect(firstError).toHaveBeenCalledTimes(1);
+  expect(secondError).toHaveBeenCalledTimes(1);
+  unsubscribeFirst();
+  expect(stop).not.toHaveBeenCalled();
+  unsubscribeSecond();
+  expect(stop).toHaveBeenCalledTimes(1);
+  const third = vi.fn();
+  const unsubscribeThird = shared(third, vi.fn());
+  expect(third).not.toHaveBeenCalled();
+  expect(source).toHaveBeenCalledTimes(2);
+  unsubscribeThird();
 });

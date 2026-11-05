@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "list",
+  "source": "list.js",
+  "props": {
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserList"
+  ],
+  "examples": [
+    {
+      "title": "Pages",
+      "markup": "<tmt-ui-list label=\"Pages\"><li>Home</li><li>Notes</li><li>Project</li></tmt-ui-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-list label=\"Pages\"></tmt-ui-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

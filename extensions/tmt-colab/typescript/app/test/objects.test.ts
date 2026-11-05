@@ -45,6 +45,23 @@ async function fixture() {
   });
   return { context, admission, seal, entry };
 }
+it('tracks authenticated non-owner content for the current epoch', async () => {
+  const f = await fixture();
+  const owner = new Objects(f.admission);
+  await owner.admit(f.context.authorDevice, await f.entry(await f.seal()));
+  expect(owner.ownerOnlyContent).toBe(true);
+
+  vi.spyOn(f.admission, 'readAuthor').mockReturnValue({
+    key: hex(v.public),
+    ownerDevice: false,
+  });
+  const shared = new Objects(f.admission);
+  const entry = await f.entry(await f.seal());
+  await shared.admit(f.context.authorDevice, entry);
+  expect(shared.ownerOnlyContent).toBe(false);
+  expect(await shared.admit(f.context.authorDevice, entry)).toBeNull();
+  expect(shared.ownerOnlyContent).toBe(false);
+});
 it('verifies scope/signature/hash and chain continuity; exact replay applies nothing', async () => {
   const f = await fixture(),
     objects = new Objects(f.admission),

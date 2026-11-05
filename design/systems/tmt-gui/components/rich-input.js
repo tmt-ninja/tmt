@@ -1,0 +1,5 @@
+// Runtime 4 supplies the real browser-ui rich input, with local editing state.
+export default ({ React, ui }) => function RichInput({ label = 'Message', shape = 'multi', placeholder, disabled }) {
+  const [value, setValue] = React.useState({ value: '', chips: [] });
+  return React.createElement(ui.RichInput, { label, shape, placeholder, disabled, value, onChange: setValue });
+};

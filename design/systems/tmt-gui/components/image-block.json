@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "image-block",
+  "source": "image-block.js",
+  "props": {
+    "images": {"type": "string", "default": "[]"},
+    "files": {"type": "string", "default": "[]"},
+    "layout": {"enum": ["carousel", "grid", "single"], "default": "carousel"},
+    "size": {"enum": ["s", "m", "l"], "default": "m"},
+    "variant": {"enum": ["image", "file"], "default": "image"}
+  },
+  "slots": ["default"],
+  "css": "image-block.css",
+  "examples": [{
+    "title": "A screenshot",
+    "markup": "<tmt-ui-image-block images='[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22%3E%3Crect width=%22320%22 height=%22180%22 fill=%22%23d3d3d3%22/%3E%3C/svg%3E&quot;,&quot;alt&quot;:&quot;Example screen&quot;,&quot;caption&quot;:&quot;Preview&quot;}]'></tmt-ui-image-block>",
+    "widths": [1440, 390]
+  }]
+}

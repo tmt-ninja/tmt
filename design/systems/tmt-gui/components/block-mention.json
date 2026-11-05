@@ -11,13 +11,7 @@
   "slots": [
     "default"
   ],
-  "css": "block-mention.css",
-  "ui": {
-    "module": "/src/blocks/mention.tsx",
-    "component": "BlockMention",
-    "parts": [],
-    "compose": "<BlockMention href=\"{href}\">{children}</BlockMention>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "In a paragraph",
@@ -27,5 +21,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "BlockMention"
   ]
 }

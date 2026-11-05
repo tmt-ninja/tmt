@@ -10,7 +10,10 @@ import { readdirSync, readFileSync } from 'node:fs';
  */
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const catalog =
-  read('docs/catalog.tsx') + read('docs/catalog-more.tsx') + read('docs/catalog-blocks.tsx');
+  read('docs/catalog.tsx') +
+  read('docs/catalog-more.tsx') +
+  read('docs/catalog-blocks.tsx') +
+  read('docs/blocks-catalog.tsx');
 const browserCatalog = read('docs/browser-catalog.tsx');
 const covered = read('gallery/covered.ts');
 
@@ -66,11 +69,20 @@ const entries: Record<string, string> = {
   './search': 'search query parsing for hosts, not a visual part',
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
+  './rich-input.css': 'Styles for the rich-input entry',
   './data-table': 'Components entry data-table',
-  './blocks': 'Components entries block through block-toast',
+  './data-table.css': 'Styles for the data-table entry',
+  './page-list.css': 'Styles for the page-list parts',
+  './blocks': 'Components entries for structured blocks',
+  './blocks.css': 'Styles for structured block entries',
   './manage-list': 'Browser entry shell (ordered management list and dialog)',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',
+  './docs-foundations': 'the live foundation pages hosted by Colab Design',
+  './docs-patterns': 'the live pattern scenes hosted by Colab Design',
+  './docs-components': 'the live component pages hosted by Colab Design',
+  './pattern-parts': 'the shared parts used by the pattern pages',
+  './pattern-parts.css': 'styles for the shared pattern parts',
   './docs-oracle': 'the build-time plugin the docs site needs in its host',
   './test-fixtures/*': 'test fixtures',
 };
@@ -101,6 +113,16 @@ it('renders every React export through a Browser entry', () => {
     .filter((match) => !sections.has(match[2]))
     .map((match) => `${match[1]} (${match[2]})`);
   expect(unrendered).toEqual([]);
+});
+
+it('lists each shared pattern part as a Browser component', () => {
+  for (const name of [
+    'BrowserPageRow',
+    'BrowserWorkBand',
+    'BrowserMessageRow',
+    'BrowserStatusLine',
+  ])
+    expect(browserCatalog).toContain(`'${name}'`);
 });
 
 it('lists every stylesheet module in an entry', () => {

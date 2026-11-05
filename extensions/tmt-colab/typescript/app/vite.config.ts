@@ -1,6 +1,6 @@
 import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
@@ -22,6 +22,17 @@ function moduleBuild(): string {
   return entry;
 }
 
+/** The mounted module is built after the app. Share its immutable generated data chunks instead
+ * of emitting a second copy; both entries are served from the same authenticated assets path. */
+function appDataChunk(name: string): string {
+  const matches = readdirSync(new URL('./dist/assets/', import.meta.url)).filter((file) =>
+    new RegExp(`^${name}-[A-Za-z0-9_-]{8}\\.js$`).test(file),
+  );
+  if (matches.length !== 1)
+    throw new Error(`Expected one app ${name} chunk, found ${matches.length}`);
+  return `./${matches[0]}`;
+}
+
 export default defineConfig(({ mode }) => ({
   lint: lintConfig,
   fmt: {
@@ -40,6 +51,23 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     designTokens(),
+    {
+      name: 'colab-hosted-entry',
+      apply: () => mode === 'hosted',
+      transformIndexHtml: {
+        order: 'pre',
+        handler: (html) => html.replace('/src/main.tsx', '/src/hosted-index.tsx'),
+      },
+    },
+    {
+      name: 'colab-shared-design-data',
+      apply: () => mode === 'module',
+      enforce: 'pre',
+      resolveId(source) {
+        const match = source.match(/\/tmt-gui\/generated\/(pages|template|bundle)\.json$/);
+        if (match) return { id: appDataChunk(match[1]), external: true };
+      },
+    },
     // The Design route's docs (@tmt/browser-ui/docs-embed) read the Ops oracle at build time.
     tuiOracle(),
     {
@@ -83,6 +111,18 @@ export default defineConfig(({ mode }) => ({
         ).buildPageUi();
         this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.css', source: pageUiStyle });
         this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.js', source: pageUiScript });
+      },
+    },
+    {
+      // Shared-part styles travel in the declaring component's bundle CSS, rather than in every
+      // runtime page. The library build also emits those imported CSS files; do not ship that copy.
+      name: 'colab-runtime-shared-parts-css',
+      apply: () => mode === 'runtime',
+      enforce: 'post',
+      generateBundle(_options, bundle) {
+        const css = bundle['colab-app.css'];
+        if (css?.type !== 'asset') throw new Error('Missing runtime shared-part CSS');
+        delete bundle['colab-app.css'];
       },
     },
     {

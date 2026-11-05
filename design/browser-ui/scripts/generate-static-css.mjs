@@ -223,7 +223,7 @@ const shippedTokens = tokenCss.replace(/^ +(--)/gm, '$1');
 const compileStaticCss = async () =>
   `${shippedTokens}${await compileCss(beforeScopeCss)}\n/* DS scope rules */\n${await compileCss(scopeCss)}\n/* DS scope end */\n${await compileCss(afterScopeCss)}`;
 const compileEditorialCss = async () =>
-  `/* Generated: generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
+  `/* generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
 
 const isMain =
   process.argv[1] &&

@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "page-list",
+  "source": "page-list.js",
+  "props": {
+    "rows": {
+      "type": "string"
+    },
+    "live": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "parts": [
+    "PageListTable"
+  ],
+  "examples": [
+    {
+      "title": "Page-List",
+      "markup": "<tmt-ui-page-list rows=\"Home,Ready;Notes,Draft\"></tmt-ui-page-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Project and stage",
+      "markup": "<tmt-ui-page-list rows=\"Release plan,Needs you;Night execution,In progress;Notes,Done\"></tmt-ui-page-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-page-list></tmt-ui-page-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

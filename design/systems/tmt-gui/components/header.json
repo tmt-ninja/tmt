@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "header",
+  "source": "header.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "caption": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserHeader"
+  ],
+  "examples": [
+    {
+      "title": "Page header",
+      "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\" caption=\"Find and organize your pages\"></tmt-ui-header>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Without caption",
+      "markup": "<tmt-ui-header heading=\"Design\" product=\"TMT\"></tmt-ui-header>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

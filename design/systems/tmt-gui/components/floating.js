@@ -1,0 +1,10 @@
+// Compose the real floating dock and window, retaining local open state.
+export default ({ React, ui }) => function Floating({ label = 'Chat', children }) {
+  const [open, setOpen] = React.useState(false);
+  const h = React.createElement;
+  return h(ui.UiTheme, null, h(ui.TooltipProvider, null, h(ui.FloatingDock, null,
+    h(ui.FloatingWindow, { open, label, onClose: () => setOpen(false) }, children),
+    h(ui.FloatingActions, { label: 'Actions' }, h(ui.FloatingAction, {
+      label, icon: '●', expanded: open, onClick: () => setOpen((value) => !value),
+    })))));
+};

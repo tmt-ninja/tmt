@@ -11,6 +11,9 @@ const scenes: Record<string, ReturnType<typeof scene>> = {
   'data-table': scene(() =>
     import('../gallery/data-table-frame.js').then((m) => ({ default: m.DataTableFrame })),
   ),
+  blocks: scene(() =>
+    import('../gallery/blocks-frame.js').then((m) => ({ default: m.BlocksFrame })),
+  ),
   'rich-input': scene(() =>
     import('../gallery/rich-input-frame.js').then((m) => ({ default: m.RichInputFrame })),
   ),

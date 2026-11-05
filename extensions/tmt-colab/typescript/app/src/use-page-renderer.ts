@@ -20,6 +20,7 @@ export interface RendererHandlers {
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
   onOpenThread(id: string): void;
   onOpenList(id: string): void;
+  onAttachmentDownload?(id: string): void;
 }
 
 /** The page's inline layers, which the renderer reports its slots and anchors to. A new function
@@ -56,6 +57,8 @@ export function usePageRenderer({
   requestPageLink,
   onContentApplied,
   designSystem,
+  pageView,
+  workBundle,
 }: {
   snapshot: PageSnapshot;
   view: PageView;
@@ -75,6 +78,8 @@ export function usePageRenderer({
   onContentApplied(): void;
   /** Reads a pinned design system's bundle (#5821); absent draws the in-page notice. */
   designSystem?: DesignSystemSource;
+  pageView?: RendererOptions['pageView'];
+  workBundle?: RendererOptions['workBundle'];
 }) {
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
@@ -167,6 +172,8 @@ export function usePageRenderer({
     void mountRenderer(host.current!, latestSource.current, {
       signal: controller.signal,
       layout: view.layout,
+      pageView,
+      workBundle,
       designSystem: {
         release: async (system, lock) => designSystems.current?.release(system, lock),
         draft: async (system) => {
@@ -198,6 +205,7 @@ export function usePageRenderer({
       onKey: (key) => current.current.onKey(key),
       onOpenThread: (id) => current.current.onOpenThread(id),
       onOpenList: (id) => current.current.onOpenList(id),
+      onAttachmentDownload: (id) => current.current.onAttachmentDownload?.(id),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -229,6 +237,8 @@ export function usePageRenderer({
     drafts,
     view.layout,
     view.pageType,
+    pageView,
+    workBundle,
     endedError,
     host,
     renderer,

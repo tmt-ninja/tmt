@@ -12,18 +12,10 @@
     }
   },
   "slots": [
-    "default"
+    "default",
+    "actions"
   ],
   "css": "tabs.css",
-  "ui": {
-    "module": "/src/ui/tabs.tsx",
-    "component": "Tabs",
-    "compose": "<Tabs value=\"{value}\"><TabsList><TabsTrigger each=\"items\" value=\"{item}\">{item}</TabsTrigger></TabsList>{children}</Tabs>",
-    "sample": {
-      "items": "One,Two",
-      "value": "One"
-    }
-  },
   "examples": [
     {
       "title": "Views",
@@ -40,6 +32,20 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Tabs row with actions",
+      "markup": "<tmt-ui-tabs items=\"All,Needs you,In progress,Done\" value=\"All\"><tmt-ui-button slot=\"actions\" variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button></tmt-ui-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
     }
+  ],
+  "uiParts": [
+    "Tabs",
+    "TabsBar",
+    "TabsList",
+    "TabsTrigger"
   ]
 }

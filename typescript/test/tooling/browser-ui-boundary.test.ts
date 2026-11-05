@@ -57,8 +57,9 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   },
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
+  './pattern-parts': { packages: ['react', 'lucide-react'], graphs: ['./react', './ui'] },
   // './react' names the root graph: the shared static-drawing parts (table, notice, command).
-  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react'] },
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react', './ui', './data-table'] },
 };
 // Modules with no edges at all, which every graph may import.
 const NEUTRAL = ['overlay.ts', 'scoped-modal.ts', 'trusted-activation.ts'];
@@ -271,8 +272,9 @@ it('lets only a graph that declares the root graph reach root modules', () => {
   const legacy = path.join(production, 'header.tsx');
   // ./blocks declares './react', so it reaches the shared root parts.
   expect(violations(blocks, "import { BrowserTable } from '../table.js';", false)).toEqual([]);
-  // It reaches no other entry, and no package beyond its own.
-  for (const edge of ['../ui/index.js', '../rich-input/index.js'])
+  // Its UI and table dependencies are explicit; unrelated entries remain unreachable.
+  expect(violations(blocks, "import { Button } from '../ui/index.js';", false)).toEqual([]);
+  for (const edge of ['../rich-input/index.js'])
     expect(violations(blocks, `import { Button } from '${edge}';`, false)).toEqual([edge]);
   expect(violations(blocks, "import { $getRoot } from 'lexical';", false)).toEqual(['lexical']);
   // Root modules never reach into the entry.

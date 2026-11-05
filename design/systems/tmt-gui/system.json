@@ -5,11 +5,20 @@
   "name": "tmt GUI",
   "prefix": "tmt-ui",
   "version": "0.1.0",
-  "runtime": "2",
+  "runtime": "4",
   "tokens": {
     "source": "design/tokens/tokens.json"
   },
   "components": [
+    {
+      "doc": "components/foundation.json"
+    },
+    {
+      "doc": "components/pattern.json"
+    },
+    {
+      "doc": "components/component-docs.json"
+    },
     {
       "doc": "components/button.json"
     },
@@ -87,6 +96,162 @@
     },
     {
       "doc": "components/block-toast.json"
+    },
+    {
+      "doc": "components/page-view.json"
+    },
+    {
+      "doc": "components/work-bundle.json"
+    },
+    {
+      "doc": "components/mockup-block.json"
+    },
+    {
+      "doc": "components/question-block.json"
+    },
+    {
+      "doc": "components/image-block.json"
+    },
+    {
+      "doc": "components/browser-avatar.json"
+    },
+    {
+      "doc": "components/busy-mark.json"
+    },
+    {
+      "doc": "components/section.json"
+    },
+    {
+      "doc": "components/disclosure.json"
+    },
+    {
+      "doc": "components/ds-scope.json"
+    },
+    {
+      "doc": "components/brand-mark.json"
+    },
+    {
+      "doc": "components/browser-checkbox.json"
+    },
+    {
+      "doc": "components/status-tile.json"
+    },
+    {
+      "doc": "components/action.json"
+    },
+    {
+      "doc": "components/toggle.json"
+    },
+    {
+      "doc": "components/dialog.json"
+    },
+    {
+      "doc": "components/sheet.json"
+    },
+    {
+      "doc": "components/popover.json"
+    },
+    {
+      "doc": "components/dropdown-menu.json"
+    },
+    {
+      "doc": "components/header.json"
+    },
+    {
+      "doc": "components/notice.json"
+    },
+    {
+      "doc": "components/pager.json"
+    },
+    {
+      "doc": "components/list.json"
+    },
+    {
+      "doc": "components/choice.json"
+    },
+    {
+      "doc": "components/menu.json"
+    },
+    {
+      "doc": "components/icon-action.json"
+    },
+    {
+      "doc": "components/field.json"
+    },
+    {
+      "doc": "components/count-chip.json"
+    },
+    {
+      "doc": "components/table.json"
+    },
+    {
+      "doc": "components/browser-command.json"
+    },
+    {
+      "doc": "components/browser-tabs.json"
+    },
+    {
+      "doc": "components/select.json"
+    },
+    {
+      "doc": "components/tooltip.json"
+    },
+    {
+      "doc": "components/command.json"
+    },
+    {
+      "doc": "components/floating.json"
+    },
+    {
+      "doc": "components/chips.json"
+    },
+    {
+      "doc": "components/data-table.json"
+    },
+    {
+      "doc": "components/page-list.json"
+    },
+    {
+      "doc": "components/rich-input.json"
+    },
+    {
+      "doc": "components/browser-chips.json"
+    },
+    {
+      "doc": "components/dialog-drawer-panel.json"
+    },
+    {
+      "doc": "components/shell.json"
+    },
+    {
+      "doc": "components/notifications.json"
+    },
+    {
+      "doc": "components/card-meter.json"
+    },
+    {
+      "doc": "components/overview.json"
+    },
+    {
+      "doc": "components/editorial.json"
+    },
+    {
+      "doc": "components/visually-hidden.json"
+    },
+    {
+      "doc": "components/chart.json"
+    },
+    {
+      "doc": "components/page-row.json"
+    },
+    {
+      "doc": "components/work-band.json"
+    },
+    {
+      "doc": "components/message-row.json"
+    },
+    {
+      "doc": "components/status-line.json"
     }
   ],
   "principles": {

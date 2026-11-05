@@ -15,10 +15,6 @@
     "default"
   ],
   "css": "textarea.css",
-  "ui": {
-    "module": "/src/ui/textarea.tsx",
-    "component": "Textarea"
-  },
   "examples": [
     {
       "title": "Default",
@@ -27,6 +23,17 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-textarea placeholder=\"Read only\" disabled></tmt-ui-textarea>",
+      "widths": [
+        1440,
+        390
+      ]
     }
+  ],
+  "uiParts": [
+    "Textarea"
   ]
 }

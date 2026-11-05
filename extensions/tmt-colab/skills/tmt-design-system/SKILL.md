@@ -28,7 +28,10 @@ tmt GUI system (tags `tmt-ui-*`): every install can pin it, and its `show` needs
 It is the default for TMT product mockups. For a structured page, its block tags are `tmt-ui-block-document` holding
 `tmt-ui-block`s, each with one of `tmt-ui-heading-block`, `tmt-ui-text-block`, `tmt-ui-list-item`,
 `tmt-ui-todo`, `tmt-ui-table-block`, `tmt-ui-card-block`, `tmt-ui-callout` or `tmt-ui-code-block`,
-plus `tmt-ui-block-mention`, `tmt-ui-block-menu` and `tmt-ui-block-toast`. A space's own systems need a running
+plus `tmt-ui-block-mention`, `tmt-ui-block-menu`, `tmt-ui-block-toast`, `tmt-ui-question-block`,
+`tmt-ui-image-block`, `tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. A
+work bundle reads only its admitted referenced page, and a page view shows the owner's admitted
+page list. A space's own systems need a running
 `tmt colab serve` for `show`. `show` prints `meta` (the pin line to copy), `lockMeta` (the line
 that locks this release), `principles`, and every component's `tag`, `props` (enum values or type,
 default), `slots` and `examples`. Read it once per page; there is no per-system skill.
@@ -68,8 +71,9 @@ component or prop shows up there. Fix every one before handing the page over. Th
   person's ask.
 - Never edit a system's own pages to make your page work. Comments and fixes on a system go
   through its Design pages (tmt-colab skill, editing: "A design-system example"). The built-in
-  tmt GUI's pages are generated from `design/browser-ui`: a fix there is a code change through a
-  PR, never a page edit.
+  tmt GUI has no pages to edit: Design draws it from the build, and a fix is a code change to
+  `design/browser-ui` through a PR. A comment on a built-in page lands on a `<title> · tmt GUI`
+  page that holds only its discussion; editing that page changes nothing Design shows.
 
 ## Limits
 
