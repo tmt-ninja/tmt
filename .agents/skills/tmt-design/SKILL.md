@@ -38,6 +38,10 @@ Run `pnpm docs:format:check` from `typescript/` before pushing doc edits; bare
 prettier skips docs. A blank line inside `<Code>`/`<Cmd>` in MDX lets the formatter
 swap `*` and `_` in samples: grep and run samples after formatting.
 
+Colab's design-system page trees, compiler and runtime pins belong to its
+[design-system reference](../tmt-colab/references/design-systems.md). Shared
+browser primitives and generated styles stay in the leaf README above.
+
 ## Blog
 
 Marketing owns and reviews the blog end to end (`site/src/blog/` code and `site/src/posts/`);
@@ -64,7 +68,7 @@ do not add a second Pages deployment or a native CI consumer.
 
 English is the source. Languages are `ja`, `zh-hant`, `zh-hans`; a language is
 allowed once `languageExceptions` in `.github/repository-layout.json` lists its
-directory, and [AGENTS](../../../AGENTS.md#repository-content-language) owns the
+directory, and [AGENTS](../../../AGENTS.md#durable-guidance) owns the
 exception (front matter, keys, code, comments, tests and commits stay English).
 
 - Public Home exists at `/`, `/ja/`, `/zh-hant/` and `/zh-hans/`; `/zh/` redirects

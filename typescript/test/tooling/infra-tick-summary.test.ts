@@ -48,7 +48,7 @@ const options: TickOptions = {
       },
       bytes: {
         'AGENTS.md': 10000,
-        'ARCHITECTURE.md': 48100,
+        'ARCHITECTURE.md': 20000,
         '.agents/skills/tmt-dev/references/development.md': 19187,
       },
     },

@@ -11,7 +11,7 @@ The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) ow
 core command registration, option placement and rejection, and the help projection;
 each owner's parser turns its grammar into typed invocations and publishes through
 `tmt-command-output`. Hidden commands parse for internal workflows but never appear
-in help or completion. [Argument parsing](../../../../AGENTS.md#commands-effects-and-contracts) stays with typed parsers.
+in help or completion. [Argument parsing](../../tmt-dev/references/coding-conventions.md#commands-effects-and-contracts) stays with typed parsers.
 Human/JSON share typed result/status contracts; [list](../../../../contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
 Command dispatch, help and completion rules are in
 [Command dispatch and help](#command-dispatch-and-help).
