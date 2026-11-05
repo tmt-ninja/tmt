@@ -110,6 +110,14 @@ fn spent_allowance(error: StorageError, allowance: Instant) -> StorageError {
     }
 }
 
+/// The Digest worker's wait for other writers: all of its time before `deadline` but the
+/// completion reserve, with no hook cap (#6029).
+fn worker_writer_wait(deadline: Instant, now: Instant) -> Duration {
+    deadline
+        .saturating_duration_since(now)
+        .saturating_sub(HOOK_COMPLETION_RESERVE)
+}
+
 fn hook_writer_wait(deadline: Instant, now: Instant) -> Duration {
     deadline
         .saturating_duration_since(now)
@@ -128,6 +136,8 @@ pub struct Storage {
     capturing: bool,
     /// When a hook connection's bounded writer wait ends.
     hook_allowance: Option<Instant>,
+    /// A hook connection's busy wait for each writer attempt, set at open.
+    hook_wait: Option<Duration>,
 }
 
 impl Storage {
@@ -205,6 +215,7 @@ impl Storage {
             connection: Some(opened),
             capturing: false,
             hook_allowance: Some(allowance),
+            hook_wait: Some(wait),
         })
     }
 
@@ -257,6 +268,7 @@ impl Storage {
             connection: Some(connection),
             capturing,
             hook_allowance: None,
+            hook_wait: None,
         })
     }
 

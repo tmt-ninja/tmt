@@ -12,7 +12,7 @@ use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tmt_core::{
     binding::{
@@ -590,6 +590,7 @@ impl Storage {
             connection: Some(connection),
             capturing: false,
             hook_allowance: None,
+            hook_wait: None,
         })
     }
     /// A completed Core transaction may wake the finite worker after a crash or
@@ -621,7 +622,7 @@ impl Storage {
     /// Explicit pre-snapshot callers ingest a bounded productive prefix.
     /// Follow-up telemetry remains flusher-owned.
     pub fn ingest_pending_hook_captures(&mut self) -> Result<(), StorageError> {
-        self.ingest_pending_for_identity(None)
+        self.ingest_pending_for_identity(None, Duration::from_millis(100))
     }
     /// Digest must order its own pending capture before publication without
     /// waiting for an unrelated identity's backlog.
@@ -629,13 +630,49 @@ impl Storage {
         &mut self,
         identity: &str,
     ) -> Result<(), StorageError> {
-        self.ingest_pending_for_identity(Some(identity))
+        self.ingest_pending_for_identity(Some(identity), Duration::from_millis(100))
     }
-    fn ingest_pending_for_identity(&mut self, identity: Option<&str>) -> Result<(), StorageError> {
+    /// The Digest worker's own pending ingest (#6029). An observing Stop hook's flusher may
+    /// hold the queue or the main writer for this same final, so the worker waits for them
+    /// until `deadline` less the completion reserve instead of the hook cap; other hook
+    /// paths keep their caps. It holds no transaction while it waits: each queue read, main
+    /// ingest and queue mark commits on its own, as the flusher's do, so neither side waits
+    /// on one database while holding the other. Busy after the deadline stays Busy. The
+    /// connection's own allowance applies again afterwards.
+    pub fn ingest_pending_hook_captures_for_identity_until(
+        &mut self,
+        identity: &str,
+        deadline: Instant,
+    ) -> Result<(), StorageError> {
+        let (allowance, hook_wait) = (self.hook_allowance, self.hook_wait);
+        let wait = super::super::worker_writer_wait(deadline, Instant::now());
+        self.bound_writer_wait(wait)?;
+        #[cfg(test)]
+        first_busy::install(self.connection()?);
+        self.hook_allowance = Some(Instant::now() + wait);
+        let result = self.ingest_pending_for_identity(Some(identity), wait);
+        // The connection's own wait and allowance, exactly as opened, for what follows.
+        self.hook_allowance = allowance;
+        let restored = match hook_wait {
+            Some(hook_wait) => self.bound_writer_wait(hook_wait),
+            None => Ok(()),
+        };
+        result.and(restored)
+    }
+    fn bound_writer_wait(&mut self, wait: Duration) -> Result<(), StorageError> {
+        self.connection()?
+            .busy_timeout(wait)
+            .map_err(|error| super::super::errors::classify(error, "Bound worker writer wait"))
+    }
+    fn ingest_pending_for_identity(
+        &mut self,
+        identity: Option<&str>,
+        queue_wait: Duration,
+    ) -> Result<(), StorageError> {
         if !super::HookQueue::exists(&self.path) {
             return Ok(());
         }
-        let queue = match super::HookQueue::open(&self.path, Duration::from_millis(100)) {
+        let queue = match super::HookQueue::open(&self.path, queue_wait) {
             Ok(queue) => queue,
             Err(error) if error.code == super::super::StorageErrorCode::IncompatibleSchema => {
                 return Ok(());
@@ -1023,4 +1060,46 @@ fn commit(
         }
     }
     Ok(CaptureResult::Committed)
+}
+
+/// Test-only: report the worker ingest's first Busy wait, so a test can order a competing
+/// writer's release after the worker is provably waiting (#6029), with no sleep.
+#[cfg(test)]
+pub(super) mod first_busy {
+    use std::{
+        sync::{Mutex, mpsc::SyncSender},
+        time::Instant,
+    };
+
+    static ARMED: Mutex<Option<(Option<SyncSender<()>>, Instant)>> = Mutex::new(None);
+
+    /// Arms the next worker ingest: its first Busy sends once, and it keeps waiting until
+    /// `until`.
+    pub fn arm(signal: SyncSender<()>, until: Instant) {
+        *ARMED.lock().unwrap() = Some((Some(signal), until));
+    }
+
+    pub fn disarm() {
+        *ARMED.lock().unwrap() = None;
+    }
+
+    pub(in crate::storage) fn install(connection: &rusqlite::Connection) {
+        if ARMED.lock().unwrap().is_some() {
+            let _ = connection.busy_handler(Some(waiting));
+        }
+    }
+
+    fn waiting(_attempt: i32) -> bool {
+        let mut armed = ARMED.lock().unwrap();
+        let Some((signal, until)) = armed.as_mut() else {
+            return false;
+        };
+        if let Some(signal) = signal.take() {
+            let _ = signal.send(());
+        }
+        let until = *until;
+        drop(armed);
+        std::thread::yield_now();
+        Instant::now() < until
+    }
 }
