@@ -139,6 +139,33 @@ it('retains cmdk native listbox/option/input relationships in the raw command co
   expect(html).toContain('aria-disabled="false"');
 });
 
+it('renders a square contextual page option while retaining the default command row', () => {
+  const html = renderToStaticMarkup(
+    <Command label="Pages">
+      <CommandInput />
+      <CommandList>
+        <CommandItem
+          value="page"
+          variant="page"
+          leading={<span>Icon</span>}
+          meta="Product / Planning"
+        >
+          Release plan
+        </CommandItem>
+        <CommandItem value="plain">Plain</CommandItem>
+      </CommandList>
+    </Command>,
+  );
+  expect(html).toContain('data-variant="page"');
+  expect(html).toContain('Product / Planning');
+  expect(html).toContain('Icon');
+  expect(html).toContain('data-variant="default"');
+  const page = html.match(/<[^>]+data-variant="page"[^>]*>/)?.[0];
+  const plain = html.match(/<[^>]+data-variant="default"[^>]*>/)?.[0];
+  expect(page).not.toContain('tmt:rounded-small');
+  expect(plain).toContain('tmt:rounded-small');
+});
+
 it('reveals only the focused out-of-viewport input once per resize and cleans listener/pending frame', () => {
   resources.capture = true;
   Chips({

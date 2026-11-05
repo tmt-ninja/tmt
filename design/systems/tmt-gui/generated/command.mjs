@@ -19,12 +19,10 @@ export default ({ React, ui }) => function Command({ label = 'Search', items = '
     item.kind === 'create' || `${item.title} ${item.meta ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())) : parsed;
   const ordered = pages ? [...visible.filter((item) => item.kind === 'create'), ...visible.filter((item) => item.kind !== 'create')] : visible;
   const row = (item, index) => {
-    const props = { key: `${index}:${item.title}`, value: `${item.title} ${item.meta ?? ''}`, ...(pages ? { style: { borderRadius: 0 } } : {}) };
+    const props = { key: `${index}:${item.title}`, value: `${item.title} ${item.meta ?? ''}`,
+      ...(pages ? { variant: 'page' } : {}) };
     if (item.kind !== 'page') return h(ui.CommandItem, props, item.title);
-    return h(ui.CommandItem, props, h('tmt-icon', { name: 'file-text', 'aria-hidden': 'true' }),
-      h('span', { className: 'tmt-ui-list-title' },
-        h('span', { className: 'tmt-ui-list-label' }, item.title),
-        h('span', { className: 'tmt-ui-list-description' }, item.meta)));
+    return h(ui.CommandItem, { ...props, leading: h('tmt-icon', { name: 'file-text', 'aria-hidden': 'true' }), meta: item.meta }, item.title);
   };
   return h(ui.Command, { label, ...(pages ? { shouldFilter: false } : {}) },
     h(ui.CommandInput, { placeholder: label, 'aria-label': label, value: search, onValueChange: setSearch }),

@@ -7,3 +7,6 @@ export const listItem =
  * row, so Command states its own `data-[disabled=true]` instead. */
 export const radixItemDisabled =
   'tmt:data-[disabled]:pointer-events-none tmt:data-[disabled]:text-muted-foreground';
+
+/** Page results meet the list edge, so they omit the shared floating-row radius. */
+export const squareListItem = listItem.replace('tmt:rounded-small', '');

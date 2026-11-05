@@ -1,8 +1,8 @@
 // Adapted from pinned shadcn/ui (MIT); see provenance.json and LICENSE.shadcn.
-import { useRef, type ComponentProps } from 'react';
+import { useRef, type ComponentProps, type ReactNode } from 'react';
 import { Command as Primitive } from 'cmdk';
 import { SearchIcon } from 'lucide-react';
-import { listItem } from './item.js';
+import { listItem, squareListItem } from './item.js';
 import { cn } from './utils.js';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog.js';
 
@@ -116,18 +116,47 @@ export function CommandSeparator({
     />
   );
 }
-export function CommandItem({ className, ...props }: ComponentProps<typeof Primitive.Item>) {
+/** The page variant gives search results a square row with an optional icon and location. */
+export function CommandItem({
+  className,
+  variant = 'default',
+  leading,
+  meta,
+  children,
+  ...props
+}: ComponentProps<typeof Primitive.Item> & {
+  variant?: 'default' | 'page';
+  leading?: ReactNode;
+  meta?: ReactNode;
+}) {
   return (
     <Primitive.Item
       data-slot="command-item"
+      data-variant={variant}
       className={cn(
         // cmdk marks its active row `data-selected` and a disabled one `data-disabled=true`.
-        listItem,
+        variant === 'page' ? squareListItem : listItem,
         'tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:data-[disabled=true]:pointer-events-none tmt:data-[disabled=true]:text-muted-foreground tmt:data-[selected=true]:bg-accent tmt:data-[selected=true]:text-accent-foreground',
         className,
       )}
       {...props}
-    />
+    >
+      {variant === 'page' && (leading || meta) ? (
+        <>
+          {leading && <span className="tmt:shrink-0">{leading}</span>}
+          <span className="tmt:flex tmt:min-w-0 tmt:flex-col">
+            <span>{children}</span>
+            {meta && (
+              <span className="tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground">
+                {meta}
+              </span>
+            )}
+          </span>
+        </>
+      ) : (
+        children
+      )}
+    </Primitive.Item>
   );
 }
 export function CommandShortcut({ className, ...props }: ComponentProps<'span'>) {
