@@ -242,7 +242,7 @@ for (const kind of ['unpainted', 'painted'] as const)
       expect(onDisk).toEqual(inFrame);
       // Not a vacuous match: the classes drew (a card has a fill and a radius) and the icon is the frame's.
       expect(onDisk.find((entry) => entry.id === 'card')).toMatchObject({
-        borderTopLeftRadius: '8px',
+        borderTopLeftRadius: '2px',
         paddingTop: '24px',
       });
       expect(onDisk.find((entry) => entry.id === 'icon')?.svg).toBe('1.75');

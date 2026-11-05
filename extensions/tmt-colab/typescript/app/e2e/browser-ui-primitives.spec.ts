@@ -171,7 +171,10 @@ for (const width of [320, 390, 1440])
       const scope = page.getByRole('region', { name: 'Real shadcn primitives' });
       const button = page.getByRole('button', { name: 'Ready action', exact: true });
       // The default (primary) action is the accent fill with its own ink.
-      await expect(button).toHaveCSS('background-color', rgb(tokens.browser.color.accent[theme]));
+      await expect(button).toHaveCSS(
+        'background-color',
+        rgb(tokens.browser.color['accent-fill'][theme]),
+      );
       await expect(button).toHaveCSS('color', rgb(tokens.browser.color['on-accent'][theme]));
       await expect(button).toHaveCSS('font-size', tokens.browser.metric['command-size']);
       await expect(button).toHaveCSS('border-radius', tokens.browser.metric.radius);
@@ -185,7 +188,7 @@ for (const width of [320, 390, 1440])
       await expect(button).toHaveCSS('outline-style', 'none');
       for (const name of ['Controlled input', 'Controlled textarea']) {
         const field = page.getByLabel(name);
-        await expect(field).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
+        await expect(field).toHaveCSS('border-color', rgb(tokens.browser.color.edge[theme]));
         await expect(field).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
       }
       const separator = scope.getByRole('separator');

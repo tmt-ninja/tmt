@@ -81,7 +81,13 @@ const measure = (page: Page, backdrop: string) =>
         !element.closest('[hidden]')
       );
     };
-    const text: { text: string; ratio: number; ink: string; surface: string }[] = [];
+    const text: {
+      text: string;
+      indicator: boolean;
+      ratio: number;
+      ink: string;
+      surface: string;
+    }[] = [];
     const cards: { selector: string; fill: string; rule: string; other: string }[] = [];
     for (const root of document.querySelectorAll('.inline-block-layer')) {
       if (!visible(root)) continue;
@@ -98,6 +104,7 @@ const measure = (page: Page, backdrop: string) =>
           const ink = over(rgba(getComputedStyle(element).color), surface);
           text.push({
             text: own.slice(0, 40),
+            indicator: own === '◆' && element.getAttribute('aria-hidden') === 'true',
             ratio: ratio(ink, surface),
             ink: `rgb(${ink.slice(0, 3).map(Math.round)})`,
             surface: `rgb(${surface.slice(0, 3).map(Math.round)})`,
@@ -166,8 +173,8 @@ for (const width of [1440, 390])
           expect(text.length).toBeGreaterThan(0);
           // A measurement that is not a number would pass every bound below.
           expect(text.every((entry) => Number.isFinite(entry.ratio))).toBe(true);
-          // Text against the surface it sits on: 4.5:1.
-          expect(text.filter((entry) => entry.ratio < 4.5)).toEqual([]);
+          // Text requires 4.5:1; an aria-hidden status glyph is a non-text indicator (3:1).
+          expect(text.filter((entry) => entry.ratio < (entry.indicator ? 3 : 4.5))).toEqual([]);
           // Every card is the painted scheme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
           // floor does not apply to it, by Ben's decision (#4068, as for floating panels in #4025).
           const sheet = rgb(tokens.browser.surface.sheet[scheme]);

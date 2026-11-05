@@ -30,7 +30,7 @@ const roles = {
   'destructive-soft': ['surface', 'blocked-soft'],
   'layer-boundary': ['surface', 'rule'],
   border: ['surface', 'rule'],
-  input: ['surface', 'rule'],
+  input: ['color', 'edge'],
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   waiting: ['color', 'waiting'],

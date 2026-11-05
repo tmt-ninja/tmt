@@ -646,7 +646,7 @@ test('every frame carries the design system in its own layer, below the starter 
     'tmt-ui',
     'tmt-ds-scope',
   ]);
-  expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
+  expect(light.card).toMatchObject({ padding: '24px', radius: '2px', border: '1px' });
   expect(light.mine).toBe('3px');
   expect(light.action).toBe('7px');
   expect(light.hostProfile).toBe('7px 12px');
@@ -829,7 +829,7 @@ test('a design-system page the frame paints follows a live change of theme; one 
     await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', theme);
     await expect(unpainted.locator('body')).toHaveCSS(
       'background-color',
-      theme === 'dark' ? 'rgb(14, 23, 29)' : 'rgb(243, 246, 245)',
+      theme === 'dark' ? 'rgb(10, 10, 10)' : 'rgb(255, 255, 255)',
     );
     const found = await inkOnPaper(page, 'target-live-unpainted');
     expect(found.ratios.length).toBe(5);

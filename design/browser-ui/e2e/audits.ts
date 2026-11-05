@@ -338,16 +338,28 @@ export function controlBoundaries(page: Page, scope: string) {
         if (found < 3) borders.misses.add(`${name(element)} ${found.toFixed(2)}:1`);
       }
 
-      const fields = { measured: 0, sameFill: new Set<string>(), unlabelled: new Set<string>() };
+      const fields = {
+        measured: 0,
+        missingBoundary: new Set<string>(),
+        unlabelled: new Set<string>(),
+      };
       for (const element of document.querySelectorAll<HTMLElement>(
         soft.map((part) => `${root} ${part}`).join(','),
       )) {
         if (!visible(element)) continue;
         fields.measured++;
         const behind = backdrop(element);
-        const fill = over(rgba(getComputedStyle(element).backgroundColor), behind);
-        // Any visible step: identical or within rounding is no step at all.
-        if (ratio(fill, behind) < 1.04) fields.sameFill.add(name(element));
+        const style = getComputedStyle(element);
+        const fill = over(rgba(style.backgroundColor), behind);
+        // A field has a perceivable boundary through a fill step or a full 3:1 edge.
+        const fullEdge = (['Top', 'Right', 'Bottom', 'Left'] as const).every((side) => {
+          const width = parseFloat(style[`border${side}Width`]);
+          const edgeStyle = style[`border${side}Style`];
+          const edge = rgba(style[`border${side}Color`]);
+          return width > 0 && edgeStyle !== 'none' && ratio(over(edge, behind), behind) >= 3;
+        });
+        if (ratio(fill, behind) < 1.04 && !fullEdge)
+          fields.missingBoundary.add(`${name(element)}: neither a fill step nor a 3:1 full edge`);
         const labels = [...((element as HTMLInputElement).labels ?? [])];
         const labelledBy = (element.getAttribute('aria-labelledby') ?? '')
           .split(/\s+/)
@@ -368,7 +380,7 @@ export function controlBoundaries(page: Page, scope: string) {
         borders: { measured: borders.measured, misses: [...borders.misses] },
         fields: {
           measured: fields.measured,
-          sameFill: [...fields.sameFill],
+          missingBoundary: [...fields.missingBoundary],
           unlabelled: [...fields.unlabelled],
         },
       };

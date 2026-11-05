@@ -58,6 +58,7 @@ function pageUiCss() {
   const css = readFileSync(join(repo, 'design/browser-ui/generated/ui.css'), 'utf8');
   const scoped = stripComments(css)
     .replaceAll("[data-tmt-ui]:not([data-tmt-theme='light'])", ":root:not([data-theme='light'])")
+    .replaceAll("[data-tmt-ui][data-tmt-theme='system']", ':root')
     .replaceAll("[data-tmt-ui][data-tmt-theme='light']", ":root[data-theme='light']")
     .replaceAll("[data-tmt-ui][data-tmt-theme='dark']", ":root[data-theme='dark']")
     .replaceAll('[data-tmt-ui]', ':root')

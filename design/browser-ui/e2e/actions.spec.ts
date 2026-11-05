@@ -200,7 +200,7 @@ for (const width of [1586, 390])
       const boundaries = await controlBoundaries(page, '.tmt-ui-drawer');
       expect(boundaries.borders.misses).toEqual([]);
       expect(boundaries.fields.measured).toBeGreaterThan(0);
-      expect(boundaries.fields.sameFill).toEqual([]);
+      expect(boundaries.fields.missingBoundary).toEqual([]);
       expect(boundaries.fields.unlabelled).toEqual([]);
       expect(await textAtSurfaceEdge(page, '.tmt-ui-drawer-header')).toEqual([]);
       await page.keyboard.press('Tab');

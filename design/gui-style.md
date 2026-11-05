@@ -90,16 +90,12 @@ name and a visible tooltip.
   containers space their children with a token gap, never by margins alone.
 - **Focus** is one 1px edge in the focus color (`focus-width`) on every control;
   fields and framed boxes recolour their own 1px rule instead of adding a ring.
-- **Fields** (text fields, text areas and select triggers) keep the soft `rule`
-  edge, an exception to the 3:1 non-text contrast the check-style controls meet
-  (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
-  indicator). It holds on three conditions: every field has a visible label (a
-  select shows its value and a chevron instead, a search field its placeholder
-  beside a magnifier), its fill (`surface.field`)
-  differs from the surface behind it, and its focus and invalid states keep the
-  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
-  for the border check and fails a field that fills like its surface or has no
-  visible label or value.
+- **Fields** (text fields, text areas and select triggers) use the `edge` color for a
+  full boundary of at least 3:1 against the surrounding surface (WCAG 1.4.11). Every
+  field has a visible label; a select shows its value and a chevron, and a search field
+  may use its placeholder beside a magnifier. Focus and invalid states retain their
+  distinct edges. The leaf's `controlBoundaries` audit requires a label and accepts a
+  perceivable boundary through either a fill step or a full 3:1 edge.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows

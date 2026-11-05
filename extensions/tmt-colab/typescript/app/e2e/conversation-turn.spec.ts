@@ -116,8 +116,8 @@ async function styles(message: Locator) {
 async function bubble(turn: Locator, filled: boolean) {
   const body = turn.locator('.conversation-body');
   await expect(body).toHaveCSS('border-top-width', filled ? '1px' : '0px');
-  // The computed shorthand collapses equal corners: 0 8 8 8 reads as three values.
-  await expect(body).toHaveCSS('border-radius', filled ? '0px 8px 8px' : '0px');
+  // The computed shorthand collapses equal corners: 0 2 2 2 reads as three values.
+  await expect(body).toHaveCSS('border-radius', filled ? '0px 2px 2px' : '0px');
   await expect(body).toHaveCSS('margin-left', filled ? '32px' : '0px');
   const fill = await body.evaluate((node) => getComputedStyle(node).backgroundColor);
   if (filled) expect(fill).not.toBe('rgba(0, 0, 0, 0)');
@@ -567,7 +567,7 @@ test('editable mention chips send only their original text; annotation keeps its
   await expect(token.locator('.agent-chip-name')).toHaveText('@Agent 1');
   await expect(token.getByRole('button', { name: /^Remove mention:/ })).toBeVisible();
   await expect(token).toHaveCSS('border-top-width', '1px');
-  await expect(token).toHaveCSS('border-radius', '6px');
+  await expect(token).toHaveCSS('border-radius', '2px');
   await input.press('Enter');
   // The double publishes the admitted Ask attribution separately, like the signed own stream.
   await run(page, 'windowReply');

@@ -79,7 +79,7 @@
   color: var(--tmt-ui-color-blocked);
 }
 /* A destructive control keeps one colour family: red text, a red-tinted hover and a red focus
-   edge. Mint and red never share a control. */
+   edge. The destructive action keeps its blocked-state colour throughout. */
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-mark {
   color: var(--tmt-ui-color-blocked);
 }

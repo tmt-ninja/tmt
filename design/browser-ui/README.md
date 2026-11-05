@@ -69,12 +69,11 @@ on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.
 Every shared component is opaque and takes the radius scale (`radius-s`, `radius`, `radius-l`, `radius-pill`); only a floating layer (dialog, drawer, menu, popover, tooltip, autocomplete list, notification) takes the one overlay shadow, and resting surfaces stay shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
 Links, essential edges, selection indicators and keyboard focus are separate.
-Control frames use `--tmt-ui-surface-rule`: action, chip/add/popup, field,
-outer toggle, command/copy and icon tooltip frames share the light rule. A control
-drawn by its border alone (the toggle indicator, an unchecked checkbox or radio) uses
-`--tmt-ui-color-edge`, which keeps 3:1 against the surface behind it (WCAG 1.4.11);
-text fields and select triggers keep the soft rule by decision (see
-[browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
+Action, chip/add/popup, outer toggle, command/copy and icon tooltip frames use
+`--tmt-ui-surface-rule`. Fields and select triggers, and controls drawn by their
+border alone (the toggle indicator, an unchecked checkbox or radio), use
+`--tmt-ui-color-edge`, which keeps 3:1 against the surface behind it (WCAG 1.4.11).
+See [browser style](../gui-style.md), Fields. Selected indicators and keyboard focus
 retain their stronger roles.
 
 ### Palette and the ref tier
@@ -294,7 +293,7 @@ and tone, for example a blog-only accent set on the shared tokens.
 
 `presentation="compact"` is an opt-in on flat `BrowserTabs`, `BrowserAction`, and textual
 field `BrowserMenu` triggers; `mountBrowserMenu` mirrors it when `triggerText` is present.
-Omitting it keeps all existing defaults, including the mint flat selection and Action's
+Omitting it keeps all existing defaults, including the flat selection and Action's
 centered-label mark reservation. Compact does not change boxed/flush tabs or icon/count/crumb
 menu triggers. The menu controller and popup geometry remain unchanged.
 
@@ -1022,7 +1021,7 @@ state, a React component.
   shell's rail counts use the same count box beside their visible labels.
 - **Avatar.** `BrowserAvatar` draws the initials of a name or handle (`avatarInitials`) in a
   round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
-  `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
+  `kind="person"` (the default) is the neutral fill; `kind="agent"` is the selection fill
   with the strong accent ink (`data-kind`), so the two read apart without a glyph.
 - **Choice rows.** `BrowserChoice` is a radio or check row with a label, an optional sublabel
   and an optional `hint`; the whole row is the target and the control is a real input
@@ -1370,7 +1369,7 @@ and the /docs site one port above it for the docs preview layout sweep. It never
 attaches to an existing server or opens a product/host fixture.
 
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
-border-only control contrast and the named soft-edge field exception, plus overlay exit
+border-only control contrast and field boundary visibility, plus overlay exit
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
 repair.
 

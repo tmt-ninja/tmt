@@ -114,7 +114,7 @@
 }
 
 /* Flush: tabs on one bottom rule; the selected tab is a straight bar the tab's width, square
-   ends, in the mint selection colour. */
+   ends, in the selection colour. */
 .tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab-list {
   gap: 0;
   padding: 0;
@@ -191,7 +191,7 @@
   color: var(--tmt-ui-color-text);
 }
 /* Website-measured compact metrics stay local to this presentation.
-   Compact is an opt-in flat presentation; default mint tabs and panel ownership stay intact. */
+   Compact is an opt-in flat presentation; default flat tabs and panel ownership stay intact. */
 .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
   font-size: 11px;
   line-height: 13px;

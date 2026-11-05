@@ -617,7 +617,7 @@ for (const width of [1440, 390])
       expect(
         await mode.evaluate((node) => {
           const probe = document.createElement('span');
-          probe.style.color = 'var(--tmt-ui-color-accent)';
+          probe.style.color = 'var(--tmt-ui-color-text-action)';
           node.append(probe);
           const accent = getComputedStyle(probe).color;
           probe.remove();

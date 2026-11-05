@@ -586,7 +586,7 @@ for (const width of [1440, 390])
         await expect(sendButton).toHaveAttribute('data-variant', 'primary');
         await expect(sendButton).toHaveCSS(
           'background-color',
-          rgb(tokens.browser.color.accent[scheme]),
+          rgb(tokens.browser.color['accent-fill'][scheme]),
         );
         await expect(sendButton).toHaveCSS('text-decoration-line', 'none');
         await sendButton.press('Tab');

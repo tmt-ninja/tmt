@@ -27,7 +27,7 @@ for (const width of [1440, 390])
         if (variant === 'chip')
           await expect(chip).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
         // The chip form rounds at the small radius token (the website's chips: 5 to 7px).
-        await expect(chip).toHaveCSS('border-radius', variant === 'chip' ? '6px' : '0px');
+        await expect(chip).toHaveCSS('border-radius', variant === 'chip' ? '2px' : '0px');
         if (variant === 'chip')
           expect(await chip.evaluate((node) => getComputedStyle(node).backgroundColor)).toMatch(
             /\/ 0\.13\)$/,

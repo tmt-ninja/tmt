@@ -24,7 +24,7 @@ for (const width of [1440, 390]) {
     expect(await oneSidedBorders(page, '.gallery-main')).toEqual([]);
     expect(await textAtSurfaceEdge(page, '.gallery-main')).toEqual([]);
     const radii = await controlRadii(page, '.gallery-main');
-    expect(radii.token).toBe('8px');
+    expect(radii.token).toBe('2px');
     expect(radii.off).toEqual([]);
   });
 }
@@ -41,13 +41,11 @@ test('gallery demos: a control drawn by its border keeps 3:1 against its surface
 // Fields keep the soft v2 edge by decision (gui-style.md "Fields"): they are exempt from the 3:1
 // border rule, named in `fieldsKeepSoftEdge`, and must fill differently from their surface and
 // show a label or a value.
-test('gallery demos: a field with a soft edge fills differently and is labelled', async ({
-  page,
-}) => {
+test('gallery demos: each field has a visible boundary and label', async ({ page }) => {
   await gallery(page, 1440);
   const { fields } = await controlBoundaries(page, '.gallery-main');
   expect(fields.measured).toBeGreaterThan(5);
-  expect(fields.sameFill).toEqual([]);
+  expect(fields.missingBoundary).toEqual([]);
   expect(fields.unlabelled).toEqual([]);
 });
 
@@ -113,7 +111,7 @@ for (const width of [1440, 390])
       await cell.scrollIntoViewIfNeeded();
       const box = (await cell.boundingBox())!;
       expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
-      await expect(cell).toHaveCSS('border-radius', '6px');
+      await expect(cell).toHaveCSS('border-radius', '2px');
       await cell.focus();
       await expect(cell).toBeFocused();
       await cell.dispatchEvent('pointerleave');

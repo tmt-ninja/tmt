@@ -169,7 +169,7 @@ it('projects light frame roles separately from strong focus and state indicators
   const roles = {
     'layer-boundary': tokens.browser.surface.rule,
     border: tokens.browser.surface.rule,
-    input: tokens.browser.surface.rule,
+    input: tokens.browser.color.edge,
     indicator: tokens.browser.color.edge,
     ring: tokens.browser.color.focus,
   };
@@ -178,7 +178,7 @@ it('projects light frame roles separately from strong focus and state indicators
       (match) => match[1]!.replace(/^var\(--tmt-ui-[\w-]+, (.+)\)$/, '$1'),
     );
     expect(actual.sort(), role).toEqual(
-      [colors.light, colors.dark, colors.light, colors.dark]
+      [colors.light, colors.dark, colors.light, colors.dark, colors.light, colors.dark]
         .map((color) => color.toLowerCase())
         .sort(),
     );

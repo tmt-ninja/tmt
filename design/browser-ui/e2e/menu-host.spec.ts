@@ -47,9 +47,9 @@ for (const source of ['React', 'Native'] as const)
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS(
             'border-radius',
-            '8px',
+            '2px',
           );
-          await expect(delta).toHaveCSS('border-radius', '6px');
+          await expect(delta).toHaveCSS('border-radius', '2px');
           await expect(delta).toHaveCSS('height', '42px');
           expect(frames.doubled).toEqual([]);
           expect(await textAtSurfaceEdge(page, '.tmt-ui-menu-surface[open]')).toEqual([]);

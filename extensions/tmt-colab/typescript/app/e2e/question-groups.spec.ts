@@ -478,7 +478,10 @@ for (const width of [1440, 390])
         const send = group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ });
         // Send is the group's one primary action: the accent fill, not an underlined link.
         await expect(send).toHaveAttribute('data-variant', 'primary');
-        await expect(send).toHaveCSS('background-color', rgb(tokens.browser.color.accent[scheme]));
+        await expect(send).toHaveCSS(
+          'background-color',
+          rgb(tokens.browser.color['accent-fill'][scheme]),
+        );
         await expect(send).toHaveCSS('text-decoration-line', 'none');
         await send.click();
         await expectAnswered(rows.first(), 'Keep it');

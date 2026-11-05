@@ -714,7 +714,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   font: 13px/1.4 var(--tmt-ui-font-body);
   color: var(--c-text);
   background: var(--tmt-ui-surface-field);
-  border: 1px solid var(--tmt-ui-surface-rule);
+  border: 1px solid var(--tmt-ui-color-edge);
   border-radius: var(--tmt-ui-radius);
 }
 .management-dialog button:not(.tmt-ui-command-copy) {

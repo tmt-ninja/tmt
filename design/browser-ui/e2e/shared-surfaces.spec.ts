@@ -103,7 +103,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await textAtSurfaceEdge(page, '.tmt-ui-panel')).toEqual([]);
       const boundaries = await controlBoundaries(page, '.tmt-ui-panel');
       expect(boundaries.borders.misses).toEqual([]);
-      expect(boundaries.fields.sameFill).toEqual([]);
+      expect(boundaries.fields.missingBoundary).toEqual([]);
       expect(boundaries.fields.unlabelled).toEqual([]);
       expect((await controlRadii(page, '.tmt-ui-panel')).off).toEqual([]);
       await heading.press('Escape');
