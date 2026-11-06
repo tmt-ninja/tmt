@@ -76,11 +76,25 @@ struct Pulse {
 }
 struct PulseState {
     page: Option<PageRef>,
+    /// Every page touched since the worker last took them, oldest first and without repeats:
+    /// touches between two wakes would otherwise leave only the last page (#6158).
+    touched: Vec<PageRef>,
     version: u64,
     stopped: bool,
 }
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
+/// How many pages waiting to be published one worker remembers. Past it the oldest is
+/// forgotten until it is touched again; its updates stay queued in the Store either way.
+pub(super) const QUEUED_PAGES: usize = 256;
+/// Add `page` at the end of a bounded list without repeats.
+pub(super) fn remember(pages: &mut Vec<PageRef>, page: PageRef) {
+    pages.retain(|known| known != &page);
+    if pages.len() >= QUEUED_PAGES {
+        pages.remove(0);
+    }
+    pages.push(page);
 }
 /// What woke the worker.
 pub struct Wake {
@@ -97,6 +111,7 @@ impl Default for ActivePage {
         Self(Arc::new(Pulse {
             state: Mutex::new(PulseState {
                 page: None,
+                touched: Vec::new(),
                 version: 0,
                 stopped: false,
             }),
@@ -107,9 +122,14 @@ impl Default for ActivePage {
 impl ActivePage {
     pub fn touch(&self, page: PageRef) {
         let mut state = locked(&self.0.state);
+        remember(&mut state.touched, page.clone());
         state.page = Some(page);
         state.version += 1;
         self.0.wake.notify_all();
+    }
+    /// The pages touched since the last call, oldest first.
+    pub(super) fn take_touched(&self) -> Vec<PageRef> {
+        std::mem::take(&mut locked(&self.0.state).touched)
     }
     /// Wake the worker for a reason that is not a page: a local write, or a retry that is due.
     pub fn nudge(&self) {

@@ -5017,8 +5017,11 @@ Changed notices coalesce as hints, and a terminal interest keeps its slot until 
 cancellation or generation close. Transport checksums do not authenticate payloads. Neither
 the declaration nor these codecs enable cloud sync by themselves. The serve runs one worker per
 object-channel generation: it asks Remote to activate, binds, and publishes the most recently
-active page (opened in a browser or written by the CLI; another page is published when it is
-next touched, or when a management change such as a link, member or policy concerns it). It
+active page (opened in a browser or written by the CLI) first. Every other page touched in the
+serve's life, by an edit, a browser or a management change such as a link, member or policy, is
+remembered in a bounded queue without repeats (256 pages, oldest forgotten first; the queue
+outlives sessions) and published after it, one bounded pass per step, so a page left for another
+needs no new touch. It
 creates the owner's `spaces`, `pages` and own `members` rows, then one `links` row for each live
 link of the page that has an admission token and the signed membership, chain and wrap originals,
 the wraps addressed to those links among them, then each local original in sequence, always
