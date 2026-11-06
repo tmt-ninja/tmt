@@ -50,8 +50,11 @@ pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 pub use driver::{AgentNameRefusal, AgentNaming};
 pub use driver::{Kept, PaneClose, PaneSwap};
+pub(crate) use pty::{
+    BUDGET as BUILTIN_BUDGET, ResumeError, close_removed as close_removed_member,
+    resume as resume_member,
+};
 pub use pty::{RelaunchError, TerminalState, member_terminal, relaunch as relaunch_member};
-pub(crate) use pty::{ResumeError, close_removed as close_removed_member, resume as resume_member};
 pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 
@@ -1350,6 +1353,15 @@ impl<R: CommandRunner> BindingSession<'_, R> {
     /// [`driver::close_opened_pane`].
     pub fn close_opened_pane(&mut self, entry: &BindingEntry) -> Result<PaneClose, ActionError> {
         driver::close_opened_pane(self.driver(binding_host(entry, self.primary)), entry)
+    }
+
+    /// Lets the host's report catch up with a stop that just ended the member's program;
+    /// see [`driver::HostDriver::settle_after_stop`].
+    pub fn settle_after_stop(&mut self, entry: &BindingEntry, deadline: Instant) {
+        if let Some(binding) = &entry.binding {
+            self.driver(binding_host(entry, self.primary))
+                .settle_after_stop(binding, deadline);
+        }
     }
 
     pub fn swap_into(

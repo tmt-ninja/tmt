@@ -53,7 +53,8 @@ pub fn launch_template() -> LaunchTemplate {
 
 pub(crate) const PANE_ENV: &str = "TMT_PTY_PANE";
 pub(crate) const SOCKET_ENV: &str = "TMT_PTY_SOCKET";
-const BUDGET: Duration = Duration::from_secs(3);
+/// One built-in host operation's bound; a built-in workspace preview reuses it.
+pub(crate) const BUDGET: Duration = Duration::from_secs(3);
 /// How long closing a member waits for its supervisor to end after the program did.
 const CLOSE_WAIT: Duration = Duration::from_secs(3);
 const CLOSE_POLL: Duration = Duration::from_millis(50);
@@ -772,6 +773,30 @@ fn wait_for_supervisor_end<R: CommandRunner>(
     }
 }
 
+/// Waits until `deadline` at most while the supervisor still reports the member's program
+/// running although that process is gone: the supervisor reaps its child only once per loop,
+/// so right after a stop its `Inspect` can lag the exit. Returns as soon as the report and the
+/// process agree, or the answer names another supervisor or pane process.
+fn settle_ended_program<R: CommandRunner>(runner: &R, binding: &Binding, deadline: Instant) {
+    let (socket, pane) = (&binding.server.socket_path, &binding.pane_id);
+    loop {
+        let Ok(state) = state(socket, pane, deadline) else {
+            return;
+        };
+        let behind = state.program_running()
+            && state.server_pid == binding.server.server_pid
+            && state.pane_pid == binding.pane_pid
+            && matches!(
+                runtime::observe_runtime_process(runner, state.pane_pid, deadline),
+                Ok(runtime::ProcessObservation::Gone)
+            );
+        if !behind || Instant::now() + CLOSE_POLL >= deadline {
+            return;
+        }
+        std::thread::sleep(CLOSE_POLL);
+    }
+}
+
 impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
     fn begin_coordination(&mut self) {
         self.deadline = Instant::now() + BUDGET;
@@ -956,6 +981,9 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
     /// older supervisor's program still runs.
     fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
         close_terminal(self.runner, binding)
+    }
+    fn settle_after_stop(&mut self, binding: &Binding, deadline: Instant) {
+        settle_ended_program(self.runner, binding, deadline);
     }
     fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)
@@ -1546,6 +1574,80 @@ mod tests {
             relaunching: false,
         };
         assert!(decode_state(paused).unwrap().paused);
+    }
+
+    /// A supervisor answering `Inspect` for pane process `pane_pid`, reporting it running for
+    /// the first `behind` answers and ended after that.
+    fn lagging_supervisor(
+        pane_pid: u64,
+        behind: usize,
+        connections: usize,
+    ) -> (
+        crate::test_support::TestDirectory,
+        Binding,
+        std::thread::JoinHandle<Vec<Control>>,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let answered = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = answered.clone();
+        let (root, mut binding, handle) = fake_supervisor(
+            move |request| {
+                assert_eq!(request, &Control::Inspect);
+                let n = answered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Some(ControlReply::State {
+                    supervisor_pid: 1,
+                    pane_pid: pane_pid as u32,
+                    key_idle_ms: None,
+                    marker: None,
+                    paused: false,
+                    ended: (n >= behind).then_some(Exit::Code(0)),
+                    shell: false,
+                    relaunching: false,
+                })
+            },
+            connections,
+        );
+        binding.pane_pid = pane_pid;
+        (root, binding, handle, counted)
+    }
+
+    /// The answers given so far, read before joining, so asking too few fails instead of
+    /// leaving the fake waiting for a connection.
+    fn answers(answered: &std::sync::atomic::AtomicUsize) -> usize {
+        answered.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[test]
+    fn after_a_stop_the_close_waits_for_the_supervisor_to_report_its_reaped_program() {
+        // The stopped program is gone, but the supervisor reaps it only on its next loop.
+        let (mut child, pid, _) = spawn("exit 0");
+        child.wait().unwrap();
+        let (_root, binding, handle, answered) = lagging_supervisor(pid, 2, 3);
+        settle_ended_program(
+            &UnixCommandRunner,
+            &binding,
+            Instant::now() + Duration::from_secs(10),
+        );
+        // It asked until the report caught up, and no more: the third answer was settled.
+        assert_eq!(answers(&answered), 3);
+        assert_eq!(handle.join().unwrap(), vec![Control::Inspect; 3]);
+    }
+
+    #[test]
+    fn a_running_program_is_already_settled_and_asked_once() {
+        let (mut child, pid, _) = spawn("sleep 30");
+        let (_root, binding, handle, answered) = lagging_supervisor(pid, usize::MAX, 1);
+        let started = Instant::now();
+        settle_ended_program(
+            &UnixCommandRunner,
+            &binding,
+            Instant::now() + Duration::from_secs(10),
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(answers(&answered), 1);
+        assert_eq!(handle.join().unwrap(), vec![Control::Inspect]);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

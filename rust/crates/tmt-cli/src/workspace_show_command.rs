@@ -165,18 +165,14 @@ pub fn execute_builtin(
         .map_err(|error| {
             crate::workspace_snapshot_command::failure(error, "WORKSPACE_PLAN_UNAVAILABLE", false)
         })?;
-        let (identities, live) = workspace::builtin_plan_input(
-            &paths,
-            &document.snapshot,
-            Instant::now() + workspace::CAPTURE_BUDGET,
-        )
-        .map_err(|error| {
-            Failure::new(
-                "WORKSPACE_PLAN_UNAVAILABLE",
-                format!("Could not read the workspace plan: {error}"),
-                1,
-            )
-        })?;
+        let (identities, live) = workspace::builtin_plan_input(&paths, &document.snapshot)
+            .map_err(|error| {
+                Failure::new(
+                    "WORKSPACE_PLAN_UNAVAILABLE",
+                    format!("Could not read the workspace plan: {error}"),
+                    1,
+                )
+            })?;
         let plan = member_plan(&document.snapshot, &identities, &live, |cwd| {
             std::path::Path::new(cwd).is_dir()
         });

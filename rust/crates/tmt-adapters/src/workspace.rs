@@ -238,14 +238,19 @@ fn capture_builtin(paths: &ConfigPaths, deadline: Instant) -> io::Result<Builtin
     })
 }
 
+fn builtin_plan_deadline() -> Instant {
+    Instant::now() + crate::host::BUILTIN_BUDGET
+}
+
 /// A built-in preview's input: current durable records for the recorded UUIDs, and the UUIDs
 /// running on the built-in host now or ended on a kept terminal. Read only; it grants no
-/// restore authority.
+/// restore authority. It asks every recorded supervisor, so it is bounded as one built-in
+/// host operation, not by the hook capture's budget.
 pub fn builtin_plan_input(
     paths: &ConfigPaths,
     snapshot: &BuiltinSnapshot,
-    deadline: Instant,
 ) -> io::Result<(Vec<tmt_core::workspace::StoredIdentity>, MembersNow)> {
+    let deadline = builtin_plan_deadline();
     if !paths.database.exists() {
         return Ok(Default::default());
     }

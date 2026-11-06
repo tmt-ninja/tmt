@@ -595,6 +595,23 @@ fn a_member_running_a_plain_program_receives_nothing_and_says_why() {
     assert!(world.clean());
 }
 
+/// What a `Closed` close promises: that supervisor incarnation is gone, and an exited one
+/// its reaper has not collected yet counts. Reaping belongs to whichever process adopted
+/// the supervisor, which no close waits for, so `ESRCH` is not asserted here.
+fn supervisor_closed(server: &tmt_core::endpoint::ServerEvidence) -> bool {
+    match observe_runtime_process(
+        &UnixCommandRunner,
+        server.server_pid,
+        Instant::now() + Duration::from_secs(3),
+    ) {
+        Ok(ProcessObservation::Gone) => true,
+        Ok(ProcessObservation::Live(now) | ProcessObservation::Stopped(now)) => {
+            now.start_identity() != server.server_start_time
+        }
+        _ => false,
+    }
+}
+
 #[test]
 fn closing_a_built_in_member_closes_its_kept_terminal_and_touches_no_other_member() {
     use tmt_adapters::host::{Host, PaneClose};
@@ -640,6 +657,8 @@ fn closing_a_built_in_member_closes_its_kept_terminal_and_touches_no_other_membe
     let pane = row("alpha")["pane"].as_str().unwrap().to_owned();
     let directory = support::state_dir(&world.root).join("pty");
     let socket = PathBuf::from(&server.socket_path);
+    // Only still being there is checked strictly; an ended supervisor is checked as
+    // closing promises it, see `supervisor_closed`.
     let supervisor_ended = || recorded_process_gone(server.server_pid);
 
     // A missing connection is not process death: keep the live supervisor behind
@@ -683,7 +702,7 @@ fn closing_a_built_in_member_closes_its_kept_terminal_and_touches_no_other_membe
     // Closing it ends the supervisor, which removes its socket and lock.
     let closed = host.session().close_opened_pane(&alpha).unwrap();
     assert_eq!(closed, PaneClose::Closed);
-    assert!(supervisor_ended());
+    assert!(supervisor_closed(&server));
     assert!(
         !socket.try_exists().unwrap(),
         "the supervisor left its socket"
@@ -719,7 +738,7 @@ fn closing_a_built_in_member_closes_its_kept_terminal_and_touches_no_other_membe
             .unwrap(),
         PaneClose::Closed
     );
-    assert!(recorded_process_gone(beta_server.server_pid));
+    assert!(supervisor_closed(&beta_server));
     assert!(
         !PathBuf::from(&beta_server.socket_path)
             .try_exists()
