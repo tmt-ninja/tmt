@@ -131,18 +131,31 @@ async function traceLargeWrites(page: Page, name: string) {
     transferMode: 'ReportEvents',
   });
   return async () => {
+    let incomplete = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const complete = new Promise<void>((resolve) =>
       client.once('Tracing.tracingComplete', () => resolve()),
     );
-    await client.send('Tracing.end');
-    await complete;
-    const out = path.join(process.env.RUNNER_TEMP!, 'colab-acceptance-results');
-    fs.mkdirSync(out, { recursive: true });
-    fs.writeFileSync(
-      path.join(out, `large-page-${name}-trace.json`),
-      JSON.stringify({ events, truncated }),
-    );
-    await client.detach();
+    try {
+      await Promise.race([
+        client.send('Tracing.end').then(() => complete),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Trace cleanup timed out')), 3_000);
+        }),
+      ]);
+      incomplete = false;
+    } catch {
+      // An interrupted page can close its session before Chrome returns the remaining events.
+    } finally {
+      clearTimeout(timer);
+      const out = path.join(process.env.RUNNER_TEMP!, 'colab-acceptance-results');
+      fs.mkdirSync(out, { recursive: true });
+      fs.writeFileSync(
+        path.join(out, `large-page-${name}-trace.json`),
+        JSON.stringify({ events, truncated, incomplete }),
+      );
+      await client.detach().catch(() => {});
+    }
   };
 }
 const text = (n: number) => {
@@ -333,23 +346,27 @@ for (const [kind, top] of [
       });
       const started = Date.now();
       const writes: { patchMs: number; readyMs: number; begin: number; end: number }[] = [];
-      for (let i = 1; i <= 10; i++) {
-        const held = source;
-        source = `${body}<p id="n">${i}</p>`;
-        const begin = Date.now() - started;
-        const patchStarted = Date.now();
-        run(
-          world,
-          colab,
-          patchArgs(world, created.pageId, ['--file', '-', '--json'], held),
-          source,
-        );
-        const patchMs = Date.now() - patchStarted;
-        const readyStarted = Date.now();
-        await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
-        const readyMs = Date.now() - readyStarted;
-        const write = { patchMs, readyMs, begin, end: Date.now() - started };
-        writes.push(write);
+      try {
+        for (let i = 1; i <= 10; i++) {
+          const held = source;
+          source = `${body}<p id="n">${i}</p>`;
+          const begin = Date.now() - started;
+          const patchStarted = Date.now();
+          run(
+            world,
+            colab,
+            patchArgs(world, created.pageId, ['--file', '-', '--json'], held),
+            source,
+          );
+          const patchMs = Date.now() - patchStarted;
+          const readyStarted = Date.now();
+          await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
+          const readyMs = Date.now() - readyStarted;
+          const write = { patchMs, readyMs, begin, end: Date.now() - started };
+          writes.push(write);
+        }
+      } finally {
+        await finishTrace();
       }
       await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
       const long = await page.evaluate(
@@ -357,7 +374,6 @@ for (const [kind, top] of [
           (window as unknown as { longTasks: { duration: number; start: number; owner: string }[] })
             .longTasks,
       );
-      await finishTrace();
       const busy = JSON.stringify({
         longTasks: long.map((task) => ({
           duration: Math.round(task.duration),
