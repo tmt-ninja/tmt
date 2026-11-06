@@ -3,12 +3,21 @@
 use super::{ActivationFailure, Refusal};
 use std::time::Duration;
 
-/// Attempts per trigger (serve start, or a channel the worker did not activate), and the wait
-/// before each retry. A trigger that exhausts them idles until the next one.
+/// The waits before the first retries after a trigger (serve start, or a channel the worker did
+/// not activate).
 const RETRIES: [Duration; 2] = if cfg!(test) {
     [Duration::from_millis(100), Duration::from_millis(200)]
 } else {
     [Duration::from_secs(5), Duration::from_secs(30)]
+};
+/// The wait between later attempts. An attempt-shaped failure never idles the worker: nothing
+/// else would wake it while no browser mounts the page, so a Remote that was slow to activate
+/// would leave local updates unpublished until a restart (#6142). Each attempt is one bounded
+/// `tmt remote` call, so this pace stays cheap while Remote is absent.
+const STEADY: Duration = if cfg!(test) {
+    Duration::from_millis(300)
+} else {
+    Duration::from_secs(60)
 };
 
 /// What the worker does after one activation attempt failed.
@@ -16,8 +25,6 @@ const RETRIES: [Duration; 2] = if cfg!(test) {
 pub(super) enum Next {
     /// Try again after this wait.
     Retry(Duration),
-    /// Out of attempts for this trigger. A new trigger starts a fresh budget.
-    Idle,
     /// Remote's verdict holds until it restarts: nothing is retried.
     Sticky,
 }
@@ -44,13 +51,9 @@ impl Policy {
             self.sticky = true;
             return Next::Sticky;
         }
-        match RETRIES.get(self.tried) {
-            Some(wait) => {
-                self.tried += 1;
-                Next::Retry(*wait)
-            }
-            None => Next::Idle,
-        }
+        let wait = RETRIES.get(self.tried).copied().unwrap_or(STEADY);
+        self.tried = self.tried.saturating_add(1);
+        Next::Retry(wait)
     }
 }
 /// Typed refusals that name a state of Remote, not of this attempt. A deadline, an absent door
@@ -89,7 +92,7 @@ mod tests {
         }
     }
     #[test]
-    fn attempt_shaped_failures_retry_a_bounded_number_of_times_per_trigger() {
+    fn attempt_shaped_failures_back_off_then_keep_retrying_at_a_steady_pace() {
         for failure in [
             remote("REMOTE_STATE_UNAVAILABLE", Some("deadline")),
             remote("REMOTE_NOT_RUNNING", None),
@@ -98,9 +101,11 @@ mod tests {
             let mut policy = Policy::default();
             assert_eq!(policy.failed(&failure), Next::Retry(RETRIES[0]));
             assert_eq!(policy.failed(&failure), Next::Retry(RETRIES[1]));
-            assert_eq!(policy.failed(&failure), Next::Idle);
+            for _ in 0..3 {
+                assert_eq!(policy.failed(&failure), Next::Retry(STEADY));
+            }
             assert!(!policy.is_sticky());
-            // A new trigger gets a fresh budget.
+            // A new trigger starts again from the shortest wait.
             policy.trigger();
             assert_eq!(policy.failed(&failure), Next::Retry(RETRIES[0]));
         }

@@ -1,9 +1,10 @@
 //! The worker against a scripted Remote on the real bus: activation, binding, publication of
 //! the active page and the bounds on retrying.
 use super::{
-    Activation, ActivationFailure, ActivePage, Channels, CloudSync, Inbound, MakeInbound, PageRef,
-    Parts, Refusal,
+    Activation, ActivationFailure, ActivePage, Bound, Channels, CloudSync, Inbound, MakeInbound,
+    PageRef, Parts, Refusal,
     fixture::{BINDING, DIGEST, OneUpdate, SPACE, ScriptedRemote, activated, friendly, peer},
+    publisher::{Fault, Local},
 };
 use std::{
     sync::{
@@ -48,6 +49,19 @@ fn start_following(
     activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
     inbound: Option<MakeInbound>,
 ) -> Rig {
+    start_with(
+        channels,
+        activate,
+        inbound,
+        Arc::new(move |_| Some(Box::new(OneUpdate { next: 1 }))),
+    )
+}
+fn start_with(
+    channels: Arc<super::fixture::FixedChannel>,
+    activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
+    inbound: Option<MakeInbound>,
+    local: Arc<dyn Fn(Bound) -> Option<Box<dyn Local + Send>> + Send + Sync>,
+) -> Rig {
     let activity = ActivePage::default();
     let reports = Arc::new(Mutex::new(Vec::new()));
     let activations = Arc::new(AtomicUsize::new(0));
@@ -62,7 +76,7 @@ fn start_following(
         report: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
         declaration_digest: DIGEST.into(),
         space: SPACE.into(),
-        local: Arc::new(move |_| Some(Box::new(OneUpdate { next: 1 }))),
+        local,
         inbound,
     })
     .unwrap();
@@ -199,24 +213,146 @@ fn a_native_unavailable_verdict_is_silent_and_holds_until_remote_restarts() {
 }
 
 #[test]
-fn a_deadline_or_missing_door_retries_a_bounded_number_of_times_without_a_warning() {
+fn a_deadline_or_missing_door_keeps_retrying_past_the_first_waits_without_a_warning() {
     let peer = peer();
     let rig = start(Arc::clone(&peer.channels), || Err(ActivationFailure::Local));
-    until("three attempts", || {
-        rig.activations.load(Ordering::SeqCst) == 3
+    // Past the two short waits the worker keeps a steady pace instead of idling (#6142), and
+    // waits between attempts rather than spinning: at 100, 200 then 300 ms apart, a second and
+    // a half holds at most seven.
+    let started = Instant::now();
+    until("five attempts", || {
+        rig.activations.load(Ordering::SeqCst) >= 5
     });
-    std::thread::sleep(Duration::from_millis(600));
+    std::thread::sleep(Duration::from_millis(1500).saturating_sub(started.elapsed()));
+    assert!(rig.activations.load(Ordering::SeqCst) <= 7, "no busy loop");
+    // Attempts are silent: no line per attempt.
+    assert!(rig.reports.lock().unwrap().is_empty());
+}
+
+#[test]
+fn retrying_activation_ends_with_the_worker_and_on_a_remote_verdict() {
+    // Shutdown: the worker's thread is joined, so no attempt follows.
+    let peer = peer();
+    let mut rig = start(Arc::clone(&peer.channels), || Err(ActivationFailure::Local));
+    until("steady attempts", || {
+        rig.activations.load(Ordering::SeqCst) >= 4
+    });
+    rig.sync.take().unwrap().stop();
+    let stopped = rig.activations.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(rig.activations.load(Ordering::SeqCst), stopped);
+    // A Remote verdict after attempt-shaped failures holds: retries end until Remote restarts.
+    let other = super::fixture::peer();
+    let tries = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&tries);
+    let rig = start(Arc::clone(&other.channels), move || {
+        if seen.fetch_add(1, Ordering::SeqCst) < 3 {
+            Err(ActivationFailure::Local)
+        } else {
+            Err(ActivationFailure::Remote(Refusal {
+                code: "REMOTE_SERVE_OUTDATED".into(),
+                state: None,
+            }))
+        }
+    });
+    until("the verdict", || {
+        rig.activations.load(Ordering::SeqCst) == 4
+    });
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(rig.activations.load(Ordering::SeqCst), 4);
+    assert!(rig.reports.lock().unwrap().is_empty());
+}
+
+/// One update per page, recording each page whose update was confirmed, in order.
+struct PageUpdates {
+    pages: std::collections::HashMap<String, OneUpdate>,
+    confirmed: Arc<Mutex<Vec<String>>>,
+}
+impl PageUpdates {
+    fn of(&mut self, page: &PageRef) -> &mut OneUpdate {
+        self.pages
+            .entry(page.page.clone())
+            .or_insert(OneUpdate { next: 1 })
+    }
+}
+impl Local for PageUpdates {
+    fn preamble(&mut self, page: &PageRef) -> Result<Vec<super::publisher::Row>, Fault> {
+        self.of(page).preamble(page)
+    }
+    fn next(&mut self, page: &PageRef) -> Result<Option<super::publisher::Data>, Fault> {
+        self.of(page).next(page)
+    }
+    fn confirm(
+        &mut self,
+        page: &PageRef,
+        confirm: &super::publisher::Confirm,
+    ) -> Result<(), Fault> {
+        self.confirmed.lock().unwrap().push(page.page.clone());
+        self.of(page).confirm(page, confirm)
+    }
+    fn page_row_confirmed(&mut self, page: &PageRef, expires_ms: u64) -> Result<(), Fault> {
+        self.of(page).page_row_confirmed(page, expires_ms)
+    }
+    fn retirements(&mut self, page: &PageRef) -> Result<Vec<super::publisher::Retirement>, Fault> {
+        self.of(page).retirements(page)
+    }
+    fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault> {
+        self.of(page).retired(page, link)
+    }
+}
+
+#[test]
+fn a_slow_door_converges_without_a_second_trigger() {
+    // Remote activates only on its fifth attempt, after the old three-attempt budget, and no
+    // channel restart or mount wakes the worker in between (#6142).
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let tries = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&tries);
+    let started = peer.channels.started.load(Ordering::SeqCst);
+    let confirmed = Arc::new(Mutex::new(Vec::new()));
+    let record = Arc::clone(&confirmed);
+    let mut rig = start_with(
+        Arc::clone(&peer.channels),
+        move || {
+            if seen.fetch_add(1, Ordering::SeqCst) < 4 {
+                Err(ActivationFailure::Local)
+            } else {
+                activated()
+            }
+        },
+        None,
+        Arc::new(move |_| {
+            Some(Box::new(PageUpdates {
+                pages: Default::default(),
+                confirmed: Arc::clone(&record),
+            }))
+        }),
+    );
+    // Two pages are touched before the session. The worker publishes the most recently active
+    // page, as it does within a session; the other is published when it is touched again.
+    rig.activity.touch(page(SECOND, 1));
+    rig.activity.touch(page(FIRST, 1));
+    until("the touched page is published", || {
+        *confirmed.lock().unwrap() == [FIRST]
+    });
+    assert_eq!(remote.methods(), [Method::Bind, Method::Publish]);
+    assert_eq!(rig.activations.load(Ordering::SeqCst), 5);
+    rig.activity.touch(page(SECOND, 1));
+    until("the other page once touched", || {
+        *confirmed.lock().unwrap() == [FIRST, SECOND]
+    });
     assert_eq!(
-        rig.activations.load(Ordering::SeqCst),
-        3,
-        "the budget is bounded"
+        peer.channels.started.load(Ordering::SeqCst),
+        started,
+        "no second trigger"
     );
     assert!(rig.reports.lock().unwrap().is_empty());
-    // A channel nobody activated is a fresh trigger with a fresh budget.
-    peer.channels.started.fetch_add(1, Ordering::SeqCst);
-    until("a fresh attempt", || {
-        rig.activations.load(Ordering::SeqCst) > 3
-    });
+    rig.sync.take().unwrap().stop();
 }
 
 #[test]

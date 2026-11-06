@@ -33,6 +33,22 @@ const DEVICE_B: &str = "30000000-0000-4000-8000-0000000000b1";
 const SEED_A: u8 = 41;
 const SEED_B: u8 = 42;
 
+/// How much of each process's stderr a failure report keeps.
+const SAID_LINES: usize = 40;
+const SAID_BYTES: usize = 8 * 1024;
+fn tail(said: &str) -> &str {
+    let mut start = said
+        .char_indices()
+        .rev()
+        .filter(|&(_, c)| c == '\n')
+        .nth(SAID_LINES)
+        .map_or(0, |(at, _)| at + 1);
+    while said.len() - start > SAID_BYTES || !said.is_char_boundary(start) {
+        start += 1;
+    }
+    &said[start..]
+}
+
 /// Wait for a condition the cloud has to produce, with a bound and a readable failure.
 fn until(what: &str, mut ready: impl FnMut() -> bool) {
     until_with(what, &mut ready, String::new);
@@ -241,13 +257,12 @@ impl Running {
             )
             .unwrap()
     }
-    /// What each process has said, for a failure to explain itself.
+    /// The tail of what each process has said, for a failure to explain itself; built only
+    /// when a wait has failed.
     fn said(&self) -> String {
         let log = |name: &str, proc: &Option<world::Proc>| {
-            format!(
-                "--- {name}\n{}",
-                proc.as_ref().map(world::Proc::stderr).unwrap_or_default()
-            )
+            let said = proc.as_ref().map(world::Proc::stderr).unwrap_or_default();
+            format!("--- {name} (last {SAID_LINES} lines)\n{}", tail(&said))
         };
         format!(
             "{}\n{}",
@@ -268,6 +283,30 @@ impl Drop for Running {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// What two homes on one key and the cloud looked like, for a convergence wait that timed out:
+/// which device's updates and chains the cloud holds and what every serve and door said, so a
+/// stalled publisher or reader is told apart from a slow runner (#6142).
+fn homes_report(emulator: &Emulator, page: &str, first: &Running, second: &Running) -> String {
+    let cloud: Vec<_> = ["spaces", "pages", "members", "authority", "log"]
+        .iter()
+        .map(|c| format!("{c}: {}", emulator.ids(c).len()))
+        .collect();
+    format!(
+        "cloud log for this page: {} from the first home's device, {} from the second's; \
+         device chains: {}\ncloud {cloud:?}\nfirst home (heads {:?}/{:?}):\n{}\n\
+         second home (heads {:?}/{:?}):\n{}",
+        in_cloud(emulator, page, "log", DEVICE_A),
+        in_cloud(emulator, page, "log", DEVICE_B),
+        in_cloud(emulator, page, "authority", "_chain_"),
+        first.head(DEVICE_A),
+        first.head(DEVICE_B),
+        first.said(),
+        second.head(DEVICE_A),
+        second.head(DEVICE_B),
+        second.said()
+    )
 }
 
 /// Append `count` updates of a device and return their exact bytes.
@@ -358,13 +397,14 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     // Each home writes and publishes before it has read the other's device chain.
     let (sent_a, last_a) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 1, 3, [0; 32]);
     let (sent_b, last_b) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 1, 2, [0; 32]);
-    until(
+    until_with(
         "the cloud holds both homes' updates and device chains",
-        || {
+        &mut || {
             in_cloud(&emulator, &page, "log", DEVICE_A) == 3
                 && in_cloud(&emulator, &page, "log", DEVICE_B) == 2
                 && in_cloud(&emulator, &page, "authority", "_chain_") >= 2
         },
+        || homes_report(&emulator, &page, &first, &second),
     );
     first.assert_emulator_routing();
     second.assert_emulator_routing();
@@ -377,17 +417,7 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     until_with(
         "the second home holds the first home's updates",
         &mut || second.head(DEVICE_A) == Some(3),
-        || {
-            let cloud: Vec<_> = ["spaces", "pages", "members", "authority", "log"]
-                .iter()
-                .map(|c| format!("{c}: {}", emulator.ids(c).len()))
-                .collect();
-            format!(
-                "first home:\n{}\nsecond home:\n{}\ncloud {cloud:?}",
-                first.said(),
-                second.said()
-            )
-        },
+        || homes_report(&emulator, &page, &first, &second),
     );
     for (index, bytes) in sent_a.iter().enumerate() {
         assert_eq!(
@@ -395,9 +425,11 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
             Some(bytes)
         );
     }
-    until("the first home holds the second home's updates", || {
-        first.head(DEVICE_B) == Some(2)
-    });
+    until_with(
+        "the first home holds the second home's updates",
+        &mut || first.head(DEVICE_B) == Some(2),
+        || homes_report(&emulator, &page, &first, &second),
+    );
     for (index, bytes) in sent_b.iter().enumerate() {
         assert_eq!(
             first.payload(DEVICE_B, index as u64 + 1).as_ref(),
@@ -407,13 +439,15 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     // With every device known, later updates cross while both serves keep running.
     let (more_a, _) = append(&mut peer_a, &first.facts, DEVICE_A, SEED_A, 4, 2, last_a);
     let (more_b, _) = append(&mut peer_b, &second.facts, DEVICE_B, SEED_B, 3, 1, last_b);
-    until(
+    until_with(
         "the second home holds the first home's later updates",
-        || second.head(DEVICE_A) == Some(5),
+        &mut || second.head(DEVICE_A) == Some(5),
+        || homes_report(&emulator, &page, &first, &second),
     );
-    until(
+    until_with(
         "the first home holds the second home's later update",
-        || first.head(DEVICE_B) == Some(3),
+        &mut || first.head(DEVICE_B) == Some(3),
+        || homes_report(&emulator, &page, &first, &second),
     );
     for (offset, bytes) in more_a.iter().enumerate() {
         assert_eq!(
