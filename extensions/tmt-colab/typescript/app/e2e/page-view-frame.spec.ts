@@ -1088,7 +1088,10 @@ for (const width of [390, 1440])
       expect(fit.scrolled).toBe(0);
       const label = content.locator(`#${id} .tmt-block-mockup-scale`);
       if (fit.client < 390) {
-        await expect(label).toHaveText(`Scaled ${Math.round((fit.client / 390) * 100)}%`);
+        // Only the number shows (no English on a localized page); the words are its name.
+        const percent = Math.round((fit.client / 390) * 100);
+        await expect(label).toHaveText(`${percent}%`);
+        await expect(label).toHaveAttribute('aria-label', `Scaled ${percent}%`);
       } else await expect(label).toHaveCount(0);
       const edge = await viewport.boundingBox();
       const drawn = await stage(id).boundingBox();

@@ -986,7 +986,8 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   for its grouped rows. A mockup stage owns its local overlay scope. Its toolbar is two segmented
   groups (width, theme), the chosen segment in the neutral selection tone; the stage hugs its
   content with `height` as a minimum, sits centred when narrower than the block and, at any
-  width, scales to fit (with a "Scaled N%" label) when wider, never scrolling sideways. A stage holding a phone sheet and no minimum takes the sheet's
+  width, scales to fit when wider, never scrolling sideways. The scale shows only its
+  percentage (named "Scaled N%"), so a localized page mixes in no English. A stage holding a phone sheet and no minimum takes the sheet's
   height, because the sheet sizes itself from the stage.
   `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 

@@ -195,8 +195,16 @@ export function MockupBlock({
               </DsScope>
             </div>
           )}
+          {/* Only the number shows, so a page in any language mixes in no English; the words stay
+              in the title and accessible name. */}
           {scale < 1 && (
-            <span className="tmt-block-mockup-scale">Scaled {Math.round(scale * 100)}%</span>
+            <span
+              className="tmt-block-mockup-scale"
+              title={`Scaled ${Math.round(scale * 100)}%`}
+              aria-label={`Scaled ${Math.round(scale * 100)}%`}
+            >
+              {Math.round(scale * 100)}%
+            </span>
           )}
         </section>
       </UiTheme>
