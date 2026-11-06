@@ -13,6 +13,7 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
+import { runInNewContext } from 'node:vm';
 import { imports } from '../support/source-imports.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -3781,7 +3782,119 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
-  it('observes both browser jobs disk mounts without cleanup or trace changes (#4742)', () => {
+  it.each(['1', '0', undefined])(
+    'retains chrome artifacts only on failure for required=%s',
+    (required) => {
+      const source = readFileSync(
+        new URL(
+          '../../../extensions/tmt-colab/typescript/app/playwright.config.ts',
+          import.meta.url
+        ),
+        'utf8'
+      );
+      const exported: {
+        default?: {
+          use: { trace: string; video: string };
+          timeout: number;
+          retries: number;
+          workers: number;
+        };
+      } = {};
+      runInNewContext(
+        ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+          .outputText,
+        {
+          exports: exported,
+          process: { env: { COLAB_CHROME_REQUIRED: required } },
+          require: (specifier: string) => {
+            expect(specifier).toBe('@playwright/test');
+            return { defineConfig: (config: unknown) => config };
+          },
+        }
+      );
+      expect(exported.default?.use.trace).toBe('retain-on-failure');
+      expect(exported.default?.use.video).toBe(required === '1' ? 'retain-on-failure' : 'off');
+      expect(exported.default).toMatchObject({ timeout: 30000, retries: 0, workers: 1 });
+    }
+  );
+  it.each([0, 124, 1])(
+    'bounds root cleanup and preserves before/after summary for exit %i',
+    (status) => {
+      const ci = readFileSync(
+        new URL('../../../.github/workflows/ci.yml', import.meta.url),
+        'utf8'
+      );
+      const job = ci.split('\n  colab-chrome:\n')[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+      const step = job
+        .split('      - name: Reserve root disk headroom for chrome artifacts\n')[1]
+        .split('      - name:')[0];
+      expect(step).toContain('timeout-minutes: 2');
+      expect(job.indexOf('Reserve root disk headroom')).toBeLessThan(
+        job.indexOf('Run the cross-screen chrome spec')
+      );
+      expect(job).toContain("COLAB_CHROME_REQUIRED: '1'");
+      expect(ci.match(/name: Reserve root disk headroom for chrome artifacts/g)).toHaveLength(1);
+      const script = step
+        .split('        run: |\n')[1]
+        .split('\n')
+        .map((line) => line.replace(/^ {10}/, ''))
+        .join('\n');
+      const root = mkdtempSync(path.join(tmpdir(), 'chrome-disk-cleanup-'));
+      try {
+        const log = path.join(root, 'sudo.json'),
+          summary = path.join(root, 'summary.md'),
+          count = path.join(root, 'df-count');
+        writeFileSync(count, '0');
+        writeExecutable(
+          path.join(root, 'sudo'),
+          `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.CLEANUP_LOG,JSON.stringify(process.argv.slice(2)));process.exit(Number(process.env.CLEANUP_STATUS));\n`,
+          0o700
+        );
+        writeExecutable(
+          path.join(root, 'df'),
+          `#!${process.execPath}\nconst fs=require('node:fs');let n=Number(fs.readFileSync(process.env.DF_COUNT,'utf8'));fs.writeFileSync(process.env.DF_COUNT,String(n+1));console.log(n===0?'root-before 86%':'root-after 50%');\n`,
+          0o700
+        );
+        const result = spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            ...process.env,
+            PATH: root + path.delimiter + process.env.PATH,
+            RUNNER_TEMP: root,
+            GITHUB_STEP_SUMMARY: summary,
+            CLEANUP_LOG: log,
+            CLEANUP_STATUS: String(status),
+            DF_COUNT: count,
+          },
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(status === 1 ? 1 : 0);
+        expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual([
+          'timeout',
+          '--kill-after=5s',
+          '60s',
+          'rm',
+          '-rf',
+          '--',
+          '/usr/local/lib/android',
+          '/usr/share/dotnet',
+          '/usr/local/.ghcup',
+          '/opt/ghc',
+        ]);
+        const text = readFileSync(summary, 'utf8');
+        expect(text).toContain('root-before 86%');
+        expect(text).toContain('root-after 50%');
+        expect(text).toContain('Elapsed seconds:');
+        expect(text).toContain(`Cleanup exit: ${status}`);
+        expect(readFileSync(count, 'utf8')).toBe('2');
+        if (status === 124) expect(result.stdout).toContain('::warning::');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('keeps disk observations read-only in both browser jobs (#4742)', () => {
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     for (const [name, playwright, results] of [
       [

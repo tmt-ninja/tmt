@@ -204,6 +204,15 @@ Cancelled jobs without an acquired runner remain reportable. Uncertain
 writes never retry; malformed/incomplete inventories and capacity/API failures stay visible.
 Seeds cannot supply complete-verification evidence.
 
+The Colab chrome job reserves root-disk headroom before Playwright by removing only
+unused preinstalled Android, .NET and Haskell toolchains. Cleanup has a 60 s bound
+plus 5 s kill grace inside a 2-minute step; before/after mount usage, elapsed seconds
+and exit status stay in the step summary. A timeout reports partial cleanup and
+continues; other cleanup errors fail the job. Node/Rust/browser caches and workspace
+outputs are not cleanup targets. Traces are retained only for failures; video is
+recorded only in the required chrome job and retained only for failures. Other app
+runs keep video disabled. This limits retention, not the temporary writes during a test.
+
 ## Cache ownership
 
 Docker PR/MG shards restore exact main-owned dependency archives; the purpose-specific
