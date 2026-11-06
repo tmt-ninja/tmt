@@ -6879,6 +6879,9 @@ describe('close and delete through Core', () => {
           ]);
           server = Number(tmux(['display-message', '-p', '#{pid}']));
           const pane = tmux(['display-message', '-p', '#{pane_id}']);
+          const boardPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+          // Keep terminal restoration observable after the board exits.
+          tmux(['set-option', '-w', '-t', pane, 'remain-on-exit', 'on']);
           let workerPane: string | undefined;
           let workerPid: number | undefined;
           if (binding === 'hand-bound') {
@@ -6921,7 +6924,7 @@ describe('close and delete through Core', () => {
           const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
           const painted = async (text: string) =>
             vi.waitFor(() => expect(screen()).toContain(text), { timeout: 30_000, interval: 50 });
-          tmux(['send-keys', '-t', pane, '-l', command]);
+          tmux(['send-keys', '-t', pane, '-l', `exec ${command}`]);
           tmux(['send-keys', '-t', pane, 'Enter']);
           await painted('product');
           // Common pool precedes the squad; End selects product before expansion.
@@ -6967,9 +6970,28 @@ describe('close and delete through Core', () => {
             );
             expect(() => process.kill(workerPid!, 0)).not.toThrow();
           }
+          // Terminal restoration precedes worker/session joins. Observe the owned
+          // process tree before q, then require its exit within the same 30 s bound.
+          const processTree = spawnSync('ps', ['-axo', 'pid=,ppid='], {
+            encoding: 'utf8',
+            timeout: 1000,
+          });
+          expect(processTree.status, processTree.stderr).toBe(0);
+          const rows = processTree.stdout
+            .trim()
+            .split('\n')
+            .map((row) => row.trim().split(/\s+/).map(Number));
+          const owned = new Set([boardPid]);
+          for (let previous = 0; previous !== owned.size;) {
+            previous = owned.size;
+            for (const [pid, parent] of rows) if (owned.has(parent!)) owned.add(pid!);
+          }
           tmux(['send-keys', '-t', pane, 'q']);
           await vi.waitFor(
-            () => expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('0'),
+            () => {
+              expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('0');
+              for (const pid of owned) expect(() => process.kill(pid, 0)).toThrow();
+            },
             { timeout: 30_000, interval: 50 }
           );
         } finally {
