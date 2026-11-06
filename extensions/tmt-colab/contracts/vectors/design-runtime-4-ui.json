@@ -108,7 +108,8 @@
     "BrowserPageRow",
     "BrowserWorkBand",
     "BrowserMessageRow",
-    "BrowserStatusLine"
+    "BrowserStatusLine",
+    "TerminalFrame"
   ],
   "blockParts": [
     "BlockDocument",

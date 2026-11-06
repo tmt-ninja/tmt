@@ -490,7 +490,7 @@ def attachment_entries():
 # The standalone copy of a page that opts in to the bundled runtime (#1693): the renderer frame's
 # own document with the runtime written into its head. The policy is the frame's, minus the
 # `sandbox` directive a <meta> cannot carry.
-STANDALONE_POLICY = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+STANDALONE_POLICY = ("default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; "
                      "img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; "
                      "object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; "
                      "worker-src 'none'; manifest-src 'none'")

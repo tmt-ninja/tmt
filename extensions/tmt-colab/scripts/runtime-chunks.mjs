@@ -10,7 +10,9 @@ const vectorUrl = new URL('../contracts/vectors/page-runtime-chunks-v1.json', im
 /** The versioned chunk list the build and the parent share. */
 export const chunkVector = JSON.parse(readFileSync(vectorUrl, 'utf8'));
 /** The chunks that ship bytes now, in vector (load) order. */
-export const builtChunks = chunkVector.chunks.filter((chunk) => !chunk.reserved);
+export const builtChunks = chunkVector.chunks.filter((chunk) => !chunk.reserved && chunk.kind !== 'wasm');
+/** The only binary chunk is built by the renderer owner, not by the app bundler. */
+export const wasmChunk = chunkVector.chunks.find((chunk) => chunk.kind === 'wasm');
 
 /** Which chunk owns a module, by its resolved path. The first match wins; everything else is base.
  * A module that a lower chunk needs belongs to that lower chunk (the build refuses an upward edge). */
@@ -94,6 +96,8 @@ export function runtimeChunksPlugin({ compiler }) {
         if (output.isEntry) files.get(name).entry = id;
         delete bundle[fileName];
       }
+      const wasm = readFileSync(new URL('../typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm', import.meta.url));
+      this.emitFile({ type: 'asset', fileName: `assets/colab-runtime-terminal-${digest(wasm).slice(0, 16)}.wasm`, source: wasm });
       for (const chunk of builtChunks) {
         const list = files.get(chunk.name);
         if (!list.entry) throw new Error(`Page runtime chunk ${chunk.name} has no entry`);

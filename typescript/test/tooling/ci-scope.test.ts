@@ -76,6 +76,10 @@ it('selects the wasm renderer proof for its inputs and CI wiring only', () => {
     'rust/crates/tmt-cli-style/src/lib.rs',
     '.github/workflows/ci.yml',
     'rust/Cargo.lock',
+    'extensions/tmt-colab/scripts/terminal-frame-regen.sh',
+    'extensions/tmt-colab/contracts/vectors/page-runtime-chunks-v1.json',
+    'extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm',
+    'extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm.js',
   ])
     expect(selectRendererProof([file]), file).toBe(true);
   expect(selectRendererProof([])).toBe(false);

@@ -1683,17 +1683,23 @@ export async function mountRenderer(
       settleTimer = undefined;
       settled = false;
     }
+    // Transfer a per-bind copy; transferring the cached verified buffer would detach it.
+    const terminalBytes = bundle?.wasm?.bytes.slice(0);
+    const boundRuntime =
+      bundle && terminalBytes
+        ? { ...bundle, wasm: { mime: 'application/wasm' as const, bytes: terminalBytes } }
+        : bundle;
     frame.contentWindow?.postMessage(
       {
         type: 'colab.render.bind',
         ...snapshot,
         theme: frameTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
-        ...(bundle ? { runtime: bundle } : {}),
+        ...(boundRuntime ? { runtime: boundRuntime } : {}),
         ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
       },
       '*',
-      [channel.port2],
+      terminalBytes ? [channel.port2, terminalBytes] : [channel.port2],
     );
   };
   frame.src = rendererUrl(base);

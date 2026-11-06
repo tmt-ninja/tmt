@@ -1,5 +1,6 @@
 //! Shared build-time and runtime admission of exact browser asset bytes.
-use std::collections::BTreeMap;
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeMap, sync::LazyLock};
 
 pub const APP_BYTES: usize = 16 * 1024 * 1024;
 pub const APP_FILES: usize = 128;
@@ -15,7 +16,32 @@ fn entries(kind: &'static str) -> impl Iterator<Item = &'static str> {
     })
 }
 
+/// Only the one pinned renderer binary is admitted, in native and build inventories.
+static TERMINAL_PIN: LazyLock<(String, String, usize)> = LazyLock::new(|| {
+    let pin: serde_json::Value =
+        serde_json::from_str(include_str!("../../../typescript/app/runtime-pin.json"))
+            .expect("runtime pin is JSON");
+    let wasm = pin["chunks"]
+        .as_array()
+        .expect("runtime chunks")
+        .iter()
+        .find(|chunk| chunk["kind"] == "wasm")
+        .expect("one renderer pin");
+    (
+        format!("/{}", wasm["path"].as_str().expect("renderer path")),
+        wasm["sha256"].as_str().expect("renderer hash").to_owned(),
+        wasm["length"].as_u64().expect("renderer length") as usize,
+    )
+});
+
+pub fn is_terminal_wasm(route: &str) -> bool {
+    route == TERMINAL_PIN.0
+}
+
 pub fn content_type(route: &str) -> Option<&'static str> {
+    if is_terminal_wasm(route) {
+        return Some("application/wasm");
+    }
     let top = route.strip_prefix('/')?;
     if entries("html").any(|entry| entry == top) {
         return Some("text/html; charset=utf-8");
@@ -61,6 +87,12 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
         if content_type(route).is_none() {
             return Err("Unsupported or unsafe app asset route.");
         }
+        if is_terminal_wasm(route) {
+            let digest = format!("{:x}", Sha256::digest(bytes));
+            if bytes.len() != TERMINAL_PIN.2 || bytes.len() > 614_400 || digest != TERMINAL_PIN.1 {
+                return Err("Terminal renderer does not match its pin.");
+            }
+        }
         total = total.checked_add(bytes.len()).ok_or("App size overflow.")?;
         if bytes.is_empty() || total > APP_BYTES {
             return Err("App assets must be nonempty and bounded.");
@@ -102,6 +134,36 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_wasm_is_the_only_binary_route_and_must_match_its_pin() {
+        let wasm: &[u8] =
+            include_bytes!("../../../typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm");
+        assert_eq!(content_type(&TERMINAL_PIN.0), Some("application/wasm"));
+        assert_eq!(content_type("/assets/unrelated.wasm"), None);
+        assert_eq!(
+            content_type("/assets/colab-runtime-terminal-0000000000000000.wasm"),
+            None
+        );
+        let page: &[u8] = b"<html></html>";
+        let files = [
+            ("/index.html", page),
+            ("/renderer.html", page),
+            ("/reader.html", page),
+            ("/assets/a.js", b"js" as &[u8]),
+            ("/assets/a.css", b"css" as &[u8]),
+            (TERMINAL_PIN.0.as_str(), wasm),
+        ];
+        assert_eq!(validate(&files), Ok(()));
+        let mut changed = wasm.to_vec();
+        changed[0] ^= 1;
+        let mut bad = files;
+        bad[5].1 = &changed;
+        assert_eq!(
+            validate(&bad),
+            Err("Terminal renderer does not match its pin.")
+        );
+    }
 
     #[test]
     fn declared_entries_are_the_only_top_level_files() {
