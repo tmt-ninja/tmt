@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -3782,44 +3783,46 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
-  it.each(['1', '0', undefined])(
-    'retains chrome artifacts only on failure for required=%s',
-    (required) => {
-      const source = readFileSync(
-        new URL(
-          '../../../extensions/tmt-colab/typescript/app/playwright.config.ts',
-          import.meta.url
-        ),
-        'utf8'
-      );
-      const exported: {
-        default?: {
-          use: { trace: string; video: string };
-          timeout: number;
-          retries: number;
-          workers: number;
-        };
-      } = {};
-      runInNewContext(
-        ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
-          .outputText,
-        {
-          exports: exported,
-          process: { env: { COLAB_CHROME_REQUIRED: required } },
-          require: (specifier: string) => {
-            expect(specifier).toBe('@playwright/test');
-            return { defineConfig: (config: unknown) => config };
-          },
-        }
-      );
-      expect(exported.default?.use.trace).toBe('retain-on-failure');
-      expect(exported.default?.use.video).toBe(required === '1' ? 'retain-on-failure' : 'off');
-      expect(exported.default).toMatchObject({ timeout: 30000, retries: 0, workers: 1 });
-    }
-  );
-  it.each([0, 124, 1])(
-    'bounds root cleanup and preserves before/after summary for exit %i',
-    (status) => {
+  it('retains failure traces without enabling video recording', () => {
+    const source = readFileSync(
+      new URL('../../../extensions/tmt-colab/typescript/app/playwright.config.ts', import.meta.url),
+      'utf8'
+    );
+    const exported: {
+      default?: {
+        use: { trace: string };
+        timeout: number;
+        retries: number;
+        workers: number;
+      };
+    } = {};
+    runInNewContext(
+      ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+        .outputText,
+      {
+        exports: exported,
+        process: { env: {} },
+        require: (specifier: string) => {
+          expect(specifier).toBe('@playwright/test');
+          return { defineConfig: (config: unknown) => config };
+        },
+      }
+    );
+    expect(exported.default?.use.trace).toBe('retain-on-failure');
+    expect(exported.default?.use).not.toHaveProperty('video');
+    expect(source).not.toContain('COLAB_CHROME_REQUIRED');
+    expect(exported.default).toMatchObject({ timeout: 30000, retries: 0, workers: 1 });
+  });
+  it.each([
+    { available: '11534336', status: 0, action: 'run' },
+    { available: '11534336', status: 124, action: 'run' },
+    { available: '11534336', status: 1, action: 'run' },
+    { available: '20971520', status: 0, action: 'skipped' },
+    { available: '85983232', status: 0, action: 'skipped' },
+    { available: 'unknown', status: 0, action: 'refused' },
+  ])(
+    'bounds conditional root cleanup for $available KiB / exit $status / $action',
+    ({ available, status, action }) => {
       const ci = readFileSync(
         new URL('../../../.github/workflows/ci.yml', import.meta.url),
         'utf8'
@@ -3852,7 +3855,7 @@ describe('required CI gate', () => {
         );
         writeExecutable(
           path.join(root, 'df'),
-          `#!${process.execPath}\nconst fs=require('node:fs');let n=Number(fs.readFileSync(process.env.DF_COUNT,'utf8'));fs.writeFileSync(process.env.DF_COUNT,String(n+1));console.log(n===0?'root-before 86%':'root-after 50%');\n`,
+          `#!${process.execPath}\nconst fs=require('node:fs');if(process.argv[2]==='-Pk'){console.log('Filesystem 1024-blocks Used Available Capacity Mounted on');console.log('/dev/root 100000000 10000000 '+process.env.ROOT_AVAILABLE+' 10% /');}else{let n=Number(fs.readFileSync(process.env.DF_COUNT,'utf8'));fs.writeFileSync(process.env.DF_COUNT,String(n+1));console.log(n===0?'root-before':'root-after');}\n`,
           0o700
         );
         const result = spawnSync('bash', ['-c', script], {
@@ -3866,28 +3869,43 @@ describe('required CI gate', () => {
             CLEANUP_LOG: log,
             CLEANUP_STATUS: String(status),
             DF_COUNT: count,
+            ROOT_AVAILABLE: available,
           },
         });
-        expect(result.status, result.stdout + result.stderr).toBe(status === 1 ? 1 : 0);
-        expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual([
-          'timeout',
-          '--kill-after=5s',
-          '60s',
-          'rm',
-          '-rf',
-          '--',
-          '/usr/local/lib/android',
-          '/usr/share/dotnet',
-          '/usr/local/.ghcup',
-          '/opt/ghc',
-        ]);
+        expect(result.status, result.stdout + result.stderr).toBe(
+          action === 'refused' || status === 1 ? 1 : 0
+        );
+        expect(existsSync(log)).toBe(action === 'run');
+        if (action === 'run')
+          expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual([
+            'timeout',
+            '--kill-after=5s',
+            '60s',
+            'rm',
+            '-rf',
+            '--',
+            '/usr/local/lib/android',
+            '/usr/share/dotnet',
+            '/usr/local/.ghcup',
+            '/opt/ghc',
+          ]);
         const text = readFileSync(summary, 'utf8');
-        expect(text).toContain('root-before 86%');
-        expect(text).toContain('root-after 50%');
-        expect(text).toContain('Elapsed seconds:');
-        expect(text).toContain(`Cleanup exit: ${status}`);
-        expect(readFileSync(count, 'utf8')).toBe('2');
-        if (status === 124) expect(result.stdout).toContain('::warning::');
+        expect(text).toContain('root-before');
+        if (action === 'refused') {
+          expect(result.stdout).toContain('Could not read root available space.');
+          expect(text).not.toContain('After cleanup:');
+          expect(readFileSync(count, 'utf8')).toBe('1');
+        } else {
+          expect(text).toContain('root-after');
+          expect(text).toContain(
+            `Root available KiB: ${available}; cleanup threshold KiB: 20971520`
+          );
+          expect(text).toContain(`Cleanup: ${action}`);
+          expect(text).toContain('Elapsed seconds:');
+          expect(text).toContain(`Cleanup exit: ${status}`);
+          expect(readFileSync(count, 'utf8')).toBe('2');
+          if (status === 124) expect(result.stdout).toContain('::warning::');
+        }
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

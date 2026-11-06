@@ -10,13 +10,7 @@ export default defineConfig({
   timeout: 30000,
   // The app's View Transitions animate for about half a second; tests that are not about motion
   // run without them (a spec that is calls `emulateMedia({ reducedMotion: 'no-preference' })`).
-  use: {
-    baseURL,
-    trace: 'retain-on-failure',
-    // Only the required chrome job records video; passing-test artifacts are removed.
-    video: process.env.COLAB_CHROME_REQUIRED === '1' ? 'retain-on-failure' : 'off',
-    reducedMotion: 'reduce',
-  },
+  use: { baseURL, trace: 'retain-on-failure', reducedMotion: 'reduce' },
   webServer: {
     command: `./node_modules/.bin/vp dev --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,
