@@ -7,6 +7,7 @@ import {
 } from '../../../../../design/systems/compiler.mjs';
 import {
   DesignDraftError,
+  PIN_WAIT_MS,
   type DesignSystemBundle,
   type DesignSystemLock,
   type DesignSystemSource,
@@ -278,12 +279,28 @@ export function pageDesignSystems(
         revision: (page) => follow.latest?.get(page),
         set: (page, revision, doc) => follow.docs.set(page, { revision, doc }),
       };
-      return (follow.draft ??= compileDraft(transport, system, undefined, docs).catch(
+      if (follow.draft) return follow.draft;
+      const started = Date.now();
+      const draft: Promise<DesignSystemBundle> = compileDraft(
+        transport,
+        system,
+        undefined,
+        docs,
+      ).then(
+        (bundle) => {
+          // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
+          // tells the followers once, so they draw it now rather than at the next edit.
+          if (Date.now() - started >= PIN_WAIT_MS && follow.draft === draft && !follow.stopped)
+            for (const listener of follow.listeners) listener();
+          return bundle;
+        },
         (error: unknown) => {
-          follow.draft = undefined;
+          if (follow.draft === draft) follow.draft = undefined;
           throw error;
         },
-      ));
+      );
+      follow.draft = draft;
+      return draft;
     },
     watch(system, changed) {
       if (system === BUILT_IN_SYSTEM) return () => {};

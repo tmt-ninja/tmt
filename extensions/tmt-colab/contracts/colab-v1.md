@@ -5587,6 +5587,8 @@ page follows, only the root stays subscribed, so a follow holds one page connect
 system's size: component changes come from the [live page list](#live-page-list)'s revisions, and a
 component page is opened only for the compile itself. Where no live list exists (hosted, readers)
 a component edit shows on the next open or root change. A draft that does not compile shows the page's design-system notice, never a blank page.
+A page waits 4 s for its design system, then draws the notice; a followed draft that finishes later
+redraws its followers once with it.
 A lock is verified against its release's hash and never changes. Publish records a release and
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing.

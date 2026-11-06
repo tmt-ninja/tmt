@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
 import {
   bundleHash,
   checkPageElements,
   DesignDraftError,
   noticeFrame,
+  PIN_WAIT_MS,
 } from '../src/design-system.js';
 import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
 import type { Bundle } from '../../../../../design/systems/compiler.mjs';
@@ -669,6 +670,49 @@ describe('live draft (#5967)', () => {
     await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
     expect(changes).toBe(1);
     stop();
+  });
+
+  it('a draft slower than a page waits for tells its followers once, so they draw it (#6162)', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const slow = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === button) await held;
+        return transport.page(id);
+      },
+    } as PageTransport;
+    try {
+      const source = pageDesignSystems(slow);
+      let changes = 0;
+      const stop = source.watch(rootId, () => changes++);
+      const draft = source.draft(rootId);
+      // The page gave up waiting; the compile finishes later and the followers hear of it once.
+      now += PIN_WAIT_MS;
+      release();
+      const bundle = await draft;
+      expect(changes).toBe(1);
+      // Drawing again reuses that draft and tells no one.
+      expect(await source.draft(rootId)).toBe(bundle);
+      expect(changes).toBe(1);
+      stop();
+      // A draft in time tells no one.
+      const quick = pageDesignSystems(transport);
+      let quickChanges = 0;
+      const stopQuick = quick.watch(rootId, () => quickChanges++);
+      await quick.draft(rootId);
+      expect(quickChanges).toBe(0);
+      stopQuick();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('draws the notice, never a blank page, when the draft is broken', async () => {
