@@ -1018,6 +1018,38 @@ fn generated_declarations_and_assets_have_no_composed_total_cap() {
 }
 
 #[test]
+fn wasm_asset_with_matching_hash_is_immutable_and_served_as_wasm() {
+    let bytes = b"verified wasm fixture";
+    let digest = hash(bytes);
+    let path = format!("/assets/colab-runtime-terminal-{}.wasm", &digest[..16]);
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":[
+        {"path":path,"sha256":digest,"length":bytes.len(),"contentType":"application/wasm","immutable":true},
+        {"path":"/index.html","sha256":digest,"length":bytes.len(),"contentType":"text/html"}
+    ]})).unwrap();
+    let bundle = hosting_fixture::from_contents(
+        &manifest,
+        &[
+            (path.as_str(), bytes.as_slice()),
+            ("/index.html", bytes.as_slice()),
+        ],
+    )
+    .unwrap();
+    let content = compose(&[bundle]).unwrap().unwrap();
+    let config = content.config();
+    let headers = config["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["glob"] == path)
+        .unwrap();
+    assert_eq!(headers["headers"]["Content-Type"], "application/wasm");
+    assert_eq!(
+        headers["headers"]["Cache-Control"],
+        "public, max-age=31536000, immutable"
+    );
+}
+
+#[test]
 fn immutable_requires_a_matching_verified_hash_prefix_under_assets() {
     let digest = hash(b"hello");
     let matching = format!("/assets/colab-runtime-fixture-{}.js", &digest[..16]);

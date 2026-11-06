@@ -3511,7 +3511,7 @@ CSP is 1 to 2048 printable ASCII bytes without CR/LF. Route paths are absolute, 
 ASCII with no empty, dot or hidden segment, escape, query or fragment; `/__` and descendants
 are reserved. There is no product file-count, per-file or total-byte cap; provider refusals
 remain authoritative. Digests are lowercase SHA-256 of exact raw bytes. Types are `text/html`,
-`text/plain`, `text/css`, `text/javascript`, `application/javascript`, `application/json`,
+`text/plain`, `text/css`, `text/javascript`, `application/javascript`, `application/json`, `application/wasm`,
 `image/svg+xml`, `image/png`, `image/jpeg`, `image/webp`, `image/x-icon`, `font/woff` or `font/woff2`.
 The declaration digest covers this portable inventory, never installation coordinates.
 
