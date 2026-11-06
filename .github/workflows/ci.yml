@@ -872,7 +872,44 @@ jobs:
         run: |
           chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr ../rust/target/debug/examples/colab-runtime-fixture
           chmod +x ../rust/target/debug/examples/runtime-caller-fixture
-          pnpm test:run
+          pnpm test:run --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-two-workers.json"
+      # #5238: one ordered same-runner baseline/candidate measurement; removed after qualification.
+      - name: Measure retained tooling with four workers
+        working-directory: typescript
+        run: pnpm test:run --maxWorkers=4 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-four-workers.json"
+      - name: Verify worker comparison identities and record elapsed time
+        working-directory: typescript
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import assert from 'node:assert/strict';
+          import { availableParallelism, cpus } from 'node:os';
+          const reports = [2, 4].map((workers) => {
+            const name = workers === 2 ? 'two' : 'four';
+            const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `unit-${name}-workers.json`), 'utf8'));
+            const identities = report.testResults.flatMap((file) =>
+              file.assertionResults.map((test) => JSON.stringify([file.name, test.fullName, test.status]))
+            ).sort();
+            assert(identities.length > 0, 'Worker comparison cannot accept empty discovery.');
+            assert.equal(report.success, true, `The ${workers}-worker run must pass.`);
+            return { workers, identities, seconds: (report.testResults.reduce((end, file) => Math.max(end, file.endTime), 0) - report.startTime) / 1000 };
+          });
+          assert.equal(reports[0].identities.length, reports[1].identities.length, 'Worker comparison test counts differ.');
+          if (JSON.stringify(reports[0].identities) !== JSON.stringify(reports[1].identities))
+            throw new Error('Worker comparison file/test/status identities differ.');
+          const lines = ['### Unit worker comparison (#5238)', `Runner logical CPUs: ${cpus().length}; available parallelism: ${availableParallelism()}.`, 'Ordered 2-worker baseline then 4-worker candidate; cache/order bias is disclosed.'];
+          for (const report of reports) lines.push(`${report.workers} workers: ${report.seconds.toFixed(3)} s, ${report.identities.length} identical test identities.`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+          NODE
+      - name: Preserve worker comparison reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-worker-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/unit-*-workers.json
+          retention-days: 3
+          if-no-files-found: warn
 
   # The Docker E2E suite runs as two jobs so that the longest required job is
   # about half as long. `docker-e2e` below is the required check named `Docker E2E`.
