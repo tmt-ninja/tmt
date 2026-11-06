@@ -870,6 +870,10 @@ of the app policy, whether served from the embedded table or `--app-dir`:
 default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts
 ```
 
+`wasm-unsafe-eval` also lets author JavaScript compile WebAssembly. It adds compute and resource
+consumption, but grants no network, storage, or parent authority under this opaque sandbox and the
+remaining CSP. It MUST NOT be replaced by `unsafe-eval` or accompanied by broader network access.
+
 The response `sandbox allow-scripts` MUST also make a directly opened renderer
 opaque; it MUST NOT depend only on the embedding iframe attribute. A missing
 renderer makes the app inventory incomplete, following the default/explicit
@@ -2772,10 +2776,15 @@ markup alone never adds a chunk, and a page without such components gets the `ba
 a chunk or requests one. The parent fetches each chosen chunk and the theme `assets/colab-runtime.css`, next to
 the renderer on the mount or at the root of the hosted origin, accepts a file only when its SHA-256 and length
 equal the build's `runtime-pin.json`, keeps verified text once per path for the tab (never a failure), and sends
-them as the optional `runtime` field: exactly `{scripts,style}`, where `scripts` holds one to eight strings of at
+them as the optional `runtime` field: `{scripts,style}` with an optional `wasm` field, where `scripts` holds one to eight strings of at
 most 1 MiB each and 3 MiB together, and `style` at most 256 KiB UTF-8. The bootstrap refuses the whole bind when
 `runtime` has other keys or types, exceeds a cap, or a string contains an HTML comment opener or the closing tag
-of its own element. It writes `<style type="text/tailwindcss">` (the theme, as Tailwind source), then one
+of its own element. A verified component declaring `TerminalFrame` additionally selects the vector's one
+`kind:wasm` entry. The trusted parent fetches only that pinned asset, streams at most 614,400 bytes,
+checks its exact length and SHA-256, then transfers a per-bind ArrayBuffer copy as
+`wasm:{mime:"application/wasm",bytes}`. The frame accepts exactly those two fields and the same bound;
+a stale render never receives the bytes. Missing or invalid optional bytes leave TerminalFrame unavailable
+without taking down unrelated chunks. The cached verified bytes are never transferred or detached. It writes `<style type="text/tailwindcss">` (the theme, as Tailwind source), then one
 `<script>` per chunk in order, then a script that seals the runtime (freezing `window.tmt.ui` and the shared
 parts and removing the chunk loader's globals) into the trusted head after the acknowledgement and before the
 author's document, so `window.tmt` and the theme exist before any page script and each chunk runs once per
@@ -7594,12 +7603,20 @@ when the file is opened from disk with no Colab and no network. A page needs a c
   [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
   the root.
 
+A page with a `<meta name="tmt-ds">` element also gets a standalone copy, even when it needs
+neither bundled asset. Verified design-system bundles are not yet included in standalone export
+(#6157). Its copy displays the following notice before the source, rather than implying that its
+components are available: `<p role="status" data-colab-standalone-notice>Design-system components,
+including TerminalFrame, are unavailable in standalone export.</p>` (without the line break).
+No terminal wasm is embedded in this case. Browser and native builders pin the same exact output in
+[`vectors/standalone-named-design-v1.json`](vectors/standalone-named-design-v1.json).
+
 A page can need both; it then carries both. The bytes are this template around the exact source, in
 UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
 what the page needs, and nothing else added:
 
 ```text
-<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>{source}</body></html>
+<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>[{namedDesignNotice}]{source}</body></html>
 ```
 
 A page that needs only the runtime gets exactly the bytes it got before the design system existed.

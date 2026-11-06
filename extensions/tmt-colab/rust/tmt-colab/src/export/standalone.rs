@@ -142,10 +142,16 @@ pub fn document(source: &str, assets: &Assets) -> Result<Vec<u8>, &'static str> 
     let runtime_script = assets.runtime.map_or_else(String::new, |runtime| {
         format!("<script>{}</script>", runtime.script)
     });
+    let named_design = page_check::named_design(source).map_err(|_| TOO_DEEP)?;
+    let notice = if named_design {
+        "<p role=\"status\" data-colab-standalone-notice>Design-system components, including TerminalFrame, are unavailable in standalone export.</p>"
+    } else {
+        ""
+    };
     Ok(format!(
         "<!doctype html><html{design_attribute}><head><meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\">\
          <meta charset=\"utf-8\">{design_style}{runtime_style}<script>{THEME_SWITCH}</script>\
-         {design_script}{runtime_script}</head><body>{source}</body></html>",
+         {design_script}{runtime_script}</head><body>{notice}{source}</body></html>",
         policy = meta_policy(),
     )
     .into_bytes())
@@ -168,7 +174,11 @@ pub fn derive(source: &str, assets: &Assets) -> Option<Derived> {
         Err(page_check::TooDeep) => return skipped(TOO_DEEP),
     };
     let wants_design = uses_design(source);
-    if !wants_runtime && !wants_design {
+    let named_design = match page_check::named_design(source) {
+        Ok(named) => named,
+        Err(page_check::TooDeep) => return skipped(TOO_DEEP),
+    };
+    if !wants_runtime && !wants_design && !named_design {
         return None;
     }
     if wants_runtime && assets.runtime.is_none() {
@@ -219,6 +229,22 @@ mod tests {
         runtime: Some(RUNTIME),
         design: Some(DESIGN),
     };
+
+    #[test]
+    fn named_design_standalone_matches_shared_notice_vector() {
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../contracts/vectors/standalone-named-design-v1.json"
+        ))
+        .unwrap();
+        let source = vector["source"].as_str().unwrap();
+        let derived = derive(source, &Assets::default()).unwrap();
+        assert!(derived.outcome.included);
+        assert_eq!(
+            derived.file.unwrap(),
+            vector["html"].as_str().unwrap().as_bytes()
+        );
+        assert!(derive("<!-- <meta name=\"tmt-ds\"> -->", &Assets::default()).is_none());
+    }
 
     #[test]
     fn the_shared_marker_vectors_decide_the_opt_in() {
