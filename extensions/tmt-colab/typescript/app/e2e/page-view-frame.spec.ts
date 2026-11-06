@@ -1060,7 +1060,8 @@ for (const width of [390, 1440])
     expect(fit.scroll).toBeLessThanOrEqual(fit.client);
     const drawn = await stage('sheet').boundingBox();
     const drawer = await sheet.boundingBox();
-    const tail = (drawn?.y ?? 0) + (drawn?.height ?? 0) - ((drawer?.y ?? 0) + (drawer?.height ?? 0));
+    const tail =
+      (drawn?.y ?? 0) + (drawn?.height ?? 0) - ((drawer?.y ?? 0) + (drawer?.height ?? 0));
     expect(Math.abs(tail)).toBeLessThanOrEqual(1);
     // With a minimum the stage is a device: it holds the minimum, and its sheet keeps the
     // phone's 60% bound and scrolls within it.
