@@ -1,5 +1,8 @@
 import {
   Button,
+  Command,
+  CommandItem,
+  CommandList,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -10,13 +13,12 @@ import {
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { FileText, Plus, Search } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
-import { Listbox } from './components/listbox.js';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { editFromSearch, PageListSearch, searchFromEdit } from './page-list-search.js';
 import { authorCounts, filterPages, projectCounts } from './projects.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
-import type { AttachRefusal } from './work-tree.js';
+import { pageLocation, type AttachRefusal } from './work-tree.js';
 
 export type AddChoice =
   | { kind: 'attach'; pageId: string; title: string }
@@ -28,17 +30,11 @@ const TITLE_POINTS = 120;
 /** The Create row's value; page IDs are UUIDs, so it never names a page. */
 const CREATE = 'create';
 
-function why(refusal: AttachRefusal): string {
-  if (refusal.kind === 'self') return t.refusedSelf;
-  if (refusal.kind === 'loop') return t.refusedLoop;
-  return t.refusedAttached(refusal.parentTitle);
-}
-
 /**
  * The one Add window (#5820 Mock 5): search the owner list with the list's own search input and
  * matcher (#5868: `project:` and `by:` chips, free text) and attach a page, or create a page with
- * the typed free text when no page has exactly that title. A page that cannot be attached stays listed,
- * dimmed, with why. Enter picks the highlighted row; Esc closes. The owner's admission decides.
+ * the typed free text when no page has exactly that title. Refused pages are omitted. Enter picks
+ * the highlighted row; Esc closes. The owner's admission decides again when a choice is written.
  */
 export function AddSubpageDialog({
   title,
@@ -46,7 +42,11 @@ export function AddSubpageDialog({
   refusal,
   onChoose,
   onClose,
+  mode = 'child',
+  nowUnder,
 }: {
+  mode?: 'child' | 'parent';
+  nowUnder?: string;
   /** This page's title. */
   title: string;
   pages?: readonly PageSummary[];
@@ -58,6 +58,11 @@ export function AddSubpageDialog({
   // The list's own search draft: `project:` and `by:` tokens and free text (#5868).
   const [edit, setEdit] = useState(() => editFromSearch([], ''));
   const [busy, setBusy] = useState(false);
+  const [active, setActive] = useState('');
+  const [list, setList] = useState<HTMLDivElement | null>(null);
+  const resultTriggerRef = useCallback(() => {}, []);
+  const [listId, setListId] = useState('');
+  const [activeId, setActiveId] = useState<string>();
   const [error, setError] = useState<string>();
   const content = useRef<HTMLDivElement>(null);
   const filter = searchFromEdit(edit);
@@ -69,18 +74,29 @@ export function AddSubpageDialog({
     { projects: filter.projects, authors: filter.authors, text: typed },
     'updated',
   );
+  const eligible = candidates.filter((page) => !refusal(page.id));
   const exact = candidates.some((page) => page.title.trim() === typed);
   // Create takes only the free text, never a token.
-  const creatable = typed !== '' && !exact && [...typed].length <= TITLE_POINTS;
-  const options = [
-    ...(creatable ? [{ value: CREATE, label: t.create(typed), disabled: busy }] : []),
-    ...candidates.map((page) => ({
-      value: page.id,
-      label: page.title,
-      disabled: busy || refusal(page.id) !== undefined,
-      group: { key: 'pages', label: t.pages },
-    })),
-  ];
+  const creatable = mode === 'child' && typed !== '' && !exact && [...typed].length <= TITLE_POINTS;
+  const values = [...(creatable ? [CREATE] : []), ...eligible.map((page) => page.id)];
+  const current = values.includes(active) ? active : (values[0] ?? '');
+  useLayoutEffect(() => {
+    const node = list;
+    if (!node) return;
+    const sync = () => {
+      setListId(node.id);
+      setActiveId(node.querySelector<HTMLElement>('[data-selected="true"]')?.id);
+    };
+    const observer = new MutationObserver(sync);
+    observer.observe(node, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['id', 'data-selected'],
+    });
+    sync();
+    return () => observer.disconnect();
+  }, [list]);
   const choose = (choice: AddChoice) => {
     if (busy) return;
     setBusy(true);
@@ -107,69 +123,112 @@ export function AddSubpageDialog({
           }
         >
           <DialogHeader>
-            <DialogTitle>{t.addTitle(title)}</DialogTitle>
-            <DialogDescription>{t.addDescription}</DialogDescription>
+            <DialogTitle>{mode === 'parent' ? t.moveTitle(title) : t.addTitle(title)}</DialogTitle>
+            <DialogDescription>
+              {mode === 'parent' ? t.moveDescription : t.addDescription}
+            </DialogDescription>
+            {mode === 'parent' && nowUnder && <p>{t.nowUnder(nowUnder)}</p>}
           </DialogHeader>
           <div className="work-add-command">
-            <Listbox
-              label={t.search}
-              presentation="results"
-              options={options}
-              value=""
-              onChange={(value) => {
-                if (value === CREATE) choose({ kind: 'create', title: typed });
-                else {
-                  const page = candidates.find((candidate) => candidate.id === value);
-                  if (page) choose({ kind: 'attach', pageId: page.id, title: page.title });
-                }
-              }}
-              renderOption={({ value, label }) => {
-                if (value === CREATE)
-                  return (
-                    <>
-                      <Plus aria-hidden="true" />
-                      <span className="work-add-title">{label}</span>
-                    </>
-                  );
-                const refused = refusal(value);
-                return (
-                  <>
-                    <FileText aria-hidden="true" />
-                    <span className="work-add-title">{label}</span>
-                    {refused && <span className="work-add-why">{why(refused)}</span>}
-                  </>
-                );
-              }}
-              inputTrigger={{
-                open: options.length > 0,
-                onOpenChange() {},
-                render: (trigger) => (
-                  <div className="work-add-search">
-                    <Search className="work-add-search-mark" aria-hidden="true" />
-                    <PageListSearch
-                      edit={edit}
-                      onChange={(next) => {
-                        setEdit(next);
-                        setError(undefined);
-                      }}
-                      resetKey={0}
-                      projects={projectCounts(offered)}
-                      authors={authorCounts(offered)}
-                      onApply={() => {}}
-                      onClear={() => {
-                        if (!busy) onClose();
-                      }}
-                      placeholder={t.search}
-                      label={t.search}
-                      resultTrigger={trigger}
-                      // Arrows move through the results and Enter picks while focus stays here.
-                      onUnhandledKeyDown={(event) => trigger.onKeyDown?.(event)}
-                    />
-                  </div>
-                ),
-              }}
-            />
-            {pages && candidates.length === 0 && <p className="work-add-note">{t.noMatch}</p>}
+            <Command shouldFilter={false} value={current} onValueChange={setActive}>
+              <div className="work-add-search">
+                <Search className="work-add-search-mark" aria-hidden="true" />
+                <PageListSearch
+                  edit={edit}
+                  onChange={(next) => {
+                    setEdit(next);
+                    setError(undefined);
+                  }}
+                  resetKey={0}
+                  projects={projectCounts(offered)}
+                  authors={authorCounts(offered)}
+                  onApply={() => {}}
+                  onClear={() => {
+                    if (!busy) onClose();
+                  }}
+                  placeholder={t.search}
+                  label={t.search}
+                  resultTrigger={{
+                    ref: resultTriggerRef,
+                    'aria-expanded': values.length > 0,
+                    'aria-controls': listId || undefined,
+                    'aria-activedescendant': activeId,
+                  }}
+                  onUnhandledKeyDown={(event) => {
+                    if (
+                      !event.isTrusted ||
+                      event.nativeEvent.isComposing ||
+                      (event.repeat && event.key === 'Enter') ||
+                      event.altKey ||
+                      event.ctrlKey ||
+                      event.metaKey ||
+                      event.shiftKey
+                    )
+                      return;
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!values.length) return;
+                      const step = event.key === 'ArrowDown' ? 1 : -1;
+                      setActive(
+                        values[
+                          (Math.max(0, values.indexOf(current)) + step + values.length) %
+                            values.length
+                        ] ?? '',
+                      );
+                    } else if ((event.key === 'Home' || event.key === 'End') && values.length) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setActive(event.key === 'Home' ? values[0] : values[values.length - 1]);
+                    } else if (event.key === 'Enter' && current) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (current === CREATE) choose({ kind: 'create', title: typed });
+                      else {
+                        const page = eligible.find((item) => item.id === current);
+                        if (page) choose({ kind: 'attach', pageId: page.id, title: page.title });
+                      }
+                    }
+                  }}
+                />
+              </div>
+              <CommandList ref={setList}>
+                {creatable && (
+                  <CommandItem
+                    value={CREATE}
+                    variant="page"
+                    disabled={busy}
+                    leading={<Plus aria-hidden="true" />}
+                    onSelect={() => {}}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClickCapture={(event) => {
+                      if (event.isTrusted) choose({ kind: 'create', title: typed });
+                    }}
+                  >
+                    {t.create(typed)}
+                  </CommandItem>
+                )}
+                {eligible.map((page) => (
+                  <CommandItem
+                    key={page.id}
+                    value={page.id}
+                    variant="page"
+                    disabled={busy}
+                    leading={<FileText aria-hidden="true" />}
+                    meta={pageLocation(page, offered)}
+                    onSelect={() => {}}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClickCapture={(event) => {
+                      if (event.isTrusted)
+                        choose({ kind: 'attach', pageId: page.id, title: page.title });
+                    }}
+                  >
+                    {page.title}
+                  </CommandItem>
+                ))}
+              </CommandList>
+            </Command>
+            {pages && eligible.length === 0 && <p className="work-add-note">{t.noMatch}</p>}
             {!pages && <p className="work-add-note">{t.pageListUnavailable}</p>}
           </div>
           {error && (

@@ -60,6 +60,88 @@ async function openAdd(page: Page, band: Locator) {
 }
 const px = (value: string) => Number.parseFloat(value);
 
+test('a refused move leaves the page at top level and retry attaches it', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await page.route('**/sdk/mount', (route) => route.fulfill({ status: 204 }));
+  await page.goto('/');
+  const fixture = '/test/page-move-browser.tsx';
+  await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Put “Release plan” under a page' });
+  await expect(dialog.getByText('Now under: Product / Planning')).toBeVisible();
+  await dialog.getByRole('option', { name: /Design/ }).click();
+  await expect(dialog).toHaveCount(0);
+  const notice = page.getByRole('alert');
+  await expect(notice).toContainText('This page is now at the top level');
+  const state = () => page.evaluate(async (path) => (await import(path)).moveState(), fixture);
+  expect((await state()).parent).toBeUndefined();
+  await notice.getByRole('button', { name: 'Retry' }).click();
+  await expect(notice).toHaveCount(0);
+  expect(await state()).toEqual({
+    parent: '20000000-0000-4000-8000-000000000103',
+    archived: false,
+    writes: [
+      '20000000-0000-4000-8000-000000000102:subpage.detach',
+      '20000000-0000-4000-8000-000000000103:subpage.attach',
+      '20000000-0000-4000-8000-000000000103:subpage.attach',
+    ],
+  });
+  expect(errors).toEqual([]);
+});
+
+test('archiving the open page remains in effect across a live update and can be restored', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const fixture = '/test/page-move-browser.tsx';
+  await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Archive…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Archive page' }).click();
+  await expect(page.getByText('Archived “Release plan”.')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Add a sub-page', includeHidden: true }),
+  ).toHaveCount(0);
+  await page.evaluate(async (path) => (await import(path)).updatePage(), fixture);
+  await expect(page.getByRole('button', { name: 'Restore page' })).toBeVisible();
+  await page.getByRole('button', { name: 'Restore page' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Restore page' }).click();
+  await expect(page.getByText('Restored “Release plan”.')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Add a sub-page', includeHidden: true }),
+  ).toHaveCount(1);
+  expect(
+    (await page.evaluate(async (path) => (await import(path)).moveState(), fixture)).archived,
+  ).toBe(false);
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`page header moves under another page at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await mount(page);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Put “Release plan” under a page' });
+      await expect(dialog.getByText('Now under: Remote launch')).toBeVisible();
+      await expect(dialog.getByRole('option', { name: /Remote pages v2/ })).toHaveCount(0);
+      const target = dialog.getByRole('option', { name: /Remote data plan design/ });
+      await expect(target).toContainText('pm');
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`6058-parent-${width}-${theme}.png`) });
+      await target.click();
+      await expect(dialog).toHaveCount(0);
+      expect(await calls(page)).toEqual([
+        { page: id(53), action: 'subpage.detach', body: { pageId: 'notes' } },
+        { page: id(51), action: 'subpage.attach', body: { pageId: 'notes' } },
+      ]);
+    });
+
 test('Mock 1: the collapsed head shows the page state and direct sub-page progress', async ({
   page,
 }) => {
@@ -160,30 +242,27 @@ test('Mock 3: one list of sub-pages nests three levels in place, each with direc
   );
 });
 
-test('Mock 5: Add attaches a chosen page and keeps unavailable pages listed with why', async ({
-  page,
-}) => {
+test('Mock 5: Add attaches a chosen page and filters unavailable pages', async ({ page }) => {
   const band = await mount(page);
   await expand(band);
   const dialog = await openAdd(page, band);
   const search = dialog.getByRole('combobox');
   await expect(search).toBeFocused();
+  await expect(search).toHaveAttribute('aria-activedescendant', /.+/);
+  const active = await search.getAttribute('aria-activedescendant');
+  expect(active).toBeTruthy();
+  await expect(page.locator(`[id="${active}"]`)).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowDown');
+  await expect(search).not.toHaveAttribute('aria-activedescendant', active!);
+  const nextActive = await search.getAttribute('aria-activedescendant');
+  await expect(page.locator(`[id="${nextActive}"]`)).toHaveAttribute('aria-selected', 'true');
   await search.fill('remote');
   const options = dialog.getByRole('option');
   await expect(options.first()).toHaveText('Create “remote” as a new sub-page');
-  for (const [title, why] of [
-    ['Remote pages v2', 'Already under Release plan'],
-    ['Remote launch', 'Would loop: it is above this page'],
-    ['Remote copy deck', 'Already under Remote launch'],
-  ]) {
-    const option = options.filter({
-      has: page.locator('.work-add-title', { hasText: new RegExp(`^${title}$`) }),
-    });
-    await expect(option).toContainText(why);
-    await expect(option).toBeDisabled();
-  }
+  for (const title of ['Remote pages v2', 'Remote launch', 'Remote copy deck'])
+    await expect(options.filter({ hasText: title })).toHaveCount(0);
   await search.fill('Release plan');
-  await expect(options.filter({ hasText: 'Release plan' }).first()).toContainText('This page');
+  await expect(options.filter({ hasText: 'Release plan' })).toHaveCount(0);
   // An exact title match offers no Create row.
   await expect(options.filter({ hasText: 'Create “' })).toHaveCount(0);
   await search.fill('data plan');
@@ -213,6 +292,7 @@ for (const [kind, typed, option, chip] of [
     const all = await results(dialog).count();
     await addField(dialog).focus();
     await page.keyboard.type(typed);
+    await expect(dialog).toBeVisible();
     await page.getByRole('option', { name: option }).click();
     const chosen =
       kind === 'project'
@@ -556,8 +636,8 @@ for (const width of [390, 1440])
       const input = dialog.getByRole('combobox');
       // The list's search field is itself the bordered area around its mark and chips.
       const wrapper = dialog.locator('.page-list-search-field');
-      const list = dialog.locator('.tmt-listbox-results-list');
-      await expect(dialog.getByRole('option')).toHaveCount(78);
+      const list = dialog.locator('[data-slot="command-list"]');
+      await expect(dialog.getByRole('option')).not.toHaveCount(0);
       // Bounded by the viewport minus space-l on each side.
       const inset = await page.evaluate(() =>
         Number.parseFloat(

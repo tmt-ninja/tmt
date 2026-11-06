@@ -2,7 +2,13 @@ import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
-import { PageWorkBand } from './work-band-live.js';
+import { onPage, PageWorkBand } from './work-band-live.js';
+import { AddSubpageDialog } from './work-add-dialog.js';
+import { moveBetweenParents, pageLocation, parentRefusal } from './work-tree.js';
+import { SaveNotApplied, SaveRefused } from './save.js';
+import { PageOperationDialog } from './page-operation-dialog.js';
+import { runPageOperations, type PageOperation } from './page-operations.js';
+import { operationStatus } from './page-operation-status.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
@@ -81,7 +87,7 @@ import {
   useRouterState,
   useRouter,
 } from '@tanstack/react-router';
-import type { PageView, PageSnapshot, PageTransport } from './transport.js';
+import type { PageView, PageSnapshot, PageSummary, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
 import {
   EmbeddedPageContext,
@@ -1661,9 +1667,168 @@ function OpenPage({
         .sort(),
     }),
   );
-  const archived = view.archived ?? snapshot.archived ?? false;
+  const [verifiedArchive, setVerifiedArchive] = useState<{ pageId: string; value: boolean }>();
+  const archiveOverride =
+    verifiedArchive?.pageId === snapshot.id ? verifiedArchive.value : undefined;
+  const archived = archiveOverride ?? view.archived ?? snapshot.archived ?? false;
+  useEffect(() => {
+    if (archiveOverride !== undefined && view.archived === archiveOverride)
+      setVerifiedArchive(undefined);
+  }, [archiveOverride, view.archived]);
   const wasArchived = useRef(archived);
   const [archiveAnnouncement, setArchiveAnnouncement] = useState('');
+  const [pageOperation, setPageOperation] = useState<PageOperation>();
+  const [pageOperationBusy, setPageOperationBusy] = useState(false);
+  const [pageOperationNotice, setPageOperationNotice] = useState<{
+    text: string;
+    failed: boolean;
+  }>();
+  const [choosingParent, setChoosingParent] = useState(false);
+  const [parentPages, setParentPages] = useState<readonly PageSummary[]>();
+  const [moveFailure, setMoveFailure] = useState<{ target: string; title: string }>();
+  const [moveUncertain, setMoveUncertain] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const activePage = useRef(snapshot.id);
+  activePage.current = snapshot.id;
+  useEffect(() => {
+    setChoosingParent(false);
+    setMoveFailure(undefined);
+    setMoveUncertain(false);
+    setMoveBusy(false);
+    setPageOperation(undefined);
+    setPageOperationBusy(false);
+    setPageOperationNotice(undefined);
+  }, [snapshot.id]);
+  useEffect(() => {
+    if (!choosingParent) return;
+    const abort = new AbortController();
+    setParentPages(undefined);
+    transport.spaceHome(abort.signal).then(
+      (home) => {
+        if (!abort.signal.aborted) setParentPages(home.pages);
+      },
+      () => {
+        if (!abort.signal.aborted) setParentPages(undefined);
+      },
+    );
+    return () => abort.abort();
+  }, [choosingParent, transport]);
+  const attachToParent = async (target: string) => {
+    await onPage(transport, target, async (binding) => {
+      if (!binding.work) throw new Error('This page cannot be changed here.');
+      await binding.work('subpage.attach', { pageId: snapshot.id });
+    });
+  };
+  const refreshParentPages = async () => {
+    const home = await transport.spaceHome();
+    rememberPages(transport, space, home.pages);
+    if (activePage.current === snapshot.id) setParentPages(home.pages);
+    return home.pages;
+  };
+  const movePage = async (target: string, title: string): Promise<string | undefined> => {
+    if (moveBusy) return text.workBand.moveUnknown;
+    setMoveBusy(true);
+    try {
+      const pages = await refreshParentPages();
+      if (activePage.current !== snapshot.id) return undefined;
+      const current = pages.find((page) => page.id === snapshot.id);
+      if (
+        !current ||
+        !pages.some((page) => page.id === target) ||
+        parentRefusal(snapshot.id, target, pages)
+      )
+        return text.workBand.moveUnknown;
+      const result = await moveBetweenParents(
+        current.summary?.parent?.page,
+        target,
+        async (parent, action) => {
+          await onPage(transport, parent, async (binding) => {
+            if (!binding.work) throw new Error('This page cannot be changed here.');
+            await binding.work(action, { pageId: snapshot.id });
+          });
+        },
+      );
+      if (activePage.current !== snapshot.id) return undefined;
+      if (result === 'attached') {
+        setMoveFailure(undefined);
+        setMoveUncertain(false);
+        await refreshParentPages().catch(() => {});
+        return undefined;
+      }
+      if (result === 'detached') {
+        const latest = await refreshParentPages();
+        if (activePage.current !== snapshot.id) return undefined;
+        const now = latest.find((page) => page.id === snapshot.id);
+        if (!now || now.summary?.parent) return text.workBand.moveUnknown;
+        setMoveFailure({ target, title });
+        setMoveUncertain(false);
+        return undefined;
+      }
+      return text.workBand.moveUnknown;
+    } catch {
+      return text.workBand.moveUnknown;
+    } finally {
+      if (activePage.current === snapshot.id) setMoveBusy(false);
+    }
+  };
+  const retryMove = async () => {
+    if (!moveFailure || moveBusy) return;
+    setMoveBusy(true);
+    try {
+      const pages = await refreshParentPages();
+      if (activePage.current !== snapshot.id) return;
+      const current = pages.find((page) => page.id === snapshot.id);
+      if (current?.summary?.parent?.page === moveFailure.target) {
+        setMoveFailure(undefined);
+        return;
+      }
+      if (
+        !current ||
+        current.summary?.parent ||
+        parentRefusal(snapshot.id, moveFailure.target, pages)
+      ) {
+        setMoveFailure(undefined);
+        setMoveUncertain(true);
+        return;
+      }
+      await attachToParent(moveFailure.target);
+      if (activePage.current !== snapshot.id) return;
+      setMoveFailure(undefined);
+      await refreshParentPages().catch(() => {});
+    } catch (failure) {
+      if (activePage.current !== snapshot.id) return;
+      if (!(failure instanceof SaveRefused || failure instanceof SaveNotApplied)) {
+        setMoveFailure(undefined);
+        setMoveUncertain(true);
+      }
+    } finally {
+      if (activePage.current === snapshot.id) setMoveBusy(false);
+    }
+  };
+  const runLifecycle = async () => {
+    if (!pageOperation || !transport.management || pageOperationBusy) return;
+    const kind = pageOperation;
+    const page = {
+      id: snapshot.id,
+      title: view.title || snapshot.title,
+      sharing: snapshot.sharing,
+    };
+    setPageOperationBusy(true);
+    const result = await runPageOperations(transport.management, [page], kind);
+    if (activePage.current !== page.id) return;
+    setPageOperationBusy(false);
+    setPageOperation(undefined);
+    setPageOperationNotice(operationStatus(result, kind, 1));
+    if (result.done.length && !result.awaiting.length)
+      setVerifiedArchive({ pageId: snapshot.id, value: kind === 'page.archive' });
+    if (result.done.length || result.failed?.failure.code === 'UNKNOWN') {
+      try {
+        rememberPages(transport, space, (await transport.spaceHome()).pages);
+      } catch {
+        /* The next read refreshes the list. */
+      }
+    }
+  };
   useEffect(() => {
     if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
     wasArchived.current = archived;
@@ -2440,10 +2605,21 @@ function OpenPage({
               canManage={!!transport.management}
               canFiles={!!snapshot.binding?.files}
               canProjects={!!transport.management}
+              canArchive={!!transport.management && !archived && !liveError}
+              canMove={
+                !!snapshot.binding?.work &&
+                !!snapshot.binding.canWork?.() &&
+                !archived &&
+                !liveError
+              }
               pin={pin}
               creatorLabel={creatorName(view)}
               onSelect={(action) => {
-                if (action === 'creator' || action === 'questions') {
+                if (action === 'put-under') {
+                  setChoosingParent(true);
+                } else if (action === 'archive') {
+                  setPageOperation('page.archive');
+                } else if (action === 'creator' || action === 'questions') {
                   close();
                   setMetadataDialog(action);
                 } else if (action === 'projects') openProjects(moreButtonRect());
@@ -2462,6 +2638,67 @@ function OpenPage({
         onDismiss={() => setMetadataDialog(null)}
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
+      {choosingParent && (
+        <AddSubpageDialog
+          mode="parent"
+          title={view.title || snapshot.title}
+          pages={parentPages}
+          nowUnder={
+            parentPages
+              ? pageLocation(
+                  parentPages.find((page) => page.id === snapshot.id) ?? snapshot,
+                  parentPages,
+                )
+              : undefined
+          }
+          refusal={(candidate) =>
+            parentPages ? parentRefusal(snapshot.id, candidate, parentPages) : { kind: 'self' }
+          }
+          onClose={() => setChoosingParent(false)}
+          onChoose={(choice) =>
+            choice.kind === 'attach'
+              ? movePage(choice.pageId, choice.title)
+              : Promise.resolve(text.workBand.moveUnknown)
+          }
+        />
+      )}
+      {moveFailure && (
+        <div className="panel-notice" role="alert">
+          <span>{text.workBand.moveFailed(moveFailure.title)}</span>
+          <BrowserAction
+            type="button"
+            variant="secondary"
+            label={text.workBand.retry}
+            disabled={moveBusy}
+            onActivate={() => void retryMove()}
+          />
+        </div>
+      )}
+      {moveUncertain && (
+        <div className="panel-notice" role="alert">
+          {text.workBand.moveUnknown}
+        </div>
+      )}
+      <PageOperationDialog
+        operation={pageOperation}
+        titles={[view.title || snapshot.title]}
+        busy={pageOperationBusy}
+        onConfirm={() => void runLifecycle()}
+        onCancel={() => setPageOperation(undefined)}
+      />
+      {(archived || pageOperationNotice) && (
+        <div className="panel-notice" role={pageOperationNotice?.failed ? 'alert' : 'status'}>
+          <span>{pageOperationNotice?.text ?? text.archiveAnnouncement}</span>
+          {archived && transport.management && (
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label={text.pageList.restoreButton}
+              onActivate={() => setPageOperation('page.unarchive')}
+            />
+          )}
+        </div>
+      )}
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
       </p>
@@ -2518,7 +2755,7 @@ function OpenPage({
             onSize={setWorkBandSize}
             work={view.work}
             pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-            binding={snapshot.binding}
+            binding={archived ? undefined : snapshot.binding}
             transport={transport}
             space={space}
             pageId={snapshot.id}

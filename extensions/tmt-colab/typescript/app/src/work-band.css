@@ -316,7 +316,7 @@ a.work-row-title:hover {
   gap: var(--tmt-ui-space-s);
 }
 /* The list's own search field (#5868); the whole field, mark and chips, keeps the one focus ring. */
-.work-add-command .tmt-listbox-results {
+.work-add-command [data-slot='command'] {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -349,28 +349,15 @@ a.work-row-title:hover {
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 /* Only the results scroll; the field stays at the top of the window. */
-.work-add-command .tmt-listbox-results-list {
+.work-add-command [data-slot='command-list'] {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
   margin-top: var(--tmt-ui-space-s);
   overflow-y: auto;
 }
-.work-add-command .tmt-listbox-option {
+.work-add-command [data-slot='command-item'] {
   min-height: var(--tmt-ui-row-height);
-  border-radius: var(--tmt-ui-radius);
-}
-.work-add-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.work-add-why {
-  margin-left: auto;
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
-  white-space: nowrap;
 }
 .work-add-note,
 .work-add-error {

@@ -14,6 +14,8 @@ import {
   Settings,
   Info,
   Pin,
+  Archive,
+  CornerDownRight,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -31,7 +33,9 @@ export type PageHeaderAction =
   | 'manage'
   | 'about'
   | 'questions'
-  | 'creator';
+  | 'creator'
+  | 'archive'
+  | 'put-under';
 
 /** The More trigger's decorative icon; hosts retain each action's authority. */
 function MoreIcon() {
@@ -62,6 +66,8 @@ export function PageHeaderActions({
   readOnly = false,
   canFiles,
   canProjects,
+  canArchive = false,
+  canMove = false,
   pin,
   creatorLabel,
   access,
@@ -73,6 +79,8 @@ export function PageHeaderActions({
   canFiles: boolean;
   /** The viewer can set the page's projects (the picker is beside the title). */
   canProjects: boolean;
+  canArchive?: boolean;
+  canMove?: boolean;
   pin?: PagePinState;
   creatorLabel?: string;
   readOnly?: boolean;
@@ -101,6 +109,7 @@ export function PageHeaderActions({
     },
     ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
     ...(pinItem ? [pinItem] : []),
+    ...(canMove ? [{ key: 'put-under', label: text.workBand.putUnder }] : []),
     { key: 'questions', label: text.metadata.questionsItem },
     { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
     ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
@@ -112,6 +121,7 @@ export function PageHeaderActions({
     { key: 'source', label: text.source },
     ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
     { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
+    ...(canArchive ? [{ key: 'archive', label: text.pageList.archiveItem, separated: true }] : []),
     ...(sharedBar
       ? []
       : (['light', 'dark', 'system'] as const).map((theme) => ({
@@ -141,6 +151,9 @@ export function PageHeaderActions({
           ? [{ key: 'projects', label: text.projectsItem, leadingIcon: <Folder /> }]
           : []),
         ...(pinItem ? [{ ...pinItem, leadingIcon: <Pin /> }] : []),
+        ...(canMove
+          ? [{ key: 'put-under', label: text.workBand.putUnder, leadingIcon: <CornerDownRight /> }]
+          : []),
         { key: 'questions', label: text.metadata.questionsItem, leadingIcon: <CircleHelp /> },
         { key: 'creator', label: text.moreCreator, meta: creatorLabel, leadingIcon: <UserRound /> },
       ],
@@ -170,6 +183,16 @@ export function PageHeaderActions({
       items: [
         ...(!readOnly ? [{ key: 'agents', label: text.agentStatus, leadingIcon: <Bot /> }] : []),
         { key: 'manage', label: text.managePage, leadingIcon: <Settings />, disabled: !canManage },
+        ...(canArchive
+          ? [
+              {
+                key: 'archive',
+                label: text.pageList.archiveItem,
+                leadingIcon: <Archive />,
+                separated: true,
+              },
+            ]
+          : []),
         { key: 'about', label: text.aboutPage, leadingIcon: <Info /> },
       ],
     },
@@ -188,6 +211,8 @@ export function PageHeaderActions({
       else if (
         key === 'questions' ||
         key === 'creator' ||
+        key === 'archive' ||
+        key === 'put-under' ||
         key === 'agents' ||
         key === 'manage' ||
         key === 'about' ||
