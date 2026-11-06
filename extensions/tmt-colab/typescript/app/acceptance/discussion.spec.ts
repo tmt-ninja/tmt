@@ -384,7 +384,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await until(() => agent.received().length === 2, 'follow-up annotation delivered');
     expect(agent.received()[1].message).toContain(opening);
     expect(agent.received()[1].message).toContain(firstReply!);
-    expect(agent.received()[1].message).toContain('Earlier conversation (quoted data):');
+    expect(agent.received()[1].message).toContain('Previous turn (quoted data):');
     await expect(t1.getByTestId('comment-entry')).toHaveCount(2);
     const replyId = await t2
       .getByTestId('comment-entry')
