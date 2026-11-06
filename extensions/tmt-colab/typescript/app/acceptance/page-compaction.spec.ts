@@ -159,39 +159,73 @@ for (const [kind, top] of [
       const colab = world.binaries.colab;
       const body = top + paragraphs(2 * MIB - 16 * 1024);
       let source = `${body}<p id="n">0</p>`;
+      const createStarted = Date.now();
       const created = createPage(world, 'Large and live', source);
+      const createMs = Date.now() - createStarted;
+      const openStarted = Date.now();
       const page = await openPage(door, browser, created);
+      const openMs = Date.now() - openStarted;
       const frame = page.frameLocator('iframe');
+      const firstPaintStarted = Date.now();
       await expect(frame.locator('#n')).toHaveText('0', { timeout: 120_000 });
+      const firstPaintMs = Date.now() - firstPaintStarted;
       // The frame parses its bound page once, when idle after drawing it; writes come after that.
+      const prepareStarted = Date.now();
       await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1, { timeout: 60_000 });
+      const prepareMs = Date.now() - prepareStarted;
       await page.evaluate(() => {
-        const long: number[] = [];
+        const long: { duration: number; start: number; owner: string }[] = [];
         Object.defineProperty(window, 'longTasks', { value: long });
         new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) long.push(entry.duration);
+          for (const entry of list.getEntries()) {
+            const task = entry as PerformanceEntry & {
+              attribution?: readonly { containerType?: string }[];
+            };
+            const kind = task.attribution?.[0]?.containerType;
+            long.push({
+              duration: entry.duration,
+              start: entry.startTime,
+              owner: kind === 'iframe' ? 'iframe' : kind === 'window' ? 'window' : 'other',
+            });
+          }
         }).observe({ type: 'longtask' });
       });
       const started = Date.now();
+      const writes: { patchMs: number; readyMs: number; begin: number; end: number }[] = [];
       for (let i = 1; i <= 10; i++) {
         const held = source;
         source = `${body}<p id="n">${i}</p>`;
+        const begin = await page.evaluate(() => performance.now());
+        const patchStarted = Date.now();
         run(
           world,
           colab,
           patchArgs(world, created.pageId, ['--file', '-', '--json'], held),
           source,
         );
+        const patchMs = Date.now() - patchStarted;
+        const readyStarted = Date.now();
         await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
+        const readyMs = Date.now() - readyStarted;
+        const end = await page.evaluate(() => performance.now());
+        writes.push({ patchMs, readyMs, begin: Math.round(begin), end: Math.round(end) });
       }
       await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
       const long = await page.evaluate(
-        () => (window as unknown as { longTasks: number[] }).longTasks,
+        () =>
+          (window as unknown as { longTasks: { duration: number; start: number; owner: string }[] })
+            .longTasks,
       );
       const busy = JSON.stringify({
-        longTasks: long.map(Math.round),
-        busyMs: Math.round(long.reduce((sum, value) => sum + value, 0)),
+        longTasks: long.map((task) => ({
+          duration: Math.round(task.duration),
+          start: Math.round(task.start),
+          owner: task.owner,
+        })),
+        busyMs: Math.round(long.reduce((sum, value) => sum + value.duration, 0)),
         windowMs: Date.now() - started,
+        setup: { createMs, openMs, firstPaintMs, prepareMs },
+        writes,
       });
       test.info().annotations.push({ type: 'colab-large-busy', description: busy });
       // The run log keeps the durations, so a slower runner's failure says how far it was.
