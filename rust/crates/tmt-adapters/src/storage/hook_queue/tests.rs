@@ -3286,3 +3286,36 @@ fn the_digest_worker_waits_for_a_held_main_writer_until_its_deadline_holding_no_
         second.id()
     );
 }
+
+#[test]
+fn the_digest_worker_restores_the_hook_wait_and_allowance_it_was_opened_with() {
+    let mut w = World::new();
+    let event = w.event("pending for the worker", false);
+    HookQueue::open(&w.path, Duration::ZERO)
+        .unwrap()
+        .enqueue(&event)
+        .unwrap();
+    w.storage.close().unwrap();
+    w.storage = Storage::open_hook(&w.path, Instant::now() + Duration::from_secs(2)).unwrap();
+    let busy_ms = |storage: &Storage| -> i64 {
+        storage
+            .connection()
+            .unwrap()
+            .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+            .unwrap()
+    };
+    let (opened_ms, opened_allowance) = (busy_ms(&w.storage), w.storage.hook_allowance);
+    assert_eq!(
+        opened_ms,
+        i64::try_from(w.storage.hook_wait.unwrap().as_millis()).unwrap()
+    );
+
+    // The worker's own wait is far longer than the hook cap, so a missing restore shows.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    w.storage
+        .ingest_pending_hook_captures_for_identity_until(&w.agent, deadline)
+        .unwrap();
+    assert_eq!(w.final_count(), 1);
+    assert_eq!(busy_ms(&w.storage), opened_ms);
+    assert_eq!(w.storage.hook_allowance, opened_allowance);
+}
