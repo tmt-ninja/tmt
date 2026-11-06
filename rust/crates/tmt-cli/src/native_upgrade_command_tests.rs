@@ -281,3 +281,93 @@ fn release_links_name_actual_products_and_pr_candidates_without_inventing_releas
     );
     assert!(product_rows(None, None, vec![])[0]["releaseUrl"].is_null());
 }
+
+/// A pinned CLI plans its extensions offline: the real pin read from the receipt selects the
+/// offline plan, discovery is never called (it panics), and an installed extension row says
+/// it was not checked because the CLI is pinned (#6137).
+#[test]
+fn a_pinned_cli_plans_extensions_offline_and_never_discovers() {
+    use std::{
+        fs,
+        os::unix::fs::{PermissionsExt, symlink},
+    };
+    use tmt_adapters::native_install::Product;
+    use tmt_core::content_digest::sha256;
+
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let fixture = Fixture(
+        std::env::temp_dir().join(format!("tmt-pinned-extension-plan-{}", std::process::id())),
+    );
+    fs::create_dir(&fixture.0).unwrap();
+    let prefix = fixture.0.canonicalize().unwrap();
+    fs::create_dir(prefix.join("bin")).unwrap();
+    let install = |product: Product, version: &str, pinned: bool| {
+        let id = "12345678-1234-4234-8234-123456789abc";
+        let root = prefix.join(product.namespace());
+        let release = root.join("releases").join(id);
+        fs::create_dir_all(&release).unwrap();
+        let bytes = b"managed pinned plan fixture\n";
+        let mut hashes = serde_json::Map::new();
+        for name in product.files() {
+            fs::write(release.join(name), bytes).unwrap();
+            if name == product.executable() {
+                fs::set_permissions(release.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            hashes.insert(name.into(), json!(sha256(bytes)));
+        }
+        fs::write(
+            release.join("receipt.json"),
+            serde_json::to_vec(&json!({
+                "schema_version": 1, "release_id": id, "prefix": prefix,
+                "version": version, "channel": "alpha",
+                "pinned_version": pinned.then_some(version),
+                "archive": format!("tmt-{}-{version}-aarch64-apple-darwin.tar.gz", product.as_str()),
+                "archive_sha256": sha256(b"archive"), "target": "aarch64-apple-darwin",
+                "file_sha256": hashes, "source": "local-archive"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        symlink(format!("releases/{id}"), root.join("current")).unwrap();
+        for name in product.links() {
+            symlink(product.link_target(), prefix.join("bin").join(name)).unwrap();
+        }
+        release.join(product.executable())
+    };
+    let executable = install(Product::Cli, "5.0.0-alpha.1", true);
+    install(Product::Ops, "0.1.0-alpha.2", false);
+
+    let prepared = native_install::prepare_upgrade(
+        Product::Cli,
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        false,
+    )
+    .unwrap();
+    assert!(prepared.pinned());
+    let plan = extension_plan(
+        &prepared,
+        |_| panic!("a pinned CLI must not discover extension updates"),
+        |_| Vec::new(),
+    );
+    assert!(plan.missing.is_empty());
+    assert_eq!(
+        plan.installed.products,
+        [json!({
+            "product": "ops",
+            "status": "notChecked",
+            "version": "0.1.0-alpha.2",
+            "reason": "cliPinned",
+            "hint": "tmt extension upgrade ops",
+        })]
+    );
+}

@@ -21,11 +21,12 @@ impl Plan {
 
     /// A pinned CLI's plan (#6137): the installed extensions as they are and the local
     /// provider scopes, with no update discovery and no product to install, so no network.
-    pub(crate) fn offline(prefix: &Path) -> Self {
+    /// `providers` are the local provider scope rows (`providers::read` in production).
+    pub(crate) fn offline(prefix: &Path, providers: Vec<Value>) -> Self {
         Self {
             installed: super::offline(prefix),
             missing: Vec::new(),
-            providers: providers::read(prefix),
+            providers,
         }
     }
 

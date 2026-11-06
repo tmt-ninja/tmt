@@ -93,17 +93,11 @@ pub fn execute_with_schema_consent(
             request(),
             allow_schema_ahead,
         )?;
-        // The pin is known before any extension is planned: a pinned upgrade asks no
-        // server about extensions either (#6137).
-        let mut extensions = if prepared.pinned() {
-            crate::extension_install_command::upgrade_all::complete::Plan::offline(
-                prepared.current().prefix(),
-            )
-        } else {
-            crate::extension_install_command::upgrade_all::complete::Plan::read(
-                prepared.current().prefix(),
-            )
-        };
+        let mut extensions = extension_plan(
+            &prepared,
+            crate::extension_install_command::upgrade_all::complete::Plan::read,
+            crate::setup_command::guided::upgrade::read,
+        );
         checkpoint()?;
         let approval = preview::approve(
             &prepared,
@@ -697,6 +691,24 @@ fn failure_document(failure: &Failure) -> Value {
         document["error"]["cause"] = cause.into();
     }
     document
+}
+
+/// The pin is known before any extension is planned: a pinned upgrade asks no server about
+/// extensions either, so `read` (discovery) runs only for an unpinned CLI (#6137).
+fn extension_plan(
+    prepared: &native_install::PreparedUpgrade,
+    read: impl FnOnce(&std::path::Path) -> crate::extension_install_command::upgrade_all::complete::Plan,
+    providers: impl FnOnce(&std::path::Path) -> Vec<Value>,
+) -> crate::extension_install_command::upgrade_all::complete::Plan {
+    let prefix = prepared.current().prefix();
+    if prepared.pinned() {
+        crate::extension_install_command::upgrade_all::complete::Plan::offline(
+            prefix,
+            providers(prefix),
+        )
+    } else {
+        read(prefix)
+    }
 }
 
 fn product_rows(
