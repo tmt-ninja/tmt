@@ -39,11 +39,11 @@ const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
 /** The shell's module menu: All pages, Shortcuts, then Colab settings, nested under Colab in the
  * rail (and in the phone drawer). */
 const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
-/** Project scope is a condition in Filter; its chip clears the remembered scope. */
+/** A project picked from Filter is a token in the search field, the same one typing makes. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
   value === 'All pages'
     ? app(page).getByRole('button', { name: 'Filter', exact: true })
-    : app(page).getByRole('button', { name: `Remove project: ${value}`, exact: true });
+    : app(page).getByRole('button', { name: `Remove project filter ${value}`, exact: true });
 async function openFilter(page: Page) {
   await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
 }
@@ -58,10 +58,8 @@ async function fromScopeMenu(page: Page, name: string) {
 }
 async function scopeTo(page: Page, name: string) {
   if (name === 'All pages') {
-    const chip = app(page)
-      .locator('.page-list-condition-chips')
-      .getByRole('button', { name: /^Remove project: / });
-    if (await chip.count()) await chip.first().click();
+    const chip = app(page).getByRole('button', { name: /^Remove project filter / });
+    while (await chip.count()) await chip.first().click();
   } else {
     await openFilter(page);
     await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
@@ -1168,64 +1166,123 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-test('choosing a project scopes the list, the project suggestions and the Needs you count', async ({
+/** The project conditions the address holds, decoded. */
+const addressProjects = (page: Page) =>
+  decodeURIComponent(new URL(page.url()).hash).match(/project=(\[[^\]]*\])/)?.[1] ?? '';
+
+test('a project picked from Filter is the typed token and scopes the list, suggestions and Needs you', async ({
   page,
 }) => {
   await mount(page);
   await scopeTo(page, 'ops');
   await expect(scopeTrigger(page, 'ops')).toBeVisible();
-  expect(new URL(page.url()).hash).toContain('scope=ops');
+  // The same token typing makes, inside the field: one condition, one place.
+  const token = app(page).locator('.page-list-search-box [data-kind=project]');
+  await expect(token).toHaveText('project:ops');
+  expect(addressProjects(page)).toBe('["ops"]');
+  expect(new URL(page.url()).hash).not.toContain('scope');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  // Only the scope's pages feed the suggestions and the count: no design, and nothing waits in ops.
-  await search(page).click();
-  await page.keyboard.type('project:');
-  await expect(page.getByRole('option')).toHaveText(['ops (1)']);
-  // Escape closes the suggestions, then clears the draft.
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await expect(search(page)).toHaveText('');
+  // Only the project's pages feed the count: nothing waits in ops.
   await expect(app(page).getByRole('tab', { name: 'Needs you, 0' })).toBeVisible();
+  // The suggestions do not offer a project the field already holds.
+  await search(page).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('project:');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  // Escape clears the whole draft, the picked project with it.
+  await page.keyboard.press('Escape');
+  await expect(token).toHaveCount(0);
+  await expect(titles(page)).toHaveCount(4);
   await scopeTo(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   await expect(app(page).getByRole('tab', { name: /Needs you, 1/ })).toBeVisible();
-  // A project: token filters inside the scope; a project outside it matches nothing.
+  // Another project: token narrows further: a page must be in both.
   await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
-  await search(page).fill('ops');
-  await search(page).press('Enter');
+  await search(page).focus();
+  await page.keyboard.press('End');
+  await page.keyboard.type('ops');
+  await page.keyboard.press('Enter');
   await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
   await scopeTo(page, 'All pages');
-  await expect(scopeTrigger(page)).toBeVisible();
-  expect(new URL(page.url()).hash).not.toContain('scope');
+  await expect(token).toHaveCount(0);
+  expect(addressProjects(page)).toBe('');
 });
 
-test('the scope is remembered on this device; All pages forgets it; a missing project opens All pages', async ({
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a typed and a picked condition are one token inside the field at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      const field = app(page).locator('.page-list-search-box .tmt-rich-input');
+      const token = field.locator('[data-kind=project]');
+      // Typed: project:design from the suggestions.
+      await filterProject(page, 'design');
+      const typed = await token.evaluate((node) => node.outerHTML);
+      await scopeTo(page, 'All pages');
+      await expect(token).toHaveCount(0);
+      // Picked from Filter: the same element in the same place, and the menu reads it back.
+      await scopeTo(page, 'design');
+      expect(await token.evaluate((node) => node.outerHTML)).toBe(typed);
+      await openFilter(page);
+      await expect(menuProject(page, 'design')).toHaveAttribute('aria-checked', 'true');
+      await page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }).click();
+      await openFilter(page);
+      await page.getByRole('menuitemcheckbox', { name: 'In progress', exact: true }).click();
+      await openFilter(page);
+      await page.getByRole('menuitemcheckbox', { name: 'Include archived', exact: true }).click();
+      // Fixed order, all inside the field; nothing sits outside it.
+      await expect(field.locator('[data-kind]')).toHaveText([
+        'project:design',
+        'state:To do',
+        'state:In progress',
+        'Include archived',
+      ]);
+      const box = (await field.boundingBox())!;
+      for (const chip of await field.locator('[data-kind]').all()) {
+        const inner = (await chip.boundingBox())!;
+        expect(inner.x).toBeGreaterThanOrEqual(box.x);
+        expect(inner.x + inner.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+      }
+      const filter = app(page).getByRole('button', { name: 'Filter', exact: true });
+      expect(Math.abs((await filter.boundingBox())!.y - box.y)).toBeLessThanOrEqual(1);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      await page.screenshot({
+        path: await capturePath(`6049-tokens-${width}-${theme}.png`),
+        clip: { x: 0, y: Math.max(0, box.y - 120), width, height: Math.min(420, 900) },
+      });
+    });
+
+test('a picked project is not remembered; an older scope link or preference opens as the same token', async ({
   page,
 }) => {
   await mount(page);
   await scopeTo(page, 'ops');
-  expect(await storedScope(page)).toBe('ops');
-  // Opening the list without a scope applies the remembered one, and the address shows it.
-  await mount(page, 'few', '/', 'ops');
-  await expect(scopeTrigger(page, 'ops')).toBeVisible();
-  expect(new URL(page.url()).hash).toContain('scope=ops');
-  await expect(titles(page)).toHaveText(['Delta ops']);
-  await scopeTo(page, 'All pages');
   expect(await storedScope(page)).toBeNull();
   await mount(page);
   await expect(scopeTrigger(page)).toBeVisible();
   await expect(titles(page)).toHaveCount(4);
-  // A remembered project that no longer exists opens All pages.
-  await mount(page, 'few', '/', 'gone');
-  await expect(scopeTrigger(page)).toBeVisible();
+  // A preference an older version stored is not applied.
+  await mount(page, 'few', '/', 'ops');
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('scope');
+  // An older link or shortcut with scope= opens as the project token.
+  await mount(page, 'few', '/?scope=ops');
+  await expect(scopeTrigger(page, 'ops')).toBeVisible();
+  await expect(titles(page)).toHaveText(['Delta ops']);
 });
 
-test('a link to a scope the space no longer has shows All pages', async ({ page }) => {
+test('a link to a project the space no longer has shows its token and no pages', async ({
+  page,
+}) => {
   await mount(page, 'few', '/?scope=gone');
-  await expect(scopeTrigger(page)).toBeVisible();
-  await expect(titles(page)).toHaveCount(4);
+  await expect(scopeTrigger(page, 'gone')).toBeVisible();
+  await expect(titles(page)).toHaveCount(0);
 });
 
 test('a scoped project with no page says so, and the scope names it', async ({ page }) => {
@@ -1250,7 +1307,7 @@ test('a page opened from a scoped list shows the project it came from and links 
   await expect(crumb).toBeVisible();
   await crumb.click();
   await expect(scopeTrigger(page, 'design')).toBeVisible();
-  expect(new URL(page.url()).hash).toContain('scope=design');
+  expect(addressProjects(page)).toBe('["design"]');
   await showAll(page);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   // From the unscoped list, or by a copied link, no crumb: the page link stays clean.
@@ -1561,13 +1618,10 @@ for (const width of [1440, 390])
       // a click on it would land on the token, so typing goes on from the caret.
       await filterProject(page, 'design');
       await expect(search(page)).toBeFocused();
-      await page.keyboard.type('project:o');
-      await expect(page.getByRole('option')).toHaveText(['ops (1)']);
+      await page.keyboard.type('by:');
+      await expect(page.getByRole('option')).toHaveText(['Ada (1)', 'Studio agent (1)']);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-search-${width}-${theme}.png`) });
-      await page.keyboard.press('Escape');
-      for (const _ of 'project:o') await page.keyboard.press('Backspace');
-      await page.keyboard.type('by:');
       await expect(page.getByRole('option')).toHaveText(['Ada (1)', 'Studio agent (1)']);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-search-by-${width}-${theme}.png`) });
@@ -1737,7 +1791,7 @@ for (const width of [1440, 390, 320])
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
           const current = document.querySelector(
-            '#list-fixture .page-list-condition-chips .tmt-ui-chip',
+            '#list-fixture .page-list-search-box [data-kind=project]',
           )!;
           const crumb = current.getBoundingClientRect();
           const rail = current.closest<HTMLElement>('.tmt-ui-rail');
@@ -1785,6 +1839,8 @@ for (const width of [1440, 390, 320])
         else await page.goBack();
         await showAll(page);
         await expect(scopeTrigger(page, long)).toBeVisible();
+        // Projects add up; the next name is checked on its own.
+        await scopeTo(page, 'All pages');
       }
     });
 

@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { validateHomeSearch, listPages } from '../src/page-list-filter.js';
+import { validateHomeSearch, listPages, type HomeSearch } from '../src/page-list-filter.js';
 import { shortcutConditions, shortcutCounts, shortcutSearch } from '../src/shortcuts.js';
 import type { PageSummary } from '../src/transport.js';
 const pages = [
@@ -34,7 +34,7 @@ it('include archived is a union; archived remains archived-only', () => {
   ]);
   expect(listPages(pages, {})).toHaveLength(2);
 });
-it('saved filters retain other clauses and normalize project scope', () => {
+it('saved filters retain other clauses and fold an older scope into the projects', () => {
   expect(
     shortcutSearch({
       q: 'Plan',
@@ -45,13 +45,13 @@ it('saved filters retain other clauses and normalize project scope', () => {
       project: ['review'],
       state: 'done',
       includeArchived: true,
-    }),
+    } as HomeSearch),
   ).toEqual({
     q: 'Plan',
     by: ['Ana'],
     sort: 'title',
     stage: 'done',
-    project: ['design', 'review'],
+    project: ['review', 'design'],
     state: ['done'],
     includeArchived: true,
   });

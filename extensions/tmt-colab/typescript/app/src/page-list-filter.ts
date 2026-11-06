@@ -8,8 +8,6 @@ import type { PageState } from './bootstrap.js';
 export interface HomeSearch {
   q?: string;
   project?: string[];
-  /** The project the list is scoped to: the base the filters narrow; absent is All pages. */
-  scope?: string;
   by?: string[];
   sort?: 'title';
   /** The tab: absent is `DEFAULT_VIEW`; `archived` takes precedence. */
@@ -24,7 +22,8 @@ export interface HomeSearch {
 /** The route merges what this returns over the raw query, so every key is named here: one it
  * cannot read is set to `undefined` and replaces the raw value instead of reaching the list. */
 export function validateHomeSearch(search: Record<string, unknown>): HomeSearch {
-  const out: HomeSearch = {
+  // `scope` is named only to drop its raw value once it has joined the projects.
+  const out: HomeSearch & { scope?: undefined } = {
     q: undefined,
     project: undefined,
     scope: undefined,
@@ -38,10 +37,15 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     shortcut: undefined,
   };
   if (typeof search.q === 'string' && search.q.trim()) out.q = search.q.trim().slice(0, 256);
-  if (Array.isArray(search.project)) {
+  // A `scope` from an older link or shortcut is one more project condition.
+  const listed = [
+    ...(Array.isArray(search.project) ? search.project : []),
+    ...(typeof search.scope === 'string' ? [search.scope] : []),
+  ];
+  if (listed.length) {
     const names = [
       ...new Set(
-        search.project.filter(
+        listed.filter(
           (name): name is string =>
             typeof name === 'string' && projectNameError(name) === undefined,
         ),
@@ -49,8 +53,6 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     ].slice(0, 8);
     if (names.length) out.project = names;
   }
-  if (typeof search.scope === 'string' && projectNameError(search.scope) === undefined)
-    out.scope = search.scope;
   if (Array.isArray(search.by)) {
     const names = [
       ...new Set(
@@ -93,7 +95,7 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
 /** The shared conditions for the list, shortcut counts and preview. */
 export function pageListFilter(search: HomeSearch): PageFilter {
   return {
-    projects: [...new Set([...(search.scope ? [search.scope] : []), ...(search.project ?? [])])],
+    projects: search.project ?? [],
     authors: search.by ?? [],
     text: search.q ?? '',
     needsYou: search.needs === true,
