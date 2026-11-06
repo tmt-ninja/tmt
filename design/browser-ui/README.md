@@ -972,7 +972,7 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   catalog rows by label or as `<id>:<text>`, which keeps the row's icon and key but shows `text`
   and no description, so a page in another language mixes in no English; `<id>:<text>:<description>`
   adds the row's own description; the tag's `hint-labels` names its three footer hints the same
-  way (`選, 插入, 關閉`). `group:<id>:<heading>` renames a group heading
+  way. `group:<id>:<heading>` renames a group heading
   (`basic`, `structure`). Any other entry, including a malformed one, is a plain row.
 - Content: `HeadingBlock` (levels 2 and 3 only; the page title is the GUI header's),
   `TextBlock`, `ListItemBlock`, `TodoBlock` (`BrowserCheckbox`), `TableBlock` (columns marked
@@ -988,7 +988,8 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   groups (width, theme), the chosen segment in the neutral selection tone; the stage hugs its
   content with `height` as a minimum, sits centred when narrower than the block and, at any
   width, scales to fit when wider, never scrolling sideways. The scale shows only its
-  percentage (named "Scaled N%"), so a localized page mixes in no English. A stage holding a phone sheet and no minimum takes the sheet's
+  percentage (named "Scaled N%"), so a localized page mixes in no English. `labels` names the
+  toolbar's Custom, Light, Dark and Viewer segments in the page's language. A stage holding a phone sheet and no minimum takes the sheet's
   height, because the sheet sizes itself from the stage.
   `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 

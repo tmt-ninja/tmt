@@ -1173,7 +1173,7 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     document.body.prepend(host);
     await mountRenderer(
       host,
-      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu><tmt-ui-block-menu label="插入區塊" items="group:basic:基本, table:表格, group:structure:結構, code:程式碼:檔案或指令" hints hint-labels="選, 插入, 關閉"></tmt-ui-block-menu><tmt-ui-block-menu label="Plain hints" items="Table" hints></tmt-ui-block-menu>`,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu><tmt-ui-block-menu label="插入區塊" items="group:basic:基本, table:表格, group:structure:結構, code:程式碼:檔案或指令" hints hint-labels="選, 插入, 關閉"></tmt-ui-block-menu><tmt-ui-block-menu label="Plain hints" items="Table" hints></tmt-ui-block-menu><tmt-ui-mockup-block id="zh-stage" toolbar-labels="自訂, 亮, 暗, 檢視"><p>內容</p></tmt-ui-mockup-block><tmt-ui-mockup-block id="short-stage" toolbar-labels="自訂, 亮, 暗"><p>內容</p></tmt-ui-mockup-block>`,
       {
         signal: new AbortController().signal,
         onState: () => {},
@@ -1222,6 +1222,19 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     frame.getByRole('listbox', { name }).locator('[data-slot="block-menu-footer"]');
   await expect(footer('插入區塊')).toHaveText('↑↓ 選Enter 插入Esc 關閉');
   await expect(footer('Plain hints')).toHaveText('↑↓ chooseEnter insertEsc close');
+  // The mockup toolbar takes the page's words for its four segments; any other count keeps
+  // the English ones.
+  const segments = (id: string) =>
+    frame.locator(`#${id}`).getByRole('toolbar', { name: 'Mockup settings' }).getByRole('button');
+  await expect(segments('zh-stage')).toHaveText(['390', '1440', '自訂', '亮', '暗', '檢視']);
+  await expect(segments('short-stage')).toHaveText([
+    '390',
+    '1440',
+    'Custom',
+    'Light',
+    'Dark',
+    'Viewer',
+  ]);
 });
 
 /** A page that uses the runtime and the design system, mounted full width as in the app. */

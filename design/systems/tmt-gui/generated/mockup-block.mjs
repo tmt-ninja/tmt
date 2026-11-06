@@ -17,9 +17,16 @@ export default ({ React, ui, pagePin }) =>
         : props.preset === 'custom'
           ? Math.max(1, Math.min(4096, Number(props.width) || 390))
           : 390;
+    // `toolbar-labels` names Custom, Light, Dark and Viewer in the page's language, all four or
+    // none: any other count keeps the English words.
+    const words = (props['toolbar-labels'] || '').split(',').map((word) => word.trim());
+    const labels =
+      words.length === 4 && words.every(Boolean)
+        ? { custom: words[0], light: words[1], dark: words[2], viewer: words[3] }
+        : undefined;
     return React.createElement(
       ui.MockupBlock,
-      { system, version: lock, width, height: Number(props.height) || 0, unavailable },
+      { system, version: lock, width, height: Number(props.height) || 0, unavailable, labels },
       props.children,
     );
   };

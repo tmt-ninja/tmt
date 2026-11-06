@@ -258,6 +258,7 @@ export interface MockupBlockProps {
   preset?: "390" | "1440" | "custom";
   width?: string;
   height?: string;
+  "toolbar-labels"?: string;
   children?: ReactNode;
 }
 

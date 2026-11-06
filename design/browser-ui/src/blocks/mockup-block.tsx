@@ -14,7 +14,16 @@ export interface MockupBlockProps {
   onSystemChange?(system: string): void;
   onVersionChange?(version: string): void;
   onSettingsChange?(settings: { width: number; theme: 'light' | 'dark' | 'viewer' }): void;
+  /** The toolbar's segment words in the page's language; any one left out stays English. */
+  labels?: MockupLabels;
   children?: ReactNode;
+}
+
+export interface MockupLabels {
+  custom?: string;
+  light?: string;
+  dark?: string;
+  viewer?: string;
 }
 
 /**
@@ -32,11 +41,8 @@ function mockupStageHeight(min: number, content: HTMLElement) {
 const boundedWidth = (width: number) =>
   Number.isFinite(width) ? Math.max(1, Math.min(4096, Math.round(width))) : 390;
 
-const themes = [
-  ['light', 'Light'],
-  ['dark', 'Dark'],
-  ['viewer', 'Viewer'],
-] as const;
+const themes = ['light', 'dark', 'viewer'] as const;
+const english = { custom: 'Custom', light: 'Light', dark: 'Dark', viewer: 'Viewer' };
 
 /** A sized, locally contained stage; the caller resolves the requested system and its version. */
 export function MockupBlock({
@@ -50,8 +56,10 @@ export function MockupBlock({
   onSystemChange,
   onVersionChange,
   onSettingsChange,
+  labels,
   children,
 }: MockupBlockProps) {
+  const words = { ...english, ...labels };
   const [stageWidth, setStageWidth] = useState(() => boundedWidth(width));
   const [appearance, setAppearance] = useState(theme);
   // A width other than the two presets opens as Custom.
@@ -140,7 +148,7 @@ export function MockupBlock({
                 </button>
               ))}
               <button type="button" aria-pressed={custom} onClick={() => setCustom(true)}>
-                Custom
+                {words.custom}
               </button>
             </div>
             {custom && (
@@ -158,7 +166,7 @@ export function MockupBlock({
               />
             )}
             <div className="tmt-block-mockup-segments" role="group" aria-label="Theme">
-              {themes.map(([mode, label]) => (
+              {themes.map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -168,7 +176,7 @@ export function MockupBlock({
                     onSettingsChange?.({ width: stageWidth, theme: mode });
                   }}
                 >
-                  {label}
+                  {words[mode]}
                 </button>
               ))}
             </div>
