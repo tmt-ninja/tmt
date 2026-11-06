@@ -1,5 +1,6 @@
 /** Direct, private browser fixture for the open-page workflow. */
 import { createRoot, type Root } from 'react-dom/client';
+import { useLayoutEffect } from 'react';
 import { usePageWorkflow } from '../src/use-page-workflow.js';
 import { SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding, type PageSummary } from '../src/transport.js';
@@ -141,8 +142,12 @@ export function mountWorkflow(nextFault: 'none' | 'refused' | 'unknown') {
     },
   };
   function Harness() {
-    shown = usePageWorkflow(transport, snapshot, view);
-    return <div data-workflow-ready="true" />;
+    const workflow = usePageWorkflow(transport, snapshot, view);
+    useLayoutEffect(() => {
+      shown = workflow;
+      host.dataset.workflowReady = 'true';
+    }, [workflow]);
+    return null;
   }
   root.render(<Harness />);
 }
