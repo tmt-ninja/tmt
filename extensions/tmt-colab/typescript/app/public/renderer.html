@@ -2491,8 +2491,10 @@
               // parsed ones take their place, so the bound body stays the parse of the source.
               const replaced = document.createDocumentFragment();
               const next = boundBody.childNodes[plan.to] ?? null;
-              for (const node of [...boundBody.childNodes].slice(plan.from, plan.to))
-                replaced.append(node);
+              // childNodes is live: removing the first node advances the changed run. Avoid
+              // copying every bound node when a small edit is near the end of a large page.
+              for (let index = plan.from; index < plan.to; index++)
+                replaced.append(boundBody.childNodes[plan.from]);
               morphPage(
                 document.body,
                 doc.body,

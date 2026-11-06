@@ -97,6 +97,27 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   expect(await sameDocument(page)).toBe(true);
 });
 
+test('removing a run of sibling nodes preserves the following page and frame', async ({ page }) => {
+  const renderId = await open(page);
+  const doc = await frameDocument(page);
+  await run(
+    page,
+    'change',
+    long({ inserted: '<p id="first">One</p><p id="second">Two</p><p id="third">Three</p>' }),
+  );
+  await expect(doc.locator('#third')).toHaveText('Three');
+  await doc.locator('#para-1').evaluate((node) => Object.assign(window, { keptNode: node }));
+  await run(page, 'change', long());
+  await expect(doc.locator('#first, #second, #third')).toHaveCount(0);
+  await expect(doc.locator('#para-1')).toContainText('Paragraph 1');
+  expect(
+    await doc
+      .locator('#para-1')
+      .evaluate((node) => node === (window as unknown as { keptNode: Node }).keptNode),
+  ).toBe(true);
+  await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);
+});
+
 test('an edit next to a question places its slot again in the same frame', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');
