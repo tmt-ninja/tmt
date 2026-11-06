@@ -3094,10 +3094,8 @@
                 let frames = 0;
                 let quiet = 0;
                 const painted = () => {
-                  const waiting = [...document.querySelectorAll('*')].some(
-                    (node) => node.__tmtPart && !node.__tmtPainted,
-                  );
-                  quiet = waiting ? 0 : quiet + 1;
+                  // The part script counts each part from its root until its first paint.
+                  quiet = globalThis.__tmtPartsPending > 0 ? 0 : quiet + 1;
                   if (quiet >= 2)
                     parent.postMessage({ type: 'colab.render.settled', renderId }, '*');
                   else if (++frames < 180) requestAnimationFrame(painted);

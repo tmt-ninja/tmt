@@ -1003,6 +1003,198 @@ for (const { where, html, part, fits } of windowHigh) {
   });
 }
 
+// #5981: a mockup stage hugs its content (`height` is a minimum), sits centred when narrower than
+// the block, and shows a phone sheet whole; its toolbar is two segmented groups that wrap whole.
+const stages = `
+  <tmt-ui-mockup-block id="hug" preset="390"><div id="hug-content" style="height:150px">Short</div></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="min" preset="390" height="300"><div style="height:150px">Short</div></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="sheet" preset="390"><tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="sheet-min" preset="390" height="200"><tmt-ui-block-menu label="Bounded sheet" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>`;
+for (const width of [390, 1440])
+  test(`mockup stages hug their content, centre and keep a segmented toolbar at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await servePageRuntime(page);
+    await page.goto('/');
+    await page.addStyleTag({ content: 'iframe[title="Page content"]{width:100%!important}' });
+    await page.evaluate(
+      async ({ release, html }) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        document.body.prepend(host);
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">${html}`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+      },
+      { release: bundle, html: stages },
+    );
+    const content = page.frameLocator('iframe[title="Page content"]');
+    const stage = (id: string) => content.locator(`#${id} [data-tmt-ds-scope]`);
+    // The stage's own height, before any fit-to-block scale.
+    const height = (id: string) => stage(id).evaluate((node: HTMLElement) => node.offsetHeight);
+    await expect(stage('hug').getByText('Short')).toBeVisible();
+    // The stage is its content's height, and follows it; a minimum holds a shorter content.
+    await expect.poll(() => height('hug')).toBe(150);
+    await expect.poll(() => height('min')).toBe(300);
+    await content.locator('#hug-content').evaluate((node) => (node.style.height = '220px'));
+    await expect.poll(() => height('hug')).toBe(220);
+    // With no minimum the stage hugs a phone sheet too: every row shows, nothing scrolls, and
+    // no empty tail is left below the sheet.
+    const sheet = content.locator('#sheet .tmt-block-menu[data-placement="sheet"]');
+    const fit = await sheet.evaluate((node: HTMLElement) => ({
+      client: node.clientHeight,
+      scroll: node.scrollHeight,
+    }));
+    expect(fit.scroll).toBeLessThanOrEqual(fit.client);
+    const drawn = await stage('sheet').boundingBox();
+    const drawer = await sheet.boundingBox();
+    const tail =
+      (drawn?.y ?? 0) + (drawn?.height ?? 0) - ((drawer?.y ?? 0) + (drawer?.height ?? 0));
+    expect(Math.abs(tail)).toBeLessThanOrEqual(1);
+    // With a minimum the stage is a device: it holds the minimum, and its sheet keeps the
+    // phone's 60% bound and scrolls within it.
+    expect(await height('sheet-min')).toBe(200);
+    const bounded = await content
+      .locator('#sheet-min .tmt-block-menu[data-placement="sheet"]')
+      .evaluate((node: HTMLElement) => ({ height: node.offsetHeight, scroll: node.scrollHeight }));
+    expect(bounded.height).toBeLessThanOrEqual(120.5);
+    expect(bounded.scroll).toBeGreaterThan(bounded.height);
+    await expect(sheet.getByRole('option')).toHaveCount(3);
+    const bounds = await stage('sheet').boundingBox();
+    for (const option of await sheet.getByRole('option').all()) {
+      const row = await option.boundingBox();
+      expect(
+        row && bounds && row.y >= bounds.y && row.y + row.height <= bounds.y + bounds.height + 0.5,
+      ).toBe(true);
+    }
+    // A 390 stage sits in the middle of a wider block.
+    const box = await content.locator('#hug .tmt-block-mockup-viewport').boundingBox();
+    const inner = await stage('hug').boundingBox();
+    if (box && inner && box.width > 391)
+      expect(
+        Math.abs(inner.x - box.x - (box.x + box.width - inner.x - inner.width)),
+      ).toBeLessThanOrEqual(1);
+    else expect(inner?.x).toBe(box?.x);
+    // A stage wider than its block scales to fit at any width and says so; nothing scrolls
+    // sideways, and every sheet row, shortcut included, stays inside the block.
+    for (const id of ['hug', 'min', 'sheet']) {
+      const viewport = content.locator(`#${id} .tmt-block-mockup-viewport`);
+      const fit = await viewport.evaluate((node) => {
+        node.scrollLeft = 100;
+        return { scrolled: node.scrollLeft, client: node.clientWidth };
+      });
+      expect(fit.scrolled).toBe(0);
+      // The marker closes the toolbar row, as a stage control.
+      const label = content
+        .locator(`#${id}`)
+        .getByRole('toolbar', { name: 'Mockup settings' })
+        .locator('.tmt-block-mockup-scale');
+      if (fit.client < 390) {
+        // Only the number shows (no English on a localized page); the words are its name.
+        const percent = Math.round((fit.client / 390) * 100);
+        await expect(label).toHaveText(`${percent}%`);
+        await expect(label).toHaveAttribute('aria-label', `Scaled ${percent}%`);
+      } else await expect(label).toHaveCount(0);
+      const edge = await viewport.boundingBox();
+      const drawn = await stage(id).boundingBox();
+      expect((drawn?.x ?? 0) + (drawn?.width ?? Infinity)).toBeLessThanOrEqual(
+        (edge?.x ?? 0) + (edge?.width ?? 0) + 0.5,
+      );
+    }
+    for (const option of await sheet.getByRole('option').all()) {
+      const row = await option.boundingBox();
+      const edge = await content.locator('#sheet').boundingBox();
+      expect((row?.x ?? 0) + (row?.width ?? Infinity)).toBeLessThanOrEqual(
+        (edge?.x ?? 0) + (edge?.width ?? 0) + 0.5,
+      );
+    }
+    // Each group keeps its segments on one row inside the block; the chosen one takes the
+    // neutral selection surface (as a flat tab), never the accent fill of a primary action.
+    const block = await content.locator('#hug').boundingBox();
+    for (const name of ['Stage width', 'Theme']) {
+      const group = content.locator('#hug').getByRole('group', { name });
+      const tops = await group
+        .getByRole('button')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => Math.round(button.getBoundingClientRect().top)),
+        );
+      expect(new Set(tops).size).toBe(1);
+      const edge = await group.boundingBox();
+      expect((edge?.x ?? 0) + (edge?.width ?? Infinity)).toBeLessThanOrEqual(
+        (block?.x ?? 0) + (block?.width ?? 0) + 0.5,
+      );
+    }
+    const toolbar = content.locator('#hug').getByRole('toolbar', { name: 'Mockup settings' });
+    // The pin shows its release on one line; the full pin, hash included, is its title and name.
+    const pin = toolbar.locator('.tmt-block-mockup-pin');
+    await expect(pin).toHaveText('tmt-gui@0.1.0');
+    const full = await pin.getAttribute('title');
+    expect(full).toMatch(/^tmt-gui@0\.1\.0#sha256-[0-9a-f]{64}$/);
+    await expect(pin).toHaveAttribute('aria-label', full!);
+    expect(await pin.evaluate((node) => node.getClientRects().length)).toBe(1);
+    expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const chosen = toolbar.getByRole('button', { name: '390' });
+    const other = toolbar.getByRole('button', { name: '1440' });
+    await expect(chosen).toHaveAttribute('aria-pressed', 'true');
+    await expect(other).toHaveAttribute('aria-pressed', 'false');
+    await expect(toolbar.getByRole('button', { name: 'Viewer' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const fill = (button: typeof chosen) =>
+      button.evaluate((node) => getComputedStyle(node).backgroundColor);
+    expect(await fill(chosen)).not.toBe(await fill(other));
+    const token = (name: string) =>
+      chosen.evaluate((node, name) => {
+        const probe = node.ownerDocument.createElement('i');
+        probe.style.background = `var(${name})`;
+        node.append(probe);
+        const value = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return value;
+      }, name);
+    expect(await fill(chosen)).toBe(await token('--tmt-ui-surface-selection'));
+    expect(await fill(chosen)).not.toBe(await token('--tmt-ui-color-accent-fill'));
+    // As the design system's segmented selected state: selected text in medium weight, the
+    // others in secondary text, so the chosen one reads at a glance in either theme.
+    const ink = (button: typeof chosen) =>
+      button.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, weight: style.fontWeight };
+      });
+    const colour = (name: string) =>
+      chosen.evaluate((node, name) => {
+        const probe = node.ownerDocument.createElement('i');
+        probe.style.color = `var(${name})`;
+        node.append(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      }, name);
+    expect(await ink(chosen)).toEqual({
+      color: await colour('--tmt-ui-color-selected-text'),
+      weight: '500',
+    });
+    expect((await ink(other)).color).toBe(await colour('--tmt-ui-color-secondary'));
+    // Hugging never reads as viewport coupling.
+    await expect(page.locator('iframe[title="Page content"]')).toHaveAttribute(
+      'data-scroll-mode',
+      'window',
+    );
+  });
+
 // #5981: the block-menu tag draws the one insert catalog, as the design-system docs' phone sheet does.
 test('the block-menu tag draws catalog rows with icon, description, shortcut and group', async ({
   page,
@@ -1017,7 +1209,7 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     document.body.prepend(host);
     await mountRenderer(
       host,
-      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu>`,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu><tmt-ui-block-menu label="插入區塊" items="group:basic:基本, table:表格, group:structure:結構, code:程式碼:檔案或指令" hints hint-labels="選, 插入, 關閉"></tmt-ui-block-menu><tmt-ui-block-menu label="Plain hints" items="Table" hints></tmt-ui-block-menu><tmt-ui-mockup-block id="zh-stage" toolbar-labels="自訂, 亮, 暗, 檢視"><p>內容</p></tmt-ui-mockup-block><tmt-ui-mockup-block id="short-stage" toolbar-labels="自訂, 亮, 暗"><p>內容</p></tmt-ui-mockup-block>`,
       {
         signal: new AbortController().signal,
         onState: () => {},
@@ -1052,6 +1244,33 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     '',
   );
   await expect(actions.locator('[data-slot="block-menu-separator"]')).toHaveCount(1);
+  // A localized menu mixes in no English: a relabelled row drops the catalog description or
+  // takes its own, and `hint-labels` names the footer hints; without it they stay English.
+  const localized = frame.getByRole('listbox', { name: '插入區塊' });
+  await expect(localized.getByRole('group')).toHaveText([/^基本/, /^結構/]);
+  const relabelled = localized.getByRole('option', { name: /表格/ });
+  await expect(relabelled.locator('kbd')).toHaveText('/table');
+  await expect(relabelled.locator('.tmt-block-menu-description')).toHaveCount(0);
+  await expect(
+    localized.getByRole('option', { name: /程式碼/ }).locator('.tmt-block-menu-description'),
+  ).toHaveText('檔案或指令');
+  const footer = (name: string) =>
+    frame.getByRole('listbox', { name }).locator('[data-slot="block-menu-footer"]');
+  await expect(footer('插入區塊')).toHaveText('↑↓ 選Enter 插入Esc 關閉');
+  await expect(footer('Plain hints')).toHaveText('↑↓ chooseEnter insertEsc close');
+  // The mockup toolbar takes the page's words for its four segments; any other count keeps
+  // the English ones.
+  const segments = (id: string) =>
+    frame.locator(`#${id}`).getByRole('toolbar', { name: 'Mockup settings' }).getByRole('button');
+  await expect(segments('zh-stage')).toHaveText(['390', '1440', '自訂', '亮', '暗', '檢視']);
+  await expect(segments('short-stage')).toHaveText([
+    '390',
+    '1440',
+    'Custom',
+    'Light',
+    'Dark',
+    'Viewer',
+  ]);
 });
 
 /** A page that uses the runtime and the design system, mounted full width as in the app. */
@@ -1086,22 +1305,20 @@ async function mountRuntimePage(page: Page, body: string, width = 390) {
   );
   return page.locator('iframe[title="Page content"]');
 }
-/** A late part: marked as a part, painted only after `paintAfter` uneven growth steps (never when
+/** A late part: counted as pending, painted only after `paintAfter` uneven growth steps (never when
  * 0), so the page grows while parts still paint. */
 const lateGrowth = (steps: number, paintAfter: number) =>
   `<script>
     // Taller than the window, so every step grows the frame.
     document.body.append(Object.assign(document.createElement('div'), { style: 'height:1000px' }));
-    const late = document.createElement('div');
-    late.__tmtPart = true;
-    document.body.append(late);
+    globalThis.__tmtPartsPending = 1;
     let step = 0;
     const timer = setInterval(() => {
       const block = document.createElement('div');
       block.style.height = 300 + ((step * 137) % 400) + 'px';
       block.dataset.step = String(++step);
       document.body.append(block);
-      if (step === ${paintAfter}) late.__tmtPainted = true;
+      if (step === ${paintAfter}) globalThis.__tmtPartsPending = 0;
       if (step >= ${steps}) clearInterval(timer);
     }, 150);
   </script>`;

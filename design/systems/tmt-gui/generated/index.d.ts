@@ -145,6 +145,7 @@ export interface BlockMenuProps {
   items?: string;
   active?: string;
   hints?: boolean;
+  "hint-labels"?: string;
   children?: ReactNode;
 }
 
@@ -257,6 +258,7 @@ export interface MockupBlockProps {
   preset?: "390" | "1440" | "custom";
   width?: string;
   height?: string;
+  "toolbar-labels"?: string;
   children?: ReactNode;
 }
 

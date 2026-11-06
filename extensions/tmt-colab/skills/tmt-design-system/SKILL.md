@@ -54,6 +54,17 @@ the person that publishing is their step in the Design tab.
 4. Follow the release's `principles`, for example one primary action per surface.
 5. Plain HTML can sit around the components for layout and text. Do not restyle a component's
    inside with your own CSS; choose its props instead.
+6. On a page in another language, give the words a component would otherwise show in English.
+   Each takes one comma list with an exact count; any other count keeps the English words:
+
+   | Tag | Prop | Words, in order |
+   | --- | --- | --- |
+   | `tmt-ui-block-menu` | `hint-labels` | choose, insert, close |
+   | `tmt-ui-mockup-block` | `toolbar-labels` | Custom, Light, Dark, Viewer |
+
+   A block menu's `items` name rows as `<id>:<label>` (the catalog row, with no English
+   description) or `<id>:<label>:<description>`, and `group:<id>:<heading>` renames a group
+   heading.
 
 The page shows design-system problems inside its frame: a tag from another prefix, an unknown
 component, an invalid prop value, a draft that does not compile, or a

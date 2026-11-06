@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BlockMenu } from '../src/blocks/index.js';
 
-/** #5981: the block-menu tag names catalog rows by label; BlockMenu draws them from the one catalog. */
+/** #5981: the block-menu tag names catalog rows by label or `id:text`; BlockMenu draws them from the one catalog. */
 const markup = (props: Parameters<typeof BlockMenu>[0]) =>
   renderToStaticMarkup(<BlockMenu {...props} />);
 const text = (html: string | undefined) => html?.replace(/<[^>]+>/g, '');
@@ -127,6 +127,114 @@ describe('BlockMenu catalog rows', () => {
     expect(doc.indexOf('block-menu-separator')).toBeLessThan(doc.indexOf('>Delete<'));
     expect(doc.indexOf('block-menu-separator')).toBeGreaterThan(doc.indexOf('>Duplicate<'));
     expect(all(doc, /(role="menuitem")/g)).toHaveLength(4);
+  });
+
+  it('draws `id:text` entries as that catalog row with the given text and no English description, and renames groups', () => {
+    const doc = markup({
+      label: '插入區塊',
+      items: [
+        'group:basic:基本',
+        'group:structure:結構',
+        'text:段落',
+        'code:程式碼:檔案或指令',
+        'table:表格',
+      ],
+      activeItem: 'table',
+    });
+    expect(
+      rows(doc).map(({ label, description, shortcut, icon, active }) => ({
+        label,
+        description,
+        shortcut,
+        icon,
+        active,
+      })),
+    ).toEqual([
+      // A relabelled row hides the catalog's English description; `id:text:description` sets its own.
+      { label: '段落', description: undefined, shortcut: '/text', icon: true, active: false },
+      {
+        label: '程式碼',
+        description: '檔案或指令',
+        shortcut: '```',
+        icon: true,
+        active: false,
+      },
+      {
+        label: '表格',
+        description: undefined,
+        shortcut: '/table',
+        icon: true,
+        active: true,
+      },
+    ]);
+    // Runs keep the given order: Basic, Structure, Basic again; each run is headed by its new name.
+    expect(all(doc, /data-slot="block-menu-group"[^>]*>([^<]*)</g)).toEqual([
+      '基本',
+      '結構',
+      '基本',
+    ]);
+    expect(doc).not.toContain('group:');
+    expect(doc).not.toMatch(/Plain text|Columns and rows|A file or a command/);
+  });
+
+  it('draws block actions by id with the given text and keeps their keys and danger mark', () => {
+    const doc = markup({
+      label: '區塊動作',
+      kind: 'actions',
+      items: ['duplicate:複製', 'delete:刪除'],
+      activeItem: '刪除',
+    });
+    expect(rows(doc)).toEqual([
+      {
+        label: '複製',
+        description: undefined,
+        shortcut: '⌘D',
+        icon: false,
+        active: false,
+        danger: false,
+      },
+      {
+        label: '刪除',
+        description: undefined,
+        shortcut: 'Del',
+        icon: false,
+        active: true,
+        danger: true,
+      },
+    ]);
+    expect(all(doc, /(data-slot="block-menu-separator")/g)).toHaveLength(1);
+  });
+
+  it('draws malformed or unknown entries as plain rows with their own text and never throws', () => {
+    const entries = [
+      'nope:不明',
+      'group:nope:不明',
+      'group:basic:',
+      ':空',
+      'Text:大寫',
+      'table:',
+      '  ',
+    ];
+    const insert = markup({ label: 'Insert block', items: entries });
+    expect(rows(insert).map((row) => [row.label, row.icon, row.shortcut])).toEqual([
+      ['nope:不明', false, undefined],
+      ['group:nope:不明', false, undefined],
+      ['group:basic:', false, undefined],
+      [':空', false, undefined],
+      ['Text:大寫', false, undefined],
+      ['table:', false, undefined],
+    ]);
+    expect(insert).not.toContain('data-slot="block-menu-group"');
+    // A heading override is an insert-menu entry; an action menu shows it as text.
+    const actions = markup({
+      label: 'Block actions',
+      kind: 'actions',
+      items: ['group:basic:基本', 'nope:x'],
+    });
+    expect(rows(actions).map((row) => [row.label, row.shortcut])).toEqual([
+      ['group:basic:基本', undefined],
+      ['nope:x', undefined],
+    ]);
   });
 
   it('keeps children after the catalog rows and draws none without items', () => {

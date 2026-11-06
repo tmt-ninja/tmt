@@ -1631,7 +1631,12 @@ export async function mountRenderer(
       if (stopped) return;
     }
     // Parts still to paint: their arrival is not viewport-coupled growth until they settle.
-    if (bundle && ds) settled = false;
+    // A grace timer from an earlier render must not settle this one early.
+    if (bundle && ds) {
+      clearTimeout(settleTimer);
+      settleTimer = undefined;
+      settled = false;
+    }
     frame.contentWindow?.postMessage(
       {
         type: 'colab.render.bind',
