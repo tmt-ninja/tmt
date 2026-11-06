@@ -1424,6 +1424,24 @@ mod raw_link_tests {
     }
 
     #[test]
+    fn bare_urls_start_after_glued_cjk_prose_and_stop_before_full_width_punctuation() {
+        for (text, url) in [
+            ("連結：http://x.dev/a", "http://x.dev/a"),
+            ("見https://x.dev/a。", "https://x.dev/a"),
+            ("（https://x.dev/a）", "https://x.dev/a"),
+            ("https://x.dev/a，然後", "https://x.dev/a"),
+            ("看https://x.dev/a.，", "https://x.dev/a"),
+        ] {
+            let found = bare_urls(text);
+            assert_eq!(found.len(), 1, "{text}");
+            assert_eq!(&text[found[0].clone()], url, "{text}");
+        }
+        for text in ["xhttp://x.dev", "a1https://x.dev", "連結：httpfoo"] {
+            assert!(bare_urls(text).is_empty(), "{text}");
+        }
+    }
+
+    #[test]
     fn a_cut_row_keeps_only_the_painted_part_as_the_hit_and_opens_the_whole_address() {
         let app = app();
         let mut terminal = Terminal::new(TestBackend::new(70, 4)).unwrap();

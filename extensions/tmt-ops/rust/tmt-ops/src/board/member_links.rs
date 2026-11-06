@@ -12,9 +12,33 @@ pub(super) struct Resolved {
 
 /// A whitespace-separated word without its trailing spaces and closing punctuation: the
 /// token the transcript and plain rows test for a bare web link.
+/// Full-width punctuation ends a link: CJK prose puts it right after an address, with no space.
+const FULL_WIDTH_STOPS: [char; 10] = ['。', '，', '、', '）', '」', '』', '！', '？', '；', '：'];
+
 pub(super) fn word_token(word: &str) -> &str {
     word.trim_end_matches(char::is_whitespace)
         .trim_end_matches(['.', ',', '!', ')', ']', ':', ';'])
+        .trim_end_matches(FULL_WIDTH_STOPS)
+}
+
+/// Where a bare link would sit in a token. It starts at the token's first character, or after
+/// prose glued to it with no space, as CJK writes `連結：http://…`; after an ASCII letter or digit
+/// (`xhttp://`) it is part of that word. It ends at full-width punctuation.
+pub(super) fn link_range(token: &str) -> Range<usize> {
+    let start = token
+        .match_indices("http")
+        .find(|&(at, _)| {
+            let rest = &token[at..];
+            (rest.starts_with("http://") || rest.starts_with("https://"))
+                && token[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|before| !before.is_ascii_alphanumeric())
+        })
+        .map_or(0, |(at, _)| at);
+    let rest = &token[start..];
+    let link = word_token(&rest[..rest.find(FULL_WIDTH_STOPS).unwrap_or(rest.len())]);
+    start..start + link.len()
 }
 
 /// Whether a token is a bare web link the board opens, as the transcript links one.
@@ -28,8 +52,9 @@ pub(super) fn bare_urls(text: &str) -> Vec<Range<usize>> {
     let mut found = Vec::new();
     for word in text.split_inclusive(char::is_whitespace) {
         let token = word_token(word);
-        if is_bare_url(token) {
-            found.push(offset..offset + token.len());
+        let link = link_range(token);
+        if is_bare_url(&token[link.clone()]) {
+            found.push(offset + link.start..offset + link.end);
         }
         offset += word.len();
     }
