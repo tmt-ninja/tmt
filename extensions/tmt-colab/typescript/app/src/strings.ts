@@ -714,6 +714,7 @@ export const text = {
     moveFailed: (title: string) =>
       `This page is now at the top level. Could not put it under “${title}”.`,
     moveNotMoved: 'Not moved',
+    moveUnconfirmed: 'Move unconfirmed',
     moveUnknown: 'The move could not be confirmed. Check the page list before trying again.',
     retry: 'Retry',
     search: 'Search pages',
@@ -1088,6 +1089,9 @@ export const text = {
       UNKNOWN: 'The result is unknown: the pin may have changed. Reload the list to see.',
     },
     archiveItem: 'Archive…',
+    operationFailed: 'Change not confirmed',
+    archiveState: 'Archived',
+    operationState: 'Page updated',
     restoreItem: 'Restore…',
     deleteItem: 'Delete…',
     confirmArchiveTitle: (title: string) => `Archive “${title}”?`,

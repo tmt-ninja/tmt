@@ -4,6 +4,7 @@ import { useLayoutEffect } from 'react';
 import { usePageWorkflow } from '../src/use-page-workflow.js';
 import { SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding, type PageSummary } from '../src/transport.js';
+import type { ManagementPort } from '../src/management.js';
 
 const currentId = 'notes';
 const oldId = 'old-parent';
@@ -16,6 +17,7 @@ let fault: 'none' | 'refused' | 'unknown';
 let calls: string[];
 let holdRead = false;
 let releaseRead: (() => void) | undefined;
+let lifecycleReads = 0;
 
 export function state() {
   return {
@@ -24,6 +26,10 @@ export function state() {
     failure: shown.moveFailure,
     uncertain: shown.moveUncertain,
     busy: shown.moveBusy,
+    operation: shown.pageOperation,
+    operationBusy: shown.pageOperationBusy,
+    operationNotice: shown.pageOperationNotice,
+    lifecycleReads,
   };
 }
 export function removeTarget() {
@@ -34,6 +40,12 @@ export async function move() {
 }
 export async function retry() {
   await shown.retryMove();
+}
+export function openArchive() {
+  shown.setPageOperation('page.archive');
+}
+export async function archive() {
+  await shown.runLifecycle();
 }
 export async function doubleMove() {
   holdRead = true;
@@ -59,6 +71,7 @@ export function mountWorkflow(nextFault: 'none' | 'refused' | 'unknown') {
   calls = [];
   holdRead = false;
   releaseRead = undefined;
+  lifecycleReads = 0;
   const view = { title: 'Page', source: '<p>Page</p>' };
   const binding: PageBinding = {
     subscribe(next) {
@@ -106,6 +119,36 @@ export function mountWorkflow(nextFault: 'none' | 'refused' | 'unknown') {
   ];
   const transport = {
     ...base,
+    management: {
+      async read() {
+        lifecycleReads++;
+        const failure = new Error('Malformed failure');
+        Object.defineProperty(failure, 'message', {
+          get() {
+            throw new Error('Failure could not be inspected');
+          },
+        });
+        throw failure;
+      },
+      async prepare() {
+        throw new Error('Unused');
+      },
+      async send() {
+        throw new Error('Unused');
+      },
+      async verify() {
+        throw new Error('Unused');
+      },
+      async setProjects() {
+        throw new Error('Unused');
+      },
+      async manageProject() {
+        throw new Error('Unused');
+      },
+      async setPinned() {
+        throw new Error('Unused');
+      },
+    } satisfies ManagementPort,
     async spaceHome() {
       if (holdRead)
         await new Promise<void>((resolve) => {

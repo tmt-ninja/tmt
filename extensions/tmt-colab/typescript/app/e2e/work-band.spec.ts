@@ -135,6 +135,42 @@ test('archiving the open page remains in effect across a live update and can be 
   ).toBe(false);
 });
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`page lifecycle notices fit the phone view in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+    await page.goto('/');
+    const fixture = '/test/page-move-browser.tsx';
+    await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('option', { name: 'Design Product', exact: true })
+      .click();
+    const failed = page.getByRole('alert').filter({ hasText: 'This page is now at the top level' });
+    await expect(failed).toBeVisible();
+    await page.evaluate(async (path) => (await import(path)).removeTarget(), fixture);
+    await failed.getByRole('button', { name: 'Retry' }).click();
+    const uncertain = page
+      .getByRole('status')
+      .filter({ hasText: 'The move could not be confirmed' });
+    await expect(uncertain).toBeVisible();
+    expect(await uncertain.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (process.env.COLAB_CAPTURE_DIR)
+      await page.screenshot({ path: capturePath(`6058-uncertain-390-${theme}.png`) });
+    await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Archive…' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Archive page' }).click();
+    const archived = page.getByRole('status').filter({ hasText: 'Archived “Release plan”.' });
+    await expect(archived.getByRole('button', { name: 'Restore page' })).toBeVisible();
+    expect(await archived.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (process.env.COLAB_CAPTURE_DIR)
+      await page.screenshot({ path: capturePath(`6057-archived-390-${theme}.png`) });
+  });
+}
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`page header moves under another page at ${width} ${theme}`, async ({ page }) => {

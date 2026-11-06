@@ -86,3 +86,24 @@ test('workflow ignores a second press before React rerenders', async ({ page }) 
       calls: ['old-parent:subpage.detach', 'new-parent:subpage.attach'],
     });
 });
+
+test('a rejected lifecycle operation clears busy and permits another attempt', async ({ page }) => {
+  await setup(page, 'none');
+  await invoke(page, 'openArchive');
+  await expect.poll(() => invoke(page, 'state')).toMatchObject({ operation: 'page.archive' });
+  await invoke(page, 'archive');
+  await expect
+    .poll(() => invoke(page, 'state'))
+    .toMatchObject({
+      operationBusy: false,
+      operation: undefined,
+      operationNotice: { failed: true, text: expect.stringContaining('result is unknown') },
+      lifecycleReads: 1,
+    });
+  await invoke(page, 'openArchive');
+  await expect.poll(() => invoke(page, 'state')).toMatchObject({ operation: 'page.archive' });
+  await invoke(page, 'archive');
+  await expect
+    .poll(() => invoke(page, 'state'))
+    .toMatchObject({ operationBusy: false, lifecycleReads: 2 });
+});

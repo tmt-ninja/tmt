@@ -43,8 +43,10 @@ import {
 } from './reading-link.js';
 import {
   ArrowUpRight,
+  Archive,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -2533,8 +2535,14 @@ function OpenPage({
         </div>
       )}
       {moveUncertain && (
-        <div className="page-lifecycle-notice" role="alert">
-          {text.workBand.moveUnknown}
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="waiting"
+            announcement="status"
+            stateLabel={text.workBand.moveUnconfirmed}
+            mark={<CircleHelp aria-hidden="true" />}
+            body={text.workBand.moveUnknown}
+          />
         </div>
       )}
       <PageOperationDialog
@@ -2545,19 +2553,36 @@ function OpenPage({
         onCancel={() => setPageOperation(undefined)}
       />
       {(archived || pageOperationNotice) && (
-        <div
-          className="page-lifecycle-notice"
-          role={pageOperationNotice?.failed ? 'alert' : 'status'}
-        >
-          <span>{pageOperationNotice?.text ?? text.archiveAnnouncement}</span>
-          {archived && transport.management && (
-            <BrowserAction
-              type="button"
-              variant="secondary"
-              label={text.pageList.restoreButton}
-              onActivate={() => setPageOperation('page.unarchive')}
-            />
-          )}
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone={pageOperationNotice?.failed ? 'blocked' : 'muted'}
+            announcement={pageOperationNotice?.failed ? 'alert' : 'status'}
+            stateLabel={
+              pageOperationNotice?.failed
+                ? text.pageList.operationFailed
+                : archived
+                  ? text.pageList.archiveState
+                  : text.pageList.operationState
+            }
+            mark={
+              pageOperationNotice?.failed ? (
+                <X aria-hidden="true" />
+              ) : (
+                <Archive aria-hidden="true" />
+              )
+            }
+            body={pageOperationNotice?.text ?? text.archiveAnnouncement}
+            actions={
+              archived && transport.management ? (
+                <BrowserAction
+                  type="button"
+                  variant="secondary"
+                  label={text.pageList.restoreButton}
+                  onActivate={() => setPageOperation('page.unarchive')}
+                />
+              ) : undefined
+            }
+          />
         </div>
       )}
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">

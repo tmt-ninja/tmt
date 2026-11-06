@@ -17,6 +17,7 @@ let writes: string[];
 let archived = false;
 let publish: (() => void) | undefined;
 let root: Root | undefined;
+let targetPresent = true;
 
 /** Observable fixture state: the page's current owner and the ordered writes. */
 export function moveState() {
@@ -25,6 +26,9 @@ export function moveState() {
 
 export function updatePage() {
   publish?.();
+}
+export function removeTarget() {
+  targetPresent = false;
 }
 
 export function mountMove() {
@@ -41,6 +45,7 @@ export function mountMove() {
   refuse = true;
   writes = [];
   archived = false;
+  targetPresent = true;
   const view = {
     title: 'Release plan',
     source: '<h1>Release plan</h1>',
@@ -86,7 +91,9 @@ export function mountMove() {
         : {}),
     },
     { id: oldId, title: 'Planning', sharing: 'private', projects: ['Product'] },
-    { id: targetId, title: 'Design', sharing: 'private', projects: ['Product'] },
+    ...(targetPresent
+      ? [{ id: targetId, title: 'Design', sharing: 'private' as const, projects: ['Product'] }]
+      : []),
     {
       id: '20000000-0000-4000-8000-000000000104',
       title: 'Design',

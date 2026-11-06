@@ -188,19 +188,29 @@ export function usePageWorkflow(
       sharing: snapshot.sharing,
     };
     setPageOperationBusy(true);
-    const result = await runPageOperations(transport.management, [page], kind);
-    if (!isCurrent()) return;
-    operationLock.current = false;
-    setPageOperationBusy(false);
-    setPageOperation(undefined);
-    setPageOperationNotice(operationStatus(result, kind, 1));
-    if (result.done.length && !result.awaiting.length)
-      setVerifiedArchive({ pageId: snapshot.id, value: kind === 'page.archive' });
-    if (result.done.length || result.failed?.failure.code === 'UNKNOWN') {
-      try {
-        rememberPages(transport, space, (await transport.spaceHome()).pages);
-      } catch {
-        /* The next read refreshes the list. */
+    try {
+      const result = await runPageOperations(transport.management, [page], kind);
+      if (!isCurrent()) return;
+      setPageOperation(undefined);
+      setPageOperationNotice(operationStatus(result, kind, 1));
+      if (result.done.length && !result.awaiting.length)
+        setVerifiedArchive({ pageId: snapshot.id, value: kind === 'page.archive' });
+      if (result.done.length || result.failed?.failure.code === 'UNKNOWN') {
+        try {
+          rememberPages(transport, space, (await transport.spaceHome()).pages);
+        } catch {
+          /* The next read refreshes the list. */
+        }
+      }
+    } catch {
+      if (isCurrent()) {
+        setPageOperation(undefined);
+        setPageOperationNotice({ text: text.pageList.operationFailures.UNKNOWN, failed: true });
+      }
+    } finally {
+      if (isCurrent()) {
+        operationLock.current = false;
+        setPageOperationBusy(false);
       }
     }
   };
