@@ -269,6 +269,8 @@ struct PageUpdates {
     confirmed: Arc<Mutex<Vec<String>>>,
     /// A later local edit of a page: its next update's sequence number.
     edits: Arc<Mutex<std::collections::HashMap<String, u64>>>,
+    /// What the Store reports unpublished when a session starts.
+    unpublished: Vec<PageRef>,
 }
 impl PageUpdates {
     fn of(&mut self, page: &PageRef) -> &mut OneUpdate {
@@ -291,6 +293,13 @@ fn start_pages(
     channels: Arc<super::fixture::FixedChannel>,
     activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
 ) -> (Rig, Confirmed, Edits) {
+    start_pages_with(channels, activate, Vec::new())
+}
+fn start_pages_with(
+    channels: Arc<super::fixture::FixedChannel>,
+    activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
+    unpublished: Vec<PageRef>,
+) -> (Rig, Confirmed, Edits) {
     let confirmed = Arc::new(Mutex::new(Vec::new()));
     let edits = Arc::new(Mutex::new(std::collections::HashMap::new()));
     let (record, edited) = (Arc::clone(&confirmed), Arc::clone(&edits));
@@ -303,6 +312,7 @@ fn start_pages(
                 pages: Default::default(),
                 confirmed: Arc::clone(&record),
                 edits: Arc::clone(&edited),
+                unpublished: unpublished.clone(),
             }))
         }),
     );
@@ -331,6 +341,9 @@ impl Local for PageUpdates {
     }
     fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault> {
         self.of(page).retired(page, link)
+    }
+    fn unpublished(&mut self) -> Result<Vec<PageRef>, Fault> {
+        Ok(self.unpublished.clone())
     }
 }
 
@@ -370,24 +383,44 @@ fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
 }
 
 #[test]
-fn the_queue_of_touched_pages_is_bounded_and_keeps_each_page_once() {
+fn pages_the_store_holds_unpublished_go_out_when_a_session_starts_with_no_touch() {
+    // A serve restarted: two pages kept unconfirmed local updates and nothing touches them.
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let (mut rig, confirmed, _) = start_pages_with(
+        Arc::clone(&peer.channels),
+        activated,
+        vec![page(SECOND, 1), page(FIRST, 1)],
+    );
+    until("both pages are published", || {
+        *confirmed.lock().unwrap() == [SECOND, FIRST]
+    });
+    assert_eq!(remote.methods()[0], Method::Bind);
+    assert!(rig.reports.lock().unwrap().is_empty());
+    rig.sync.take().unwrap().stop();
+}
+
+#[test]
+fn the_queue_holds_every_page_of_the_catalog_once_and_drops_none() {
+    // Keyed by page and as large as the page catalog, so it cannot fill up by construction.
+    assert_eq!(super::QUEUED_PAGES, crate::limits::PAGES);
     let mut pages = Vec::new();
-    for n in 0..(super::QUEUED_PAGES + 10) {
-        super::remember(&mut pages, page(&format!("p-{n}"), 1));
+    for n in 0..super::QUEUED_PAGES {
+        assert!(super::remember(&mut pages, page(&format!("p-{n}"), 1)));
     }
+    // Should it be full, a new page is refused and nothing is dropped: the caller rescans.
+    assert!(!super::remember(&mut pages, page("extra", 1)));
     assert_eq!(pages.len(), super::QUEUED_PAGES);
-    assert_eq!(
-        pages[0].page, "p-10",
-        "the oldest pages are forgotten first"
-    );
-    super::remember(&mut pages, page("p-10", 1));
+    assert_eq!(pages[0].page, "p-0");
+    // A known page moves to the end, and a later epoch replaces its entry.
+    assert!(super::remember(&mut pages, page("p-0", 2)));
     assert_eq!(pages.len(), super::QUEUED_PAGES);
-    assert_eq!(
-        pages.last().unwrap().page,
-        "p-10",
-        "a touch moves a page to the end"
-    );
-    assert_eq!(pages.iter().filter(|known| known.page == "p-10").count(), 1);
+    assert_eq!(pages.last().unwrap(), &page("p-0", 2));
+    assert_eq!(pages.iter().filter(|known| known.page == "p-0").count(), 1);
 }
 
 #[test]

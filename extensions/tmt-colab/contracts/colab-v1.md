@@ -5019,9 +5019,11 @@ the declaration nor these codecs enable cloud sync by themselves. The serve runs
 object-channel generation: it asks Remote to activate, binds, and publishes the most recently
 active page (opened in a browser or written by the CLI) first. Every other page touched in the
 serve's life, by an edit, a browser or a management change such as a link, member or policy, is
-remembered in a bounded queue without repeats (256 pages, oldest forgotten first; the queue
-outlives sessions) and published after it, one bounded pass per step, so a page left for another
-needs no new touch. It
+remembered in a queue keyed by page and published after it, one bounded pass per step, so a page
+left for another needs no new touch. The queue outlives sessions and is as large as the page
+catalog, so it never drops a page; at each session start it also takes every page whose own
+streams (this machine's writer and registered devices) hold updates after the cloud-confirmed
+position, one bounded Store query, so updates left unpublished across a serve restart go out. It
 creates the owner's `spaces`, `pages` and own `members` rows, then one `links` row for each live
 link of the page that has an admission token and the signed membership, chain and wrap originals,
 the wraps addressed to those links among them, then each local original in sequence, always

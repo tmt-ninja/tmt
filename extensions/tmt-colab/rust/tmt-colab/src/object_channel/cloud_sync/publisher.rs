@@ -89,6 +89,10 @@ pub(crate) trait Local {
     fn retirements(&mut self, page: &PageRef) -> Result<Vec<Retirement>, Fault>;
     /// The link's cloud rows are gone for this page.
     fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault>;
+    /// The pages holding local updates the cloud has not confirmed, for the worker's queue.
+    fn unpublished(&mut self) -> Result<Vec<PageRef>, Fault> {
+        Ok(Vec::new())
+    }
 }
 
 pub(crate) struct Publisher {

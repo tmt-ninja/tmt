@@ -110,6 +110,10 @@ impl Session {
             .replace(page.clone())
             .filter(|before| before != page)
     }
+    /// The pages the Store holds unconfirmed local updates for; none when it cannot say.
+    fn unpublished(&mut self) -> Vec<PageRef> {
+        self.local.unpublished().unwrap_or_default()
+    }
     /// One bounded publication pass for a page that is not the active one; it is not read.
     fn publish(&mut self, page: &PageRef, report: &dyn Fn(&str)) -> Result<bool, Fault> {
         if self.stuck.contains(page) {
@@ -308,23 +312,33 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
     })
 }
 
-/// Pages other than the active one that may hold unpublished updates: every page touched,
-/// and a page the active one replaced. It outlives sessions, so what was touched before a session
-/// or in a lost one is published by the next. One page is published per step, after the active
-/// page, so the active page stays first (#6158).
+/// Pages other than the active one that may hold unpublished updates: every page touched, the
+/// page the active one replaced, and at each session start every page the Store holds
+/// unconfirmed local updates for (so a serve restart loses none). It outlives sessions. One page
+/// is published per step, after the active page, so the active page stays first (#6158).
 struct Queued {
     pages: Vec<PageRef>,
+    /// A page did not fit: the Store is rescanned once the queue is empty. By construction this
+    /// cannot happen (the queue is keyed by page and as large as the page catalog).
+    rescan: bool,
     at: Option<Instant>,
     backoff: Backoff,
 }
 impl Queued {
     fn add(&mut self, page: PageRef) {
-        super::remember(&mut self.pages, page);
+        if !super::remember(&mut self.pages, page) {
+            self.rescan = true;
+        }
         self.at.get_or_insert_with(Instant::now);
     }
     /// One step: publish the oldest queued page that is not active, and when the next step is due.
     fn step(&mut self, held: &mut Session, report: &dyn Fn(&str)) {
         let now = Instant::now();
+        if self.pages.is_empty() && std::mem::take(&mut self.rescan) {
+            for page in held.unpublished() {
+                self.add(page);
+            }
+        }
         let Some(page) = self.pages.first().cloned() else {
             self.at = None;
             return;
@@ -364,6 +378,7 @@ pub(super) fn run(parts: Parts) {
     let mut wake = activity.wait(0, Duration::ZERO);
     let mut queued = Queued {
         pages: Vec::new(),
+        rescan: false,
         at: None,
         backoff: Backoff::new(),
     };
@@ -371,10 +386,15 @@ pub(super) fn run(parts: Parts) {
         if wake.stopped {
             break;
         }
-        for page in activity.take_touched() {
+        let (touched, overflowed) = activity.take_touched();
+        for page in touched {
             if page.space == parts.space {
                 queued.add(page);
             }
+        }
+        if overflowed {
+            queued.rescan = true;
+            queued.at.get_or_insert_with(Instant::now);
         }
         let version = wake.version;
         let now = Instant::now();
@@ -402,6 +422,13 @@ pub(super) fn run(parts: Parts) {
                     if let Some(page) = wake.page.as_ref().filter(|page| page.space == parts.space)
                     {
                         let _ = established.touched(page);
+                    }
+                    // What the Store still holds unpublished, from before this serve or a lost
+                    // session, is queued behind the active page.
+                    for page in established.unpublished() {
+                        if page.space == parts.space {
+                            queued.add(page);
+                        }
                     }
                     session = Some(established);
                 }
