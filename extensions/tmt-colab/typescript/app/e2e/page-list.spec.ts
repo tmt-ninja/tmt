@@ -1249,6 +1249,10 @@ for (const width of [1440, 390])
       }
       const filter = app(page).getByRole('button', { name: 'Filter', exact: true });
       expect(Math.abs((await filter.boundingBox())!.y - box.y)).toBeLessThanOrEqual(1);
+      // Focus from the keyboard lands after the tokens: typing goes on after them.
+      await search(page).focus();
+      await page.keyboard.type('draft');
+      await expect(search(page)).toHaveText(/Include archived\s*draft$/);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);

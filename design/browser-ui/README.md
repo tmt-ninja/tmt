@@ -24,7 +24,10 @@ and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
 The `./rich-input.css` entry exposes the RichInput stylesheet for hosts that embed the editor
-inside an isolated page frame; the `./rich-input` React entry remains the component owner.
+inside an isolated page frame; the `./rich-input` React entry remains the component owner. A
+`single` RichInput grows to more lines instead of hiding chips, with its leading icon on the first
+line, and a keyboard or scripted focus that would put the caret before everything lands it after the
+content instead.
 The React entry also exports `BrowserCardMeter`, `BrowserOverview`, `BrowserEditorial`,
 `BrowserVisuallyHidden` and `BrowserChart`. The chart uses the shared series painter and releases
 its resize observer when its React owner unmounts. `createSeriesChart` accepts an optional cleanup
