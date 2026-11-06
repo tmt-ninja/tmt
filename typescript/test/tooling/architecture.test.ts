@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vite-plus/test';
 import { imports } from '../support/source-imports.js';
+import { repositorySources } from '../support/repository-sources.js';
 
 const workspaceRoot = fileURLToPath(new URL('../../', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -36,6 +37,10 @@ function suiteImportViolations(file: string, text: string): string[] {
   const scenario =
     (fromSuite === 'e2e' && !from.startsWith(harness) && from !== facade) ||
     (from.startsWith('extensions/') && from.includes('/e2e/'));
+  // Every rejection below belongs to one of these origins. Other origins cannot
+  // violate this guard, so they need neither an AST nor module resolution.
+  if (!['support', 'native', 'e2e'].includes(fromSuite ?? '') && !harnessHelper && !scenario)
+    return [];
   return imports(file, text).flatMap((specifier) => {
     const resolved = ts.resolveModuleName(
       specifier,
@@ -66,7 +71,7 @@ function suiteImportViolations(file: string, text: string): string[] {
 }
 
 function retainedTestFiles(directory: string): string[] {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  return repositorySources.entries(directory).flatMap((entry) => {
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) return retainedTestFiles(file);
     return /\.(?:ts|mjs)$/.test(entry.name) ? [file] : [];
@@ -238,7 +243,7 @@ describe('retained developer tooling boundaries', () => {
     expect(
       files.flatMap((file) => {
         const absolute = path.join(repositoryRoot, file);
-        return suiteImportViolations(absolute, fs.readFileSync(absolute, 'utf8'));
+        return suiteImportViolations(absolute, repositorySources.text(absolute));
       })
     ).toEqual([]);
   });
@@ -253,7 +258,7 @@ describe('retained developer tooling boundaries', () => {
     expect(files.some((file) => file.endsWith('/cli-process.ts'))).toBe(true);
     expect(
       files.flatMap((file) =>
-        legacyTestImports(file, fs.readFileSync(file, 'utf8')).map(
+        legacyTestImports(file, repositorySources.text(file)).map(
           (specifier) => `${file} -> ${specifier}`
         )
       )

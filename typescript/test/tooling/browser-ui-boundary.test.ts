@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { expect, it } from 'vite-plus/test';
 import { imports } from '../support/source-imports.js';
+import { repositorySources } from '../support/repository-sources.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const home = path.join(root, 'design/browser-ui');
@@ -184,7 +185,7 @@ function violations(
   return failures;
 }
 function productionFiles(directory: string): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  return repositorySources.entries(directory).flatMap((entry) => {
     const file = path.join(directory, entry.name);
     return entry.isDirectory() ? productionFiles(file) : [file];
   });
@@ -193,7 +194,7 @@ function productionViolations(directory: string): string[] {
   const failures: string[] = [];
   for (const file of productionFiles(directory)) {
     if (!/\.[cm]?[jt]sx?$/.test(file) && !file.endsWith('.css')) continue;
-    const source = readFileSync(file, 'utf8');
+    const source = repositorySources.text(file);
     if (/\.[cm]?[jt]sx?$/.test(file))
       failures.push(
         ...violations(file, source, file === path.join(directory, 'static.ts'), {}, directory).map(
@@ -443,6 +444,10 @@ it('admits foundation dependencies only inside the separate UI graph, with no al
 const extensions = path.join(root, 'extensions');
 const CONSUMER_ROOTS = new Set(['src', 'test', 'e2e', 'acceptance']);
 function consumerViolations(file: string, text: string): string[] {
+  // Outside the leaf, every forbidden literal edge must spell browser-ui.
+  // Escapes may hide that spelling; preserve the AST check for all escaped text.
+  if (!inside(path.resolve(file), home) && !text.includes('browser-ui') && !text.includes('\\'))
+    return [];
   const failures: string[] = [];
   const production = path.relative(extensions, file).split(path.sep).includes('src');
   for (const edge of imports(file, text)) {
@@ -459,7 +464,7 @@ function consumerViolations(file: string, text: string): string[] {
   return failures;
 }
 function consumerFiles(directory: string, inside = false): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  return repositorySources.entries(directory).flatMap((entry) => {
     if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.'))
       return [];
     const file = path.join(directory, entry.name);
@@ -470,7 +475,7 @@ function consumerFiles(directory: string, inside = false): string[] {
 it('extensions import the leaf only through its package exports', () => {
   const failures = consumerFiles(extensions).flatMap((file) => {
     const name = path.relative(root, file);
-    return consumerViolations(file, readFileSync(file, 'utf8')).map((edge) => `${name}: ${edge}`);
+    return consumerViolations(file, repositorySources.text(file)).map((edge) => `${name}: ${edge}`);
   });
   expect(failures).toEqual([]);
 });
@@ -502,6 +507,11 @@ it('names a deep leaf path in any import form and a test-only subpath in product
       ['test-only subpath @tmt/browser-ui/gallery/frames'],
     ],
     ['test/i.tsx', "import { DialogFixture } from '@tmt/browser-ui/test-fixtures/dialog.tsx';", []],
+    [
+      'src/escaped.ts',
+      String.raw`import { shell } from '../../../../../design/\u0062rowser-ui/src/shell.js';`,
+      [`deep path ${deep}`],
+    ],
     // The exports themselves and byte reads of generated files are fine.
     [
       'src/j.ts',
