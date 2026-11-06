@@ -31,10 +31,10 @@
     },
     {
       "name": "blocks",
-      "path": "assets/colab-runtime-blocks-f5e3b2145a084eb5.js",
-      "sha256": "f5e3b2145a084eb5c5d402e2584154c4b2fe7fc1eec9a25966d40ac9c476039a",
-      "length": 47050,
-      "gzip": 13457
+      "path": "assets/colab-runtime-blocks-fa9b5b05b2b0bb00.js",
+      "sha256": "fa9b5b05b2b0bb00acfa288546ad1db720ad9042fd11d0f1d47c53b588d9a380",
+      "length": 47010,
+      "gzip": 13442
     },
     {
       "name": "rich-input",

@@ -27,14 +27,14 @@ export interface MockupLabels {
 }
 
 /**
- * The stage height: its content's, at least `min`. A phone sheet sizes itself from the stage
- * (60cqh), so a stage holding one and no minimum takes the sheet's own height and never follows it.
+ * The stage height: its content's, at least `min`. A stage with no minimum hugs everything,
+ * a phone sheet included: the sheet drops its 60cqh bound there (blocks.css), so the stage
+ * leaves no empty tail. A stage with a minimum is a device: its sheet keeps the 60% bound,
+ * which follows the stage, so the stage holds the minimum rather than chase its own sheet.
  */
 function mockupStageHeight(min: number, content: HTMLElement) {
-  const sheet = content.querySelector<HTMLElement>('.tmt-block-menu[data-placement="sheet"]');
-  const height = sheet
-    ? min || Math.ceil((sheet.scrollHeight + sheet.offsetHeight - sheet.clientHeight) / 0.6)
-    : Math.max(min, content.offsetHeight);
+  const sheet = content.querySelector('.tmt-block-menu[data-placement="sheet"]');
+  const height = sheet && min ? min : Math.max(min, content.offsetHeight);
   return Math.min(4096, height);
 }
 
@@ -213,7 +213,11 @@ export function MockupBlock({
                 className="tmt-block-mockup-stage"
                 style={{ width: stageWidth, height: stageHeight, transform: `scale(${scale})` }}
               >
-                <div ref={content} data-theme={appearance === 'viewer' ? undefined : appearance}>
+                <div
+                  ref={content}
+                  data-theme={appearance === 'viewer' ? undefined : appearance}
+                  data-hug={min ? undefined : ''}
+                >
                   {children}
                 </div>
               </DsScope>

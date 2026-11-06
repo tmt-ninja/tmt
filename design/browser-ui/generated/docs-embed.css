@@ -1064,6 +1064,10 @@
 [data-tmt-ds-scope] .tmt-block-menu[data-placement='sheet'] {
   max-height: 60cqh;
 }
+
+.tmt-block-mockup-stage > [data-hug] .tmt-block-menu[data-placement='sheet'] {
+  max-height: none;
+}
 .tmt-block-menu[data-placement='sheet']::before {
   content: '';
   display: block;

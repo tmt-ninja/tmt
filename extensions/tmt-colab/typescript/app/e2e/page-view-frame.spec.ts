@@ -1008,7 +1008,8 @@ for (const { where, html, part, fits } of windowHigh) {
 const stages = `
   <tmt-ui-mockup-block id="hug" preset="390"><div id="hug-content" style="height:150px">Short</div></tmt-ui-mockup-block>
   <tmt-ui-mockup-block id="min" preset="390" height="300"><div style="height:150px">Short</div></tmt-ui-mockup-block>
-  <tmt-ui-mockup-block id="sheet" preset="390"><tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>`;
+  <tmt-ui-mockup-block id="sheet" preset="390"><tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="sheet-min" preset="390" height="200"><tmt-ui-block-menu label="Bounded sheet" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>`;
 for (const width of [390, 1440])
   test(`mockup stages hug their content, centre and keep a segmented toolbar at ${width}`, async ({
     page,
@@ -1049,18 +1050,26 @@ for (const width of [390, 1440])
     await expect.poll(() => height('min')).toBe(300);
     await content.locator('#hug-content').evaluate((node) => (node.style.height = '220px'));
     await expect.poll(() => height('hug')).toBe(220);
-    // A phone sheet sizes itself from the stage; with no minimum the stage is the sheet's own
-    // height over its 60% share, so every row shows and nothing scrolls.
+    // With no minimum the stage hugs a phone sheet too: every row shows, nothing scrolls, and
+    // no empty tail is left below the sheet.
     const sheet = content.locator('#sheet .tmt-block-menu[data-placement="sheet"]');
     const fit = await sheet.evaluate((node: HTMLElement) => ({
       client: node.clientHeight,
       scroll: node.scrollHeight,
-      border: node.offsetHeight - node.clientHeight,
     }));
     expect(fit.scroll).toBeLessThanOrEqual(fit.client);
-    expect(
-      Math.abs((await height('sheet')) - Math.ceil((fit.scroll + fit.border) / 0.6)),
-    ).toBeLessThanOrEqual(1);
+    const drawn = await stage('sheet').boundingBox();
+    const drawer = await sheet.boundingBox();
+    const tail = (drawn?.y ?? 0) + (drawn?.height ?? 0) - ((drawer?.y ?? 0) + (drawer?.height ?? 0));
+    expect(Math.abs(tail)).toBeLessThanOrEqual(1);
+    // With a minimum the stage is a device: it holds the minimum, and its sheet keeps the
+    // phone's 60% bound and scrolls within it.
+    expect(await height('sheet-min')).toBe(200);
+    const bounded = await content
+      .locator('#sheet-min .tmt-block-menu[data-placement="sheet"]')
+      .evaluate((node: HTMLElement) => ({ height: node.offsetHeight, scroll: node.scrollHeight }));
+    expect(bounded.height).toBeLessThanOrEqual(120.5);
+    expect(bounded.scroll).toBeGreaterThan(bounded.height);
     await expect(sheet.getByRole('option')).toHaveCount(3);
     const bounds = await stage('sheet').boundingBox();
     for (const option of await sheet.getByRole('option').all()) {

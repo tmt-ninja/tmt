@@ -989,8 +989,8 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   content with `height` as a minimum, sits centred when narrower than the block and, at any
   width, scales to fit when wider, never scrolling sideways. The scale shows only its
   percentage (named "Scaled N%"), so a localized page mixes in no English. `labels` names the
-  toolbar's Custom, Light, Dark and Viewer segments in the page's language. A stage holding a phone sheet and no minimum takes the sheet's
-  height, because the sheet sizes itself from the stage.
+  toolbar's Custom, Light, Dark and Viewer segments in the page's language. A stage with no minimum hugs a phone sheet too (the sheet drops its
+  60% bound there); with a minimum it is a device, and its sheet keeps the 60% bound.
   `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 
 The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-ui-block-menu`,
