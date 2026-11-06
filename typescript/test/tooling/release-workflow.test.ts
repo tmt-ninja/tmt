@@ -103,7 +103,7 @@ describe('required manifest packaging cache restore (#2076)', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-workflow.test.ts'],
@@ -194,7 +194,7 @@ describe('signature-limited native install wiring (#1806)', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: [
@@ -455,7 +455,7 @@ describe('release version gate workflow boundaries', () => {
   it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
     const ci = read('.github/workflows/ci.yml');
     const build = job(ci, 'native-runtime-build');
-    const tests = job(ci, 'unit-tests');
+    const tests = job(ci, 'unit-tooling');
     expect(tests).toContain('needs: [changes, native-runtime-build]');
     expect(build).toContain('cargo build --locked -p tmt-release-tool --bin release-version');
     expect(build).toContain("if: matrix.target == 'x86_64-unknown-linux-musl'");

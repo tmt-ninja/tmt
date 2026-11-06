@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { toolingGroup } from './unit-test-consumers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GATES } from './publication-gates.mjs';
@@ -224,18 +225,22 @@ function checkCounterpart(counterpart, stage, label, read) {
       Array.isArray(counterpart.tests) && counterpart.tests.length > 0,
       `${label}: policy coverage needs tests`
     );
-    ensure(
-      /^ {8,}pnpm test:run(?: --maxWorkers=[1-9][0-9]*| --reporter=(?:default|json)| --outputFile="\$RUNNER_TEMP\/[\w.-]+\.json")*[ \t]*$/m.test(
-        job.body
-      ),
-      `${label}: policy job does not run the tooling suite`
-    );
+    const command = job.body.match(
+      /^ {8,}pnpm test:run(?: --project=(?:tooling|shell)| --maxWorkers=[1-9][0-9]*| --reporter=(?:default|json)| --outputFile="\$RUNNER_TEMP\/(?:[\w.-]+\/)*[\w.-]+\.json")*[ \t]*$/m
+    )?.[0];
+    ensure(command, `${label}: policy job does not run the tooling suite`);
+    const projects = [...command.matchAll(/ --project=(tooling|shell)/g)].map((match) => match[1]);
+    ensure(projects.length <= 1, `${label}: ambiguous tooling project`);
     for (const test of counterpart.tests) {
       ensure(
         /^typescript\/test\/tooling\/[\w-]+\.test\.ts$/.test(test),
         `${label}: invalid test path`
       );
       read(test);
+      ensure(
+        projects.length === 0 || toolingGroup(test.slice('typescript/'.length)) === projects[0],
+        `${label}: policy test outside selected tooling project: ${test}`
+      );
     }
   }
 }

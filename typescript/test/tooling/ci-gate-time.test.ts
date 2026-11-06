@@ -202,6 +202,49 @@ describe('gate measurement edge cases', () => {
   });
   const measure = (jobs: GateJob[]) => summarizeGate([run(jobs)]).pull_request;
 
+  it('measures the complete split Unit span without charging it twice as runner occupancy', () => {
+    const result = measure([
+      job(1, 'Retained tooling tests', 10, 110),
+      job(2, 'Shell onboarding contracts', 12, 40),
+      job(3, 'Selected Rules suites', 15, 100),
+      job(4, 'Unit tests', 112, 120),
+    ]);
+    expect(result.jobs.find((entry) => entry.name === 'Unit tests')).toMatchObject({
+      wall: { median: 110 },
+      queue: { median: 2 },
+    });
+    expect(result.runnerMinutes.median).toBeCloseTo((100 + 28 + 85 + 8) / 60);
+    expect(result.controlling[0]?.name).toBe('Retained tooling tests');
+    expect(
+      overBudget(
+        { pull_request: result, merge_group: summarizeGate([]).merge_group },
+        {
+          gate: { pull_request: { median: 999, p90: 999 }, merge_group: { median: 999, p90: 999 } },
+          jobs: { 'Unit tests': { pull_request: 100, merge_group: 100 } },
+        }
+      )
+    ).toContainEqual({ event: 'pull_request', what: 'Unit tests p90', value: 110, budget: 100 });
+  });
+
+  it('keeps legacy Unit walls and omits unselected Rules from the split span', () => {
+    const legacy = measure([job(1, 'Unit tests', 20, 100)]);
+    expect(legacy.jobs[0]?.wall.median).toBe(80);
+    expect(legacy.controlling[0]?.name).toBe('Unit tests');
+    const split = measure([
+      job(1, 'Retained tooling tests', 20, 100),
+      job(2, 'Shell onboarding contracts', 25, 60),
+      job(3, 'Selected Rules suites', 0, 999, 'skipped'),
+      job(4, 'Unit tests', 102, 110),
+    ]);
+    expect(split.jobs.find((entry) => entry.name === 'Unit tests')?.wall.median).toBe(90);
+  });
+
+  it('refuses an incomplete consumer span instead of reporting only the short collector', () => {
+    expect(() =>
+      measure([job(1, 'Retained tooling tests', 20, 100), job(2, 'Unit tests', 102, 110)])
+    ).toThrow('Incomplete Unit tests consumer span');
+  });
+
   it('ends the gate at the last selected required context and ignores skipped ones', () => {
     const result = measure([
       job(1, 'Code quality', 2, 100),

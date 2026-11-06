@@ -1,5 +1,9 @@
 import { lintConfig } from './scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
+import { readToolingGroups } from './scripts/unit-test-consumers.mjs';
+import { fileURLToPath } from 'node:url';
+
+const groups = readToolingGroups(fileURLToPath(new URL('.', import.meta.url)));
 
 export default defineConfig({
   lint: lintConfig,
@@ -15,7 +19,10 @@ export default defineConfig({
   test: {
     clearMocks: false,
     pool: 'threads',
-    include: ['test/tooling/**/*.test.ts'],
+    projects: Object.entries(groups).map(([name, include]) => ({
+      extends: true,
+      test: { name, include },
+    })),
     exclude: ['test/e2e/**', 'node_modules', 'dist'],
     // Vitest 4 counts real, bounded synchronous subprocess and filesystem work.
     testTimeout: 10_000,
