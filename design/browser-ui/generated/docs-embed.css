@@ -1692,10 +1692,10 @@ a.tmt-block-mention:focus-visible {
   min-height: var(--tmt-ui-control-size);
   margin: 0;
   padding: 0 var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: 0;
   background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-color-secondary);
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
@@ -1714,9 +1714,10 @@ a.tmt-block-mention:focus-visible {
 .tmt-block-mockup-segments > button[aria-pressed='true'] {
   position: relative;
   z-index: 1;
-  border-color: var(--tmt-ui-color-selection-edge);
+  border-color: var(--tmt-ui-color-edge);
   background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-text-action);
+  color: var(--tmt-ui-color-selected-text);
+  font-weight: 500;
 }
 .tmt-block-mockup-segments > button:focus-visible {
   position: relative;

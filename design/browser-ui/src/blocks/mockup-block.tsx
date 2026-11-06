@@ -132,8 +132,13 @@ export function MockupBlock({
                 </select>
               </>
             ) : (
-              <span className="tmt-block-mockup-pin" title={`${system}@${version}`}>
-                {system}@{version}
+              // The release reads on screen; the full pin, hash included, is its title and name.
+              <span
+                className="tmt-block-mockup-pin"
+                title={`${system}@${version}`}
+                aria-label={`${system}@${version}`}
+              >
+                {system}@{version.split('#')[0]}
               </span>
             )}
             <div className="tmt-block-mockup-segments" role="group" aria-label="Stage width">
@@ -180,6 +185,17 @@ export function MockupBlock({
                 </button>
               ))}
             </div>
+            {/* Only the number shows, so a page in any language mixes in no English; the words stay
+                in the title and accessible name. */}
+            {scale < 1 && (
+              <span
+                className="tmt-block-mockup-scale"
+                title={`Scaled ${Math.round(scale * 100)}%`}
+                aria-label={`Scaled ${Math.round(scale * 100)}%`}
+              >
+                {Math.round(scale * 100)}%
+              </span>
+            )}
           </div>
           {unavailable ? (
             <p role="status">
@@ -202,17 +218,6 @@ export function MockupBlock({
                 </div>
               </DsScope>
             </div>
-          )}
-          {/* Only the number shows, so a page in any language mixes in no English; the words stay
-              in the title and accessible name. */}
-          {scale < 1 && (
-            <span
-              className="tmt-block-mockup-scale"
-              title={`Scaled ${Math.round(scale * 100)}%`}
-              aria-label={`Scaled ${Math.round(scale * 100)}%`}
-            >
-              {Math.round(scale * 100)}%
-            </span>
           )}
         </section>
       </UiTheme>

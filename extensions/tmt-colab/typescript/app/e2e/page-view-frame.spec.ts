@@ -1086,7 +1086,11 @@ for (const width of [390, 1440])
         return { scrolled: node.scrollLeft, client: node.clientWidth };
       });
       expect(fit.scrolled).toBe(0);
-      const label = content.locator(`#${id} .tmt-block-mockup-scale`);
+      // The marker closes the toolbar row, as a stage control.
+      const label = content
+        .locator(`#${id}`)
+        .getByRole('toolbar', { name: 'Mockup settings' })
+        .locator('.tmt-block-mockup-scale');
       if (fit.client < 390) {
         // Only the number shows (no English on a localized page); the words are its name.
         const percent = Math.round((fit.client / 390) * 100);
@@ -1123,11 +1127,12 @@ for (const width of [390, 1440])
       );
     }
     const toolbar = content.locator('#hug').getByRole('toolbar', { name: 'Mockup settings' });
-    // The pin is cut to one line on screen; its full value stays in its text and title.
+    // The pin shows its release on one line; the full pin, hash included, is its title and name.
     const pin = toolbar.locator('.tmt-block-mockup-pin');
-    const full = await pin.textContent();
+    await expect(pin).toHaveText('tmt-gui@0.1.0');
+    const full = await pin.getAttribute('title');
     expect(full).toMatch(/^tmt-gui@0\.1\.0#sha256-[0-9a-f]{64}$/);
-    await expect(pin).toHaveAttribute('title', full!);
+    await expect(pin).toHaveAttribute('aria-label', full!);
     expect(await pin.evaluate((node) => node.getClientRects().length)).toBe(1);
     expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     const chosen = toolbar.getByRole('button', { name: '390' });
@@ -1152,6 +1157,27 @@ for (const width of [390, 1440])
       }, name);
     expect(await fill(chosen)).toBe(await token('--tmt-ui-surface-selection'));
     expect(await fill(chosen)).not.toBe(await token('--tmt-ui-color-accent-fill'));
+    // As the design system's segmented selected state: selected text in medium weight, the
+    // others in secondary text, so the chosen one reads at a glance in either theme.
+    const ink = (button: typeof chosen) =>
+      button.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, weight: style.fontWeight };
+      });
+    const colour = (name: string) =>
+      chosen.evaluate((node, name) => {
+        const probe = node.ownerDocument.createElement('i');
+        probe.style.color = `var(${name})`;
+        node.append(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      }, name);
+    expect(await ink(chosen)).toEqual({
+      color: await colour('--tmt-ui-color-selected-text'),
+      weight: '500',
+    });
+    expect((await ink(other)).color).toBe(await colour('--tmt-ui-color-secondary'));
     // Hugging never reads as viewport coupling.
     await expect(page.locator('iframe[title="Page content"]')).toHaveAttribute(
       'data-scroll-mode',
