@@ -334,8 +334,6 @@ export function Home() {
     })),
     ...(search.needs ? [{ kind: 'needs' as const, name: '' }] : []),
     ...(search.includeArchived ? [{ kind: 'include-archived' as const, name: '' }] : []),
-    ...(archived ? [{ kind: 'archived' as const, name: '' }] : []),
-    ...(filter.stage ? [{ kind: 'stage' as const, name: filter.stage }] : []),
   ];
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   // Compared in the editor's own shape, so applying a draft does not reset the editor under it.
@@ -361,37 +359,28 @@ export function Home() {
     const { q, stage } = takeStage(typed.q);
     const { projects, authors } = typed;
     const held = stage ? viewConditions(typed.conditions, stage) : typed.conditions;
-    const kept = port
-      ? held
-      : held.filter((condition) => condition.kind !== 'archived' && condition.kind !== 'stage');
-    lastApplied.current = JSON.stringify(editFromSearch(projects, q, authors, kept));
+    lastApplied.current = JSON.stringify(editFromSearch(projects, q, authors, held));
     setSearch({
       by: authors.length ? authors : undefined,
       q: q || undefined,
+      ...(stage ? stageSearch(stage) : {}),
       ...conditionSearch(projects, held),
     });
     if (stage) {
-      setEdit(editFromSearch(projects, q, authors, kept));
+      setEdit(editFromSearch(projects, q, authors, held));
       setResetKey((key) => key + 1);
     }
   }
-  /** The route search of the projects and conditions; a list without tabs takes no tab condition. */
+  /** The route search of the projects and conditions. */
   function conditionSearch(projects: readonly string[], held: readonly Condition[]) {
     const has = (kind: Condition['kind']) => held.some((condition) => condition.kind === kind);
     const states = held.flatMap((condition) =>
       condition.kind === 'state' ? [condition.name as PageState] : [],
     );
-    const tab = held.find((condition) => condition.kind === 'stage')?.name as HomeStage | undefined;
     return {
       project: projects.length ? [...projects] : undefined,
       state: states.length ? states : undefined,
       includeArchived: has('include-archived') || undefined,
-      ...(port
-        ? {
-            ...stageSearch(tab ?? DEFAULT_VIEW),
-            ...(has('archived') ? stageSearch('archived') : {}),
-          }
-        : {}),
       needs: has('needs') || undefined,
     } satisfies Partial<HomeSearch>;
   }
@@ -408,8 +397,7 @@ export function Home() {
       if (kind === 'project') return [...list];
       if (list.some((item) => item.kind === kind && item.name === name))
         return list.filter((item) => !(item.kind === kind && item.name === name));
-      // Needs me is the Needs you tab: it replaces another tab's condition.
-      return kind === 'needs' ? viewConditions(list, 'needs') : [...list, { kind, name }];
+      return [...list, { kind, name }];
     };
     const typed = searchFromEdit(edit);
     const projects = flipProject(filter.projects);
@@ -428,15 +416,12 @@ export function Home() {
     setResetKey((key) => key + 1);
     setSearch(conditionSearch(projects, held));
   }
-  /** The conditions a tab sets: Archived, Needs you and a stage replace each other. */
+  /** The Needs you tab is the Needs me condition; another tab leaves it. */
   function viewConditions(held: readonly Condition[], id: HomeView): Condition[] {
-    const rest = held.filter(
-      (condition) => !['archived', 'needs', 'stage'].includes(condition.kind),
-    );
-    if (id === 'archived') return [...rest, { kind: 'archived', name: '' }];
-    if (id === 'needs') return [...rest, { kind: 'needs', name: '' }];
-    return id === DEFAULT_VIEW ? rest : [...rest, { kind: 'stage', name: id }];
+    const rest = held.filter((condition) => condition.kind !== 'needs');
+    return id === 'needs' ? [...rest, { kind: 'needs', name: '' }] : rest;
   }
+
   /** The route search of a tab: the default is the absence of both, and a stage leaves Archived. */
   function stageSearch(stage: HomeView): Partial<HomeSearch> {
     return {
