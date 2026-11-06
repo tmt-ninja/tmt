@@ -10,7 +10,8 @@ import {
   type Pending,
 } from './management.js';
 import type { PageTransport, SpaceHome } from './transport.js';
-import { discover, mountUrl } from './bootstrap.js';
+import { discover, heldPageList, mountUrl, pageList } from './bootstrap.js';
+import { PageListFeed, type PageListCoordination } from './page-list-feed.js';
 import { AdmissionRefusedError, register, remoteSdk } from './registration.js';
 import { classify } from './connection-state.js';
 import { Live, type LiveSession, type LiveSessionOwner } from './live.js';
@@ -154,6 +155,17 @@ export async function mountedTransport(
     return { registration, remote };
   }
   current = await attach(registration);
+  // One live page list per tab, however many draft followers listen (contract: Live page list).
+  const pageListFeed = new PageListFeed(
+    {
+      list: (readSignal) => pageList(mount, AbortSignal.any([readSignal, lifetime.signal])),
+      held: (after, readSignal) =>
+        heldPageList(mount, after, AbortSignal.any([readSignal, lifetime.signal])),
+    },
+    pageListCoordination(`colab-page-list:${mount.href}`),
+  );
+  // The feed's read, lock and channel end with this transport, even while followers still listen.
+  lifetime.signal.addEventListener('abort', () => pageListFeed.close(), { once: true });
   const remotePresence = new RemotePresence(() => {
     const session = current.registration.remoteSession;
     const readManagement = pairedSdk.management;
@@ -380,6 +392,7 @@ export async function mountedTransport(
       drafts,
       management,
       remotePresence,
+      watchPages: (changed) => pageListFeed.watch(changed),
       spaceHome(signal) {
         if (signal?.aborted) return Promise.reject(signal.reason);
         const load = (homeLoad ??= startHomeLoad());
@@ -548,6 +561,27 @@ export async function mountedTransport(
           throw error;
         }
       },
+    },
+  };
+}
+
+/** This document's tab coordination for the live page list, where the browser has both APIs. */
+function pageListCoordination(name: string): PageListCoordination | undefined {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.locks ||
+    typeof BroadcastChannel !== 'function'
+  )
+    return undefined;
+  return {
+    name,
+    locks: navigator.locks,
+    channel: () => new BroadcastChannel(name),
+    visible: () => document.visibilityState === 'visible',
+    onVisible: (listener) => {
+      const changed = () => document.visibilityState === 'visible' && listener();
+      document.addEventListener('visibilitychange', changed);
+      return () => document.removeEventListener('visibilitychange', changed);
     },
   };
 }

@@ -113,6 +113,8 @@ export interface PageInfo extends ExpiryInfo {
   pinned?: true;
   /** Display-only page kind (contract: Page kinds): present only on a design-system page (#5866). */
   kind?: 'design-system';
+  /** The page's revision token, the one `page read` returns (contract: Live page list). */
+  revision?: string;
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
   /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
@@ -227,7 +229,11 @@ export async function discover(
     'projectPins',
     'pages',
     'pageIds',
+    // The live list's token (contract: Live page list); read by `listRevisions`, not here.
+    ...(value !== null && typeof value === 'object' && 'listToken' in value ? ['listToken'] : []),
   ]);
+  if ('listToken' in value)
+    requireValue(typeof value.listToken === 'string' && LIST_TOKEN.test(value.listToken));
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
@@ -267,7 +273,10 @@ export async function discover(
       ...(page !== null && typeof page === 'object' && 'state' in page ? ['state'] : []),
       ...(page !== null && typeof page === 'object' && 'stateError' in page ? ['stateError'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
+      ...(page !== null && typeof page === 'object' && 'revision' in page ? ['revision'] : []),
     ]);
+    if ('revision' in page)
+      requireValue(typeof page.revision === 'string' && PAGE_REVISION.test(page.revision));
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('kind' in page) requireValue(page.kind === 'design-system');
     if ('summary' in page) activity(page.summary);
@@ -407,4 +416,64 @@ export async function discover(
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
   };
+}
+
+const LIST_TOKEN = /^[0-9a-f]{64}$/;
+const PAGE_REVISION = /^v1:[0-9a-f]{64}$/;
+/** A held list read waits on the serve at most 2.5 s (`limits::PAGE_LIST_HOLD`); this bound only
+ * catches a serve that never answers: past Remote's 15 s mounted-reply deadline plus transit. */
+const HELD_LIST_TIMEOUT_MS = 20_000;
+/** What one held list read learned: the list moved (each page's revision) or did not. */
+export type PageListChange =
+  | { unchanged: true; listToken: string }
+  | { unchanged: false; listToken: string; revisions: ReadonlyMap<string, string> };
+/** The pages' revisions from a list reply. Only IDs and opaque tokens are read: the list's display
+ * fields stay with `discover`, which validates them for display. */
+export function listRevisions(value: unknown): PageListChange {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  const list = value as Record<string, unknown>;
+  requireValue(typeof list.listToken === 'string' && LIST_TOKEN.test(list.listToken));
+  if (list.unchanged === true) {
+    exactKeys(list, ['listToken', 'unchanged']);
+    return { unchanged: true, listToken: list.listToken };
+  }
+  requireValue(Array.isArray(list.pages) && list.pages.length <= 1000);
+  const revisions = new Map<string, string>();
+  for (const page of list.pages as unknown[]) {
+    requireValue(page !== null && typeof page === 'object');
+    const { pageId, revision } = page as Record<string, unknown>;
+    requireValue(typeof pageId === 'string');
+    generatedId(pageId);
+    if (revision === undefined) continue;
+    requireValue(typeof revision === 'string' && PAGE_REVISION.test(revision));
+    revisions.set(pageId, revision);
+  }
+  return { unchanged: false, listToken: list.listToken, revisions };
+}
+/** One plain owner list read, for its revisions only (the feed's first read and its fallback). */
+export async function pageList(mount: URL, signal: AbortSignal): Promise<PageListChange> {
+  const value = await jsonResponse(
+    await fetch(new URL('api/pages', mount), {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+    }),
+    DISCOVERY_BYTES,
+  );
+  return listRevisions(value);
+}
+/** One held owner list read (contract: Live page list): it answers once the list no longer has
+ * `after` as its token, or unchanged after the serve's hold. A serve already holding its cap
+ * refuses with `AdmissionRefusedError` code CAPACITY. */
+export async function heldPageList(
+  mount: URL,
+  after: string,
+  signal: AbortSignal,
+): Promise<PageListChange> {
+  requireValue(LIST_TOKEN.test(after));
+  const value = await jsonResponse(
+    await fetch(new URL(`api/pages/after/${after}`, mount), {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(HELD_LIST_TIMEOUT_MS)]),
+    }),
+    DISCOVERY_BYTES,
+  );
+  return listRevisions(value);
 }

@@ -1287,6 +1287,12 @@ through `PageRouting.open`; and `AddSubpageDialog` (`work-add-dialog.tsx`), whic
   the last reader leaves before it finishes. A finished load is never reused. The load folds the
   owner chain once for every listed page (`projectPolicies`, which `project` agrees with page by
   page); `admission.ts::applyLifecycle` is the one archive/restore/delete transition.
+- `mounted.ts` also owns one `PageListFeed` (`page-list-feed.ts`) per transport, behind
+  `watchPages`: one held `api/pages/after/<token>` read per browser (the Web Lock holder; other tabs
+  hear its BroadcastChannel hints), re-armed on each answer; a visible tab steals the lock, and a
+  refused or failed read waits `PAGE_LIST_BACKOFF_MS`, reads the list once and holds again (colab-v1
+  Live page list). `design-system-pages.ts` follows a draft with the root's
+  subscription plus that feed's component revisions, never a connection per component (#6162).
 - `Live#publishViews` reuses an Ask intent's verification (`VerifiedAsks`) only while its
   signed record and the writer's signing key are byte-identical; any change verifies again.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible

@@ -426,6 +426,18 @@ fn current_token(tx: &OwnerTransaction<'_>, key: &Keyring, page: &str) -> Result
         &tx.cuts(page, epoch)?,
     )
 }
+/// The revision the owner list names for a page: its page-read token, or none while an
+/// equivocating stream has frozen its epoch (no write can fence on it, and the list still lists it).
+pub(crate) fn listed_token(
+    tx: &OwnerTransaction<'_>,
+    key: &Keyring,
+    page: &str,
+) -> Result<Option<String>> {
+    if tx.frozen(page, tx.current_epoch(page)?)? {
+        return Ok(None);
+    }
+    current_token(tx, key, page).map(Some)
+}
 pub(crate) fn snapshot(
     store: &Store,
     key: &Keyring,

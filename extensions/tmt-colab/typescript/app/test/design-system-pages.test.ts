@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
 import {
   bundleHash,
   checkPageElements,
   DesignDraftError,
   noticeFrame,
+  PIN_WAIT_MS,
 } from '../src/design-system.js';
 import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
 import type { Bundle } from '../../../../../design/systems/compiler.mjs';
@@ -21,6 +22,8 @@ import {
   listDesignSystems,
   nextVersion,
   compileDraft,
+  CREATE_WRITES,
+  designSystemCreation,
   DRAFT_SETTLE_MS,
   pageDesignSystems,
   pinDesignTree,
@@ -32,6 +35,7 @@ import {
   writePin,
 } from '../src/design-system-pages.js';
 import type { PageBinding, PageTransport } from '../src/transport.js';
+import templateSections from '../../../../../design/systems/tmt-gui/generated/pages.json';
 
 /** #5821 / epic #5866: design systems as ordinary pages, over an in-memory space whose pages
  * hold source, sub-pages and attachments the way the live bindings do. */
@@ -50,7 +54,22 @@ function space() {
   let next = 0;
   // Live views the way a binding publishes them: every edit reaches the page's subscribers.
   const subscribers = new Map<string, Set<(view: { source: string }) => void>>();
-  const open = { count: 0, edits: 0 };
+  const open = { count: 0, edits: 0, total: 0 };
+  // The owner's live page list: every page's revision moves on each write, and every watcher
+  // hears the whole map, as the mounted transport's held list read delivers it.
+  const revisions = new Map<string, number>();
+  const listWatchers = new Set<(latest: ReadonlyMap<string, string>) => void>();
+  const listed = () => new Map([...pages.keys()].map((id) => [id, `v1:${revisions.get(id) ?? 0}`]));
+  const moved = (id: string) => {
+    revisions.set(id, (revisions.get(id) ?? 0) + 1);
+    const latest = listed();
+    for (const watcher of listWatchers) watcher(latest);
+  };
+  /** A write no browser binding sees, as `tmt colab page patch` makes on an unopened page. */
+  const write = (id: string, source: string) => {
+    pages.get(id)!.source = source;
+    moved(id);
+  };
   const make = (title: string) => {
     const id = `page-${++next}`;
     pages.set(id, { title, source: `<h1>${title}</h1>`, order: [], projects: [], attachments: [] });
@@ -75,6 +94,7 @@ function space() {
         page().source = source;
         open.edits++;
         for (const publish of subscribers.get(id) ?? []) publish({ source });
+        moved(id);
         return { merged };
       },
       work: async (action: string, body: Record<string, unknown>) => {
@@ -109,10 +129,16 @@ function space() {
     } as unknown as PageBinding;
   };
   const transport = {
+    watchPages: (changed: (latest: ReadonlyMap<string, string>) => void) => {
+      listWatchers.add(changed);
+      queueMicrotask(() => listWatchers.has(changed) && changed(listed()));
+      return () => listWatchers.delete(changed);
+    },
     page: async (id: string) => {
       const page = pages.get(id);
       if (!page) throw new Error('Page unavailable');
       open.count++;
+      open.total++;
       return {
         id,
         title: page.title,
@@ -150,7 +176,7 @@ function space() {
       },
     },
   } as unknown as PageTransport;
-  return { pages, make, binding, transport, open };
+  return { pages, make, binding, transport, open, write, listWatchers };
 }
 
 describe('data blocks', () => {
@@ -178,6 +204,103 @@ describe('data blocks', () => {
 });
 
 describe('template, publish and the renderer source', () => {
+  /** The space's page reads, with each edit taking a moment the way a page connection does. */
+  const slowEdits = (transport: PageTransport, edited: (id: string) => void = () => {}) => {
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding as { edit: (...args: unknown[]) => Promise<unknown> };
+      const edit = binding.edit;
+      binding.edit = async (...args) => {
+        edited(id);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return edit(...args);
+      };
+      return snapshot;
+    };
+  };
+
+  it('makes the pages in template order and writes at most CREATE_WRITES at once (#6162)', async () => {
+    const { pages, make, transport, open } = space();
+    make('Home');
+    slowEdits(transport);
+    let writing = false;
+    let publishing = false;
+    let peak = 0;
+    const publishOpened = new Set<string>();
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      if (writing) peak = Math.max(peak, open.count);
+      if (publishing) publishOpened.add(id);
+      return snapshot;
+    };
+    const progress: string[] = [];
+    const rootId = await designSystemCreation(transport, { name: 'Acme', prefix: 'acme' }).run(
+      (state) => {
+        writing = state.phase === 'pages';
+        publishing = state.phase === 'publishing';
+        progress.push(state.phase === 'pages' ? `${state.done}/${state.total}` : state.phase);
+      },
+    );
+    expect(peak).toBe(CREATE_WRITES);
+    const sections = templateSections as { title: string; pages: { title: string }[] }[];
+    const total =
+      sections.length + sections.reduce((sum, section) => sum + section.pages.length, 0);
+    expect(progress[0]).toBe(`0/${total}`);
+    expect(progress.at(-2)).toBe(`${total}/${total}`);
+    expect(progress.at(-1)).toBe('publishing');
+    // The first version compiles from what was just written: publishing opens only the root, and
+    // its bundle is the one the pages compile to.
+    expect([...publishOpened]).toEqual([rootId]);
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    expect((await compileDraft(transport, rootId, '0.1.0')).hash).toBe(config.releases[0]!.bundle);
+    const titles = (ids: string[]) => ids.map((id) => pages.get(id)!.title);
+    const root = pages.get(rootId)!;
+    expect(titles(root.order)).toEqual(sections.map((section) => section.title));
+    root.order.forEach((sectionId, index) => {
+      expect(titles(pages.get(sectionId)!.order)).toEqual(
+        sections[index]!.pages.map((doc) => doc.title),
+      );
+      // Each section lists its pages in that order.
+      const links = [...pages.get(sectionId)!.source.matchAll(/href="\/p\/([^"]+)"/g)];
+      expect(links.map((link) => link[1])).toEqual(pages.get(sectionId)!.order);
+      // Every page is written following the draft, so publishing re-walks no page.
+      for (const id of [sectionId, ...pages.get(sectionId)!.order])
+        expect(pages.get(id)!.source).toContain(`<meta name="tmt-ds" content="${rootId}">`);
+    });
+  });
+
+  it('stops writing after a failed page, names it, and a retry makes no page twice (#6162)', async () => {
+    const clean = space();
+    clean.make('Home');
+    await createDesignSystem(clean.transport, { name: 'Acme', prefix: 'acme' });
+    const { pages, make, transport } = space();
+    make('Home');
+    let writes = 0;
+    let failed: string | undefined;
+    let startedAfter = 0;
+    slowEdits(transport, (id) => {
+      if (failed) startedAfter++;
+      if (++writes === 10 && !failed) {
+        failed = pages.get(id)!.title;
+        throw new Error('Socket closed');
+      }
+    });
+    const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+    const refused = await creation.run().catch((error: Error) => error);
+    expect(failed).toBeDefined();
+    expect((refused as Error).message).toBe(`The ${failed} page was not written: Socket closed`);
+    // Only the writes already in flight finish; no new one starts.
+    expect(startedAfter).toBeLessThan(CREATE_WRITES);
+    const rootId = await creation.run();
+    expect(pages.size).toBe(clean.pages.size);
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    expect(config.releases).toHaveLength(1);
+    const failedPage = [...pages.values()].find((page) => page.title === failed)!;
+    expect(failedPage.source).not.toBe(`<h1>${failed}</h1>`);
+  });
+
   it('on an older serve makes a top-level system under a borrowed page, publishes, pins every page and serves the bundle', async () => {
     const { pages, make, transport } = space();
     const home = make('Home');
@@ -487,29 +610,109 @@ describe('live draft (#5967)', () => {
     expect(shown.hash).toBe(published.bundle.hash);
   });
 
-  it('tells followers once a component edit settles, recompiles, and closes pages when they leave', async () => {
-    const { pages, make, transport, open } = space();
+  it('follows with one page open, hears component writes from the page list, settles a burst into one recompile, and closes on leave', async () => {
+    const { pages, make, transport, open, write, listWatchers } = space();
     make('Notes');
     const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
     const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    expect(config.components.length).toBeGreaterThan(16);
     const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const card = config.components.find((entry) => entry.tag === 'card')!.page!;
     const source = pageDesignSystems(transport);
     const before = open.count;
     let changes = 0;
     const stop = source.watch(rootId, () => changes++);
     const first = await source.draft(rootId);
     expect(await source.draft(rootId)).toBe(first);
-    const page = await transport.page(button);
-    await page.binding!.edit(recolor(page.source), page.source);
-    await page.binding!.edit(recolor(pages.get(button)!.source), pages.get(button)!.source);
-    page.binding!.close();
+    // Whatever the system's size, the follow holds only its root open (#6162), and one list watch.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(open.count - before).toBe(1);
+    expect(listWatchers.size).toBe(1);
+    // Writes to two unopened component pages in a burst: one change once they settle.
+    write(button, recolor(pages.get(button)!.source));
+    write(card, `${pages.get(card)!.source}<!-- edit -->`);
+    write(button, recolor(pages.get(button)!.source));
     expect(changes).toBe(0);
     await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
     expect(changes).toBe(1);
+    const opensBefore = open.total;
     const second = await source.draft(rootId);
     expect(second.hash).not.toBe(first.hash);
+    // The recompile reads the root and the two pages that moved; every other doc is reused.
+    expect(open.total - opensBefore).toBe(3);
+    // A page outside the system moving does not change the draft.
+    write(pages.keys().next().value!, '<h1>Notes again</h1>');
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(1);
     stop();
     expect(open.count).toBe(before);
+    expect(listWatchers.size).toBe(0);
+  });
+
+  it('a component write after the list arrived before the root loaded still changes the draft', async () => {
+    const { pages, make, transport, write } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    // The root opens slowly: the live list's first answer comes first.
+    const slow = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === rootId) await new Promise((resolve) => setTimeout(resolve, 30));
+        return transport.page(id);
+      },
+    } as PageTransport;
+    let changes = 0;
+    const stop = pageDesignSystems(slow).watch(rootId, () => changes++);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    write(button, recolor(pages.get(button)!.source));
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(1);
+    stop();
+  });
+
+  it('a draft slower than a page waits for tells its followers once, so they draw it (#6162)', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const slow = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === button) await held;
+        return transport.page(id);
+      },
+    } as PageTransport;
+    try {
+      const source = pageDesignSystems(slow);
+      let changes = 0;
+      const stop = source.watch(rootId, () => changes++);
+      const draft = source.draft(rootId);
+      // The page gave up waiting; the compile finishes later and the followers hear of it once.
+      now += PIN_WAIT_MS;
+      release();
+      const bundle = await draft;
+      expect(changes).toBe(1);
+      // Drawing again reuses that draft and tells no one.
+      expect(await source.draft(rootId)).toBe(bundle);
+      expect(changes).toBe(1);
+      stop();
+      // A draft in time tells no one.
+      const quick = pageDesignSystems(transport);
+      let quickChanges = 0;
+      const stopQuick = quick.watch(rootId, () => quickChanges++);
+      await quick.draft(rootId);
+      expect(quickChanges).toBe(0);
+      stopQuick();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('draws the notice, never a blank page, when the draft is broken', async () => {

@@ -906,6 +906,26 @@ fn serve(
         let _ = response_as(&mut socket, status, &body, "application/json");
         return;
     }
+    if let Some(after) = page_list_after(&request.path) {
+        let result = if request.method != "GET" || request.upgrade {
+            Err(registration::Code::Invalid)
+        } else {
+            registration
+                .ok_or(registration::Code::Unavailable)
+                .and_then(|service| {
+                    held_page_list(service, &socket, request.context.as_deref(), after)
+                })
+        };
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.method == "GET"
         && matches!(request.path.as_str(), "/api/session" | "/api/pages")
         && !request.upgrade
@@ -1894,12 +1914,86 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
     ) && summary_details_page(&request.path).is_none()
+        && page_list_after(&request.path).is_none()
     {
         request.owner = request.context.as_deref().map(owner_name).transpose()?;
     }
     Ok(request)
 }
 /// The route shape is recognized before context admission; Registration validates its UUID.
+/// The `<token>` of `GET /api/pages/after/<token>`: 64 lowercase hex digits, the list token a
+/// previous reply carried.
+fn page_list_after(path: &str) -> Option<&str> {
+    let token = path.strip_prefix("/api/pages/after/")?;
+    (token.len() == 64
+        && token
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    .then_some(token)
+}
+/// Held page-list reads waiting now, across this serve (`limits::PAGE_LIST_HOLDS`).
+static PAGE_LIST_HELD: AtomicUsize = AtomicUsize::new(0);
+/// Wait until the owner's page list no longer has `after` as its token, then answer the full list;
+/// after `limits::PAGE_LIST_HOLD` answer `{listToken, unchanged:true}`. The service lock is held
+/// only for each check, never across the wait. Past the cap the read is refused with CAPACITY,
+/// which the browser treats as "read the list now and then on its slow backoff".
+fn held_page_list(
+    service: &Arc<Mutex<Registration>>,
+    client: &UnixStream,
+    context: Option<&str>,
+    after: &str,
+) -> std::result::Result<Vec<u8>, registration::Code> {
+    let reserved = PAGE_LIST_HELD
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < limits::PAGE_LIST_HOLDS).then_some(n + 1)
+        })
+        .is_ok();
+    if !reserved {
+        return Err(registration::Code::Capacity);
+    }
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            PAGE_LIST_HELD.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+    let _release = Release;
+    let deadline = std::time::Instant::now() + limits::PAGE_LIST_HOLD;
+    loop {
+        let token = service
+            .lock()
+            .map_err(|_| registration::Code::Unavailable)?
+            .page_list_token(context)?;
+        if token != after {
+            return service
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)?
+                .pages(context);
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return serde_json::to_vec(&serde_json::json!({"listToken":token,"unchanged":true}))
+                .map_err(|_| registration::Code::Unavailable);
+        }
+        // A client that left, or a serve that is stopping (it shuts every worker's socket down),
+        // ends the wait at once instead of after the hold.
+        if client_closed(client) {
+            return Err(registration::Code::Unavailable);
+        }
+        std::thread::sleep(limits::PAGE_LIST_POLL.min(deadline - now));
+    }
+}
+/// Whether the peer closed or this end was shut down. Every byte of the request was read before it
+/// was served, so a held client that is still there has nothing to read and no hang-up.
+fn client_closed(client: &UnixStream) -> bool {
+    let mut events = [PollFd::new(client.as_fd(), PollFlags::POLLIN)];
+    match poll(&mut events, 0u16) {
+        Ok(0) => false,
+        Ok(_) => true,
+        Err(nix::errno::Errno::EINTR) => false,
+        Err(_) => true,
+    }
+}
 fn summary_details_page(path: &str) -> Option<&str> {
     let page = path
         .strip_prefix("/api/pages/")?

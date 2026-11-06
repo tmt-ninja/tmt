@@ -465,15 +465,18 @@ impl OwnerTransaction<'_> {
         Ok(())
     }
     pub(crate) fn cuts(&self, page: &str, epoch: u64) -> Result<Vec<Cut>> {
-        let frozen: bool = self.tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM streams WHERE page=? AND epoch=? AND frozen=1)",
-            params![page, epoch.to_string()],
-            |r| r.get(0),
-        )?;
-        if frozen {
+        if self.frozen(page, epoch)? {
             return Err(OwnerFault::Conflict.into());
         }
         self.read_cuts(page, epoch)
+    }
+    /// Whether an equivocating stream froze the epoch: it takes no more writes.
+    pub(crate) fn frozen(&self, page: &str, epoch: u64) -> Result<bool> {
+        Ok(self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM streams WHERE page=? AND epoch=? AND frozen=1)",
+            params![page, epoch.to_string()],
+            |r| r.get(0),
+        )?)
     }
     /// Read-only frozen history. A writer still calls cuts(), which refuses a
     /// frozen epoch; retained old prefixes never become a new publication base.

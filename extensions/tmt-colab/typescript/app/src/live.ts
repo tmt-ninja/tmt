@@ -64,6 +64,15 @@ interface LiveOpen {
 
 /** Mounted update-only page binding. A fresh reconnect reconstructs from seq 1;
  * unsupported history is a blocking failure rather than a partial projection. */
+/** Whether a page lists exactly these descriptors, in this order, every field equal. The page
+ * decodes each one with its own key order, so only the order of keys is ignored (#6162). */
+export function sameDescriptors(
+  shown: readonly attachment.AttachmentDescriptor[],
+  expected: readonly attachment.AttachmentDescriptor[],
+) {
+  return canonical(shown) === canonical(expected);
+}
+
 export class Live implements PageBinding {
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
@@ -1039,7 +1048,7 @@ export class Live implements PageBinding {
         ? encodeBinary(await digest(bytesOf(this.#admitted.source))) === mergedDigest
         : (this.#admitted.source === source &&
             (attachments === undefined ||
-              JSON.stringify(this.#admitted.attachments ?? []) === JSON.stringify(attachments))) ||
+              sameDescriptors(this.#admitted.attachments ?? [], attachments))) ||
           (revision !== undefined &&
             (await this.#connection?.objects.revision().catch(() => null)) === revision);
     while (!(await shown()) && !this.#closed && !this.#error) {

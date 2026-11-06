@@ -14,7 +14,7 @@ import {
   ReopenFailedError,
   type Registration,
 } from '../src/registration.js';
-import { Live } from '../src/live.js';
+import { Live, sameDescriptors } from '../src/live.js';
 import * as discussionRecords from '../src/thread-records.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
@@ -2246,6 +2246,58 @@ it('a typed attachment change resolves once the page shows the saved list, and a
   } finally {
     live.close();
   }
+});
+
+it('a saved list the page shows with its fields in another order is shown at once (#6162)', async () => {
+  const oracle = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/attachment-change-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const a = oracle.descriptors.a;
+    // The page decodes the descriptor with its own key order; it is the same signed descriptor.
+    const reordered = Object.fromEntries(Object.entries(a as object).reverse());
+    expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(a));
+    saves.save.mockImplementation(async (connection, operationId) => {
+      setTimeout(
+        () => connection.publish({ ...shows(oracle.source), attachments: [reordered] }),
+        10,
+      );
+      return committed(operationId);
+    });
+    const started = Date.now();
+    await live.edit(oracle.source, 'verified', { set: [a] });
+    // Far inside the 20 s wait for a save the page never shows.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  } finally {
+    live.close();
+  }
+});
+
+it('a saved list matches only with the same descriptors, in order, every field equal (#6162)', () => {
+  const oracle = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/attachment-change-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const { a, b } = oracle.descriptors;
+  const reordered = (value: object) =>
+    Object.fromEntries(Object.entries(value).reverse()) as typeof a;
+  expect(sameDescriptors([reordered(a), reordered(b)], [a, b])).toBe(true);
+  // A removal, an addition, another order, or any changed field is a different list.
+  expect(sameDescriptors([a], [a, b])).toBe(false);
+  expect(sameDescriptors([a, b], [a])).toBe(false);
+  expect(sameDescriptors([], [a])).toBe(false);
+  expect(sameDescriptors([b, a], [a, b])).toBe(false);
+  expect(sameDescriptors([a, a], [a, b])).toBe(false);
+  for (const key of Object.keys(a))
+    expect(sameDescriptors([{ ...a, [key]: `${String(a[key])}-changed` }], [a])).toBe(false);
+  expect(sameDescriptors([{ ...a, extra: 1 }], [a])).toBe(false);
 });
 
 it('a lost reply reopens the page and asks for the operation status exactly once, never resending', async () => {

@@ -176,11 +176,28 @@ const HOME_CARDS: usize = 5;
 const CARD_TITLE_SCALARS: usize = 40;
 
 /// What one browser catalog read holds, read in one store transaction.
+/// The page list's change token: a digest of every page's fingerprint, in page order.
+fn list_token(
+    fingerprints: &std::collections::BTreeMap<String, String>,
+) -> std::result::Result<String, Code> {
+    let parts: Vec<&[u8]> = std::iter::once(b"tmt-colab-page-list-v1".as_slice())
+        .chain(
+            fingerprints
+                .iter()
+                .flat_map(|(page, print)| [page.as_bytes(), print.as_bytes()]),
+        )
+        .collect();
+    let digest = crypto::digest(&framing::frame(&parts).map_err(|_| Code::Unavailable)?);
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
 struct CatalogRead {
     catalog: serde_json::Value,
     fingerprints: std::collections::BTreeMap<String, String>,
     /// The local titles still valid for their page (`page_titles`).
     titles: std::collections::BTreeMap<String, String>,
+    /// Each listed page's revision token, the one `page read` returns, except a frozen page's
+    /// (`page::listed_token`).
+    revisions: std::collections::BTreeMap<String, String>,
 }
 
 pub struct Registration {
@@ -282,6 +299,7 @@ impl Registration {
             mut catalog,
             fingerprints,
             titles,
+            revisions,
         } = self.page_catalog_fingerprinted(context)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
@@ -304,6 +322,9 @@ impl Registration {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
             };
+            if let Some(revision) = revisions.get(&id) {
+                page["revision"] = serde_json::json!(revision);
+            }
             let Some(summary) = fresh.get(&id) else {
                 page["state"] = serde_json::Value::Null;
                 page["stateError"] = serde_json::json!("page-unavailable");
@@ -327,7 +348,19 @@ impl Registration {
             }
         }
         crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
+    }
+    /// The page list's opaque change token (contract: Live page list): it moves when any page's
+    /// fingerprint does, which is when its revision token does, and never otherwise.
+    pub fn page_list_token(&self, context: Option<&str>) -> std::result::Result<String, Code> {
+        Context::parse(context)?;
+        self.store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_fingerprints()
+            })
+            .map_err(map_error)
+            .and_then(|fingerprints| list_token(&fingerprints))
     }
     /// Complete cached chapter metadata. The owner read checks authority and the current
     /// fingerprint without subscribing, touching activity or decoding on this request path.
@@ -408,10 +441,20 @@ impl Registration {
         Context::parse(context)?;
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                let catalog = tx.page_list()?;
+                let mut revisions = std::collections::BTreeMap::new();
+                for page in catalog["pages"].as_array().into_iter().flatten() {
+                    if let Some(id) = page["pageId"].as_str()
+                        && let Some(revision) = crate::page::listed_token(tx, &self.keyring, id)?
+                    {
+                        revisions.insert(id.to_owned(), revision);
+                    }
+                }
                 Ok(CatalogRead {
-                    catalog: tx.page_list()?,
+                    catalog,
                     fingerprints: tx.page_fingerprints()?,
                     titles: tx.page_titles()?,
+                    revisions,
                 })
             })
             .map_err(map_error)
@@ -1791,6 +1834,68 @@ mod describe_tests {
         assert_eq!(
             details["progress"],
             json!({"done":0,"inProgress":0,"todo":0,"unknown":1,"total":1})
+        );
+    }
+
+    /// An equivocating stream freezes a page's epoch; the owner list still names the page, without
+    /// a revision, and the other pages keep theirs (#6162).
+    #[test]
+    fn the_owner_list_names_a_frozen_page_without_a_revision() {
+        use serde_json::json;
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "colab-list-frozen-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let (live, frozen) = (
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003",
+        );
+        for page in [live, frozen] {
+            store.create_page(page).unwrap();
+        }
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        service.genesis().unwrap();
+        let context = json!({"deviceId":"00000000-0000-4000-8000-000000000009","kind":"browser",
+            "origin":"http://127.0.0.1:1","name":"Laptop",
+            "publicKey":values::encode_binary(&service.keyring.owner_public()),
+            "owner":true,"grantRevision":1})
+        .to_string();
+        rusqlite::Connection::open(layout.directory.join("space.db"))
+            .unwrap()
+            .execute(
+                "INSERT INTO streams(page,epoch,stream,frozen)
+                 SELECT page,epoch,'10000000-0000-4000-8000-000000000001',1 FROM pages WHERE page=?",
+                [frozen],
+            )
+            .unwrap();
+        let list: serde_json::Value =
+            serde_json::from_slice(&service.pages(Some(&context)).unwrap()).unwrap();
+        let row = |id: &str| {
+            list["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|page| page["pageId"] == id)
+                .cloned()
+                .unwrap()
+        };
+        assert!(row(frozen).get("revision").is_none());
+        assert_eq!(
+            row(live)["revision"],
+            json!(crate::page::revision(&service.store, &service.keyring, live).unwrap())
         );
     }
 

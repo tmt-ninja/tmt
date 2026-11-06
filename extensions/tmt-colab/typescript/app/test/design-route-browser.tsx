@@ -18,12 +18,25 @@ interface PageRecord {
   projects: string[];
   attachments: { id: string; bytes: Uint8Array }[];
   listeners: Set<(view: PageView) => void>;
+  /** Bumped by every change, as the serve's page-read token moves with the page's head. */
+  revision: number;
 }
 export async function mountDesign(url = '/colab/design/', owner = true) {
   const controls = { failUpload: false };
   const pages = new Map<string, PageRecord>();
   const counts = { opened: 0, closed: 0, active: 0, edits: 0 };
   const anchors: { pageId: string; body: string; anchor: unknown }[] = [];
+  // The live page list a mounted transport serves: every page's revision, after each change.
+  const listWatchers = new Set<(revisions: ReadonlyMap<string, string>) => void>();
+  const listed = () => {
+    const revisions = new Map(
+      [...pages.values()].map((page) => [
+        page.id,
+        `v1:${page.revision.toString(16).padStart(64, '0')}`,
+      ]),
+    );
+    for (const watcher of listWatchers) watcher(revisions);
+  };
   const make = (title: string) => {
     const id = crypto.randomUUID();
     pages.set(id, {
@@ -34,7 +47,9 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
       projects: [],
       attachments: [],
       listeners: new Set(),
+      revision: 0,
     });
+    listed();
     return id;
   };
   const snapshot = (id: string) => {
@@ -55,6 +70,8 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     };
   };
   const notify = (page: PageRecord) => {
+    page.revision++;
+    listed();
     for (const listener of page.listeners) listener(snapshot(page.id) as unknown as PageView);
   };
   const binding = (id: string): PageBinding => {
@@ -142,6 +159,13 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   };
   const transport = {
     page: async (id: string) => ({ ...snapshot(id), binding: binding(id) }),
+    watchPages: (changed: (revisions: ReadonlyMap<string, string>) => void) => {
+      listWatchers.add(changed);
+      queueMicrotask(listed);
+      return () => {
+        listWatchers.delete(changed);
+      };
+    },
     spaceHome: async () => ({
       title: 'Private Design fixture',
       projects: [...new Set([...pages.values()].flatMap((page) => page.projects))],
