@@ -105,6 +105,11 @@ Name the invariant or realistic defect each test detects. Use real temporary
 storage for repository behavior and injected ports for focused service tests;
 mocking a storage operation is not proof of persistence or atomicity.
 
+Repository-wide guards share `test/support/repository-sources.ts` snapshots for
+immutable checkout directory and text reads. Temporary fixtures outside that
+checkout remain uncached so later writes are observable. The module-edge helper
+caches literal edges by file and exact text, never ASTs or mutable caller arrays.
+
 Use deterministic barriers for races, bounded polling for readiness, and
 observable failure/cleanup postconditions. Verify causal agent output rather
 than terminal echo. Cover compatibility, negative paths and partial failure,

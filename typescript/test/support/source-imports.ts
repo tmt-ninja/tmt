@@ -1,8 +1,12 @@
 import ts from 'typescript';
 
+const edges = new Map<string, { text: string; values: readonly string[] }>();
+
 // Test-only literal module edge extraction; shared by product and tooling guards.
 // The file name selects the syntax (TS, TSX or JS), so JSX cannot hide a later edge.
 export function imports(file: string, text: string): string[] {
+  const cached = edges.get(file);
+  if (cached?.text === text) return [...cached.values];
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const values: string[] = [];
   const collect = (node: ts.Node): void => {
@@ -37,5 +41,8 @@ export function imports(file: string, text: string): string[] {
     ts.forEachChild(node, collect);
   };
   collect(source);
+  // Retain literal edges, not ASTs. Fixture text changes invalidate the entry,
+  // and callers receive their own array (some sort it for comparison).
+  edges.set(file, { text, values: [...values] });
   return values;
 }
