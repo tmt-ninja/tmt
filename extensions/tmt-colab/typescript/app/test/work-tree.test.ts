@@ -37,7 +37,13 @@ it('offers only valid new parents and presents their location as a path', () => 
       pages.find((page) => page.id === 'c1')!,
       pages,
     ),
-  ).toBe('TOP / A / C');
+  ).toBe('All pages / TOP / A / C');
+  expect(
+    pageLocation(
+      pages.find((page) => page.id === 'free')!,
+      pages,
+    ),
+  ).toBe('All pages');
   expect(pageLocation({ ...pages[0], projects: ['Product'] }, pages)).toBe('Product');
   expect(pageLocation(pages[1], [{ ...pages[0], projects: ['Product'] }, ...pages.slice(1)])).toBe(
     'Product / TOP',

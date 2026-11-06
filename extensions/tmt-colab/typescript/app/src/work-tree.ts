@@ -63,8 +63,9 @@ export function pageLocation(page: PageSummary, pages: readonly PageSummary[]): 
     project = item.projects?.[0] ?? project;
     parent = item.summary?.parent?.page;
   }
-  if (project && names[0] !== project) names.unshift(project);
-  return names.join(' / ') || undefined;
+  const root = project ?? 'All pages';
+  if (names[0] !== root) names.unshift(root);
+  return names.join(' / ');
 }
 
 /** Apply the existing tree admission rules to a prospective parent. */

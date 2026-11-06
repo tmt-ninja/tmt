@@ -17,3 +17,6 @@
   padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+.page-lifecycle-notice > .tmt-ui-notice {
+  width: 100%;
+}

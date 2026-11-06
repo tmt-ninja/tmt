@@ -144,10 +144,13 @@ for (const width of [1440, 390])
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
       const dialog = page.getByRole('dialog', { name: 'Put “Release plan” under a page' });
-      await expect(dialog.getByText('Now under: Remote launch')).toBeVisible();
+      await expect(dialog.getByText('Now under: All pages / Remote launch')).toBeVisible();
       await expect(dialog.getByRole('option', { name: /Remote pages v2/ })).toHaveCount(0);
       const target = dialog.getByRole('option', { name: /Remote data plan design/ });
       await expect(target).toContainText('pm');
+      await expect(dialog.getByRole('option', { name: /Remote copy deck/ })).toContainText(
+        'All pages / Remote launch',
+      );
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({ path: capturePath(`6058-parent-${width}-${theme}.png`) });
       await target.click();

@@ -713,6 +713,7 @@ export const text = {
     nowUnder: (path: string) => `Now under: ${path}`,
     moveFailed: (title: string) =>
       `This page is now at the top level. Could not put it under “${title}”.`,
+    moveNotMoved: 'Not moved',
     moveUnknown: 'The move could not be confirmed. Check the page list before trying again.',
     retry: 'Retry',
     search: 'Search pages',

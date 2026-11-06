@@ -30,7 +30,14 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         await expect(more).toBeInViewport();
         await more.click();
         const menu = actions.getByRole('menu');
-        for (const name of [/^Share…/, 'Agent status', 'Files 0', 'Source'])
+        for (const name of [
+          /^Share…/,
+          'Agent status',
+          'Files 0',
+          'Source',
+          'Put under a page…',
+          'Archive…',
+        ])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitem', { name: /^Remote:/ })).toHaveCount(0);
         await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText(
