@@ -14,7 +14,7 @@ import {
   ReopenFailedError,
   type Registration,
 } from '../src/registration.js';
-import { Live } from '../src/live.js';
+import { Live, sameDescriptors } from '../src/live.js';
 import * as discussionRecords from '../src/thread-records.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
@@ -2276,6 +2276,28 @@ it('a saved list the page shows with its fields in another order is shown at onc
   } finally {
     live.close();
   }
+});
+
+it('a saved list matches only with the same descriptors, in order, every field equal (#6162)', () => {
+  const oracle = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/attachment-change-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const { a, b } = oracle.descriptors;
+  const reordered = (value: object) =>
+    Object.fromEntries(Object.entries(value).reverse()) as typeof a;
+  expect(sameDescriptors([reordered(a), reordered(b)], [a, b])).toBe(true);
+  // A removal, an addition, another order, or any changed field is a different list.
+  expect(sameDescriptors([a], [a, b])).toBe(false);
+  expect(sameDescriptors([a, b], [a])).toBe(false);
+  expect(sameDescriptors([], [a])).toBe(false);
+  expect(sameDescriptors([b, a], [a, b])).toBe(false);
+  expect(sameDescriptors([a, a], [a, b])).toBe(false);
+  for (const key of Object.keys(a))
+    expect(sameDescriptors([{ ...a, [key]: `${String(a[key])}-changed` }], [a])).toBe(false);
+  expect(sameDescriptors([{ ...a, extra: 1 }], [a])).toBe(false);
 });
 
 it('a lost reply reopens the page and asks for the operation status exactly once, never resending', async () => {

@@ -64,21 +64,13 @@ interface LiveOpen {
 
 /** Mounted update-only page binding. A fresh reconnect reconstructs from seq 1;
  * unsupported history is a blocking failure rather than a partial projection. */
-/** Whether a page lists exactly these signed descriptors, in order. The page decodes each one
- * with its own key order, so a descriptor is its ID, envelope hash and signature (#6162). */
-function sameDescriptors(
+/** Whether a page lists exactly these descriptors, in this order, every field equal. The page
+ * decodes each one with its own key order, so only the order of keys is ignored (#6162). */
+export function sameDescriptors(
   shown: readonly attachment.AttachmentDescriptor[],
   expected: readonly attachment.AttachmentDescriptor[],
 ) {
-  return (
-    shown.length === expected.length &&
-    shown.every(
-      (entry, index) =>
-        entry.attachmentId === expected[index]!.attachmentId &&
-        entry.envelopeHash === expected[index]!.envelopeHash &&
-        entry.signature === expected[index]!.signature,
-    )
-  );
+  return canonical(shown) === canonical(expected);
 }
 
 export class Live implements PageBinding {
