@@ -124,6 +124,7 @@ test('native page titles fill missing visible home labels without opening the pa
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
+    await page.setViewportSize({ width: 1440, height: 900 });
     await expect(homeList(page)).toBeVisible();
     await row()
       .getByRole('button', { name: /^Actions for/ })
