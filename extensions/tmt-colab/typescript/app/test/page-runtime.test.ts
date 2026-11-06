@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from 'vite-plus/test';
 // A pin over known texts, so the test controls which bytes match (#6085).
 const texts = {
   'assets/colab-runtime.css': '@theme { --color-paper: #fff; }',
+  'assets/colab-runtime-terminal-3333333333333333.wasm': 'wasm-test-bytes',
   'assets/colab-runtime-base-0000000000000000.js': 'window.base = 1;',
   'assets/colab-runtime-ui-1111111111111111.js': 'window.ui = 1;',
   'assets/colab-runtime-docs-2222222222222222.js': 'window.docs = 1;',
@@ -19,6 +20,11 @@ vi.mock('../runtime-pin.json', () => ({
       { name: 'base', ...pinned('assets/colab-runtime-base-0000000000000000.js') },
       { name: 'ui', ...pinned('assets/colab-runtime-ui-1111111111111111.js') },
       { name: 'docs', ...pinned('assets/colab-runtime-docs-2222222222222222.js') },
+      {
+        name: 'terminal-frame',
+        kind: 'wasm',
+        ...pinned('assets/colab-runtime-terminal-3333333333333333.wasm'),
+      },
     ],
     theme: pinned('assets/colab-runtime.css'),
   },
@@ -94,4 +100,28 @@ test('a base or theme that fails to load or verify fails the runtime, and the fa
   const fetched = serve();
   expect((await loadRuntime(base)).scripts).toEqual(['window.base = 1;']);
   expect(fetched).toEqual(['assets/colab-runtime-base-0000000000000000.js']);
+});
+
+test('the optional renderer is fetched only on demand, verified and reused without transferring the cache', async () => {
+  const fetched = serve();
+  const base = 'http://127.0.0.1:4179/r/eeeeeeeeeeeeeeee/x/colab/';
+  expect((await loadRuntime(base)).wasm).toBeUndefined();
+  expect(fetched).not.toContain('assets/colab-runtime-terminal-3333333333333333.wasm');
+  const runtime = await loadRuntime(base, ['terminal-frame']);
+  expect(new TextDecoder().decode(runtime.wasm!.bytes)).toBe('wasm-test-bytes');
+  expect(runtime.wasm!.mime).toBe('application/wasm');
+  const again = await loadRuntime(base, ['terminal-frame']);
+  expect(again.wasm!.bytes).toBe(runtime.wasm!.bytes);
+  expect(fetched.filter((path) => path.endsWith('.wasm'))).toHaveLength(1);
+});
+
+test('renderer bytes that exceed or differ from the pin are omitted and never cached', async () => {
+  const path = 'assets/colab-runtime-terminal-3333333333333333.wasm';
+  const base = 'http://127.0.0.1:4179/r/ffffffffffffffff/x/colab/';
+  serve({ [path]: 'wasm-test-bytEs' });
+  expect((await loadRuntime(base, ['terminal-frame'])).wasm).toBeUndefined();
+  serve({ [path]: 'wasm-test-bytes too long' });
+  expect((await loadRuntime(base, ['terminal-frame'])).wasm).toBeUndefined();
+  serve();
+  expect((await loadRuntime(base, ['terminal-frame'])).wasm).toBeDefined();
 });

@@ -17,7 +17,7 @@ export const DERIVED_FROM: ExportFile = 'page.html';
  * the copy gains no network when it is opened from disk, but it is not sandboxed. The native
  * export holds the same text. */
 export const META_POLICY =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'";
+  "default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'";
 
 /** The theme follows `data-theme` only, so the copy sets it from the system colour scheme and
  * follows changes, the way Colab's own pages follow the app theme. */

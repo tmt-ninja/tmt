@@ -196,13 +196,15 @@
     },
     {
       "name": "terminal-frame",
-      "reserved": true,
       "after": [
         "base"
       ],
-      "ui": [],
+      "ui": [
+        "TerminalFrame"
+      ],
       "parts": [],
-      "gzipCap": 2097152
+      "gzipCap": 524288,
+      "kind": "wasm"
     }
   ]
 }

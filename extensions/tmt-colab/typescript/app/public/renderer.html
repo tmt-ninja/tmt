@@ -3295,8 +3295,17 @@
         const runtimeBundle = (value) => {
           if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
           const keys = Object.keys(value);
-          if (keys.length !== 2 || !keys.includes('scripts') || !keys.includes('style'))
-            return false;
+          if (
+            keys.length !== 2 + (Object.hasOwn(value, 'wasm') ? 1 : 0) ||
+            !keys.includes('scripts') || !keys.includes('style')
+          ) return false;
+          if (Object.hasOwn(value, 'wasm')) {
+            const wasm = value.wasm;
+            if (!wasm || typeof wasm !== 'object' || Array.isArray(wasm) ||
+                Object.keys(wasm).length !== 2 || wasm.mime !== 'application/wasm' ||
+                !(wasm.bytes instanceof ArrayBuffer) ||
+                wasm.bytes.byteLength < 1 || wasm.bytes.byteLength > 1024 * 1024) return false;
+          }
           const { scripts, style } = value;
           const size = (text) =>
             typeof text === 'string' ? new TextEncoder().encode(text).byteLength : -1;
@@ -3363,6 +3372,13 @@
             return;
           window.removeEventListener('message', bind);
           const port = event.ports[0];
+          if (value.runtime?.wasm) {
+            const bytes = value.runtime.wasm.bytes;
+            window.__colabTakeTerminalBytes = () => {
+              delete window.__colabTakeTerminalBytes;
+              return bytes;
+            };
+          }
           // The temporary callback transfers no authority; it runs before author HTML.
           window.__colabRenderStart = () =>
             install(
@@ -3381,7 +3397,8 @@
             (script) => `<script>${script}<\/script>`,
           );
           const seal =
-            '<script>window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;<\/script>';
+            '<script>window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;' +
+            (value.runtime?.wasm ? 'delete window.__colabTakeTerminalBytes;' : '') + '<\/script>';
           const runtime = value.runtime
             ? `<style type="text/tailwindcss">${value.runtime.style}</style>${chunks.join('')}${seal}`
             : '';

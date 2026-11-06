@@ -73,6 +73,7 @@ function bootstrap() {
   };
   runInNewContext(script, {
     window,
+    ArrayBuffer,
     TextEncoder,
     document: {
       open() {},
@@ -82,7 +83,7 @@ function bootstrap() {
       },
     },
   });
-  return { parent, writes, send: (event: unknown) => listener?.(event) };
+  return { parent, window, writes, send: (event: unknown) => listener?.(event) };
 }
 function message(parent: object, source = '<p>Captured source</p>') {
   const sourceDigest = 'a'.repeat(64);
@@ -169,6 +170,31 @@ test('a bind may carry the bundled runtime, written into the trusted head before
     ]);
   }
 });
+test('a bind accepts only one bounded wasm buffer with the renderer MIME', () => {
+  const invalid = [
+    null,
+    { mime: 'text/plain', bytes: new ArrayBuffer(4) },
+    { mime: 'application/wasm', bytes: new Uint8Array(4) },
+    { mime: 'application/wasm', bytes: new ArrayBuffer(0) },
+    { mime: 'application/wasm', bytes: new ArrayBuffer(1024 * 1024 + 1) },
+    { mime: 'application/wasm', bytes: new ArrayBuffer(4), extra: true },
+  ];
+  for (const wasm of invalid) {
+    const frame = bootstrap();
+    bound(frame, { runtime: { ...runtime, wasm } });
+    expect(frame.writes).toEqual([]);
+  }
+  const frame = bootstrap();
+  const bytes = new ArrayBuffer(8);
+  bound(frame, { runtime: { ...runtime, wasm: { mime: 'application/wasm', bytes } } });
+  expect(frame.writes).toHaveLength(1);
+  const take = (
+    frame.window as typeof frame.window & { __colabTakeTerminalBytes: () => ArrayBuffer }
+  ).__colabTakeTerminalBytes;
+  expect(take()).toBe(bytes);
+  expect('__colabTakeTerminalBytes' in frame.window).toBe(false);
+});
+
 test('the runtime is the theme and 1 to 8 bounded chunk scripts that cannot end their own element', () => {
   const big = (bytes: number) => 'x'.repeat(bytes);
   const MiB = 1024 * 1024;
