@@ -823,17 +823,18 @@ jobs:
         with:
           name: native-caller-fixture-x86_64-unknown-linux-musl
           path: rust/target/debug/examples
-      - name: Discover the complete retained test identity union
+      - name: Prepare retained tooling evidence
         working-directory: typescript
         run: |
           chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr ../rust/target/debug/examples/colab-runtime-fixture
           chmod +x ../rust/target/debug/examples/runtime-caller-fixture
           node scripts/unit-test-consumers.mjs context tooling "$RUNNER_TEMP/unit-tooling"
-          node scripts/unit-test-consumers.mjs collect "$RUNNER_TEMP/unit-tooling/plan.json"
       - name: Run retained developer tooling tests
         working-directory: typescript
+        env:
+          UNIT_TEST_EVIDENCE: ${{ runner.temp }}/unit-tooling
         run: |
-          pnpm test:run --project=tooling --maxWorkers=4 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-tooling/results.json"
+          pnpm test:run --project=tooling --maxWorkers=4 --reporter=default --reporter=json --reporter=./scripts/unit-test-consumers.mjs --outputFile="$RUNNER_TEMP/unit-tooling/results.json"
       - name: Preserve retained tooling evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -870,10 +871,12 @@ jobs:
           path: rust/target/debug
       - name: Run shell onboarding contracts
         working-directory: typescript
+        env:
+          UNIT_TEST_EVIDENCE: ${{ runner.temp }}/unit-shell
         run: |
           chmod +x ../rust/target/debug/tmt
           node scripts/unit-test-consumers.mjs context shell "$RUNNER_TEMP/unit-shell"
-          pnpm test:run --project=shell --maxWorkers=1 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-shell/results.json"
+          pnpm test:run --project=shell --maxWorkers=1 --reporter=default --reporter=json --reporter=./scripts/unit-test-consumers.mjs --outputFile="$RUNNER_TEMP/unit-shell/results.json"
       - name: Preserve shell contract evidence
         if: always()
         uses: actions/upload-artifact@v4

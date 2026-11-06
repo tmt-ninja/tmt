@@ -3601,9 +3601,7 @@ describe('required CI gate', () => {
     expect(tooling).not.toContain('apt-install');
     expect(tooling).not.toContain('packages:');
     expect(shell).toContain('packages: zsh');
-    expect(tooling).toContain(
-      'node scripts/unit-test-consumers.mjs collect "$RUNNER_TEMP/unit-tooling/plan.json"'
-    );
+    expect(tooling).not.toContain('unit-test-consumers.mjs collect');
     expect(tooling).toContain('pnpm test:run --project=tooling --maxWorkers=4');
     expect(shell).toContain('pnpm test:run --project=shell --maxWorkers=1');
     for (const [group, consumer] of [
@@ -3611,6 +3609,8 @@ describe('required CI gate', () => {
       ['shell', shell],
     ]) {
       expect(consumer).toContain(`unit-test-consumers.mjs context ${group}`);
+      expect(consumer).toContain('--reporter=./scripts/unit-test-consumers.mjs');
+      expect(consumer).toContain(`UNIT_TEST_EVIDENCE: \${{ runner.temp }}/unit-${group}`);
       expect(consumer).toContain(`name: unit-${group}-\${{ github.run_id }}`);
       expect(consumer).toContain('overwrite: true');
       expect(consumer).toContain('if: always()');

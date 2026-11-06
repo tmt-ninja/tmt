@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -17,7 +25,7 @@ let root: string;
 const sha = 'a'.repeat(40),
   runId = '42';
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'unit-consumers-'));
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'unit-consumers-')));
   mkdirSync(join(root, 'test/tooling'), { recursive: true });
   writeFileSync(join(root, 'test/tooling/a.test.ts'), '');
   writeFileSync(join(root, SHELL_TEST), '');
@@ -60,7 +68,7 @@ const evidence = () => ({
 const context = () => ({ cwd: root, sha, runId });
 
 describe('retained unit consumer inventory', () => {
-  it('collects expanded cases and inherited skips through the actual Vitest API without executing bodies', () => {
+  it('records expanded declarations and inherited skips during the ordinary Vitest run', () => {
     const imports = `import {describe,it} from ${JSON.stringify(import.meta.resolve('vite-plus/test'))};\n`;
     writeFileSync(
       join(root, 'vitest.config.ts'),
@@ -69,26 +77,43 @@ describe('retained unit consumer inventory', () => {
     writeFileSync(
       join(root, 'test/tooling/a.test.ts'),
       imports +
-        'describe("suite",()=>{it.each([1,2])("case %s",()=>{throw Error("body ran")});it.skip("declared",()=>{});describe.skip("parent",()=>{it("child",()=>{})})});'
+        'describe("suite",()=>{it.each([1,2])("case %s",()=>{});it.skip("declared",()=>{});describe.skip("parent",()=>{it("child",()=>{})})});'
     );
-    writeFileSync(join(root, SHELL_TEST), imports + 'it("shell",()=>{throw Error("body ran")});');
-    const output = join(root, 'plan.json');
+    writeFileSync(join(root, SHELL_TEST), imports + 'it("shell",()=>{});');
+    const output = join(root, 'declarations.json');
     const result = spawnSync(
       process.execPath,
       [
-        fileURLToPath(new URL('../../scripts/unit-test-consumers.mjs', import.meta.url)),
-        'collect',
-        output,
+        '--input-type=module',
+        '-e',
+        `import {createVitest} from ${JSON.stringify(import.meta.resolve('vite-plus/test/node'))};
+        const ctx=await createVitest({config:'vitest.config.ts',watch:false,reporters:['json',${JSON.stringify(fileURLToPath(new URL('../../scripts/unit-test-consumers.mjs', import.meta.url)))}],outputFile:${JSON.stringify(join(root, 'results.json'))}});
+        try {const result=await ctx.start();if(result.unhandledErrors.length || result.testModules.some(m=>!m.ok()))throw Error('Fixture run failed');} finally {await ctx.close();}`,
       ],
       {
         cwd: root,
+        env: { ...process.env, UNIT_TEST_EVIDENCE: root },
         encoding: 'utf8',
         timeout: 8000,
         maxBuffer: 1024 * 1024,
       }
     );
     expect(result.status, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`).toBe(0);
-    const plan = JSON.parse(readFileSync(output, 'utf8'));
+    const plan = createUnitPlan(JSON.parse(readFileSync(output, 'utf8')), root);
+    const report = JSON.parse(readFileSync(join(root, 'results.json'), 'utf8'));
+    expect(report.success).toBe(true);
+    const identities = report.testResults.flatMap(
+      (file: {
+        name: string;
+        assertionResults: { title: string; ancestorTitles: string[]; status: string }[];
+      }) =>
+        file.assertionResults.map((test) => [
+          file.name.slice(root.length + 1),
+          [...test.ancestorTitles, test.title].join(' > '),
+          test.status === 'passed' ? 'passed' : 'skipped',
+        ])
+    );
+    expect(identities.sort()).toEqual(plan.tests.sort());
     expect(plan.tests.sort()).toEqual(
       [
         ['test/tooling/a.test.ts', 'suite > case 1', 'passed'],

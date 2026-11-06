@@ -131,7 +131,24 @@ export function verifyUnitReports(plan, consumers, { cwd, sha, runId }) {
   );
   return { files: actualFiles.length, passed: passed.length, skipped: skipped.length };
 }
-async function main(args) {
+/** Capture declarations before each module executes, using the ordinary test run. */
+export default class UnitDeclarationReporter {
+  #discovery = [];
+  #directory;
+  constructor() {
+    this.#directory = process.env.UNIT_TEST_EVIDENCE;
+    assert(this.#directory, 'Missing unit evidence directory.');
+  }
+  onTestModuleCollected(module) {
+    for (const test of module.children.allTests())
+      this.#discovery.push({ file: module.moduleId, name: test.fullName, mode: test.options.mode });
+  }
+  onTestRunEnd() {
+    writeFileSync(join(this.#directory, 'declarations.json'), JSON.stringify(this.#discovery));
+  }
+}
+
+function main(args) {
   const cwd = process.cwd();
   const [command, ...paths] = args;
   if (command === 'context' && paths.length === 2 && ['tooling', 'shell'].includes(paths[0])) {
@@ -146,25 +163,6 @@ async function main(args) {
         runId: process.env.GITHUB_RUN_ID,
       })
     );
-  } else if (command === 'collect' && paths.length === 1) {
-    // Static listing cannot expand it.each and does not preserve declared skip modes.
-    const { createVitest } = await import('vite-plus/test/node');
-    const ctx = await createVitest({ config: 'vitest.config.ts', watch: false, reporters: [] });
-    try {
-      const result = await ctx.collect([], { staticParse: false });
-      assert.equal(result.unhandledErrors.length, 0, 'Unit discovery had unhandled errors.');
-      const discovery = result.testModules.flatMap((module) => {
-        assert(module.ok(), `Failed unit discovery: ${module.moduleId}`);
-        return [...module.children.allTests()].map((test) => ({
-          file: module.moduleId,
-          name: test.fullName,
-          mode: test.options.mode,
-        }));
-      });
-      writeFileSync(paths[0], JSON.stringify(createUnitPlan(discovery, cwd)));
-    } finally {
-      await ctx.close();
-    }
   } else if (command === 'results' && paths.length === 0) {
     checkUnitResults(
       {
@@ -185,7 +183,11 @@ async function main(args) {
         },
       ])
     );
-    const result = verifyUnitReports(readJson(join(paths[0], 'plan.json')), consumers, {
+    const plan = createUnitPlan(
+      paths.flatMap((directory) => readJson(join(directory, 'declarations.json'))),
+      cwd
+    );
+    const result = verifyUnitReports(plan, consumers, {
       cwd,
       sha: process.env.GITHUB_SHA,
       runId: process.env.GITHUB_RUN_ID,
@@ -195,8 +197,8 @@ async function main(args) {
     );
   } else
     throw new Error(
-      'Usage: unit-test-consumers.mjs context <tooling|shell> <directory> | collect <plan> | results | verify <tooling-directory> <shell-directory>'
+      'Usage: unit-test-consumers.mjs context <tooling|shell> <directory> | results | verify <tooling-directory> <shell-directory>'
     );
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  await main(process.argv.slice(2));
+  main(process.argv.slice(2));

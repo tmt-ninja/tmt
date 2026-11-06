@@ -1,5 +1,9 @@
 export const UNIT_CONSUMER_NAMES: Readonly<Record<'tooling' | 'shell' | 'rules', string>>;
 export const SHELL_TEST: string;
+export default class UnitDeclarationReporter {
+  onTestModuleCollected(module: unknown): void;
+  onTestRunEnd(): void;
+}
 export function toolingGroup(file: string): 'tooling' | 'shell';
 export function readToolingGroups(cwd: string): { tooling: string[]; shell: string[] };
 export interface UnitPlan {

@@ -226,7 +226,7 @@ function checkCounterpart(counterpart, stage, label, read) {
       `${label}: policy coverage needs tests`
     );
     const command = job.body.match(
-      /^ {8,}pnpm test:run(?: --project=(?:tooling|shell)| --maxWorkers=[1-9][0-9]*| --reporter=(?:default|json)| --outputFile="\$RUNNER_TEMP\/(?:[\w.-]+\/)*[\w.-]+\.json")*[ \t]*$/m
+      /^ {8,}pnpm test:run(?: --project=(?:tooling|shell)| --maxWorkers=[1-9][0-9]*| --reporter=(?:default|json|\.\/scripts\/unit-test-consumers\.mjs)| --outputFile="\$RUNNER_TEMP\/(?:[\w.-]+\/)*[\w.-]+\.json")*[ \t]*$/m
     )?.[0];
     ensure(command, `${label}: policy job does not run the tooling suite`);
     const projects = [...command.matchAll(/ --project=(tooling|shell)/g)].map((match) => match[1]);

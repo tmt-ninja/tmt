@@ -76,8 +76,9 @@ The required `Unit tests` context collects three parallel consumers. Retained
 tooling uses four Vitest workers in CI; local runs keep two. The shell project
 contains the onboarding contracts and alone installs zsh. Both projects use one
 source-file inventory; the collector requires their successful results and a
-SHA/run-bound report whose file/test/status identities exactly equal runtime
-discovery, including expanded parameterized cases and declared skips. Skips are
+SHA/run-bound report whose file/test/status identities exactly equal the declarations
+captured before each module executes, including expanded parameterized cases and
+declared skips. The reporter uses the ordinary test run, without a second collection pass. Skips are
 reported separately from passed coverage. Run-scoped artifacts are overwritten by
 reruns, so successful unchanged-head consumers can be reused.
 
