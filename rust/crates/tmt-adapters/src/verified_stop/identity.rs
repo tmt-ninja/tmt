@@ -165,6 +165,10 @@ pub fn stop_identity(
     } else if matches!(source.evidence, BindingEvidence::EndpointLost) {
         Some(PaneOutcome::Gone)
     } else {
+        // The host may still report the program the stop just ended; the close reads the
+        // settled report, and one still behind after the allowance is refused below.
+        host.session()
+            .settle_after_stop(&captured.entry, Instant::now() + STOP_ALLOWANCE);
         Some(match host.session().close_opened_pane(&captured.entry) {
             Ok(PaneClose::Closed) => PaneOutcome::Closed,
             Ok(PaneClose::AlreadyGone) => PaneOutcome::Gone,

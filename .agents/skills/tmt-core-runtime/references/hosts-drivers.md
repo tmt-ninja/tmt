@@ -368,7 +368,12 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   supervisor, which the kept binding would refuse. A member whose program ends during
   startup is closed by `start_member`. `close_pane` (`stop --close`) and
   `tmt rm`/`identity.remove` send `Close` before the existing wait for the supervisor's
-  end; restore captures only members whose agent runs.
+  end, which an exited, not yet reaped supervisor satisfies. `stop --close` first lets the
+  host's report settle (`HostDriver::settle_after_stop`, within `STOP_ALLOWANCE`): the
+  supervisor reaps its program once per loop, so its `Inspect` may still report the stopped
+  program running; a report still behind then is refused as `PANE_NOT_CLOSED`. Restore
+  captures only members whose agent runs; a built-in `workspace show` reads its members
+  within the driver's own 3 s `BUDGET`, not the hook capture's.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);

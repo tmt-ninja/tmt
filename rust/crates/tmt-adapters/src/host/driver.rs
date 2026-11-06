@@ -139,6 +139,12 @@ pub trait HostDriver {
         Err(ActionError::HostUnsupported)
     }
 
+    /// Waits until `deadline` at most for the host's report of the binding's pane to catch up
+    /// with a stop that just ended its program, so a following close reads settled evidence.
+    /// It proves, closes and signals nothing; a host whose report is never behind returns at
+    /// once, and a report still behind at the deadline is left to that close to refuse.
+    fn settle_after_stop(&mut self, _binding: &Binding, _deadline: std::time::Instant) {}
+
     /// Gives the agent the host recognizes in the binding's pane the agent
     /// name `name`. Never a pane label. A driver's refusal is
     /// [`HostError::Refused`]. Taking a name away belongs to `clear`.

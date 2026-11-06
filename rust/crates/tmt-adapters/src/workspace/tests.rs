@@ -745,3 +745,12 @@ fn socket_stores_name_each_tmux_store_by_its_recorded_socket_and_never_the_built
     .unwrap();
     assert_eq!(saved::socket_stores(&paths), ["/tmp/a.sock", "/tmp/b.sock"]);
 }
+
+#[test]
+fn a_built_in_preview_is_bounded_as_one_built_in_host_operation_not_as_a_hook_capture() {
+    let before = Instant::now();
+    let deadline = builtin_plan_deadline();
+    let bound = deadline.saturating_duration_since(before);
+    assert!(bound >= crate::host::BUILTIN_BUDGET, "{bound:?}");
+    assert!(bound > CAPTURE_BUDGET, "{bound:?}");
+}
