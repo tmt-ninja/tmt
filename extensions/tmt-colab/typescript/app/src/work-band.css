@@ -307,6 +307,10 @@ a.work-row-title:hover {
 .work-add-dialog [data-slot='dialog-footer'] {
   flex: none;
 }
+.work-add-current {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}
 .work-add-command {
   display: flex;
   flex: 1 1 auto;

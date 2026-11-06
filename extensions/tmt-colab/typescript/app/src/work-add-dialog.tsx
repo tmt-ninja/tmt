@@ -124,10 +124,12 @@ export function AddSubpageDialog({
         >
           <DialogHeader>
             <DialogTitle>{mode === 'parent' ? t.moveTitle(title) : t.addTitle(title)}</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className={mode === 'parent' ? 'tmt:sr-only' : undefined}>
               {mode === 'parent' ? t.moveDescription : t.addDescription}
             </DialogDescription>
-            {mode === 'parent' && nowUnder && <p>{t.nowUnder(nowUnder)}</p>}
+            {mode === 'parent' && nowUnder && (
+              <p className="work-add-current">{t.nowUnder(nowUnder)}</p>
+            )}
           </DialogHeader>
           <div className="work-add-command">
             <Command shouldFilter={false} value={current} onValueChange={setActive}>
@@ -236,11 +238,13 @@ export function AddSubpageDialog({
               {error}
             </p>
           )}
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
-              {t.cancel}
-            </Button>
-          </DialogFooter>
+          {mode === 'child' && (
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+                {t.cancel}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </UiTheme>
