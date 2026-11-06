@@ -2663,7 +2663,7 @@ function OpenPage({
         />
       )}
       {moveFailure && (
-        <div className="panel-notice" role="alert">
+        <div className="page-lifecycle-notice" role="alert">
           <span>{text.workBand.moveFailed(moveFailure.title)}</span>
           <BrowserAction
             type="button"
@@ -2675,7 +2675,7 @@ function OpenPage({
         </div>
       )}
       {moveUncertain && (
-        <div className="panel-notice" role="alert">
+        <div className="page-lifecycle-notice" role="alert">
           {text.workBand.moveUnknown}
         </div>
       )}
@@ -2687,7 +2687,10 @@ function OpenPage({
         onCancel={() => setPageOperation(undefined)}
       />
       {(archived || pageOperationNotice) && (
-        <div className="panel-notice" role={pageOperationNotice?.failed ? 'alert' : 'status'}>
+        <div
+          className="page-lifecycle-notice"
+          role={pageOperationNotice?.failed ? 'alert' : 'status'}
+        >
           <span>{pageOperationNotice?.text ?? text.archiveAnnouncement}</span>
           {archived && transport.management && (
             <BrowserAction

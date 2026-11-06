@@ -87,6 +87,12 @@ export function mountMove() {
     },
     { id: oldId, title: 'Planning', sharing: 'private', projects: ['Product'] },
     { id: targetId, title: 'Design', sharing: 'private', projects: ['Product'] },
+    {
+      id: '20000000-0000-4000-8000-000000000104',
+      title: 'Design',
+      sharing: 'private',
+      summary: { comments: 0, waiting: false, needsYou: 0, parent: { page: oldId, index: 1 } },
+    },
   ];
   const management: ManagementPort = {
     read: async () => ({}) as never,

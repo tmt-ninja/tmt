@@ -60,38 +60,54 @@ async function openAdd(page: Page, band: Locator) {
 }
 const px = (value: string) => Number.parseFloat(value);
 
-test('a refused move leaves the page at top level and retry attaches it', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
-  await page.route('**/sdk/mount', (route) => route.fulfill({ status: 204 }));
-  await page.goto('/');
-  const fixture = '/test/page-move-browser.tsx';
-  await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
-  await page.getByRole('button', { name: 'More', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Put “Release plan” under a page' });
-  await expect(dialog.getByText('Now under: Product / Planning')).toBeVisible();
-  await dialog.getByRole('option', { name: /Design/ }).click();
-  await expect(dialog).toHaveCount(0);
-  const notice = page.getByRole('alert');
-  await expect(notice).toContainText('This page is now at the top level');
-  const state = () => page.evaluate(async (path) => (await import(path)).moveState(), fixture);
-  expect((await state()).parent).toBeUndefined();
-  await notice.getByRole('button', { name: 'Retry' }).click();
-  await expect(notice).toHaveCount(0);
-  expect(await state()).toEqual({
-    parent: '20000000-0000-4000-8000-000000000103',
-    archived: false,
-    writes: [
-      '20000000-0000-4000-8000-000000000102:subpage.detach',
-      '20000000-0000-4000-8000-000000000103:subpage.attach',
-      '20000000-0000-4000-8000-000000000103:subpage.attach',
-    ],
-  });
-  expect(errors).toEqual([]);
-});
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a refused move leaves the page at top level and retry attaches it ${width} ${theme}`, async ({
+      page,
+    }) => {
+      const errors: string[] = [];
+      page.on('console', (message) => {
+        if (message.type() === 'error') errors.push(message.text());
+      });
+      await page.route('**/sdk/mount', (route) => route.fulfill({ status: 204 }));
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.goto('/');
+      const fixture = '/test/page-move-browser.tsx';
+      await page.evaluate(async (path) => (await import(path)).mountMove(), fixture);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Put under a page…' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Put “Release plan” under a page' });
+      await expect(dialog.getByText('Now under: Product / Planning')).toBeVisible();
+      const matches = dialog.getByRole('option', { name: /Design/ });
+      await expect(matches).toHaveCount(2);
+      await expect(matches.filter({ hasText: 'Product / Planning' })).toBeVisible();
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`6058-duplicate-${width}-${theme}.png`) });
+      await dialog.getByRole('option', { name: 'Design Product', exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      const notice = page.getByRole('alert');
+      await expect(notice).toContainText('This page is now at the top level');
+      const bounds = await notice.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`6058-retry-${width}-${theme}.png`) });
+      const state = () => page.evaluate(async (path) => (await import(path)).moveState(), fixture);
+      expect((await state()).parent).toBeUndefined();
+      await notice.getByRole('button', { name: 'Retry' }).click();
+      await expect(notice).toHaveCount(0);
+      expect(await state()).toEqual({
+        parent: '20000000-0000-4000-8000-000000000103',
+        archived: false,
+        writes: [
+          '20000000-0000-4000-8000-000000000102:subpage.detach',
+          '20000000-0000-4000-8000-000000000103:subpage.attach',
+          '20000000-0000-4000-8000-000000000103:subpage.attach',
+        ],
+      });
+      expect(errors).toEqual([]);
+    });
 
 test('archiving the open page remains in effect across a live update and can be restored', async ({
   page,
