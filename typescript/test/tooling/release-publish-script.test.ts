@@ -852,7 +852,7 @@ describe('release-publish.mjs index entry', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-publish-script.test.ts'],
@@ -879,7 +879,7 @@ describe('release-publish.mjs index entry', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-publish-script.test.ts'],

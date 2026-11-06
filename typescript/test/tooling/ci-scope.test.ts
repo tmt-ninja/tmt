@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { COMPONENT_SHARDS } from '../../scripts/colab-acceptance-shards.mjs';
+import { UNIT_CONSUMER_NAMES } from '../../scripts/unit-test-consumers.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
 import {
@@ -1064,7 +1065,7 @@ describe('CI area selection', () => {
       expect(leaf).toContain(`pnpm --filter @tmt/browser-ui --fail-if-no-match ${command}`);
     expect(leaf).toContain('test/tooling/browser-ui-boundary.test.ts');
     expect(leaf).not.toMatch(/continue-on-error|\n\s+if:/);
-    const unit = ci.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    const unit = ci.split('\n  unit-tooling:\n')[1].split('\n  unit-shell:\n')[0];
     const install = 'pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts';
     const admitsGuardInputs = (text: string): boolean => {
       const step = text
@@ -2744,15 +2745,12 @@ describe('CI diff and command integration', () => {
   it('does not select the Rules emulator steps for an empty diff', () => {
     expect(selectRemoteFirestore([])).toBe(false);
   });
-  it('runs the Rules emulator as pinned, fail-closed steps of the Unit tests job', () => {
+  it('runs the Rules emulator in its pinned, fail-closed selected Unit consumer', () => {
     const read = (file: string) =>
       readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
     const ci = read('.github/workflows/ci.yml');
-    const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
-    const steps = job.slice(
-      job.indexOf('# Firestore Rules emulator suites'),
-      job.indexOf('- name: Run retained developer tooling tests')
-    );
+    const job = ci.slice(ci.indexOf('\n  unit-rules:'), ci.indexOf('\n  unit-tests:'));
+    const steps = job.slice(job.indexOf('# Firestore Rules emulator suites'), job.length);
     expect(ci).toContain(
       "      remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
     );
@@ -2818,12 +2816,12 @@ describe('CI diff and command integration', () => {
     expect(selectColabFirestore([file])).toBe(false);
   });
 
-  it('keeps Colab emulator execution selected, pinned and fail closed in Unit tests', () => {
+  it('keeps Colab emulator execution selected, pinned and fail closed in the Rules consumer', () => {
     expect(selectColabFirestore([])).toBe(false);
     const read = (file: string) =>
       readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
     const ci = read('.github/workflows/ci.yml');
-    const job = ci.slice(ci.indexOf('\n  unit-tests:'), ci.indexOf('\n  # The Docker E2E suite'));
+    const job = ci.slice(ci.indexOf('\n  unit-rules:'), ci.indexOf('\n  unit-tests:'));
     expect(ci).toContain(
       "      colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
     );
@@ -2831,10 +2829,7 @@ describe('CI diff and command integration', () => {
       "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
     );
     expect(job).toContain('timeout-minutes: 15');
-    const steps = job.slice(
-      job.indexOf('# Firestore Rules emulator suites'),
-      job.indexOf('- name: Run retained developer tooling tests')
-    );
+    const steps = job.slice(job.indexOf('# Firestore Rules emulator suites'), job.length);
     expect(steps.match(/uses: \.\/\.github\/actions\/setup-firebase-tools/g)).toHaveLength(1);
     const colab = steps.slice(
       steps.indexOf('- name: Run the Colab Firestore Rules emulator suite')
@@ -2871,7 +2866,7 @@ describe('CI diff and command integration', () => {
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     const step = ci
       .split('      - name: Run the Colab Firestore Rules emulator suite\n')[1]
-      .split('      - name: Run retained developer tooling tests')[0];
+      .split('\n  unit-tests:')[0];
     const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-colab-rules-ci-'));
     try {
@@ -3586,13 +3581,66 @@ describe('required CI gate', () => {
     }
   });
 
+  it('keeps exact unit consumer selection, source discovery and report verification behind one required context', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const job = (id: string) => workflow.split(`\n  ${id}:\n`)[1]!.split(/\n  [\w-]+:\n/)[0]!;
+    const tooling = job('unit-tooling'),
+      shell = job('unit-shell'),
+      rules = job('unit-rules'),
+      gate = job('unit-tests');
+    for (const [group, name] of Object.entries(UNIT_CONSUMER_NAMES))
+      expect(job(`unit-${group}`)).toContain(`name: ${name}\n`);
+    for (const consumer of [tooling, shell, rules]) {
+      expect(consumer).toContain('needs: [changes, native-runtime-build]');
+      expect(consumer).toContain('runs-on: ubuntu-latest');
+      expect(consumer).toContain('timeout-minutes: 15');
+    }
+    expect(tooling).not.toContain('apt-install');
+    expect(tooling).not.toContain('packages:');
+    expect(shell).toContain('packages: zsh');
+    expect(tooling).not.toContain('unit-test-consumers.mjs collect');
+    expect(tooling).toContain('pnpm test:run --project=tooling --maxWorkers=4');
+    expect(shell).toContain('pnpm test:run --project=shell --maxWorkers=1');
+    for (const [group, consumer] of [
+      ['tooling', tooling],
+      ['shell', shell],
+    ]) {
+      expect(consumer).toContain(`unit-test-consumers.mjs context ${group}`);
+      expect(consumer).toContain('--reporter=./scripts/unit-test-consumers.mjs');
+      expect(consumer).toContain(`UNIT_TEST_EVIDENCE: \${{ runner.temp }}/unit-${group}`);
+      expect(consumer).toContain(`name: unit-${group}-\${{ github.run_id }}`);
+      expect(consumer).toContain('overwrite: true');
+      expect(consumer).toContain('if: always()');
+    }
+    expect(rules).toContain(
+      "&& (needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true')"
+    );
+    expect(gate).toContain('needs: [changes, unit-tooling, unit-shell, unit-rules]');
+    for (const [variable, expression] of [
+      ['TOOLING_RESULT', 'needs.unit-tooling.result'],
+      ['SHELL_RESULT', 'needs.unit-shell.result'],
+      ['RULES_RESULT', 'needs.unit-rules.result'],
+      ['REMOTE_RULES', 'needs.changes.outputs.remote_firestore'],
+      ['COLAB_RULES', 'needs.changes.outputs.colab_firestore'],
+    ])
+      expect(gate).toContain(`${variable}: \${{ ${expression} }}`);
+    expect(gate).toContain('node scripts/unit-test-consumers.mjs results');
+    expect(gate).toContain(
+      'unit-test-consumers.mjs verify "$RUNNER_TEMP/unit-tooling" "$RUNNER_TEMP/unit-shell"'
+    );
+    expect(gate).not.toContain('continue-on-error');
+  });
+
   it('builds and transfers the driver-owned companion without replacing debug Rust verification', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
     const start = workflow.indexOf('\n  native-clippy:\n');
-    const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
+    const native = workflow.slice(start, workflow.indexOf('\n  unit-tooling:\n', start));
     expect(
       native.match(/cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins/g)
     ).toHaveLength(2);
@@ -3609,7 +3657,7 @@ describe('required CI gate', () => {
     expect(runtime).toContain(
       'rust/target/${{ matrix.target }}/release/examples/colab-runtime-fixture'
     );
-    const tooling = workflow.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    const tooling = workflow.split('\n  unit-tooling:\n')[1].split('\n  unit-shell:\n')[0];
     expect(tooling).toContain('name: runtime-x86_64-unknown-linux-musl');
     expect(tooling).toContain('path: rust/target/debug');
     expect(tooling).toContain(
@@ -3976,8 +4024,17 @@ describe('required CI gate', () => {
       );
       expect(callers.length, file).toBeGreaterThan(0);
       // Two failed attempts and the backoff took about 8.5 minutes on 10-30.
-      for (const caller of callers)
-        expect(caller.body, `${file}: ${caller.name}`).toMatch(/\n\s+timeout-minutes: 10\n/);
+      for (const caller of callers) {
+        // Small JSON coverage reports belong to the five-minute Unit collector.
+        const unitReport =
+          file === 'ci.yml' &&
+          ['Download retained tooling evidence', 'Download shell contract evidence'].includes(
+            caller.name
+          );
+        expect(caller.body, `${file}: ${caller.name}`).toMatch(
+          unitReport ? /\n\s+timeout-minutes: 2\n/ : /\n\s+timeout-minutes: 10\n/
+        );
+      }
     }
 
     for (const file of [
@@ -4054,8 +4111,12 @@ describe('required CI gate', () => {
     expect(job('native-runtime-build')).toContain(
       "if: needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true'"
     );
+    for (const consumer of ['unit-tooling', 'unit-shell'])
+      expect(job(consumer)).toContain(
+        "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
+      );
     expect(job('unit-tests')).toContain(
-      "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
+      "if: always() && needs.changes.result == 'success' && needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
     );
     expect(job('packed-native-install')).toContain(
       "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
@@ -4206,7 +4267,7 @@ describe('required CI gate', () => {
       expect(workflow.match(new RegExp(`^ {4}name: ${required}$`, 'gm')), required).toHaveLength(1);
     }
     expect(workflow.match(/^ {4}name: Docker E2E shard \d\/2$/gm)).toHaveLength(2);
-    expect(job('unit-tests')).toContain(
+    expect(job('unit-tooling')).toContain(
       'name: runtime-x86_64-unknown-linux-musl\n          path: rust/target/debug'
     );
     // Native process contracts is one fixture build, two test shards that reuse its

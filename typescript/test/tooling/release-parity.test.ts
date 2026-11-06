@@ -26,6 +26,41 @@ describe('release gate parity inventory', () => {
     expect(Object.keys(releaseInventory(read))).toContain('native-release-smoke.yml');
   });
 
+  it.each([
+    '--maxWorkers=4',
+    '--project=tooling --maxWorkers=4',
+    '--maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-two-workers.json"',
+  ])('accepts full-suite operational options: %s', (options) => {
+    const readChanged = changed('.github/workflows/ci.yml', (source) =>
+      source.replace(/^ {10}pnpm test:run.*$/m, `          pnpm test:run ${options}`)
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).not.toThrow();
+  });
+
+  it.each([
+    '--exclude=test/tooling/release-cut-live.test.ts',
+    'test/tooling/ci-scope.test.ts',
+    '--testNamePattern=happy',
+    '--passWithNoTests',
+    '--maxWorkers=4 || true',
+  ])('rejects an incomplete or suppressed policy suite: %s', (options) => {
+    const readChanged = changed('.github/workflows/ci.yml', (source) =>
+      source.replace(/^ {10}pnpm test:run.*$/m, `          pnpm test:run ${options}`)
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
+      'policy job does not run the tooling suite'
+    );
+  });
+
+  it('refuses policy coverage assigned to the wrong disjoint project', () => {
+    const readChanged = changed('.github/workflows/ci.yml', (source) =>
+      source.replace('--project=tooling --maxWorkers=4', '--project=shell --maxWorkers=4')
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
+      'policy test outside selected tooling project'
+    );
+  });
+
   it('rejects a release gate added as a new job', () => {
     const readChanged = changed(
       bundle,
@@ -250,7 +285,7 @@ describe('release gate parity inventory', () => {
     const rehearsal = value.incidents['1604'].mainPush[0];
     for (const gate of ['channel', 'immutability', 'monotonic', 'migration']) {
       expect(value.publicationGates[gate].mainPush, gate).toEqual([rehearsal]);
-      expect(value.publicationGates[gate].preMerge[0].job, gate).toBe('unit-tests');
+      expect(value.publicationGates[gate].preMerge[0].job, gate).toBe('unit-tooling');
     }
     expect(value.incidents['1542'].mainPush).toEqual([rehearsal]);
     expect(value.incidents['1643'].preMerge).toEqual([
@@ -274,7 +309,7 @@ describe('release gate parity inventory', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-publish.test.ts'],
@@ -296,7 +331,7 @@ describe('release gate parity inventory', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/native-application-schema.test.ts'],
@@ -318,7 +353,7 @@ describe('release gate parity inventory', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-cut-live.test.ts'],
@@ -336,7 +371,7 @@ describe('release gate parity inventory', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-mode.test.ts'],

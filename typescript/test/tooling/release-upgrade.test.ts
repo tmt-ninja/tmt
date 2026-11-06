@@ -1473,7 +1473,7 @@ describe('ghAssetDownloader', () => {
       preMerge: [
         {
           workflow: 'ci.yml',
-          job: 'unit-tests',
+          job: 'unit-tooling',
           selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
           coverage: 'policy',
           tests: ['typescript/test/tooling/release-upgrade.test.ts'],

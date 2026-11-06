@@ -781,8 +781,8 @@ jobs:
           MSRV_RESULT: ${{ needs.native-msrv.result }}
         run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
-  unit-tests:
-    name: Unit tests
+  unit-tooling:
+    name: Retained tooling tests
     needs: [changes, native-runtime-build]
     if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')
     runs-on: ubuntu-latest
@@ -794,10 +794,6 @@ jobs:
           persist-credentials: false
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
-      - name: Install shell and linkage test dependencies
-        uses: ./.github/actions/apt-install
-        with:
-          packages: zsh binutils
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmt install --frozen-lockfile
@@ -827,6 +823,81 @@ jobs:
         with:
           name: native-caller-fixture-x86_64-unknown-linux-musl
           path: rust/target/debug/examples
+      - name: Prepare retained tooling evidence
+        working-directory: typescript
+        run: |
+          chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr ../rust/target/debug/examples/colab-runtime-fixture
+          chmod +x ../rust/target/debug/examples/runtime-caller-fixture
+          node scripts/unit-test-consumers.mjs context tooling "$RUNNER_TEMP/unit-tooling"
+      - name: Run retained developer tooling tests
+        working-directory: typescript
+        env:
+          UNIT_TEST_EVIDENCE: ${{ runner.temp }}/unit-tooling
+        run: |
+          pnpm test:run --project=tooling --maxWorkers=4 --reporter=default --reporter=json --reporter=./scripts/unit-test-consumers.mjs --outputFile="$RUNNER_TEMP/unit-tooling/results.json"
+      - name: Preserve retained tooling evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tooling-${{ github.run_id }}
+          path: ${{ runner.temp }}/unit-tooling/
+          overwrite: true
+          retention-days: 3
+          if-no-files-found: warn
+
+  unit-shell:
+    name: Shell onboarding contracts
+    needs: [changes, native-runtime-build]
+    if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install zsh for the documented shell contracts
+        uses: ./.github/actions/apt-install
+        with:
+          packages: zsh
+      - name: Install dependencies
+        working-directory: typescript
+        run: pnpm --filter tmt install --frozen-lockfile
+      - name: Download the native selector input
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
+        with:
+          name: runtime-x86_64-unknown-linux-musl
+          path: rust/target/debug
+      - name: Run shell onboarding contracts
+        working-directory: typescript
+        env:
+          UNIT_TEST_EVIDENCE: ${{ runner.temp }}/unit-shell
+        run: |
+          chmod +x ../rust/target/debug/tmt
+          node scripts/unit-test-consumers.mjs context shell "$RUNNER_TEMP/unit-shell"
+          pnpm test:run --project=shell --maxWorkers=1 --reporter=default --reporter=json --reporter=./scripts/unit-test-consumers.mjs --outputFile="$RUNNER_TEMP/unit-shell/results.json"
+      - name: Preserve shell contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-shell-${{ github.run_id }}
+          path: ${{ runner.temp }}/unit-shell/
+          overwrite: true
+          retention-days: 3
+          if-no-files-found: warn
+
+  unit-rules:
+    name: Selected Rules suites
+    needs: [changes, native-runtime-build]
+    if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true') && (needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
       # Firestore Rules emulator suites: selected paths only (ci-scope remote_firestore/colab_firestore).
       - name: Select the hosted Temurin 21 for the Rules emulator
         if: needs.changes.outputs.remote_firestore == 'true'
@@ -865,14 +936,42 @@ jobs:
             firebase emulators:exec --only firestore --project demo-tmt-colab \
             --config /c/rust/tmt-colab/tests/emulator/firebase.json --non-interactive \
             'node --test /c/rust/tmt-colab/tests/emulator/suite.mjs'
-      - name: Run retained developer tooling tests
+
+  unit-tests:
+    name: Unit tests
+    needs: [changes, unit-tooling, unit-shell, unit-rules]
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Require exactly the selected successful consumers
         working-directory: typescript
-        # The deleted TypeScript source coverage denominator is not Rust coverage.
-        # Rust unit/process contracts and Docker remain independent required gates.
-        run: |
-          chmod +x ../rust/target/debug/tmt ../rust/target/debug/tmt-driver-herdr ../rust/target/debug/examples/colab-runtime-fixture
-          chmod +x ../rust/target/debug/examples/runtime-caller-fixture
-          pnpm test:run
+        env:
+          TOOLING_RESULT: ${{ needs.unit-tooling.result }}
+          SHELL_RESULT: ${{ needs.unit-shell.result }}
+          RULES_RESULT: ${{ needs.unit-rules.result }}
+          REMOTE_RULES: ${{ needs.changes.outputs.remote_firestore }}
+          COLAB_RULES: ${{ needs.changes.outputs.colab_firestore }}
+        run: node scripts/unit-test-consumers.mjs results
+      - name: Download retained tooling evidence
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 2
+        with:
+          name: unit-tooling-${{ github.run_id }}
+          path: ${{ runner.temp }}/unit-tooling
+      - name: Download shell contract evidence
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 2
+        with:
+          name: unit-shell-${{ github.run_id }}
+          path: ${{ runner.temp }}/unit-shell
+      - name: Verify exact unit test identity union
+        working-directory: typescript
+        run: node scripts/unit-test-consumers.mjs verify "$RUNNER_TEMP/unit-tooling" "$RUNNER_TEMP/unit-shell" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The Docker E2E suite runs as two jobs so that the longest required job is
   # about half as long. `docker-e2e` below is the required check named `Docker E2E`.
@@ -1254,6 +1353,9 @@ jobs:
       - native-process-tests
       - native-msrv
       - native-rust
+      - unit-tooling
+      - unit-shell
+      - unit-rules
       - unit-tests
       - docker-e2e-shard-1
       - docker-e2e-shard-2

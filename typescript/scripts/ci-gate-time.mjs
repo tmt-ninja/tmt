@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
 import { resolveRepository } from './github-repository.mjs';
+import { UNIT_CONSUMER_NAMES } from './unit-test-consumers.mjs';
 
 const EVENTS = ['pull_request', 'merge_group'];
 const EVENT_LABELS = { pull_request: 'PR', merge_group: 'Merge group' };
@@ -165,8 +166,24 @@ export function measureRun(run, required = REQUIRED_CONTEXTS) {
     .sort(byCompletion)
     .at(-1);
   if (!gate) return null;
+  const consumers = executed.filter((job) => Object.values(UNIT_CONSUMER_NAMES).includes(job.name));
+  const unit = executed.find((job) => job.name === 'Unit tests');
+  if (
+    consumers.length &&
+    (!unit ||
+      ![UNIT_CONSUMER_NAMES.tooling, UNIT_CONSUMER_NAMES.shell].every((name) =>
+        consumers.some((job) => job.name === name)
+      ))
+  )
+    throw new Error(`Incomplete Unit tests consumer span for run ${run.id}.`);
+  const unitStart = consumers.map((job) => job.started_at).sort()[0];
   const controlling = executed
-    .filter((job) => !AGGREGATE_JOBS.includes(job.name) && job.completed_at <= gate.completed_at)
+    .filter(
+      (job) =>
+        !AGGREGATE_JOBS.includes(job.name) &&
+        !(consumers.length && job.name === 'Unit tests') &&
+        job.completed_at <= gate.completed_at
+    )
     .sort(byCompletion)
     .at(-1);
   return {
@@ -181,7 +198,11 @@ export function measureRun(run, required = REQUIRED_CONTEXTS) {
     ),
     jobs: executed.map((job) => ({
       name: job.name,
-      wall: seconds(job.started_at, job.completed_at),
+      // Preserve the budgeted context's full consumer span, not its short collector wall.
+      wall: seconds(
+        job.name === 'Unit tests' && unitStart ? unitStart : job.started_at,
+        job.completed_at
+      ),
       queue: seconds(job.created_at, job.started_at),
     })),
   };
@@ -299,7 +320,7 @@ export function renderReport(summary, budgets, { workflow = 'ci.yml' } = {}) {
   const lines = [
     '# Required-gate time',
     '',
-    `Workflow ${workflow}. Gate wall = run creation to the last selected required context (${REQUIRED_CONTEXTS.join(', ')}). Job wall = started to completed; queue = created to started. Skipped jobs have no sample. Median is ordinary; p90 is nearest rank. Seconds unless noted.`,
+    `Workflow ${workflow}. Gate wall = run creation to the last selected required context (${REQUIRED_CONTEXTS.join(', ')}). Job wall = started to completed, except split Unit tests spans the earliest selected consumer start through collector completion. Queue and runner-minutes use physical job occupancy. Skipped jobs have no sample. Median is ordinary; p90 is nearest rank. Seconds unless noted.`,
     '',
     '| Event | Runs (retried) | Created window (UTC) | Gate median / p90 / max | Budget median / p90 | Runner-min median / p90 |',
     '| --- | ---: | --- | ---: | ---: | ---: |',

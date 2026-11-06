@@ -72,8 +72,19 @@ CI scope, ownership, binary consumption and version inheritance are separate con
 - Workspace Rust checks retain every member, without retired product exclusions
   or producers. Reject empty Remote discovery before execution.
 
-Remote and Colab Rules emulators are selected steps in `Unit tests`, requiring
-full scope. `remote_firestore` covers Remote's suite, fixtures, `rules.rs` or
+The required `Unit tests` context collects three parallel consumers. Retained
+tooling uses four Vitest workers in CI; local runs keep two. The shell project
+contains the onboarding contracts and alone installs zsh. Both projects use one
+source-file inventory; the collector requires their successful results and a
+SHA/run-bound report whose file/test/status identities exactly equal the declarations
+captured before each module executes, including expanded parameterized cases and
+declared skips. The reporter uses the ordinary test run, without a second collection pass. Skips are
+reported separately from passed coverage. Run-scoped artifacts are overwritten by
+reruns, so successful unchanged-head consumers can be reused.
+
+Remote and Colab Rules emulators run in the selected Rules consumer, requiring
+full scope. The collector requires it only when either Rules flag is true.
+`remote_firestore` covers Remote's suite, fixtures, `rules.rs` or
 `ci.yml`; `colab_firestore` covers Colab's `firestore/`, `deploy-declaration-*`
 vectors, emulator suite or `ci.yml`. The [workflow](../../../../.github/workflows/ci.yml)
 owns Java/Node pins. All hosted Firebase CLI consumers use the
@@ -360,7 +371,10 @@ Budget provenance stays in the JSON below.
 `node typescript/scripts/ci-gate-time.mjs` uses read-only REST (~85 requests) for the
 last 40 successful `ci.yml` PR/MG runs, ordered by creation then ID. It reports gate
 wall (creation to last selected required context), per-job wall/queue, controlling
-job and runner-minutes with median/nearest-rank p90. Skips and negative reused-copy
+job and runner-minutes with median/nearest-rank p90. Split `Unit tests` wall spans
+the earliest selected consumer start through collector completion; its short
+collector wall is never credited as a budget improvement. Queue and runner-minutes
+still use physical jobs, without charging that span twice. Skips and negative reused-copy
 spans have no sample; the controlling worker is the last non-aggregate before gate
 end. Over-budget values and budgeted jobs without samples stay visible; timing
 never blocks PRs. [ci-gate-budgets.json](../../../../typescript/scripts/ci-gate-budgets.json)
