@@ -694,3 +694,51 @@ fn storage_attributes_padded_baseline_epoch_to_the_current_page() {
     let older = f.store.page_storage_bytes(PAGE).unwrap();
     assert_eq!((older.content, older.history), (0, 8));
 }
+#[test]
+fn unpublished_pages_lists_own_streams_ahead_of_the_cloud_only() {
+    let mut f = Fixture::new();
+    let page = || vec![(PAGE.to_owned(), 1)];
+    assert!(f.store.unpublished_pages(STREAM).unwrap().is_empty());
+    // An own stream with updates and nothing tracked: nothing is confirmed yet.
+    f.append(1);
+    f.append(2);
+    assert_eq!(f.store.unpublished_pages(STREAM).unwrap(), page());
+    // Another writer's stream is not this machine's to publish.
+    assert!(
+        f.store
+            .unpublished_pages("someone-else")
+            .unwrap()
+            .is_empty()
+    );
+    // A device registered here counts as own until it is revoked.
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO device_registrations VALUES (?1, NULL, 0, '1')",
+            [STREAM],
+        )
+        .unwrap();
+    assert_eq!(f.store.unpublished_pages("someone-else").unwrap(), page());
+    f.store
+        .connection
+        .execute("UPDATE device_registrations SET revoked=1", [])
+        .unwrap();
+    assert!(
+        f.store
+            .unpublished_pages("someone-else")
+            .unwrap()
+            .is_empty()
+    );
+    // Once the cloud confirms every update, the page is not listed; a new update lists it again.
+    f.store.track_publication(scope(), &binding()).unwrap();
+    f.store
+        .confirm_publication(scope(), &binding(), 1, &[1; 32])
+        .unwrap();
+    assert_eq!(f.store.unpublished_pages(STREAM).unwrap(), page());
+    f.store
+        .confirm_publication(scope(), &binding(), 2, &[2; 32])
+        .unwrap();
+    assert!(f.store.unpublished_pages(STREAM).unwrap().is_empty());
+    f.append(3);
+    assert_eq!(f.store.unpublished_pages(STREAM).unwrap(), page());
+}

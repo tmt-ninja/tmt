@@ -102,11 +102,29 @@ impl Session {
             .client()
             .is_some_and(|client| client.generation() == self.generation)
     }
-    /// The most recently active page is the one published; another page is published when it
-    /// is touched. Every touch asks for a pass.
-    fn touched(&mut self, page: &PageRef) {
-        self.page = Some(page.clone());
+    /// The most recently active page is published and read first; every touch asks for a pass.
+    /// Returns the page it replaces, which may still hold unpublished updates.
+    fn touched(&mut self, page: &PageRef) -> Option<PageRef> {
         self.pass_at = Some(Instant::now());
+        self.page
+            .replace(page.clone())
+            .filter(|before| before != page)
+    }
+    /// The pages the Store holds unconfirmed local updates for; none when it cannot say.
+    fn unpublished(&mut self) -> Vec<PageRef> {
+        self.local.unpublished().unwrap_or_default()
+    }
+    /// One bounded publication pass for a page that is not the active one; it is not read.
+    fn publish(&mut self, page: &PageRef, report: &dyn Fn(&str)) -> Result<bool, Fault> {
+        if self.stuck.contains(page) {
+            return Ok(false);
+        }
+        let result = self.publisher.pass(self.local.as_mut(), page);
+        if let Err(Fault::Stuck(line)) = &result {
+            self.stuck.insert(page.clone());
+            report(&super::stopped_line(&page.page, line));
+        }
+        result
     }
     /// A wake that came from the cloud: the watched page changed. A change of its membership
     /// reads the authority again; a change of its log or checkpoints only asks for the chains
@@ -294,6 +312,59 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
     })
 }
 
+/// Pages other than the active one that may hold unpublished updates: every page touched, the
+/// page the active one replaced, and at each session start every page the Store holds
+/// unconfirmed local updates for (so a serve restart loses none). It outlives sessions. One page
+/// is published per step, after the active page, so the active page stays first (#6158).
+struct Queued {
+    pages: Vec<PageRef>,
+    /// A page did not fit: the Store is rescanned once the queue is empty. By construction this
+    /// cannot happen (the queue is keyed by page and as large as the page catalog).
+    rescan: bool,
+    at: Option<Instant>,
+    backoff: Backoff,
+}
+impl Queued {
+    fn add(&mut self, page: PageRef) {
+        if !super::remember(&mut self.pages, page) {
+            self.rescan = true;
+        }
+        self.at.get_or_insert_with(Instant::now);
+    }
+    /// One step: publish the oldest queued page that is not active, and when the next step is due.
+    fn step(&mut self, held: &mut Session, report: &dyn Fn(&str)) {
+        let now = Instant::now();
+        if self.pages.is_empty() && std::mem::take(&mut self.rescan) {
+            for page in held.unpublished() {
+                self.add(page);
+            }
+        }
+        let Some(page) = self.pages.first().cloned() else {
+            self.at = None;
+            return;
+        };
+        // The active page's own pass publishes it.
+        let result = if held.page.as_ref() == Some(&page) {
+            Ok(false)
+        } else {
+            held.publish(&page, report)
+        };
+        self.at = match result {
+            Ok(true) => Some(now),
+            Ok(false) | Err(Fault::Moved | Fault::Stuck(_)) => {
+                self.pages.remove(0);
+                self.backoff.reset();
+                (!self.pages.is_empty()).then_some(now)
+            }
+            Err(Fault::Retry) => {
+                self.pages.rotate_left(1);
+                Some(now + self.backoff.next())
+            }
+            Err(Fault::Budget(wait)) => Some(now + Duration::from_millis(wait)),
+        };
+    }
+}
+
 pub(super) fn run(parts: Parts) {
     let Parts {
         channels, activity, ..
@@ -305,9 +376,25 @@ pub(super) fn run(parts: Parts) {
     let mut seen_channel = channels.started();
     let mut seen_version = 0;
     let mut wake = activity.wait(0, Duration::ZERO);
+    let mut queued = Queued {
+        pages: Vec::new(),
+        rescan: false,
+        at: None,
+        backoff: Backoff::new(),
+    };
     loop {
         if wake.stopped {
             break;
+        }
+        let (touched, overflowed) = activity.take_touched();
+        for page in touched {
+            if page.space == parts.space {
+                queued.add(page);
+            }
+        }
+        if overflowed {
+            queued.rescan = true;
+            queued.at.get_or_insert_with(Instant::now);
         }
         let version = wake.version;
         let now = Instant::now();
@@ -334,7 +421,14 @@ pub(super) fn run(parts: Parts) {
                     // consumed before there was a session to take it (#6142).
                     if let Some(page) = wake.page.as_ref().filter(|page| page.space == parts.space)
                     {
-                        established.touched(page);
+                        let _ = established.touched(page);
+                    }
+                    // What the Store still holds unpublished, from before this serve or a lost
+                    // session, is queued behind the active page.
+                    for page in established.unpublished() {
+                        if page.space == parts.space {
+                            queued.add(page);
+                        }
                     }
                     session = Some(established);
                 }
@@ -348,21 +442,28 @@ pub(super) fn run(parts: Parts) {
         if let Some(held) = session.as_mut() {
             if version != seen_version
                 && let Some(page) = wake.page.as_ref().filter(|page| page.space == parts.space)
+                && let Some(before) = held.touched(page)
             {
-                held.touched(page);
+                queued.add(before);
             }
             if held.cloud_changed() {
                 held.pass_at = Some(Instant::now());
             }
             if held.pass_at.is_some_and(|at| Instant::now() >= at) {
                 held.pass(parts.report.as_ref());
+            } else if queued.at.is_some_and(|at| Instant::now() >= at) {
+                queued.step(held, parts.report.as_ref());
             }
         }
         seen_version = version;
-        let due = [retry_at, session.as_ref().and_then(|held| held.pass_at)]
-            .into_iter()
-            .flatten()
-            .min();
+        let due = [
+            retry_at,
+            session.as_ref().and_then(|held| held.pass_at),
+            session.as_ref().and(queued.at),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let timeout = due.map_or(TICK, |at| at.saturating_duration_since(Instant::now()));
         wake = activity.wait(version, timeout.min(TICK));
     }

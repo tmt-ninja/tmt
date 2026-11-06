@@ -515,6 +515,20 @@ impl Local for StoreLocal {
         };
         result.map(|_| ()).map_err(store_fault)
     }
+    fn unpublished(&mut self) -> Result<Vec<PageRef>, Fault> {
+        let pages = self
+            .store
+            .unpublished_pages(&self.writer)
+            .map_err(store_fault)?;
+        Ok(pages
+            .into_iter()
+            .map(|(page, epoch)| PageRef {
+                space: self.space.clone(),
+                page,
+                epoch,
+            })
+            .collect())
+    }
     fn page_row_confirmed(&mut self, page: &PageRef, expires_ms: u64) -> Result<(), Fault> {
         self.store
             .confirm_page_row(&page.page, page.epoch, expires_ms)

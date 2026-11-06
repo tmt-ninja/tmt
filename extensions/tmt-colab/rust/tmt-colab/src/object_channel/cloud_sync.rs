@@ -76,11 +76,36 @@ struct Pulse {
 }
 struct PulseState {
     page: Option<PageRef>,
+    /// Every page touched since the worker last took them, oldest first and without repeats:
+    /// touches between two wakes would otherwise leave only the last page (#6158).
+    touched: Vec<PageRef>,
+    /// A touch found `touched` full: the worker rescans the Store.
+    overflowed: bool,
     version: u64,
     stopped: bool,
 }
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
+/// How many pages a worker's lists hold: the Store's whole page catalog, so a list keyed by page
+/// cannot fill up. Should it ever, nothing is dropped: the caller rescans the Store instead.
+pub(super) const QUEUED_PAGES: usize = crate::limits::PAGES;
+/// Add `page` at the end of a list keyed by page (a later epoch replaces the earlier entry).
+/// False, with the list unchanged, when the page is new and the list is full.
+#[must_use]
+pub(super) fn remember(pages: &mut Vec<PageRef>, page: PageRef) -> bool {
+    let known = pages
+        .iter()
+        .position(|known| known.space == page.space && known.page == page.page);
+    match known {
+        Some(at) => {
+            pages.remove(at);
+        }
+        None if pages.len() >= QUEUED_PAGES => return false,
+        None => {}
+    }
+    pages.push(page);
+    true
 }
 /// What woke the worker.
 pub struct Wake {
@@ -97,6 +122,8 @@ impl Default for ActivePage {
         Self(Arc::new(Pulse {
             state: Mutex::new(PulseState {
                 page: None,
+                touched: Vec::new(),
+                overflowed: false,
                 version: 0,
                 stopped: false,
             }),
@@ -107,9 +134,20 @@ impl Default for ActivePage {
 impl ActivePage {
     pub fn touch(&self, page: PageRef) {
         let mut state = locked(&self.0.state);
+        if !remember(&mut state.touched, page.clone()) {
+            state.overflowed = true;
+        }
         state.page = Some(page);
         state.version += 1;
         self.0.wake.notify_all();
+    }
+    /// The pages touched since the last call, oldest first, and whether some did not fit.
+    pub(super) fn take_touched(&self) -> (Vec<PageRef>, bool) {
+        let mut state = locked(&self.0.state);
+        (
+            std::mem::take(&mut state.touched),
+            std::mem::take(&mut state.overflowed),
+        )
     }
     /// Wake the worker for a reason that is not a page: a local write, or a retry that is due.
     pub fn nudge(&self) {

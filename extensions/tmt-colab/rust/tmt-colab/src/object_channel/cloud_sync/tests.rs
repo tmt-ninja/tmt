@@ -267,13 +267,56 @@ fn retrying_activation_ends_with_the_worker_and_on_a_remote_verdict() {
 struct PageUpdates {
     pages: std::collections::HashMap<String, OneUpdate>,
     confirmed: Arc<Mutex<Vec<String>>>,
+    /// A later local edit of a page: its next update's sequence number.
+    edits: Arc<Mutex<std::collections::HashMap<String, u64>>>,
+    /// What the Store reports unpublished when a session starts.
+    unpublished: Vec<PageRef>,
 }
 impl PageUpdates {
     fn of(&mut self, page: &PageRef) -> &mut OneUpdate {
-        self.pages
+        let edit = self.edits.lock().unwrap().remove(&page.page);
+        let update = self
+            .pages
             .entry(page.page.clone())
-            .or_insert(OneUpdate { next: 1 })
+            .or_insert(OneUpdate { next: 1 });
+        if let Some(next) = edit {
+            update.next = next;
+        }
+        update
     }
+}
+/// Each confirmed page, in order, and the pages given a later edit with its sequence number.
+type Confirmed = Arc<Mutex<Vec<String>>>;
+type Edits = Arc<Mutex<std::collections::HashMap<String, u64>>>;
+/// A rig whose Store holds one update per page and records each confirmed one.
+fn start_pages(
+    channels: Arc<super::fixture::FixedChannel>,
+    activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
+) -> (Rig, Confirmed, Edits) {
+    start_pages_with(channels, activate, Vec::new())
+}
+fn start_pages_with(
+    channels: Arc<super::fixture::FixedChannel>,
+    activate: impl Fn() -> Result<Activation, ActivationFailure> + Send + Sync + 'static,
+    unpublished: Vec<PageRef>,
+) -> (Rig, Confirmed, Edits) {
+    let confirmed = Arc::new(Mutex::new(Vec::new()));
+    let edits = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let (record, edited) = (Arc::clone(&confirmed), Arc::clone(&edits));
+    let rig = start_with(
+        channels,
+        activate,
+        None,
+        Arc::new(move |_| {
+            Some(Box::new(PageUpdates {
+                pages: Default::default(),
+                confirmed: Arc::clone(&record),
+                edits: Arc::clone(&edited),
+                unpublished: unpublished.clone(),
+            }))
+        }),
+    );
+    (rig, confirmed, edits)
 }
 impl Local for PageUpdates {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<super::publisher::Row>, Fault> {
@@ -299,6 +342,85 @@ impl Local for PageUpdates {
     fn retired(&mut self, page: &PageRef, link: &str) -> Result<(), Fault> {
         self.of(page).retired(page, link)
     }
+    fn unpublished(&mut self) -> Result<Vec<PageRef>, Fault> {
+        Ok(self.unpublished.clone())
+    }
+}
+
+#[test]
+fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
+    // Page A is edited and left for page B, and nothing touches A again (#6158).
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let (mut rig, confirmed, edits) = start_pages(Arc::clone(&peer.channels), activated);
+    rig.activity.touch(page(FIRST, 1));
+    until("the first page is published", || {
+        *confirmed.lock().unwrap() == [FIRST]
+    });
+    // A later edit of A, then B becomes active before the worker looks at A again.
+    edits.lock().unwrap().insert(FIRST.into(), 2);
+    rig.activity.touch(page(FIRST, 1));
+    rig.activity.touch(page(SECOND, 1));
+    until(
+        "the active page, then the edit of the page left behind",
+        || *confirmed.lock().unwrap() == [FIRST, SECOND, FIRST],
+    );
+    // Nothing more is due: the queue is drained and the worker waits.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(confirmed.lock().unwrap().len(), 3);
+    let publishes = remote
+        .methods()
+        .into_iter()
+        .filter(|m| *m == Method::Publish)
+        .count();
+    assert_eq!(publishes, 3, "one publish per update, none repeated");
+    assert!(rig.reports.lock().unwrap().is_empty());
+    rig.sync.take().unwrap().stop();
+}
+
+#[test]
+fn pages_the_store_holds_unpublished_go_out_when_a_session_starts_with_no_touch() {
+    // A serve restarted: two pages kept unconfirmed local updates and nothing touches them.
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let (mut rig, confirmed, _) = start_pages_with(
+        Arc::clone(&peer.channels),
+        activated,
+        vec![page(SECOND, 1), page(FIRST, 1)],
+    );
+    until("both pages are published", || {
+        *confirmed.lock().unwrap() == [SECOND, FIRST]
+    });
+    assert_eq!(remote.methods()[0], Method::Bind);
+    assert!(rig.reports.lock().unwrap().is_empty());
+    rig.sync.take().unwrap().stop();
+}
+
+#[test]
+fn the_queue_holds_every_page_of_the_catalog_once_and_drops_none() {
+    // Keyed by page and as large as the page catalog, so it cannot fill up by construction.
+    assert_eq!(super::QUEUED_PAGES, crate::limits::PAGES);
+    let mut pages = Vec::new();
+    for n in 0..super::QUEUED_PAGES {
+        assert!(super::remember(&mut pages, page(&format!("p-{n}"), 1)));
+    }
+    // Should it be full, a new page is refused and nothing is dropped: the caller rescans.
+    assert!(!super::remember(&mut pages, page("extra", 1)));
+    assert_eq!(pages.len(), super::QUEUED_PAGES);
+    assert_eq!(pages[0].page, "p-0");
+    // A known page moves to the end, and a later epoch replaces its entry.
+    assert!(super::remember(&mut pages, page("p-0", 2)));
+    assert_eq!(pages.len(), super::QUEUED_PAGES);
+    assert_eq!(pages.last().unwrap(), &page("p-0", 2));
+    assert_eq!(pages.iter().filter(|known| known.page == "p-0").count(), 1);
 }
 
 #[test]
@@ -314,38 +436,25 @@ fn a_slow_door_converges_without_a_second_trigger() {
     let tries = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&tries);
     let started = peer.channels.started.load(Ordering::SeqCst);
-    let confirmed = Arc::new(Mutex::new(Vec::new()));
-    let record = Arc::clone(&confirmed);
-    let mut rig = start_with(
-        Arc::clone(&peer.channels),
-        move || {
-            if seen.fetch_add(1, Ordering::SeqCst) < 4 {
-                Err(ActivationFailure::Local)
-            } else {
-                activated()
-            }
-        },
-        None,
-        Arc::new(move |_| {
-            Some(Box::new(PageUpdates {
-                pages: Default::default(),
-                confirmed: Arc::clone(&record),
-            }))
-        }),
-    );
-    // Two pages are touched before the session. The worker publishes the most recently active
-    // page, as it does within a session; the other is published when it is touched again.
+    let (mut rig, confirmed, _) = start_pages(Arc::clone(&peer.channels), move || {
+        if seen.fetch_add(1, Ordering::SeqCst) < 4 {
+            Err(ActivationFailure::Local)
+        } else {
+            activated()
+        }
+    });
+    // Two pages are touched before the session. Once it is up, the most recently active page
+    // is published first and the other one after it, with no touch in between (#6158).
     rig.activity.touch(page(SECOND, 1));
     rig.activity.touch(page(FIRST, 1));
-    until("the touched page is published", || {
-        *confirmed.lock().unwrap() == [FIRST]
-    });
-    assert_eq!(remote.methods(), [Method::Bind, Method::Publish]);
-    assert_eq!(rig.activations.load(Ordering::SeqCst), 5);
-    rig.activity.touch(page(SECOND, 1));
-    until("the other page once touched", || {
+    until("both touched pages are published", || {
         *confirmed.lock().unwrap() == [FIRST, SECOND]
     });
+    assert_eq!(
+        remote.methods(),
+        [Method::Bind, Method::Publish, Method::Publish]
+    );
+    assert_eq!(rig.activations.load(Ordering::SeqCst), 5);
     assert_eq!(
         peer.channels.started.load(Ordering::SeqCst),
         started,

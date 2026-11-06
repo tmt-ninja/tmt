@@ -146,6 +146,37 @@ impl Store {
             confirmed_seq: 0,
         })
     }
+    /// The pages, at their current epoch, where one of this machine's own streams (its writer
+    /// and its registered devices) holds an update or a checkpoint after the position the cloud
+    /// confirmed; a stream never tracked has nothing confirmed. The cloud-sync worker seeds its
+    /// queue from this when a session starts, so updates left unpublished across a serve restart
+    /// still go out (#6158). One query, bounded by the page catalog.
+    pub fn unpublished_pages(&self, writer: &str) -> StoreResult<Vec<(String, u64)>> {
+        let mut query = self.connection.prepare(
+            "SELECT DISTINCT s.page, s.epoch FROM streams s
+             JOIN pages p ON p.page = s.page AND p.epoch = s.epoch
+             LEFT JOIN cloud_publications c
+                 ON c.page = s.page AND c.epoch = s.epoch AND c.stream = s.stream
+             WHERE (s.stream = ?1
+                    OR s.stream IN (SELECT device_id FROM device_registrations WHERE revoked = 0))
+               AND (EXISTS (SELECT 1 FROM receipts r
+                            WHERE r.page = s.page AND r.epoch = s.epoch AND r.stream = s.stream
+                              AND CAST(r.seq AS INTEGER) > COALESCE(CAST(c.confirmed_seq AS INTEGER), 0))
+                    OR EXISTS (SELECT 1 FROM checkpoints k
+                            WHERE k.page = s.page AND k.epoch = s.epoch AND k.stream = s.stream
+                              AND CAST(k.seq AS INTEGER) > COALESCE(CAST(c.confirmed_seq AS INTEGER), 0)))
+             ORDER BY s.page LIMIT ?2",
+        )?;
+        let rows = query.query_map(params![writer, crate::limits::PAGES as i64], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut pages = Vec::new();
+        for row in rows {
+            let (page, epoch) = row?;
+            pages.push((page, epoch.parse().map_err(|_| Fault::Invalid)?));
+        }
+        Ok(pages)
+    }
     /// Record, before the owner writes a link's cloud row, that the row may exist: its removal
     /// then survives a restart. Idempotent.
     pub fn track_link_publication(&mut self, page: &str, link: &str) -> StoreResult<()> {
