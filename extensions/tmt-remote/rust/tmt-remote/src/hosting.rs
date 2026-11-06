@@ -154,6 +154,7 @@ fn content_type_ok(value: &str) -> bool {
             | "text/javascript"
             | "application/javascript"
             | "application/json"
+            | "application/wasm"
             | "image/svg+xml"
             | "image/png"
             | "image/jpeg"
