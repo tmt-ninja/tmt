@@ -17,7 +17,12 @@ import { HistoryExtension } from '@lexical/history';
 import {
   CLEAR_HISTORY_COMMAND,
   defineExtension,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
   $setSelection,
+  type BaseSelection,
+  type LexicalNode,
   HISTORY_PUSH_TAG,
   SKIP_DOM_SELECTION_TAG,
   type LexicalEditor,
@@ -99,6 +104,14 @@ export interface RichInputProps {
 
 export const emptyRichInputValue: RichInputValue = { value: '', chips: [] };
 const RESET_TAG = 'tmt-rich-input-reset';
+/** A collapsed caret before everything in the input. */
+function $atStart(selection: BaseSelection) {
+  if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.offset !== 0)
+    return false;
+  for (let node: LexicalNode | null = selection.anchor.getNode(); node; node = node.getParent())
+    if (node.getPreviousSibling()) return false;
+  return true;
+}
 
 const richInputExtension = defineExtension({
   name: 'TmtRichInput',
@@ -248,6 +261,39 @@ function Editor(props: RichInputProps) {
     );
     editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
   }, [editor, props.value, props.resetKey]);
+  // A keyboard or scripted focus lands after the content when the caret would sit at its start, so
+  // typing goes on after the chips instead of before them. A pointer places its own caret.
+  useEffect(() => {
+    let pointer = false;
+    // A press focuses in the same task, so the mark lasts only until the next one.
+    const press = () => {
+      pointer = true;
+      setTimeout(() => {
+        pointer = false;
+      });
+    };
+    const land = () => {
+      if (pointer) return;
+      // After the browser has put its own focus caret in the editor, and only while it is still
+      // there: moving the caret of a field the user has left would take focus back.
+      setTimeout(() => {
+        if (!editor.getRootElement()?.contains(document.activeElement)) return;
+        editor.update(
+          () => {
+            const selection = $getSelection();
+            if (selection === null || $atStart(selection)) $getRoot().selectEnd();
+          },
+          { discrete: true },
+        );
+      });
+    };
+    return editor.registerRootListener((root, previous) => {
+      previous?.removeEventListener('pointerdown', press);
+      previous?.removeEventListener('focus', land);
+      root?.addEventListener('pointerdown', press);
+      root?.addEventListener('focus', land);
+    });
+  }, [editor]);
   // Lexical creates its decorator hosts while ContentEditable attaches; read them again before paint.
   const [, refresh] = useReducer((revision: number) => revision + 1, 0);
   useLayoutEffect(refresh, [refresh]);
