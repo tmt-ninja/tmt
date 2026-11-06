@@ -15,12 +15,16 @@ async function traceLargeWrites(page: Page, name: string) {
   if (!process.env.RUNNER_TEMP) return async () => {};
   const client = await page.context().newCDPSession(page);
   const events: Record<string, unknown>[] = [];
+  const modules = new Set(['renderer.html']);
+  if (process.env.TMT_COLAB_APP_DIR) {
+    for (const file of fs.readdirSync(path.join(process.env.TMT_COLAB_APP_DIR, 'assets'))) {
+      if (/^[A-Za-z0-9_-]{1,80}\.js$/.test(file)) modules.add(file);
+    }
+  }
   const moduleName = (value: unknown) => {
     try {
       const file = path.posix.basename(new URL(String(value)).pathname);
-      return /^(?:renderer\.html|(?:index|reader|runtime|module)(?:-[\w-]{1,20})?\.js)$/.test(file)
-        ? file
-        : '';
+      return modules.has(file) ? file : '';
     } catch {
       return '';
     }
