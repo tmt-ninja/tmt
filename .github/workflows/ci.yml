@@ -140,11 +140,12 @@ jobs:
           cargo tree -p tmt-tui-components --target wasm32-unknown-unknown --edges normal --prefix none > "$RUNNER_TEMP/tmt-components-wasm-graph"
           if grep -E "^(ratatui|crossterm|comfy-table)( |$)" "$RUNNER_TEMP/tmt-components-wasm-graph"; then exit 1; fi
       - name: Prove wasm renderer
+        id: renderer-proof
         if: needs.changes.outputs.renderer_proof == 'true'
         working-directory: rust
         run: |
           archive="$RUNNER_TEMP/wasm-bindgen.tar.gz"
-          curl --fail --location --silent --show-error 'https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz' --output "$archive"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors 'https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz' --output "$archive"
           printf '%s  %s\n' 'b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f' "$archive" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           export PATH="$RUNNER_TEMP/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl:$PATH"
@@ -158,6 +159,27 @@ jobs:
           wasm-bindgen --target nodejs --out-dir "$RUNNER_TEMP/tmt-renderer" target/wasm32-unknown-unknown/release/tmt_tui_wasm.wasm
           node crates/tmt-tui-wasm/tests/wasm-parity.mjs "$PWD/target/debug/examples/vector" "$RUNNER_TEMP/tmt-renderer/tmt_tui_wasm.js" crates/tmt-tui-wasm/tests/vectors/v1.json
           node crates/tmt-tui-wasm/tests/artifact-size.mjs "$RUNNER_TEMP/tmt-renderer" crates/tmt-tui-wasm/tests/vectors/v1.json
+          mkdir -p "$RUNNER_TEMP/terminal-web"
+          ../extensions/tmt-colab/scripts/terminal-frame-regen.sh "$RUNNER_TEMP/terminal-web"
+          expected=../extensions/tmt-colab/typescript/app/terminal-frame-assets
+          if ! cmp -s "$RUNNER_TEMP/terminal-web/tmt_tui_wasm_bg.wasm" "$expected/tmt_tui_wasm_bg.wasm" ||
+             ! cmp -s "$RUNNER_TEMP/terminal-web/tmt_tui_wasm.js" "$expected/tmt_tui_wasm.js" ||
+             [ "$(wc -c < "$RUNNER_TEMP/terminal-web/tmt_tui_wasm_bg.wasm")" -gt 614400 ]; then
+            echo 'mismatch=true' >> "$GITHUB_OUTPUT"
+          fi
+          if ! node -e 'const fs=require("fs"),crypto=require("crypto"),zlib=require("zlib");const [dir,pinPath]=process.argv.slice(1);const pin=JSON.parse(fs.readFileSync(pinPath)).chunks.find(c=>c.kind==="wasm");const wasm=fs.readFileSync(dir+"/tmt_tui_wasm_bg.wasm"),glue=fs.readFileSync(dir+"/tmt_tui_wasm.js");const gzip=b=>zlib.gzipSync(b,{level:9}).length;const hash=crypto.createHash("sha256").update(wasm).digest("hex");if(!pin||wasm.length!==pin.length||gzip(wasm)!==pin.gzip||hash!==pin.sha256||!pin.glue||glue.length!==pin.glue.length||gzip(glue)!==pin.glue.gzip||crypto.createHash("sha256").update(glue).digest("hex")!==pin.glue.sha256||glue.length>1048576||gzip(wasm)+gzip(glue)>524288)process.exit(1)' "$RUNNER_TEMP/terminal-web" ../extensions/tmt-colab/typescript/app/runtime-pin.json; then
+            echo 'mismatch=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload differing terminal renderer
+        if: steps.renderer-proof.outputs.mismatch == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-renderer-rebuilt
+          path: ${{ runner.temp }}/terminal-web/
+          retention-days: 3
+      - name: Reject terminal renderer drift
+        if: steps.renderer-proof.outputs.mismatch == 'true'
+        run: exit 1
       - name: Run code quality checks
         working-directory: typescript
         run: |

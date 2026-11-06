@@ -57,7 +57,7 @@ static RUNTIME_CHUNKS: LazyLock<Vec<String>> = LazyLock::new(|| {
         .as_array()
         .expect("the vector lists chunks")
         .iter()
-        .filter(|chunk| chunk["reserved"] != true)
+        .filter(|chunk| chunk["reserved"] != true && chunk["kind"] != "wasm")
         .map(|chunk| {
             chunk["name"]
                 .as_str()
@@ -87,7 +87,7 @@ fn runtime_chunk(path: &str) -> Option<&'static str> {
 /// Whether a path is a runtime chunk. Its name carries its content hash, so it never changes.
 #[must_use]
 pub fn is_runtime_chunk(path: &str) -> bool {
-    runtime_chunk(path).is_some()
+    runtime_chunk(path).is_some() || app_inventory::is_terminal_wasm(path)
 }
 
 /// The seal the renderer runs after the chunks; a copy that inlines them runs it the same way.

@@ -212,7 +212,7 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
     const sheet = document.createElement('link'); sheet.rel = 'stylesheet'; sheet.href = '${origin}/style'; document.head.append(sheet);
     const script = document.createElement('script'); script.src = '${origin}/script'; document.head.append(script);
     parent.postMessage({type:'dispatch', operation:'forged'}, '*');
-    fetch('${origin}/fetch').then(() => { result.network=false; }, () => { result.network=true; }).finally(() => { document.getElementById('proof').textContent=JSON.stringify(result); });
+    WebAssembly.instantiate(new Uint8Array([0,97,115,109,1,0,0,0])).then(() => { result.wasm=true; }, () => { result.wasm=false; }).then(() => fetch('${origin}/fetch')).then(() => { result.network=false; }, () => { result.network=true; }).finally(() => { document.getElementById('proof').textContent=JSON.stringify(result); });
   </script>`,
   );
   const proof = page.frameLocator('#probe iframe').locator('#proof');
@@ -226,6 +226,7 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
     bridge: true,
     popup: true,
     top: true,
+    wasm: true,
     network: true,
   });
   expect(requests).toEqual(['/positive-control']);

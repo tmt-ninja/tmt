@@ -28,3 +28,11 @@ Shared browser components and token generation have one owner in
 [the presentation leaf](../../../../design/browser-ui/README.md), reached through
 [tmt-design](../../tmt-design/SKILL.md). Colab consumes that output; it does not
 copy its implementation. The Colab contract owns pin and bundle behavior.
+
+The TerminalFrame renderer's checked-in wasm and web glue are generated together by
+`extensions/tmt-colab/scripts/terminal-frame-regen.sh`. Use the workspace Rust toolchain,
+the `wasm32-unknown-unknown` target and `wasm-bindgen` 0.2.128. The script accepts an
+output directory for a non-mutating comparison; without one it updates the two runtime
+assets. The scoped `Prove wasm renderer` CI step rebuilds and compares the bytes and
+pin, and uploads differing output before failing. Ordinary Colab app and release builds
+consume the checked-in bytes; they do not invoke Rust or wasm-bindgen.

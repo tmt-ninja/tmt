@@ -6,6 +6,7 @@
     ".claude-plugin",
     ".dockerignore",
     ".github",
+    ".gitattributes",
     ".gitignore",
     "AGENTS.md",
     "ARCHITECTURE.md",

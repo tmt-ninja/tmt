@@ -19,7 +19,7 @@ const installed = (name) => JSON.parse(read(join(app, 'node_modules', name, 'pac
 const packages = Object.fromEntries(
   ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [name, installed(name)]),
 );
-const { builtChunks, chunkVector, gzipLength } = await import('./runtime-chunks.mjs');
+const { builtChunks, wasmChunk, chunkVector, gzipLength } = await import('./runtime-chunks.mjs');
 const assets = readdirSync(join(directory, 'assets'));
 const themeBytes = readFileSync(join(directory, 'assets/colab-runtime.css'));
 const hash = (content) => createHash('sha256').update(content).digest('hex');
@@ -37,6 +37,11 @@ const chunks = builtChunks.map(({ name }) => {
     bytes,
   };
 });
+const wasmFiles = assets.filter((file) => /^colab-runtime-terminal-[0-9a-f]{16}\.wasm$/.test(file));
+if (wasmFiles.length !== 1) throw new Error(`expected one terminal renderer, found ${wasmFiles.length}`);
+const wasmBytes = readFileSync(join(directory, 'assets', wasmFiles[0]));
+const glueBytes = readFileSync(join(app, 'terminal-frame-assets/tmt_tui_wasm.js'));
+chunks.push({ name: wasmChunk.name, kind: 'wasm', path: `assets/${wasmFiles[0]}`, sha256: hash(wasmBytes), length: wasmBytes.length, gzip: gzipLength(wasmBytes), glue: { sha256: hash(glueBytes), length: glueBytes.length, gzip: gzipLength(glueBytes) }, bytes: wasmBytes });
 const built = {
   version: 2,
   packages,
@@ -70,6 +75,12 @@ for (const chunk of chunks) {
   const cap = chunkVector.chunks.find((entry) => entry.name === chunk.name).gzipCap;
   expect(chunk.gzip <= cap, `${chunk.name} is ${chunk.gzip} gzip bytes, over its ${cap}`);
   expect(chunk.length <= MAX_CHUNK_BYTES, `${chunk.name} is ${chunk.length} bytes, over ${MAX_CHUNK_BYTES}`);
+  if (chunk.kind === 'wasm') {
+    expect(chunk.length <= 614400, 'terminal wasm exceeds its 600 KiB cap');
+    expect(glueBytes.length <= MAX_CHUNK_BYTES, 'terminal glue exceeds its raw cap');
+    expect(chunk.gzip + gzipLength(glueBytes) <= 524288, 'terminal wasm and glue exceed their gzip cap');
+    continue;
+  }
   const text = chunk.bytes.toString('utf8');
   // The frame injects each chunk as an inline script: it must not close its own tag, must not need
   // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).

@@ -49,6 +49,19 @@
       "sha256": "912fa79b1eb390268cca91ca77662154fba902fca18c7470fb90aa3a11660764",
       "length": 170558,
       "gzip": 49497
+    },
+    {
+      "name": "terminal-frame",
+      "kind": "wasm",
+      "path": "assets/colab-runtime-terminal-18f8f643bb0f92b6.wasm",
+      "sha256": "18f8f643bb0f92b6b80d952be525d8204ba3dd89e96813b332e1c5c9b238e723",
+      "length": 439549,
+      "gzip": 134026,
+      "glue": {
+        "sha256": "51bdfaaed1b6a47565545e9ff2ef2897ee21acfa0e08c8bf165262aeb9be7044",
+        "length": 9454,
+        "gzip": 2554
+      }
     }
   ],
   "theme": {
