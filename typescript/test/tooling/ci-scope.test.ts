@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,6 +14,7 @@ import {
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
+import { runInNewContext } from 'node:vm';
 import { imports } from '../support/source-imports.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -3781,7 +3783,136 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
-  it('observes both browser jobs disk mounts without cleanup or trace changes (#4742)', () => {
+  it('retains failure traces without enabling video recording', () => {
+    const source = readFileSync(
+      new URL('../../../extensions/tmt-colab/typescript/app/playwright.config.ts', import.meta.url),
+      'utf8'
+    );
+    const exported: {
+      default?: {
+        use: { trace: string };
+        timeout: number;
+        retries: number;
+        workers: number;
+      };
+    } = {};
+    runInNewContext(
+      ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+        .outputText,
+      {
+        exports: exported,
+        process: { env: {} },
+        require: (specifier: string) => {
+          expect(specifier).toBe('@playwright/test');
+          return { defineConfig: (config: unknown) => config };
+        },
+      }
+    );
+    expect(exported.default?.use.trace).toBe('retain-on-failure');
+    expect(exported.default?.use).not.toHaveProperty('video');
+    expect(source).not.toContain('COLAB_CHROME_REQUIRED');
+    expect(exported.default).toMatchObject({ timeout: 30000, retries: 0, workers: 1 });
+  });
+  it.each([
+    { available: '11534336', status: 0, action: 'run' },
+    { available: '11534336', status: 124, action: 'run' },
+    { available: '11534336', status: 1, action: 'run' },
+    { available: '20971520', status: 0, action: 'skipped' },
+    { available: '85983232', status: 0, action: 'skipped' },
+    { available: 'unknown', status: 0, action: 'refused' },
+  ])(
+    'bounds conditional root cleanup for $available KiB / exit $status / $action',
+    ({ available, status, action }) => {
+      const ci = readFileSync(
+        new URL('../../../.github/workflows/ci.yml', import.meta.url),
+        'utf8'
+      );
+      const job = ci.split('\n  colab-chrome:\n')[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+      const step = job
+        .split('      - name: Reserve root disk headroom for chrome artifacts\n')[1]
+        .split('      - name:')[0];
+      expect(step).toContain('timeout-minutes: 2');
+      expect(job.indexOf('Reserve root disk headroom')).toBeLessThan(
+        job.indexOf('Run the cross-screen chrome spec')
+      );
+      expect(job).toContain("COLAB_CHROME_REQUIRED: '1'");
+      expect(ci.match(/name: Reserve root disk headroom for chrome artifacts/g)).toHaveLength(1);
+      const script = step
+        .split('        run: |\n')[1]
+        .split('\n')
+        .map((line) => line.replace(/^ {10}/, ''))
+        .join('\n');
+      const root = mkdtempSync(path.join(tmpdir(), 'chrome-disk-cleanup-'));
+      try {
+        const log = path.join(root, 'sudo.json'),
+          summary = path.join(root, 'summary.md'),
+          count = path.join(root, 'df-count');
+        writeFileSync(count, '0');
+        writeExecutable(
+          path.join(root, 'sudo'),
+          `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.CLEANUP_LOG,JSON.stringify(process.argv.slice(2)));process.exit(Number(process.env.CLEANUP_STATUS));\n`,
+          0o700
+        );
+        writeExecutable(
+          path.join(root, 'df'),
+          `#!${process.execPath}\nconst fs=require('node:fs');if(process.argv[2]==='-Pk'){console.log('Filesystem 1024-blocks Used Available Capacity Mounted on');console.log('/dev/root 100000000 10000000 '+process.env.ROOT_AVAILABLE+' 10% /');}else{let n=Number(fs.readFileSync(process.env.DF_COUNT,'utf8'));fs.writeFileSync(process.env.DF_COUNT,String(n+1));console.log(n===0?'root-before':'root-after');}\n`,
+          0o700
+        );
+        const result = spawnSync('bash', ['-c', script], {
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            ...process.env,
+            PATH: root + path.delimiter + process.env.PATH,
+            RUNNER_TEMP: root,
+            GITHUB_STEP_SUMMARY: summary,
+            CLEANUP_LOG: log,
+            CLEANUP_STATUS: String(status),
+            DF_COUNT: count,
+            ROOT_AVAILABLE: available,
+          },
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(
+          action === 'refused' || status === 1 ? 1 : 0
+        );
+        expect(existsSync(log)).toBe(action === 'run');
+        if (action === 'run')
+          expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual([
+            'timeout',
+            '--kill-after=5s',
+            '60s',
+            'rm',
+            '-rf',
+            '--',
+            '/usr/local/lib/android',
+            '/usr/share/dotnet',
+            '/usr/local/.ghcup',
+            '/opt/ghc',
+          ]);
+        const text = readFileSync(summary, 'utf8');
+        expect(text).toContain('root-before');
+        if (action === 'refused') {
+          expect(result.stdout).toContain('Could not read root available space.');
+          expect(text).not.toContain('After cleanup:');
+          expect(readFileSync(count, 'utf8')).toBe('1');
+        } else {
+          expect(text).toContain('root-after');
+          expect(text).toContain(
+            `Root available KiB: ${available}; cleanup threshold KiB: 20971520`
+          );
+          expect(text).toContain(`Cleanup: ${action}`);
+          expect(text).toContain('Elapsed seconds:');
+          expect(text).toContain(`Cleanup exit: ${status}`);
+          expect(readFileSync(count, 'utf8')).toBe('2');
+          if (status === 124) expect(result.stdout).toContain('::warning::');
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('keeps disk observations read-only in both browser jobs (#4742)', () => {
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     for (const [name, playwright, results] of [
       [

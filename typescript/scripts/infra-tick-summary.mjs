@@ -201,6 +201,13 @@ export function createTickClient({
     new Error(
       `Infra tick time budget exhausted (120 seconds; ${requests}/80 calls; stage=${stage}; PRs=${prCount}).`
     );
+  const liveScanDeadline = () =>
+    Object.assign(
+      new Error(
+        'live run listing still inconsistent; backoff would exceed the 120 s deadline; retry once'
+      ),
+      { code: 'TICK_LIVE_SCAN_DEADLINE' }
+    );
   const command = (program, args, options) => {
     assert.equal(program, 'gh', 'Only the GitHub read port is allowed.');
     assert.equal(args[0], 'api', 'Only the API read port is allowed.');
@@ -322,9 +329,9 @@ export function createTickClient({
       const delay = [3000, 9000][scan];
       assert.ok(delay !== undefined, 'Only two live scan retries are allowed.');
       // Reserve time for another read; never sleep through the shared deadline.
-      if (clock() + delay >= deadline) throw timeBudget();
+      if (clock() + delay >= deadline) throw liveScanDeadline();
       sleep(delay);
-      if (clock() >= deadline) throw timeBudget();
+      if (clock() >= deadline) throw liveScanDeadline();
     },
     get: (endpoint, immutable = false, text = false) => {
       const result = api.get(endpoint, immutable, text);
@@ -1595,9 +1602,12 @@ function main() {
         error.message
       );
     const windowSplit = budgetRefused ? api.splitWindow(since, until) : null;
-    const splitGuidance = windowSplit
-      ? `Retry the unchanged command with --until ${windowSplit.prefix.until} (${windowSplit.boundarySource}). Prefix: ${since}..${windowSplit.prefix.until}; remaining: ${windowSplit.remaining.since}..${until}. Only after that prefix completes, retry the original --until ${until} using its resulting cursor. Do not edit the cursor or skip a refused prefix; a smaller window may still refuse on live evidence. Pick a smaller prefix or escalate if needed.`
-      : 'Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.';
+    const splitGuidance =
+      error.code === 'TICK_LIVE_SCAN_DEADLINE'
+        ? 'Retry this invocation once. If the live listing remains inconsistent, escalate; the cursor is unchanged.'
+        : windowSplit
+          ? `Retry the unchanged command with --until ${windowSplit.prefix.until} (${windowSplit.boundarySource}). Prefix: ${since}..${windowSplit.prefix.until}; remaining: ${windowSplit.remaining.since}..${until}. Only after that prefix completes, retry the original --until ${until} using its resulting cursor. Do not edit the cursor or skip a refused prefix; a smaller window may still refuse on live evidence. Pick a smaller prefix or escalate if needed.`
+          : 'Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.';
     const report = {
       schema: 1,
       complete: false,

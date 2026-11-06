@@ -320,7 +320,40 @@ jobs:
           executable="$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "socket" and .executable != null) | .executable' "$RUNNER_TEMP/chrome-fixture-build.json")"
           test -x "$executable"
           echo "executable=$executable" >> "$GITHUB_OUTPUT"
-      # #4742: identify the mount before changing disk or trace policy.
+      # #4742: this job uses Node/Rust, never the preinstalled mobile/.NET/Haskell SDKs.
+      - name: Reserve root disk headroom for chrome artifacts
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          {
+            printf '%s\n' '### Colab chrome root disk headroom' 'Before cleanup:' '```'
+            df -h / /tmp /dev/shm "$RUNNER_TEMP"
+            printf '%s\n' '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # df -Pk reports 1024-byte blocks; clean only below 20 GiB available.
+          available_kib=$(df -Pk / | awk 'NR == 2 { print $4 }')
+          case "$available_kib" in
+            ''|*[!0-9]*) echo '::error::Could not read root available space.'; exit 1 ;;
+          esac
+          minimum_kib=$((20 * 1024 * 1024))
+          cleanup_status=0
+          cleanup_action=skipped
+          if [ "$available_kib" -lt "$minimum_kib" ]; then
+            cleanup_action=run
+            sudo timeout --kill-after=5s 60s rm -rf -- /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup /opt/ghc || cleanup_status=$?
+          fi
+          {
+            printf '%s\n' 'After cleanup:' '```'
+            df -h / /tmp /dev/shm "$RUNNER_TEMP"
+            printf '%s\n' '```' "Root available KiB: $available_kib; cleanup threshold KiB: $minimum_kib" "Cleanup: $cleanup_action" "Elapsed seconds: $(( $(date +%s) - started ))" "Cleanup exit: $cleanup_status"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          case "$cleanup_status" in
+            0) ;;
+            124|137) echo '::warning::Root cleanup reached its bound; using the headroom already released.' ;;
+            *) exit "$cleanup_status" ;;
+          esac
       - name: Record browser disk baseline
         run: df -h / /tmp /dev/shm "$RUNNER_TEMP"
       - name: Run the cross-screen chrome spec without skips

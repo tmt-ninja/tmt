@@ -46,3 +46,17 @@ exec cp "$source" "$destination"
   );
   return tools;
 }
+
+/** Context for the bootstrap proof's bounded pinned upgrade; never retries. */
+export function runBootstrapUpgrade(executable, options, runCommand = runPackedCommand) {
+  const args = ['upgrade', '--json'];
+  try {
+    return runCommand(executable, args, options);
+  } catch (error) {
+    if (error.code !== 'ETIMEDOUT') throw error;
+    throw new Error(
+      `pinned upgrade did not finish within ${options.timeoutMs} ms; it must not need the network (${executable} ${args.join(' ')})`,
+      { cause: error }
+    );
+  }
+}

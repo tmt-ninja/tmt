@@ -204,6 +204,16 @@ Cancelled jobs without an acquired runner remain reportable. Uncertain
 writes never retry; malformed/incomplete inventories and capacity/API failures stay visible.
 Seeds cannot supply complete-verification evidence.
 
+The Colab chrome job always records root-disk availability before Playwright. When
+less than 20 GiB is available, it removes only unused preinstalled Android, .NET
+and Haskell toolchains; at or above that threshold it skips cleanup. The bounded
+cleanup has a 60 s limit plus 5 s kill grace inside a 2-minute step. Before/after
+mount usage, the available-space threshold, skip/run decision, elapsed seconds and
+exit status stay in the step summary. A timeout reports partial cleanup and
+continues; other cleanup errors fail the job. Node/Rust/browser caches and workspace
+outputs are not cleanup targets. Traces are retained only for failures; video
+recording remains disabled. Temporary traces still exist during a test.
+
 ## Cache ownership
 
 Docker PR/MG shards restore exact main-owned dependency archives; the purpose-specific
@@ -503,7 +513,8 @@ refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progre
 searches track older reruns without a created filter. A count/row or membership race
 discards the whole live scan and restarts at page one, at most three scans in the shared
 budget, waiting 3 s then 9 s between scans only if the wait fits the shared 120 s
-deadline. It then refuses with status/count/rows; created-window
+deadline. If backoff cannot fit, a dedicated live-listing refusal asks for one retry
+and never suggests a time-budget window split. It otherwise refuses with status/count/rows; created-window
 queries stay strict and other active states stay within the window. A live-listing
 `INCOMPLETE` already includes backoff; retry the lead invocation only once before
 escalating a persistent refusal. Unobserved older reruns
