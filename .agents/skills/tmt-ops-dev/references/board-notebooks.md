@@ -34,7 +34,9 @@ renderer as `member_links::Target::Url` cells beside the member mentions, for a 
 an autolink and a bare address outside code. They share the hit table, hover, focus
 and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
 (a `Menu`: the origin as an inert row, then Open, Copy, Show full). A bare local Colab page address (`member_links/colab.rs`, #6008) is instead an atomic chip `Part` with the address as its source range; `paint_colab_card` draws its title card over the finished frame for the hovered or focused hit, titles come from a per-board background `tmt colab show` read (a fake reader under test), and activation opens it directly. A bare address is a
-word less its closing punctuation (`member_links::word_token`) that `is_bare_url` admits;
+word less its closing punctuation (`member_links::word_token`) that `is_bare_url` admits, or
+the `http(s)://` part of a word glued to non-ASCII prose (CJK `連結：http://…`), ending before
+full-width punctuation (`member_links::link_range`); after an ASCII letter or digit it stays text;
 plain rows (`paint_plain_hits`: notices, key/value fields, workspace rows, the squad
 focus) use the same rule from the row's complete source, cached with its member names,
 and keep only the painted part of a cut address as the hit, opening the whole one. `effects::open_argv`
