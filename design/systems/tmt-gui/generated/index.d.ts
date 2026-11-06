@@ -427,6 +427,7 @@ export interface ChoiceProps {
 export interface MenuProps {
   label?: string;
   items?: string;
+  trigger?: "text" | "icon";
   children?: ReactNode;
 }
 
@@ -496,6 +497,7 @@ export interface TooltipProps {
 export interface CommandProps {
   label?: string;
   items?: string;
+  query?: string;
   children?: ReactNode;
 }
 

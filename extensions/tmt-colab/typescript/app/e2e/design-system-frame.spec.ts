@@ -794,3 +794,70 @@ for (const [mode, reference] of [
     await expect(frame.locator('#outside')).toBeFocused();
   });
 }
+
+test('menu tags place separators before the next item and preserve malformed markers', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-menu label="Actions" trigger="icon" items="Manage page,-,Archive…,About this page,-"></tmt-ui-menu>`,
+  );
+  const trigger = frame.getByRole('button', { name: 'Actions' });
+  await expect(trigger.locator('svg')).toBeVisible();
+  await trigger.click();
+  const archive = frame.getByRole('menuitem', { name: 'Archive…' });
+  await expect(archive).toHaveAttribute('data-separated', 'true');
+  await expect(frame.getByRole('menuitem', { name: 'About this page' })).not.toHaveAttribute(
+    'data-separated',
+  );
+  await expect(frame.getByRole('menuitem', { name: '-', exact: true })).toBeVisible();
+});
+
+test('command page entries show an icon and context; malformed entries stay plain', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-command label="Search pages" items="page:Weekly retro:Product / Planning,page:Weekly retro:Operations / Planning,page::Missing title,Plain item"></tmt-ui-command>`,
+  );
+  const options = frame.getByRole('option');
+  await expect(options).toHaveCount(4);
+  await expect(options.nth(0)).toContainText('Weekly retro');
+  await expect(options.nth(0)).toContainText('Product / Planning');
+  await expect(options.nth(1)).toContainText('Operations / Planning');
+  await expect(options.nth(0).locator('tmt-icon[name="file-text"]')).toBeVisible();
+  await expect(options.nth(2)).toHaveText('page::Missing title');
+  await expect(options.nth(3)).toHaveText('Plain item');
+  await frame.getByRole('combobox', { name: 'Search pages' }).fill('Product');
+  await expect(frame.getByRole('option')).toHaveCount(1);
+  await expect(frame.getByRole('option').first()).toContainText('Product / Planning');
+});
+
+test('command query starts populated and filters page results', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-command label="Find a page" query="retro" items="page:Weekly retro:Product / Planning,page:Roadmap:Product / Planning"></tmt-ui-command>`,
+  );
+  await expect(frame.getByRole('combobox', { name: 'Find a page' })).toHaveValue('retro');
+  await expect(frame.getByRole('option')).toHaveCount(1);
+  await expect(frame.getByRole('option').first()).toContainText('Weekly retro');
+});
+
+test('page search keeps its create action first and page rows square', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-command label="Find a page" query="retro" items="page:Retro archive:Product / Archive,create:Create a page called retro,page:Weekly retro:Product / Planning"></tmt-ui-command>`,
+  );
+  const options = frame.getByRole('option');
+  await expect(options).toHaveCount(3);
+  await expect(options.first()).toHaveText('Create a page called retro');
+  await expect(options.nth(1)).toHaveCSS('border-radius', '0px');
+  await frame.getByRole('combobox', { name: 'Find a page' }).fill('weekly');
+  await expect(options).toHaveCount(2);
+  await expect(options.first()).toHaveText('Create a page called retro');
+  await expect(options.nth(1)).toContainText('Weekly retro');
+});

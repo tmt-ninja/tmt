@@ -1299,6 +1299,8 @@ Chips owns `SelectionItem` from its displayed/removable fields. Existing Browser
 chip values remain structurally assignable, with no UI-to-static source import.
 CommandItem retains cmdk's stock value-only
 `onSelect(value)` callback; it does not promise an originating keyboard event.
+Its `variant="page"` renders a square option with optional `leading` icon and
+`meta` location; the default command row is unchanged.
 The composed Combobox/Chips callbacks instead receive the actual React event
 from the input key handler or item's click capture. Do not add a second host
 mutation callback to the underlying cmdk item, cache a last event or synthesize

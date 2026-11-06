@@ -9,6 +9,13 @@
     },
     "items": {
       "type": "string"
+    },
+    "trigger": {
+      "enum": [
+        "text",
+        "icon"
+      ],
+      "default": "text"
     }
   },
   "slots": [
@@ -38,6 +45,14 @@
     {
       "title": "Empty",
       "markup": "<tmt-ui-menu label=\"Options\"></tmt-ui-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Grouped page actions",
+      "markup": "<tmt-ui-menu label=\"Page actions\" trigger=\"icon\" items=\"Manage page,-,Archive…,About this page\"></tmt-ui-menu>",
       "widths": [
         1440,
         390
