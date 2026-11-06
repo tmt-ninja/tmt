@@ -238,7 +238,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const next = await composeChat(first, agent, 'Follow up with the earlier answer.');
     const follow = await sendChat(first, next);
     await until(() => agent.received().length === 2, 'follow-up Chat received');
-    expect(next.delivered()).toContain('Earlier conversation (quoted data)');
+    expect(next.delivered()).toContain('Previous turn (quoted data):');
     expect(next.delivered()).toContain(opening);
     expect(next.delivered()).toContain(reply);
     fs.writeFileSync(`${agent.gate}/${agent.received()[1].requestId}.release`, '');

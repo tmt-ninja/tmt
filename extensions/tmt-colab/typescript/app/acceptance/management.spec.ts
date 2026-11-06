@@ -192,10 +192,10 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await page.goto(`${door.address}/x/colab/`);
     await expect(homeList(page)).toBeVisible();
     await page.getByRole('tab', { name: /^Archived/ }).click();
-    const row = page.locator(`.pages [role="row"][data-page-id="${first.pageId}"]`);
+    const row = page.locator(`.page-list-table [role="row"][data-page-id="${first.pageId}"]`);
     await expect(row).toContainText('Archived');
-    await row.getByRole('button', { name: /^Actions for/ }).click();
-    await page.getByRole('menuitem', { name: 'Manage page' }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage…', exact: true }).click();
     dialog = page.locator('dialog.management-dialog');
     await expect(
       dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }),
@@ -206,9 +206,11 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(managementStatus(dialog)).toContainText('Done.');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('tab', { name: /^All, \d+\+?$/ }).click();
-    const remaining = page.locator(`.pages [role="row"][data-page-id="${second.pageId}"]`);
-    await remaining.getByRole('button', { name: /^Actions for/ }).click();
-    await page.getByRole('menuitem', { name: 'Manage page' }).click();
+    const remaining = page.locator(
+      `.page-list-table [role="row"][data-page-id="${second.pageId}"]`,
+    );
+    await remaining.getByRole('button', { name: /^More for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage…', exact: true }).click();
     dialog = page.locator('dialog.management-dialog');
     await expect(dialog.getByRole('button', { name: 'Delete page…', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
@@ -448,17 +450,26 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
     }
     const labels = rail.locator('a[data-id^="shortcut:"] .tmt-ui-module-menu-label');
     await expect(labels).toHaveText(['First shortcut', 'Second shortcut']);
-    await rail
-      .getByRole('link', { name: 'Second shortcut · 1 total', exact: true })
-      .press('Alt+ArrowUp');
+    // Rail rows are navigation only; the shared Manage list owns moves and deletes.
+    const manage = async () => {
+      await rail.getByRole('button', { name: 'Manage', exact: true }).click();
+      return page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
+    };
+    let dialog = await manage();
+    await dialog.getByRole('button', { name: 'Second shortcut', exact: true }).press('Alt+ArrowUp');
+    await expect(dialog.locator('.tmt-ui-manage-list > li').first()).toContainText(
+      'Second shortcut',
+    );
+    await dialog.getByRole('button', { name: 'Close Manage shortcuts', exact: true }).click();
     await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
     await page.reload();
     await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
-    const row = rail
-      .locator('li[data-menu-item^="shortcut:"]')
-      .filter({ has: page.getByRole('link', { name: 'First shortcut · 1 total', exact: true }) });
-    await row.hover({ timeout: 5000 });
-    await row.getByRole('button', { name: 'Delete First shortcut' }).click();
+    dialog = await manage();
+    await dialog.getByRole('button', { name: 'Delete First shortcut', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'First shortcut', exact: true })).toHaveCount(
+      0,
+    );
+    await dialog.getByRole('button', { name: 'Close Manage shortcuts', exact: true }).click();
     await expect(labels).toHaveText(['Second shortcut']);
     await page.reload();
     await expect(labels).toHaveText(['Second shortcut']);
