@@ -328,8 +328,14 @@ pub(super) fn run(parts: Parts) {
         if session.is_none() && !policy.is_sticky() && retry_at.is_some_and(|at| now >= at) {
             retry_at = None;
             match establish(&parts) {
-                Ok(established) => {
+                Ok(mut established) => {
                     seen_channel = channels.started();
+                    // A page touched while no session existed is published now: its touch was
+                    // consumed before there was a session to take it (#6142).
+                    if let Some(page) = wake.page.as_ref().filter(|page| page.space == parts.space)
+                    {
+                        established.touched(page);
+                    }
                     session = Some(established);
                 }
                 Err(failure) => {

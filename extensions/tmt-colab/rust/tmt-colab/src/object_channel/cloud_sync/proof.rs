@@ -33,6 +33,22 @@ const DEVICE_B: &str = "30000000-0000-4000-8000-0000000000b1";
 const SEED_A: u8 = 41;
 const SEED_B: u8 = 42;
 
+/// How much of each process's stderr a failure report keeps.
+const SAID_LINES: usize = 40;
+const SAID_BYTES: usize = 8 * 1024;
+fn tail(said: &str) -> &str {
+    let mut start = said
+        .char_indices()
+        .rev()
+        .filter(|&(_, c)| c == '\n')
+        .nth(SAID_LINES)
+        .map_or(0, |(at, _)| at + 1);
+    while said.len() - start > SAID_BYTES || !said.is_char_boundary(start) {
+        start += 1;
+    }
+    &said[start..]
+}
+
 /// Wait for a condition the cloud has to produce, with a bound and a readable failure.
 fn until(what: &str, mut ready: impl FnMut() -> bool) {
     until_with(what, &mut ready, String::new);
@@ -241,13 +257,12 @@ impl Running {
             )
             .unwrap()
     }
-    /// What each process has said, for a failure to explain itself.
+    /// The tail of what each process has said, for a failure to explain itself; built only
+    /// when a wait has failed.
     fn said(&self) -> String {
         let log = |name: &str, proc: &Option<world::Proc>| {
-            format!(
-                "--- {name}\n{}",
-                proc.as_ref().map(world::Proc::stderr).unwrap_or_default()
-            )
+            let said = proc.as_ref().map(world::Proc::stderr).unwrap_or_default();
+            format!("--- {name} (last {SAID_LINES} lines)\n{}", tail(&said))
         };
         format!(
             "{}\n{}",

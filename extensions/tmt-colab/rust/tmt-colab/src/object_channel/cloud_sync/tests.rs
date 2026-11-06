@@ -199,24 +199,48 @@ fn a_native_unavailable_verdict_is_silent_and_holds_until_remote_restarts() {
 }
 
 #[test]
-fn a_deadline_or_missing_door_retries_a_bounded_number_of_times_without_a_warning() {
+fn a_deadline_or_missing_door_keeps_retrying_past_the_first_waits_without_a_warning() {
     let peer = peer();
     let rig = start(Arc::clone(&peer.channels), || Err(ActivationFailure::Local));
-    until("three attempts", || {
-        rig.activations.load(Ordering::SeqCst) == 3
+    // Past the two short waits the worker keeps a steady pace instead of idling (#6142).
+    until("five attempts", || {
+        rig.activations.load(Ordering::SeqCst) >= 5
     });
-    std::thread::sleep(Duration::from_millis(600));
+    assert!(rig.reports.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_slow_door_converges_without_a_second_trigger() {
+    // Remote activates only on its fifth attempt, after the old three-attempt budget, and no
+    // channel restart or mount wakes the worker in between (#6142).
+    let mut peer = peer();
+    let firestore = super::fixture::Firestore::default();
+    let answer = firestore.clone();
+    let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        answer.answer(call, id)
+    });
+    let tries = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&tries);
+    let started = peer.channels.started.load(Ordering::SeqCst);
+    let mut rig = start(Arc::clone(&peer.channels), move || {
+        if seen.fetch_add(1, Ordering::SeqCst) < 4 {
+            Err(ActivationFailure::Local)
+        } else {
+            activated()
+        }
+    });
+    rig.activity.touch(page(FIRST, 1));
+    until("the touched page is published", || {
+        remote.methods() == [Method::Bind, Method::Publish]
+    });
+    assert_eq!(rig.activations.load(Ordering::SeqCst), 5);
     assert_eq!(
-        rig.activations.load(Ordering::SeqCst),
-        3,
-        "the budget is bounded"
+        peer.channels.started.load(Ordering::SeqCst),
+        started,
+        "no second trigger"
     );
     assert!(rig.reports.lock().unwrap().is_empty());
-    // A channel nobody activated is a fresh trigger with a fresh budget.
-    peer.channels.started.fetch_add(1, Ordering::SeqCst);
-    until("a fresh attempt", || {
-        rig.activations.load(Ordering::SeqCst) > 3
-    });
+    rig.sync.take().unwrap().stop();
 }
 
 #[test]
