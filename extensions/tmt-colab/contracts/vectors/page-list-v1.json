@@ -1,0 +1,127 @@
+{
+ "version": 1,
+ "description": "Live page list (colab-v1 'Live page list', #6162): list tokens the held read accepts in its path, page revision tokens a list row may carry, and how the browser reads a list or held reply for its revisions.",
+ "listToken": {
+  "valid": [
+   "0000000000000000000000000000000000000000000000000000000000000000",
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  ],
+  "invalid": [
+   "",
+   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "000000000000000000000000000000000000000000000000000000000000000",
+   "00000000000000000000000000000000000000000000000000000000000000000",
+   "v1:0000000000000000000000000000000000000000000000000000000000000000",
+   "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+  ]
+ },
+ "revision": {
+  "valid": [
+   "v1:0000000000000000000000000000000000000000000000000000000000000000",
+   "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  ],
+  "invalid": [
+   "",
+   "0000000000000000000000000000000000000000000000000000000000000000",
+   "v2:0000000000000000000000000000000000000000000000000000000000000000",
+   "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "v1:000000000000000000000000000000000000000000000000000000000000000"
+  ]
+ },
+ "replies": [
+  {
+   "name": "a full list names each page's revision",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "pages": [
+     {
+      "pageId": "10000000-0000-4000-8000-000000000001",
+      "revision": "v1:2222222222222222222222222222222222222222222222222222222222222222"
+     },
+     {
+      "pageId": "10000000-0000-4000-8000-000000000002",
+      "revision": "v1:3333333333333333333333333333333333333333333333333333333333333333"
+     }
+    ]
+   },
+   "result": {
+    "unchanged": false,
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "revisions": {
+     "10000000-0000-4000-8000-000000000001": "v1:2222222222222222222222222222222222222222222222222222222222222222",
+     "10000000-0000-4000-8000-000000000002": "v1:3333333333333333333333333333333333333333333333333333333333333333"
+    }
+   }
+  },
+  {
+   "name": "a row without a revision is listed without one",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "pages": [
+     {
+      "pageId": "10000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "result": {
+    "unchanged": false,
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "revisions": {}
+   }
+  },
+  {
+   "name": "an unchanged held answer",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "unchanged": true
+   },
+   "result": {
+    "unchanged": true,
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111"
+   }
+  },
+  {
+   "name": "an unchanged answer carries nothing else",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "unchanged": true,
+    "pages": []
+   },
+   "result": "refused"
+  },
+  {
+   "name": "no list token",
+   "reply": {
+    "pages": []
+   },
+   "result": "refused"
+  },
+  {
+   "name": "a malformed revision",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "pages": [
+     {
+      "pageId": "10000000-0000-4000-8000-000000000001",
+      "revision": "2222222222222222222222222222222222222222222222222222222222222222"
+     }
+    ]
+   },
+   "result": "refused"
+  },
+  {
+   "name": "a malformed page ID",
+   "reply": {
+    "listToken": "1111111111111111111111111111111111111111111111111111111111111111",
+    "pages": [
+     {
+      "pageId": "page-1",
+      "revision": "v1:2222222222222222222222222222222222222222222222222222222222222222"
+     }
+    ]
+   },
+   "result": "refused"
+  }
+ ]
+}

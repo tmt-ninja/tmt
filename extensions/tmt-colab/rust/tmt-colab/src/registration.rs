@@ -176,11 +176,27 @@ const HOME_CARDS: usize = 5;
 const CARD_TITLE_SCALARS: usize = 40;
 
 /// What one browser catalog read holds, read in one store transaction.
+/// The page list's change token: a digest of every page's fingerprint, in page order.
+fn list_token(
+    fingerprints: &std::collections::BTreeMap<String, String>,
+) -> std::result::Result<String, Code> {
+    let parts: Vec<&[u8]> = std::iter::once(b"tmt-colab-page-list-v1".as_slice())
+        .chain(
+            fingerprints
+                .iter()
+                .flat_map(|(page, print)| [page.as_bytes(), print.as_bytes()]),
+        )
+        .collect();
+    let digest = crypto::digest(&framing::frame(&parts).map_err(|_| Code::Unavailable)?);
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
 struct CatalogRead {
     catalog: serde_json::Value,
     fingerprints: std::collections::BTreeMap<String, String>,
     /// The local titles still valid for their page (`page_titles`).
     titles: std::collections::BTreeMap<String, String>,
+    /// Each listed page's revision token, the one `page read` returns (`page::current_token`).
+    revisions: std::collections::BTreeMap<String, String>,
 }
 
 pub struct Registration {
@@ -282,6 +298,7 @@ impl Registration {
             mut catalog,
             fingerprints,
             titles,
+            revisions,
         } = self.page_catalog_fingerprinted(context)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
@@ -304,6 +321,9 @@ impl Registration {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
             };
+            if let Some(revision) = revisions.get(&id) {
+                page["revision"] = serde_json::json!(revision);
+            }
             let Some(summary) = fresh.get(&id) else {
                 page["state"] = serde_json::Value::Null;
                 page["stateError"] = serde_json::json!("page-unavailable");
@@ -327,7 +347,19 @@ impl Registration {
             }
         }
         crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
+    }
+    /// The page list's opaque change token (contract: Live page list): it moves when any page's
+    /// fingerprint does, which is when its revision token does, and never otherwise.
+    pub fn page_list_token(&self, context: Option<&str>) -> std::result::Result<String, Code> {
+        Context::parse(context)?;
+        self.store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_fingerprints()
+            })
+            .map_err(map_error)
+            .and_then(|fingerprints| list_token(&fingerprints))
     }
     /// Complete cached chapter metadata. The owner read checks authority and the current
     /// fingerprint without subscribing, touching activity or decoding on this request path.
@@ -408,10 +440,21 @@ impl Registration {
         Context::parse(context)?;
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                let catalog = tx.page_list()?;
+                let mut revisions = std::collections::BTreeMap::new();
+                for page in catalog["pages"].as_array().into_iter().flatten() {
+                    if let Some(id) = page["pageId"].as_str() {
+                        revisions.insert(
+                            id.to_owned(),
+                            crate::page::current_token(tx, &self.keyring, id)?,
+                        );
+                    }
+                }
                 Ok(CatalogRead {
-                    catalog: tx.page_list()?,
+                    catalog,
                     fingerprints: tx.page_fingerprints()?,
                     titles: tx.page_titles()?,
+                    revisions,
                 })
             })
             .map_err(map_error)

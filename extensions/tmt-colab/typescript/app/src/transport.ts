@@ -169,6 +169,10 @@ export interface PageTransport {
   /** A verified title only: no editor, discussion or live subscription. */
   readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
+  /** The owner's live page list (contract: Live page list): `changed` hears every page's revision
+   * token, once known and again whenever any page's moves, over one held read per tab and no page
+   * connection. Absent where no owner list exists (hosted, readers, fixtures). */
+  watchPages?(changed: (revisions: ReadonlyMap<string, string>) => void): () => void;
 }
 
 /** Detached, read-only local fixture adapter; not a persisted or authenticated backend. */

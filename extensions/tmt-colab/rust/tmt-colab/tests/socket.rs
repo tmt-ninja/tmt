@@ -1939,7 +1939,17 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
             "/api/pages",
             &format!("{}\r\n", owner(DEVICE)),
         ));
-        serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
+        let mut list: Value =
+            serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        // The live-list token and each page's revision are opaque digests: shape only here (their
+        // changes are pinned by a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap).
+        let token = list.as_object_mut().unwrap().remove("listToken").unwrap();
+        assert!(token.as_str().is_some_and(|t| t.len() == 64));
+        for page in list["pages"].as_array_mut().unwrap() {
+            let revision = page.as_object_mut().unwrap().remove("revision").unwrap();
+            assert!(revision.as_str().is_some_and(|r| r.starts_with("v1:")));
+        }
+        list
     };
     let page = |projects: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
@@ -7199,4 +7209,142 @@ fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
         return frame;
     }
     serde_json::from_str(message.to_text().unwrap()).unwrap()
+}
+
+#[test]
+fn a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets(page,epoch,secret) VALUES (?, '00000000000000000001', ?)",
+            rusqlite::params![PAGE, [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let header = format!("{}\r\n", owner(DEVICE));
+    let body = |raw: &str| -> Value {
+        assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+        serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let held = |token: &str| {
+        server.request_with_timeout(
+            &Running::get(&format!("/api/pages/after/{token}"), &header),
+            Duration::from_secs(15),
+        )
+    };
+    let share = |revision: u64, mode: &str| {
+        let event = management_body(
+            &server,
+            &format!("91000000-0000-4000-8000-{revision:012}"),
+            revision,
+            "page.share",
+            json!({"pageId":PAGE,"mode":mode}),
+            DEVICE,
+            now(),
+        );
+        let raw = server.event(tmt_colab::management::PATH, &header, &event);
+        assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+    };
+    let first = body(&server.request(&Running::get("/api/pages", &header)));
+    let token = first["listToken"].as_str().unwrap().to_owned();
+    assert_eq!(token.len(), 64);
+    let revision = first["pages"][0]["revision"].as_str().unwrap().to_owned();
+    assert!(revision.starts_with("v1:"), "{revision}");
+    // A non-owner or malformed read is refused before it waits.
+    assert!(
+        server
+            .request(&Running::get(&format!("/api/pages/after/{token}"), ""))
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        server
+            .request(&Running::get("/api/pages/after/NOT-A-TOKEN", &header))
+            .starts_with("HTTP/1.1 404")
+    );
+
+    // A change while the read waits answers it at once with the new list and the page's new revision.
+    let started = std::time::Instant::now();
+    let changed = std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| held(&token));
+        std::thread::sleep(Duration::from_millis(500));
+        share(1, "link");
+        waiting.join().unwrap()
+    });
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let changed = body(&changed);
+    let next = changed["listToken"].as_str().unwrap().to_owned();
+    assert_ne!(next, token);
+    assert_eq!(changed["pages"][0]["sharing"], "link");
+    assert_ne!(changed["pages"][0]["revision"].as_str().unwrap(), revision);
+
+    // Four reads wait at once; a fifth is refused with CAPACITY, never queued. One change
+    // answers the four.
+    std::thread::scope(|scope| {
+        let waiting: Vec<_> = (0..4).map(|_| scope.spawn(|| held(&next))).collect();
+        std::thread::sleep(Duration::from_millis(500));
+        let refused = held(&next);
+        assert!(refused.starts_with("HTTP/1.1 503"), "{refused}");
+        assert_eq!(
+            refused.split_once("\r\n\r\n").unwrap().1,
+            "{\"code\":\"CAPACITY\"}"
+        );
+        share(2, "public");
+        for read in waiting {
+            assert_ne!(body(&read.join().unwrap())["listToken"], next.as_str());
+        }
+    });
+
+    // Nothing changes: the read answers after its hold with the same token and no pages.
+    let current = body(&server.request(&Running::get("/api/pages", &header)))["listToken"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let started = std::time::Instant::now();
+    let unchanged = body(&held(&current));
+    assert!(started.elapsed() >= tmt_colab::limits::PAGE_LIST_HOLD);
+    assert_eq!(unchanged, json!({"listToken":current,"unchanged":true}));
+
+    // Clients that leave free their slots at once, not after the hold: four reads that go away,
+    // then a fifth is still admitted (it answers unchanged after its hold, not CAPACITY).
+    let request = Running::get(&format!("/api/pages/after/{current}"), &header);
+    for _ in 0..4 {
+        let mut left = server.connect();
+        left.write_all(request.as_bytes()).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        drop(left);
+    }
+    std::thread::sleep(tmt_colab::limits::PAGE_LIST_POLL * 3);
+    let admitted = std::thread::scope(|scope| {
+        let reads: Vec<_> = (0..4).map(|_| scope.spawn(|| held(&current))).collect();
+        reads
+            .into_iter()
+            .map(|read| read.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    for read in admitted {
+        assert_eq!(body(&read), json!({"listToken":current,"unchanged":true}));
+    }
+}
+
+#[test]
+fn the_held_page_list_path_admits_exactly_the_vector_tokens() {
+    let vector: Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/page-list-v1.json")).unwrap();
+    let server = Running::start(Tunnels::PRODUCT);
+    // Without an owner context an admitted token is refused before any wait; a malformed one has no
+    // route at all.
+    for token in vector["listToken"]["valid"].as_array().unwrap() {
+        let reply = server.request(&Running::get(
+            &format!("/api/pages/after/{}", token.as_str().unwrap()),
+            "",
+        ));
+        assert!(reply.starts_with("HTTP/1.1 403"), "{token}: {reply}");
+    }
+    for token in vector["listToken"]["invalid"].as_array().unwrap() {
+        let reply = server.request(&Running::get(
+            &format!("/api/pages/after/{}", token.as_str().unwrap()),
+            "",
+        ));
+        assert!(reply.starts_with("HTTP/1.1 404"), "{token}: {reply}");
+    }
 }

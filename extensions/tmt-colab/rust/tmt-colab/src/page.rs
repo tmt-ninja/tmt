@@ -416,7 +416,11 @@ pub(crate) fn token(
         ])?))
     ))
 }
-fn current_token(tx: &OwnerTransaction<'_>, key: &Keyring, page: &str) -> Result<String> {
+pub(crate) fn current_token(
+    tx: &OwnerTransaction<'_>,
+    key: &Keyring,
+    page: &str,
+) -> Result<String> {
     let epoch = tx.current_epoch(page)?;
     token(
         &key.space_id,

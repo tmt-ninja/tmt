@@ -50,7 +50,22 @@ function space() {
   let next = 0;
   // Live views the way a binding publishes them: every edit reaches the page's subscribers.
   const subscribers = new Map<string, Set<(view: { source: string }) => void>>();
-  const open = { count: 0, edits: 0 };
+  const open = { count: 0, edits: 0, total: 0 };
+  // The owner's live page list: every page's revision moves on each write, and every watcher
+  // hears the whole map, as the mounted transport's held list read delivers it.
+  const revisions = new Map<string, number>();
+  const listWatchers = new Set<(latest: ReadonlyMap<string, string>) => void>();
+  const listed = () => new Map([...pages.keys()].map((id) => [id, `v1:${revisions.get(id) ?? 0}`]));
+  const moved = (id: string) => {
+    revisions.set(id, (revisions.get(id) ?? 0) + 1);
+    const latest = listed();
+    for (const watcher of listWatchers) watcher(latest);
+  };
+  /** A write no browser binding sees, as `tmt colab page patch` makes on an unopened page. */
+  const write = (id: string, source: string) => {
+    pages.get(id)!.source = source;
+    moved(id);
+  };
   const make = (title: string) => {
     const id = `page-${++next}`;
     pages.set(id, { title, source: `<h1>${title}</h1>`, order: [], projects: [], attachments: [] });
@@ -75,6 +90,7 @@ function space() {
         page().source = source;
         open.edits++;
         for (const publish of subscribers.get(id) ?? []) publish({ source });
+        moved(id);
         return { merged };
       },
       work: async (action: string, body: Record<string, unknown>) => {
@@ -109,10 +125,16 @@ function space() {
     } as unknown as PageBinding;
   };
   const transport = {
+    watchPages: (changed: (latest: ReadonlyMap<string, string>) => void) => {
+      listWatchers.add(changed);
+      queueMicrotask(() => listWatchers.has(changed) && changed(listed()));
+      return () => listWatchers.delete(changed);
+    },
     page: async (id: string) => {
       const page = pages.get(id);
       if (!page) throw new Error('Page unavailable');
       open.count++;
+      open.total++;
       return {
         id,
         title: page.title,
@@ -150,7 +172,7 @@ function space() {
       },
     },
   } as unknown as PageTransport;
-  return { pages, make, binding, transport, open };
+  return { pages, make, binding, transport, open, write, listWatchers };
 }
 
 describe('data blocks', () => {
@@ -487,29 +509,66 @@ describe('live draft (#5967)', () => {
     expect(shown.hash).toBe(published.bundle.hash);
   });
 
-  it('tells followers once a component edit settles, recompiles, and closes pages when they leave', async () => {
-    const { pages, make, transport, open } = space();
+  it('follows with one page open, hears component writes from the page list, settles a burst into one recompile, and closes on leave', async () => {
+    const { pages, make, transport, open, write, listWatchers } = space();
     make('Notes');
     const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
     const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    expect(config.components.length).toBeGreaterThan(16);
     const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const card = config.components.find((entry) => entry.tag === 'card')!.page!;
     const source = pageDesignSystems(transport);
     const before = open.count;
     let changes = 0;
     const stop = source.watch(rootId, () => changes++);
     const first = await source.draft(rootId);
     expect(await source.draft(rootId)).toBe(first);
-    const page = await transport.page(button);
-    await page.binding!.edit(recolor(page.source), page.source);
-    await page.binding!.edit(recolor(pages.get(button)!.source), pages.get(button)!.source);
-    page.binding!.close();
+    // Whatever the system's size, the follow holds only its root open (#6162), and one list watch.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(open.count - before).toBe(1);
+    expect(listWatchers.size).toBe(1);
+    // Writes to two unopened component pages in a burst: one change once they settle.
+    write(button, recolor(pages.get(button)!.source));
+    write(card, `${pages.get(card)!.source}<!-- edit -->`);
+    write(button, recolor(pages.get(button)!.source));
     expect(changes).toBe(0);
     await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
     expect(changes).toBe(1);
+    const opensBefore = open.total;
     const second = await source.draft(rootId);
     expect(second.hash).not.toBe(first.hash);
+    // The recompile reads the root and the two pages that moved; every other doc is reused.
+    expect(open.total - opensBefore).toBe(3);
+    // A page outside the system moving does not change the draft.
+    write(pages.keys().next().value!, '<h1>Notes again</h1>');
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(1);
     stop();
     expect(open.count).toBe(before);
+    expect(listWatchers.size).toBe(0);
+  });
+
+  it('a component write after the list arrived before the root loaded still changes the draft', async () => {
+    const { pages, make, transport, write } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    // The root opens slowly: the live list's first answer comes first.
+    const slow = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === rootId) await new Promise((resolve) => setTimeout(resolve, 30));
+        return transport.page(id);
+      },
+    } as PageTransport;
+    let changes = 0;
+    const stop = pageDesignSystems(slow).watch(rootId, () => changes++);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    write(button, recolor(pages.get(button)!.source));
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(1);
+    stop();
   });
 
   it('draws the notice, never a blank page, when the draft is broken', async () => {

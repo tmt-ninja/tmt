@@ -132,14 +132,27 @@ const builtIn = () =>
   import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
     ({ default: bundle }) => bundle as unknown as DesignSystemBundle,
   );
+/** Component pages a draft compile reads at once: with a follow's root and the shown page, a tab
+ * stays well inside the door's 16 page tunnels (colab-v1 Live page list). */
+export const DRAFT_READS = 6;
 /** How long a burst of edits to a system's pages settles before its followers redraw. */
 export const DRAFT_SETTLE_MS = 500;
 
-/** One followed system: its open page subscriptions and the draft compiled since the last edit. */
+/** One followed system: its root's subscription, the component pages its root names and their
+ * last revisions from the live page list, and the draft compiled since the last change. */
 interface Follow {
   readonly listeners: Set<() => void>;
-  readonly stops: Map<string, () => void>;
-  readonly seen: Map<string, string>;
+  readonly stops: (() => void)[];
+  /** The root's last source; a change to it is a change to the draft. */
+  root?: string;
+  /** The component page IDs the root names now. */
+  components: ReadonlySet<string>;
+  /** Each component page's revision when the list last named it. */
+  readonly revisions: Map<string, string>;
+  /** The live list's latest revisions, so components the root names later start from them. */
+  latest?: ReadonlyMap<string, string>;
+  /** Component docs read at a revision the live list named. */
+  readonly docs: Map<string, { revision: string; doc: ComponentDoc }>;
   timer?: ReturnType<typeof setTimeout>;
   draft?: Promise<DesignSystemBundle>;
   /** Its last follower left: a page still opening closes again. */
@@ -149,10 +162,11 @@ interface Follow {
 /**
  * Where the renderer reads a page's bundle (design-system.ts verifies a locked one): a locked
  * release is the root page's release attachment of that version; a live pin is the draft, compiled
- * from the root and component pages as publish compiles them. While a page follows a system, its
- * root and component pages stay subscribed, the compiled draft is kept until one of them changes,
- * and followers hear of a change once the edits settle. `shown` lets the Design header show a
- * release in place of the draft.
+ * from the root and component pages as publish compiles them. While a page follows a system, only
+ * its root stays subscribed: component edits are heard from the live page list's revisions
+ * (`watchPages`), so a follow holds one page connection whatever the system's size (#6162). The
+ * compiled draft is kept until the root or a component changes, and followers hear of a change
+ * once the edits settle. `shown` lets the Design header show a release in place of the draft.
  */
 export function pageDesignSystems(
   transport: PageTransport,
@@ -192,36 +206,56 @@ export function pageDesignSystems(
       for (const listener of follow.listeners) listener();
     }, DRAFT_SETTLE_MS);
   };
-  // Open one page of the followed system and keep it subscribed; the root's view also names the
-  // component pages, which are opened the same way.
-  const track = async (follow: Follow, id: string, root: boolean): Promise<void> => {
-    if (follow.stops.has(id)) return;
-    follow.stops.set(id, () => {});
-    const page = await transport.page(id).catch(() => undefined);
+  const componentsOf = (source: string) =>
+    new Set(
+      (readBlock<DesignSystemConfig>(source, 'design-system')?.components ?? []).flatMap((entry) =>
+        entry.page ? [entry.page] : [],
+      ),
+    );
+  // The root stays subscribed: its view names the component pages and is part of the draft.
+  const follow = async (state: Follow, rootId: string): Promise<void> => {
+    const page = await transport.page(rootId).catch(() => undefined);
     if (!page?.binding) return;
-    if (follow.stopped) {
+    if (state.stopped) {
       page.binding.close();
       return;
     }
     const binding = page.binding;
     const seen = (source: string) => {
-      const before = follow.seen.get(id);
-      follow.seen.set(id, source);
-      if (before !== undefined && before !== source) notify(follow);
-      if (root)
-        for (const entry of readBlock<DesignSystemConfig>(source, 'design-system')?.components ??
-          [])
-          if (entry.page) void track(follow, entry.page, false);
+      if (state.root !== undefined && state.root !== source) notify(state);
+      state.root = source;
+      state.components = componentsOf(source);
+      if (state.latest) baseline(state, state.latest);
     };
     seen(page.source);
     const unsubscribe = binding.subscribe(
       (view) => seen(view.source),
       () => {},
     );
-    follow.stops.set(id, () => {
+    state.stops.push(() => {
       unsubscribe();
       binding.close();
     });
+  };
+  // A component the list names for the first time starts from its current revision.
+  const baseline = (state: Follow, latest: ReadonlyMap<string, string>) => {
+    for (const id of state.components) {
+      const revision = latest.get(id);
+      if (revision !== undefined && !state.revisions.has(id)) state.revisions.set(id, revision);
+    }
+  };
+  // A component page whose revision moved since the list last named it changes the draft.
+  const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
+    state.latest = latest;
+    let moved = false;
+    for (const id of state.components) {
+      const revision = latest.get(id);
+      if (revision === undefined) continue;
+      const before = state.revisions.get(id);
+      if (before !== undefined && before !== revision) moved = true;
+      state.revisions.set(id, revision);
+    }
+    if (moved) notify(state);
   };
   return {
     release,
@@ -231,27 +265,48 @@ export function pageDesignSystems(
       if (version) return shownRelease(system, version);
       const follow = follows.get(system);
       if (!follow) return compileDraft(transport, system);
-      return (follow.draft ??= compileDraft(transport, system).catch((error: unknown) => {
-        follow.draft = undefined;
-        throw error;
-      }));
+      // A doc is reused only at the revision it was read at; one read before the list named the
+      // page, or after it moved, is read again.
+      const docs: ComponentDocs = {
+        get: (page) => {
+          const cached = follow.docs.get(page);
+          return cached && cached.revision === follow.latest?.get(page) ? cached.doc : undefined;
+        },
+        revision: (page) => follow.latest?.get(page),
+        set: (page, revision, doc) => follow.docs.set(page, { revision, doc }),
+      };
+      return (follow.draft ??= compileDraft(transport, system, undefined, docs).catch(
+        (error: unknown) => {
+          follow.draft = undefined;
+          throw error;
+        },
+      ));
     },
     watch(system, changed) {
       if (system === BUILT_IN_SYSTEM) return () => {};
-      let follow = follows.get(system);
-      if (!follow) {
-        follow = { listeners: new Set(), stops: new Map(), seen: new Map() };
-        follows.set(system, follow);
-        void track(follow, system, true);
+      let state = follows.get(system);
+      if (!state) {
+        const created: Follow = {
+          listeners: new Set(),
+          stops: [],
+          components: new Set(),
+          revisions: new Map(),
+          docs: new Map(),
+        };
+        state = created;
+        follows.set(system, created);
+        void follow(created, system);
+        const stopList = transport.watchPages?.((latest) => revisions(created, latest));
+        if (stopList) created.stops.push(stopList);
       }
-      const active = follow;
+      const active = state;
       active.listeners.add(changed);
       return () => {
         active.listeners.delete(changed);
         if (active.listeners.size) return;
         clearTimeout(active.timer);
         active.stopped = true;
-        for (const stop of active.stops.values()) stop();
+        for (const stop of active.stops) stop();
         follows.delete(system);
       };
     },
@@ -260,35 +315,64 @@ export function pageDesignSystems(
 
 /** The draft as publish compiles it: the root's config and each component page's block, at the
  * version the next publish makes. Throws `DesignDraftError` naming what is broken. */
+/** Component docs a follow already read, by page: reused while the live list names the same
+ * revision for that page, so a recompile reads only the pages that moved. */
+export interface ComponentDocs {
+  get(page: string): ComponentDoc | undefined;
+  /** The page's revision now, taken before a read so the doc is never filed under a later one. */
+  revision(page: string): string | undefined;
+  set(page: string, revision: string, doc: ComponentDoc): void;
+}
 export async function compileDraft(
   transport: PageTransport,
   rootId: string,
   version?: string,
+  docs?: ComponentDocs,
 ): Promise<DesignSystemBundle> {
   const config = await withPage(transport, rootId, async (root) =>
     readBlock<DesignSystemConfig>(root.source, 'design-system'),
   );
   if (!config) throw new DesignDraftError('The design system page has no design-system block.');
-  return draftOf(transport, rootId, config, version ?? nextVersion(config));
+  return draftOf(transport, rootId, config, version ?? nextVersion(config), docs);
 }
 async function draftOf(
   transport: PageTransport,
   rootId: string,
   config: DesignSystemConfig,
   version: string,
+  docs?: ComponentDocs,
 ): Promise<Bundle> {
-  const components: ComponentDoc[] = [];
-  for (const entry of config.components) {
+  for (const entry of config.components)
     if (!entry.page) throw new DesignDraftError(`${entry.tag} has no page.`);
-    const doc = await withPage(transport, entry.page, async (page) => {
-      const block = readBlock<ComponentDoc>(page.source, 'component');
-      return block && { ...block, examples: pageExamples(page.source) };
-    });
-    if (!doc) throw new DesignDraftError(`The ${entry.tag} page has no component block.`);
-    components.push(doc);
-  }
+  // A few component pages open at once, in order: a system has far more component pages than a
+  // page may wait for one after another (PIN_WAIT_MS), and far more than the door's tunnels.
+  const components = Array.from<ComponentDoc | undefined>({ length: config.components.length });
+  let next = 0;
+  const reader = async () => {
+    while (next < config.components.length) {
+      const index = next++;
+      const entry = config.components[index]!;
+      const cached = docs?.get(entry.page!);
+      const revision = cached ? undefined : docs?.revision(entry.page!);
+      const doc =
+        cached ??
+        (await withPage(transport, entry.page!, async (page) => {
+          const block = readBlock<ComponentDoc>(page.source, 'component');
+          return block && { ...block, examples: pageExamples(page.source) };
+        }));
+      if (!doc) {
+        // The first broken page ends the compile: the other readers stop at their next page.
+        next = config.components.length;
+        throw new DesignDraftError(`The ${entry.tag} page has no component block.`);
+      }
+      components[index] = doc;
+      if (revision !== undefined) docs?.set(entry.page!, revision, doc);
+    }
+  };
+  await Promise.all(Array.from({ length: DRAFT_READS }, reader));
+  const read = components as ComponentDoc[];
   try {
-    return await buildBundle(rootId, { ...config, version }, components, sha256Hex);
+    return await buildBundle(rootId, { ...config, version }, read, sha256Hex);
   } catch (error) {
     throw new DesignDraftError(error instanceof Error ? error.message : String(error));
   }

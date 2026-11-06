@@ -182,6 +182,10 @@ a page with work: its `work.json` bytes and the manifest that lists them after `
 standalone copies: a runtime page (`standalone`), a design-system page (`standaloneDesign`) and one that
 asks for both (`standaloneBoth`). `design-marker-v1.json` pins the plain text test that decides whether a
 page uses the design system, for the renderer frame, the browser export and the native export.
+`page-list-v1.json` pins the [live page list](../colab-v1.md#live-page-list): the list tokens the held
+read accepts in its path, the revision tokens a row may carry, and how the browser reads a list or
+held reply for its revisions (`tests/socket.rs`, `test/page-list-feed.test.ts`).
+
 `page-elements-v1.json` lists Colab's own page elements, which the design-system page check skips.
 
 `publication-reference.py` independently frames and signs the content-publication contract

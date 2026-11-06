@@ -4376,6 +4376,44 @@ the existing retained deleted-page IDs solely to prevent historical prefixes reb
 no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
 Browser discovery caps the complete serialized metadata response at 2 MiB.
 
+### Live page list
+
+The owner list also carries `listToken`, 64 lowercase hex digits: a digest of every listed page's
+store fingerprint, opaque to the browser. Each row may carry `revision`, the page's revision token
+exactly as `page read` returns it (`v1:` and 64 hex digits). Both move when a page's head does.
+Because the token includes the membership head, a membership change (another page created, shared
+or archived) moves every page's revision; a draft follower then recompiles once, coalesced like any
+other burst. A page whose fingerprint did not change adds no traffic.
+
+`GET /api/pages/after/<listToken>` is the same owner-only read held open: it answers with the full
+list as soon as the list's token is no longer `<listToken>`, and otherwise after the hold with
+exactly `{listToken, unchanged:true}`. The serve checks every 250 ms (`PAGE_LIST_POLL`), holds at
+most 2.5 s (`PAGE_LIST_HOLD`) and at most 4 such reads at once (`PAGE_LIST_HOLDS`); a fifth gets 503
+`{code:"CAPACITY"}` at once and is never queued. A read whose client leaves, or whose serve stops,
+ends at once. The hold must stay under two timeouts: Remote's mounted-reply deadline,
+`limits::MOUNT_RESPONSE` (15 s) in `extensions/tmt-remote`, and the 3 s grace a serve gives its
+Remote to stop (`REMOTE_STOP_GRACE`), because the door waits for in-flight mounted replies when it
+stops. A change to either changes this one. Once the door ends in-flight requests at stop
+([#6171](https://github.com/tmt-ninja/tmt/issues/6171)) the hold goes back to 10 s. A held read takes one of the door's 32 connections (`limits::SOCKETS`) and one of
+the serve's 16 non-tunnel workers, never a sync tunnel. A non-owner read is 403 `{code:"DENIED"}`, a
+malformed token 404, and a method other than GET or an upgrade `{code:"INVALID"}`.
+
+A browser holds at most one such read for a mount, however many tabs and pages listen
+(`PageListFeed`). Browsers allow six HTTP/1.1 connections per host across all of a profile's tabs,
+so a held read in every tab would queue behind each other and starve the origin. The tab holding the
+Web Lock `colab-page-list:<mount>` reads the list once, holds with its token and holds again after
+each answer; it posts each list's revisions on the BroadcastChannel of the same name, and answers a
+new tab's `hello` with the latest. The other tabs only listen: a message that is not exactly
+`{v:1,type:"hello"}` or `{v:1,type:"revisions",revisions:[[pageId,revision],…]}` (at most 1,000
+canonical page IDs and revision tokens) is ignored, and a valid one is only a hint that pages moved,
+since every tab compiles from its own verified page reads. A tab that becomes visible takes the
+lock (`steal`), so a hidden or frozen holder never stalls the rest; at that handover the old read is
+cancelled as the new one starts. When the holder closes, a waiting tab takes the lock. Where
+`navigator.locks` or `BroadcastChannel` is missing, each tab holds its own read and the serve's cap
+bounds them. A refused or failed read is never shown as an error: the reading tab waits 30 s
+(`PAGE_LIST_BACKOFF_MS`), reads the whole list once and tries a held read again. Only the mounted
+owner transport has the live list.
+
 A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
 follows the install's `current` selection (`serve_release.rs`); version direction belongs to
 installation, not Colab. A different release with a different receipt version is checked
@@ -5543,7 +5581,11 @@ A page names one system with `<meta name="tmt-ds" content="PIN">` (#5967). `PIN`
 follows the system's live draft, or `SYSTEM@VERSION#sha256-HEX`, which locks one release. The app
 compiles a followed draft from the root page's config and each component page's block, as publish
 compiles them; a page that follows it redraws when one of those pages changes (edits settle for
-500 ms). A draft that does not compile shows the page's design-system notice, never a blank page.
+500 ms, so a burst is one recompile, and a newer recompile replaces an older one's frame). While a
+page follows, only the root stays subscribed, so a follow holds one page connection whatever the
+system's size: component changes come from the [live page list](#live-page-list)'s revisions, and a
+component page is opened only for the compile itself. Where no live list exists (hosted, readers)
+a component edit shows on the next open or root change. A draft that does not compile shows the page's design-system notice, never a blank page.
 A lock is verified against its release's hash and never changes. Publish records a release and
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing.

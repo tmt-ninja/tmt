@@ -1,7 +1,7 @@
 // Point-and-fix on a design-system page (#5866): a person comments on an example with @agent, the
 // agent patches that example through the CLI, and the open Design page re-renders it live; Chat
 // works on the same page.
-import { expect, test } from '@playwright/test';
+import { expect, test, type WebSocket } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -14,7 +14,7 @@ import {
 import { withWorld } from './harness/with-world.js';
 
 test('an @agent comment on a design-system example becomes a live patch of that example', async () => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('sample-1');
@@ -22,6 +22,37 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     // A serve without `page.new` makes a new system's root under an existing page and detaches it.
     createPage(world, 'sample-lead notes', '<h1>Notes</h1>');
     const page = await browser.context.newPage();
+    // Open page connections (Colab sync sockets), as the door sees them.
+    const sync = new Set<WebSocket>();
+    page.on('websocket', (socket) => {
+      if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+      sync.add(socket);
+      socket.on('close', () => sync.delete(socket));
+    });
+    // Held list reads in flight across this browser's tabs (#6162), counted from the first request.
+    // A closed tab never reports its last request finished, so each tab counts its own.
+    const inFlight = new Map<number, number>();
+    const held = {
+      by: new Set<number>(),
+      get now() {
+        return [...inFlight.values()].reduce((sum, count) => sum + count, 0);
+      },
+    };
+    const watch = (tab: number, target: typeof page) => {
+      const isHeld = (url: string) =>
+        /\/api\/pages\/after\/[0-9a-f]{64}$/.test(new URL(url).pathname);
+      target.on('request', (request) => {
+        if (!isHeld(request.url())) return;
+        inFlight.set(tab, (inFlight.get(tab) ?? 0) + 1);
+        held.by.add(tab);
+      });
+      const done = (request: { url(): string }) => {
+        if (isHeld(request.url())) inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
+      };
+      target.on('requestfinished', done);
+      target.on('requestfailed', done);
+    };
+    watch(0, page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${door.origin}/design/`);
     await page.getByRole('button', { name: 'New design system', exact: true }).click();
@@ -37,6 +68,36 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const example = frame.locator('[data-ds-example="button:secondary"]');
     const draft = example.getByRole('button', { name: 'Draft', exact: true });
     await expect(draft).not.toHaveAttribute('data-variant', 'outline');
+
+    // The open page follows its system's draft (#6162). A new system has far more component pages
+    // than the door's 16 tunnels, yet the page holds two connections: its own and its system's root.
+    // Component changes come from the live page list, never a connection per component.
+    await expect.poll(() => sync.size, { timeout: 30_000 }).toBe(2);
+    // A CLI edit to a component page no browser has open recompiles the draft the page follows.
+    const card = page.getByRole('link', { name: 'Card brio-card', exact: true });
+    const cardId = (await card.getAttribute('href'))!.split('/').pop()!;
+    run(world, world.binaries.colab, [
+      'page',
+      'patch',
+      cardId,
+      '--find',
+      '"css": "',
+      '--replace',
+      '"css": ".zz-live-6162{outline:0}',
+      '--json',
+    ]);
+    await expect
+      .poll(
+        () =>
+          frame
+            .locator('style')
+            .evaluateAll((nodes) =>
+              nodes.some((node) => node.textContent?.includes('.zz-live-6162')),
+            ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    expect(sync.size).toBe(2);
 
     // Selection mode, then a click anywhere in the example quotes the whole example.
     await frame.locator('h1').click();
@@ -86,7 +147,9 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '&lt;brio-button variant=&quot;outline&quot;&gt;Draft',
       '--json',
     ]);
-    await expect(draft).toHaveAttribute('data-variant', 'outline');
+    // The patched page is also one of its system's components: the draft recompiles once the edit
+    // settles and the frame draws again, so this waits past the in-place update.
+    await expect(draft).toHaveAttribute('data-variant', 'outline', { timeout: 20_000 });
     await expect(example.locator('pre')).toContainText(
       '<brio-button variant="outline">Draft</brio-button>',
     );
@@ -96,5 +159,65 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const composed = await composeChat(page, agent, 'Which examples use the outline variant?');
     await sendChat(page, composed);
     expect(composed.delivered()).toContain('Which examples use the outline variant?');
+
+    // Five tabs follow the draft. Browsers allow six HTTP/1.1 connections per host across tabs, so
+    // one tab holds the list read for the whole browser and the others hear it (#6162).
+    const tabs = [page];
+    for (let tab = 1; tab < 5; tab++) {
+      const next = await browser.context.newPage();
+      await next.setViewportSize({ width: 1440, height: 1000 });
+      watch(tab, next);
+      await next.goto(page.url());
+      await expect(
+        next
+          .locator('.design-workspace iframe')
+          .first()
+          .contentFrame()
+          .locator('[data-ds-example]')
+          .first(),
+      ).toBeVisible({ timeout: 60_000 });
+      tabs.push(next);
+    }
+    // Settled: one held read in flight for the five tabs.
+    await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
+    held.by.clear();
+    // A CLI edit to an unopened component page reaches every tab through that one read.
+    run(world, world.binaries.colab, [
+      'page',
+      'patch',
+      cardId,
+      '--find',
+      '.zz-live-6162{outline:0}',
+      '--replace',
+      '.zz-live-6162b{outline:0}',
+      '--json',
+    ]);
+    for (const tab of tabs)
+      await expect
+        .poll(
+          () =>
+            tab
+              .locator('.design-workspace iframe')
+              .first()
+              .contentFrame()
+              .locator('style')
+              .evaluateAll((nodes) =>
+                nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
+              ),
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+    // One tab issued every held read meanwhile (a request's finished event can trail the next
+    // request, so the in-flight count is read only when settled).
+    expect(held.by.size).toBe(1);
+    await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
+    // The holding tab closes: another tab takes the read over.
+    const holder = [...held.by][0]!;
+    await tabs[holder]!.close();
+    inFlight.delete(holder);
+    held.by.clear();
+    await expect.poll(() => held.by.size, { timeout: 30_000 }).toBe(1);
+    expect(held.by.has(holder)).toBe(false);
+    await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
   });
 });

@@ -181,6 +181,15 @@ pub const WORK_BYTES: usize = 128 * 1024;
 /// Legacy-migration-only: the most tasks a task-era version 1 value held. It is still read while
 /// the serve rewrites it as version 2 (#5825); nothing writes it any more.
 pub const WORK_TASKS: usize = 256;
+/// Live page list (contract: Live page list): a held `GET /api/pages/after/<token>` waits at most
+/// `PAGE_LIST_HOLD` for the list to change, checking every `PAGE_LIST_POLL`, and at most
+/// `PAGE_LIST_HOLDS` wait at once on one serve. Remote's door waits for a mounted reply when it
+/// stops, so the hold stays under `REMOTE_STOP_GRACE` here (3 s) as well as under Remote's
+/// `limits::MOUNT_RESPONSE` (15 s); it goes back to 10 s once the door ends in-flight requests at
+/// stop (#6171).
+pub const PAGE_LIST_HOLD: Duration = Duration::from_millis(2500);
+pub const PAGE_LIST_POLL: Duration = Duration::from_millis(250);
+pub const PAGE_LIST_HOLDS: usize = 4;
 /// The most the owner's `/api/pages` reply may hold: the browser refuses a longer one
 /// (`DISCOVERY_BYTES` in `bootstrap.ts` holds the same number). The 1,000-row worst case without
 /// titles is 1,052,197 bytes, so every row's longest title fits as well.
