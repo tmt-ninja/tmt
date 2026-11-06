@@ -437,10 +437,12 @@ test('compact project condition preserves draft and focus across viewport change
   await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
-  const chip = home.getByRole('button', { name: 'Remove project: blog', exact: true });
+  // The picked project is a token in the field; the typed text beside it stays a draft.
+  const chip = home.getByRole('button', { name: 'Remove project filter blog', exact: true });
   await expect(chip).toBeVisible();
-  await expect(search).toHaveText('a long unfinished query that remains a draft');
-  expect(new URL(page.url()).hash).toContain('scope=blog');
+  await expect(search).toContainText('a long unfinished query that remains a draft');
+  expect(decodeURIComponent(new URL(page.url()).hash)).toContain('project=["blog"]');
+  expect(new URL(page.url()).hash).not.toContain('q=');
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
   await chip.focus();
@@ -451,7 +453,7 @@ test('compact project condition preserves draft and focus across viewport change
   expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(chip).toBeFocused();
-  await expect(search).toHaveText('a long unfinished query that remains a draft');
+  await expect(search).toContainText('a long unfinished query that remains a draft');
   await search.fill('');
   await search.press('Escape');
   await page.keyboard.press('/');

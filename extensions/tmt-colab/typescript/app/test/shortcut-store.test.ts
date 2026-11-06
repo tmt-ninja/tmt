@@ -67,13 +67,13 @@ it('never commits unreadable filters or a migration marker after failed persiste
   storage.setItem = write;
   store.migrate({ automatic: false, names: ['design'] });
   expect(store.read().items).toHaveLength(1);
-  expect(() =>
-    store.save({
-      name: 'Too many',
-      search: { scope: 'scope', project: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] },
-    }),
-  ).toThrow();
-  expect(store.read().items).toHaveLength(1);
+  // A page holds at most eight projects, so a saved list keeps the first eight conditions.
+  const many = store.save({
+    name: 'Many',
+    search: { project: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] },
+  });
+  expect(many.search.project).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  expect(store.read().items).toHaveLength(2);
 });
 
 it('moves a shortcut to the target row index in either direction using the latest record', () => {
