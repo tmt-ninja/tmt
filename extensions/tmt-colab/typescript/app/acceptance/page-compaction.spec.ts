@@ -1,5 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { patchArgs, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -7,6 +9,138 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 // #1627 slice B: the CLI combines its own tail into a checkpoint, so a page takes far more than
 // 200 changes, the browser still opens and edits it, and the exact source survives everywhere.
 const MIB = 1024 * 1024;
+// Project synthetic traces before they leave the private runner: never retain URLs, source,
+// arbitrary arguments or unknown script names in the public acceptance artifact.
+async function traceLargeWrites(page: Page, name: string) {
+  if (!process.env.RUNNER_TEMP) return async () => {};
+  const client = await page.context().newCDPSession(page);
+  const events: Record<string, unknown>[] = [];
+  const moduleName = (value: unknown) => {
+    try {
+      const file = path.posix.basename(new URL(String(value)).pathname);
+      return /^(?:renderer\.html|(?:index|reader|runtime|module)(?:-[\w-]{1,20})?\.js)$/.test(file)
+        ? file
+        : '';
+    } catch {
+      return '';
+    }
+  };
+  const functionName = (value: unknown) =>
+    typeof value === 'string' && /^[A-Za-z_$][\w.$]{0,63}$/.test(value) ? value : undefined;
+  const allowed = new Set([
+    'RunTask',
+    'ThreadControllerImpl::RunTask',
+    'ThreadPool_RunTask',
+    'RunMicrotasks',
+    'FunctionCall',
+    'EvaluateScript',
+    'EventDispatch',
+    'FireAnimationFrame',
+    'TimerFire',
+    'TimeStamp',
+    'Layout',
+    'UpdateLayoutTree',
+    'PrePaint',
+    'Paint',
+    'ParseHTML',
+    'V8.Execute',
+    'V8.HandleInterrupts',
+    'V8.BytecodeBudgetInterrupt',
+    'V8.BytecodeBudgetInterruptWithStackCheck',
+    'MinorGC',
+    'MajorGC',
+    'V8.GCScavenger',
+    'V8.GCFinalizeMC',
+    'Profile',
+    'ProfileChunk',
+  ]);
+  let truncated = false;
+  client.on('Tracing.dataCollected', ({ value }) => {
+    for (const item of value) {
+      if (!allowed.has(item.name) || typeof item.ts !== 'number') continue;
+      if (events.length >= 100_000) {
+        truncated = true;
+        continue;
+      }
+      const data = (
+        item.args as unknown as {
+          data?: {
+            url?: unknown;
+            functionName?: unknown;
+            message?: unknown;
+            startTime?: unknown;
+            cpuProfile?: { nodes?: unknown; samples?: unknown };
+            timeDeltas?: unknown;
+          };
+        }
+      )?.data;
+      if (item.name === 'TimeStamp' && data?.message !== 'colab-large-start') continue;
+      const module = moduleName(data?.url);
+      const fn = module ? functionName(data?.functionName) : undefined;
+      const numbers = (value: unknown) =>
+        Array.isArray(value) ? value.slice(0, 10_000).filter(Number.isSafeInteger) : [];
+      const nodes = Array.isArray(data?.cpuProfile?.nodes)
+        ? data.cpuProfile.nodes.slice(0, 10_000).flatMap((node: unknown) => {
+            if (!node || typeof node !== 'object') return [];
+            const n = node as {
+              id?: unknown;
+              parent?: unknown;
+              callFrame?: { url?: unknown; functionName?: unknown };
+            };
+            if (!Number.isSafeInteger(n.id)) return [];
+            const own = moduleName(n.callFrame?.url);
+            const label = own ? functionName(n.callFrame?.functionName) : undefined;
+            const builtin = n.callFrame?.functionName === '(garbage collector)' ? 'GC' : undefined;
+            return [
+              {
+                id: n.id,
+                ...(Number.isSafeInteger(n.parent) ? { parent: n.parent } : {}),
+                ...(own ? { module: own } : {}),
+                ...(label || builtin ? { function: label || builtin } : {}),
+              },
+            ];
+          })
+        : undefined;
+      events.push({
+        name: item.name,
+        ph: item.ph,
+        ts: item.ts,
+        dur: item.dur,
+        pid: item.pid,
+        tid: item.tid,
+        ...(module ? { module } : {}),
+        ...(fn ? { function: fn } : {}),
+        ...(typeof data?.startTime === 'number' ? { startTime: data.startTime } : {}),
+        ...(nodes
+          ? {
+              nodes,
+              samples: numbers(data?.cpuProfile?.samples),
+              timeDeltas: numbers(data?.timeDeltas),
+            }
+          : {}),
+      });
+    }
+  });
+  await client.send('Tracing.start', {
+    categories:
+      'toplevel,devtools.timeline,v8.execute,disabled-by-default-devtools.timeline.stack,disabled-by-default-v8.cpu_profiler',
+    transferMode: 'ReportEvents',
+  });
+  return async () => {
+    const complete = new Promise<void>((resolve) =>
+      client.once('Tracing.tracingComplete', () => resolve()),
+    );
+    await client.send('Tracing.end');
+    await complete;
+    const out = path.join(process.env.RUNNER_TEMP!, 'colab-acceptance-results');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(
+      path.join(out, `large-page-${name}-trace.json`),
+      JSON.stringify({ events, truncated }),
+    );
+    await client.detach();
+  };
+}
 const text = (n: number) => {
   let out = '';
   for (let i = 0; out.length < n; i++)
@@ -173,7 +307,8 @@ for (const [kind, top] of [
       const prepareStarted = Date.now();
       await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1, { timeout: 60_000 });
       const prepareMs = Date.now() - prepareStarted;
-      await page.evaluate(() => {
+      const finishTrace = await traceLargeWrites(page, kind ? 'open' : 'regular');
+      const clock = await page.evaluate(() => {
         const long: { duration: number; start: number; owner: string }[] = [];
         Object.defineProperty(window, 'longTasks', { value: long });
         new PerformanceObserver((list) => {
@@ -189,13 +324,15 @@ for (const [kind, top] of [
             });
           }
         }).observe({ type: 'longtask' });
+        console.timeStamp('colab-large-start');
+        return { origin: performance.timeOrigin, mark: performance.now() };
       });
       const started = Date.now();
       const writes: { patchMs: number; readyMs: number; begin: number; end: number }[] = [];
       for (let i = 1; i <= 10; i++) {
         const held = source;
         source = `${body}<p id="n">${i}</p>`;
-        const begin = await page.evaluate(() => performance.now());
+        const begin = Date.now() - started;
         const patchStarted = Date.now();
         run(
           world,
@@ -207,15 +344,8 @@ for (const [kind, top] of [
         const readyStarted = Date.now();
         await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
         const readyMs = Date.now() - readyStarted;
-        const sample = await page.evaluate(() => ({
-          end: performance.now(),
-          longTasks: (window as unknown as {
-            longTasks: { duration: number; start: number; owner: string }[];
-          }).longTasks,
-        }));
-        const write = { patchMs, readyMs, begin: Math.round(begin), end: Math.round(sample.end) };
+        const write = { patchMs, readyMs, begin, end: Date.now() - started };
         writes.push(write);
-        console.log(`colab-large-write ${JSON.stringify({ write, longTasks: sample.longTasks })}`);
       }
       await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
       const long = await page.evaluate(
@@ -223,6 +353,7 @@ for (const [kind, top] of [
           (window as unknown as { longTasks: { duration: number; start: number; owner: string }[] })
             .longTasks,
       );
+      await finishTrace();
       const busy = JSON.stringify({
         longTasks: long.map((task) => ({
           duration: Math.round(task.duration),
@@ -231,6 +362,9 @@ for (const [kind, top] of [
         })),
         busyMs: Math.round(long.reduce((sum, value) => sum + value.duration, 0)),
         windowMs: Date.now() - started,
+        timeOrigin: clock.origin,
+        traceMarkMs: clock.mark,
+        startedEpochMs: started,
         setup: { createMs, openMs, firstPaintMs, prepareMs },
         writes,
       });
