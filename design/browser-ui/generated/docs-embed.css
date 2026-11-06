@@ -1713,17 +1713,19 @@ a.tmt-block-mention:focus-visible {
 }
 .tmt-block-mockup-segments > button[aria-pressed='true'] {
   position: relative;
-  border-color: var(--tmt-ui-color-accent);
-  background: var(--tmt-ui-color-accent-fill);
-  color: var(--tmt-ui-color-on-accent);
+  z-index: 1;
+  border-color: var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-text-action);
 }
 .tmt-block-mockup-segments > button:focus-visible {
   position: relative;
   z-index: 1;
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+
 .tmt-block-mockup-viewport {
-  overflow: auto;
+  overflow: clip;
   background: var(--tmt-ui-surface-hover);
 }
 

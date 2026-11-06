@@ -1041,7 +1041,8 @@ for (const width of [390, 1440])
     );
     const content = page.frameLocator('iframe[title="Page content"]');
     const stage = (id: string) => content.locator(`#${id} [data-tmt-ds-scope]`);
-    const height = async (id: string) => Math.round((await stage(id).boundingBox())?.height ?? 0);
+    // The stage's own height, before any fit-to-block scale.
+    const height = (id: string) => stage(id).evaluate((node: HTMLElement) => node.offsetHeight);
     await expect(stage('hug').getByText('Short')).toBeVisible();
     // The stage is its content's height, and follows it; a minimum holds a shorter content.
     await expect.poll(() => height('hug')).toBe(150);
@@ -1076,7 +1077,34 @@ for (const width of [390, 1440])
         Math.abs(inner.x - box.x - (box.x + box.width - inner.x - inner.width)),
       ).toBeLessThanOrEqual(1);
     else expect(inner?.x).toBe(box?.x);
-    // Each group keeps its segments on one row inside the block; the chosen one is filled.
+    // A stage wider than its block scales to fit at any width and says so; nothing scrolls
+    // sideways, and every sheet row, shortcut included, stays inside the block.
+    for (const id of ['hug', 'min', 'sheet']) {
+      const viewport = content.locator(`#${id} .tmt-block-mockup-viewport`);
+      const fit = await viewport.evaluate((node) => {
+        node.scrollLeft = 100;
+        return { scrolled: node.scrollLeft, client: node.clientWidth };
+      });
+      expect(fit.scrolled).toBe(0);
+      const label = content.locator(`#${id} .tmt-block-mockup-scale`);
+      if (fit.client < 390) {
+        await expect(label).toHaveText(`Scaled ${Math.round((fit.client / 390) * 100)}%`);
+      } else await expect(label).toHaveCount(0);
+      const edge = await viewport.boundingBox();
+      const drawn = await stage(id).boundingBox();
+      expect((drawn?.x ?? 0) + (drawn?.width ?? Infinity)).toBeLessThanOrEqual(
+        (edge?.x ?? 0) + (edge?.width ?? 0) + 0.5,
+      );
+    }
+    for (const option of await sheet.getByRole('option').all()) {
+      const row = await option.boundingBox();
+      const edge = await content.locator('#sheet').boundingBox();
+      expect((row?.x ?? 0) + (row?.width ?? Infinity)).toBeLessThanOrEqual(
+        (edge?.x ?? 0) + (edge?.width ?? 0) + 0.5,
+      );
+    }
+    // Each group keeps its segments on one row inside the block; the chosen one takes the
+    // neutral selection surface (as a flat tab), never the accent fill of a primary action.
     const block = await content.locator('#hug').boundingBox();
     for (const name of ['Stage width', 'Theme']) {
       const group = content.locator('#hug').getByRole('group', { name });
@@ -1110,6 +1138,17 @@ for (const width of [390, 1440])
     const fill = (button: typeof chosen) =>
       button.evaluate((node) => getComputedStyle(node).backgroundColor);
     expect(await fill(chosen)).not.toBe(await fill(other));
+    const token = (name: string) =>
+      chosen.evaluate((node, name) => {
+        const probe = node.ownerDocument.createElement('i');
+        probe.style.background = `var(${name})`;
+        node.append(probe);
+        const value = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return value;
+      }, name);
+    expect(await fill(chosen)).toBe(await token('--tmt-ui-surface-selection'));
+    expect(await fill(chosen)).not.toBe(await token('--tmt-ui-color-accent-fill'));
     // Hugging never reads as viewport coupling.
     await expect(page.locator('iframe[title="Page content"]')).toHaveAttribute(
       'data-scroll-mode',

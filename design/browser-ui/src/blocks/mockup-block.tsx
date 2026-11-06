@@ -81,7 +81,8 @@ export function MockupBlock({
     observer.observe(node);
     return () => observer.disconnect();
   }, [unavailable]);
-  const scale = stageWidth <= 390 ? 1 : Math.min(1, availableWidth / Math.max(stageWidth, 1));
+  // A stage wider than its block, at any width, scales down to fit; it never scrolls sideways.
+  const scale = Math.min(1, availableWidth / Math.max(stageWidth, 1));
   const choose = (next: number) => {
     setCustom(false);
     setStageWidth(next);

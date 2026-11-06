@@ -9,7 +9,9 @@ test('a 1440 mockup fits its own container without a document frame', async ({ p
   });
   const stage = page.locator('[data-tmt-ds-scope]');
   await expect(stage.getByRole('button', { name: 'Inside stage' })).toBeVisible();
-  expect((await stage.boundingBox())!.width).toBeCloseTo(390, 0);
+  // A 390 stage in a 300px block scales to fit too, rather than scrolling sideways.
+  expect((await stage.boundingBox())!.width).toBeCloseTo(300, 0);
+  await expect(page.getByText('Scaled 77%')).toBeVisible();
   await page.getByRole('button', { name: '1440' }).click();
   await expect(page.getByRole('button', { name: '1440' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('Scaled 21%')).toBeVisible();

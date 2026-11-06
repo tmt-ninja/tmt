@@ -129,10 +129,16 @@ describe('BlockMenu catalog rows', () => {
     expect(all(doc, /(role="menuitem")/g)).toHaveLength(4);
   });
 
-  it('draws `id:text` entries as that catalog row with the given text, and renames groups', () => {
+  it('draws `id:text` entries as that catalog row with the given text and no English description, and renames groups', () => {
     const doc = markup({
       label: '插入區塊',
-      items: ['group:basic:基本', 'group:structure:結構', 'text:段落', 'code:程式碼', 'table:表格'],
+      items: [
+        'group:basic:基本',
+        'group:structure:結構',
+        'text:段落',
+        'code:程式碼:檔案或指令',
+        'table:表格',
+      ],
       activeItem: 'table',
     });
     expect(
@@ -144,17 +150,18 @@ describe('BlockMenu catalog rows', () => {
         active,
       })),
     ).toEqual([
-      { label: '段落', description: 'Plain text', shortcut: '/text', icon: true, active: false },
+      // A relabelled row hides the catalog's English description; `id:text:description` sets its own.
+      { label: '段落', description: undefined, shortcut: '/text', icon: true, active: false },
       {
         label: '程式碼',
-        description: 'A file or a command',
+        description: '檔案或指令',
         shortcut: '```',
         icon: true,
         active: false,
       },
       {
         label: '表格',
-        description: 'Columns and rows',
+        description: undefined,
         shortcut: '/table',
         icon: true,
         active: true,
@@ -167,6 +174,7 @@ describe('BlockMenu catalog rows', () => {
       '基本',
     ]);
     expect(doc).not.toContain('group:');
+    expect(doc).not.toMatch(/Plain text|Columns and rows|A file or a command/);
   });
 
   it('draws block actions by id with the given text and keeps their keys and danger mark', () => {

@@ -67,6 +67,8 @@ interface Row {
   text: string;
   /** What `activeItem` may name: the entry as written, its id and its text. */
   names: string[];
+  /** The description shown: the catalog's, the entry's own, or none for a relabelled row. */
+  description?: string;
   item?: InsertItem;
   action?: Action;
   group?: string;
@@ -74,8 +76,9 @@ interface Row {
 
 /**
  * Read `items` entries. `group:<id>:<heading>` renames a catalog group; `<id>:<label>` is the
- * catalog row of that id with its own text (a page in another language keeps the icon,
- * description and shortcut); any other entry is the row of that label, else a plain row. A
+ * catalog row of that id with its own text, keeping the icon and shortcut but no description,
+ * so a page in another language mixes in no English; `<id>:<label>:<description>` gives the
+ * row its own description too. Any other entry is the row of that label, else a plain row. A
  * malformed entry is a plain row with its text; nothing throws.
  */
 function readItems(kind: MenuKind, entries: readonly string[]) {
@@ -89,9 +92,10 @@ function readItems(kind: MenuKind, entries: readonly string[]) {
       headings.set(heading[1]!, heading[2]!.trim());
       continue;
     }
-    const keyed = /^([a-z][a-z-]*):(.+)$/.exec(entry);
+    const keyed = /^([a-z][a-z-]*):([^:]+)(?::(.*))?$/.exec(entry);
     const id = keyed?.[1];
     const text = keyed?.[2]?.trim();
+    const description = keyed?.[3]?.trim() || undefined;
     if (kind === 'actions') {
       const byId = id ? blockActions.find((action) => action.id === id) : undefined;
       const action = byId ?? blockActions.find((candidate) => same(candidate.label, entry));
@@ -104,9 +108,11 @@ function readItems(kind: MenuKind, entries: readonly string[]) {
       for (const item of group.items)
         if (!found && (id && text ? item.id === id : same(item.label, entry)))
           found = { item, group: group.id };
-    const shown = found && id && text ? text : (found?.item.label ?? entry);
+    const relabelled = Boolean(found && id && text);
+    const shown = relabelled ? text! : (found?.item.label ?? entry);
     rows.push({
       text: shown,
+      description: relabelled ? description : found?.item.description,
       names: [entry, shown, ...(found ? [found.item.id] : [])],
       item: found?.item,
       group: found?.group,
@@ -156,7 +162,7 @@ function CatalogRows({
       <BlockMenuItem
         key={`${at}-${row.text}`}
         icon={row.item?.icon}
-        description={row.item?.description}
+        description={row.description}
         shortcut={row.item?.shortcut}
         active={isActive(row)}
       >

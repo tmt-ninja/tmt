@@ -784,7 +784,8 @@ a.tmt-block-mention:focus-visible {
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--tmt-ui-font-mono);
 }
-/* A segmented control: joined buttons, the chosen one filled; a group wraps only as a whole. */
+/* A segmented control: joined buttons, the chosen one in the neutral selection tone (as a flat
+   tab; accent fill stays for primary actions); a group wraps only as a whole. */
 .tmt-block-mockup-segments {
   display: inline-flex;
   flex-wrap: nowrap;
@@ -814,17 +815,20 @@ a.tmt-block-mention:focus-visible {
 }
 .tmt-block-mockup-segments > button[aria-pressed='true'] {
   position: relative;
-  border-color: var(--tmt-ui-color-accent);
-  background: var(--tmt-ui-color-accent-fill);
-  color: var(--tmt-ui-color-on-accent);
+  z-index: 1;
+  border-color: var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-text-action);
 }
 .tmt-block-mockup-segments > button:focus-visible {
   position: relative;
   z-index: 1;
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+/* The stage always fits (scaled when wider), so the viewport clips: a scaled stage's untransformed
+   box would otherwise scroll into blank space. */
 .tmt-block-mockup-viewport {
-  overflow: auto;
+  overflow: clip;
   background: var(--tmt-ui-surface-hover);
 }
 /* A stage narrower than its viewport sits in the middle. */
