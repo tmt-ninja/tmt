@@ -5,14 +5,15 @@ mod door;
 
 #[test]
 fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
-    use std::{fs, os::unix::fs::symlink, process::Command};
+    use std::{fs, os::unix::fs::PermissionsExt, process::Command};
     let h = door::Harness::new(tmt_remote::pairing::Timing::CONTRACT);
     let core = door::core_fixture::Core::new();
     fs::write(core.root.join("storage-root"), h.root.to_str().unwrap()).unwrap();
     let bin = h.root.join("bin");
     fs::create_dir(&bin).unwrap();
     for name in ["open", "xdg-open"] {
-        symlink("/usr/bin/printf", bin.join(name)).unwrap();
+        fs::write(bin.join(name), "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o755)).unwrap();
     }
     let call = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_tmt-remote"))
@@ -102,7 +103,8 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
     );
     for name in ["open", "xdg-open"] {
         fs::remove_file(bin.join(name)).unwrap();
-        symlink("/usr/bin/false", bin.join(name)).unwrap();
+        fs::write(bin.join(name), "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o755)).unwrap();
     }
     let output = call(&["open", "/remote/settings", "--open"]);
     assert!(output.status.success());
@@ -120,15 +122,16 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
     for succeeds in [false, true] {
         for name in ["open", "xdg-open"] {
             fs::remove_file(bin.join(name)).unwrap();
-            symlink(
-                if succeeds {
-                    "/usr/bin/printf"
-                } else {
-                    "/usr/bin/false"
-                },
+            fs::write(
                 bin.join(name),
+                if succeeds {
+                    "#!/bin/sh\nexit 0\n"
+                } else {
+                    "#!/bin/sh\nexit 1\n"
+                },
             )
             .unwrap();
+            fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o755)).unwrap();
         }
         for command in ["launch", "open"] {
             let args = if command == "open" {

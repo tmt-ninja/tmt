@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,6 +14,18 @@ const viteRequire = createRequire(require.resolve('vite-plus/package.json'));
 const vitest = path.join(path.dirname(viteRequire.resolve('vitest/package.json')), 'vitest.mjs');
 const lifecycle = fileURLToPath(new URL('../e2e/harness/lifecycle.ts', import.meta.url));
 const fixtureModule = fileURLToPath(new URL('../e2e/harness/fixture.ts', import.meta.url));
+// Read-only provenance: a Linux CI pass can establish whether it exercised uutils.
+if (process.platform === 'linux') {
+  const version = spawnSync('/bin/sleep', ['--version'], { encoding: 'utf8', timeout: 1000 });
+  console.info(
+    'cleanup-signal sleep provenance:',
+    version.status === 0 ? version.stdout.split('\n')[0] : 'unavailable'
+  );
+}
+
+const executableWriter = fileURLToPath(
+  new URL('../support/executable-fixture.mjs', import.meta.url)
+);
 
 interface Proof {
   root: string;
@@ -65,11 +77,13 @@ it.each([
       import path from 'node:path';
       import { E2EFixture } from ${JSON.stringify(fixtureModule)};
       import { groupLeader } from ${JSON.stringify(lifecycle)};
+      import { writeExecutable } from ${JSON.stringify(executableWriter)};
       test('hold an owned fixture', async () => {
         const fixture = new E2EFixture();
         await fixture.start();
         const executable = path.join(fixture.root, 'bin', 'tmt-ops');
-        fs.symlinkSync('/bin/sleep', executable);
+        // Keep the shim as the group leader; call sleep under its real utility name.
+        writeExecutable(executable, ['#!/bin/sh', '/bin/sleep "$@" &', 'wait "$!"', ''].join(String.fromCharCode(10)), 0o755);
         let pid;
         let panePid;
         if (${JSON.stringify(scenario)}.startsWith('foreground ')) {

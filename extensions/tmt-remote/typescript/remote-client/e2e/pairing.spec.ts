@@ -3,16 +3,7 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:c
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
-import {
-  appendFile,
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -655,7 +646,10 @@ test('native plain opening preserves a manual offer and leaves an unpaired brows
   const original = await descriptor.json();
   const bin = join(root, 'opener-bin');
   await mkdir(bin);
-  for (const name of ['open', 'xdg-open']) await symlink('/usr/bin/printf', join(bin, name));
+  for (const name of ['open', 'xdg-open']) {
+    await writeFile(join(bin, name), '#!/bin/sh\nexit 0\n');
+    await chmod(join(bin, name), 0o755);
+  }
   const answer = JSON.parse(
     execFileSync(BINARY, ['launch', '/remote/overview', '--open'], {
       env: { ...env, PATH: `${bin}:${env.PATH ?? ''}` },
