@@ -1,6 +1,10 @@
 import { BrowserAction, BrowserDialog, BrowserField } from '@tmt/browser-ui/react';
-import { useId, useState } from 'react';
-import { createDesignSystem } from './design-system-pages.js';
+import { useId, useRef, useState } from 'react';
+import {
+  designSystemCreation,
+  type CreationProgress,
+  type DesignSystemCreation,
+} from './design-system-pages.js';
 import type { PageTransport } from './transport.js';
 import './design-system-ui.css';
 
@@ -25,17 +29,22 @@ export function DesignSystemDialog({
   const [prefix, setPrefix] = useState('my-ui');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [progress, setProgress] = useState<CreationProgress>();
+  // A started system keeps its name and prefix: Create again continues it, never a second copy.
+  const creation = useRef<DesignSystemCreation>(undefined);
   const prefixValid = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(prefix);
   const create = async () => {
     setBusy(true);
     setError(undefined);
+    creation.current ??= designSystemCreation(transport, { name: name.trim(), prefix });
     try {
-      onCreated(await createDesignSystem(transport, { name: name.trim(), prefix }));
+      onCreated(await creation.current.run(setProgress));
     } catch (failure) {
       setError(message(failure));
       setBusy(false);
     }
   };
+  const started = creation.current !== undefined;
   return (
     <BrowserDialog
       open
@@ -55,7 +64,7 @@ export function DesignSystemDialog({
           <BrowserAction
             type="button"
             variant="primary"
-            label="Create"
+            label={started ? 'Try again' : 'Create'}
             busy={busy}
             disabled={!name.trim() || !prefixValid}
             onActivate={() => void create()}
@@ -72,7 +81,12 @@ export function DesignSystemDialog({
           controlId={`${id}-name`}
           label="Name"
           renderControl={(props) => (
-            <input {...props} value={name} onChange={(event) => setName(event.target.value)} />
+            <input
+              {...props}
+              value={name}
+              readOnly={started}
+              onChange={(event) => setName(event.target.value)}
+            />
           )}
         />
         <BrowserField
@@ -84,9 +98,21 @@ export function DesignSystemDialog({
           errorId={`${id}-prefix-error`}
           invalid={!prefixValid}
           renderControl={(props) => (
-            <input {...props} value={prefix} onChange={(event) => setPrefix(event.target.value)} />
+            <input
+              {...props}
+              value={prefix}
+              readOnly={started}
+              onChange={(event) => setPrefix(event.target.value)}
+            />
           )}
         />
+        {busy && progress && (
+          <p role="status">
+            {progress.phase === 'pages'
+              ? `Writing pages: ${progress.done} of ${progress.total}`
+              : 'Publishing the first version…'}
+          </p>
+        )}
         {error && <p role="alert">{error}</p>}
       </div>
     </BrowserDialog>

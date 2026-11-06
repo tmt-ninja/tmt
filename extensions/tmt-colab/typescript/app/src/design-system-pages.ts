@@ -135,6 +135,9 @@ const builtIn = () =>
 /** Component pages a draft compile reads at once: with a follow's root and the shown page, a tab
  * stays well inside the door's 16 page tunnels (colab-v1 Live page list). */
 export const DRAFT_READS = 6;
+/** Page sources a new system writes at once (`designSystemCreation`): with a follow's root and the
+ * open page, a tab holds at most 6 of the door's 16 page tunnels. */
+export const CREATE_WRITES = 4;
 /** How long a burst of edits to a system's pages settles before its followers redraw. */
 export const DRAFT_SETTLE_MS = 500;
 
@@ -447,10 +450,11 @@ export async function publishDesignSystem(
   binding: PageBinding,
   source: string,
   version: string,
+  { pinTree = true, docs }: { pinTree?: boolean; docs?: ComponentDocs } = {},
 ): Promise<PublishResult> {
   const config = readBlock<DesignSystemConfig>(source, 'design-system');
   if (!config) throw new Error('This page has no design-system block.');
-  const bundle = await draftOf(transport, rootId, config, version);
+  const bundle = await draftOf(transport, rootId, config, version, docs);
   const files = binding.files;
   if (!files) throw new Error('Files are not available on this page.');
   const stored = await files.attachments.upload(
@@ -482,8 +486,9 @@ export async function publishDesignSystem(
   // draft, so a release changes no page's look: it is what a page can lock to.
   await binding.edit(writePin(writeBlock(source, 'design-system', next), rootId), source);
   // A tree made before its pages followed the draft (or a page whose pin was edited) moves to it:
-  // the components, the doc pages (they take its CSS) and the section pages.
-  return { pin, bundle, unpinned: await pinDesignTree(transport, rootId) };
+  // the components, the doc pages (they take its CSS) and the section pages. A new system wrote
+  // every page following it already (`pinTree: false`).
+  return { pin, bundle, unpinned: pinTree ? await pinDesignTree(transport, rootId) : [] };
 }
 
 const escape = (text: string) =>
@@ -598,100 +603,203 @@ interface DocSection {
 export const sectionSource = (title: string, pages: readonly { id: string; title: string }[]) =>
   `<h1>${escape(title)}</h1>\n<ul>${pages.map((page) => `<li><a href="/p/${escape(page.id)}">${escape(page.title)}</a></li>`).join('')}</ul>`;
 
-/**
- * Fill a new root page from the TMT template (#5866): the tmt GUI docs as section pages
- * (Foundations, Components, Patterns) with a page each, every component the template carries as
- * a live component page in Components, the root's config with its own name and prefix, then
- * publish the first version so every page draws. The template is loaded only here.
- */
-async function fillFromTemplate(
-  transport: PageTransport,
-  rootId: string,
-  name: string,
+/** A template page's source in a new system with `prefix`. */
+function templatePageSource(
+  section: string,
+  doc: DocSection['pages'][number],
   prefix: string,
-): Promise<void> {
-  const [{ default: template }, { default: sections }] = await Promise.all([
-    import('../../../../../design/systems/tmt-gui/generated/template.json'),
-    import('../../../../../design/systems/tmt-gui/generated/pages.json'),
-  ]);
-  const { system, components } = template as unknown as {
-    system: DesignSystemConfig;
-    components: (ComponentDoc & { notes?: string })[];
-  };
-  const live = new Map(components.map((doc) => [doc.tag, doc]));
-  const entries: DesignSystemConfig['components'] = [];
-  let foundationPage: string | undefined;
-  let patternPage: string | undefined;
-  await withPage(transport, rootId, async (root) => {
-    if (!root.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
-    const make = async (parent: Snapshot, title: string, source: string) => {
-      const child = await parent.binding!.work!('subpage.create', { title });
-      if (!child.childPage) throw new Error(`The ${title} page was not made.`);
-      await withPage(transport, child.childPage, async (page) => {
-        await page.binding!.edit(source, page.source);
-      });
-      return child.childPage;
-    };
-    for (const section of sections as DocSection[]) {
-      const sectionId = await make(root, section.title, sectionSource(section.title, []));
-      const made: { id: string; title: string }[] = [];
-      await withPage(transport, sectionId, async (sectionPage) => {
-        for (const doc of section.pages) {
-          const component = ['Components', 'Browser components'].includes(section.title)
-            ? live.get(doc.slug)
-            : undefined;
-          let body = component ? componentPageSource(component, prefix, doc) : doc.html;
-          if (section.title === 'Foundations') {
-            body = body.replaceAll('tmt-ui-foundation', `${prefix}-foundation`);
-            if (doc.slug === 'colour') {
-              const foundation = live.get('foundation');
-              if (!foundation) throw new Error('The template has no foundation component.');
-              const { notes: _notes, examples: _examples, ...compiled } = foundation;
-              // The colour page owns the shared component in a copied system. Its hidden example
-              // lets publishing retain a usable sample while the visible page stays the live doc.
-              const markup = `<${prefix}-foundation page="colour"></${prefix}-foundation>`;
-              body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Colour</h3><div data-ds-example="foundation:colour"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
-            }
-          }
-          if (section.title === 'Patterns') {
-            body = body.replaceAll('tmt-ui-pattern', `${prefix}-pattern`);
-            if (doc.slug === 'tabs-row') {
-              const pattern = live.get('pattern');
-              if (!pattern) throw new Error('The template has no pattern component.');
-              const { notes: _notes, examples: _examples, ...compiled } = pattern;
-              const markup = `<${prefix}-pattern page="tabs-row"></${prefix}-pattern>`;
-              body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Tabs row</h3><div data-ds-example="pattern:tabs-row"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
-            }
-          }
-          const id = await make(sectionPage, doc.title, body);
-          if (section.title === 'Foundations' && doc.slug === 'colour') foundationPage = id;
-          if (section.title === 'Patterns' && doc.slug === 'tabs-row') patternPage = id;
-          if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
-          made.push({ id, title: doc.title });
-        }
-      });
-      await withPage(transport, sectionId, async (sectionPage) => {
-        await sectionPage.binding!.edit(sectionSource(section.title, made), sectionPage.source);
-      });
+  live: ReadonlyMap<string, ComponentDoc & { notes?: string }>,
+) {
+  const component = ['Components', 'Browser components'].includes(section)
+    ? live.get(doc.slug)
+    : undefined;
+  let body = component ? componentPageSource(component, prefix, doc) : doc.html;
+  if (section === 'Foundations') {
+    body = body.replaceAll('tmt-ui-foundation', `${prefix}-foundation`);
+    if (doc.slug === 'colour') {
+      const foundation = live.get('foundation');
+      if (!foundation) throw new Error('The template has no foundation component.');
+      const { notes: _notes, examples: _examples, ...compiled } = foundation;
+      // The colour page owns the shared component in a copied system. Its hidden example
+      // lets publishing retain a usable sample while the visible page stays the live doc.
+      const markup = `<${prefix}-foundation page="colour"></${prefix}-foundation>`;
+      body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Colour</h3><div data-ds-example="foundation:colour"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
     }
+  }
+  if (section === 'Patterns') {
+    body = body.replaceAll('tmt-ui-pattern', `${prefix}-pattern`);
+    if (doc.slug === 'tabs-row') {
+      const pattern = live.get('pattern');
+      if (!pattern) throw new Error('The template has no pattern component.');
+      const { notes: _notes, examples: _examples, ...compiled } = pattern;
+      const markup = `<${prefix}-pattern page="tabs-row"></${prefix}-pattern>`;
+      body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Tabs row</h3><div data-ds-example="pattern:tabs-row"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+    }
+  }
+  return { body, component };
+}
+
+/** How far a new system is: `done` of `total` pages written, then publishing. */
+export type CreationProgress =
+  | { phase: 'pages'; done: number; total: number }
+  | { phase: 'publishing' };
+
+/** A new system from the TMT template. `run` makes it; after a failure, `run` again continues
+ * from the step that failed and never makes a page twice. */
+export interface DesignSystemCreation {
+  run(progress?: (state: CreationProgress) => void): Promise<string>;
+}
+
+/**
+ * Make a system from the TMT template (#5866): a new top-level root; the tmt GUI docs as section
+ * pages (Foundations, Components, Patterns) with a page each, every component the template carries
+ * as a live component page in Components; the root's config with its own name and prefix; then the
+ * first version, published so every page draws. Pages are made one at a time, so each section
+ * keeps the template's order, and their sources are written `CREATE_WRITES` at a time. If a write
+ * fails no new one starts, the ones in flight finish, and the error names the page. The steps done
+ * are kept, so a retry only does the rest. The template is loaded only here.
+ */
+export function designSystemCreation(
+  transport: PageTransport,
+  { name, prefix }: { name: string; prefix: string },
+): DesignSystemCreation {
+  const made = new Map<string, string>();
+  const written = new Set<string>();
+  let rootId: string | undefined;
+  let configured = false;
+  let published = false;
+  let running: Promise<string> | undefined;
+  const create = async (parent: Snapshot, key: string, title: string) => {
+    const existing = made.get(key);
+    if (existing) return existing;
+    const child = await parent.binding!.work!('subpage.create', { title });
+    if (!child.childPage) throw new Error(`The ${title} page was not made.`);
+    made.set(key, child.childPage);
+    return child.childPage;
+  };
+  const write = (id: string, source: string) =>
+    withPage(transport, id, async (page) => {
+      if (page.source !== source) await page.binding!.edit(source, page.source);
+    });
+  const attempt = async (progress: (state: CreationProgress) => void) => {
+    const [{ default: template }, { default: sections }] = await Promise.all([
+      import('../../../../../design/systems/tmt-gui/generated/template.json'),
+      import('../../../../../design/systems/tmt-gui/generated/pages.json'),
+    ]);
+    const { system, components } = template as unknown as {
+      system: DesignSystemConfig;
+      components: (ComponentDoc & { notes?: string })[];
+    };
+    const live = new Map(components.map((doc) => [doc.tag, doc]));
+    rootId ??= await newRoot(transport, name);
+    const root = rootId;
+    const entries: DesignSystemConfig['components'] = [];
+    const sources: { id: string; title: string; source: string }[] = [];
+    let foundationPage: string | undefined;
+    let patternPage: string | undefined;
+    await withPage(transport, root, async (rootPage) => {
+      if (!rootPage.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
+      for (const section of sections as DocSection[]) {
+        const sectionId = await create(rootPage, section.title, section.title);
+        const listed: { id: string; title: string }[] = [];
+        await withPage(transport, sectionId, async (sectionPage) => {
+          for (const doc of section.pages) {
+            const { body, component } = templatePageSource(section.title, doc, prefix, live);
+            const id = await create(sectionPage, `${section.title}/${doc.slug}`, doc.title);
+            if (section.title === 'Foundations' && doc.slug === 'colour') foundationPage = id;
+            if (section.title === 'Patterns' && doc.slug === 'tabs-row') patternPage = id;
+            if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
+            listed.push({ id, title: doc.title });
+            sources.push({ id, title: doc.title, source: writePin(body, root) });
+          }
+        });
+        sources.push({
+          id: sectionId,
+          title: section.title,
+          source: writePin(sectionSource(section.title, listed), root),
+        });
+      }
+    });
     if (!foundationPage) throw new Error('The template has no colour foundation page.');
     entries.push({ page: foundationPage, tag: 'foundation', status: 'stable' });
     if (!patternPage) throw new Error('The template has no tabs pattern page.');
     entries.push({ page: patternPage, tag: 'pattern', status: 'stable' });
-    const config: DesignSystemConfig = {
-      ...system,
-      id: rootId,
-      name,
-      prefix,
-      components: entries,
-      releases: [],
+    // Each write holds its own page connection: with a follow's root and the open page, a tab
+    // stays well inside the door's 16 page tunnels.
+    const total = sources.length;
+    const report = () => progress({ phase: 'pages', done: written.size, total });
+    report();
+    let next = 0;
+    let failed: Error | undefined;
+    const writer = async () => {
+      while (!failed && next < sources.length) {
+        const page = sources[next++]!;
+        if (written.has(page.id)) continue;
+        try {
+          await write(page.id, page.source);
+          written.add(page.id);
+          report();
+        } catch (error) {
+          failed ??= new Error(
+            `The ${page.title} page was not written: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     };
-    await root.binding.edit(rootPageSource(config), root.source);
-  });
-  await withPage(transport, rootId, async (root) => {
-    const config = readBlock<DesignSystemConfig>(root.source, 'design-system')!;
-    await publishDesignSystem(transport, rootId, root.binding!, root.source, nextVersion(config));
-  });
+    await Promise.all(Array.from({ length: CREATE_WRITES }, writer));
+    if (failed) throw failed;
+    // The component pages hold what was just written: the first version compiles from it.
+    const wrote = new Map(sources.map((page) => [page.id, page.source]));
+    const writtenDocs: ComponentDocs = {
+      get: (page) => {
+        const source = wrote.get(page);
+        const block = source && readBlock<ComponentDoc>(source, 'component');
+        return block ? { ...block, examples: pageExamples(source) } : undefined;
+      },
+      revision: () => undefined,
+      set: () => {},
+    };
+    progress({ phase: 'publishing' });
+    await withPage(transport, root, async (rootPage) => {
+      if (!configured) {
+        const config: DesignSystemConfig = {
+          ...system,
+          id: root,
+          name,
+          prefix,
+          components: entries,
+          releases: [],
+        };
+        const source = rootPageSource(config);
+        if (rootPage.source !== source) await rootPage.binding!.edit(source, rootPage.source);
+        configured = true;
+      }
+    });
+    if (!published) {
+      await withPage(transport, root, async (rootPage) => {
+        const config = readBlock<DesignSystemConfig>(rootPage.source, 'design-system')!;
+        await publishDesignSystem(
+          transport,
+          root,
+          rootPage.binding!,
+          rootPage.source,
+          nextVersion(config),
+          { pinTree: false, docs: writtenDocs },
+        );
+      });
+      published = true;
+    }
+    await markDesignPages(transport, [root, ...made.values()]);
+    return root;
+  };
+  return {
+    run(progress = () => {}) {
+      running ??= attempt(progress).finally(() => {
+        running = undefined;
+      });
+      return running;
+    },
+  };
 }
 
 /** The root page of a new system, top level: made under an existing system (or the first page) and
@@ -850,15 +958,11 @@ export async function markDesignPages(transport: PageTransport, ids: readonly st
 const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
 
 /** Make a design system from the TMT template as its own top-level tree, every page marked. */
-export async function createDesignSystem(
+export function createDesignSystem(
   transport: PageTransport,
-  { name, prefix }: { name: string; prefix: string },
+  system: { name: string; prefix: string },
 ): Promise<string> {
-  const rootId = await newRoot(transport, name);
-  await fillFromTemplate(transport, rootId, name, prefix);
-  const tree = await withPage(transport, rootId, (root) => treeOf(transport, root, new Map(), 0));
-  await markDesignPages(transport, treeIds(tree));
-  return rootId;
+  return designSystemCreation(transport, system).run();
 }
 
 /** Bring an existing system root (one made before the Design tab) into the Design tab. Its pages

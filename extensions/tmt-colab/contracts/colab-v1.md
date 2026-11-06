@@ -4380,7 +4380,8 @@ Browser discovery caps the complete serialized metadata response at 2 MiB.
 
 The owner list also carries `listToken`, 64 lowercase hex digits: a digest of every listed page's
 store fingerprint, opaque to the browser. Each row may carry `revision`, the page's revision token
-exactly as `page read` returns it (`v1:` and 64 hex digits). Both move when a page's head does.
+exactly as `page read` returns it (`v1:` and 64 hex digits); a page whose epoch an equivocating
+stream froze has none, and the list still names it. Both move when a page's head does.
 Because the token includes the membership head, a membership change (another page created, shared
 or archived) moves every page's revision; a draft follower then recompiles once, coalesced like any
 other burst. A page whose fingerprint did not change adds no traffic.

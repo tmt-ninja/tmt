@@ -195,7 +195,8 @@ struct CatalogRead {
     fingerprints: std::collections::BTreeMap<String, String>,
     /// The local titles still valid for their page (`page_titles`).
     titles: std::collections::BTreeMap<String, String>,
-    /// Each listed page's revision token, the one `page read` returns (`page::current_token`).
+    /// Each listed page's revision token, the one `page read` returns, except a frozen page's
+    /// (`page::listed_token`).
     revisions: std::collections::BTreeMap<String, String>,
 }
 
@@ -443,11 +444,10 @@ impl Registration {
                 let catalog = tx.page_list()?;
                 let mut revisions = std::collections::BTreeMap::new();
                 for page in catalog["pages"].as_array().into_iter().flatten() {
-                    if let Some(id) = page["pageId"].as_str() {
-                        revisions.insert(
-                            id.to_owned(),
-                            crate::page::current_token(tx, &self.keyring, id)?,
-                        );
+                    if let Some(id) = page["pageId"].as_str()
+                        && let Some(revision) = crate::page::listed_token(tx, &self.keyring, id)?
+                    {
+                        revisions.insert(id.to_owned(), revision);
                     }
                 }
                 Ok(CatalogRead {
@@ -1834,6 +1834,68 @@ mod describe_tests {
         assert_eq!(
             details["progress"],
             json!({"done":0,"inProgress":0,"todo":0,"unknown":1,"total":1})
+        );
+    }
+
+    /// An equivocating stream freezes a page's epoch; the owner list still names the page, without
+    /// a revision, and the other pages keep theirs (#6162).
+    #[test]
+    fn the_owner_list_names_a_frozen_page_without_a_revision() {
+        use serde_json::json;
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "colab-list-frozen-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let (live, frozen) = (
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003",
+        );
+        for page in [live, frozen] {
+            store.create_page(page).unwrap();
+        }
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        service.genesis().unwrap();
+        let context = json!({"deviceId":"00000000-0000-4000-8000-000000000009","kind":"browser",
+            "origin":"http://127.0.0.1:1","name":"Laptop",
+            "publicKey":values::encode_binary(&service.keyring.owner_public()),
+            "owner":true,"grantRevision":1})
+        .to_string();
+        rusqlite::Connection::open(layout.directory.join("space.db"))
+            .unwrap()
+            .execute(
+                "INSERT INTO streams(page,epoch,stream,frozen)
+                 SELECT page,epoch,'10000000-0000-4000-8000-000000000001',1 FROM pages WHERE page=?",
+                [frozen],
+            )
+            .unwrap();
+        let list: serde_json::Value =
+            serde_json::from_slice(&service.pages(Some(&context)).unwrap()).unwrap();
+        let row = |id: &str| {
+            list["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|page| page["pageId"] == id)
+                .cloned()
+                .unwrap()
+        };
+        assert!(row(frozen).get("revision").is_none());
+        assert_eq!(
+            row(live)["revision"],
+            json!(crate::page::revision(&service.store, &service.keyring, live).unwrap())
         );
     }
 
