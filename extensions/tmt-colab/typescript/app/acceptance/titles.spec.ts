@@ -127,11 +127,15 @@ test('native page titles fill missing visible home labels without opening the pa
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(homeList(page)).toBeVisible();
     await row()
-      .getByRole('button', { name: /^Actions for/ })
+      .getByRole('button', { name: `More for ${title}`, exact: true })
       .click();
-    await expect(
-      page.getByRole('menu').getByText(`Page ID: ${created.pageId}`, { exact: true }),
-    ).toBeVisible();
+    await browser.context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: new URL(page.url()).origin,
+    });
+    await page.getByRole('menuitem', { name: 'Copy page ID', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(created.pageId);
     const other = await pairBrowser(world, 'other-title-browser');
     const otherPage = await openColab(door, other);
     await showAllPages(otherPage);
