@@ -30,7 +30,14 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         await expect(more).toBeInViewport();
         await more.click();
         const menu = actions.getByRole('menu');
-        for (const name of [/^Share…/, 'Agent status', 'Files 0', 'Source'])
+        for (const name of [
+          /^Share…/,
+          'Agent status',
+          'Files 0',
+          'Source',
+          'Put under a page…',
+          'Archive…',
+        ])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitem', { name: /^Remote:/ })).toHaveCount(0);
         await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText(
@@ -117,13 +124,18 @@ test('native page titles fill missing visible home labels without opening the pa
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
+    await page.setViewportSize({ width: 1440, height: 900 });
     await expect(homeList(page)).toBeVisible();
     await row()
-      .getByRole('button', { name: /^Actions for/ })
+      .getByRole('button', { name: `More for ${title}`, exact: true })
       .click();
-    await expect(
-      page.getByRole('menu').getByText(`Page ID: ${created.pageId}`, { exact: true }),
-    ).toBeVisible();
+    await browser.context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: new URL(page.url()).origin,
+    });
+    await page.getByRole('menuitem', { name: 'Copy page ID', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(created.pageId);
     const other = await pairBrowser(world, 'other-title-browser');
     const otherPage = await openColab(door, other);
     await showAllPages(otherPage);

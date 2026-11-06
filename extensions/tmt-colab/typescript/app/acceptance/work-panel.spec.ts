@@ -146,9 +146,8 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     await band.getByRole('button', { name: 'Add', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Attach middle”' });
     await dialog.getByRole('combobox').fill('Attach');
-    await expect(dialog.getByRole('option', { name: /Attach top/ })).toContainText(
-      'Would loop: it is above this page',
-    );
+    await expect(dialog.getByRole('option', { name: /Attach top/ })).toHaveCount(0);
+    await expect(dialog.getByText('No page matches.')).toBeVisible();
     await dialog.getByRole('combobox').fill('Grand');
     await dialog.getByRole('option', { name: /Grand page/ }).click();
     await expect(dialog).toHaveCount(0);

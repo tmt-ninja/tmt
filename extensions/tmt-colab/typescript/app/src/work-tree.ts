@@ -1,4 +1,5 @@
 import type { PageState } from './bootstrap.js';
+import { SaveNotApplied, SaveRefused } from './save.js';
 import type { PageSummary } from './transport.js';
 import { subpages, type StoredWork } from './work.js';
 
@@ -23,6 +24,65 @@ export type AttachRefusal =
   | { kind: 'self' }
   | { kind: 'attached'; parentTitle?: string }
   | { kind: 'loop' };
+
+/** The two owner writes are not atomic; only a confirmed refusal proves a detached page is free. */
+export async function moveBetweenParents(
+  oldParent: string | undefined,
+  target: string,
+  write: (parent: string, action: 'subpage.attach' | 'subpage.detach') => Promise<void>,
+): Promise<'attached' | 'detached' | 'unknown'> {
+  if (oldParent) {
+    try {
+      await write(oldParent, 'subpage.detach');
+    } catch {
+      return 'unknown';
+    }
+  }
+  try {
+    await write(target, 'subpage.attach');
+    return 'attached';
+  } catch (failure) {
+    return oldParent && (failure instanceof SaveRefused || failure instanceof SaveNotApplied)
+      ? 'detached'
+      : 'unknown';
+  }
+}
+
+/** Show locations consistently in both page pickers. */
+export function pageLocation(page: PageSummary, pages: readonly PageSummary[]): string | undefined {
+  const byId = new Map(pages.map((item) => [item.id, item]));
+  const names: string[] = [];
+  const seen = new Set([page.id]);
+  let project = page.projects?.[0];
+  let parent = page.summary?.parent?.page;
+  while (parent && !seen.has(parent)) {
+    seen.add(parent);
+    const item = byId.get(parent);
+    if (!item) break;
+    names.unshift(item.title);
+    project = item.projects?.[0] ?? project;
+    parent = item.summary?.parent?.page;
+  }
+  const root = project ?? 'All pages';
+  if (names[0] !== root) names.unshift(root);
+  return names.join(' / ');
+}
+
+/** Apply the existing tree admission rules to a prospective parent. */
+export function parentRefusal(
+  pageId: string,
+  parentId: string,
+  pages: readonly PageSummary[],
+): AttachRefusal | undefined {
+  const page = pages.find((item) => item.id === pageId);
+  if (page?.summary?.parent?.page === parentId) return { kind: 'attached' };
+  const withoutParent = pages.map((item) =>
+    item.id === pageId && item.summary
+      ? { ...item, summary: { ...item.summary, parent: undefined } }
+      : item,
+  );
+  return subpageTree(parentId, undefined, withoutParent).refusal(pageId);
+}
 
 /**
  * The sub-page tree as the owner list shows it. This page's own work names its direct sub-pages in

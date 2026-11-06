@@ -3,6 +3,10 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { usePageWorkflow } from './use-page-workflow.js';
+import { AddSubpageDialog } from './work-add-dialog.js';
+import { pageLocation, parentRefusal } from './work-tree.js';
+import { PageOperationDialog } from './page-operation-dialog.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
@@ -20,6 +24,7 @@ import {
   BrowserAction,
   BrowserCommand,
   BrowserIconAction,
+  BrowserNotice,
   BrowserNotifications,
   BusyMark,
   HostedShell,
@@ -38,8 +43,10 @@ import {
 } from './reading-link.js';
 import {
   ArrowUpRight,
+  Archive,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -1661,13 +1668,23 @@ function OpenPage({
         .sort(),
     }),
   );
-  const archived = view.archived ?? snapshot.archived ?? false;
-  const wasArchived = useRef(archived);
-  const [archiveAnnouncement, setArchiveAnnouncement] = useState('');
-  useEffect(() => {
-    if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
-    wasArchived.current = archived;
-  }, [archived]);
+  const {
+    archived,
+    archiveAnnouncement,
+    pageOperation,
+    setPageOperation,
+    pageOperationBusy,
+    pageOperationNotice,
+    choosingParent,
+    setChoosingParent,
+    parentPages,
+    moveFailure,
+    moveUncertain,
+    moveBusy,
+    movePage,
+    retryMove,
+    runLifecycle,
+  } = usePageWorkflow(transport, snapshot, view, space);
   useEffect(() => {
     sourceDraft.adoptSnapshot(snapshot);
     setView({
@@ -2440,10 +2457,21 @@ function OpenPage({
               canManage={!!transport.management}
               canFiles={!!snapshot.binding?.files}
               canProjects={!!transport.management}
+              canArchive={!!transport.management && !archived && !liveError}
+              canMove={
+                !!snapshot.binding?.work &&
+                !!snapshot.binding.canWork?.() &&
+                !archived &&
+                !liveError
+              }
               pin={pin}
               creatorLabel={creatorName(view)}
               onSelect={(action) => {
-                if (action === 'creator' || action === 'questions') {
+                if (action === 'put-under') {
+                  setChoosingParent(true);
+                } else if (action === 'archive') {
+                  setPageOperation('page.archive');
+                } else if (action === 'creator' || action === 'questions') {
                   close();
                   setMetadataDialog(action);
                 } else if (action === 'projects') openProjects(moreButtonRect());
@@ -2462,6 +2490,101 @@ function OpenPage({
         onDismiss={() => setMetadataDialog(null)}
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
+      {choosingParent && (
+        <AddSubpageDialog
+          mode="parent"
+          title={view.title || snapshot.title}
+          pages={parentPages}
+          nowUnder={
+            parentPages
+              ? pageLocation(
+                  parentPages.find((page) => page.id === snapshot.id) ?? snapshot,
+                  parentPages,
+                )
+              : undefined
+          }
+          refusal={(candidate) =>
+            parentPages ? parentRefusal(snapshot.id, candidate, parentPages) : { kind: 'self' }
+          }
+          onClose={() => setChoosingParent(false)}
+          onChoose={(choice) =>
+            choice.kind === 'attach'
+              ? movePage(choice.pageId, choice.title)
+              : Promise.resolve(text.workBand.moveUnknown)
+          }
+        />
+      )}
+      {moveFailure && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="blocked"
+            announcement="alert"
+            stateLabel={text.workBand.moveNotMoved}
+            mark={<X aria-hidden="true" />}
+            body={text.workBand.moveFailed(moveFailure.title)}
+            actions={
+              <BrowserAction
+                type="button"
+                variant="secondary"
+                label={text.workBand.retry}
+                disabled={moveBusy}
+                onActivate={() => void retryMove()}
+              />
+            }
+          />
+        </div>
+      )}
+      {moveUncertain && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="waiting"
+            announcement="status"
+            stateLabel={text.workBand.moveUnconfirmed}
+            mark={<CircleHelp aria-hidden="true" />}
+            body={text.workBand.moveUnknown}
+          />
+        </div>
+      )}
+      <PageOperationDialog
+        operation={pageOperation}
+        titles={[view.title || snapshot.title]}
+        busy={pageOperationBusy}
+        onConfirm={() => void runLifecycle()}
+        onCancel={() => setPageOperation(undefined)}
+      />
+      {(archived || pageOperationNotice) && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone={pageOperationNotice?.failed ? 'blocked' : 'muted'}
+            announcement={pageOperationNotice?.failed ? 'alert' : 'status'}
+            stateLabel={
+              pageOperationNotice?.failed
+                ? text.pageList.operationFailed
+                : archived
+                  ? text.pageList.archiveState
+                  : text.pageList.operationState
+            }
+            mark={
+              pageOperationNotice?.failed ? (
+                <X aria-hidden="true" />
+              ) : (
+                <Archive aria-hidden="true" />
+              )
+            }
+            body={pageOperationNotice?.text ?? text.archiveAnnouncement}
+            actions={
+              archived && transport.management ? (
+                <BrowserAction
+                  type="button"
+                  variant="secondary"
+                  label={text.pageList.restoreButton}
+                  onActivate={() => setPageOperation('page.unarchive')}
+                />
+              ) : undefined
+            }
+          />
+        </div>
+      )}
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
       </p>
@@ -2518,7 +2641,7 @@ function OpenPage({
             onSize={setWorkBandSize}
             work={view.work}
             pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-            binding={snapshot.binding}
+            binding={archived ? undefined : snapshot.binding}
             transport={transport}
             space={space}
             pageId={snapshot.id}

@@ -9,3 +9,14 @@
   margin: 0;
   padding-inline-start: 1.25em;
 }
+.page-lifecycle-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.page-lifecycle-notice > .tmt-ui-notice {
+  width: 100%;
+}

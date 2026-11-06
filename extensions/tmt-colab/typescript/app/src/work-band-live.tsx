@@ -21,7 +21,7 @@ const explained = (failure: unknown) =>
   failure instanceof SaveRefused || failure instanceof SaveNotApplied;
 
 /** Run one owner write on another page: open its binding, write, give the connection up. */
-async function onPage<T>(
+export async function onPage<T>(
   transport: PageTransport,
   pageId: string,
   use: (binding: PageBinding, shown: PageState | null | undefined) => Promise<T>,

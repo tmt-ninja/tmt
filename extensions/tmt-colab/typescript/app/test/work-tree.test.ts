@@ -1,7 +1,8 @@
 import { expect, it } from 'vite-plus/test';
 import type { PageSummary } from '../src/transport.js';
 import type { LegacyWork, Work } from '../src/work.js';
-import { subpageTree } from '../src/work-tree.js';
+import { moveBetweenParents, pageLocation, parentRefusal, subpageTree } from '../src/work-tree.js';
+import { SaveNotApplied, SaveRefused } from '../src/save.js';
 
 const row = (
   id: string,
@@ -25,6 +26,59 @@ const pages = [
   row('free', 'todo'),
   row('elsewhere', 'todo', { page: 'top', index: 1 }),
 ];
+
+it('offers only valid new parents and presents their location as a path', () => {
+  expect(parentRefusal('a', 'a', pages)).toEqual({ kind: 'self' });
+  expect(parentRefusal('a', 'top', pages)).toEqual({ kind: 'attached' });
+  expect(parentRefusal('a', 'c1', pages)).toEqual({ kind: 'loop' });
+  expect(parentRefusal('a', 'elsewhere', pages)).toBeUndefined();
+  expect(
+    pageLocation(
+      pages.find((page) => page.id === 'c1')!,
+      pages,
+    ),
+  ).toBe('All pages / TOP / A / C');
+  expect(
+    pageLocation(
+      pages.find((page) => page.id === 'free')!,
+      pages,
+    ),
+  ).toBe('All pages');
+  expect(pageLocation({ ...pages[0], projects: ['Product'] }, pages)).toBe('Product');
+  expect(pageLocation(pages[1], [{ ...pages[0], projects: ['Product'] }, ...pages.slice(1)])).toBe(
+    'Product / TOP',
+  );
+});
+
+it('moves in order and distinguishes a confirmed failed attach from an unknown outcome', async () => {
+  const calls: string[] = [];
+  const success = async (parent: string, action: 'subpage.attach' | 'subpage.detach') => {
+    calls.push(`${parent}:${action}`);
+  };
+  expect(await moveBetweenParents('old', 'new', success)).toBe('attached');
+  expect(calls).toEqual(['old:subpage.detach', 'new:subpage.attach']);
+  calls.length = 0;
+  expect(
+    await moveBetweenParents('old', 'new', async (parent, action) => {
+      await success(parent, action);
+      if (action === 'subpage.attach') throw new SaveRefused('refused', 'Refused');
+    }),
+  ).toBe('detached');
+  expect(calls).toEqual(['old:subpage.detach', 'new:subpage.attach']);
+  expect(
+    await moveBetweenParents('old', 'new', async (_parent, action) => {
+      if (action === 'subpage.attach') throw new Error('Connection lost');
+    }),
+  ).toBe('unknown');
+  calls.length = 0;
+  expect(
+    await moveBetweenParents('old', 'new', async (parent, action) => {
+      await success(parent, action);
+      if (action === 'subpage.detach') throw new SaveNotApplied('detach');
+    }),
+  ).toBe('unknown');
+  expect(calls).toEqual(['old:subpage.detach']);
+});
 
 it("lists direct sub-pages in page order and deeper levels in each parent's order", () => {
   const tree = subpageTree('a', work, pages);

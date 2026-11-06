@@ -90,6 +90,54 @@ test('More groups the admitted page actions with the proposal labels', async ({ 
 });
 
 for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`page actions share the existing header menu at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const fixture = '/test/page-move-browser.tsx';
+        (await import(fixture)).mountMove();
+      });
+      const more = page.getByRole('button', { name: 'More', exact: true });
+      await expect(more).toHaveCount(1);
+      await more.click();
+      const menu = page.locator('.tmt-ui-menu-surface[open]');
+      await expect(menu.getByRole('menuitem', { name: 'Put under a page…' })).toBeVisible();
+      await expect(menu.getByRole('menuitem', { name: 'Archive…' })).toHaveAttribute(
+        'data-separated',
+        'true',
+      );
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`6057-6058-header-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Archive is in the existing More menu at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.goto('/');
+      await run(page, 'mount', { projects: { names: ['Product'], current: ['Product'] } });
+      await expect(
+        page.frameLocator('#ask-page-fixture iframe').locator('#selected'),
+      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveCount(1);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      const menu = page.locator('.tmt-ui-menu-surface[open]');
+      const archive = menu.getByRole('menuitem', { name: 'Archive…', exact: true });
+      await expect(archive).toBeVisible();
+      await expect(archive).toHaveAttribute('data-separated', 'true');
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(`6057-header-menu-${width}-${theme}.png`) });
+      await archive.click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toContainText('An archived page stays readable');
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+    });
+
+for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`idle: only Search, Discussion and More, with no state shown at ${width} ${theme}`, async ({
       page,
