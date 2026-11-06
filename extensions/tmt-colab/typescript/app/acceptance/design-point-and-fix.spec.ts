@@ -67,6 +67,9 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const pageId = page.url().split('/').pop()!;
     const example = frame.locator('[data-ds-example="button:secondary"]');
     const draft = example.getByRole('button', { name: 'Draft', exact: true });
+    // The first render of a new system's page waits on its tree load and a full draft compile;
+    // a slow runner takes longer than the default expect wait (#6177 makes it fast).
+    await expect(draft).toBeVisible({ timeout: 30_000 });
     await expect(draft).not.toHaveAttribute('data-variant', 'outline');
 
     // The open page follows its system's draft (#6162). A new system has far more component pages

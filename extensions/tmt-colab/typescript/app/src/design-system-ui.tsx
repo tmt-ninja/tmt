@@ -64,7 +64,7 @@ export function DesignSystemDialog({
           <BrowserAction
             type="button"
             variant="primary"
-            label={started ? 'Try again' : 'Create'}
+            label={started && !busy ? 'Try again' : 'Create'}
             busy={busy}
             disabled={!name.trim() || !prefixValid}
             onActivate={() => void create()}
