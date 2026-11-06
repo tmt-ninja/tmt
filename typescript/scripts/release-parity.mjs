@@ -225,7 +225,9 @@ function checkCounterpart(counterpart, stage, label, read) {
       `${label}: policy coverage needs tests`
     );
     ensure(
-      /^ {8,}pnpm test:run\s*$/m.test(job.body),
+      /^ {8,}pnpm test:run(?: --maxWorkers=[1-9][0-9]*| --reporter=(?:default|json)| --outputFile="\$RUNNER_TEMP\/[\w.-]+\.json")*[ \t]*$/m.test(
+        job.body
+      ),
       `${label}: policy job does not run the tooling suite`
     );
     for (const test of counterpart.tests) {

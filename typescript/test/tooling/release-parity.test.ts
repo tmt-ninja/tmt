@@ -26,6 +26,31 @@ describe('release gate parity inventory', () => {
     expect(Object.keys(releaseInventory(read))).toContain('native-release-smoke.yml');
   });
 
+  it.each([
+    '--maxWorkers=4',
+    '--maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/unit-two-workers.json"',
+  ])('accepts full-suite operational options: %s', (options) => {
+    const readChanged = changed('.github/workflows/ci.yml', (source) =>
+      source.replace(/^ {10}pnpm test:run.*$/m, `          pnpm test:run ${options}`)
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).not.toThrow();
+  });
+
+  it.each([
+    '--exclude=test/tooling/release-cut-live.test.ts',
+    'test/tooling/ci-scope.test.ts',
+    '--testNamePattern=happy',
+    '--passWithNoTests',
+    '--maxWorkers=4 || true',
+  ])('rejects an incomplete or suppressed policy suite: %s', (options) => {
+    const readChanged = changed('.github/workflows/ci.yml', (source) =>
+      source.replace(/^ {10}pnpm test:run.*$/m, `          pnpm test:run ${options}`)
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
+      'policy job does not run the tooling suite'
+    );
+  });
+
   it('rejects a release gate added as a new job', () => {
     const readChanged = changed(
       bundle,
