@@ -971,7 +971,8 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows. `items` names
   catalog rows by label or as `<id>:<text>`, which keeps the row's icon and key but shows `text`
   and no description, so a page in another language mixes in no English; `<id>:<text>:<description>`
-  adds the row's own description. `group:<id>:<heading>` renames a group heading
+  adds the row's own description; the tag's `hint-labels` names its three footer hints the same
+  way (`選, 插入, 關閉`). `group:<id>:<heading>` renames a group heading
   (`basic`, `structure`). Any other entry, including a malformed one, is a plain row.
 - Content: `HeadingBlock` (levels 2 and 3 only; the page title is the GUI header's),
   `TextBlock`, `ListItemBlock`, `TodoBlock` (`BrowserCheckbox`), `TableBlock` (columns marked

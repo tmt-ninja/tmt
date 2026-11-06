@@ -1173,7 +1173,7 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     document.body.prepend(host);
     await mountRenderer(
       host,
-      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu>`,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu><tmt-ui-block-menu label="插入區塊" items="group:basic:基本, table:表格, group:structure:結構, code:程式碼:檔案或指令" hints hint-labels="選, 插入, 關閉"></tmt-ui-block-menu><tmt-ui-block-menu label="Plain hints" items="Table" hints></tmt-ui-block-menu>`,
       {
         signal: new AbortController().signal,
         onState: () => {},
@@ -1208,6 +1208,20 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     '',
   );
   await expect(actions.locator('[data-slot="block-menu-separator"]')).toHaveCount(1);
+  // A localized menu mixes in no English: a relabelled row drops the catalog description or
+  // takes its own, and `hint-labels` names the footer hints; without it they stay English.
+  const localized = frame.getByRole('listbox', { name: '插入區塊' });
+  await expect(localized.getByRole('group')).toHaveText([/^基本/, /^結構/]);
+  const relabelled = localized.getByRole('option', { name: /表格/ });
+  await expect(relabelled.locator('kbd')).toHaveText('/table');
+  await expect(relabelled.locator('.tmt-block-menu-description')).toHaveCount(0);
+  await expect(
+    localized.getByRole('option', { name: /程式碼/ }).locator('.tmt-block-menu-description'),
+  ).toHaveText('檔案或指令');
+  const footer = (name: string) =>
+    frame.getByRole('listbox', { name }).locator('[data-slot="block-menu-footer"]');
+  await expect(footer('插入區塊')).toHaveText('↑↓ 選Enter 插入Esc 關閉');
+  await expect(footer('Plain hints')).toHaveText('↑↓ chooseEnter insertEsc close');
 });
 
 /** A page that uses the runtime and the design system, mounted full width as in the app. */

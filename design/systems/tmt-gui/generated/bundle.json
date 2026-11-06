@@ -761,6 +761,9 @@
     },
     "hints": {
      "type": "boolean"
+    },
+    "hint-labels": {
+     "type": "string"
     }
    },
    "slots": [
@@ -786,7 +789,7 @@
     }
    ],
    "css": "",
-   "code": "return ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  // BlockMenu draws catalog rows by label (an insert type's icon, description, shortcut and group,\n  // or a block action's key) or `id:text[:description]` (that row showing `text`, with no\n  // description unless given). `group:id:text` renames a group heading; any other entry is plain.\n  return h(ui.BlockMenu, { label, kind, placement, items: names, activeItem: active ?? names[0] },\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ' choose'),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ' insert'), h('span', null, h(ui.BlockKbd, null, 'Esc'), ' close')));\n};\n"
+   "code": "return ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints, 'hint-labels': hintLabels = '' }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  // `hint-labels` names the three footer hints (choose, insert, close) in the page's language.\n  const given = hintLabels.split(',').map((item) => item.trim());\n  const [choose, insert, close] = given.length === 3 && given.every(Boolean) ? given : ['choose', 'insert', 'close'];\n  // BlockMenu draws catalog rows by label (an insert type's icon, description, shortcut and group,\n  // or a block action's key) or `id:text[:description]` (that row showing `text`, with no\n  // description unless given). `group:id:text` renames a group heading; any other entry is plain.\n  return h(ui.BlockMenu, { label, kind, placement, items: names, activeItem: active ?? names[0] },\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ` ${choose}`),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ` ${insert}`), h('span', null, h(ui.BlockKbd, null, 'Esc'), ` ${close}`)));\n};\n"
   },
   {
    "tag": "tmt-ui-heading-block",
@@ -2946,5 +2949,5 @@
    "code": "return ({ React, ui }) => function StatusLine({ items = '[]' }) {\n  let parsed;\n  try { parsed = JSON.parse(items); } catch { parsed = []; }\n  const safe = Array.isArray(parsed) ? parsed.filter((item) => item && ['working', 'waiting', 'review', 'blocked'].includes(item.tone) && typeof item.label === 'string').slice(0, 20) : [];\n  return React.createElement(ui.BrowserStatusLine, { items: safe });\n};\n"
   }
  ],
- "hash": "sha256-e5b8eecc5a8ce9e68b659edd55db97a47da5597179a88c004d26520fdf4a1f16"
+ "hash": "sha256-19926d6e8c987411fbfa383667b68ec17616df34a27747c36cbafcf3a440f604"
 }

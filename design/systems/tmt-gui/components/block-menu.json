@@ -30,6 +30,9 @@
     },
     "hints": {
       "type": "boolean"
+    },
+    "hint-labels": {
+      "type": "string"
     }
   },
   "slots": [

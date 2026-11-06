@@ -145,6 +145,7 @@ export interface BlockMenuProps {
   items?: string;
   active?: string;
   hints?: boolean;
+  "hint-labels"?: string;
   children?: ReactNode;
 }
 
