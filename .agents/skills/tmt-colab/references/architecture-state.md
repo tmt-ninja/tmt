@@ -853,7 +853,8 @@ editor directly. The opener regains focus on return. These preferences are not s
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input; every condition is one of its tokens, in the fixed order `project:`, `by:`, `state:`, Needs me,
-Include archived, then the tab's own) holds only a draft until Enter applies it. Filter choices, tabs,
+Include archived; Needs me is also the Needs you tab, and the other tabs are not tokens) holds only a
+draft until Enter applies it. Filter choices, tabs,
 a row's project button and a token removal apply at once and change the same token set, so a
 condition looks and sits the same however it was added; typed text stays a draft. `stage:` is a third suggestion kind that
 is never a token (below). A row's `summary` (the contract's

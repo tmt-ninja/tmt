@@ -56,7 +56,7 @@ import './page-list-search.css';
 export type FilterKind = 'project' | 'by';
 const TRIGGERS: Record<FilterKind, string> = { project: 'project:', by: 'by:' };
 /** The list conditions the Filter menu and the tabs set; they sit in the field as tokens too. */
-export type ConditionKind = 'state' | 'needs' | 'include-archived' | 'archived' | 'stage';
+export type ConditionKind = 'state' | 'needs' | 'include-archived';
 export type TokenKind = FilterKind | ConditionKind;
 export interface Condition {
   kind: ConditionKind;
@@ -64,13 +64,7 @@ export interface Condition {
   name: string;
 }
 /** The order the field shows the conditions in, after the project and creator tokens. */
-const CONDITION_ORDER: readonly ConditionKind[] = [
-  'state',
-  'needs',
-  'include-archived',
-  'archived',
-  'stage',
-];
+const CONDITION_ORDER: readonly ConditionKind[] = ['state', 'needs', 'include-archived'];
 const STATE_ORDER = ['todo', 'in-progress', 'done'];
 /** A token's text: what typing it would read, or the Filter menu's own words. */
 export function tokenText(kind: TokenKind, name: string): string {
@@ -82,10 +76,6 @@ export function tokenText(kind: TokenKind, name: string): string {
       return text.shortcuts.filterState(
         text.workBand.taskState[name as keyof typeof text.workBand.taskState] ?? name,
       );
-    case 'stage':
-      return `stage:${name}`;
-    case 'archived':
-      return 'stage:archived';
     case 'needs':
       return text.shortcuts.needsMe;
     case 'include-archived':
