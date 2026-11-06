@@ -176,7 +176,7 @@ test('a bind accepts only one bounded wasm buffer with the renderer MIME', () =>
     { mime: 'text/plain', bytes: new ArrayBuffer(4) },
     { mime: 'application/wasm', bytes: new Uint8Array(4) },
     { mime: 'application/wasm', bytes: new ArrayBuffer(0) },
-    { mime: 'application/wasm', bytes: new ArrayBuffer(1024 * 1024 + 1) },
+    { mime: 'application/wasm', bytes: new ArrayBuffer(614_401) },
     { mime: 'application/wasm', bytes: new ArrayBuffer(4), extra: true },
   ];
   for (const wasm of invalid) {

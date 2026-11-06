@@ -1,4 +1,5 @@
 import { rendererBase } from './entry.js';
+import { namesDesignSystem } from './design-system.js';
 import { allRuntimeChunks, loadDesign, loadRuntime, wantsRuntime } from './page-runtime.js';
 import { usesDesign, type StandaloneRequest } from './standalone.js';
 
@@ -13,7 +14,8 @@ export async function standaloneRequest(page: {
   if (page.pageType === 'shell') return undefined;
   const wantsRuntimeBundle = wantsRuntime(page.source);
   const wantsDesign = usesDesign(page.source);
-  if (!wantsRuntimeBundle && !wantsDesign) return undefined;
+  const namedDesign = namesDesignSystem(page.source);
+  if (!wantsRuntimeBundle && !wantsDesign && !namedDesign) return undefined;
   const base = rendererBase();
   const [runtime, design] = await Promise.allSettled([
     // An exported page has no parent to send it chunks: it carries all of them, in load order,
@@ -33,6 +35,7 @@ export async function standaloneRequest(page: {
   if (runtime.status === 'rejected') return { reason: 'runtime-unavailable' };
   if (design.status === 'rejected') return { reason: 'design-unavailable' };
   return {
+    ...(namedDesign ? { namedDesign: true } : {}),
     ...(runtime.value === undefined ? {} : { runtime: runtime.value }),
     ...(design.value === undefined ? {} : { design: design.value }),
   };

@@ -42,6 +42,8 @@ COPY design/browser-ui/generated/brand-mark-static.svg design/browser-ui/generat
 COPY extensions/tmt-colab/typescript/app/src/colab-header.css extensions/tmt-colab/typescript/app/src/colab-header.css
 COPY extensions/tmt-colab/typescript/app/src/reader-style.css extensions/tmt-colab/typescript/app/src/reader-style.css
 COPY extensions/tmt-colab/typescript/app/src/notice-card.css extensions/tmt-colab/typescript/app/src/notice-card.css
+COPY extensions/tmt-colab/typescript/app/runtime-pin.json extensions/tmt-colab/typescript/app/runtime-pin.json
+COPY extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/

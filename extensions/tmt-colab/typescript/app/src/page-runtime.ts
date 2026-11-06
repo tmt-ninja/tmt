@@ -64,7 +64,7 @@ async function readPinned(baseUri: string, file: PinnedFile): Promise<string> {
 
 /** Fetch the optional renderer with a streaming bound before allocating the final buffer. */
 async function readPinnedWasm(baseUri: string, file: PinnedFile): Promise<ArrayBuffer> {
-  const limit = 1024 * 1024;
+  const limit = 614_400;
   if (file.length < 1 || file.length > limit) throw new Error('Renderer exceeds its bound');
   const response = await fetch(runtimeUrl(baseUri, file.path), { credentials: 'same-origin' });
   if (!response.ok || !response.body) throw new Error('Renderer unavailable');
@@ -153,7 +153,8 @@ export async function loadRuntime(
 }
 
 /** Every chunk's text in load order, for a standalone export, which has no parent to ask. */
-export const allRuntimeChunks = () => runtimePin.chunks.map((chunk) => chunk.name);
+export const allRuntimeChunks = () =>
+  runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm').map((chunk) => chunk.name);
 
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
  * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and

@@ -3304,7 +3304,7 @@
             if (!wasm || typeof wasm !== 'object' || Array.isArray(wasm) ||
                 Object.keys(wasm).length !== 2 || wasm.mime !== 'application/wasm' ||
                 !(wasm.bytes instanceof ArrayBuffer) ||
-                wasm.bytes.byteLength < 1 || wasm.bytes.byteLength > 1024 * 1024) return false;
+                wasm.bytes.byteLength < 1 || wasm.bytes.byteLength > 614400) return false;
           }
           const { scripts, style } = value;
           const size = (text) =>

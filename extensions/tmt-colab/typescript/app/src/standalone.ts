@@ -50,7 +50,11 @@ export interface StandaloneOutcome {
 /** What the caller found for a page that needs a copy: the runtime and design texts the page asks for
  * that it loaded, or what it could not load. */
 export type StandaloneRequest =
-  | { readonly runtime?: StandaloneRuntime; readonly design?: StandaloneDesign }
+  | {
+      readonly runtime?: StandaloneRuntime;
+      readonly design?: StandaloneDesign;
+      readonly namedDesign?: boolean;
+    }
   | { readonly reason: 'runtime-unavailable' | 'design-unavailable' };
 
 /** A page uses the design system (#5057) when its source contains `tmt-ui-`, `<tmt-icon` or
@@ -73,14 +77,21 @@ function escapes(text: string, closing: RegExp): boolean {
  * before the design system. */
 export function standaloneDocument(
   source: string,
-  parts: { readonly runtime?: StandaloneRuntime; readonly design?: StandaloneDesign },
+  parts: {
+    readonly runtime?: StandaloneRuntime;
+    readonly design?: StandaloneDesign;
+    readonly namedDesign?: boolean;
+  },
 ): string | { readonly reason: 'runtime-unusable' | 'design-unusable' } {
-  const { runtime, design } = parts;
+  const { runtime, design, namedDesign } = parts;
   if (runtime && (escapes(runtime.script, /<\/script/i) || escapes(runtime.style, /<\/style/i)))
     return { reason: 'runtime-unusable' };
   if (design && (escapes(design.script, /<\/script/i) || escapes(design.style, /<\/style/i)))
     return { reason: 'design-unusable' };
-  return `<!doctype html><html${design ? ' data-colab-design' : ''}><head><meta http-equiv="Content-Security-Policy" content="${META_POLICY}"><meta charset="utf-8">${design ? `<style>${design.style}</style>` : ''}${runtime ? `<style type="text/tailwindcss">${runtime.style}</style>` : ''}<script>${THEME_SWITCH}</script>${design ? `<script>${design.script}</script>` : ''}${runtime ? `<script>${runtime.script}</script>` : ''}</head><body>${source}</body></html>`;
+  const notice = namedDesign
+    ? '<p role="status" data-colab-standalone-notice>Design-system components, including TerminalFrame, are unavailable in standalone export.</p>'
+    : '';
+  return `<!doctype html><html${design ? ' data-colab-design' : ''}><head><meta http-equiv="Content-Security-Policy" content="${META_POLICY}"><meta charset="utf-8">${design ? `<style>${design.style}</style>` : ''}${runtime ? `<style type="text/tailwindcss">${runtime.style}</style>` : ''}<script>${THEME_SWITCH}</script>${design ? `<script>${design.script}</script>` : ''}${runtime ? `<script>${runtime.script}</script>` : ''}</head><body>${notice}${source}</body></html>`;
 }
 
 /** The copy of `source` (a page that needs one) and its outcome. */

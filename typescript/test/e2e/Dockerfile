@@ -23,6 +23,8 @@ COPY design/browser-ui/generated/brand-mark-static.svg ../design/browser-ui/gene
 COPY extensions/tmt-colab/typescript/app/src/colab-header.css ../extensions/tmt-colab/typescript/app/src/colab-header.css
 COPY extensions/tmt-colab/typescript/app/src/reader-style.css ../extensions/tmt-colab/typescript/app/src/reader-style.css
 COPY extensions/tmt-colab/typescript/app/src/notice-card.css ../extensions/tmt-colab/typescript/app/src/notice-card.css
+COPY extensions/tmt-colab/typescript/app/runtime-pin.json ../extensions/tmt-colab/typescript/app/runtime-pin.json
+COPY extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm ../extensions/tmt-colab/typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm
 COPY contracts/ ../contracts/
 ARG TMT_NATIVE_PROFILE=dev
 # Every cargo command below reads this; `pnpm test:e2e` forwards a host value.

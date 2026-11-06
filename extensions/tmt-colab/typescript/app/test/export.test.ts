@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { Downloads, prepareExport } from '../src/export.js';
 import type { ExportAttachment } from '../src/export-attachments.js';
-import { META_POLICY, THEME_SWITCH, usesDesign } from '../src/standalone.js';
+import { META_POLICY, THEME_SWITCH, standaloneDocument, usesDesign } from '../src/standalone.js';
+import namedDesignVector from '../../../contracts/vectors/standalone-named-design-v1.json';
 
 import { fixture, gathered, input } from './export-input.js';
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -521,4 +522,11 @@ it('copies attachment bytes before hashing and names an attachment download by i
   expect(bundle.downloadName(file)).toBe(source.filename);
   expect(bundle.downloadName('page.html')).toBe('page.html');
   expect(() => bundle.blob('attachments/00000000-0000-4000-8000-000000000023')).toThrow();
+});
+
+it('writes the shared named-design standalone notice without an unavailable wasm payload', () => {
+  const html = standaloneDocument(namedDesignVector.source, { namedDesign: true });
+  expect(html).toBe(namedDesignVector.html);
+  expect(sha(utf8(html as string))).toBe(namedDesignVector.sha256);
+  expect(html).not.toContain('application/octet-stream');
 });

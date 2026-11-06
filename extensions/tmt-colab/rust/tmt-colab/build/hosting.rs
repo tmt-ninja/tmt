@@ -116,6 +116,9 @@ fn read(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 fn content_type(route: &str) -> io::Result<&'static str> {
+    if crate::app_inventory::is_terminal_wasm(route) {
+        return Ok("application/wasm");
+    }
     Ok(match route.rsplit('.').next() {
         Some("html") => "text/html",
         Some("txt") => "text/plain",
@@ -165,7 +168,13 @@ fn collect(
             collect(&path, &route, files, inputs)?;
         } else {
             content_type(&route)?;
-            files.push((route, read(&path)?));
+            let bytes = read(&path)?;
+            if crate::app_inventory::is_terminal_wasm(&route)
+                && !crate::app_inventory::terminal_wasm_matches(&bytes)
+            {
+                return Err(invalid("Terminal renderer does not match its pin"));
+            }
+            files.push((route, bytes));
             inputs.push(path);
         }
     }

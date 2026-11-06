@@ -38,6 +38,14 @@ pub fn is_terminal_wasm(route: &str) -> bool {
     route == TERMINAL_PIN.0
 }
 
+pub fn terminal_wasm_matches(bytes: &[u8]) -> bool {
+    let digest = Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    bytes.len() == TERMINAL_PIN.2 && bytes.len() <= 614_400 && digest == TERMINAL_PIN.1
+}
+
 pub fn content_type(route: &str) -> Option<&'static str> {
     if is_terminal_wasm(route) {
         return Some("application/wasm");
@@ -87,11 +95,8 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
         if content_type(route).is_none() {
             return Err("Unsupported or unsafe app asset route.");
         }
-        if is_terminal_wasm(route) {
-            let digest = format!("{:x}", Sha256::digest(bytes));
-            if bytes.len() != TERMINAL_PIN.2 || bytes.len() > 614_400 || digest != TERMINAL_PIN.1 {
-                return Err("Terminal renderer does not match its pin.");
-            }
+        if is_terminal_wasm(route) && !terminal_wasm_matches(bytes) {
+            return Err("Terminal renderer does not match its pin.");
         }
         total = total.checked_add(bytes.len()).ok_or("App size overflow.")?;
         if bytes.is_empty() || total > APP_BYTES {
