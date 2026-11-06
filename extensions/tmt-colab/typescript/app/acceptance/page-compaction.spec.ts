@@ -207,8 +207,15 @@ for (const [kind, top] of [
         const readyStarted = Date.now();
         await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
         const readyMs = Date.now() - readyStarted;
-        const end = await page.evaluate(() => performance.now());
-        writes.push({ patchMs, readyMs, begin: Math.round(begin), end: Math.round(end) });
+        const sample = await page.evaluate(() => ({
+          end: performance.now(),
+          longTasks: (window as unknown as {
+            longTasks: { duration: number; start: number; owner: string }[];
+          }).longTasks,
+        }));
+        const write = { patchMs, readyMs, begin: Math.round(begin), end: Math.round(sample.end) };
+        writes.push(write);
+        console.log(`colab-large-write ${JSON.stringify({ write, longTasks: sample.longTasks })}`);
       }
       await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
       const long = await page.evaluate(
