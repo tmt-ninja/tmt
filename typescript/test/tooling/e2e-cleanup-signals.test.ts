@@ -83,7 +83,7 @@ it.each([
         await fixture.start();
         const executable = path.join(fixture.root, 'bin', 'tmt-ops');
         // Keep the shim as the group leader; call sleep under its real utility name.
-        writeExecutable(executable, ['#!/bin/sh', 'sleep "$@" &', 'wait "$!"', ''].join(String.fromCharCode(10)), 0o755);
+        writeExecutable(executable, ['#!/bin/sh', '/bin/sleep "$@" &', 'wait "$!"', ''].join(String.fromCharCode(10)), 0o755);
         let pid;
         let panePid;
         if (${JSON.stringify(scenario)}.startsWith('foreground ')) {
