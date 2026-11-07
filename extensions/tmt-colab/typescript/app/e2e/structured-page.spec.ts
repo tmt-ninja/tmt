@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { servePageRuntime } from './page-runtime.js';
 import { capturePath } from './captures.js';
 
 async function mountFixture(page: import('@playwright/test').Page, content = 'plan') {
@@ -349,6 +350,11 @@ test('marks draw at rest, toggle with the format keys and link a pasted URL', as
   await editor.press('ArrowRight');
   await editor.press('ArrowRight');
   await editor.pressSequentially('X', { delay: 20 });
+  // The typing goes with the mark it was typed into, and the page draws it bold once it holds it.
+  await expect
+    .poll(() => page.evaluate(() => window.sent.filter((op) => 'format' in op).at(-1)))
+    .toEqual({ op: 'text', id: 'p', format: { from: 2, to: 3, mark: 'bold', value: true } });
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toBe('ShXip the stack.');
   await expect(editor.locator('strong')).toHaveText('ShXip');
   // A URL pasted over "stack" links it; a script URL is pasted as text.
   await editor.press('End');
@@ -442,6 +448,30 @@ test('a work bundle and page views draw owner data only while the page is owner-
   await expect(pages).toContainText('區塊資料模型');
 });
 
+test('a mockup renders only in an opaque sandboxed frame, never in the page', async ({ page }) => {
+  await servePageRuntime(page);
+  const host = await mountFixture(page, 'spec');
+  const mock = host.locator('[data-block-id="mock"]');
+  const frame = mock.locator('iframe');
+  await expect(frame).toHaveCount(1);
+  // The frame is the renderer's: sandboxed without same-origin, so the markup has no parent access.
+  const sandbox = await frame.getAttribute('sandbox');
+  expect(sandbox).toContain('allow-scripts');
+  expect(sandbox).not.toContain('allow-same-origin');
+  await expect(
+    mock.frameLocator('iframe').getByRole('heading', { name: '手機上的區塊選單' }),
+  ).toBeVisible();
+  // The markup never reaches the parent's DOM.
+  await expect(host.getByRole('heading', { name: '手機上的區塊選單' })).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.querySelectorAll('#structured-page-fixture script').length),
+  ).toBe(0);
+  // The frame takes its page's height, not the viewport's.
+  await expect.poll(async () => (await frame.boundingBox())!.height).toBeGreaterThan(40);
+  expect((await frame.boundingBox())!.height).toBeLessThan(400);
+  await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+});
+
 for (const [width, theme] of [
   [1440, 'light'],
   [1440, 'dark'],
@@ -489,9 +519,31 @@ for (const width of [1440, 390])
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(22);
+      await expect(host.locator('[data-block-id]')).toHaveCount(23);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
+      // The mockup's frame has drawn its page.
+      await expect(
+        host
+          .locator('[data-block-id="mock"]')
+          .frameLocator('iframe')
+          .getByRole('heading', { name: '手機上的區塊選單' }),
+      ).toBeVisible();
+      // ...and taken its page's height.
+      await expect
+        .poll(
+          async () => (await host.locator('[data-block-id="mock"] iframe').boundingBox())!.height,
+        )
+        .toBeGreaterThan(40);
+      // A full-page capture does not paint a sandboxed (cross-origin) frame: the mockup is captured
+      // on its own, in view.
+      await host.locator('[data-block-id="mock"]').scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await host
+        .locator('[data-block-id="mock"]')
+        .screenshot({ path: capturePath(`structured-${width}-${theme}-mockup.png`) });
+      await page.evaluate(() => scrollTo(0, 0));
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({
         path: capturePath(`structured-${width}-${theme}-read.png`),

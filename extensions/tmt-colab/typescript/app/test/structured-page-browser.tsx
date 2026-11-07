@@ -9,6 +9,9 @@ import type { ThreadBinding } from '../src/thread-store.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { ParentPageViewSource } from '../src/parent-page-view.js';
 import { applyOps } from '../src/block-apply.js';
+import { mountRenderer } from '../src/renderer.js';
+import { pageDesignSystems } from '../src/design-system-pages.js';
+import type { PageTransport } from '../src/transport.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 
@@ -168,6 +171,11 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       kind: 'single',
       choices: ['問題', '圖片', 'Mockup'],
     }),
+    block('mock', 'mockup', undefined, {
+      preset: '390',
+      markup:
+        '<main><h1>手機上的區塊選單</h1><p>插入、移動和刪除都在同一張表單裡。</p><tmt-ui-button>新增區塊</tmt-ui-button><script>parent.postMessage("escaped","*")</script></main>',
+    }),
     block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
       tone: 'working',
       label: '做的順序',
@@ -310,6 +318,11 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       };
     },
   } as unknown as ThreadBinding;
+  // The real sandboxed renderer, as the router's mount uses it; one function for the page's life.
+  // The built-in tmt GUI system ships with the app, so it needs no page behind it.
+  const designSystem = pageDesignSystems({} as PageTransport);
+  const mountMockup = (frameHost: HTMLElement, source: string, signal: AbortSignal) =>
+    mountRenderer(frameHost, source, { signal, onState: () => {}, designSystem, fitContent: true });
   const pageViewSource: ParentPageViewSource = (publish, failed) => {
     if (!owner) failed();
     else
@@ -414,6 +427,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onPasteUrl={pasteUrl}
           onChecked={check}
           {...(content === 'spec' && {
+            mountMockup,
             workSource,
             pageViewSource,
             questionPage: {

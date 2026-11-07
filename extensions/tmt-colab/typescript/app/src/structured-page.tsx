@@ -1,6 +1,13 @@
 // The parts draw on the design system's UI layer (buttons, selects, chips), as the router's do.
 import '@tmt/browser-ui/ui.css';
-import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import {
   Block,
   blockActions,
@@ -17,6 +24,7 @@ import {
   MarkedText,
   authoredPageViewRows,
   ConnectedWorkBundle,
+  MockupBlock,
   PageView,
   QuestionBlock,
   WorkBundle,
@@ -34,7 +42,7 @@ import {
 } from '@tmt/browser-ui/blocks';
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
 import { indentOf, listNumber } from './block-ops.js';
-import { pageViewSpec, workBundleProps } from './block-parts.js';
+import { mockupSource, mockupStage, pageViewSpec, workBundleProps } from './block-parts.js';
 import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
@@ -86,6 +94,9 @@ export interface StructuredPageProps {
   workSource?: WorkBundleSource;
   /** A live page view's owner list, gated the same way; absent draws its unavailable state. */
   pageViewSource?: ParentPageViewSource;
+  /** Renders a mockup's page source in the sandboxed render frame inside `host` (the router's
+   * renderer, with HTML pages' admission); absent draws the mockup unavailable. */
+  mountMockup?: MountMockup;
   /** The page's question registry and discussion, for question blocks to answer through. */
   questionPage?: QuestionPage;
   /** A to-do's checkbox was ticked or cleared. */
@@ -390,6 +401,56 @@ function InsertPopover({
   );
 }
 
+/** The router's sandboxed renderer for a mockup's source. */
+export type MountMockup = (
+  host: HTMLElement,
+  source: string,
+  signal: AbortSignal,
+) => Promise<{ destroy(): void }>;
+
+/**
+ * A mockup block (#6005): DS `MockupBlock`'s stage around a sandboxed render frame. The markup is
+ * untrusted page markup: it renders only in the frame, as an HTML page does, and never enters the
+ * parent's DOM. A new source replaces the frame.
+ */
+function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup }) {
+  // The stage may draw its content again (a new size, a theme): the frame follows the node it is in.
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const source = mockupSource(block);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!node || !mount) return;
+    const controller = new AbortController();
+    let frame: { destroy(): void } | undefined;
+    setFailed(false);
+    mount(node, source, controller.signal).then(
+      (handle) => {
+        if (controller.signal.aborted) handle.destroy();
+        else frame = handle;
+      },
+      () => {
+        if (!controller.signal.aborted) setFailed(true);
+      },
+    );
+    return () => {
+      controller.abort();
+      frame?.destroy();
+      node.replaceChildren();
+    };
+  }, [node, mount, source]);
+  const stage = mockupStage(block);
+  return (
+    <MockupBlock
+      system={typeof block.props.system === 'string' ? block.props.system : 'tmt-gui'}
+      width={stage.width}
+      height={stage.height}
+      unavailable={!mount || failed}
+    >
+      <div ref={setNode} className="tmt-block-mockup-frame" />
+    </MockupBlock>
+  );
+}
+
 /** A question block where nothing can be answered: its question and choices only. */
 function ReadOnlyQuestion({ block }: { block: BlockRecord }) {
   const question = blockQuestion(block);
@@ -572,8 +633,10 @@ function Content({
       ) : (
         <ReadOnlyQuestion block={block} />
       );
+    case 'mockup':
+      return <MockupFrame block={block} mount={rest.mountMockup} />;
     default:
-      // Drawn by a later step (image, mockup).
+      // Drawn by a later step (image).
       return <TextBlock tone="muted">{block.type}</TextBlock>;
   }
 }

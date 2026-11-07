@@ -2059,6 +2059,26 @@ function OpenPage({
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
   );
+  // A mockup block's markup renders in the same sandboxed frame and runtime admission as an HTML
+  // page (#6005): never in the parent's DOM.
+  const mountMockup = useCallback(
+    (frameHost: HTMLElement, source: string, signal: AbortSignal) =>
+      mountRenderer(frameHost, source, {
+        signal,
+        fitContent: true,
+        onState: () => {},
+        onLink: requestPageLink,
+        designSystem: {
+          release: async (system, lock) => designSystems?.release(system, lock),
+          draft: async (system) => {
+            if (!designSystems) throw new Error('No design systems here.');
+            return designSystems.draft(system);
+          },
+          watch: (system, changed) => designSystems?.watch(system, changed) ?? (() => {}),
+        },
+      }),
+    [designSystems, requestPageLink],
+  );
   const pageViewSource = useMemo(() => {
     if (!transport.management || view.ownerOnlyContent !== true) return undefined;
     const admitted = () => binding.current?.ownerOnlyContent?.() === true;
@@ -3213,6 +3233,7 @@ function OpenPage({
                         binding={liveError || archived ? undefined : snapshot.binding}
                         workSource={workSource}
                         pageViewSource={pageViewSource}
+                        mountMockup={mountMockup}
                         questionPage={{
                           title: view.title || snapshot.title,
                           questions: view.questions,

@@ -237,16 +237,25 @@ function Editor({
   const [editor] = useLexicalComposerContext();
   const typed = useRef(onTyped);
   typed.current = onTyped;
+  /** The text the last redraw from the page set. */
+  const pageText = useRef<string | undefined>(undefined);
   useEffect(
     () =>
       editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves, editorState }) => {
-        if (tags.has(PAGE_TAG) || (dirtyElements.size === 0 && dirtyLeaves.size === 0)) return;
-        editorState.read(() => typed.current($text(), $caret()));
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+        editorState.read(() => {
+          const now = $text();
+          // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
+          // alone would hide that typing, so only the exact text the page set is not reported.
+          if (tags.has(PAGE_TAG) && now === pageText.current) return;
+          typed.current(now, $caret());
+        });
       }),
     [editor],
   );
   useEffect(() => {
     if (editor.getEditorState().read($text) === text) return;
+    pageText.current = text;
     editor.update(() => $replace(text, marks, caret), { tag: [PAGE_TAG, HISTORY_MERGE_TAG] });
     // Only a new text from the page moves the caret; the caret alone never does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,9 +266,16 @@ function Editor({
     if (editor.isComposing()) return;
     const [now, drawn] = editor.getEditorState().read(() => [$text(), $looks()]);
     if (now !== text || drawn === looksOf(text, marks)) return;
+    // The selection from the DOM: Lexical takes a caret move on the next `selectionchange`, so
+    // its own selection can still be an earlier one, and the redraw would put the caret back.
+    const root = editor.getRootElement();
+    const dom = root ? domRange(root, text) : undefined;
+    pageText.current = text;
     editor.update(
       () => {
-        const { anchor, focus } = $selected();
+        const { anchor, focus } = dom
+          ? { anchor: dom.at, focus: dom.at === dom.from ? dom.to : dom.from }
+          : $selected();
         $replace(text, marks, anchor, focus);
       },
       { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
