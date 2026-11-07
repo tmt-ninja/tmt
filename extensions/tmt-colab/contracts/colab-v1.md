@@ -3181,8 +3181,7 @@ A batch may carry a typed change to the page's attachment list: `{ops, attachmen
 descriptor[], remove?: attachmentId[]}}`, the same `DocumentChange` and vectors
 (`attachment-change-v1.json`) as an HTML save, applied in the same atomic update as the ops. A batch
 with no ops is allowed when it carries a change (attach or detach alone). The list is
-`meta.attachments`; it is what the 30-day [sweep](#unreferenced-attachments-5284) counts as a
-reference and what authorizes a read, so an image or file can only be kept by having its descriptor
+`meta.attachments`; it authorizes a read, so an image or file can only show if its descriptor is
 there.
 
 A descriptor is bound to the sha256 of the source written with it. A page of blocks has no source
@@ -3205,9 +3204,18 @@ The rules are checked when a batch is admitted and not when a state is folded. T
 leave a dangling reference on a merged page (one removes a descriptor while the other inserts an
 image that names it); that page must still fold, and a reference that was already dangling in the
 base is not judged again. The renderer draws such an image in its error state. A deleted block shows
-nothing, so a reference on one is not live: delete the block, then detach, and the object is swept
-30 days after the descriptor leaves the list. Restoring a block brings its references back and they
-are judged like new ones. The receipt adds `attachments: {set: [id], remove: [id]}`.
+nothing, so a reference on one is not live for these rules; restoring it brings its references back
+and they are judged like new ones. The receipt adds `attachments: {set: [id], remove: [id]}`.
+
+**Sweep.** On a page of blocks the [30-day sweep](#unreferenced-attachments-5284) keeps the
+descriptors that a block on the page still references, live or deleted and not yet purged (an undo
+or a restore keeps its image), the way an HTML page keeps what its source references. When no block
+references a descriptor any more (the block was deleted and compaction purged it after seven days,
+or it was never used) its object is swept after the same 30 days, and nobody has to detach it by
+hand. A short reference two descriptors share keeps both, and a reference that names none keeps
+nothing. `detach` still drops the descriptor from the list, which frees its place in the 128. The
+vectors [`block-attachments-v1.json`](vectors/block-attachments-v1.json) (`kept`) pin the
+referenced-live, referenced-deleted, purged and unreferenced cases.
 
 `tmt colab attachment attach PAGE FILE` adds a file to a page of blocks through this batch (it
 publishes the creation proof, then the list change); `tmt colab block detach PAGE ATTACHMENT`
@@ -7128,7 +7136,9 @@ at version 4 (`objects.list` and `objects.remove`); on an older Remote it record
   default `shared` history mode, public pages, archived pages and deleted pages keep every object, and
   a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
   namespace is removed whole by the existing sweep.
-- **Reference set.** Every descriptor in the current page source, every message revision of every
+- **Reference set.** Every descriptor in the current page source (on a page of blocks, the ones a block
+  on the page still references, [live or deleted and not yet purged](#attachments-on-a-page-of-blocks)),
+  every message revision of every
   readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
   unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
   old-epoch document lists are not references: no reader can address them, so a rekeyed object's old

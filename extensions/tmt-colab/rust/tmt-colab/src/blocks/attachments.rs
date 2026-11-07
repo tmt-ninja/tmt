@@ -34,11 +34,20 @@ pub fn change(body: &Value) -> Result<Option<DocumentChange>, Refusal> {
 /// The live references of a `blocks` value: each `colab-attachment:` string in an image's `src`
 /// or a file's `href`, on a block that is not deleted. A tombstoned block shows nothing.
 fn live(blocks: &Value) -> BTreeSet<String> {
+    references(blocks, false)
+}
+
+/// The references of the blocks that are on the page: live ones, and with `tombstoned` the
+/// deleted ones not yet purged too.
+fn references(blocks: &Value, tombstoned: bool) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let Some(all) = blocks.as_object() else {
         return found;
     };
-    for block in all.values().filter(|b| b.get("deleted").is_none()) {
+    for block in all
+        .values()
+        .filter(|b| tombstoned || b.get("deleted").is_none())
+    {
         for (list, key) in [("images", "src"), ("files", "href")] {
             let Some(items) = block["props"].get(list).and_then(Value::as_array) else {
                 continue;
@@ -74,6 +83,30 @@ fn resolve<'a>(token: &str, list: &'a [Descriptor]) -> Option<&'a Descriptor> {
         return named.next().is_none().then_some(first);
     }
     list.iter().find(|d| d.attachment_id == token)
+}
+
+/// The descriptors of `list` that the blocks on the page still reference, live or deleted and not
+/// yet purged (an undo or a restore keeps its image). This is the page's reference set for the
+/// 30-day sweep: a descriptor no block references any more is swept on the same schedule as a file
+/// whose reference left an HTML page's source, without anyone running a detach. It only ever
+/// widens what is kept: a short token that names several descriptors keeps them all, and a token
+/// that names none keeps nothing.
+pub fn referenced<'a>(blocks: &Value, list: &'a [Descriptor]) -> Vec<&'a Descriptor> {
+    let tokens: BTreeSet<String> = references(blocks, true)
+        .iter()
+        .filter_map(|reference| token(reference).map(str::to_owned))
+        .collect();
+    list.iter()
+        .filter(|descriptor| {
+            tokens.iter().any(|token| {
+                if token.len() == 8 {
+                    descriptor.attachment_id.starts_with(token.as_str())
+                } else {
+                    descriptor.attachment_id == *token
+                }
+            })
+        })
+        .collect()
 }
 
 /// Admit `change` to a batch that took `before` to `next`, on a page that holds `current`.

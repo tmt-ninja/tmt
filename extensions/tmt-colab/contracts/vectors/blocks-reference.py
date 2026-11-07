@@ -359,6 +359,23 @@ case("on a converted page the descriptors are bound to its frozen legacy source"
 case("removing what the page does not hold is refused", {}, {}, invalid_change, remove=[aid(9)])
 case("a change that adds and removes the same ID is refused", {}, {}, invalid_change, current=[aid(1)], set=[aid(1)], remove=[aid(1)])
 case("an empty change is no change", {}, {}, unchanged, current=[aid(1)])
+# Which descriptors the 30-day sweep keeps on a page of blocks: those a block still references,
+# live or deleted and not yet purged. A purged block is simply absent from `blocks`.
+kept = []
+def keeps(name, blocks, current, expect):
+    kept.append({"name": name, "blocks": blocks, "current": list(current), "expect": list(expect)})
+keeps("a descriptor a live block references is kept", {A: image(ref(1))}, [aid(1)], [aid(1)])
+keeps("a descriptor only a deleted block references is kept, so an undo or a restore keeps its image", {A: image(ref(1), deleted=5)}, [aid(1)], [aid(1)])
+keeps("a purged block references nothing, so its descriptor is no longer kept", {}, [aid(1)], [])
+keeps("a descriptor no block references is not kept", {A: image("https://example.com/a.png")}, [aid(1)], [])
+keeps("only the referenced one of two descriptors is kept", {A: image(ref(2))}, [aid(1), aid(2)], [aid(2)])
+keeps("two blocks that name one descriptor keep it once", {A: image(ref(1)), B: image(ref(1), deleted=5)}, [aid(1)], [aid(1)])
+keeps("a file's href keeps its descriptor", {A: block("image", props={"files": [{"name": "a", "href": ref(1)}]})}, [aid(1)], [aid(1)])
+keeps("a short reference keeps the one descriptor with that prefix", {A: image("colab-attachment:00000001")}, [aid(1), aid(2)], [aid(1)])
+keeps("a short reference two descriptors share keeps both: a sweep only ever widens what is kept", {A: image("colab-attachment:00000001")}, [aid(1), TWIN], [aid(1), TWIN])
+keeps("a reference to a descriptor the page does not hold keeps nothing", {A: image(ref(7))}, [aid(1)], [])
+keeps("a malformed reference keeps nothing", {A: image("colab-attachment:zz")}, [aid(1)], [])
+keeps("a page with no descriptors keeps none", {A: image(ref(1))}, [], [])
 descriptor = {
     "version": 1,
     "attachmentId": "<attachmentId>",
@@ -384,6 +401,8 @@ attach_doc = {
     "description": "Which attachment references a batch on a page of blocks may add and which descriptors it may remove (#6190), written by blocks-reference.py and run by the native `blocks::attachments` and the browser's `admitAttachments` alike. A case lists the blocks before and after the batch, the descriptors the page holds (`current`, by attachment ID) and the typed change (`set`, `remove`); a descriptor is `descriptor` with its `attachmentId` set and its `sourceDigest` the sha256 (lowercase hex) of the case's `source` (the page's html root), or of `setSource` for the added ones. `expect` is the list the page holds afterwards (`list`, by ID; null when the change leaves it as it is) or a refusal: `attachment` (a reference no descriptor names, or a removal of one a live block shows) or `invalid` (a change the shared attachment rules refuse). The rules are checked when a batch is admitted, not when a state is folded: two writers can leave a dangling reference on a merged page, which must still fold.",
     "descriptor": descriptor,
     "cases": cases,
+    "kept": kept,
+    "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced`: a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept.",
 }
 attach_text = json.dumps(attach_doc, ensure_ascii=False, indent=2) + "\n"
 

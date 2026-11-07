@@ -285,3 +285,63 @@ fn the_shared_vectors_agree() {
         }
     }
 }
+
+/// What the sweep keeps: the descriptors a block that is on the page still references.
+#[test]
+fn the_sweep_keeps_what_a_block_on_the_page_references() {
+    let file: Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/vectors/block-attachments-v1.json"
+    ))
+    .unwrap();
+    for case in file["kept"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let ids = |value: &Value| -> Vec<String> {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap().to_owned())
+                .collect()
+        };
+        let list: Vec<Descriptor> = ids(&case["current"])
+            .iter()
+            .map(|id| {
+                let mut value = file["descriptor"].clone();
+                value["attachmentId"] = json!(id);
+                value["source"]["sourceDigest"] = json!(hex(&digest(SOURCE)));
+                value["signature"] = json!(values::encode_binary(&[1u8; 64]));
+                serde_json::from_value(value).unwrap()
+            })
+            .collect();
+        let got: Vec<String> = super::referenced(&case["blocks"], &list)
+            .iter()
+            .map(|d| d.attachment_id.clone())
+            .collect();
+        assert_eq!(got, ids(&case["expect"]), "{name}");
+    }
+}
+
+/// The purge is what ends a deleted image's wait: after the epoch baseline drops the tombstone,
+/// nothing references the descriptor, and the sweep's clock for its object can start.
+#[test]
+fn a_purged_tombstone_stops_keeping_its_descriptor() {
+    const DAY: u64 = 86_400_000;
+    let (deleted_at, now) = (1_700_000_000_000u64, 1_700_000_000_000u64 + 8 * DAY);
+    let list = vec![descriptor(1, SOURCE)];
+    let mut shown = image(&reference(1));
+    shown["deleted"] = json!(deleted_at);
+    let blocks = blocks(&[(A, shown)]);
+    assert_eq!(
+        super::referenced(&blocks, &list).len(),
+        1,
+        "before the purge"
+    );
+    let purged = crate::blocks::purge::purge(&blocks, now);
+    assert!(
+        super::referenced(&purged, &list).is_empty(),
+        "after the purge"
+    );
+    // A tombstone younger than seven days survives it and keeps the descriptor.
+    let recent = crate::blocks::purge::purge(&blocks, deleted_at + DAY);
+    assert_eq!(super::referenced(&recent, &list).len(), 1);
+}
