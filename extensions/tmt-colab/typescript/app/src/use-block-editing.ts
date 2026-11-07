@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BlockOp, BlockRecord } from './block-model.js';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { type BlockOp, type BlockRecord, TEXT_TYPES } from './block-model.js';
+import { joinBlock, joinTarget, splitBlock } from './block-ops.js';
 import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { BlockTree } from './block-tree.js';
 
@@ -19,34 +20,59 @@ export interface Editing {
  * op once it rests `TEXT_FLUSH_MS` (or when focus leaves); `send` resolves once the page shows the
  * op and rejects when the serve refuses it. While an op is out, the page's text for that block is
  * held and merged when it settles (`BlockTextSync`).
+ *
+ * Enter and Backspace at a block's edges are one batch each: the split or join with the typing not
+ * sent yet. They wait for the text op on its way, so each batch starts from what the page shows.
  */
 export function useBlockEditing(
   records: readonly BlockRecord[],
   send: (ops: BlockOp[]) => Promise<void>,
 ) {
   const tree = useMemo(() => new BlockTree(records), [records]);
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
   const [editing, setEditing] = useState<Editing>();
   const sync = useRef<BlockTextSync | undefined>(undefined);
   const caret = useRef(0);
   const version = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** The send on its way; a structural gesture waits for it. */
+  const inflight = useRef<Promise<void>>(Promise.resolve());
+  /** A block this tab inserted and focused before the page shows it. */
+  const arriving = useRef<string | undefined>(undefined);
   const sendRef = useRef(send);
   sendRef.current = send;
+
+  const open = useCallback((next: BlockTextSync, at: number) => {
+    sync.current = next;
+    caret.current = at;
+    setEditing({ id: next.id, text: next.text, caret: at, version: ++version.current });
+  }, []);
 
   // `flush` and `show` call each other; `flush` reaches `show` through a ref, so both stay stable.
   const showRef = useRef<(current: BlockTextSync, shown: { text: string; caret: number }) => void>(
     () => {},
   );
+  /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
+  const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
+    const sent = sendRef.current(ops);
+    inflight.current = sent.then(
+      () => {
+        if (current) showRef.current(current, current.settled(true, caret.current));
+      },
+      () => {
+        if (current) showRef.current(current, current.settled(false, caret.current));
+      },
+    );
+    return sent;
+  }, []);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     const current = sync.current;
     const op = current?.flush();
     if (!current || !op) return;
-    void sendRef.current([op]).then(
-      () => showRef.current(current, current.settled(true, caret.current)),
-      () => showRef.current(current, current.settled(false, caret.current)),
-    );
-  }, []);
+    void out(current, [op]);
+  }, [out]);
   const show = useCallback(
     (current: BlockTextSync, shown: { text: string; caret: number }) => {
       if (sync.current !== current) return;
@@ -70,12 +96,15 @@ export function useBlockEditing(
     if (!current) return;
     const block = tree.get(current.id);
     if (!block || !tree.visible(current.id)) {
+      // Not on the page yet: this tab's own insert is on its way.
+      if (arriving.current === current.id) return;
       // Deleted or gone under another writer: the editor closes; unsent typing is kept on the op.
       flush();
       sync.current = undefined;
       setEditing(undefined);
       return;
     }
+    if (arriving.current === current.id) arriving.current = undefined;
     show(current, current.remote(block.text ?? '', caret.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree]);
@@ -86,11 +115,9 @@ export function useBlockEditing(
       flush();
       const block = tree.get(id);
       if (!block || block.text === undefined) return;
-      sync.current = new BlockTextSync(id, block.text);
-      caret.current = [...block.text].length;
-      setEditing({ id, text: block.text, caret: caret.current, version: ++version.current });
+      open(new BlockTextSync(id, block.text), [...block.text].length);
     },
-    [tree, flush],
+    [tree, flush, open],
   );
   const typed = useCallback(
     (id: string, text: string, at: number) => {
@@ -103,6 +130,82 @@ export function useBlockEditing(
     },
     [flush],
   );
+
+  /** Enter at scalar `at`: the rest of the text starts a new block, focused at its start. */
+  const split = useCallback(
+    async (current: BlockTextSync, at: number) => {
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current) return;
+      const before = treeRef.current;
+      const newId = crypto.randomUUID();
+      const text = current.text;
+      const ops = splitBlock(before, current.id, at, newId, {
+        text,
+        base: current.base,
+      });
+      const tail = [...text].slice(at).join('');
+      arriving.current = newId;
+      open(new BlockTextSync(newId, tail), 0);
+      try {
+        await out(undefined, ops);
+      } catch {
+        // Refused: nothing changed on the page. The person's text goes back where it was.
+        if (sync.current?.id === newId) {
+          arriving.current = undefined;
+          const back = new BlockTextSync(current.id, before.get(current.id)?.text ?? '');
+          back.typed(text);
+          open(back, at);
+          timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+        }
+      }
+    },
+    [open, out, flush],
+  );
+
+  /** Backspace at the start: the text joins the end of the text block before it, focused at the
+   * join, and this block is deleted. */
+  const join = useCallback(
+    async (current: BlockTextSync) => {
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current) return;
+      const before = treeRef.current;
+      const previous = joinTarget(before, current.id);
+      if (!previous) return;
+      const ops = joinBlock(before, current.id, current.text);
+      const into = new BlockTextSync(previous.id, previous.text!);
+      into.typed(previous.text! + current.text);
+      // The join's text op is the one `into` has on its way.
+      into.flush();
+      open(into, [...previous.text!].length);
+      await out(into, ops).catch(() => {});
+    },
+    [open, out],
+  );
+
+  /** A key in the focused block; true when the block took it. */
+  const key = useCallback(
+    (id: string, event: KeyboardEvent, text: string, at: number, collapsed: boolean): boolean => {
+      const current = sync.current;
+      if (current?.id !== id || event.altKey || event.metaKey || event.ctrlKey) return false;
+      const block = treeRef.current.get(id);
+      if (!block || !TEXT_TYPES.has(block.type)) return false;
+      current.typed(text);
+      if (event.key === 'Enter' && !event.shiftKey && block.type !== 'code' && collapsed) {
+        void split(current, at);
+        return true;
+      }
+      if (event.key === 'Backspace' && at === 0 && collapsed && !event.shiftKey) {
+        if (!joinTarget(treeRef.current, id)) return false;
+        void join(current);
+        return true;
+      }
+      return false;
+    },
+    [split, join],
+  );
+
   useEffect(() => () => clearTimeout(timer.current), []);
-  return { tree, editing, focus, typed, flush };
+  return { tree, editing, focus, typed, flush, key };
 }

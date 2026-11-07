@@ -304,8 +304,14 @@ describe('gestures to ops, and undo', () => {
     const tree = new BlockTree(blocks);
     const split = splitBlock(tree, 'one', 5, 'tail');
     expect(split).toEqual([
-      { op: 'text', id: 'one', set: 'Hello', base: 'Hello world' },
+      { op: 'text', id: 'one', set: 'Hello', base: 'Hello world', overlap: 'both' },
       expect.objectContaining({ op: 'insert', id: 'tail', type: 'paragraph', text: ' world' }),
+    ]);
+    // The focused block's typing not sent yet goes in the same batch, from its base; offsets
+    // count scalar values.
+    expect(splitBlock(tree, 'one', 2, 'cut', { text: '😀a b', base: 'Hello world' })).toEqual([
+      { op: 'text', id: 'one', set: '😀a', base: 'Hello world', overlap: 'both' },
+      expect.objectContaining({ op: 'insert', id: 'cut', text: ' b' }),
     ]);
     const after = apply(blocks, split);
     expect(ids(new BlockTree(after).children())).toEqual(['one', 'tail', 'two']);
@@ -318,6 +324,14 @@ describe('gestures to ops, and undo', () => {
     expect(splitBlock(tree, 'one', 11, 'empty')).toEqual([
       expect.objectContaining({ op: 'insert', id: 'empty', text: '' }),
     ]);
+    // The joined block's unsent typing is what moves.
+    expect(joinBlock(new BlockTree(after), 'tail', ' there')[0]).toEqual({
+      op: 'text',
+      id: 'one',
+      set: 'Hello there',
+      base: 'Hello',
+      overlap: 'both',
+    });
     // Nothing text-like before it: no join.
     expect(joinBlock(new BlockTree(page()), 'in-a')).toEqual([]);
   });

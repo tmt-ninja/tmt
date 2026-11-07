@@ -4,6 +4,8 @@ import { textMerge } from '@tmt/colab-client';
 import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { BlockOp, BlockRecord } from '../src/block-model.js';
+import { posBetween } from '../src/block-pos.js';
+import { BlockTree } from '../src/block-tree.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 
@@ -145,12 +147,34 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     new Promise<void>((resolve) => {
       window.sent.push(...ops);
       setTimeout(() => {
-        for (const op of ops)
-          if (op.op === 'text' && 'set' in op)
-            write(
-              op.id,
-              textMerge.merge(op.base, window.serveText(op.id)!, op.set, op.overlap).text,
-            );
+        // One batch commits as one change, as the serve's does.
+        let next = blocks;
+        for (const op of ops) {
+          if (op.op === 'text' && 'set' in op) {
+            const now = next.find((block) => block.id === op.id)!.text!;
+            const text = textMerge.merge(op.base, now, op.set, op.overlap).text;
+            next = next.map((block) => (block.id === op.id ? { ...block, text } : block));
+          } else if (op.op === 'delete')
+            next = next.map((block) => (block.id === op.id ? { ...block, deleted: true } : block));
+          else if (op.op === 'insert') {
+            const siblings = new BlockTree(next).children(op.parent);
+            const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
+            const pos = posBetween(siblings[at]?.pos, siblings[at + 1]?.pos);
+            next = [
+              ...next,
+              {
+                id: op.id,
+                type: op.type,
+                parent: op.parent,
+                pos,
+                props: op.props ?? {},
+                ...(op.text !== undefined && { text: op.text }),
+                deleted: false,
+              },
+            ];
+          }
+        }
+        publish(next);
         resolve();
       }, SERVE_MS);
     });
@@ -160,10 +184,10 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       if (node) listeners.add(setRecords);
       else listeners.delete(setRecords);
     }, []);
-    const { tree, editing, focus, typed } = useBlockEditing(records, send);
+    const { tree, editing, focus, typed, key } = useBlockEditing(records, send);
     return (
       <section ref={subscribe}>
-        <StructuredPage tree={tree} editing={editing} onFocus={focus} onTyped={typed} />
+        <StructuredPage tree={tree} editing={editing} onFocus={focus} onTyped={typed} onKey={key} />
       </section>
     );
   }

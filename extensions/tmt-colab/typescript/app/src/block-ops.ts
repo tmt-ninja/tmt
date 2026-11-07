@@ -1,5 +1,6 @@
 import {
   type BlockOp,
+  type BlockRecord,
   type BlockType,
   canHold,
   CONTAINER_TYPES,
@@ -104,9 +105,23 @@ export function deleteBlocks(tree: BlockTree, ids: readonly string[]): BlockOp[]
 }
 const order = (tree: BlockTree, id: string) => tree.flat().findIndex((block) => block.id === id);
 
-/** Enter inside a text block: the text before the caret stays, the rest starts a new block of the
- * same type right after it (a list item makes a list item). */
-export function splitBlock(tree: BlockTree, id: string, at: number, newId: string): BlockOp[] {
+/** What the focused block holds: the person's text and the page text it started from. Without it
+ * the block's page text is used. */
+export interface Typed {
+  text: string;
+  base: string;
+}
+
+/** Enter inside a text block at scalar offset `at`: the text before the caret stays, the rest starts
+ * a new block of the same type right after it (a list item makes a list item). The kept text goes
+ * as a whole-text op from `typed`'s base, so typing not sent yet lands in the same batch. */
+export function splitBlock(
+  tree: BlockTree,
+  id: string,
+  at: number,
+  newId: string,
+  typed?: Typed,
+): BlockOp[] {
   const block = tree.get(id);
   if (
     !block ||
@@ -116,31 +131,44 @@ export function splitBlock(tree: BlockTree, id: string, at: number, newId: strin
     block.text === undefined
   )
     throw new Error('Only a text block splits.');
-  const type = block.type;
-  const text = block.text;
-  const head = text.slice(0, at);
+  const { text, base } = typed ?? { text: block.text, base: block.text };
+  const scalars = [...text];
+  const head = scalars.slice(0, at).join('');
   return [
-    ...(head === text ? [] : [{ op: 'text' as const, id, set: head, base: text }]),
-    insertBlock(tree, { id: newId, type, after: id, text: text.slice(at) }),
+    ...(head === base
+      ? []
+      : [{ op: 'text' as const, id, set: head, base, overlap: 'both' as const }]),
+    insertBlock(tree, { id: newId, type: block.type, after: id, text: scalars.slice(at).join('') }),
   ];
 }
 
-/** Backspace at the start of a text block: its text joins the end of the text block before it,
- * and it is deleted. No ops when nothing text-like comes before it. */
-export function joinBlock(tree: BlockTree, id: string): BlockOp[] {
-  const block = tree.get(id);
+/** The text block Backspace at the start of `id` joins into: the one right before it among its
+ * siblings, when that one holds text. */
+export function joinTarget(tree: BlockTree, id: string): BlockRecord | undefined {
   const parent = tree.parentOf(id);
-  if (!block || parent === undefined || block.text === undefined) return [];
+  if (parent === undefined) return undefined;
   const previous = tree.children(parent)[tree.indexOf(id) - 1];
-  if (!previous || !TEXT_TYPES.has(previous.type) || previous.text === undefined) return [];
+  return previous && TEXT_TYPES.has(previous.type) && previous.text !== undefined
+    ? previous
+    : undefined;
+}
+
+/** Backspace at the start of a text block: its text (`text`, else its page text) joins the end of
+ * the text block before it, and it is deleted. No ops when nothing text-like comes before it. */
+export function joinBlock(tree: BlockTree, id: string, text?: string): BlockOp[] {
+  const block = tree.get(id);
+  const previous = joinTarget(tree, id);
+  const moved = text ?? block?.text;
+  if (!block || !previous || moved === undefined) return [];
   return [
-    ...(block.text
+    ...(moved
       ? [
           {
             op: 'text' as const,
             id: previous.id,
-            set: previous.text + block.text,
-            base: previous.text,
+            set: previous.text + moved,
+            base: previous.text!,
+            overlap: 'both' as const,
           },
         ]
       : []),
@@ -160,7 +188,8 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         case 'restore':
           return { op: 'delete', id: op.id };
         case 'text':
-          if ('set' in op) return { op: 'text', id: op.id, set: op.base, base: op.set };
+          if ('set' in op)
+            return { op: 'text', id: op.id, set: op.base, base: op.set, overlap: 'both' };
           // The editor sends whole text, never these; they come from agents.
           throw new Error('Only whole-text edits are undone here.');
         case 'table':
