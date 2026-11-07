@@ -131,9 +131,9 @@ async function traceLargeWrites(page: Page, name: string) {
         ...(module ? { module } : {}),
         ...(fn ? { function: fn } : {}),
         ...(typeof data?.startTime === 'number' ? { startTime: data.startTime } : {}),
-        ...(nodes
+        ...(nodes ? { nodes } : {}),
+        ...(Array.isArray(data?.cpuProfile?.samples)
           ? {
-              nodes,
               samples: numbers(data?.cpuProfile?.samples),
               timeDeltas: numbers(data?.timeDeltas),
             }
