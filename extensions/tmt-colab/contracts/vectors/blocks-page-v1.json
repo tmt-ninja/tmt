@@ -1,7 +1,7 @@
 {
   "format": "tmt-colab-blocks-page",
   "version": 1,
-  "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an empty html, no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedFrom (the archived copy it was converted from), and never a template or a layout; convertedFrom belongs to a page of blocks alone.",
+  "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block.",
   "cases": [
     {
       "name": "an ordinary page",
@@ -9,7 +9,7 @@
       "valid": true
     },
     {
-      "name": "a bare page of blocks",
+      "name": "a new page of blocks, with no legacy source and no conversion time",
       "meta": {
         "pageType": "blocks"
       },
@@ -53,15 +53,58 @@
       "valid": true
     },
     {
-      "name": "a page of blocks converted from an archived copy",
+      "name": "a page of blocks converted in place from an empty page: convertedAt, no legacy source",
       "meta": {
         "pageType": "blocks",
-        "convertedFrom": "10000000-0000-4000-8000-000000000007"
+        "convertedAt": 1794000000000
       },
       "valid": true
     },
     {
-      "name": "a page of blocks with work, attachments, fromTemplate and convertedFrom",
+      "name": "a page of blocks converted at time zero",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 0
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks holding the legacy source of a converted page",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "pageType": "blocks"
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks with a legacy source, work, a state, attachments and fromTemplate",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "pageType": "blocks",
+        "work": {
+          "version": 2,
+          "order": []
+        },
+        "pageState": "done",
+        "attachments": [],
+        "fromTemplate": {
+          "name": "report"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks converted in place: convertedAt beside its legacy source",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1794000000000
+      },
+      "valid": true
+    },
+    {
+      "name": "a converted page of blocks with work, attachments, fromTemplate, a state, convertedAt and its legacy source",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
       "meta": {
         "pageType": "blocks",
         "work": {
@@ -72,9 +115,83 @@
         "fromTemplate": {
           "name": "report"
         },
-        "convertedFrom": "10000000-0000-4000-8000-000000000007"
+        "pageState": "done",
+        "convertedAt": 1794000000000
       },
       "valid": true
+    },
+    {
+      "name": "a page reverted to HTML: pageType gone, its legacy source live again, the blocks root emptied",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "blocksRoot": "emptied",
+      "meta": {},
+      "valid": true
+    },
+    {
+      "name": "a page reverted to HTML with its other metadata kept",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "blocksRoot": "emptied",
+      "meta": {
+        "pageState": "done",
+        "work": {
+          "version": 2,
+          "order": []
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "an ordinary page whose blocks root still holds a block",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "blocksRoot": "live",
+      "meta": {},
+      "valid": false
+    },
+    {
+      "name": "a dashboard",
+      "meta": {
+        "pageType": "shell",
+        "shell": {
+          "version": 1,
+          "items": {},
+          "order": []
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "a dashboard whose blocks root is emptied",
+      "blocksRoot": "emptied",
+      "meta": {
+        "pageType": "shell",
+        "shell": {
+          "version": 1,
+          "items": {},
+          "order": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a legacy source and a layout",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "pageType": "blocks",
+        "layout": "column"
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a legacy source that is a template",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "pageType": "blocks",
+        "template": {
+          "name": "weekly",
+          "description": ""
+        }
+      },
+      "valid": false
     },
     {
       "name": "a page of blocks that is a template",
@@ -144,24 +261,56 @@
       "valid": false
     },
     {
-      "name": "convertedFrom that is not an id",
+      "name": "convertedAt that is a string",
       "meta": {
         "pageType": "blocks",
-        "convertedFrom": "archive"
+        "convertedAt": "2026-11-07"
       },
       "valid": false
     },
     {
-      "name": "convertedFrom that is a number",
+      "name": "convertedAt that is a negative time",
       "meta": {
         "pageType": "blocks",
-        "convertedFrom": 7
+        "convertedAt": -1
       },
       "valid": false
     },
     {
-      "name": "convertedFrom on an ordinary page",
+      "name": "convertedAt that is a fraction of a millisecond",
       "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1.5
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedAt beyond what a browser number holds exactly",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 9007199254740992
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedAt with a legacy source on an ordinary page",
+      "html": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "meta": {
+        "convertedAt": 1794000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedAt on an ordinary page",
+      "meta": {
+        "convertedAt": 1794000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "the retired convertedFrom on a page of blocks",
+      "meta": {
+        "pageType": "blocks",
         "convertedFrom": "10000000-0000-4000-8000-000000000007"
       },
       "valid": false

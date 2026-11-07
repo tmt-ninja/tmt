@@ -3047,20 +3047,26 @@ lands with the code that implements it; nothing below describes behavior that is
 
 #### Roots and creation
 
-A page of blocks has `meta.pageType = "blocks"`, an empty `html` text (a wire container, never
-rendered) and the content root `blocks`, a `Y.Map` from block ID to block. The root exists only on
-a page of blocks, which holds none until its first block (an absent root reads as `{}`); a
-`blocks` root on any other page and a page of blocks with HTML are refused by every fold. Ordinary
-pages and dashboards keep `{html, meta}`.
+A page of blocks has `meta.pageType = "blocks"`, an `html` text and the content root `blocks`, a
+`Y.Map` from block ID to block. A new page's `html` is empty. A page converted in place keeps its
+old HTML there as a frozen legacy source: it is never rendered, `page write` and `page patch`
+refuse the page, structured edits leave it byte for byte, and a new epoch baseline carries it
+over unchanged; it counts toward the page limits as it did before. The root exists only on a page
+of blocks, which holds none until its first block (an absent root reads as `{}`); a `blocks` root
+on any other page is refused by every fold, with one exception: a page reverted to HTML has no
+`pageType` and keeps the root a revert can only empty, never drop (a Yjs root type persists), and
+it is admitted while it holds no block and is not part of the projection (a new epoch baseline
+leaves it out). A dashboard has no HTML and no such root. Ordinary pages and
+dashboards keep `{html, meta}`.
 
 A page of blocks keeps the metadata of an ordinary page under the same schemas: `meta.title`,
 `creator`, `questions`, `pageState`, `work` ([Work](#work-4050)), `attachments`, `fromTemplate`,
 and the creation fields. It never has `meta.template` (it cannot be a template) or `meta.layout`
-and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedFrom`, a
-generated page ID naming the archived HTML copy it was converted from; every other page is refused
-one. A new epoch baseline keeps all of them. The vectors
-[`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule and run through the isolated
-decoder and the browser fold's Worker alike.
+and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedAt`, the
+time in milliseconds it was converted in place from HTML (set with the conversion, removed with a
+revert); every other page is refused one. A new epoch baseline keeps all of them. The vectors
+[`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule, the legacy `html` included,
+and run through the isolated decoder and the browser fold's Worker alike.
 
 `tmt colab page create --structured` creates an empty page of blocks (it conflicts with `--file`,
 `--layout`, `--reason`, `--template` and `--creator`). Making it the default for new pages and

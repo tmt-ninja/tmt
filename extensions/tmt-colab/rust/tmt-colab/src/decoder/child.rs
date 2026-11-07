@@ -1295,12 +1295,23 @@ mod blocks_doc {
                         || schema::validate(&project(&txn, &blocks).unwrap()).is_err()
                 );
             }
-            // A `blocks` root on an ordinary page is not a page.
+            // A `blocks` root on a page without `pageType` holds nothing a page has: the emptied root
+            // of a reverted page is admitted and left out of the projection, a live block is not,
+            // and neither is any root on a dashboard.
             let ordinary = yrs::Doc::new();
             ordinary.get_or_insert_text("html");
             ordinary.get_or_insert_map("meta");
-            ordinary.get_or_insert_map("blocks");
+            let stray = ordinary.get_or_insert_map("blocks");
+            let emptied = child::project(&ordinary, Namespace::Content).unwrap();
+            assert!(emptied.get("blocks").is_none());
+            stray.insert(&mut ordinary.transact_mut(), "x", MapPrelim::default());
             assert!(child::project(&ordinary, Namespace::Content).is_err());
+            let dashboard = yrs::Doc::new();
+            dashboard.get_or_insert_text("html");
+            let meta = dashboard.get_or_insert_map("meta");
+            dashboard.get_or_insert_map("blocks");
+            meta.insert(&mut dashboard.transact_mut(), "pageType", "shell");
+            assert!(child::project(&dashboard, Namespace::Content).is_err());
         }
     }
 }
@@ -1415,9 +1426,25 @@ pub(super) fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFa
         Namespace::Content => &["html", "meta"],
         Namespace::Own => &["threads", "messages", "intents", "replies"],
     };
+    // A page reverted from blocks to HTML keeps an emptied `blocks` root: a Yjs root type cannot be
+    // dropped, only emptied. It is admitted on a page with no `pageType` while it holds nothing,
+    // and is not part of the projection; the next epoch baseline leaves it out.
+    let emptied_blocks = namespace == Namespace::Content
+        && !blocks_page
+        && Root::<MapRef>::new("meta")
+            .get(&txn)
+            .is_some_and(|meta| meta.get(&txn, "pageType").is_none())
+        && Root::<MapRef>::new("blocks")
+            .get(&txn)
+            .is_some_and(|map| map.len(&txn) == 0)
+        && Root::<TextRef>::new("blocks")
+            .get(&txn)
+            .is_none_or(|text| text.len(&txn) == 0);
     if txn.store().pending_update().is_some()
         || txn.store().pending_ds().is_some()
-        || txn.root_refs().any(|(name, _)| !names.contains(&name))
+        || txn
+            .root_refs()
+            .any(|(name, _)| !names.contains(&name) && !(emptied_blocks && name == "blocks"))
     {
         return Err(DecodeFault::Rejected);
     }
@@ -1554,7 +1581,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 attachments: wire.attachments.as_ref(),
                 work: wire.work.as_ref(),
                 page_state: wire.page_state.as_ref(),
-                converted_from: wire.converted_from.as_ref(),
+                converted_at: wire.converted_at.as_ref(),
             };
             if creation.layout.is_some_and(|layout| !layout.valid()) {
                 return Err(DecodeFault::InvalidInput);
@@ -1571,7 +1598,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 }
             }
             let update = if let Some(blocks) = &blocks {
-                if shell.is_some() || !source.is_empty() {
+                if shell.is_some() {
                     return Err(DecodeFault::InvalidInput);
                 }
                 crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
@@ -1674,7 +1701,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     if producing && projection["meta"].get("pageState") != wire.page_state.as_ref() {
         return Err(DecodeFault::Rejected);
     }
-    if producing && projection["meta"].get("convertedFrom") != wire.converted_from.as_ref() {
+    if producing && projection["meta"].get("convertedAt") != wire.converted_at.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
@@ -1802,7 +1829,7 @@ struct BaselineMeta<'a> {
     attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     work: Option<&'a Value>,
     page_state: Option<&'a Value>,
-    converted_from: Option<&'a Value>,
+    converted_at: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
@@ -1812,7 +1839,7 @@ impl BaselineMeta<'_> {
             ("template", self.template),
             ("fromTemplate", self.from_template),
             ("pageState", self.page_state),
-            ("convertedFrom", self.converted_from),
+            ("convertedAt", self.converted_at),
         ] {
             if let Some(value) = value {
                 meta.insert(
@@ -1903,7 +1930,7 @@ mod baseline_tests {
                 title,
                 &BaselineMeta {
                     page_state: None,
-                    converted_from: None,
+                    converted_at: None,
                     creator: None,
                     questions: None,
                     template: None,

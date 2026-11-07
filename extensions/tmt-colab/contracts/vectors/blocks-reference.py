@@ -202,30 +202,57 @@ doc = {
 text = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
 
 # The page around the blocks: which metadata a page of blocks may carry (the decoder's projection
-# rules). Each case is a content document with an empty `html`, no `blocks` root yet and `title`
-# plus the `meta` below; `valid` says whether the decoder and the fold accept it.
-ARCHIVE = bid(7)
+# rules). Each case is a content document with `html` (empty unless the case gives one: a converted
+# page keeps its old source there, frozen), no `blocks` root yet and `title` plus the `meta` below;
+# `valid` says whether the decoder and the fold accept it.
+CONVERTED_AT = 1_794_000_000_000  # ms
 blocks_meta = lambda **extra: {"pageType": "blocks", **extra}
 pages = []
-def page(name, meta, ok):
-    pages.append({"name": name, "meta": meta, "valid": ok})
+LEGACY = "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n"
+def page(name, meta, ok, html=None, blocks_root=None):
+    case = {"name": name}
+    if html is not None:
+        case["html"] = html
+    if blocks_root is not None:
+        case["blocksRoot"] = blocks_root
+    pages.append({**case, "meta": meta, "valid": ok})
 page("an ordinary page", {}, True)
-page("a bare page of blocks", blocks_meta(), True)
+page("a new page of blocks, with no legacy source and no conversion time", blocks_meta(), True)
 page("a page of blocks with work", blocks_meta(work={"version": 2, "order": []}), True)
 page("a page of blocks with attachments", blocks_meta(attachments=[]), True)
 page("a page of blocks made from a template", blocks_meta(fromTemplate={"name": "report"}), True)
 page("a page of blocks with a state", blocks_meta(pageState="done"), True)
-page("a page of blocks converted from an archived copy", blocks_meta(convertedFrom=ARCHIVE), True)
+page("a page of blocks converted in place from an empty page: convertedAt, no legacy source", blocks_meta(convertedAt=CONVERTED_AT), True)
+page("a page of blocks converted at time zero", blocks_meta(convertedAt=0), True)
+page("a page of blocks holding the legacy source of a converted page", blocks_meta(), True, html=LEGACY)
 page(
-    "a page of blocks with work, attachments, fromTemplate and convertedFrom",
+    "a page of blocks with a legacy source, work, a state, attachments and fromTemplate",
+    blocks_meta(work={"version": 2, "order": []}, pageState="done", attachments=[], fromTemplate={"name": "report"}),
+    True,
+    html=LEGACY,
+)
+page("a page of blocks converted in place: convertedAt beside its legacy source", blocks_meta(convertedAt=CONVERTED_AT), True, html=LEGACY)
+page(
+    "a converted page of blocks with work, attachments, fromTemplate, a state, convertedAt and its legacy source",
     blocks_meta(
         work={"version": 2, "order": []},
         attachments=[],
         fromTemplate={"name": "report"},
-        convertedFrom=ARCHIVE,
+        pageState="done",
+        convertedAt=CONVERTED_AT,
     ),
     True,
+    html=LEGACY,
 )
+# A revert drops pageType and the blocks, but a Yjs root type cannot be dropped, only emptied: the
+# runners build a `blocks` root holding one entry, then delete the entry (`emptied`) or keep it (`live`).
+page("a page reverted to HTML: pageType gone, its legacy source live again, the blocks root emptied", {}, True, html=LEGACY, blocks_root="emptied")
+page("a page reverted to HTML with its other metadata kept", {"pageState": "done", "work": {"version": 2, "order": []}}, True, html=LEGACY, blocks_root="emptied")
+page("an ordinary page whose blocks root still holds a block", {}, False, html=LEGACY, blocks_root="live")
+page("a dashboard", {"pageType": "shell", "shell": {"version": 1, "items": {}, "order": []}}, True)
+page("a dashboard whose blocks root is emptied", {"pageType": "shell", "shell": {"version": 1, "items": {}, "order": []}}, False, blocks_root="emptied")
+page("a page of blocks with a legacy source and a layout", blocks_meta(layout="column"), False, html=LEGACY)
+page("a page of blocks with a legacy source that is a template", blocks_meta(template={"name": "weekly", "description": ""}), False, html=LEGACY)
 page("a page of blocks that is a template", blocks_meta(template={"name": "weekly", "description": ""}), False)
 page("a page of blocks with a layout", blocks_meta(layout="column"), False)
 page("a page of blocks with a canvas layout and its reason", blocks_meta(layout="canvas", layoutReason="a frame"), False)
@@ -233,13 +260,17 @@ page("a page of blocks with work that is not a work value", blocks_meta(work={"v
 page("a page of blocks with attachments that are not descriptors", blocks_meta(attachments=[{"nope": 1}]), False)
 page("a page of blocks with a fromTemplate that is not a mark", blocks_meta(fromTemplate="report"), False)
 page("a page of blocks with a state that is not one", blocks_meta(pageState="soon"), False)
-page("convertedFrom that is not an id", blocks_meta(convertedFrom="archive"), False)
-page("convertedFrom that is a number", blocks_meta(convertedFrom=7), False)
-page("convertedFrom on an ordinary page", {"convertedFrom": ARCHIVE}, False)
+page("convertedAt that is a string", blocks_meta(convertedAt="2026-11-07"), False)
+page("convertedAt that is a negative time", blocks_meta(convertedAt=-1), False)
+page("convertedAt that is a fraction of a millisecond", blocks_meta(convertedAt=1.5), False)
+page("convertedAt beyond what a browser number holds exactly", blocks_meta(convertedAt=2**53), False)
+page("convertedAt with a legacy source on an ordinary page", {"convertedAt": CONVERTED_AT}, False, html=LEGACY)
+page("convertedAt on an ordinary page", {"convertedAt": CONVERTED_AT}, False)
+page("the retired convertedFrom on a page of blocks", blocks_meta(convertedFrom=bid(7)), False)
 page_doc = {
     "format": "tmt-colab-blocks-page",
     "version": 1,
-    "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an empty html, no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedFrom (the archived copy it was converted from), and never a template or a layout; convertedFrom belongs to a page of blocks alone.",
+    "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block.",
     "cases": pages,
 }
 page_text = json.dumps(page_doc, ensure_ascii=False, indent=2) + "\n"
