@@ -9,6 +9,13 @@ export function copy(value: Uint8Array, size?: number): Bytes {
 }
 export function text(value: string): Bytes {
   requireValue(typeof value === 'string');
+  // Native validation avoids a JavaScript loop over large page sources. Retain the same
+  // surrogate checks on runtimes that predate String.prototype.isWellFormed.
+  const wellFormed = (String.prototype as { isWellFormed?: () => boolean }).isWellFormed;
+  if (wellFormed) {
+    requireValue(wellFormed.call(value));
+    return new TextEncoder().encode(value);
+  }
   for (let i = 0; i < value.length; i++) {
     const n = value.charCodeAt(i);
     if (n >= 0xd800 && n <= 0xdbff) {
