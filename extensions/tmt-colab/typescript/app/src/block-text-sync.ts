@@ -68,7 +68,7 @@ export class BlockTextSync {
   flush(): BlockOp | undefined {
     if (this.#inflight || this.#local === this.#base) return undefined;
     this.#inflight = { set: this.#local, base: this.#base };
-    return { op: 'text', id: this.id, set: this.#local, base: this.#base };
+    return { op: 'text', id: this.id, set: this.#local, base: this.#base, overlap: 'both' };
   }
 
   /** The page's text for the block is now `remote`. While an op is in flight it is held. */
@@ -96,6 +96,9 @@ export class BlockTextSync {
     return this.#merge(from, held, caret);
   }
 
+  // The serve merges the browser's ops with `overlap: 'both'`. Until `textMerge` takes that option
+  // (#6004, in progress) this local view uses its default, so a real overlap shows `dropped` here
+  // while the serve keeps both; switch to the option as soon as it lands.
   #merge(from: string, remote: string, caret: number): Shown {
     if (remote === from) {
       this.#base = from;

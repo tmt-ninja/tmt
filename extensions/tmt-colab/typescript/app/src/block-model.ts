@@ -134,8 +134,17 @@ export type BlockOp =
       readonly set: Readonly<Record<string, unknown>>;
       readonly unset: readonly string[];
     }
-  /** The whole text, with the text it was edited from as the merge base (`textMerge.merge`). */
-  | { readonly op: 'text'; readonly id: string; readonly set: string; readonly base: string }
+  /** The whole text, with the text it was edited from as the merge base (`textMerge.merge`).
+   * `overlap: 'both'` keeps the page's text and then this text where they overlap; the default,
+   * `remote`, keeps only the page's (#6004, lead decision 11-07). The browser always sends `both`, so
+   * a person's keystrokes are never dropped. */
+  | {
+      readonly op: 'text';
+      readonly id: string;
+      readonly set: string;
+      readonly base: string;
+      readonly overlap?: 'both' | 'remote';
+    }
   /** One exact passage replaced; refused when it is not there once. */
   | {
       readonly op: 'text';

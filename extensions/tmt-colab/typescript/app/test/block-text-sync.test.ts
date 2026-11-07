@@ -22,6 +22,7 @@ describe('a focused block while the page changes', () => {
       id: 'b',
       set: 'Ship the stack today',
       base: 'Ship the stack',
+      overlap: 'both',
     });
     // One op at a time; nothing new is nothing to send.
     expect(sync.flush()).toBeUndefined();
@@ -38,6 +39,7 @@ describe('a focused block while the page changes', () => {
       id: 'b',
       set: 'ONE two three four',
       base: 'ONE two three',
+      overlap: 'both',
     });
   });
   it('never takes its own sent edit, seen before the save settles, for a conflict', () => {
@@ -58,6 +60,7 @@ describe('a focused block while the page changes', () => {
       id: 'b',
       set: 'Hello world, again',
       base: 'Hello world',
+      overlap: 'both',
     });
   });
   it('keeps a refused edit local and sends it again from the old base', () => {
@@ -65,7 +68,13 @@ describe('a focused block while the page changes', () => {
     sync.typed('draft one');
     sync.flush();
     expect(sync.settled(false, 9)).toEqual({ text: 'draft one', caret: 9, dropped: false });
-    expect(sync.flush()).toEqual({ op: 'text', id: 'b', set: 'draft one', base: 'draft' });
+    expect(sync.flush()).toEqual({
+      op: 'text',
+      id: 'b',
+      set: 'draft one',
+      base: 'draft',
+      overlap: 'both',
+    });
   });
   it('reports typing that overlapped another writer change at the same place', () => {
     const sync = new BlockTextSync('b', 'the cat sat');
