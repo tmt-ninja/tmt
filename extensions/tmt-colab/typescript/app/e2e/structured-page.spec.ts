@@ -384,13 +384,45 @@ test('marks draw at rest, toggle with the format keys and link a pasted URL', as
   await expect(rest.getByRole('link')).toHaveCount(0);
 });
 
+test('numbered lists count their runs, Tab indents, and a to-do ticks', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const marker = (id: string) =>
+    host.locator(`[data-block-id="${id}"] .tmt-block-list-marker`).textContent();
+  expect(await Promise.all(['n1', 'n2', 'n3', 'n4'].map(marker))).toEqual(['1.', '1.', '2.', '2.']);
+  // Shift+Tab takes n3 out to the top level: it becomes 2 and n4 becomes 3.
+  await host.locator('[data-block-id="n3"]').click();
+  await host.locator('[data-block-id="n3"] [contenteditable="true"]').press('Shift+Tab');
+  await expect.poll(() => Promise.all(['n1', 'n2', 'n3', 'n4'].map(marker))).toEqual([
+    '1.',
+    '1.',
+    '2.',
+    '3.',
+  ]);
+  await expect
+    .poll(() => page.evaluate(() => window.sent.filter((op) => op.op === 'props')))
+    .toEqual([{ op: 'props', id: 'n3', set: {}, unset: ['indent'] }]);
+  // Tab puts it back; the focus stays in the block.
+  await host.locator('[data-block-id="n3"] [contenteditable="true"]').press('Tab');
+  await expect.poll(() => marker('n4')).toBe('2.');
+  await expect(host.locator('[data-block-id="n3"] [contenteditable="true"]')).toBeFocused();
+
+  const plan = await mountFixture(page);
+  const todo = plan.locator('[data-block-id="t"]');
+  await todo.getByRole('checkbox').click();
+  await expect(todo.getByRole('checkbox')).toBeChecked();
+  await expect(plan.locator('[contenteditable="true"]')).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.sent))
+    .toEqual([{ op: 'props', id: 't', set: { checked: true }, unset: [] }]);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(13);
+      await expect(host.locator('[data-block-id]')).toHaveCount(18);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({

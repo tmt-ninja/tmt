@@ -25,6 +25,7 @@ import {
   type CalloutTone,
 } from '@tmt/browser-ui/blocks';
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
+import { indentOf, listNumber } from './block-ops.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -70,6 +71,8 @@ export interface StructuredPageProps {
   /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
    * took it. */
   onKey?(id: string, event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** A to-do's checkbox was ticked or cleared. */
+  onChecked?(id: string, checked: boolean): void;
   /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
    * open path decides, as for any page link. */
   onLink?(href: string, newTab: boolean): void;
@@ -189,7 +192,13 @@ function Blocks({
       onClick={(event) => {
         // A click on the handle or a menu inside the block is theirs, not a click on the block.
         const target = event.target as HTMLElement;
-        if (target.closest('[data-slot="block-handle"], [data-slot="block-menu"]')) return;
+        // The handle, a menu and a control in the block (a to-do's checkbox) take their own click.
+        if (
+          target.closest(
+            '[data-slot="block-handle"], [data-slot="block-menu"], input, button, a[href]',
+          )
+        )
+          return;
         // The innermost block takes the click.
         if (target.closest('[data-block-id]') !== event.currentTarget) return;
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
@@ -422,11 +431,30 @@ function Content({
           {text}
         </HeadingBlock>
       );
-    case 'list':
-      return <ListItemBlock>{text}</ListItemBlock>;
+    case 'list': {
+      const numbered = block.props.style === 'number';
+      return (
+        <ListItemBlock
+          marker={numbered ? 'number' : 'bullet'}
+          number={numbered ? listNumber(tree, block.id) : undefined}
+          indent={indentOf(block)}
+        >
+          {text}
+        </ListItemBlock>
+      );
+    }
     case 'todo':
       return (
-        <TodoBlock checked={block.props.checked === true} editing={typing}>
+        <TodoBlock
+          checked={block.props.checked === true}
+          indent={indentOf(block)}
+          onCheckedChange={
+            rest.readonly || !rest.onChecked
+              ? undefined
+              : (checked: boolean) => rest.onChecked?.(block.id, checked)
+          }
+          editing={typing}
+        >
           {text}
         </TodoBlock>
       );
