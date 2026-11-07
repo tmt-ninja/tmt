@@ -255,6 +255,20 @@ test('a 2 MiB page keeps taking changes and reads back exact', async () => {
       run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json'], held), source);
     }
     expect(readSource() === source).toBe(true);
+    const compactStarted = Date.now();
+    const report = JSON.parse(run(world, colab, ['page', 'compact', created.pageId, '--json'])) as {
+      compacted: boolean;
+      mergedObjects: number;
+    };
+    const compact = JSON.stringify({
+      durationMs: Date.now() - compactStarted,
+      mergedObjects: report.mergedObjects,
+    });
+    test.info().annotations.push({ type: 'colab-compaction-time', description: compact });
+    console.log(`colab-compaction-time ${compact}`);
+    expect(report.compacted).toBe(true);
+    expect(report.mergedObjects).toBeGreaterThan(0);
+    expect(readSource() === source).toBe(true);
   });
 });
 
