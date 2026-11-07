@@ -132,7 +132,10 @@ it('the actual Worker projects a page of blocks from nested Yjs types and refuse
           text.insert(0, 'hello 🐈 world');
           text.format(0, 5, { bold: true });
           text.format(6, 2, { link: 'https://example.com/x' });
-          blocks.set(id(2), block('table', { props: props({ columns: [{ id: 'a', name: 'A' }] }) }));
+          blocks.set(
+            id(2),
+            block('table', { props: props({ columns: [{ id: 'a', name: 'A' }] }) }),
+          );
           const cell = new Y.Text('one');
           const cells = new Y.Map<unknown>();
           cells.set('a', cell);
@@ -185,22 +188,55 @@ it('the actual Worker projects a page of blocks from nested Yjs types and refuse
 
     // The same blocks on a page with no `pageType` are not a page; nor is a wrong shape.
     const wrong: [string, (blocks: Y.Map<unknown>, meta: Y.Map<unknown>) => void][] = [
-      ['a blocks root on an ordinary page', (blocks) => blocks.set(id(1), block('paragraph', { text: new Y.Text() }))],
-      ['a block that is not a map', (blocks, meta) => (meta.set('pageType', 'blocks'), blocks.set(id(1), 'x'))],
-      ['props that are not a map', (blocks, meta) => (meta.set('pageType', 'blocks'), blocks.set(id(1), block('paragraph', { text: new Y.Text(), props: 5 })))],
-      ['a nested type inside a prop', (blocks, meta) => {
-        meta.set('pageType', 'blocks');
-        blocks.set(id(1), block('paragraph', { text: new Y.Text(), props: props({ tone: new Y.Map() }) }));
-      }],
-      ['a field outside the closed set', (blocks, meta) => (meta.set('pageType', 'blocks'), blocks.set(id(1), block('paragraph', { text: new Y.Text(), colour: 'red' })))],
-      ['a mark outside the closed set', (blocks, meta) => {
-        meta.set('pageType', 'blocks');
-        const t = new Y.Text();
-        blocks.set(id(1), block('paragraph', { text: t }));
-        t.insert(0, 'abc');
-        t.format(0, 1, { underline: true });
-      }],
-      ['a block that fails its schema', (blocks, meta) => (meta.set('pageType', 'blocks'), blocks.set(id(1), block('banner', { text: new Y.Text() })))],
+      [
+        'a blocks root on an ordinary page',
+        (blocks) => blocks.set(id(1), block('paragraph', { text: new Y.Text() })),
+      ],
+      [
+        'a block that is not a map',
+        (blocks, meta) => (meta.set('pageType', 'blocks'), blocks.set(id(1), 'x')),
+      ],
+      [
+        'props that are not a map',
+        (blocks, meta) => (
+          meta.set('pageType', 'blocks'),
+          blocks.set(id(1), block('paragraph', { text: new Y.Text(), props: 5 }))
+        ),
+      ],
+      [
+        'a nested type inside a prop',
+        (blocks, meta) => {
+          meta.set('pageType', 'blocks');
+          blocks.set(
+            id(1),
+            block('paragraph', { text: new Y.Text(), props: props({ tone: new Y.Map() }) }),
+          );
+        },
+      ],
+      [
+        'a field outside the closed set',
+        (blocks, meta) => (
+          meta.set('pageType', 'blocks'),
+          blocks.set(id(1), block('paragraph', { text: new Y.Text(), colour: 'red' }))
+        ),
+      ],
+      [
+        'a mark outside the closed set',
+        (blocks, meta) => {
+          meta.set('pageType', 'blocks');
+          const t = new Y.Text();
+          blocks.set(id(1), block('paragraph', { text: t }));
+          t.insert(0, 'abc');
+          t.format(0, 1, { underline: true });
+        },
+      ],
+      [
+        'a block that fails its schema',
+        (blocks, meta) => (
+          meta.set('pageType', 'blocks'),
+          blocks.set(id(1), block('banner', { text: new Y.Text() }))
+        ),
+      ],
     ];
     for (const [name, fill] of wrong) {
       const result = await (await open())({ type: 'apply', updates: [build(fill)] });

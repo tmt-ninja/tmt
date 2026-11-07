@@ -70,8 +70,13 @@ export function validMarkValue(mark: string, value: unknown): boolean {
       !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value)
     );
   if (mark === 'agent')
-    return value !== '' && byteLength(value) <= 128 && !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value);
-  if (mark === 'block') return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+    return (
+      value !== '' &&
+      byteLength(value) <= 128 &&
+      !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value)
+    );
+  if (mark === 'block')
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   return false;
 }
 /** Line feeds and tabs are text; every other control character is not. */
@@ -122,7 +127,11 @@ function marksOf(attrs: Attrs[], table: string[]): Mark[] {
 /** Parse `{"s","marks"}`: exact keys, text within `bytes`, marks only when `rich`, ranges inside
  * the text, valid values, one value per mark and character, and the canonical order and run
  * merging (so a value has exactly one spelling). */
-export function validateRich(value: unknown, rich: boolean, bytes: number): asserts value is RichText {
+export function validateRich(
+  value: unknown,
+  rich: boolean,
+  bytes: number,
+): asserts value is RichText {
   keys(value, ['s', 'marks']);
   const { s, marks } = value as Record<string, unknown>;
   requireValue(validText(s, bytes));
@@ -253,7 +262,11 @@ function files(value: unknown) {
   for (const file of list(value, 100)) {
     const map = keys(file, ['name'], ['size', 'type', 'href']);
     nonempty(map.name, 256);
-    for (const [key, max] of [['size', 32], ['type', 128], ['href', 2048]] as const)
+    for (const [key, max] of [
+      ['size', 32],
+      ['type', 128],
+      ['href', 2048],
+    ] as const)
       if (Object.hasOwn(map, key)) plain(map[key], max);
   }
 }
@@ -391,7 +404,11 @@ export function validateProps(type: string, props: unknown) {
         requireValue(typeof value === 'string' && prop.values.includes(value));
         break;
       case 'int':
-        requireValue(Number.isSafeInteger(value) && (value as number) >= prop.low && (value as number) <= prop.high);
+        requireValue(
+          Number.isSafeInteger(value) &&
+            (value as number) >= prop.low &&
+            (value as number) <= prop.high,
+        );
         break;
       case 'text':
         plain(value, prop.max);
@@ -423,7 +440,9 @@ function validateBlock(key: string, block: unknown, all: Record<string, unknown>
   requireValue(parent !== key && validPos(map.pos));
   if (Object.hasOwn(map, 'deleted'))
     requireValue(
-      Number.isSafeInteger(map.deleted) && (map.deleted as number) >= 0 && (map.deleted as number) <= MAX_TIME,
+      Number.isSafeInteger(map.deleted) &&
+        (map.deleted as number) >= 0 &&
+        (map.deleted as number) <= MAX_TIME,
     );
   const parentBlock = Object.hasOwn(all, parent) ? all[parent] : undefined;
   const parentType =
@@ -432,7 +451,9 @@ function validateBlock(key: string, block: unknown, all: Record<string, unknown>
       : undefined;
   if (type === ROW) {
     requireValue(
-      object(map.props) && Object.keys(map.props as object).length === 0 && !Object.hasOwn(map, 'text'),
+      object(map.props) &&
+        Object.keys(map.props as object).length === 0 &&
+        !Object.hasOwn(map, 'text'),
     );
     requireValue(parentType === 'table');
     const cells = object(map.cells);

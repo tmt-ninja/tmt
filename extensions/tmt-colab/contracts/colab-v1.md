@@ -1058,10 +1058,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                                                                                                                                                         | Fold and authority                                                                   |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                                                                                                                                                                                                                                                               | Fold and authority                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)), `pageType` (`shell` or `blocks`); `blocks` Y.Map, only on a [page of blocks](#structured-pages-6004) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                                                                                                                                  | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -3045,6 +3045,107 @@ absent own history is never recreated automatically.
 A structured page keeps its content as blocks, not authored HTML. Each addition to this section
 lands with the code that implements it; nothing below describes behavior that is not shipped.
 
+#### Roots and creation
+
+A page of blocks has `meta.pageType = "blocks"`, an empty `html` text (a wire container, never
+rendered) and the content root `blocks`, a `Y.Map` from block ID to block. The root exists only on
+a page of blocks, which holds none until its first block (an absent root reads as `{}`); a
+`blocks` root on any other page, a page of blocks with HTML, and `meta.work`, `meta.template`,
+`meta.fromTemplate`, `meta.attachments`, `meta.layout` or `meta.layoutReason` on a page of blocks
+are all refused by every fold. Ordinary pages and dashboards keep `{html, meta}`. A creator, a
+page state and `meta.questions` stay with the page.
+
+`tmt colab page create --structured` creates an empty page of blocks (it conflicts with `--file`,
+`--layout`, `--reason`, `--template` and `--creator`). Making it the default for new pages and
+converting existing pages are not part of this contract.
+
+`page write` and `page patch` on a page of blocks, and `tmt colab block` on any other page, are
+refused with the typed codes `COLAB_STRUCTURED_PAGE` and `COLAB_NOT_STRUCTURED`.
+
+#### Blocks
+
+A block is a nested `Y.Map` under its ID (a generated page ID the caller picks) with exactly the keys
+below; any other key, type or shape is refused.
+
+| Key       | Value                                                                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`    | One of the thirteen types below, or the internal `row`; never changes                                                                                            |
+| `parent`  | `root` or the ID of a `card`; a card never holds a card; a `row`'s parent is its table                                                                           |
+| `pos`     | Fractional sort key: 1 to 64 characters of `0-9A-Za-z`, never ending in `0`; siblings order by `(pos, id)`, so two writers that pick one key keep a stable order |
+| `props`   | Nested `Y.Map` of plain values; only the keys of the type's schema                                                                                               |
+| `text`    | `Y.Text` on the types that have text; marks are `Y.Text` attributes (below)                                                                                      |
+| `cells`   | On a `row` only: `Y.Map` from column ID to a `Y.Text`                                                                                                            |
+| `deleted` | Tombstone: the integer UTC milliseconds of the delete; absent while the block is live                                                                            |
+
+A deleted block, with everything under it, is hidden; its descendants keep their own state and come
+back with it on `restore`.
+
+| Type          | Text  | Props (all optional unless noted)                                                                                                                            |
+| ------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                      |
+| `heading`     | rich  | `level` 2 or 3                                                                                                                                               |
+| `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                       |
+| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `indent` 0-2                                                                                        |
+| `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                            |
+| `card`        | none  | `variant` `card\|section`, `title`, `meta`, `collapsible`, `collapsed`                                                                                       |
+| `question`    | plain | `kind` `single\|multiple\|short`, `agent`, `choices` (at most 20), `other`, `otherMax`, `state` `waiting\|answered\|dismissed`, `answer`                     |
+| `callout`     | rich  | `tone` `working\|waiting\|review\|blocked`, `label`, `heading`                                                                                               |
+| `code`        | plain | `language`, `filename`                                                                                                                                       |
+| `image`       | none  | `images` (at most 100 of `{src, alt?, caption?, tag?, filename?, status?}`), `files`, `layout` `carousel\|grid\|single`, `size` `s\|m\|l`, `variant`         |
+| `mockup`      | none  | `markup` (required, 64 KiB), `system`, `lock`, `preset` `390\|1440\|custom`, `width`, `height`, `toolbarLabels`                                              |
+| `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                            |
+| `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable` |
+
+Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
+`https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most
+128 bytes without whitespace) and `block` (a block ID), as `Y.Text` attributes and nothing else. Plain
+text (`code`, `question`) carries no marks. Text holds no control character but line feed and tab.
+A table row is a `row` block whose cells are rich text.
+
+#### Limits
+
+| Bound                                               | Value                                           |
+| --------------------------------------------------- | ----------------------------------------------- |
+| Blocks, tombstones included                         | 2048                                            |
+| `props` of a block                                  | 8 KiB (`mockup` 72, `image` and `page-view` 32) |
+| Text of a block / of a table cell                   | 64 KiB / 4 KiB                                  |
+| Cells of a row, rows of a table, columns of a table | 64, 512, 32                                     |
+| The whole `blocks` value, canonical                 | 4 MiB                                           |
+| A batch                                             | 256 ops and 1 MiB                               |
+
+An op that would pass a bound is refused as `COLAB_CAPACITY`.
+
+#### One batch entry
+
+Every change to a page of blocks is one all-or-nothing batch `{ops:[...]}`, action `blocks.batch`
+of the structured publisher. The browser save path (the `blocks` sync frame) and
+`tmt colab block` build it through the same function, validate it with the same
+`blocks::ops::apply`, and write the same receipt and history entry. The isolated decoder replays the
+normalized steps as granular Yjs edits and refuses a projection that differs from the validator's.
+A batch carries no revision: ops address blocks by ID and merge into the current page, so two
+writers' batches converge without a fence.
+
+| Op                  | Shape                                                                                                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `insert`            | `{id, type, parent?, after?, props?, text?}`; `parent` defaults to `root`; `after` absent = last, `null` = first, else a child of `parent`; `row` is never insertable                           |
+| `move`              | `{id, parent, after?}`: the subtree moves; the last move wins                                                                                                                                   |
+| `props`             | `{id, set?: {key: value}, unset?: [key]}`: per key, checked against the type's schema                                                                                                           |
+| `text`              | `{id, cell?}` with one of `replace: {find, with}` (`find` must occur exactly once), `set` with `base` and optional `overlap` ([merge](#block-text-merge)), or `format: {from, to, mark, value}` |
+| `delete`, `restore` | `{id}`; both are idempotent                                                                                                                                                                     |
+| `table`             | `{id, action}` with `add-row`, `remove-row`, `set-cell` (`row`, `column`, `text`, optional `base` and `overlap`), `add-column`, `rename-column`, `move-column` or `remove-column`               |
+
+The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from, to, text}`; empty when
+nothing overlapped). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
+`COLAB_BLOCK_BAD_AFTER` (`after` is not a child of `parent`), `COLAB_BLOCK_TEXT_NOT_FOUND` and
+`COLAB_BLOCK_TEXT_AMBIGUOUS` (`replace`), `COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
+
+#### Tombstones
+
+A deleted block stays so that history, comments and `restore` keep working. When compaction builds a
+new epoch baseline it purges: a tombstone older than seven days goes with its subtree, and while the
+page holds more than 1536 blocks the oldest remaining tombstones go with theirs. A purged ID is gone
+for good: `restore` and every other op that names it is refused as `COLAB_BLOCK_NOT_FOUND`.
+
 #### Block text merge
 
 `merge(base, remote, local)` applies an agent's whole-text replacement of one block to the text the
@@ -3064,9 +3165,18 @@ run [`block-text-merge-v1.json`](vectors/block-text-merge-v1.json).
   overlaps one of them: their deleted ranges intersect, or it inserts strictly inside what the
   other deletes. Insertions at one point, and an insertion at the edge of a deletion, do not
   overlap; the page's insertion comes first. A hunk equal to one of the page's applies once.
-- An overlapping agent hunk is dropped, because the text the page already holds wins. The receipt
-  lists it as `droppedHunks` (`{from, to, text}` in base offsets) so the agent can run `block get`
-  again and reapply it.
+- An overlapping agent hunk is dropped by default (`overlap: "remote"`), because the text the page
+  already holds wins. The receipt lists it as `droppedHunks` (`{from, to, text}` in base offsets)
+  so the agent can run `block get` again and reapply it.
+- With `overlap: "both"`, which the browser editor sends so a person's typing is never lost, the
+  overlapping hunk's new text is kept right after the text the page holds where they overlapped
+  (several hunks keep their order), and only its deletion is dropped and reported with `text: ""`.
+  A hunk that only deletes is dropped whole. Both implementations take the mode as a fourth
+  argument and run the second set, `mergesBoth`, of the same vector file; a generated set,
+  [`block-text-merge-generated-v1.json`](vectors/block-text-merge-generated-v1.json), holds 500
+  seeded triples merged under both modes. The native test regenerates it and fails when the file
+  differs (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab merge_generated` rewrites it); the
+  TypeScript test must match it.
 
 ### Dashboards (#3648)
 

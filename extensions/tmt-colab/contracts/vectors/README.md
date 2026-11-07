@@ -17,6 +17,20 @@ task-era values as migration input: what is accepted, the sub-pages a reader pro
 version 2 value every action and `work.migrate` stores. The link rules are admission rules of the
 write owner and appear in none; a refused task-era action shows the old actions are gone.
 
+`blocks-v1.json` contains closed `blocks` values of a structured page (#6004): the valid documents and,
+for every rule, a value that breaks only that rule (shapes, tree and parent rules, every type's props,
+text and marks, table cells, limits at their exact edges). The native schema (`blocks::schema`) and
+the browser fold validator both run it. `blocks-reference.py` is an independent model of the rules,
+not either implementation: `python3 blocks-reference.py` checks the file, `--write` regenerates it
+after review.
+
+`block-text-merge-v1.json` holds hand-derived cases of the three-way text merge of one block
+(`diff` hunks, `merges` with overlap `remote`, `mergesBoth` with overlap `both`), and
+`block-text-merge-generated-v1.json` 500 seeded random triples merged under both modes. The native
+merge (`blocks::merge`) and `textMerge` in `@tmt/colab-client` run both; the native test regenerates
+the second file and fails when it differs (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab
+merge_generated` rewrites it).
+
 `template-marks-v1.json` contains the two template marks of a page's content metadata
 (`template` and `fromTemplate`, #5066) with their expected verdicts, shared by the native
 validator and the browser fold validator. The cases pin the name grammar and its 40-character

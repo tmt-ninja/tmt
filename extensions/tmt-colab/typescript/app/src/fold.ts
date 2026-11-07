@@ -203,7 +203,10 @@ export class Fold {
           ...(value.layoutReason === undefined ? {} : { layoutReason: value.layoutReason }),
           ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
           ...(Object.hasOwn(value, 'pageType')
-            ? { pageType: value.pageType, ...(value.pageType === 'shell' ? { shell: value.shell } : {}) }
+            ? {
+                pageType: value.pageType,
+                ...(value.pageType === 'shell' ? { shell: value.shell } : {}),
+              }
             : {}),
           ...(Object.hasOwn(value, 'blocks') ? { blocks: value.blocks } : {}),
           ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
