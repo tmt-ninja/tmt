@@ -10,7 +10,7 @@ import {
   type Pending,
 } from './management.js';
 import type { PageTransport, SpaceHome } from './transport.js';
-import { discover, heldPageList, mountUrl, pageList } from './bootstrap.js';
+import { type Bootstrap, discover, heldPageList, mountUrl, pageList } from './bootstrap.js';
 import { PageListFeed, type PageListCoordination } from './page-list-feed.js';
 import { AdmissionRefusedError, register, remoteSdk } from './registration.js';
 import { classify } from './connection-state.js';
@@ -131,6 +131,8 @@ export async function mountedTransport(
       { locate },
     );
   let current: LiveSession;
+  /** The owner list the latest page open verified, and the session it was verified under. */
+  let lastList: { boot: Bootstrap; bound: LiveSession } | undefined;
   let replacement: Promise<LiveSession> | undefined;
   let detailReads: Promise<unknown> = Promise.resolve();
   let titleGeneration = new AbortController();
@@ -522,25 +524,33 @@ export async function mountedTransport(
         const pageSignal = scopedSignal(signal);
         let bound = current;
         const read = () =>
-          owned(() =>
-            discover(
+          owned(async () => {
+            const boot = await discover(
               mount,
               (space, owner) => verifyRegistration(bound.registration, space, owner),
               pageSignal,
               { locate },
-            ),
-          );
+            );
+            lastList = { boot, bound };
+            return boot;
+          });
+        // The list a recent open verified still describes this page while the live list names
+        // the same revision for it: the token covers its epoch, cuts and the membership head.
+        const reused = lastList?.bound === bound ? lastList.boot : undefined;
+        const listed = reused?.pages.find((page) => page.pageId === id)?.revision;
         let boot;
-        try {
-          boot = await read();
-        } catch (error) {
-          if (!endedSession(error)) throw error;
-          // One same-device refresh per page attempt; PageReopener owns all retry timing.
-          await owner.reconnect(bound.registration, pageSignal);
-          pageSignal.throwIfAborted();
-          bound = current;
-          boot = await read();
-        }
+        if (reused && listed !== undefined && listed === pageListFeed.revision(id)) boot = reused;
+        else
+          try {
+            boot = await read();
+          } catch (error) {
+            if (!endedSession(error)) throw error;
+            // One same-device refresh per page attempt; PageReopener owns all retry timing.
+            await owner.reconnect(bound.registration, pageSignal);
+            pageSignal.throwIfAborted();
+            bound = current;
+            boot = await read();
+          }
         pageSignal.throwIfAborted();
         if (bound !== current) throw new Error('Remote session replaced');
         const page = boot.pages.find((page) => page.pageId === id);

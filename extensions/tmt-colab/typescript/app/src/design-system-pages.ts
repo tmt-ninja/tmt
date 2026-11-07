@@ -141,6 +141,9 @@ export const DRAFT_READS = 6;
 export const CREATE_WRITES = 4;
 /** How long a burst of edits to a system's pages settles before its followers redraw. */
 export const DRAFT_SETTLE_MS = 500;
+/** How long a follow's first draft waits for the live list's first revisions, so the docs it reads
+ * are kept for the next draft; past it the draft compiles without keeping them. */
+export const DRAFT_LIST_WAIT_MS = 1000;
 
 /** One followed system: its root's subscription, the component pages its root names and their
  * last revisions from the live page list, and the draft compiled since the last change. */
@@ -155,14 +158,19 @@ interface Follow {
   readonly revisions: Map<string, string>;
   /** The live list's latest revisions, so components the root names later start from them. */
   latest?: ReadonlyMap<string, string>;
-  /** Component docs read at a revision the live list named. */
-  readonly docs: Map<string, { revision: string; doc: ComponentDoc }>;
+  /** Settles when the live list first names revisions. */
+  readonly listed: Promise<void>;
+  heard(): void;
   timer?: ReturnType<typeof setTimeout>;
   draft?: Promise<DesignSystemBundle>;
   /** Its last follower left: a page still opening closes again. */
   stopped?: boolean;
 }
 
+/** Component docs read at a revision the live list named, by transport and page. Each open page
+ * makes its own source; the next page of the same system, or a follow that starts again, then
+ * reads only the pages that moved. */
+const readDocs = new WeakMap<PageTransport, Map<string, { revision: string; doc: ComponentDoc }>>();
 /**
  * Where the renderer reads a page's bundle (design-system.ts verifies a locked one): a locked
  * release is the root page's release attachment of that version; a live pin is the draft, compiled
@@ -177,6 +185,8 @@ export function pageDesignSystems(
   shown?: (system: string) => string | undefined,
 ): DesignSystemSource {
   const follows = new Map<string, Follow>();
+  let read = readDocs.get(transport);
+  if (!read) readDocs.set(transport, (read = new Map()));
   const release = (system: string, lock: DesignSystemLock) =>
     system === BUILT_IN_SYSTEM
       ? builtIn()
@@ -251,6 +261,7 @@ export function pageDesignSystems(
   // A component page whose revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
     state.latest = latest;
+    state.heard();
     let moved = false;
     for (const id of state.components) {
       const revision = latest.get(id);
@@ -273,32 +284,37 @@ export function pageDesignSystems(
       // page, or after it moved, is read again.
       const docs: ComponentDocs = {
         get: (page) => {
-          const cached = follow.docs.get(page);
+          const cached = read.get(page);
           return cached && cached.revision === follow.latest?.get(page) ? cached.doc : undefined;
         },
         revision: (page) => follow.latest?.get(page),
-        set: (page, revision, doc) => follow.docs.set(page, { revision, doc }),
+        set: (page, revision, doc) => read.set(page, { revision, doc }),
       };
       if (follow.draft) return follow.draft;
       const started = Date.now();
-      const draft: Promise<DesignSystemBundle> = compileDraft(
-        transport,
-        system,
-        undefined,
-        docs,
-      ).then(
-        (bundle) => {
-          // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
-          // tells the followers once, so they draw it now rather than at the next edit.
-          if (Date.now() - started >= PIN_WAIT_MS && follow.draft === draft && !follow.stopped)
-            for (const listener of follow.listeners) listener();
-          return bundle;
-        },
-        (error: unknown) => {
-          if (follow.draft === draft) follow.draft = undefined;
-          throw error;
-        },
-      );
+      // Without revisions yet, no doc could be kept or reused: wait briefly for the first list.
+      const listed =
+        follow.latest || !transport.watchPages
+          ? Promise.resolve()
+          : Promise.race([
+              follow.listed,
+              new Promise<void>((resolve) => setTimeout(resolve, DRAFT_LIST_WAIT_MS)),
+            ]);
+      const draft: Promise<DesignSystemBundle> = listed
+        .then(() => compileDraft(transport, system, undefined, docs))
+        .then(
+          (bundle) => {
+            // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
+            // tells the followers once, so they draw it now rather than at the next edit.
+            if (Date.now() - started >= PIN_WAIT_MS && follow.draft === draft && !follow.stopped)
+              for (const listener of follow.listeners) listener();
+            return bundle;
+          },
+          (error: unknown) => {
+            if (follow.draft === draft) follow.draft = undefined;
+            throw error;
+          },
+        );
       follow.draft = draft;
       return draft;
     },
@@ -306,12 +322,15 @@ export function pageDesignSystems(
       if (system === BUILT_IN_SYSTEM) return () => {};
       let state = follows.get(system);
       if (!state) {
+        let heard = () => {};
+        const listed = new Promise<void>((resolve) => (heard = resolve));
         const created: Follow = {
           listeners: new Set(),
           stops: [],
           components: new Set(),
           revisions: new Map(),
-          docs: new Map(),
+          listed,
+          heard,
         };
         state = created;
         follows.set(system, created);
@@ -864,12 +883,59 @@ export interface DesignSystemEntry {
   builtIn?: true;
 }
 const TREE_DEPTH = 4;
+/** What the owner list already says about a tree: titles, archived pages, and each page's listed
+ * sub-pages in order where its summary is fresh and names all of them. */
+interface TreeFacts {
+  titles: ReadonlyMap<string, string>;
+  archived: ReadonlySet<string>;
+  /** A page's sub-pages from the list; absent where the list cannot say (no fresh summary, or a
+   * sub-page whose own summary does not name its parent yet), so that page is opened instead. */
+  children: ReadonlyMap<string, readonly string[]>;
+  /** The component tag of each page the system's config lists, by page. */
+  tags: ReadonlyMap<string, string>;
+}
+function treeFacts(home: SpaceHome, tags: ReadonlyMap<string, string> = new Map()): TreeFacts {
+  const archived = new Set(home.pages.filter((page) => page.archived).map((page) => page.id));
+  const listed = new Map<string, { id: string; index: number }[]>();
+  for (const page of home.pages) {
+    const parent = page.summary?.parent;
+    if (!parent || page.archived) continue;
+    const rows = listed.get(parent.page) ?? [];
+    rows.push({ id: page.id, index: parent.index });
+    listed.set(parent.page, rows);
+  }
+  const children = new Map<string, string[]>();
+  for (const page of home.pages) {
+    if (!page.summary) continue;
+    const rows = (listed.get(page.id) ?? []).sort((a, b) => a.index - b.index);
+    // `work.total` counts the page's sub-pages that are not archived: the list names them all.
+    if (rows.length === (page.summary.work?.total ?? 0))
+      children.set(
+        page.id,
+        rows.map((row) => row.id),
+      );
+  }
+  return {
+    // A title the list has no cached plaintext for comes from the page itself.
+    titles: new Map(
+      home.pages.flatMap((page) => (page.titleMissing ? [] : [[page.id, page.title] as const])),
+    ),
+    archived,
+    children,
+    tags,
+  };
+}
+const configTags = (config: DesignSystemConfig) =>
+  new Map(config.components.flatMap((entry) => (entry.page ? [[entry.page, entry.tag]] : [])));
+/** A page's place in its system's tree. Where the owner list names a page's sub-pages, the page is
+ * not opened: its kind and tag come from the system's config. Otherwise it is opened, one page at
+ * a time like publish: a new system's ~50 pages opened at once trip the sync server's capacity
+ * limits (503/429). */
 async function treeOf(
   transport: PageTransport,
   page: Snapshot,
-  titles: ReadonlyMap<string, string>,
+  facts: TreeFacts,
   depth: number,
-  archived: ReadonlySet<string> = new Set(),
 ): Promise<DesignTreeNode> {
   const component = readBlock<ComponentDoc>(page.source, 'component');
   const kind: DesignTreeNode['kind'] = readBlock(page.source, 'design-system')
@@ -877,24 +943,41 @@ async function treeOf(
     : component
       ? 'component'
       : 'page';
-  // One page at a time, like publish: a new system's ~50 pages opened at once trip the sync
-  // server's capacity limits (503/429).
-  const children: DesignTreeNode[] = [];
-  if (depth < TREE_DEPTH)
-    for (const child of subpages(page.work))
-      if (!archived.has(child))
-        children.push(
-          await withPage(transport, child, (sub) =>
-            treeOf(transport, sub, titles, depth + 1, archived),
-          ),
-        );
   return {
     id: page.id,
-    title: titles.get(page.id) ?? page.title,
+    title: facts.titles.get(page.id) ?? page.title,
     kind,
     ...(component?.tag && { tag: component.tag }),
-    children,
+    children:
+      depth < TREE_DEPTH ? await childrenOf(transport, subpages(page.work), facts, depth) : [],
   };
+}
+async function childrenOf(
+  transport: PageTransport,
+  ids: readonly string[],
+  facts: TreeFacts,
+  depth: number,
+): Promise<DesignTreeNode[]> {
+  const children: DesignTreeNode[] = [];
+  for (const child of ids) {
+    if (facts.archived.has(child)) continue;
+    const listed = facts.children.get(child);
+    const title = facts.titles.get(child);
+    const tag = facts.tags.get(child);
+    children.push(
+      listed && title !== undefined
+        ? {
+            id: child,
+            title,
+            kind: tag ? 'component' : 'page',
+            ...(tag && { tag }),
+            children:
+              depth + 1 < TREE_DEPTH ? await childrenOf(transport, listed, facts, depth + 1) : [],
+          }
+        : await withPage(transport, child, (sub) => treeOf(transport, sub, facts, depth + 1)),
+    );
+  }
+  return children;
 }
 function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): DesignSystemEntry {
   return {
@@ -921,21 +1004,30 @@ export async function listDesignSystems(
   signal?: AbortSignal,
 ): Promise<DesignSystemList> {
   const home = await transport.spaceHome(signal);
-  const titles = new Map(home.pages.map((page) => [page.id, page.title]));
   // An archived page (a built-in page whose docs entry is gone, say) keeps its threads but leaves
   // the tree.
-  const archived = new Set(home.pages.filter((page) => page.archived).map((page) => page.id));
+  const listed = treeFacts(home);
   const seen = new Set<string>();
   const systems: DesignSystemEntry[] = [];
   const failed: { id: string; title: string }[] = [];
-  for (const page of home.pages.filter((page) => isDesignSystemPage(page) && !page.archived)) {
+  // A root is made top level: pages the list names as top level are tried first, then pages it
+  // cannot place, and pages under a parent last. By then the trees found have named most pages,
+  // so those are not opened again as candidates.
+  const candidates = home.pages.filter((page) => isDesignSystemPage(page) && !page.archived);
+  const placed = (page: PageSummary) => (!page.summary ? 1 : page.summary.parent ? 2 : 0);
+  for (const page of candidates.sort((a, b) => placed(a) - placed(b))) {
     signal?.throwIfAborted();
     if (seen.has(page.id)) continue;
     try {
       const entry = await withPage(transport, page.id, async (root) => {
         const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
         return (
-          config && entryOf(root.id, config, await treeOf(transport, root, titles, 0, archived))
+          config &&
+          entryOf(
+            root.id,
+            config,
+            await treeOf(transport, root, { ...listed, tags: configTags(config) }, 0),
+          )
         );
       });
       seen.add(page.id);
@@ -985,10 +1077,12 @@ export function createDesignSystem(
 /** Bring an existing system root (one made before the Design tab) into the Design tab. Its pages
  * keep their place; only the project is added. */
 export async function adoptDesignSystem(transport: PageTransport, rootId: string): Promise<void> {
+  const home = await transport.spaceHome();
   const tree = await withPage(transport, rootId, async (root) => {
     if (!readBlock(root.source, 'design-system'))
       throw new Error('This page is not a design system.');
-    return treeOf(transport, root, new Map(), 0);
+    // Every page is opened: a page made before the Design tab may not be in the config yet.
+    return treeOf(transport, root, { ...treeFacts(home), children: new Map() }, 0);
   });
   await markDesignPages(transport, treeIds(tree));
 }

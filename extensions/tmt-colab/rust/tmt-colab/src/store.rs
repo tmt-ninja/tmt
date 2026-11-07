@@ -232,7 +232,18 @@ fn existing_database(path: &std::path::Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Where the store's writes stand: SQLite's `data_version`, which moves when another connection
+/// commits, and this connection's own row changes. Equal values mean no write since, by anyone.
+pub type WriteGeneration = (i64, u64);
 impl Store {
+    /// The store's write generation now: one pragma and a counter, no table read.
+    pub fn write_generation(&self) -> StoreResult<WriteGeneration> {
+        Ok((
+            self.connection
+                .query_row("PRAGMA data_version", [], |row| row.get(0))?,
+            self.connection.total_changes(),
+        ))
+    }
     /// Classify every retained content payload once, using the same paired cut as bootstrap.
     pub fn page_storage_bytes(&self, page: &str) -> StoreResult<PageStorageBytes> {
         bounded_id(page)?;
