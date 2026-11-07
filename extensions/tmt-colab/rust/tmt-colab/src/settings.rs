@@ -44,7 +44,7 @@ impl ColabSettings {
     pub fn page_expiry(&self) -> SpaceExpiry {
         self.page_expiry
     }
-    /// The template a `page create` without `--template` starts from; `None` is `starter`.
+    /// The template an HTML `page create --html` without `--template` starts from; `None` is `starter`.
     pub fn default_template(&self) -> Option<&str> {
         self.default_template.as_deref()
     }

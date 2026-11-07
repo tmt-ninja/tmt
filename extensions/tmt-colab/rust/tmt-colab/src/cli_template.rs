@@ -2,7 +2,7 @@
 //! that already follows the frame and says where each rule is taught. A template is either a
 //! compiled one or a page of the space marked as a template (`template save`). `template ls` lists
 //! both, `template show` reads one's rules, `template default` picks what `page create` starts from
-//! when none is named, and `page create --template NAME|ID` creates a page from one: a copy of its
+//! when none is named, and `page create --html --template NAME|ID` creates a page from one: a copy of its
 //! current content that is independent of the template from then on. Every block of a compiled
 //! template carries one HTML comment naming its rule and the skill section (the comments are not
 //! rendered), and a template sets no width or gap: only the two declarations (`data-width`,
@@ -70,7 +70,7 @@ const TEMPLATE: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "A template is a starting page for a common kind: TMT's own (starter, report, review, compare, board, gallery) or a page of this space that someone saved. page create --template NAME|ID copies the template's current content and layout into a new page, then the page is independent of it, so choose a template instead of --layout and --file. A page created without --template starts from the space default (starter until template default says otherwise). Each block of a template has an HTML comment that names its rule; the comments are not shown on the page. Replace the placeholder text and keep the structure and the comments' rules.",
+    details: "A template is a starting page for a common kind: TMT's own (starter, report, review, compare, board, gallery) or a page of this space that someone saved. page create --html --template NAME|ID copies the template's current content and layout into a new page, then the page is independent of it, so choose a template instead of --layout and --file. An HTML page created without --template starts from the space default (starter until template default says otherwise). Each block of a template has an HTML comment that names its rule; the comments are not shown on the page. Replace the placeholder text and keep the structure and the comments' rules.",
 };
 
 const LS: CommandSpec = CommandSpec {
@@ -516,7 +516,7 @@ fn ls(args: &ArgMatches) -> Result<()> {
                 count: Some(users),
                 rows: space_rows,
                 note: (users == 0).then_some("none yet: tmt colab template save PAGE --name NAME"),
-                hint: Some("tmt colab page create --title \"…\" --template NAME"),
+                hint: Some("tmt colab page create --html --title \"…\" --template NAME"),
             },
         ],
     )?;
@@ -676,7 +676,7 @@ fn show(args: &ArgMatches) -> Result<()> {
             &mut output,
             terminal,
             &format!(
-                "tmt colab page create --title \"…\" --template {}",
+                "tmt colab page create --html --title \"…\" --template {}",
                 template.name
             ),
         )?,
@@ -946,7 +946,7 @@ fn save(args: &ArgMatches) -> Result<()> {
     message::hint(
         &mut output,
         terminal,
-        &format!("tmt colab page create --title \"Week 43\" --template {name}"),
+        &format!("tmt colab page create --html --title \"Week 43\" --template {name}"),
     )?;
     Ok(())
 }

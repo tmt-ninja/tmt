@@ -115,7 +115,7 @@ test('New page gives the command that creates a page on the machine', async ({ p
   await mount(page, 1440, 'light');
   await app(page).getByRole('button', { name: 'New page' }).click();
   const dialog = page.getByRole('dialog', { name: 'New page' });
-  await expect(dialog).toContainText('tmt colab page create --title "Notes" --layout column');
+  await expect(dialog).toContainText('tmt colab page create --title "Notes"');
   await expect(dialog).toContainText('Return to your TMT workspace after creating the page.');
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);

@@ -49,6 +49,7 @@ export function StructuredConversionDialog({
         The current page becomes an empty structured page. A copy of the old page is kept in the
         archive as '{title} (before conversion)'.
       </p>
+      <p>The current page's layout is removed; the archived copy keeps it.</p>
     </BrowserDialog>
   );
 }

@@ -116,7 +116,7 @@ compare before trying again; never resend blindly.
 ## Existing pages use patch
 
 `page write` refuses existing pages and directs you to `page patch`. Use
-`page create --file` for a new page. Even a large change must carry current anchors;
+`page create --html --file` for a new page. Even a large change must carry current anchors;
 prefer several small find/replace pairs or diff hunks in one patch.
 
 A patch replacing more than half the current source applies and reports a `large-patch`
@@ -137,7 +137,7 @@ it and retry the anchored patch. If the page is still full, export it and create
 
 ```sh
 tmt colab export PAGE --dir EXISTING_DIRECTORY --json
-tmt colab page create --title "Weekly plan" --layout column --file EXPORTED_DIRECTORY/page.html --json
+tmt colab page create --html --title "Weekly plan" --layout column --file EXPORTED_DIRECTORY/page.html --json
 ```
 
 Use the export directory the first command returns, not its parent. Exports are unencrypted and
