@@ -14,16 +14,25 @@ export interface HeadingBlockProps {
   /** ## or ###. The page title is the GUI header's, never a block, so there is no level 1. */
   level?: 2 | 3;
   placeholder?: string;
+  /** An editor holds the text (a contenteditable root, which phrasing elements cannot hold): the
+   * part draws a div container with the same metrics, so rest and typing do not shift. */
+  editing?: boolean;
   children?: ReactNode;
 }
 
-export function HeadingBlock({ level = 2, placeholder = 'Heading', children }: HeadingBlockProps) {
+export function HeadingBlock({
+  level = 2,
+  placeholder = 'Heading',
+  editing,
+  children,
+}: HeadingBlockProps) {
   // Number(): a tmt GUI port passes its attribute text.
-  const Tag = Number(level) === 3 ? 'h3' : 'h2';
+  const Tag = editing ? 'div' : Number(level) === 3 ? 'h3' : 'h2';
   return (
     <Tag
       data-slot="heading-block"
       className="tmt-block-heading"
+      {...(editing && { role: 'heading', 'aria-level': Number(level) === 3 ? 3 : 2 })}
       data-level={level}
       data-empty={empty(children) ? '' : undefined}
       data-placeholder={empty(children) ? placeholder : undefined}
@@ -37,16 +46,21 @@ export interface TextBlockProps {
   tone?: 'default' | 'muted';
   /** Shown while the paragraph is empty. */
   placeholder?: string;
+  /** An editor holds the text (a contenteditable root, which phrasing elements cannot hold): the
+   * part draws a div container with the same metrics, so rest and typing do not shift. */
+  editing?: boolean;
   children?: ReactNode;
 }
 
 export function TextBlock({
   tone = 'default',
   placeholder = 'Type / for blocks',
+  editing,
   children,
 }: TextBlockProps) {
+  const Tag = editing ? 'div' : 'p';
   return (
-    <p
+    <Tag
       data-slot="text-block"
       className="tmt-block-text"
       data-tone={tone === 'muted' ? 'muted' : undefined}
@@ -54,7 +68,7 @@ export function TextBlock({
       data-placeholder={empty(children) ? placeholder : undefined}
     >
       {children}
-    </p>
+    </Tag>
   );
 }
 
@@ -98,6 +112,9 @@ export interface TodoBlockProps {
   /** Marks the due text in the blocked colour; the host writes "Overdue" into it, so colour is never alone. */
   overdue?: boolean;
   indent?: 0 | 1 | 2;
+  /** An editor holds the text (a contenteditable root, which phrasing elements cannot hold): the
+   * part draws a div container with the same metrics, so rest and typing do not shift. */
+  editing?: boolean;
   children?: ReactNode;
 }
 
@@ -109,8 +126,10 @@ export function TodoBlock({
   due,
   overdue,
   indent = 0,
+  editing,
   children,
 }: TodoBlockProps) {
+  const Text = editing ? 'div' : 'span';
   return (
     <div
       data-slot="todo"
@@ -125,7 +144,7 @@ export function TodoBlock({
         onChange={(event) => onCheckedChange?.(event.target.checked)}
         aria-label={label ?? (typeof children === 'string' ? children : undefined)}
       />
-      <span className="tmt-block-todo-text">{children}</span>
+      <Text className="tmt-block-todo-text">{children}</Text>
       {(assignee !== undefined || due !== undefined) && (
         <span className="tmt-block-todo-meta">
           {assignee}

@@ -238,14 +238,18 @@ function Content({
   switch (block.type) {
     case 'heading':
       return (
-        <HeadingBlock level={headingLevel(block)} placeholder="">
+        <HeadingBlock level={headingLevel(block)} placeholder="" editing={typing}>
           {text}
         </HeadingBlock>
       );
     case 'list':
       return <ListItemBlock>{text}</ListItemBlock>;
     case 'todo':
-      return <TodoBlock checked={block.props.checked === true}>{text}</TodoBlock>;
+      return (
+        <TodoBlock checked={block.props.checked === true} editing={typing}>
+          {text}
+        </TodoBlock>
+      );
     case 'card':
       return (
         <CardBlock title={typeof block.props.title === 'string' ? block.props.title : undefined}>
@@ -281,7 +285,11 @@ function Content({
       );
     case 'paragraph':
     case 'code':
-      return <TextBlock placeholder="">{text}</TextBlock>;
+      return (
+        <TextBlock placeholder="" editing={typing}>
+          {text}
+        </TextBlock>
+      );
     default:
       // Drawn by a later step (question, image, mockup, work bundle, page view).
       return <TextBlock tone="muted">{block.type}</TextBlock>;
