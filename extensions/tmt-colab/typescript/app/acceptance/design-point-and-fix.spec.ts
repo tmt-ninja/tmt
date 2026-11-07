@@ -64,6 +64,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const created = Date.now();
     const frame = page.locator('.design-workspace iframe').first().contentFrame();
     await frame.getByRole('link', { name: /brio-button/ }).click();
+    const opened = Date.now();
     await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
     const pageId = page.url().split('/').pop()!;
     const example = frame.locator('[data-ds-example="button:secondary"]');
@@ -71,8 +72,11 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     // A new system's tree comes from the owner list and its page reuses the docs the system page
     // just compiled from, so the first draft draws within the default wait (#6177).
     await expect(draft).toBeVisible();
-    // The measurement #6177 reports: from the dialog closing to the first Draft.
-    console.log(`first draft ${Date.now() - created} ms after creation`);
+    // The measurement #6177 reports: from the dialog closing to the first Draft, and the part
+    // after the system page drew and its component link was followed.
+    console.log(
+      `first draft ${Date.now() - created} ms after creation (${Date.now() - opened} ms after opening the page)`,
+    );
     await expect(draft).not.toHaveAttribute('data-variant', 'outline');
 
     // The open page follows its system's draft (#6162). A new system has far more component pages

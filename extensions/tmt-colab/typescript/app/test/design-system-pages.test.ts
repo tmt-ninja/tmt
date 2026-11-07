@@ -725,6 +725,32 @@ describe('live draft (#5967)', () => {
     stop();
   });
 
+  it('two pages drafting the same system at once read each component page once (#6177)', async () => {
+    const { pages, make, transport, listWatchers } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const components = new Set(config.components.map((entry) => entry.page!));
+    const reads = new Map<string, number>();
+    const counted = {
+      ...transport,
+      page: (id: string) => {
+        if (components.has(id)) reads.set(id, (reads.get(id) ?? 0) + 1);
+        return transport.page(id);
+      },
+    } as PageTransport;
+    // The system page is still compiling when the next page opens and drafts too.
+    const first = pageDesignSystems(counted);
+    const second = pageDesignSystems(counted);
+    const stops = [first.watch(rootId, () => {}), second.watch(rootId, () => {})];
+    await vi.waitFor(() => expect(listWatchers.size).toBe(2));
+    const [a, b] = await Promise.all([first.draft(rootId), second.draft(rootId)]);
+    expect(b.hash).toBe(a.hash);
+    expect(reads.size).toBe(components.size);
+    for (const [id, count] of reads) expect(count, id).toBe(1);
+    for (const stop of stops) stop();
+  });
+
   it('a component write after the list arrived before the root loaded still changes the draft', async () => {
     const { pages, make, transport, write } = space();
     make('Notes');

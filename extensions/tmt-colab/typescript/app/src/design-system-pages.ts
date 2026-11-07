@@ -170,7 +170,10 @@ interface Follow {
 /** Component docs read at a revision the live list named, by transport and page. Each open page
  * makes its own source; the next page of the same system, or a follow that starts again, then
  * reads only the pages that moved. */
-const readDocs = new WeakMap<PageTransport, Map<string, { revision: string; doc: ComponentDoc }>>();
+const readDocs = new WeakMap<
+  PageTransport,
+  Map<string, { revision: string; doc: Promise<ComponentDoc | undefined> }>
+>();
 /**
  * Where the renderer reads a page's bundle (design-system.ts verifies a locked one): a locked
  * release is the root page's release attachment of that version; a live pin is the draft, compiled
@@ -185,8 +188,9 @@ export function pageDesignSystems(
   shown?: (system: string) => string | undefined,
 ): DesignSystemSource {
   const follows = new Map<string, Follow>();
-  let read = readDocs.get(transport);
-  if (!read) readDocs.set(transport, (read = new Map()));
+  let cache = readDocs.get(transport);
+  if (!cache) readDocs.set(transport, (cache = new Map()));
+  const docCache = cache;
   const release = (system: string, lock: DesignSystemLock) =>
     system === BUILT_IN_SYSTEM
       ? builtIn()
@@ -282,13 +286,25 @@ export function pageDesignSystems(
       if (!follow) return compileDraft(transport, system);
       // A doc is reused only at the revision it was read at; one read before the list named the
       // page, or after it moved, is read again.
+      // A doc is reused only at the revision it was read at, taken before the read so it is never
+      // filed under a later one; a read still running counts, so pages drafting the same system at
+      // once read each component once. One read before the list named the page is not kept.
       const docs: ComponentDocs = {
-        get: (page) => {
-          const cached = read.get(page);
-          return cached && cached.revision === follow.latest?.get(page) ? cached.doc : undefined;
+        read: (page, load) => {
+          const revision = follow.latest?.get(page);
+          const cached = docCache.get(page);
+          if (revision !== undefined && cached?.revision === revision) return cached.doc;
+          const doc = load();
+          if (revision !== undefined) {
+            const entry = { revision, doc };
+            docCache.set(page, entry);
+            const forget = () => {
+              if (docCache.get(page) === entry) docCache.delete(page);
+            };
+            doc.then((value) => value || forget(), forget);
+          }
+          return doc;
         },
-        revision: (page) => follow.latest?.get(page),
-        set: (page, revision, doc) => read.set(page, { revision, doc }),
       };
       if (follow.draft) return follow.draft;
       const started = Date.now();
@@ -357,10 +373,12 @@ export function pageDesignSystems(
 /** Component docs a follow already read, by page: reused while the live list names the same
  * revision for that page, so a recompile reads only the pages that moved. */
 export interface ComponentDocs {
-  get(page: string): ComponentDoc | undefined;
-  /** The page's revision now, taken before a read so the doc is never filed under a later one. */
-  revision(page: string): string | undefined;
-  set(page: string, revision: string, doc: ComponentDoc): void;
+  /** A component page's doc: one already read (or still being read) is reused, otherwise `load`
+   * reads it. */
+  read(
+    page: string,
+    load: () => Promise<ComponentDoc | undefined>,
+  ): Promise<ComponentDoc | undefined>;
 }
 export async function compileDraft(
   transport: PageTransport,
@@ -391,21 +409,18 @@ async function draftOf(
     while (next < config.components.length) {
       const index = next++;
       const entry = config.components[index]!;
-      const cached = docs?.get(entry.page!);
-      const revision = cached ? undefined : docs?.revision(entry.page!);
-      const doc =
-        cached ??
-        (await withPage(transport, entry.page!, async (page) => {
+      const load = () =>
+        withPage(transport, entry.page!, async (page) => {
           const block = readBlock<ComponentDoc>(page.source, 'component');
           return block && { ...block, examples: pageExamples(page.source) };
-        }));
+        });
+      const doc = await (docs ? docs.read(entry.page!, load) : load());
       if (!doc) {
         // The first broken page ends the compile: the other readers stop at their next page.
         next = config.components.length;
         throw new DesignDraftError(`The ${entry.tag} page has no component block.`);
       }
       components[index] = doc;
-      if (revision !== undefined) docs?.set(entry.page!, revision, doc);
     }
   };
   await Promise.all(Array.from({ length: DRAFT_READS }, reader));
@@ -787,13 +802,11 @@ export function designSystemCreation(
     // The component pages hold what was just written: the first version compiles from it.
     const wrote = new Map(sources.map((page) => [page.id, page.source]));
     const writtenDocs: ComponentDocs = {
-      get: (page) => {
+      read: async (page, load) => {
         const source = wrote.get(page);
         const block = source && readBlock<ComponentDoc>(source, 'component');
-        return block ? { ...block, examples: pageExamples(source) } : undefined;
+        return block ? { ...block, examples: pageExamples(source) } : load();
       },
-      revision: () => undefined,
-      set: () => {},
     };
     progress({ phase: 'publishing' });
     await withPage(transport, root, async (rootPage) => {
