@@ -24,6 +24,7 @@ export interface WorkBundleProps {
   data?: WorkBundlePage;
   state?: 'loading' | 'ready' | 'unavailable';
   onWorkChange?(value: string): void;
+  /** Without it a ticket is a plain link; the host's own link handling decides what it opens. */
   onOpenTicket?(ticket: WorkBundleTicket): void;
 }
 
@@ -146,15 +147,18 @@ export function WorkBundle({
             <div className="tmt-block-work-tickets">
               <span>GitHub</span>
               {tickets.map((ticket) => (
-                <Button
-                  variant="outline"
-                  size="xs"
-                  type="button"
-                  key={ticket.href}
-                  disabled={!onOpenTicket}
-                  onClick={() => onOpenTicket?.(ticket)}
-                >
-                  {ticket.label}
+                <Button variant="outline" size="xs" asChild key={ticket.href}>
+                  <a
+                    href={ticket.href}
+                    onClick={(event) => {
+                      // A host that confirms or routes the open takes the click over.
+                      if (!onOpenTicket) return;
+                      event.preventDefault();
+                      onOpenTicket(ticket);
+                    }}
+                  >
+                    {ticket.label}
+                  </a>
                 </Button>
               ))}
             </div>

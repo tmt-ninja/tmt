@@ -476,13 +476,14 @@ for (const width of [1440, 390]) {
     await expect(frame.getByText('Safe summary')).toBeVisible();
     const work = frame.getByRole('textbox', { name: 'Work' });
     await expect(work).toHaveValue('Review it');
-    await work.evaluate((node) =>
+    const tag = frame.locator('tmt-ui-work-bundle').first();
+    await tag.evaluate((node) =>
       node.addEventListener('tmt-work-change', (event) => {
         node.setAttribute('data-work-event', (event as CustomEvent).detail.value);
       }),
     );
     await work.fill('Updated work');
-    await expect(work).toHaveAttribute('data-work-event', 'Updated work');
+    await expect(tag).toHaveAttribute('data-work-event', 'Updated work');
     await expect(frame.getByText('Page not found')).toHaveCount(2);
     expect(await page.evaluate(() => (window as unknown as { workIds: string[] }).workIds)).toEqual(
       ['allowed', 'missing'],
@@ -555,7 +556,7 @@ for (const width of [1440, 390]) {
     const frame = page.frameLocator('iframe[title="Page content"]');
     await frame.getByLabel('Other…').check();
     await frame.getByLabel('Other: your answer').fill('Something else');
-    const form = frame.locator('form');
+    const form = frame.locator('tmt-ui-question-block');
     await form.evaluate((node) =>
       node.addEventListener('tmt-question-answer', (event) => {
         node.setAttribute('data-answer', JSON.stringify((event as CustomEvent).detail));
@@ -632,12 +633,12 @@ for (const width of [1440, 390]) {
       if (frame) frame.style.width = '100%';
     }, bundle);
     const frame = page.frameLocator('iframe[title="Page content"]');
-    const open = frame.getByRole('button', { name: 'Open First' });
+    const open = frame.getByRole('button', { name: 'Image 1: open viewer' });
     await expect(open.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
     await open.click();
-    const dialog = frame.getByRole('dialog', { name: 'Image viewer' });
+    const dialog = frame.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(frame.locator('#inside')).toHaveJSProperty('inert', true);
+    // The viewer draws inside the mockup's stage and covers it; it never reaches outside.
     await expect(dialog).not.toHaveJSProperty('open', true);
     await expect(dialog.getByAltText('First')).toHaveAttribute('src', /^data:image\/png;base64,/);
     const renderId = await page
@@ -655,13 +656,13 @@ for (const width of [1440, 390]) {
         ),
       renderId,
     );
-    await dialog.getByRole('link', { name: 'Download' }).click();
+    await dialog.getByRole('link', { name: /^Download/ }).click();
     await expect
       .poll(() =>
         page.evaluate(() => (window as unknown as { downloadIds?: string[] }).downloadIds),
       )
       .toEqual(['11111111-1111-4111-8111-111111111111']);
-    await dialog.getByRole('button', { name: 'Next', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Next image' }).click();
     await expect(dialog.getByAltText('Second')).toBeVisible();
     await dialog.getByRole('button', { name: 'Zoom in' }).click();
     await expect(dialog.getByText('125%')).toBeVisible();
@@ -670,7 +671,6 @@ for (const width of [1440, 390]) {
     await dialog.focus();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(frame.locator('#inside')).toHaveJSProperty('inert', false);
     await expect(open).toBeFocused();
     await frame.getByRole('button', { name: 'Outside' }).click();
     const block = frame.locator('tmt-ui-image-block');

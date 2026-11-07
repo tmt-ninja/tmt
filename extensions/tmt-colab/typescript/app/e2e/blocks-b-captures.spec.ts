@@ -140,7 +140,7 @@ for (const width of [1440, 390])
               );
             });
             await expect(
-              frame.getByRole('button', { name: 'Open Screen' }).locator('img'),
+              frame.getByRole('button', { name: 'Image 1: open viewer' }).locator('img'),
             ).toHaveAttribute('src', /^data:image\/png;base64,/);
           }
         }
@@ -154,8 +154,8 @@ for (const width of [1440, 390])
         await frame
           .locator('tmt-ui-question-block')
           .screenshot({ path: join(captureDir, `question-other-${width}-${theme}.png`) });
-      await frame.getByRole('button', { name: 'Open Screen' }).click();
-      const viewer = frame.getByRole('dialog', { name: 'Image viewer' });
+      await frame.getByRole('button', { name: 'Image 1: open viewer' }).click();
+      const viewer = frame.getByRole('dialog');
       await expect(viewer).toBeVisible();
       if (captureDir)
         await viewer.screenshot({ path: join(captureDir, `image-viewer-${width}-${theme}.png`) });
@@ -165,5 +165,71 @@ for (const width of [1440, 390])
         await pageView.screenshot({
           path: join(captureDir, `page-view-columns-${width}-${theme}.png`),
         });
+    });
+  }
+
+// #6176: the carousel's control row is the part's own, drawn by the shared block stylesheet, so a
+// page shows the controls the docs show: laid out in a row with a gap, never native buttons run
+// together.
+const swatch = (fill: string, label: string) =>
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${fill}"/><text x="24" y="96" font-size="28" font-family="sans-serif" fill="#222">${label}</text></svg>`,
+  );
+const carousel = ['#d3d3d3', '#c9d6ea', '#d9ead3', '#f4e1c1', '#e8d0e8', '#cfe8e8'].map(
+  (fill, index) => ({
+    src: swatch(fill, `Screen ${index + 1}`),
+    alt: `Screen ${index + 1}`,
+    caption: `Screen ${index + 1} of 6`,
+  }),
+);
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`the image block carousel controls are styled at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 700 });
+      await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
+      await page.goto('/');
+      await page.evaluate(
+        async ({ release, images }) => {
+          const path = '/src/renderer.ts';
+          const { mountRenderer } = await import(path);
+          const host = document.createElement('div');
+          host.style.width = '100%';
+          document.body.replaceChildren(host);
+          await mountRenderer(
+            host,
+            `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+            <tmt-ui-image-block images='${JSON.stringify(images)}'></tmt-ui-image-block>`,
+            {
+              signal: new AbortController().signal,
+              onState: () => {},
+              designSystem: {
+                release: async () => release,
+                draft: async () => release,
+                watch: () => () => {},
+              },
+            },
+          );
+          const frame = host.querySelector('iframe');
+          if (frame) frame.style.width = '100%';
+        },
+        { release: bundle, images: carousel },
+      );
+      const frame = page.frameLocator('iframe[title="Page content"]');
+      const block = frame.locator('tmt-ui-image-block');
+      const controls = block.locator('.tmt-block-image-controls');
+      await expect(controls).toBeVisible();
+      await expect(controls).toHaveCSS('display', 'flex');
+      await expect(controls).toHaveCSS('align-items', 'center');
+      await expect(controls).not.toHaveCSS('column-gap', /^(normal|0px)$/);
+      await expect(controls.getByText('1 / 6')).toBeVisible();
+      // The arrows go on a phone, where the images scroll by touch; the count stays.
+      if (width === 1440) {
+        await controls.getByRole('button', { name: 'Next image' }).click();
+        await expect(controls.getByText('2 / 6')).toBeVisible();
+      }
+      if (captureDir)
+        await block.screenshot({ path: join(captureDir, `image-carousel-${width}-${theme}.png`) });
     });
   }

@@ -12,7 +12,7 @@
     "toolbar-labels": {"type": "string"}
   },
   "slots": ["default"],
-  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "css": "callout.css",
   "examples": [{
     "title": "A scoped stage",
     "markup": "<tmt-ui-mockup-block system=\"tmt-gui\" preset=\"390\"><tmt-ui-button>Save</tmt-ui-button></tmt-ui-mockup-block>",
