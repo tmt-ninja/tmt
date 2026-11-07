@@ -63,6 +63,8 @@ import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
   createContext,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -1184,6 +1186,12 @@ function ShortPageChoice() {
 // The Design pack is lazy: ordinary Colab pages do not load its catalog or styles. Its pages are
 // Colab pages, so the route hands it the embedded page view.
 const LazyDesign = lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute');
+// Structured pages (#6005) load their block parts and editor only when one opens.
+const LazyStructuredPage = lazy(() =>
+  import('./structured-page-live.js').then(({ LiveStructuredPage }) => ({
+    default: LiveStructuredPage,
+  })),
+);
 function Design() {
   return (
     <EmbeddedPageContext.Provider value={EmbeddedPage}>
@@ -3185,6 +3193,25 @@ function OpenPage({
                       shell={view.shell}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
+                  )}
+                  {endedError && <EndedBody error={endedError} action={endedAction} />}
+                </main>
+              </section>
+            ) : view.pageType === 'blocks' ? (
+              <section className="page">
+                <AppHeader
+                  page
+                  title={view.title || snapshot.title}
+                  remote={{ deviceName: transport.backendName }}
+                />
+                <main className="canvas">
+                  {view.blocks && (
+                    <Suspense fallback={null}>
+                      <LazyStructuredPage
+                        blocks={view.blocks}
+                        binding={liveError || archived ? undefined : snapshot.binding}
+                      />
+                    </Suspense>
                   )}
                   {endedError && <EndedBody error={endedError} action={endedAction} />}
                 </main>

@@ -2,8 +2,10 @@ import { BLOCK_TYPES, type BlockRecord, type EntryType, ROW_TYPE } from './block
 import { BlockTree } from './block-tree.js';
 
 /**
- * The editor's blocks from a structured page's fold projection (#6005): the `blocks` root as #6004's
- * plan (c) describes it, a map from block ID to `{type, parent, pos, props, text?, deleted?}`.
+ * The editor's blocks from a structured page's fold projection (#6005): the `blocks` root the fold
+ * projects (`projectBlocks`), a map from block ID to `{type, parent, pos, props, text?, cells?,
+ * deleted?}`, where `text` and each cell are rich text (`{s, marks}`) and `deleted` is the time of
+ * the delete.
  * The fold has already checked every entry against the shared validator; this keeps only what the
  * editor reads and refuses, by entry, anything it cannot draw, so a newer type never reaches the
  * tree half-read. A block under an entry it cannot read is drawn at the top level, never lost.
@@ -28,9 +30,9 @@ export function blockRecords(blocks: Readonly<Record<string, unknown>>): {
       entry.props !== null &&
       typeof entry.props === 'object' &&
       !Array.isArray(entry.props) &&
-      (entry.text === undefined || typeof entry.text === 'string') &&
-      (entry.deleted === undefined || typeof entry.deleted === 'boolean') &&
-      (entry.cells === undefined || stringMap(entry.cells));
+      (entry.text === undefined || plainOf(entry.text) !== undefined) &&
+      (entry.deleted === undefined || typeof entry.deleted === 'number') &&
+      (entry.cells === undefined || cellsOf(entry.cells) !== undefined);
     if (!ok) {
       unreadable.push(id);
       continue;
@@ -41,19 +43,29 @@ export function blockRecords(blocks: Readonly<Record<string, unknown>>): {
       parent: entry.parent as string,
       pos: entry.pos as string,
       props: entry.props as Record<string, unknown>,
-      ...(entry.text !== undefined && { text: entry.text as string }),
-      deleted: entry.deleted === true,
-      ...(entry.cells !== undefined && { cells: entry.cells as Record<string, string> }),
+      ...(entry.text !== undefined && { text: plainOf(entry.text)! }),
+      deleted: entry.deleted !== undefined,
+      ...(entry.cells !== undefined && { cells: cellsOf(entry.cells)! }),
     });
   }
   return { records, unreadable };
 }
 
-const stringMap = (value: unknown) =>
-  value !== null &&
-  typeof value === 'object' &&
-  !Array.isArray(value) &&
-  Object.values(value).every((cell) => typeof cell === 'string');
+/** A rich text's characters (`s`); its marks are drawn by a later step. */
+const plainOf = (value: unknown): string | undefined =>
+  value !== null && typeof value === 'object' && typeof (value as { s?: unknown }).s === 'string'
+    ? (value as { s: string }).s
+    : undefined;
+const cellsOf = (value: unknown): Record<string, string> | undefined => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const cells: Record<string, string> = {};
+  for (const [column, cell] of Object.entries(value)) {
+    const text = plainOf(cell);
+    if (text === undefined) return undefined;
+    cells[column] = text;
+  }
+  return cells;
+};
 
 /** The tree the editor draws from a fold projection's `blocks` root. */
 export function blockTree(blocks: Readonly<Record<string, unknown>>): {
