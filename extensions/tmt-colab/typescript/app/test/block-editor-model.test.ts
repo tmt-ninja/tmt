@@ -12,6 +12,7 @@ import {
 import { dropTarget } from '../src/block-drop.js';
 import { BlockHistory, UNDO_DEPTH } from '../src/block-history.js';
 import { filterInsert, insertType, opensInsert } from '../src/block-insert.js';
+import { blockTree } from '../src/block-projection.js';
 import { posBetween, posRun, validPos } from '../src/block-pos.js';
 import {
   extendSelection,
@@ -504,5 +505,42 @@ describe('the drop target', () => {
       index: 2,
       lineBefore: 'two',
     });
+  });
+});
+
+describe('the tree from a fold projection', () => {
+  it('reads the blocks root: parent and pos order, tombstones hidden, rows with their table', () => {
+    const { tree, unreadable } = blockTree({
+      b: { type: 'paragraph', parent: 'root', pos: 'k', props: {}, text: 'second' },
+      a: { type: 'heading', parent: 'root', pos: 'F', props: { level: 2 }, text: 'first' },
+      gone: { type: 'paragraph', parent: 'root', pos: 'V', props: {}, text: 'x', deleted: true },
+      box: { type: 'card', parent: 'root', pos: 'z', props: {} },
+      inner: { type: 'todo', parent: 'box', pos: 'V', props: { done: false }, text: 'do it' },
+      table: { type: 'table', parent: 'root', pos: 'zz', props: { columns: [] } },
+      r1: { type: 'row', parent: 'table', pos: 'V', props: {} },
+    });
+    expect(unreadable).toEqual([]);
+    expect(ids(tree.flat())).toEqual(['a', 'b', 'box', 'inner', 'table']);
+    expect(tree.get('a')).toEqual({
+      id: 'a',
+      type: 'heading',
+      parent: PAGE_PARENT,
+      pos: 'F',
+      props: { level: 2 },
+      text: 'first',
+      deleted: false,
+    });
+    expect(tree.get('gone')?.deleted).toBe(true);
+    expect(ids(tree.rows('table'))).toEqual(['r1']);
+  });
+  it('names entries it cannot read and still draws what is under them', () => {
+    const { tree, unreadable } = blockTree({
+      future: { type: 'hologram', parent: 'root', pos: 'F', props: {} },
+      broken: { type: 'paragraph', parent: 'root', pos: 3, props: {} },
+      list: 'not an entry',
+      child: { type: 'paragraph', parent: 'future', pos: 'V', props: {}, text: 'kept' },
+    });
+    expect(unreadable).toEqual(['future', 'broken', 'list']);
+    expect(ids(tree.flat())).toEqual(['child']);
   });
 });
