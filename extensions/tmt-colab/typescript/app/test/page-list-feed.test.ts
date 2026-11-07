@@ -308,6 +308,29 @@ describe('one held read per browser (#6162)', () => {
     stopVisible();
   });
 
+  it('tabs that open one by one, each taking the lock as it shows, all hear the next change', async () => {
+    // The acceptance's five tabs: each new tab is visible, so it steals the lock from the last.
+    const tabs = browser();
+    const server = serve();
+    const heard = new Map<number, string[]>();
+    const stops: (() => void)[] = [];
+    for (let index = 0; index < 5; index++) {
+      const tab = tabs.tab(index, true);
+      const feed = new PageListFeed(server.reads(), tab);
+      heard.set(index, []);
+      stops.push(feed.watch((latest) => heard.get(index)!.push(latest.get(PAGE_A)!)));
+      await vi.waitFor(() => expect(tabs.holder()).toBe(index));
+      await vi.waitFor(() => expect(heard.get(index)!.length).toBeGreaterThan(0));
+    }
+    await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
+    server.move();
+    const moved = `v1:${'2'.padStart(64, '0')}`;
+    await vi.waitFor(() =>
+      expect([...heard.entries()].filter(([, list]) => list.at(-1) !== moved)).toEqual([]),
+    );
+    for (const stop of stops) stop();
+  });
+
   it('a listening tab ignores a malformed broadcast', async () => {
     const tabs = browser();
     const server = serve();
