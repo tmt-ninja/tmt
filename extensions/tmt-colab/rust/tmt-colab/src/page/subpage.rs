@@ -72,7 +72,7 @@ pub fn prepare(
             action: &edit.action,
             body: &edit.body,
             display_agent: None,
-            expected_revision: &read.revision,
+            expected_revision: Some(&read.revision),
             operation_id: Some(&edit.operation_id),
         },
         &mut source.decoder,

@@ -929,6 +929,10 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         BaselineAction::Produce { shell, .. } => shell.clone(),
         _ => None,
     };
+    let expected_blocks = match &wire.action {
+        BaselineAction::Produce { blocks, .. } => blocks.clone(),
+        _ => None,
+    };
     let mut chunks = Vec::new();
     let (update, expected_source, expected_commitment) = match wire.action {
         BaselineAction::Produce {
@@ -967,10 +971,11 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     return Err(DecodeFault::InvalidInput);
                 }
             }
-            let update = if blocks {
-                if chunk_bytes.is_some() || shell.is_some() || !source.is_empty() {
+            let update = if let Some(blocks) = &blocks {
+                if shell.is_some() || !source.is_empty() {
                     return Err(DecodeFault::InvalidInput);
                 }
+                crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
                 let doc = Doc::new();
                 let initial = fresh_baseline(Doc::new(), source_text, &wire.title, &creation);
                 doc.get_or_insert_text("html");
@@ -979,7 +984,19 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 tx.apply_update(Update::decode_v1(&initial).map_err(|_| DecodeFault::Rejected)?)
                     .map_err(|_| DecodeFault::Rejected)?;
                 meta.insert(&mut tx, "pageType", "blocks");
-                tx.encode_state_as_update_v1(&StateVector::default())
+                if blocks.as_object().is_some_and(|all| !all.is_empty()) {
+                    let map = doc.get_or_insert_map("blocks");
+                    blocks_doc::apply(&mut tx, &map, &blocks_doc::rebuild(blocks))?;
+                }
+                let update = tx.encode_state_as_update_v1(&StateVector::default());
+                // A new page's first state is also its first update, as a dashboard's is.
+                if chunk_bytes.is_some() {
+                    if update.len() > UPDATE_BYTES {
+                        return Err(DecodeFault::Rejected);
+                    }
+                    chunks.push(update.clone());
+                }
+                update
             } else if let Some(shell) = shell {
                 crate::shell::validate(&shell).map_err(|_| DecodeFault::InvalidInput)?;
                 if !source.is_empty() || wire.attachments.is_some() || wire.layout.is_some() {
@@ -1046,6 +1063,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         .map_err(|_| DecodeFault::Rejected)?;
     let projection = project(&doc, Namespace::Content)?;
     if producing && projection["meta"].get("shell") != expected_shell.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing && projection.get("blocks") != expected_blocks.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("pageState") != wire.page_state.as_ref() {

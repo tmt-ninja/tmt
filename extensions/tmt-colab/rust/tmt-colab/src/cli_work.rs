@@ -263,7 +263,7 @@ fn write_work_owned(
             action,
             body: &body,
             display_agent,
-            expected_revision: &expected,
+            expected_revision: Some(&expected),
             operation_id: None,
         },
         &mut decoder,

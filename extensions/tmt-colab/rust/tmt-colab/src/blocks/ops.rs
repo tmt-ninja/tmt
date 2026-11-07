@@ -323,13 +323,13 @@ impl Batch {
     fn text_edit(&mut self, op: &Value, column: Option<&str>) -> Result<()> {
         let key = id(&op["id"])?;
         let mut current = self.text_of(key, column)?;
-        if let Some(column) = column {
-            if self.block(key)?["cells"].get(column).is_none() {
-                self.steps.push(Step::Cell {
-                    id: key.into(),
-                    column: column.into(),
-                });
-            }
+        if let Some(column) = column
+            && self.block(key)?["cells"].get(column).is_none()
+        {
+            self.steps.push(Step::Cell {
+                id: key.into(),
+                column: column.into(),
+            });
         }
         let owner = || (key.to_owned(), column.map(str::to_owned));
         let forms = ["replace", "set", "format"]
@@ -363,7 +363,12 @@ impl Batch {
             let set = plain_text(set, limits::BLOCK_TEXT_BYTES)?;
             let base = plain_text(op.get("base").ok_or(Invalid)?, limits::BLOCK_TEXT_BYTES)?;
             let whole = current.string();
-            let merged = merge::merge(base, &whole, set);
+            let overlap = match op.get("overlap").map(Value::as_str) {
+                None | Some(Some("remote")) => merge::Overlap::Remote,
+                Some(Some("both")) => merge::Overlap::Both,
+                Some(_) => return Err(Refusal::Invalid),
+            };
+            let merged = merge::merge_with(base, &whole, set, overlap);
             let (before, after): (Vec<char>, Vec<char>) =
                 (whole.chars().collect(), merged.text.chars().collect());
             // Last hunk first, so each offset still counts the text before it as the page holds it.
@@ -417,7 +422,7 @@ impl Batch {
         keys(
             op,
             &["op", "id"],
-            &["cell", "replace", "set", "base", "format"],
+            &["cell", "replace", "set", "base", "overlap", "format"],
         )?;
         let column = op
             .get("cell")
@@ -506,14 +511,17 @@ impl Batch {
                 keys(
                     op,
                     &["op", "id", "action", "row", "column", "text"],
-                    &["base"],
+                    &["base", "overlap"],
                 )?;
                 let row = id(&op["row"])?;
                 require(self.block_type(row)? == ROW && self.block(row)?["parent"] == key)?;
                 let column = string(&op["column"])?;
                 let body = &op["text"];
                 let current = self.text_of(row, Some(column))?.string();
-                let edit = json!({"id": row, "set": body, "base": op.get("base").cloned().unwrap_or_else(|| json!(current))});
+                let mut edit = json!({"id": row, "set": body, "base": op.get("base").cloned().unwrap_or_else(|| json!(current))});
+                if let Some(overlap) = op.get("overlap") {
+                    edit["overlap"] = overlap.clone();
+                }
                 self.text_edit(&edit, Some(column))?;
                 self.note("table.set-cell", row);
             }

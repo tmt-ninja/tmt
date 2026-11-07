@@ -19,6 +19,8 @@ pub(super) struct Selection<'a> {
     /// The page of the user template `template` names; `None` for a compiled one.
     pub template_page: Option<&'a str>,
     pub shell: bool,
+    /// A structured page of blocks, empty at creation.
+    pub blocks: bool,
     pub page: &'a str,
     pub title: &'a str,
     pub source: &'a str,
@@ -52,6 +54,7 @@ impl Engine {
             template,
             template_page,
             shell,
+            blocks,
             page,
             title,
             source,
@@ -65,7 +68,8 @@ impl Engine {
         if context.scope.is_some()
             || creation_recipient.is_some_and(|v| !v.valid())
             || layout.is_some_and(|v| !v.valid())
-            || (shell && layout.is_some())
+            || ((shell || blocks) && layout.is_some())
+            || (shell && blocks)
             || title.is_empty()
             || publisher_agent.is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
         {
@@ -172,11 +176,11 @@ impl Engine {
         if let Some(layout) = layout {
             selection["layout"] = serde_json::to_value(layout)?;
         }
-        if shell {
+        if shell || blocks {
             if !source.is_empty() {
                 return Err(OwnerFault::Invalid.into());
             }
-            selection["pageType"] = serde_json::json!("shell");
+            selection["pageType"] = serde_json::json!(if shell { "shell" } else { "blocks" });
         }
         let digest = context.digest(key, "page.create", &selection)?;
         self.run_transition(
@@ -244,6 +248,13 @@ impl Engine {
                     engine.decoder(page)?.produce_shell(
                         input,
                         &crate::shell::empty(),
+                        true,
+                        None,
+                    )?
+                } else if blocks {
+                    engine.decoder(page)?.produce_blocks(
+                        input,
+                        &crate::blocks::schema::empty(),
                         true,
                         None,
                     )?

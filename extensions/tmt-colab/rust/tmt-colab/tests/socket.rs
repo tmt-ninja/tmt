@@ -7109,7 +7109,7 @@ fn hierarchy_fixture_action(layout: &Layout, key: &Keyring, page: &str, action: 
             kind: StructuredKind::Work,
             action,
             body: &body,
-            expected_revision: &read.revision,
+            expected_revision: Some(&read.revision),
             display_agent: None,
             operation_id: None,
         },

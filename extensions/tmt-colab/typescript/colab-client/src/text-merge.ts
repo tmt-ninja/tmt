@@ -159,11 +159,24 @@ const conflicts = (remote: Hunk, local: Hunk) => remote.from < local.to && local
 const same = (x: Hunk, y: Hunk) => x.from === y.from && x.to === y.to && x.text === y.text;
 
 /**
+ * What happens to an agent hunk that overlaps a concurrent edit. `remote` (the default) keeps the
+ * page's text and drops the whole hunk, which is reported: an agent rereads. `both` keeps the
+ * hunk's new text right after the page's own text there and drops only its deletion (reported); a
+ * person's typing is never lost. A hunk that only deletes is dropped whole.
+ */
+export type Overlap = 'remote' | 'both';
+
+/**
  * Apply the agent's hunks (`base → local`) to the current text. Hunks that overlap a concurrent
  * edit are dropped and reported; a hunk the other writer also made is absorbed; insertions at one
  * point keep the other writer's first.
  */
-export function merge(base: string, remote: string, local: string): Merged {
+export function merge(
+  base: string,
+  remote: string,
+  local: string,
+  overlap: Overlap = 'remote',
+): Merged {
   const baseUnits = Array.from(base);
   const remoteHunks = hunks(baseUnits, Array.from(remote));
   const localHunks = hunks(baseUnits, Array.from(local));
@@ -171,8 +184,17 @@ export function merge(base: string, remote: string, local: string): Merged {
   const dropped: Dropped[] = [];
   for (const hunk of localHunks) {
     if (remoteHunks.some((other) => same(other, hunk))) continue;
-    if (remoteHunks.some((other) => conflicts(other, hunk))) dropped.push({ ...hunk });
-    else accepted.push([hunk, 1]);
+    const over = remoteHunks.filter((other) => conflicts(other, hunk));
+    if (over.length === 0) {
+      accepted.push([hunk, 1]);
+    } else if (overlap === 'both' && hunk.text !== '') {
+      // The typed text lands after the page's own text where it overlapped.
+      const at = Math.max(...over.map((other) => other.to));
+      accepted.push([{ from: at, to: at, text: hunk.text }, 1]);
+      if (hunk.from < hunk.to) dropped.push({ from: hunk.from, to: hunk.to, text: '' });
+    } else {
+      dropped.push({ ...hunk });
+    }
   }
   accepted.sort(([x, xs], [y, ys]) => x.from - y.from || x.to - y.to || xs - ys);
   let text = '';

@@ -817,7 +817,7 @@ fn commit(
             kind: StructuredKind::Template,
             action,
             body,
-            expected_revision: expected,
+            expected_revision: Some(expected),
             display_agent,
             operation_id: None,
         },

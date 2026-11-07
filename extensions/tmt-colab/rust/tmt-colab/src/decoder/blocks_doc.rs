@@ -33,7 +33,7 @@ fn string_of(out: Out) -> Result<String, DecodeFault> {
 /// One `Y.Text` as `{"s","marks"}`. Only plain string runs are text; an embed or a mark outside
 /// the closed set is a rejection.
 fn read_text<T: ReadTxn>(txn: &T, text: &TextRef, rich: bool) -> Result<Value, DecodeFault> {
-    let mut runs: Vec<(String, Vec<(String, Option<String>)>)> = Vec::new();
+    let mut runs: Vec<crate::blocks::text::Run> = Vec::new();
     for chunk in text.diff(txn, yrs::types::text::YChange::identity) {
         let Out::Any(Any::String(piece)) = chunk.insert else {
             return Err(DecodeFault::Rejected);
@@ -179,6 +179,56 @@ fn bytes_at(text: &str, index: usize) -> Result<u32, DecodeFault> {
 }
 fn marks_cleared() -> Attrs {
     MARKS.iter().map(|m| (Arc::from(*m), Any::Null)).collect()
+}
+
+/// The steps that build the given blocks from nothing: each block, its marks, its tombstone.
+pub(super) fn rebuild(blocks: &Value) -> Vec<Step> {
+    let mut steps = Vec::new();
+    let Some(all) = blocks.as_object() else {
+        return steps;
+    };
+    let marks_of = |id: &str, column: Option<&str>, text: &Value, steps: &mut Vec<Step>| {
+        for mark in text["marks"].as_array().into_iter().flatten() {
+            let (Some(from), Some(to), Some(name)) = (
+                mark["from"].as_u64(),
+                mark["to"].as_u64(),
+                mark["mark"].as_str(),
+            ) else {
+                continue;
+            };
+            steps.push(Step::Format {
+                id: id.into(),
+                column: column.map(str::to_owned),
+                from: from as usize,
+                to: to as usize,
+                mark: name.into(),
+                value: Some(mark["value"].as_str().unwrap_or("true").to_owned()),
+            });
+        }
+    };
+    for (id, block) in all {
+        steps.push(Step::Put {
+            id: id.clone(),
+            block: block.clone(),
+        });
+    }
+    for (id, block) in all {
+        if let Some(text) = block.get("text") {
+            marks_of(id, None, text, &mut steps);
+        }
+        for (column, cell) in block
+            .get("cells")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+        {
+            marks_of(id, Some(column), cell, &mut steps);
+        }
+        if let Some(at) = block.get("deleted").and_then(Value::as_u64) {
+            steps.push(Step::Delete { id: id.clone(), at });
+        }
+    }
+    steps
 }
 
 /// Replay the validator's steps in one transaction.
@@ -431,6 +481,32 @@ mod tests {
             child::project(&reader, Namespace::Content).unwrap()["blocks"],
             a
         );
+    }
+
+    #[test]
+    fn rebuilding_a_projection_gives_the_same_projection() {
+        let doc = page();
+        run(
+            &doc,
+            json!([
+                {"op": "insert", "id": bid(1), "type": "paragraph", "text": "hello 🐈 world"},
+                {"op": "insert", "id": bid(2), "type": "table", "props": {"columns": [{"id": "a", "name": "A"}]}},
+                {"op": "table", "id": bid(2), "action": "add-row", "row": bid(3), "cells": {"a": "cell text"}},
+                {"op": "text", "id": bid(1), "format": {"from": 0, "to": 5, "mark": "bold", "value": true}},
+                {"op": "text", "id": bid(1), "format": {"from": 6, "to": 7, "mark": "link", "value": "https://example.com/z"}},
+                {"op": "table", "id": bid(2), "action": "set-cell", "row": bid(3), "column": "a", "text": "cell text!"},
+                {"op": "text", "id": bid(3), "cell": "a", "format": {"from": 0, "to": 4, "mark": "italic", "value": true}},
+                {"op": "insert", "id": bid(4), "type": "code", "text": "let x = 1;"},
+                {"op": "delete", "id": bid(4)},
+            ]),
+        );
+        let original = blocks_of(&doc);
+        let fresh = page();
+        let map = fresh.get_or_insert_map("blocks");
+        let mut tx = fresh.transact_mut();
+        apply(&mut tx, &map, &rebuild(&original)).unwrap();
+        drop(tx);
+        assert_eq!(blocks_of(&fresh), original);
     }
 
     #[test]

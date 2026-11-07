@@ -60,7 +60,7 @@ pub fn prepare(
             kind,
             action: &edit.action,
             body: &edit.body,
-            expected_revision: &edit.expected_revision,
+            expected_revision: Some(&edit.expected_revision),
             display_agent: None,
             operation_id: Some(&edit.operation_id),
         },

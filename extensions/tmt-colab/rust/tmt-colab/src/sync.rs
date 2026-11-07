@@ -501,6 +501,8 @@ pub(crate) struct SaveJob {
     /// the page and the operation, and the job prepares from the action.
     subpage: Option<crate::page::subpage::SubpageEdit>,
     metadata: Option<crate::page::metadata::MetadataEdit>,
+    /// A block batch of a structured page: the same entry point as `tmt colab block`.
+    blocks: Option<crate::page::blocks::BlockBatch>,
 }
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
@@ -508,6 +510,7 @@ pub(crate) struct SaveJob {
 #[derive(Default)]
 struct Made {
     child: Option<String>,
+    receipt: Option<serde_json::Value>,
 }
 enum SaveFinish {
     Replied(Box<crate::page::save::SaveResult>),
@@ -860,6 +863,13 @@ impl<A: Admission> Server<A> {
             let prepared = if let Some(edit) = &job.metadata {
                 crate::page::metadata::prepare(&job.open, edit, &read_clock)
                     .map(|prepared| (prepared, None))
+            } else if let Some(batch) = &job.blocks {
+                crate::page::blocks::prepare(&job.open, batch, &read_clock).map(
+                    |(prepared, receipt)| {
+                        made.receipt = Some(receipt);
+                        (prepared, None)
+                    },
+                )
             } else {
                 match (&job.subpage, &job.hunks) {
                     (Some(subpage), _) if crate::page::subpage::is_create(&subpage.action) => {
@@ -1294,7 +1304,8 @@ impl<A: Admission> State<A> {
             | Frame::Usage { .. }
             | Frame::Compact { .. }
             | Frame::Work { .. }
-            | Frame::Metadata { .. } => {
+            | Frame::Metadata { .. }
+            | Frame::Blocks { .. } => {
                 self.admission
                     .authorize(&principal, &scope, Access::Publish)?;
             }
@@ -1309,6 +1320,7 @@ impl<A: Admission> State<A> {
                     | Frame::Compact { .. }
                     | Frame::Work { .. }
                     | Frame::Metadata { .. }
+                    | Frame::Blocks { .. }
             )
         {
             return Err(Code::ResyncRequired);
@@ -1628,6 +1640,22 @@ impl<A: Admission> State<A> {
                 });
                 return Ok(Some(job));
             }
+            Frame::Blocks {
+                operation_id, ops, ..
+            } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                values::generated_id(&operation_id)?;
+                crate::page::blocks::validate(&ops).map_err(|_| Code::Invalid)?;
+                let mut job = self.structured_job_base(&scope, principal, operation_id.clone())?;
+                job.blocks = Some(crate::page::blocks::BlockBatch {
+                    page: scope.page.clone(),
+                    operation_id,
+                    ops,
+                });
+                return Ok(Some(job));
+            }
             Frame::Work {
                 operation_id,
                 action,
@@ -1728,6 +1756,7 @@ impl<A: Admission> State<A> {
             hunks,
             subpage: None,
             metadata: None,
+            blocks: None,
         })
     }
     /// One work action of the owner device, handed out of the lock like a save.
@@ -1778,6 +1807,7 @@ impl<A: Admission> State<A> {
             hunks: None,
             subpage: None,
             metadata: None,
+            blocks: None,
         })
     }
     /// The save is no longer preparing; its outcome, if any, is in the store.
@@ -1852,6 +1882,7 @@ impl<A: Admission> State<A> {
             let access = if job.save.attachments.is_some()
                 || job.subpage.is_some()
                 || job.metadata.is_some()
+                || job.blocks.is_some()
             {
                 Access::Publish
             } else {
@@ -1921,7 +1952,7 @@ impl<A: Admission> State<A> {
             Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None),
         };
         // A convert names the page it made in every outcome, so nothing made is lost.
-        let reply = reply.with_child(made.child);
+        let reply = reply.with_child(made.child).with_receipt(made.receipt);
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
         if let Some(id) = id {
@@ -1930,6 +1961,8 @@ impl<A: Admission> State<A> {
                 &job.scope,
                 if job.metadata.is_some() {
                     "metadataresult"
+                } else if job.blocks.is_some() {
+                    "blocksresult"
                 } else if job.subpage.is_some() {
                     "workresult"
                 } else {
