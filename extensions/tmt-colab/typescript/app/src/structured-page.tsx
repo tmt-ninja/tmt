@@ -1,7 +1,10 @@
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   Block,
+  blockActions,
   BlockDocument,
+  BlockDropLine,
+  BlockHandle,
   BlockMenu,
   BlockMenuEmpty,
   BlockMenuFooter,
@@ -23,7 +26,13 @@ import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block
 import { BlockTextEditor } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
-import type { DeleteToast, InsertMenu } from './use-block-editing.js';
+import { type Drag, useBlockDrag } from './use-block-drag.js';
+import {
+  BLOCK_MENU_ACTIONS,
+  type BlockMenuAction,
+  type DeleteToast,
+  type InsertMenu,
+} from './use-block-editing.js';
 
 /** The catalog row of each insert entry, for its icon and description. */
 const INSERT_ROWS = new Map(
@@ -81,6 +90,23 @@ export interface StructuredPageProps {
   /** The status line after a delete, and its Undo. */
   toast?: DeleteToast;
   onUndo?(): void;
+  /** The block menu open on a block, its active action, and what it does. */
+  blockMenu?: { id: string; active?: string };
+  onAction?(action: BlockMenuAction, id: string): void;
+  onHoverAction?(action: string): void;
+  onCloseBlockMenu?(): void;
+  /** The handle: ⋯ opens the block menu, ＋ the insert menu after the block, and the grip drags. */
+  onOpenBlockMenu?(id: string): void;
+  onInsertAfter?(id: string): void;
+  onMove?(id: string, parent: string, index: number): void;
+}
+
+/** The page's pointer state that the blocks draw: the hovered block and a drag in progress. */
+interface Pointer {
+  hovered?: string;
+  drag?: Drag;
+  startDrag(id: string, event: React.PointerEvent<HTMLButtonElement>): void;
+  wasDrag(): boolean;
 }
 
 /**
@@ -88,14 +114,33 @@ export interface StructuredPageProps {
  * block draws as static content except the focused text block, which holds the one editor.
  */
 export function StructuredPage(props: StructuredPageProps) {
+  const root = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState<string>();
+  const drop = useCallback(
+    (id: string, parent: string, index: number) => props.onMove?.(id, parent, index),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.onMove],
+  );
+  const { drag, start, wasDrag } = useBlockDrag(props.tree, () => root.current, drop);
+  const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag };
   return (
     <>
       <BlockDocument
+        ref={root}
         onKeyDown={(event) => {
           if (props.onPageKey?.(event)) event.preventDefault();
         }}
+        // The handle follows the innermost block under the pointer.
+        onPointerMove={(event) => {
+          const block = (event.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
+          setHovered(block?.dataset.blockId);
+        }}
+        onPointerLeave={() => setHovered(undefined)}
       >
-        <Blocks {...props} parent={PAGE_PARENT} />
+        <Blocks {...props} parent={PAGE_PARENT} pointer={pointer} />
+        {drag?.target && drag.target.parent === PAGE_PARENT && !drag.target.lineBefore && (
+          <BlockDropLine />
+        )}
       </BlockDocument>
       {props.toast && (
         <div className="tmt-block-toast-place" key={props.toast.id}>
@@ -108,8 +153,15 @@ export function StructuredPage(props: StructuredPageProps) {
   );
 }
 
-function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: string }): ReactNode {
-  return tree.children(parent).map((block) => (
+function Blocks({
+  tree,
+  parent,
+  pointer,
+  ...rest
+}: StructuredPageProps & { parent: string; pointer: Pointer }): ReactNode {
+  const drag = pointer.drag;
+  return tree.children(parent).map((block) => [
+    drag?.target?.lineBefore === block.id && <BlockDropLine key={`drop-${block.id}`} />,
     <Block
       key={block.id}
       data-block-id={block.id}
@@ -117,7 +169,13 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
       kind={KIND[block.type]}
       level={block.type === 'heading' ? headingLevel(block) : undefined}
       depth={parent === PAGE_PARENT ? 0 : 1}
-      selected={rest.editing?.id === block.id || rest.selected?.includes(block.id)}
+      selected={
+        rest.editing?.id === block.id ||
+        rest.selected?.includes(block.id) ||
+        // A card a drag would drop into takes the selection tint.
+        drag?.target?.into === block.id
+      }
+      state={drag?.id === block.id ? 'dragging' : undefined}
       // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page.
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
@@ -125,11 +183,37 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
           node.focus();
       }}
       readonly={rest.readonly}
-      onClick={() => {
+      onClick={(event) => {
+        // A click on the handle or a menu inside the block is theirs, not a click on the block.
+        const target = event.target as HTMLElement;
+        if (target.closest('[data-slot="block-handle"], [data-slot="block-menu"]')) return;
+        // The innermost block takes the click.
+        if (target.closest('[data-block-id]') !== event.currentTarget) return;
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
       }}
     >
-      <Content block={block} {...rest} tree={tree} />
+      {!rest.readonly &&
+        !drag &&
+        (pointer.hovered === block.id || rest.selectionFocus === block.id) && (
+          <BlockHandle
+            menuOpen={rest.blockMenu?.id === block.id}
+            onInsert={() => rest.onInsertAfter?.(block.id)}
+            onMenu={() => {
+              if (!pointer.wasDrag()) rest.onOpenBlockMenu?.(block.id);
+            }}
+            onGripPointerDown={(event) => pointer.startDrag(block.id, event)}
+          />
+        )}
+      <Content block={block} {...rest} pointer={pointer} tree={tree} />
+      {rest.blockMenu?.id === block.id && (
+        <ActionsPopover
+          block={block}
+          active={rest.blockMenu.active}
+          onAction={rest.onAction}
+          onHoverAction={rest.onHoverAction}
+          onClose={rest.onCloseBlockMenu}
+        />
+      )}
       {rest.menu?.id === block.id && (
         <InsertPopover
           menu={rest.menu}
@@ -138,8 +222,66 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
           onCloseMenu={rest.onCloseMenu}
         />
       )}
-    </Block>
-  ));
+    </Block>,
+  ]);
+}
+
+/** The block menu from the handle's ⋯ or the menu key: the design system's block actions this
+ * editor runs. A table is not duplicated here (its rows come with the table step). */
+function ActionsPopover({
+  block,
+  active,
+  onAction,
+  onHoverAction,
+  onClose,
+}: {
+  block: BlockRecord;
+  active?: string;
+  onAction?(action: BlockMenuAction, id: string): void;
+  onHoverAction?(action: string): void;
+  onClose?(): void;
+}) {
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  const actions = blockActions.filter(
+    (action) =>
+      (BLOCK_MENU_ACTIONS as readonly string[]).includes(action.id) &&
+      !(action.id === 'duplicate' && block.type === 'table'),
+  );
+  return (
+    <div
+      className="tmt-block-insert tmt-block-actions"
+      data-sheet={sheet ? '' : undefined}
+      onMouseDown={(event) => {
+        if (!sheet || event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onClose?.();
+      }}
+    >
+      <BlockMenu
+        kind="actions"
+        label={strings.blockActions.label}
+        placement={sheet ? 'sheet' : 'below'}
+        activeId={active && `block-action-${active}`}
+      >
+        {actions.map((action) => (
+          <BlockMenuItem
+            key={action.id}
+            id={`block-action-${action.id}`}
+            shortcut={action.shortcut}
+            danger={action.danger}
+            active={action.id === active}
+            onMouseEnter={() => onHoverAction?.(action.id)}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onAction?.(action.id as BlockMenuAction, block.id);
+            }}
+          >
+            {action.label}
+          </BlockMenuItem>
+        ))}
+      </BlockMenu>
+    </div>
+  );
 }
 
 /** The insert menu under the block the slash was typed in: focus stays in the editor, and the
@@ -211,7 +353,7 @@ function Content({
   onTyped,
   onKey,
   ...rest
-}: StructuredPageProps & { block: BlockRecord }): ReactNode {
+}: StructuredPageProps & { block: BlockRecord; pointer: Pointer }): ReactNode {
   // Only the block being typed in shows its placeholder: an empty block at rest reads as space.
   const typing = editing?.id === block.id;
   const placeholder =
@@ -261,6 +403,8 @@ function Content({
             onKey={onKey}
             {...rest}
           />
+          {rest.pointer.drag?.target?.parent === block.id &&
+            !rest.pointer.drag.target.lineBefore && <BlockDropLine />}
         </CardBlock>
       );
     case 'table': {

@@ -46,6 +46,13 @@ export function LiveStructuredPage({
     pageKey,
     toast,
     undo,
+    blockMenu,
+    act,
+    move,
+    openBlockMenu,
+    insertAfter,
+    closeBlockMenu,
+    hoverBlockMenu,
   } = useBlockEditing(records, send, seq);
   return (
     <StructuredPage
@@ -63,6 +70,13 @@ export function LiveStructuredPage({
       onPageKey={pageKey}
       toast={toast}
       onUndo={undo}
+      blockMenu={blockMenu}
+      onAction={act}
+      onHoverAction={hoverBlockMenu}
+      onCloseBlockMenu={closeBlockMenu}
+      onOpenBlockMenu={openBlockMenu}
+      onInsertAfter={insertAfter}
+      onMove={move}
       readonly={!write}
     />
   );

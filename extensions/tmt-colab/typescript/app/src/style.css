@@ -58,11 +58,12 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-/* The status line after a delete sits at the bottom centre of the window, over the page. */
+/* The status line after a delete sits at the bottom centre of the window, over the page and under
+   an open sheet's scrim, which it never covers. */
 .tmt-block-toast-place {
   position: fixed;
   inset: auto 0 calc(16px + env(safe-area-inset-bottom));
-  z-index: 30;
+  z-index: 15;
   display: flex;
   justify-content: center;
   pointer-events: none;

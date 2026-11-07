@@ -85,6 +85,9 @@ export const text = {
     paragraph: 'Type / for blocks',
     heading: 'Heading',
   },
+  blockActions: {
+    label: 'Block actions',
+  },
   blockDelete: {
     deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
     undo: 'Undo',
