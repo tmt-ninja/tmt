@@ -399,12 +399,11 @@ function Content({
       onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
     />
   ) : (
-    block.text !== undefined && (
-      <MarkedText
-        text={block.text}
-        marks={block.marks}
-        blockHref={(id) => `#block-${id}`}
-      />
+    // Empty text stays empty, so the part keeps its one-line height (`data-empty`).
+    block.text ? (
+      <MarkedText text={block.text} marks={block.marks} blockHref={(id) => `#block-${id}`} />
+    ) : (
+      block.text
     )
   );
   switch (block.type) {
