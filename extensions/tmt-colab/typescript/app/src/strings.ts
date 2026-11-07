@@ -236,6 +236,10 @@ export const text = {
   brandIdentity: (connection: string) => `${text.product} · ${connection}`,
   byAuthor: (name: string) => `By ${name}`,
   unknownAuthor: 'Unknown author',
+  /** A question block whose registry entry names no agent, on a page with no creator. */
+  /** The meta line's name when no agent can be asked. */
+  questionNoAgent: 'No agent',
+  questionNoRecipient: 'No agent to answer: this page has no creator to ask.',
   latestPublisher: 'Latest publisher',
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',

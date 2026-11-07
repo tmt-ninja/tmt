@@ -116,12 +116,13 @@ export function StructuredQuestion({ block, page }: { block: BlockRecord; page: 
   const state = states?.find((value) => value.id === question.id)?.state;
   const answered =
     row.echo ?? (row.answer ? (answerOf(question, row.answer.body) ?? row.answer.body) : undefined);
-  const recipient =
-    answers.recipients[0]?.agentName ?? entry?.agent?.name ?? creator?.name ?? question.agent;
+  // The answer goes to the registry's agent, else the page's creator (the serve registered the
+  // block with no agent of its own). With neither, nothing can be asked: an error, never a blank.
+  const recipient = answers.recipients[0]?.agentName ?? entry?.agent?.name ?? creator?.name;
   return (
     <QuestionBlock
       title={question.title}
-      agent={recipient}
+      agent={recipient ?? text.questionNoAgent}
       kind={question.kind === 'long' ? 'short' : question.kind}
       choices={question.choices.map(({ label }) => label)}
       other={question.other}
@@ -135,12 +136,14 @@ export function StructuredQuestion({ block, page }: { block: BlockRecord; page: 
       answer={answered}
       busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
       error={
-        row.draft.failed
-          ? 'Could not confirm this answer. Your draft is kept for the next Send.'
-          : answers.error
+        recipient === undefined
+          ? text.questionNoRecipient
+          : row.draft.failed
+            ? 'Could not confirm this answer. Your draft is kept for the next Send.'
+            : answers.error
       }
       onSend={
-        answers.disabled || !answers.decision.allowed
+        recipient === undefined || answers.disabled || !answers.decision.allowed
           ? undefined
           : (answer) => {
               answers.setDrafts((previous) => ({

@@ -108,7 +108,7 @@ export function useQuestionAnswers({
     attachments.current = discussion?.attachments;
   }, [discussion?.attachments]);
   const [answerFiles] = useState(() => new AnswerFiles(() => attachments.current));
-  useSyncExternalStore(answerFiles.subscribe, answerFiles.getSnapshot);
+  useSyncExternalStore(answerFiles.subscribe, answerFiles.getSnapshot, answerFiles.getSnapshot);
   useEffect(() => () => answerFiles.dispose(), [answerFiles]);
   const filesOf = (question: string) =>
     discussion?.attachments ? answerFiles.draft(question) : undefined;
