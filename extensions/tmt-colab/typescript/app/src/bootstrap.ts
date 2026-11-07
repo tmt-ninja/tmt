@@ -420,7 +420,7 @@ export async function discover(
 
 const LIST_TOKEN = /^[0-9a-f]{64}$/;
 const PAGE_REVISION = /^v1:[0-9a-f]{64}$/;
-/** A held list read waits on the serve at most 2.5 s (`limits::PAGE_LIST_HOLD`); this bound only
+/** A held list read waits on the serve at most 10 s (`limits::PAGE_LIST_HOLD`); this bound only
  * catches a serve that never answers: past Remote's 15 s mounted-reply deadline plus transit. */
 const HELD_LIST_TIMEOUT_MS = 20_000;
 /** What one held list read learned: the list moved (each page's revision) or did not. */
