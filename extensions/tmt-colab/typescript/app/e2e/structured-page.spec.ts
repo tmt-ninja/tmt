@@ -470,6 +470,24 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   await expect.poll(async () => (await frame.boundingBox())!.height).toBeGreaterThan(40);
   expect((await frame.boundingBox())!.height).toBeLessThan(400);
   await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+  // The stage's theme control paints the frame: Light and Dark are the stage's, Viewer the app's.
+  const html = mock.frameLocator('iframe').locator('html');
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  const themes = mock.getByRole('group', { name: 'Theme' });
+  await themes.getByRole('button', { name: 'Dark' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(html).toHaveAttribute('data-colab-scheme', 'dark');
+  await themes.getByRole('button', { name: 'Light' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  await themes.getByRole('button', { name: 'Viewer' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  // The sheet insets its content, as the DS stage does.
+  const sheet = await mock.locator('.tmt-block-mockup-frame').boundingBox();
+  const inner = await frame.boundingBox();
+  expect(inner!.x - sheet!.x).toBeGreaterThanOrEqual(8);
+  expect(sheet!.y + sheet!.height - (inner!.y + inner!.height)).toBeGreaterThanOrEqual(8);
 });
 
 for (const [width, theme] of [
@@ -540,9 +558,27 @@ for (const width of [1440, 390])
       // on its own, in view.
       await host.locator('[data-block-id="mock"]').scrollIntoViewIfNeeded();
       await page.mouse.move(0, 0);
-      await host
-        .locator('[data-block-id="mock"]')
-        .screenshot({ path: capturePath(`structured-${width}-${theme}-mockup.png`) });
+      // Each stage theme: Viewer (the app's), then the stage's own Light and Dark.
+      const mock = host.locator('[data-block-id="mock"]');
+      const html = mock.frameLocator('iframe').locator('html');
+      for (const stage of ['Viewer', 'Light', 'Dark'] as const) {
+        await mock
+          .getByRole('group', { name: 'Theme' })
+          .getByRole('button', { name: stage })
+          .click();
+        // The frame paints the theme once its page's scheme follows it.
+        const painted = stage === 'Viewer' ? theme : stage.toLowerCase();
+        await expect(html).toHaveAttribute('data-theme', painted);
+        await expect(html).toHaveAttribute('data-colab-scheme', painted);
+        await page.mouse.move(0, 0);
+        await mock.screenshot({
+          path: capturePath(`structured-${width}-${theme}-mockup-${stage.toLowerCase()}.png`),
+        });
+      }
+      await mock
+        .getByRole('group', { name: 'Theme' })
+        .getByRole('button', { name: 'Viewer' })
+        .click();
       await page.evaluate(() => scrollTo(0, 0));
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({

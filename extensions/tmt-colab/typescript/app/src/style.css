@@ -383,6 +383,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   background: #fff;
 }
 /* A mockup block's sandboxed frame takes the page frame's look inside the mockup stage. */
+/* The stage's sheet insets its content as the DS stage example does; the frame still hugs it. */
+.tmt-block-mockup-frame {
+  padding: var(--tmt-ui-space-m);
+  background: var(--tmt-ui-surface-paper);
+}
 .tmt-block-mockup-frame iframe,
 .frame-host iframe {
   display: block;

@@ -130,7 +130,7 @@ import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js
 import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
 import '@tmt/browser-ui/ui.css';
-import { getTheme, subscribeTheme } from './theme.js';
+import { getTheme, subscribeTheme, type Theme } from './theme.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import './about-drawer.css';
@@ -2062,10 +2062,11 @@ function OpenPage({
   // A mockup block's markup renders in the same sandboxed frame and runtime admission as an HTML
   // page (#6005): never in the parent's DOM.
   const mountMockup = useCallback(
-    (frameHost: HTMLElement, source: string, signal: AbortSignal) =>
+    (frameHost: HTMLElement, source: string, signal: AbortSignal, theme?: Theme) =>
       mountRenderer(frameHost, source, {
         signal,
         fitContent: true,
+        theme,
         onState: () => {},
         onLink: requestPageLink,
         designSystem: {
