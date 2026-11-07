@@ -1,74 +1,49 @@
 import { BLOCK_TYPES, type BlockRecord, type EntryType, ROW_TYPE } from './block-model.js';
+import type { BlockEntry } from './blocks.js';
 import { BlockTree } from './block-tree.js';
+
+const READABLE = new Set<string>([...BLOCK_TYPES, ROW_TYPE]);
 
 /**
  * The editor's blocks from a structured page's fold projection (#6005): the `blocks` root the fold
- * projects (`projectBlocks`), a map from block ID to `{type, parent, pos, props, text?, cells?,
- * deleted?}`, where `text` and each cell are rich text (`{s, marks}`) and `deleted` is the time of
- * the delete.
- * The fold has already checked every entry against the shared validator; this keeps only what the
- * editor reads and refuses, by entry, anything it cannot draw, so a newer type never reaches the
- * tree half-read. A block under an entry it cannot read is drawn at the top level, never lost.
+ * projects and `validateBlocks` has checked, typed by the fold's own `BlockEntry`, so a schema
+ * change breaks the build here rather than every block at run time. Rich text is read as its
+ * characters (marks are drawn by a later step), and `deleted`, the time of the delete, as a mark.
+ * An entry of a type this editor does not draw (a newer one) is named, never half-read; a block
+ * under it is drawn at the top level, never lost.
  */
-export function blockRecords(blocks: Readonly<Record<string, unknown>>): {
+export function blockRecords(blocks: Readonly<Record<string, BlockEntry>>): {
   records: BlockRecord[];
   /** IDs of entries this editor cannot read (a newer type, say); the page names them. */
   unreadable: string[];
 } {
   const records: BlockRecord[] = [];
   const unreadable: string[] = [];
-  const types = new Set<string>([...BLOCK_TYPES, ROW_TYPE]);
-  for (const [id, value] of Object.entries(blocks)) {
-    const entry = value as Record<string, unknown> | null;
-    const ok =
-      entry !== null &&
-      typeof entry === 'object' &&
-      typeof entry.type === 'string' &&
-      types.has(entry.type) &&
-      typeof entry.parent === 'string' &&
-      typeof entry.pos === 'string' &&
-      entry.props !== null &&
-      typeof entry.props === 'object' &&
-      !Array.isArray(entry.props) &&
-      (entry.text === undefined || plainOf(entry.text) !== undefined) &&
-      (entry.deleted === undefined || typeof entry.deleted === 'number') &&
-      (entry.cells === undefined || cellsOf(entry.cells) !== undefined);
-    if (!ok) {
+  for (const [id, entry] of Object.entries(blocks)) {
+    if (!READABLE.has(entry.type)) {
       unreadable.push(id);
       continue;
     }
     records.push({
       id,
       type: entry.type as EntryType,
-      parent: entry.parent as string,
-      pos: entry.pos as string,
-      props: entry.props as Record<string, unknown>,
-      ...(entry.text !== undefined && { text: plainOf(entry.text)! }),
+      parent: entry.parent,
+      pos: entry.pos,
+      props: entry.props,
+      ...(entry.text !== undefined && { text: entry.text.s }),
       deleted: entry.deleted !== undefined,
-      ...(entry.cells !== undefined && { cells: cellsOf(entry.cells)! }),
+      ...(entry.cells !== undefined && {
+        cells: Object.fromEntries(
+          Object.entries(entry.cells).map(([column, cell]) => [column, cell.s]),
+        ),
+      }),
     });
   }
   return { records, unreadable };
 }
 
-/** A rich text's characters (`s`); its marks are drawn by a later step. */
-const plainOf = (value: unknown): string | undefined =>
-  value !== null && typeof value === 'object' && typeof (value as { s?: unknown }).s === 'string'
-    ? (value as { s: string }).s
-    : undefined;
-const cellsOf = (value: unknown): Record<string, string> | undefined => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const cells: Record<string, string> = {};
-  for (const [column, cell] of Object.entries(value)) {
-    const text = plainOf(cell);
-    if (text === undefined) return undefined;
-    cells[column] = text;
-  }
-  return cells;
-};
-
 /** The tree the editor draws from a fold projection's `blocks` root. */
-export function blockTree(blocks: Readonly<Record<string, unknown>>): {
+export function blockTree(blocks: Readonly<Record<string, BlockEntry>>): {
   tree: BlockTree;
   unreadable: string[];
 } {

@@ -562,13 +562,9 @@ describe('the tree from a fold projection', () => {
     expect(ids(tree.rows('table'))).toEqual(['r1']);
     expect(tree.rows('table')[0]!.cells).toEqual({ c1: 'Ada' });
   });
-  it('names entries it cannot read and still draws what is under them', () => {
+  it('names entries of a type it does not draw and still draws what is under them', () => {
     const { tree, unreadable } = blockTree({
       future: { type: 'hologram', parent: 'root', pos: 'F', props: {} },
-      broken: { type: 'paragraph', parent: 'root', pos: 3, props: {} },
-      list: 'not an entry',
-      // Text the fold never projects: a bare string, not rich text.
-      bare: { type: 'paragraph', parent: 'root', pos: 'k', props: {}, text: 'plain' },
       child: {
         type: 'paragraph',
         parent: 'future',
@@ -577,7 +573,7 @@ describe('the tree from a fold projection', () => {
         text: { s: 'kept', marks: [] },
       },
     });
-    expect(unreadable).toEqual(['future', 'broken', 'list', 'bare']);
+    expect(unreadable).toEqual(['future']);
     expect(ids(tree.flat())).toEqual(['child']);
   });
 });

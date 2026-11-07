@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { BlockOp } from './block-model.js';
 import { blockRecords } from './block-projection.js';
+import type { BlockEntry } from './blocks.js';
 import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
@@ -15,7 +16,7 @@ export function LiveStructuredPage({
   blocks,
   binding,
 }: {
-  blocks: Readonly<Record<string, unknown>>;
+  blocks: Readonly<Record<string, BlockEntry>>;
   binding?: PageBinding;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
