@@ -644,14 +644,40 @@ a.tmt-block-mention:focus-visible {
     flex-direction: column;
   }
 }
+.tmt-block-images {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+}
 .tmt-block-image-list {
   display: flex;
   gap: var(--tmt-ui-space-s);
   overflow-x: auto;
+  min-width: 0;
 }
+.tmt-block-images[data-layout='carousel'] .tmt-block-image-list {
+  scroll-snap-type: x proximity;
+}
+.tmt-block-images[data-layout='carousel'] figure {
+  scroll-snap-align: start;
+}
+/* Tiles share the row; the size sets how narrow a tile may get before the row wraps. */
 .tmt-block-images[data-layout='grid'] .tmt-block-image-list {
+  --tmt-block-tile: 140px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--tmt-block-tile), 1fr));
+}
+.tmt-block-images[data-layout='grid'][data-size='m'] .tmt-block-image-list {
+  --tmt-block-tile: 200px;
+}
+.tmt-block-images[data-layout='grid'][data-size='l'] .tmt-block-image-list {
+  --tmt-block-tile: 280px;
+}
+/* A caption keeps its CJK words whole and breaks only at spaces, or when one cannot fit. */
+.tmt-block-images figcaption {
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .tmt-block-images figure {
   flex: none;

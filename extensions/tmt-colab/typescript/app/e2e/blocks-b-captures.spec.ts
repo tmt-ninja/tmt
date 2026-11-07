@@ -224,6 +224,19 @@ for (const width of [1440, 390])
       await expect(controls).toHaveCSS('align-items', 'center');
       await expect(controls).not.toHaveCSS('column-gap', /^(normal|0px)$/);
       await expect(controls.getByText('1 / 6')).toBeVisible();
+      // The track scrolls inside the block: nothing makes the page itself scroll sideways.
+      const overflow = await frame.locator('html').evaluate((root) => {
+        const list = root.querySelector('.tmt-block-image-list')!;
+        const block = root.querySelector('tmt-ui-image-block')!.getBoundingClientRect();
+        return {
+          page: root.scrollWidth - root.clientWidth,
+          list: list.getBoundingClientRect().right - block.right,
+          scrolls: list.scrollWidth > list.clientWidth,
+        };
+      });
+      expect(overflow.page).toBeLessThanOrEqual(0);
+      expect(overflow.list).toBeLessThanOrEqual(0);
+      expect(overflow.scrolls).toBe(true);
       // The arrows go on a phone, where the images scroll by touch; the count stays.
       if (width === 1440) {
         await controls.getByRole('button', { name: 'Next image' }).click();
@@ -276,3 +289,58 @@ test('a grid has no carousel controls and an answered question keeps its title',
   await expect(title).toHaveText('Which screen first?');
   expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 });
+
+// The page pin: a stage that asks for another system or lock explains which one the page uses
+// and draws no stage; a matching one draws its filled content. Captured in both themes.
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`mockup stages show the page-pin notice beside a matching stage at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
+      await page.goto('/');
+      await page.evaluate(async (release) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        host.style.width = '100%';
+        document.body.replaceChildren(host);
+        const content = (label: string) =>
+          `<tmt-ui-notice heading="Needs you" tone="waiting">${label}: approve the block menu before merging.</tmt-ui-notice><tmt-ui-button>Approve</tmt-ui-button>`;
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+          <tmt-ui-mockup-block id="matching" lock="0.1.0" preset="390" height="160">${content('Matching lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-system" system="acme" preset="390" height="160">${content('Other system')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-lock" lock="follow" preset="390" height="160">${content('Other lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-hash" lock="0.1.0#sha256-wrong" preset="390" height="160">${content('Other hash')}</tmt-ui-mockup-block>`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+        const frame = host.querySelector('iframe');
+        if (frame) frame.style.width = '100%';
+      }, bundle);
+      const frame = page.frameLocator('iframe[title="Page content"]');
+      await expect(
+        frame.locator('#matching').getByRole('button', { name: 'Approve' }),
+      ).toBeVisible();
+      for (const id of ['wrong-system', 'wrong-lock', 'wrong-hash']) {
+        const block = frame.locator(`#${id}`);
+        await expect(block.getByRole('status')).toContainText('This page uses tmt-gui@0.1.0');
+        await expect(block.locator('[data-tmt-ds-scope]')).toHaveCount(0);
+      }
+      if (captureDir)
+        await frame
+          .locator('body')
+          .screenshot({ path: join(captureDir, `mockup-pin-notice-${width}-${theme}.png`) });
+    });
+  }
