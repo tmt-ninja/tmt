@@ -60,7 +60,10 @@ it('matches the seeded generated vectors under both overlap modes', () => {
   for (const { base, remote, local, results } of generated.cases) {
     for (const mode of ['remote', 'both'] as const) {
       const got = textMerge.merge(base, remote, local, mode);
-      expect({ text: got.text, dropped: got.dropped }, JSON.stringify({ base, remote, local, mode })).toEqual({
+      expect(
+        { text: got.text, dropped: got.dropped },
+        JSON.stringify({ base, remote, local, mode }),
+      ).toEqual({
         text: results[mode].merged,
         dropped: results[mode].dropped,
       });

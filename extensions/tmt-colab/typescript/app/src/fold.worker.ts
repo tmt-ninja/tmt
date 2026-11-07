@@ -180,7 +180,9 @@ function projectBlocks(doc: Y.Doc): Record<string, unknown> {
         block[field] = richOf(value);
       } else if (field === 'cells' && type === ROW) {
         if (!(value instanceof Y.Map)) throw new Error('Rejected block cells');
-        block[field] = Object.fromEntries([...value.entries()].map(([name, cell]) => [name, richOf(cell)]));
+        block[field] = Object.fromEntries(
+          [...value.entries()].map(([name, cell]) => [name, richOf(cell)]),
+        );
       } else throw new Error('Rejected block field');
     }
     out[key] = block;

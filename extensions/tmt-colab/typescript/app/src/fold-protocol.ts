@@ -244,10 +244,10 @@ export function validateProjection(value: unknown): asserts value is Projection 
   const blocksPage = (value as Projection).pageType === 'blocks';
   // A dashboard has none of these; a page of blocks has a creator, questions and a state but no
   // template; an ordinary page has them all.
-  if (
-    ['creator', 'questions', 'pageState'].some((key) => Object.hasOwn(value, key))
-  )
-    requireValue(!Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage));
+  if (['creator', 'questions', 'pageState'].some((key) => Object.hasOwn(value, key)))
+    requireValue(
+      !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
+    );
   if (['template', 'fromTemplate'].some((key) => Object.hasOwn(value, key)))
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
   if (Object.hasOwn(value, 'pageState'))

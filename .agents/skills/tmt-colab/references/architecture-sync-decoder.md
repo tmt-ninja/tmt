@@ -145,6 +145,21 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   The [Dashboards contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#dashboards-3648)
   owns roots, action grammar, attribution and shared validation vectors.
 
+- `blocks.rs` (the `blocks/` modules) owns a page of blocks (#6004), whose content is the `blocks`
+  root instead of HTML: `schema.rs` the closed value and every type's props, `text.rs` rich text
+  and its marks, `pos.rs` the fractional sort keys, `ops.rs` the one batch validator (`apply`: the
+  next value, the receipt and the normalized `Step`s), `merge.rs` the three-way text merge
+  (`textMerge` in `@tmt/colab-client` is its one TypeScript copy) and `purge.rs` the tombstone rule
+  that `transitions/epoch.rs` applies when it builds a baseline. `page/blocks.rs` is the one entry
+  the CLI (`cli_block.rs`) and the browser's `blocks` sync frame both publish through, as
+  `StructuredKind::Blocks`; the isolated decoder re-derives the projection with the same
+  `apply`, replays the steps as granular Yjs edits (`decoder/blocks_doc.rs`) and refuses a
+  mismatch. Browser `blocks.ts` and the fold Worker mirror the schema; both run the shared
+  `blocks-v1.json` and the merge vectors. `page create --structured` makes a page of blocks, and
+  `page write`/`page patch` refuse one. The
+  [Structured pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#structured-pages-6004)
+  owns roots, types, limits, ops, receipt and the purge rule.
+
 - `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
   `meta.work` (its direct sub-pages in order and a two-line summary), its detached trial actions,
   and the read-only projection of the task-era version 1 value (#5825); `closed.rs`/`closed.ts` and
