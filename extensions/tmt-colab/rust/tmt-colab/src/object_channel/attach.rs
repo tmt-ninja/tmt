@@ -581,17 +581,47 @@ fn save(
     if Instant::now() >= deadline {
         return Err(page::Fault::Unavailable.into());
     }
-    let current = page::read(
+    let read = page::read(
         &view.store,
         &view.keyring,
         &descriptor.page,
         &mut view.decoder,
-    )?;
+    );
     drop(view);
     let change: DocumentChange = serde_json::from_value(match replaces {
         Some(old) => serde_json::json!({ "set": [descriptor], "remove": [old] }),
         None => serde_json::json!({ "set": [descriptor] }),
     })?;
+    let current = match read {
+        Ok(current) => current,
+        // A page of blocks keeps no source to write: the descriptor joins its list through the
+        // blocks publication (#6190), bound to the same digest of its html root.
+        Err(error)
+            if matches!(
+                error.downcast_ref::<page::Fault>(),
+                Some(page::Fault::StructuredPage)
+            ) =>
+        {
+            let (prepared, _) = page::blocks::prepare(
+                source,
+                &page::blocks::BlockBatch {
+                    page: descriptor.page.clone(),
+                    operation_id: page::fresh_id()?,
+                    ops: serde_json::json!([]),
+                    attachments: Some(change),
+                },
+                &now,
+            )?;
+            return match prepared {
+                page::save::Prepared::Write(frozen) => {
+                    let view = source()?;
+                    committed(&publisher.publish(&view.keyring, &frozen)?)
+                }
+                page::save::Prepared::Unchanged(_) => Err(page::Fault::Invalid.into()),
+            };
+        }
+        Err(error) => return Err(error),
+    };
     let prepared = page::save::prepare(
         source,
         &page::save::Save {

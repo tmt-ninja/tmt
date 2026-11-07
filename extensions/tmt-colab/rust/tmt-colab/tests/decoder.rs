@@ -3431,6 +3431,136 @@ fn a_page_of_blocks_keeps_its_legacy_source_frozen_through_edits_and_a_new_basel
     );
 }
 
+/// Attachments ride with the blocks (#6190): one batch adds a descriptor and the image that shows
+/// it, the decoder re-derives the list from the change bound to the page's html root, a detach
+/// while a live block shows it is refused, and nothing a refused batch did is left behind.
+#[test]
+fn a_page_of_blocks_attaches_and_detaches_with_its_blocks() {
+    use serde_json::json;
+    use tmt_colab::decoder::{ContentBatch, StructuredEdit, StructuredKind};
+    let attachment = "30000000-0000-4000-8000-00000000000a";
+    let (image, other) = (
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+    );
+    let source = b"";
+    let hex = |bytes: [u8; 32]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let descriptor = json!({
+        "version": 1,
+        "attachmentId": attachment,
+        "space": "a".repeat(32),
+        "page": "20000000-0000-4000-8000-000000000091",
+        "epoch": "1",
+        "namespace": "content",
+        "objectId": "a".repeat(64),
+        "authorDevice": "20000000-0000-4000-8000-000000000093",
+        "membershipRevision": "1",
+        "source": {"kind": "document", "sourceDigest": hex(tmt_colab_model::crypto::digest(source))},
+        "envelopeHash": "c".repeat(64),
+        "signature": tmt_colab_model::values::encode_binary(&[1u8; 64]),
+        "payloadSha256": "d".repeat(64),
+        "payloadBytes": "10",
+        "plaintextBytes": "5",
+        "filename": "a.png",
+        "mediaType": "image/png",
+    });
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_blocks(work_view(source, None), &json!({}), false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let edit = |body: serde_json::Value| StructuredEdit {
+        kind: StructuredKind::Blocks,
+        action: "blocks.batch".into(),
+        body,
+        attribution: json!({"writerId": WRITER, "timeMs": 1000}),
+    };
+    let show = json!({"op": "insert", "id": image, "type": "image", "parent": "root", "after": null,
+        "props": {"images": [{"src": format!("colab-attachment:{attachment}")}]}});
+    let decode = |updates: &Vec<Vec<u8>>| {
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        owner()
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates: &refs,
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap()
+    };
+    let prepare = |updates: &Vec<Vec<u8>>, edit: &StructuredEdit| {
+        let before = decode(updates);
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        owner().prepare_structured_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &before.projection,
+            edit,
+            None,
+        )
+    };
+    let none: Vec<Vec<u8>> = Vec::new();
+    // A reference to a descriptor the page does not hold is refused.
+    assert!(prepare(&none, &edit(json!({"ops": [show.clone()]}))).is_err());
+    // The same batch adds the descriptor: the image and the list land in one update.
+    let attach = prepare(
+        &none,
+        &edit(json!({"ops": [show.clone()], "attachments": {"set": [descriptor.clone()]}})),
+    )
+    .unwrap();
+    let ContentBatch::Updates(first) = attach.batch else {
+        panic!("expected an update")
+    };
+    assert_eq!(first.len(), 1);
+    let after = decode(&first);
+    assert_eq!(after.projection, attach.projection);
+    assert_eq!(
+        after.projection["meta"]["attachments"][0]["attachmentId"],
+        attachment
+    );
+    assert_eq!(after.projection["html"], "");
+    // Detaching what a live block shows is refused, whole batch.
+    let detach = json!({"ops": [], "attachments": {"remove": [attachment]}});
+    assert!(prepare(&first, &edit(detach.clone())).is_err());
+    assert_eq!(decode(&first).projection, after.projection);
+    // Deleting the block and detaching in one batch works, and the list key goes away.
+    let both = prepare(
+        &first,
+        &edit(json!({"ops": [{"op": "delete", "id": image}],
+            "attachments": {"remove": [attachment]}})),
+    )
+    .unwrap();
+    let ContentBatch::Updates(second) = both.batch else {
+        panic!("expected an update")
+    };
+    let all = first.iter().chain(&second).cloned().collect::<Vec<_>>();
+    let gone_list = decode(&all);
+    assert_eq!(gone_list.projection, both.projection);
+    assert!(gone_list.projection["meta"].get("attachments").is_none());
+    // A detach with the descriptor gone is an input error, not a no-op, and so is a descriptor
+    // bound to another source.
+    assert!(prepare(&all, &edit(detach)).is_err());
+    let mut stranger = descriptor.clone();
+    stranger["source"]["sourceDigest"] = json!("e".repeat(64));
+    assert!(
+        prepare(
+            &none,
+            &edit(
+                json!({"ops": [{"op": "insert", "id": other, "type": "paragraph",
+                "parent": "root", "after": null, "text": "x"}],
+                "attachments": {"set": [stranger]}})
+            )
+        )
+        .is_err()
+    );
+}
+
 /// A page of blocks takes work actions (#6004): the decoder re-derives a sub-page attach and a
 /// summary against it, the blocks and the rest of the page stay as they were, and the update replays.
 /// A dashboard still refuses them.

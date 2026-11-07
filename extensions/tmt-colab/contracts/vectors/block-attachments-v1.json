@@ -1,0 +1,931 @@
+{
+  "format": "tmt-colab-block-attachments",
+  "version": 1,
+  "description": "Which attachment references a batch on a page of blocks may add and which descriptors it may remove (#6190), written by blocks-reference.py and run by the native `blocks::attachments` and the browser's `admitAttachments` alike. A case lists the blocks before and after the batch, the descriptors the page holds (`current`, by attachment ID) and the typed change (`set`, `remove`); a descriptor is `descriptor` with its `attachmentId` set and its `sourceDigest` the sha256 (lowercase hex) of the case's `source` (the page's html root), or of `setSource` for the added ones. `expect` is the list the page holds afterwards (`list`, by ID; null when the change leaves it as it is) or a refusal: `attachment` (a reference no descriptor names, or a removal of one a live block shows) or `invalid` (a change the shared attachment rules refuse). The rules are checked when a batch is admitted, not when a state is folded: two writers can leave a dangling reference on a merged page, which must still fold.",
+  "descriptor": {
+    "version": 1,
+    "attachmentId": "<attachmentId>",
+    "space": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "page": "20000000-0000-4000-8000-000000000091",
+    "epoch": "1",
+    "namespace": "content",
+    "objectId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authorDevice": "20000000-0000-4000-8000-000000000093",
+    "membershipRevision": "1",
+    "source": {
+      "kind": "document",
+      "sourceDigest": "<sha256 of the source the descriptor was sealed against>"
+    },
+    "envelopeHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "signature": "<64 bytes of 0x01, base64url without padding>",
+    "payloadSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "payloadBytes": "10",
+    "plaintextBytes": "5",
+    "filename": "a.png",
+    "mediaType": "image/png"
+  },
+  "cases": [
+    {
+      "name": "a reference to a descriptor the page does not hold is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "the batch that adds the descriptor may add the image that shows it",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "set": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "a descriptor the page already holds serves a later batch with no change",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "the short form names the one descriptor with that prefix",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "a short form two descriptors share names neither",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "the full ID names one of two descriptors that share a prefix",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "a short form no descriptor has is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000003"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a malformed or unknown token '' is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a malformed or unknown token 'zz' is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:zz"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a malformed or unknown token '0000001' is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:0000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a malformed or unknown token '00000001A' is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001A"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a malformed or unknown token '00000001-0000-4000-8000-000000000009' is refused",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000009"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a file's href is a reference too",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "files": [
+              {
+                "name": "a",
+                "href": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a file's href that names a held descriptor is admitted",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "files": [
+              {
+                "name": "a",
+                "href": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "an https source is not judged",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a.png"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "a data source is not judged",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "data:image/png;base64,AAAA"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "a reference already dangling in the base is not judged again",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        },
+        "10000000-0000-4000-8000-000000000002": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/b.png"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "bringing back a deleted block with a dangling reference is judged",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a deleted block's reference is not live",
+      "source": "",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "current": [],
+      "expect": {
+        "list": null
+      }
+    },
+    {
+      "name": "a descriptor a live block shows cannot be removed",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "nor by its short form",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a descriptor no block shows is removed",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "deleting the block and removing its descriptor in one batch",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 9
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000002-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "removing a descriptor whose block was deleted earlier",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 9
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 9
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000002-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "swapping a re-sealed descriptor in when the block points at it",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000003-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000003-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000003-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "swapping it without pointing the block at it is refused",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000003-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "a descriptor sealed against another source is refused",
+      "source": "",
+      "before": {},
+      "next": {},
+      "current": [],
+      "set": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "setSource": "<p>another page</p>",
+      "expect": {
+        "refused": "invalid"
+      }
+    },
+    {
+      "name": "on a converted page the descriptors are bound to its frozen legacy source",
+      "source": "<p>The old page.</p>",
+      "before": {},
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "set": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "removing what the page does not hold is refused",
+      "source": "",
+      "before": {},
+      "next": {},
+      "current": [],
+      "remove": [
+        "00000009-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "invalid"
+      }
+    },
+    {
+      "name": "a change that adds and removes the same ID is refused",
+      "source": "",
+      "before": {},
+      "next": {},
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "refused": "invalid"
+      }
+    },
+    {
+      "name": "an empty change is no change",
+      "source": "",
+      "before": {},
+      "next": {},
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": null
+      }
+    }
+  ]
+}

@@ -69,7 +69,7 @@ frames! {
     SaveStatus { operation_id: String },
     Work { operation_id: String, action: String, body: serde_json::Value },
     Metadata { operation_id: String, expected_revision: String, action: String, body: serde_json::Value },
-    Blocks { operation_id: String, ops: serde_json::Value },
+    Blocks { operation_id: String, ops: serde_json::Value, attachments: Option<tmt_colab_model::attachment::DocumentChange> },
     Usage {},
     Compact {},
     Object { request_id: String, request: Box<crate::object_channel::ObjectRequest> },

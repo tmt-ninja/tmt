@@ -13776,6 +13776,82 @@ fn a_page_of_blocks_gains_and_loses_sub_pages_and_a_summary_offline_and_serving(
     }
 }
 
+/// A page of blocks holds attachments only through its list (#6190): an image or file that names
+/// one the page does not hold is refused, an https source is not judged, and a detach names a
+/// descriptor the page holds. Adding a descriptor needs the object channel, which the decoder and
+/// vector tests (`a_page_of_blocks_attaches_and_detaches_with_its_blocks`) stand in for here.
+#[test]
+fn a_block_naming_an_attachment_the_page_does_not_hold_is_refused_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let run = |args: &[&str]| {
+            pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let created: Value = serde_json::from_slice(
+            &run(&[
+                "page",
+                "create",
+                "--title",
+                "Pictures",
+                "--structured",
+                "--no-open",
+                "--json",
+            ])
+            .stdout,
+        )
+        .unwrap();
+        let page = created["pageId"].as_str().unwrap();
+        let attachment = "30000000-0000-4000-8000-00000000000a";
+        let refused = |args: &[&str], expected: &str| {
+            let output = run(args);
+            assert!(!output.status.success(), "{args:?}: {output:?}");
+            let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(value["error"]["code"], expected, "{args:?}: {value}");
+        };
+        for src in [
+            format!("colab-attachment:{attachment}"),
+            "colab-attachment:0000000a".to_owned(),
+            "colab-attachment:nope".to_owned(),
+        ] {
+            let props = serde_json::json!({"images": [{"src": src}]}).to_string();
+            refused(
+                &[
+                    "block", "insert", page, "--type", "image", "--props", &props, "--json",
+                ],
+                "COLAB_BLOCK_ATTACHMENT",
+            );
+        }
+        let props = r#"{"images":[{"src":"https://example.com/a.png"}]}"#;
+        let ok = run(&[
+            "block", "insert", page, "--type", "image", "--props", props, "--json",
+        ]);
+        assert!(ok.status.success(), "{ok:?}");
+        // Nothing the refused batches did is left on the page.
+        let listed: Value =
+            serde_json::from_slice(&run(&["block", "ls", page, "--json"]).stdout).unwrap();
+        assert_eq!(listed["blocks"].as_array().unwrap().len(), 1, "{listed}");
+        // A detach names an attachment the page holds; this one holds none, and a short or
+        // malformed ID is an input error before anything is opened.
+        refused(
+            &["block", "detach", page, attachment, "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        refused(
+            &["block", "detach", page, "0000000a", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+    }
+}
+
 #[test]
 fn a_mockup_block_must_pass_the_page_check_offline_and_serving() {
     for serving in [false, true] {
