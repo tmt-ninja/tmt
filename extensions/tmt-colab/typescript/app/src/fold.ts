@@ -118,6 +118,7 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'questions') ? ['questions'] : []),
             ...(Object.hasOwn(value.projection, 'template') ? ['template'] : []),
             ...(Object.hasOwn(value.projection, 'fromTemplate') ? ['fromTemplate'] : []),
+            ...(Object.hasOwn(value.projection, 'convertedFrom') ? ['convertedFrom'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
             ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
             ...(Object.hasOwn(value.projection, 'pageState') ? ['pageState'] : []),
@@ -162,6 +163,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'questions') ? ['questions'] : []),
           ...(Object.hasOwn(event.data as object, 'template') ? ['template'] : []),
           ...(Object.hasOwn(event.data as object, 'fromTemplate') ? ['fromTemplate'] : []),
+          ...(Object.hasOwn(event.data as object, 'convertedFrom') ? ['convertedFrom'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -188,6 +190,7 @@ export class Fold {
             questions: value.questions,
             template: value.template,
             fromTemplate: value.fromTemplate,
+            convertedFrom: value.convertedFrom,
             attachments: value.attachments,
             pageType: value.pageType,
             shell: value.shell,
@@ -224,6 +227,7 @@ export class Fold {
           ...(Object.hasOwn(value, 'questions') ? { questions: value.questions } : {}),
           ...(Object.hasOwn(value, 'template') ? { template: value.template } : {}),
           ...(Object.hasOwn(value, 'fromTemplate') ? { fromTemplate: value.fromTemplate } : {}),
+          ...(Object.hasOwn(value, 'convertedFrom') ? { convertedFrom: value.convertedFrom } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -260,6 +264,7 @@ export class Fold {
       ...(Object.hasOwn(base, 'questions') ? ['questions'] : []),
       ...(Object.hasOwn(base, 'template') ? ['template'] : []),
       ...(Object.hasOwn(base, 'fromTemplate') ? ['fromTemplate'] : []),
+      ...(Object.hasOwn(base, 'convertedFrom') ? ['convertedFrom'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
       ...(Object.hasOwn(base, 'work') ? ['work'] : []),
       ...(Object.hasOwn(base, 'pageState') ? ['pageState'] : []),

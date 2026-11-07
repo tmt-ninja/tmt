@@ -1,6 +1,5 @@
 //! One caller-owned decoder per page. This parent never parses Yjs bytes.
 //! Admission and atomic application remain with the caller; no server integration.
-mod blocks_doc;
 mod child;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -242,6 +241,9 @@ pub struct BaselineInput<'a> {
     pub work: Option<&'a Value>,
     /// Manual page state; an absent value reads as todo.
     pub page_state: Option<&'a Value>,
+    /// `meta.convertedFrom`, the archived copy a converted page of blocks was made from (a
+    /// generated page ID); only a page of blocks has it, and a new epoch keeps it.
+    pub converted_from: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -792,14 +794,9 @@ impl Decoder {
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
         crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
-        if !view.source.is_empty()
-            || view.attachments.is_some()
-            || view.work.is_some()
-            || view.page_state.is_some()
-            || view.layout.is_some()
-            || view.template.is_some()
-            || view.from_template.is_some()
-        {
+        // A page of blocks has no text and no layout, and is never a template; it keeps work,
+        // attachments, what it was made from, a state and what it was converted from.
+        if !view.source.is_empty() || view.layout.is_some() || view.template.is_some() {
             return Err(DecodeFault::InvalidInput);
         }
         self.baseline(
@@ -909,6 +906,14 @@ impl Decoder {
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view.converted_from.is_some_and(|v| {
+            v.as_str()
+                .is_none_or(|id| tmt_colab_model::values::generated_id(id).is_err())
+        }) || (view.converted_from.is_some()
+            && matches!(&action, BaselineAction::Produce { blocks: None, .. }))
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view
             .original_author
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -956,6 +961,7 @@ impl Decoder {
             layout: view.layout.cloned(),
             work: view.work.cloned(),
             page_state: view.page_state.cloned(),
+            converted_from: view.converted_from.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1251,10 +1257,21 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
     let mut expected = base.clone();
     match edit.kind {
         StructuredKind::Blocks if base["meta"]["pageType"].as_str() == Some("blocks") => {
-            expected["blocks"] =
-                crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
-                    .map_err(|_| DecodeFault::InvalidInput)?
-                    .next;
+            let next = crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
+                .map_err(|_| DecodeFault::InvalidInput)?
+                .next;
+            // A question block registers in the same publication that adds it.
+            if let Some(questions) = crate::blocks::questions::register(
+                &base["meta"],
+                &base["blocks"],
+                &next,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?
+            {
+                expected["meta"]["questions"] = questions;
+            }
+            expected["blocks"] = next;
         }
         StructuredKind::Shell if shell => {
             expected["meta"]["shell"] = crate::shell::apply(
@@ -1467,6 +1484,8 @@ struct WireBaseline {
     work: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page_state: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    converted_from: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1583,6 +1602,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "layout" => v.as_str().and_then(LayoutKind::parse).is_none(),
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
                 "pageType" => !matches!(v.as_str(), Some("shell" | "blocks")),
+                "convertedFrom" => v
+                    .as_str()
+                    .is_none_or(|id| tmt_colab_model::values::generated_id(id).is_err()),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
@@ -1611,21 +1633,16 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     ]
                     .iter()
                     .any(|key| meta.contains_key(*key)))
-                // A page of blocks keeps no HTML, no attachments (nothing in its text to bind
-                // them to), no work and no template.
+                // A page of blocks keeps no HTML, no template and no layout; it may keep work,
+                // attachments and what it was made from, as an ordinary page does, and it alone
+                // says which archived copy it was converted from.
                 || (blocks
-                    && [
-                        "work",
-                        "template",
-                        "fromTemplate",
-                        "attachments",
-                        "layout",
-                        "layoutReason",
-                    ]
-                    .iter()
-                    .any(|key| meta.contains_key(*key)))
-                || ((shell || blocks)
-                    && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
+                    && ["template", "layout", "layoutReason"]
+                        .iter()
+                        .any(|key| meta.contains_key(*key)))
+                || (!blocks && meta.contains_key("convertedFrom"))
+                || ((shell || blocks) && roots["html"].as_str() != Some(""))
+                || (shell && meta.contains_key("attachments"))
             {
                 return Err(DecodeFault::InvalidOutput);
             }

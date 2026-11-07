@@ -1,0 +1,170 @@
+{
+  "format": "tmt-colab-blocks-page",
+  "version": 1,
+  "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an empty html, no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedFrom (the archived copy it was converted from), and never a template or a layout; convertedFrom belongs to a page of blocks alone.",
+  "cases": [
+    {
+      "name": "an ordinary page",
+      "meta": {},
+      "valid": true
+    },
+    {
+      "name": "a bare page of blocks",
+      "meta": {
+        "pageType": "blocks"
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks with work",
+      "meta": {
+        "pageType": "blocks",
+        "work": {
+          "version": 2,
+          "order": []
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks with attachments",
+      "meta": {
+        "pageType": "blocks",
+        "attachments": []
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks made from a template",
+      "meta": {
+        "pageType": "blocks",
+        "fromTemplate": {
+          "name": "report"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks with a state",
+      "meta": {
+        "pageType": "blocks",
+        "pageState": "done"
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks converted from an archived copy",
+      "meta": {
+        "pageType": "blocks",
+        "convertedFrom": "10000000-0000-4000-8000-000000000007"
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks with work, attachments, fromTemplate and convertedFrom",
+      "meta": {
+        "pageType": "blocks",
+        "work": {
+          "version": 2,
+          "order": []
+        },
+        "attachments": [],
+        "fromTemplate": {
+          "name": "report"
+        },
+        "convertedFrom": "10000000-0000-4000-8000-000000000007"
+      },
+      "valid": true
+    },
+    {
+      "name": "a page of blocks that is a template",
+      "meta": {
+        "pageType": "blocks",
+        "template": {
+          "name": "weekly",
+          "description": ""
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a layout",
+      "meta": {
+        "pageType": "blocks",
+        "layout": "column"
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a canvas layout and its reason",
+      "meta": {
+        "pageType": "blocks",
+        "layout": "canvas",
+        "layoutReason": "a frame"
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with work that is not a work value",
+      "meta": {
+        "pageType": "blocks",
+        "work": {
+          "version": 2,
+          "order": "x"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with attachments that are not descriptors",
+      "meta": {
+        "pageType": "blocks",
+        "attachments": [
+          {
+            "nope": 1
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a fromTemplate that is not a mark",
+      "meta": {
+        "pageType": "blocks",
+        "fromTemplate": "report"
+      },
+      "valid": false
+    },
+    {
+      "name": "a page of blocks with a state that is not one",
+      "meta": {
+        "pageType": "blocks",
+        "pageState": "soon"
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedFrom that is not an id",
+      "meta": {
+        "pageType": "blocks",
+        "convertedFrom": "archive"
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedFrom that is a number",
+      "meta": {
+        "pageType": "blocks",
+        "convertedFrom": 7
+      },
+      "valid": false
+    },
+    {
+      "name": "convertedFrom on an ordinary page",
+      "meta": {
+        "convertedFrom": "10000000-0000-4000-8000-000000000007"
+      },
+      "valid": false
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { advancesEditLock } from './edit-locks.js';
 import * as Y from 'yjs';
 import { attachment, digest, equal, frame, text } from '@tmt/colab-client';
 import { sortedJson } from './sorted-json.js';
-import { ROW, richFromRuns, type Run } from './blocks.js';
+import { ROW, richFromRuns, type BlockEntry, type Run } from './blocks.js';
 import {
   BASELINE_UPDATE_BYTES,
   CONTENT_CHUNK_BYTES,
@@ -152,11 +152,11 @@ function richOf(text: unknown) {
 }
 /** The `blocks` root of a page of blocks, as the projection `validateBlocks` takes. The root is
  * absent from the document until the first block exists. */
-function projectBlocks(doc: Y.Doc): Record<string, unknown> {
+function projectBlocks(doc: Y.Doc): Record<string, BlockEntry> {
   if (!doc.share.has('blocks')) return {};
   const root = doc.getMap('blocks');
   if (root._start !== null) throw new Error('Rejected blocks root');
-  const out: Record<string, unknown> = {};
+  const out: Record<string, BlockEntry> = {};
   for (const [key, entry] of root.entries()) {
     if (!(entry instanceof Y.Map)) throw new Error('Rejected block');
     const type = entry.get('type');
@@ -185,7 +185,9 @@ function projectBlocks(doc: Y.Doc): Record<string, unknown> {
         );
       } else throw new Error('Rejected block field');
     }
-    out[key] = block;
+    // Every field was read under its own type above; `validateProjection` (run on the whole
+    // projection) refuses a block that lacks one the type needs.
+    out[key] = block as unknown as BlockEntry;
   }
   return out;
 }
@@ -222,7 +224,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'shell' &&
         key !== 'work' &&
         key !== 'pageState' &&
-        key !== 'attachments',
+        key !== 'attachments' &&
+        key !== 'convertedFrom',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -245,6 +248,7 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
     ...(meta.has('work') ? { work: meta.get('work') } : {}),
     ...(meta.has('pageState') ? { pageState: meta.get('pageState') } : {}),
+    ...(meta.has('convertedFrom') ? { convertedFrom: meta.get('convertedFrom') } : {}),
   };
   validateProjection(projection);
   return projection;

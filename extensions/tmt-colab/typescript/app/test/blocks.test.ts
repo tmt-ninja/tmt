@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import * as Y from 'yjs';
 import vectors from '../../../contracts/vectors/blocks-v1.json';
+import pageVectors from '../../../contracts/vectors/blocks-page-v1.json';
 import { canonical } from '../src/closed.js';
 import { richFromRuns, validateBlocks } from '../src/blocks.js';
 import { validateProjection, type DecoderCommand } from '../src/fold-protocol.js';
@@ -22,23 +23,66 @@ it.each(vectors.invalid)('refuses: $name', ({ blocks }) => {
   expect(() => validateProjection(page(blocks))).toThrow();
 });
 
-it('a page of blocks has the root, no HTML and no work, template or attachments', () => {
+it('a page of blocks has the root and no HTML, template, layout or dashboard value', () => {
   const base = page({});
   expect(() => validateProjection(base)).not.toThrow();
-  // Questions, a creator and a state belong to a page of blocks; a template and work do not.
+  // Questions, a creator, a state, work, attachments and what it was made from belong to it.
   expect(() => validateProjection({ ...base, pageState: 'done' })).not.toThrow();
+  expect(() => validateProjection({ ...base, work: { version: 2, order: [] } })).not.toThrow();
+  expect(() => validateProjection({ ...base, attachments: [] })).not.toThrow();
+  expect(() => validateProjection({ ...base, fromTemplate: { name: 'report' } })).not.toThrow();
+  expect(() =>
+    validateProjection({ ...base, convertedFrom: '10000000-0000-4000-8000-000000000007' }),
+  ).not.toThrow();
   for (const bad of [
     { ...base, source: '<p>html</p>' },
     { ...base, blocks: undefined },
     { ...base, shell: { version: 1, items: {}, order: [] } },
-    { ...base, work: { version: 2, order: [] } },
-    { ...base, attachments: [] },
     { ...base, layout: 'column' },
     { ...base, template: { name: 'x', description: 'y' } },
+    { ...base, convertedFrom: 'archive' },
     { source: '', title: 'T', blocks: {} },
     { source: '<p>x</p>', title: 'T', pageType: undefined, blocks: {} },
+    { source: '', title: 'T', convertedFrom: '10000000-0000-4000-8000-000000000007' },
   ])
     expect(() => validateProjection(bad), JSON.stringify(bad)).toThrow();
+});
+
+it('the actual Worker accepts and refuses the metadata of a page of blocks as the page vectors say', async () => {
+  const cases = pageVectors.cases as {
+    name: string;
+    meta: Record<string, unknown>;
+    valid: boolean;
+  }[];
+  for (const { name, meta, valid } of cases) {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      doc.getText('html');
+      const map = doc.getMap('meta');
+      map.set('title', 'Page');
+      for (const [key, value] of Object.entries(meta)) map.set(key, value);
+    });
+    vi.resetModules();
+    const surface = {
+      onmessage: null as unknown as (event: {
+        data: { id: number; command: DecoderCommand };
+      }) => Promise<void>,
+      postMessage: vi.fn(),
+    };
+    vi.stubGlobal('self', surface);
+    try {
+      await import('../src/fold.worker.js');
+      await surface.onmessage({
+        data: { id: 1, command: { type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] } },
+      });
+      const reply = surface.postMessage.mock.calls[0][0];
+      expect(reply.error === undefined, name).toBe(valid);
+      if (valid)
+        for (const [key, value] of Object.entries(meta)) expect(reply[key], name).toEqual(value);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
 });
 
 it('reads Y.Text runs into the canonical marks, in scalar values', () => {

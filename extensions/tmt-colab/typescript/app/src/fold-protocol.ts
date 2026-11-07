@@ -3,7 +3,7 @@ import { metadataRequest } from '@tmt/colab-client';
 import { validateNeedsYouAcknowledgement } from './needs-you-acknowledgement.js';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
-import { validateBlocks } from './blocks.js';
+import { validateBlocks, type BlockEntry } from './blocks.js';
 import { canonical } from './closed.js';
 import { validateWork, type StoredWork } from './work.js';
 import {
@@ -90,11 +90,14 @@ export interface Projection {
   pageType?: 'shell' | 'blocks';
   shell?: Shell;
   /** A page of blocks (`pageType` `blocks`): its `blocks` root, validated by `validateBlocks`. */
-  blocks?: Record<string, unknown>;
+  blocks?: Record<string, BlockEntry>;
   /** An ordinary page's sub-pages and summary (`meta.work`); never on a dashboard. */
   work?: StoredWork;
   pageState?: 'todo' | 'in-progress' | 'done';
   attachments?: attachment.AttachmentDescriptor[];
+  /** The archived copy a converted page of blocks was made from (`meta.convertedFrom`, a
+   * generated page ID); a page of blocks alone has it. */
+  convertedFrom?: string;
   creationRecipient?: CreationRecipient;
   source: string;
   title: string;
@@ -242,14 +245,22 @@ export interface FoldResult extends Projection {
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
   const blocksPage = (value as Projection).pageType === 'blocks';
-  // A dashboard has none of these; a page of blocks has a creator, questions and a state but no
-  // template; an ordinary page has them all.
+  // A dashboard has none of these; a page of blocks has a creator, questions and a state, and what
+  // it was made from, but no template; an ordinary page has them all.
   if (['creator', 'questions', 'pageState'].some((key) => Object.hasOwn(value, key)))
     requireValue(
       !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
     );
-  if (['template', 'fromTemplate'].some((key) => Object.hasOwn(value, key)))
+  if (Object.hasOwn(value, 'template'))
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'fromTemplate'))
+    requireValue(
+      !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
+    );
+  if (Object.hasOwn(value, 'convertedFrom')) {
+    requireValue(blocksPage);
+    generatedId((value as Projection).convertedFrom as string);
+  }
   if (Object.hasOwn(value, 'pageState'))
     requireValue(
       ['todo', 'in-progress', 'done'].includes((value as Projection).pageState as string),
@@ -264,12 +275,9 @@ export function validateProjection(value: unknown): asserts value is Projection 
   // The `blocks` root belongs to a page of blocks and to nothing else.
   requireValue(Object.hasOwn(value, 'blocks') === blocksPage);
   if (blocksPage) {
-    requireValue(
-      !Object.hasOwn(value, 'shell') &&
-        source === '' &&
-        !Object.hasOwn(value, 'attachments') &&
-        !Object.hasOwn(value, 'work'),
-    );
+    // No HTML and no dashboard value; work, attachments and what it was made from are checked
+    // below as an ordinary page's are, and a template or a layout is refused above and below.
+    requireValue(!Object.hasOwn(value, 'shell') && source === '');
     validateBlocks((value as Projection).blocks);
   } else if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
     const structured = value as Projection;
@@ -282,7 +290,7 @@ export function validateProjection(value: unknown): asserts value is Projection 
     validateShell(structured.shell);
   }
   if (Object.hasOwn(value, 'work')) {
-    requireValue(!Object.hasOwn(value, 'pageType'));
+    requireValue(!Object.hasOwn(value, 'pageType') || blocksPage);
     validateWork((value as Projection).work);
   }
   if (Object.hasOwn(value, 'attachments'))
@@ -360,6 +368,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     canonical(a.template) === canonical(b.template) &&
     Object.hasOwn(a, 'fromTemplate') === Object.hasOwn(b, 'fromTemplate') &&
     canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
+    Object.hasOwn(a, 'convertedFrom') === Object.hasOwn(b, 'convertedFrom') &&
+    a.convertedFrom === b.convertedFrom &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&

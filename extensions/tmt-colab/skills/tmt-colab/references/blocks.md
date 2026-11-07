@@ -50,6 +50,13 @@ the whole batch. `after` absent places the block last, `null` first; it must be 
 (`COLAB_BLOCK_BAD_AFTER`). A block inside a card has `parent` set to the card's ID; a card holds no
 card. The contract, `Structured pages` in `colab-v1.md`, has every type's props and the limits.
 
+## Questions and mockups
+
+A `question` block registers itself in the page's questions with the batch that adds it, as a
+`<tmt-question>` does (the entry stays if you delete or edit the block); the page's creator receives
+the answers. A `mockup` block's `markup` must pass `tmt colab page check`: a finding refuses the batch
+as `COLAB_BLOCK_MARKUP`, so save the markup to a file and check it first.
+
 ## Limits and deleting
 
 A page holds 2048 blocks, deleted ones included; text is at most 64 KiB per block. `delete` hides a

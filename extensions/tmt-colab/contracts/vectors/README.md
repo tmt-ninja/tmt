@@ -24,6 +24,13 @@ the browser fold validator both run it. `blocks-reference.py` is an independent 
 not either implementation: `python3 blocks-reference.py` checks the file, `--write` regenerates it
 after review.
 
+`blocks-page-v1.json` (written by the same script) holds the page around the blocks: which metadata a page of
+blocks may carry (work, attachments, fromTemplate, a state, convertedFrom) and refuse (a template, a layout,
+convertedFrom anywhere else). Each case is a content document run through the isolated decoder and through the
+browser fold's Worker. `blocks-html-v1.json` holds pages of blocks with the HTML export renders for them; the
+native `blocks::html` writes it (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html`) and the browser's
+`renderBlocks` must match it byte for byte.
+
 `block-text-merge-v1.json` holds hand-derived cases of the three-way text merge of one block
 (`diff` hunks, `merges` with overlap `remote`, `mergesBoth` with overlap `both`), and
 `block-text-merge-generated-v1.json` 500 seeded random triples merged under both modes. The native

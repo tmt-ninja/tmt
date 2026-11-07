@@ -13489,6 +13489,339 @@ fn show_reuses_one_work_index_including_archived_pages() {
     );
 }
 
+/// A new epoch of a page of blocks, through the real owner path (#6004): the baseline drops the
+/// oldest tombstones of a page over its purge line, a restore of one of them is then refused as not
+/// found with nothing written, a tombstone that stayed still restores, and what the page carries
+/// beside its blocks (its question registry and its state) survives into the new epoch.
+#[test]
+fn a_new_epoch_of_a_page_of_blocks_purges_old_tombstones_and_keeps_its_metadata() {
+    let pilot = Pilot::new(None);
+    let call = |args: &[&str]| pilot.call(args);
+    let code = |args: &[&str]| {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let created = call(&[
+        "page",
+        "create",
+        "--title",
+        "Big",
+        "--structured",
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    call(&["page", "state", page, "done", "--json"]);
+    let question = call(&[
+        "block", "insert", page, "--type", "question", "--text", "Ship?", "--json",
+    ]);
+    assert_eq!(question["blockIds"].as_array().unwrap().len(), 1);
+    // 1539 paragraphs: with the question, 1540 blocks, four over the purge line.
+    let id = |n: usize| format!("50000000-0000-4000-8000-{n:012}");
+    let total = 1539;
+    for start in (0..total).step_by(256) {
+        let ops: Vec<Value> = (start..(start + 256).min(total))
+            .map(|n| json!({"op": "insert", "id": id(n), "type": "paragraph", "text": "x"}))
+            .collect();
+        let file = pilot.root.join("ops.json");
+        fs::write(&file, serde_json::to_vec(&ops).unwrap()).unwrap();
+        call(&[
+            "block",
+            "batch",
+            page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+    }
+    // Five deletions, one after another, so their times differ and the first is the oldest.
+    for n in 0..5 {
+        call(&["block", "delete", page, &id(n), "--json"]);
+    }
+    let count = |all: bool| {
+        let mut args = vec!["block", "ls", page, "--json"];
+        if all {
+            args.push("--all");
+        }
+        call(&args)["blocks"].as_array().unwrap().len()
+    };
+    assert_eq!(count(true), 1540);
+    assert_eq!(count(false), 1535);
+
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    {
+        let _lock = layout.serve_lock().unwrap();
+        let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+        let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+        let head = store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        let mut engine = tmt_colab::transitions::Engine::with_decoder_config(
+            support::decoder_config(BINARY.into()),
+        )
+        .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        engine
+            .advance_epoch(
+                &mut store,
+                &key,
+                tmt_colab::transitions::EpochAdvance {
+                    operation_id: "40000000-0000-4000-8000-000000000098",
+                    expected_revision: head.revision,
+                    page,
+                },
+                now,
+            )
+            .unwrap();
+        store.close().unwrap();
+    }
+    // The four oldest tombstones are gone, the newest stayed: 1536 blocks, 1535 of them live.
+    assert_eq!(count(true), 1536);
+    assert_eq!(count(false), 1535);
+    for n in 0..4 {
+        assert_eq!(
+            code(&["block", "restore", page, &id(n), "--json"]),
+            "COLAB_BLOCK_NOT_FOUND"
+        );
+    }
+    assert_eq!(count(true), 1536, "a refused restore writes nothing");
+    call(&["block", "restore", page, &id(4), "--json"]);
+    assert_eq!(count(false), 1536);
+    // The registry and the state came across the new epoch.
+    assert_eq!(
+        call(&["question", "ls", page, "--json"])["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let destination = pilot.root.join("export");
+    fs::create_dir(&destination).unwrap();
+    let exported = call(&[
+        "export",
+        page,
+        "--dir",
+        destination.to_str().unwrap(),
+        "--json",
+    ]);
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(PathBuf::from(exported["directory"].as_str().unwrap()).join("manifest.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["epoch"], "2");
+    assert_eq!(manifest["pageType"], "blocks");
+}
+
+#[test]
+fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Plan",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        pilot.call(&[
+            "block", "insert", page, "--type", "heading", "--text", "Roadmap", "--json",
+        ]);
+        pilot.call(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "paragraph",
+            "--text",
+            "Ship <it> & go",
+            "--json",
+        ]);
+        let destination = pilot.root.join("export");
+        fs::create_dir(&destination).unwrap();
+        let exported = pilot.call(&[
+            "export",
+            page,
+            "--dir",
+            destination.to_str().unwrap(),
+            "--json",
+        ]);
+        let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+        assert_eq!(
+            fs::read_to_string(directory.join("page.html")).unwrap(),
+            "<h2>Roadmap</h2>\n<p>Ship &lt;it&gt; &amp; go</p>\n"
+        );
+        let blocks: Value =
+            serde_json::from_slice(&fs::read(directory.join("blocks.json")).unwrap()).unwrap();
+        assert_eq!(blocks.as_object().unwrap().len(), 2, "{blocks}");
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["pageType"], "blocks");
+        let files = manifest["files"].as_array().unwrap();
+        let names: Vec<_> = files.iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "blocks.json",
+                "page.html",
+                "conversations.json",
+                "conversations.md"
+            ]
+        );
+        assert_eq!(files[1]["derivedFrom"], "blocks.json");
+        assert!(files[0].get("derivedFrom").is_none());
+    }
+}
+
+#[test]
+fn a_mockup_block_must_pass_the_page_check_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let run = |args: &[&str]| {
+            pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let created = run(&[
+            "page",
+            "create",
+            "--title",
+            "Mock",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let created: Value = serde_json::from_slice(&created.stdout).unwrap();
+        let page = created["pageId"].as_str().unwrap();
+        let ok = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "mockup",
+            "--props",
+            r#"{"markup":"<tmt-card title=\"A\"><p>Hi</p></tmt-card>"}"#,
+            "--json",
+        ]);
+        assert!(ok.status.success(), "{ok:?}");
+        let bad = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "mockup",
+            "--props",
+            r#"{"markup":"<tmt-question data-id=\"nope\" data-kind=\"single\"></tmt-question>"}"#,
+            "--json",
+        ]);
+        assert!(!bad.status.success(), "{bad:?}");
+        let value: Value = serde_json::from_slice(&bad.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "COLAB_BLOCK_MARKUP", "{value}");
+        let listed = run(&["block", "ls", page, "--json"]);
+        let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
+        assert_eq!(listed["blocks"].as_array().unwrap().len(), 1, "{listed}");
+    }
+}
+
+#[test]
+fn a_question_block_registers_with_its_publication_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let run = |args: &[&str]| {
+            let out = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {out:?}");
+            serde_json::from_slice::<Value>(&out.stdout).unwrap()
+        };
+        let created = run(&[
+            "page",
+            "create",
+            "--title",
+            "Ask",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        assert!(
+            run(&["question", "ls", page, "--json"])["questions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let question = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "question",
+            "--props",
+            r#"{"kind":"single","choices":["Yes","No"]}"#,
+            "--text",
+            "Ship it?",
+            "--json",
+        ]);
+        let id = question["blockIds"][0].as_str().unwrap();
+        let registry = run(&["question", "ls", page, "--json"]);
+        let entries = registry["questions"].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{registry}");
+        assert_eq!(entries[0]["id"], id);
+        assert_eq!(entries[0]["state"], "open");
+        // Editing and deleting the block leave its one entry.
+        run(&[
+            "block",
+            "text",
+            page,
+            id,
+            "--find",
+            "Ship",
+            "--replace",
+            "Release",
+            "--json",
+        ]);
+        run(&["block", "delete", page, id, "--json"]);
+        let after = run(&["question", "ls", page, "--json"]);
+        assert_eq!(after["questions"].as_array().unwrap().len(), 1, "{after}");
+    }
+}
+
 #[test]
 fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
     fn output(pilot: &Pilot, args: &[&str]) -> std::process::Output {

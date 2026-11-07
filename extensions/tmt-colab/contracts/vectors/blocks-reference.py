@@ -12,6 +12,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE / "blocks-v1.json"
+PAGES = HERE / "blocks-page-v1.json"
 
 
 def bid(n):
@@ -199,10 +200,56 @@ doc = {
     "invalid": invalid,
 }
 text = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
-if "--write" in sys.argv:
-    OUT.write_text(text, encoding="utf-8")
-    print(f"wrote {OUT.name}: {len(valid)} valid, {len(invalid)} invalid")
-else:
-    if OUT.read_text(encoding="utf-8") != text:
-        sys.exit(f"{OUT.name} differs from this script; run it with --write")
-    print(f"{OUT.name} matches: {len(valid)} valid, {len(invalid)} invalid")
+
+# The page around the blocks: which metadata a page of blocks may carry (the decoder's projection
+# rules). Each case is a content document with an empty `html`, no `blocks` root yet and `title`
+# plus the `meta` below; `valid` says whether the decoder and the fold accept it.
+ARCHIVE = bid(7)
+blocks_meta = lambda **extra: {"pageType": "blocks", **extra}
+pages = []
+def page(name, meta, ok):
+    pages.append({"name": name, "meta": meta, "valid": ok})
+page("an ordinary page", {}, True)
+page("a bare page of blocks", blocks_meta(), True)
+page("a page of blocks with work", blocks_meta(work={"version": 2, "order": []}), True)
+page("a page of blocks with attachments", blocks_meta(attachments=[]), True)
+page("a page of blocks made from a template", blocks_meta(fromTemplate={"name": "report"}), True)
+page("a page of blocks with a state", blocks_meta(pageState="done"), True)
+page("a page of blocks converted from an archived copy", blocks_meta(convertedFrom=ARCHIVE), True)
+page(
+    "a page of blocks with work, attachments, fromTemplate and convertedFrom",
+    blocks_meta(
+        work={"version": 2, "order": []},
+        attachments=[],
+        fromTemplate={"name": "report"},
+        convertedFrom=ARCHIVE,
+    ),
+    True,
+)
+page("a page of blocks that is a template", blocks_meta(template={"name": "weekly", "description": ""}), False)
+page("a page of blocks with a layout", blocks_meta(layout="column"), False)
+page("a page of blocks with a canvas layout and its reason", blocks_meta(layout="canvas", layoutReason="a frame"), False)
+page("a page of blocks with work that is not a work value", blocks_meta(work={"version": 2, "order": "x"}), False)
+page("a page of blocks with attachments that are not descriptors", blocks_meta(attachments=[{"nope": 1}]), False)
+page("a page of blocks with a fromTemplate that is not a mark", blocks_meta(fromTemplate="report"), False)
+page("a page of blocks with a state that is not one", blocks_meta(pageState="soon"), False)
+page("convertedFrom that is not an id", blocks_meta(convertedFrom="archive"), False)
+page("convertedFrom that is a number", blocks_meta(convertedFrom=7), False)
+page("convertedFrom on an ordinary page", {"convertedFrom": ARCHIVE}, False)
+page_doc = {
+    "format": "tmt-colab-blocks-page",
+    "version": 1,
+    "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an empty html, no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedFrom (the archived copy it was converted from), and never a template or a layout; convertedFrom belongs to a page of blocks alone.",
+    "cases": pages,
+}
+page_text = json.dumps(page_doc, ensure_ascii=False, indent=2) + "\n"
+
+outputs = [(OUT, text, f"{len(valid)} valid, {len(invalid)} invalid"), (PAGES, page_text, f"{len(pages)} cases")]
+for path, body, summary in outputs:
+    if "--write" in sys.argv:
+        path.write_text(body, encoding="utf-8")
+        print(f"wrote {path.name}: {summary}")
+    else:
+        if path.read_text(encoding="utf-8") != body:
+            sys.exit(f"{path.name} differs from this script; run it with --write")
+        print(f"{path.name} matches: {summary}")
