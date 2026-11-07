@@ -1,6 +1,6 @@
 //! Exact root-local source reads, with bounded line/search projections from one admitted snapshot.
 use crate::cli_management::{fail, resolve_page};
-use clap::{Arg, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde::Serialize;
 use std::{
     io::Write,
@@ -35,12 +35,18 @@ const READ: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "Without flags, writes source bytes unchanged to stdout with revision/head/epoch on stderr; JSON contains both. --lines A:B returns numbered lines and rangeSha256 of their exact bytes (LF terminators included, CR retained). --grep is literal, with --context 0..1000 (default 0); overlapping or adjacent ranges merge. A pattern is at most 4 KiB, matches at most 1,000, and complete ranged/search output at most 8 MiB: exceeding a bound refuses, never silently truncates. --lines and --grep are exclusive. --out writes exact whole-source or range bytes to a new 0600 file, never overwriting a path; it conflicts with --grep. JSON reports path, bytes, sha256 and the same revision. This is an unencrypted copy; full tmt colab export remains the complete page copy. Does not create or migrate Colab state.",
+    details: "Without flags, writes source bytes unchanged to stdout with revision/head/epoch on stderr; JSON contains both. --legacy reads the frozen HTML retained by a converted structured page. --lines A:B returns numbered lines and rangeSha256 of their exact bytes (LF terminators included, CR retained). --grep is literal, with --context 0..1000 (default 0); overlapping or adjacent ranges merge. A pattern is at most 4 KiB, matches at most 1,000, and complete ranged/search output at most 8 MiB: exceeding a bound refuses, never silently truncates. --lines and --grep are exclusive. --out writes exact whole-source or range bytes to a new 0600 file, never overwriting a path; it conflicts with --grep. JSON reports path, bytes, sha256 and the same revision. This is an unencrypted copy; full tmt colab export remains the complete page copy. Does not create or migrate Colab state.",
 };
 
 pub fn command() -> Command {
     tmt_cli_style::command(&READ)
         .arg(crate::cli_grammar::page())
+        .arg(
+            Arg::new("legacy")
+                .long("legacy")
+                .action(ArgAction::SetTrue)
+                .help("Read frozen HTML retained by a converted blocks page"),
+        )
         .arg(
             Arg::new("lines")
                 .long("lines")
@@ -74,6 +80,123 @@ pub fn command() -> Command {
                 .conflicts_with("grep")
                 .help("Write exact source bytes to a new private file"),
         )
+}
+
+pub fn convert_command() -> Command {
+    Command::new("convert")
+        .about("Convert HTML to blocks or switch back to retained HTML")
+        .arg(crate::cli_grammar::page())
+        .arg(Arg::new("revert").long("revert").action(ArgAction::SetTrue))
+        .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
+        .arg(Arg::new("json").long("json").action(ArgAction::SetTrue))
+        .arg(
+            Arg::new("expected-revision")
+                .long("expected-revision")
+                .value_name("revision")
+                .value_parser(crate::revision_token)
+                .help("Refuse if the page changed since this revision"),
+        )
+}
+
+pub fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
+    let layout = Layout::existing(root)?.ok_or(page::Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let lock = crate::write_owner(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let id = resolve_page(
+        &store,
+        &key,
+        args.get_one::<String>("page").expect("required page"),
+    )?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let revert = args.get_flag("revert");
+    let (revision, count) = if revert {
+        // Admission proves that even an empty legacy HTML source is actually present.
+        page::read_legacy(&store, &key, &id, &mut decoder)?;
+        let current = page::read_blocks(&store, &key, &id, &mut decoder)?;
+        let count = current
+            .blocks
+            .as_object()
+            .ok_or(page::Fault::Invalid)?
+            .len();
+        (current.revision, count)
+    } else {
+        (page::read(&store, &key, &id, &mut decoder)?.revision, 0)
+    };
+    if !args.get_flag("yes") && (!revert || count > 0) {
+        let message = if revert {
+            format!(
+                "Switching back removes the {count} {} written since conversion. Pass --yes to continue.",
+                if count == 1 { "block" } else { "blocks" }
+            )
+        } else {
+            "This page becomes an empty structured page. The old HTML is kept with the page; you can read it or switch back at any time. Pass --yes to continue.".into()
+        };
+        return Err(fail("COLAB_CONFIRMATION_REQUIRED", &message));
+    }
+    if revert {
+        writeln!(
+            tmt_cli_style::stream::stderr(),
+            "Switching back removes the {count} {} written since conversion.",
+            if count == 1 { "block" } else { "blocks" }
+        )?;
+    }
+    let body = if revert {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({"convertedAt":crate::cli_metadata::now()?})
+    };
+    let revision = args
+        .get_one::<String>("expected-revision")
+        .unwrap_or(&revision);
+    let prepared = page::prepare_structured_publication(
+        &store,
+        &key,
+        &id,
+        page::StructuredAction {
+            kind: tmt_colab::decoder::StructuredKind::Conversion,
+            action: if revert {
+                "page.revert"
+            } else {
+                "page.convert"
+            },
+            body: &body,
+            expected_revision: Some(revision),
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut decoder,
+        &crate::cli_metadata::now,
+    );
+    let closed = store.close();
+    let prepared = prepared?;
+    closed?;
+    let receipt = crate::publish_structured_owned(
+        &layout,
+        &key,
+        &id,
+        prepared,
+        &mut decoder,
+        crate::cli_metadata::now,
+        lock.as_ref(),
+    )?;
+    let mut output = tmt_cli_style::stream::stdout(args.get_flag("json"));
+    if args.get_flag("json") {
+        writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
+    } else {
+        writeln!(
+            output,
+            "{}: {}",
+            if revert {
+                "Restored HTML"
+            } else {
+                "Converted to blocks"
+            },
+            receipt.page_id
+        )?;
+    }
+    Ok(())
 }
 fn parse_lines(text: &str) -> std::result::Result<(usize, usize), &'static str> {
     let parse = || {
@@ -236,7 +359,11 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         args.get_one::<String>("page").expect("required page"),
     )?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let value = page::read(&store, &key, &id, &mut decoder);
+    let value = if args.get_flag("legacy") {
+        page::read_legacy(&store, &key, &id, &mut decoder)
+    } else {
+        page::read(&store, &key, &id, &mut decoder)
+    };
     let closed = store.close();
     let mut value = value?;
     closed?;

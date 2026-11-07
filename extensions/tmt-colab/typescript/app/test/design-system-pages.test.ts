@@ -104,6 +104,7 @@ function space({ summaries = false }: { summaries?: boolean } = {}) {
           return {};
         }
         if (action !== 'subpage.create') throw new Error(action);
+        if (body.format !== 'html') throw new Error('Design pages must be created as HTML');
         const child = make(String(body.title));
         page().order.push(child);
         return { childPage: child };
@@ -606,7 +607,7 @@ describe('template, publish and the renderer source', () => {
   it('adopts an older system only when asked', async () => {
     const { pages, make, binding, transport } = space();
     const holder = make('Holder');
-    const created = await binding(holder).work!('subpage.create', { title: 'Old' });
+    const created = await binding(holder).work!('subpage.create', { title: 'Old', format: 'html' });
     const old = created.childPage!;
     pages.get(old)!.source = writeBlock('<p>docs</p>', 'design-system', {
       name: 'Old',

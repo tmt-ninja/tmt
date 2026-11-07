@@ -240,7 +240,7 @@ test('harness: colab open and page create never invoke a browser opener in a wor
     await startDoor(world);
     world.linkExtensions();
     const created = await world.tmt(
-      ['colab', 'page', 'create', '--title', 'Opener', '--layout', 'column', '--file', '-'],
+      ['colab', 'page', 'create', '--html', '--title', 'Opener', '--layout', 'column', '--file', '-'],
       {
         stdin: '<p>No browser.</p>',
       },

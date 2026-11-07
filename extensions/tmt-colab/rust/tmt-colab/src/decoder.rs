@@ -154,6 +154,8 @@ pub enum StructuredKind {
     PageState,
     /// The page's `blocks` root (a structured page), edited by one validated batch of ops.
     Blocks,
+    /// One revision-fenced conversion from HTML to an empty blocks page.
+    Conversion,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -166,6 +168,7 @@ impl StructuredKind {
             Self::Template => "template",
             Self::PageState => "pageState",
             Self::Blocks => "blocks",
+            Self::Conversion => "convertedAt",
         }
     }
 }
@@ -1256,6 +1259,12 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
     let ordinary = base["meta"].get("pageType").is_none();
     let mut expected = base.clone();
     match edit.kind {
+        StructuredKind::Conversion if edit.action == "page.convert" => {
+            expected = crate::conversion::project(base, &edit.body)?;
+        }
+        StructuredKind::Conversion if edit.action == "page.revert" => {
+            expected = crate::conversion::revert(base, &edit.body)?;
+        }
         StructuredKind::Blocks if base["meta"]["pageType"].as_str() == Some("blocks") => {
             let next = crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
                 .map_err(|_| DecodeFault::InvalidInput)?
@@ -1685,7 +1694,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 // A page of blocks keeps no template and no layout; it may keep work, attachments
                 // and what it was made from, as an ordinary page does, and the HTML it was
                 // converted from as a frozen legacy source (never rendered or written); it alone
-                // says which archived copy it was converted from.
+                // carries the conversion timestamp.
                 || (blocks
                     && ["template", "layout", "layoutReason"]
                         .iter()

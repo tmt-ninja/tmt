@@ -156,7 +156,7 @@ export function createPage(
       world.binaries.colab,
       [
         'page',
-        'create',
+        'create', '--html',
         '--title',
         title,
         '--layout',

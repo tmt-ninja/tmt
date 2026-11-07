@@ -14,7 +14,7 @@ top-level blocks. You own the content: colours, type and the layout inside each 
 
 ## Choose at creation
 
-`page create` requires a choice and refuses without one:
+HTML page creation requires a layout choice and refuses without one:
 
 ```sh
 tmt colab page create --html --title "Weekly plan" --layout column --file page.html --json

@@ -27,13 +27,23 @@ pub fn prepare(
     open: &SourceOpener,
     edit: &SubpageEdit,
     clock: &dyn Fn() -> crate::Result<u64>,
-    create: &mut dyn FnMut(&str, &str, &str) -> crate::Result<()>,
+    create: &mut dyn FnMut(&str, &str, &str, bool) -> crate::Result<()>,
 ) -> Created {
     let mut child = None;
     let prepared = (|| {
-        // The body is exactly the title: nothing else the caller supplies reaches the new page.
-        let title = match edit.body.as_object() {
-            Some(body) if body.len() == 1 => body.get("title").and_then(|value| title(value).ok()),
+        // HTML is explicit: otherwise a new page starts as an empty blocks page.
+        let body = edit
+            .body
+            .as_object()
+            .ok_or_else(|| invalid("A new sub-page needs a title."))?;
+        let html = match body.get("format") {
+            None => false,
+            Some(value) if value.as_str() == Some("html") => true,
+            _ => return Err(invalid("A new sub-page format must be html when supplied.")),
+        };
+        let title = match body.len() {
+            1 if !html => body.get("title").and_then(|value| title(value).ok()),
+            2 if html => body.get("title").and_then(|value| title(value).ok()),
             _ => None,
         }
         .ok_or_else(|| invalid("A new sub-page needs exactly a title."))?
@@ -55,7 +65,12 @@ pub fn prepare(
             &edit.page,
         )?;
         if !made {
-            create(&page, &title, &child_source(&title))?;
+            let source = if html {
+                child_source(&title)
+            } else {
+                String::new()
+            };
+            create(&page, &title, &source, !html)?;
         }
         child = Some(page.clone());
         drop(source);

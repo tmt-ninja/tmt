@@ -70,7 +70,9 @@ export type MetadataAction =
   | 'question.handle'
   | 'question.reopen'
   | 'question.agent'
-  | 'page.state';
+  | 'page.state'
+  | 'page.convert'
+  | 'page.revert';
 
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {

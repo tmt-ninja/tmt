@@ -2,13 +2,18 @@
 
 A structured page is made of blocks, not HTML: paragraphs, headings, lists, todos, tables, cards,
 questions, callouts, code, images, mockups, work bundles and page views. People edit it in the
-browser; you edit it with `tmt colab block`. Create one with `page create --structured`;
+browser; you edit it with `tmt colab block`. `page create` creates one by default;
 `page write` and `page patch` refuse it (`COLAB_STRUCTURED_PAGE`), and `block` refuses an ordinary
 page (`COLAB_NOT_STRUCTURED`). A page converted from HTML keeps its old HTML as a frozen legacy
-source: it is never shown, you cannot write it, and block edits leave it as it was.
+source: it is never shown, you cannot write it, and block edits leave it as it was. Read it with
+`page read PAGE --legacy`, or export the page for `legacy.html`. `page convert PAGE --revert`
+restores the HTML and removes every block added since conversion; it names the count and requires
+`--yes` when the count is nonzero. `page convert PAGE --yes` confirms conversion in place.
+Pass `--expected-revision REV` from a page read when the confirmation is based on an earlier read;
+the operation refuses if the page has changed since that revision.
 
 ```sh
-tmt colab page create --title 'Release notes' --structured --json      # prints pageId
+tmt colab page create --title 'Release notes' --json                   # prints pageId
 tmt colab block ls PAGE --json                                         # the tree; --all adds deleted blocks
 tmt colab block get PAGE BLOCK --json                                  # one block, with its text as base
 tmt colab block insert PAGE --type heading --props '{"level":2}' --text 'Plan' --json   # prints blockIds

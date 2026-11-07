@@ -7,6 +7,107 @@ use yrs::{
     TransactionMut, Update, updates::decoder::Decode,
 };
 
+// The only Yjs mutation for conversion lives inside the isolated decoder child.
+mod conversion_doc {
+    use super::{DecodeFault, Doc, Map, Transact};
+
+    pub(super) fn apply(doc: &Doc, converted_at: u64) -> Result<Vec<u8>, DecodeFault> {
+        tmt_colab_model::values::time(converted_at).map_err(|_| DecodeFault::InvalidInput)?;
+        let meta = doc.get_or_insert_map("meta");
+        let mut txn = doc.transact_mut();
+        meta.remove(&mut txn, "layout");
+        meta.remove(&mut txn, "layoutReason");
+        meta.insert(&mut txn, "pageType", "blocks");
+        meta.insert(&mut txn, "convertedAt", converted_at as f64);
+        Ok(txn.encode_update_v1())
+    }
+
+    pub(super) fn revert(doc: &Doc) -> Vec<u8> {
+        let meta = doc.get_or_insert_map("meta");
+        let blocks = doc.get_or_insert_map("blocks");
+        let mut txn = doc.transact_mut();
+        let keys: Vec<String> = blocks.keys(&txn).map(str::to_owned).collect();
+        for key in keys {
+            blocks.remove(&mut txn, &key);
+        }
+        meta.remove(&mut txn, "pageType");
+        meta.remove(&mut txn, "convertedAt");
+        txn.encode_update_v1()
+    }
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    #[test]
+    fn conversion_is_one_replayable_transaction_preserving_metadata() {
+        let converted_at = 123;
+        let doc = Doc::with_client_id(923);
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        {
+            let mut txn = doc.transact_mut();
+            html.insert(&mut txn, 0, "<p>café 🐈</p>\r\n");
+            meta.insert(&mut txn, "title", "Planning");
+            meta.insert(&mut txn, "layout", "canvas");
+            meta.insert(&mut txn, "layoutReason", "A custom frame");
+        }
+        let before = project(&doc, Namespace::Content).unwrap();
+        let initial = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let update = conversion_doc::apply(&doc, converted_at).unwrap();
+        let expected =
+            crate::conversion::project(&before, &serde_json::json!({"convertedAt":converted_at}))
+                .unwrap();
+        assert_eq!(project(&doc, Namespace::Content).unwrap(), expected);
+        let replica = Doc::new();
+        {
+            let mut txn = replica.transact_mut();
+            txn.apply_update(Update::decode_v1(&initial).unwrap())
+                .unwrap();
+            txn.apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+        }
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), expected);
+    }
+
+    #[test]
+    fn revert_clears_live_blocks_and_preserves_exact_legacy_html() {
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let blocks = doc.get_or_insert_map("blocks");
+        {
+            let mut txn = doc.transact_mut();
+            html.insert(&mut txn, 0, "<p>café 🐈</p>\r\n");
+            meta.insert(&mut txn, "title", "Planning");
+            meta.insert(&mut txn, "pageType", "blocks");
+            meta.insert(&mut txn, "convertedAt", 123.0_f64);
+            blocks.insert(&mut txn, "one", "discarded");
+            blocks.insert(&mut txn, "two", "discarded");
+        }
+        let initial = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let update = conversion_doc::revert(&doc);
+        let expected = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(expected["html"], "<p>café 🐈</p>\r\n");
+        assert!(expected.get("blocks").is_none());
+        assert!(expected["meta"].get("convertedAt").is_none());
+        let replica = Doc::new();
+        {
+            let mut txn = replica.transact_mut();
+            txn.apply_update(Update::decode_v1(&initial).unwrap())
+                .unwrap();
+            txn.apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+        }
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), expected);
+    }
+}
+
 pub(super) fn run() -> std::process::ExitCode {
     if !initialize() {
         return std::process::ExitCode::FAILURE;
@@ -457,6 +558,19 @@ fn prepare_content(
     let mut updates = Vec::new();
     if expected != before {
         if let Some(structured) = wire
+            .structured
+            .as_ref()
+            .filter(|s| s.kind == StructuredKind::Conversion)
+        {
+            if structured.action == "page.revert" {
+                updates.push(conversion_doc::revert(&doc));
+            } else {
+                let converted_at = structured.body["convertedAt"]
+                    .as_u64()
+                    .ok_or(DecodeFault::InvalidInput)?;
+                updates.push(conversion_doc::apply(&doc, converted_at)?);
+            }
+        } else if let Some(structured) = wire
             .structured
             .as_ref()
             .filter(|s| s.kind == StructuredKind::Blocks)

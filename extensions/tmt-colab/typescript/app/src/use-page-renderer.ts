@@ -108,10 +108,12 @@ export function usePageRenderer({
   // The frame is mounted again only when its key changes (#5022): the page, its layout and type,
   // and the part the source decides (whether it may hold scripts, whether it uses the design
   // system). `remounts` counts the in-place updates that fell back to a fresh frame.
-  const frameKey = useMemo(() => sourceFrameKey(view.source), [view.source]);
+  // Frozen legacy HTML is recoverable, but is never rendered by a blocks page.
+  const renderSource = view.pageType === 'blocks' ? '' : view.source;
+  const frameKey = useMemo(() => sourceFrameKey(renderSource), [renderSource]);
   const [remounts, setRemounts] = useState(0);
   // A page that follows a design system's draft (#5967) redraws when the draft changes.
-  const followed = useMemo(() => followedSystem(view.source), [view.source]);
+  const followed = useMemo(() => followedSystem(renderSource), [renderSource]);
   const [drafts, setDrafts] = useState(0);
   useEffect(
     () =>
@@ -120,8 +122,8 @@ export function usePageRenderer({
         : undefined,
     [followed],
   );
-  const latestSource = useRef(view.source);
-  latestSource.current = view.source;
+  const latestSource = useRef(renderSource);
+  latestSource.current = renderSource;
   // The source the open frame shows, or is being mounted or updated with.
   const frameSource = useRef<string | undefined>(undefined);
   const contentApplied = useRef(onContentApplied);
@@ -264,7 +266,7 @@ export function usePageRenderer({
   // Declared after the mount effect, so in a commit that also remounts, the frame being mounted
   // already holds this source and nothing is sent.
   useEffect(() => {
-    const source = view.source;
+    const source = renderSource;
     if (frameSource.current === undefined || frameSource.current === source) return;
     const handle = renderer.current;
     frameSource.current = source;
@@ -278,7 +280,7 @@ export function usePageRenderer({
       if (result === 'applied') contentApplied.current();
       else setRemounts((count) => count + 1);
     });
-  }, [view.source, renderer]);
+  }, [renderSource, renderer]);
 
   return { resolved, anchorsChecked, pageScheme, missingAnchor };
 }
