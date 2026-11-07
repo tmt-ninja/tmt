@@ -1,7 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import type { BlockOp } from './block-model.js';
 import { blockRecords } from './block-projection.js';
+import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { BlockEntry } from './blocks.js';
+import type { ParentPageViewSource } from './parent-page-view.js';
 import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
@@ -17,6 +19,8 @@ export function LiveStructuredPage({
   seq,
   binding,
   onLink,
+  workSource,
+  pageViewSource,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -24,6 +28,9 @@ export function LiveStructuredPage({
   binding?: PageBinding;
   /** A link in a block was activated: the page's trusted open path (`usePageLinks`) takes it. */
   onLink?(href: string, newTab: boolean): void;
+  /** The page's gated owner-data sources (`router`: owner-only content). */
+  workSource?: WorkBundleSource;
+  pageViewSource?: ParentPageViewSource;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
@@ -69,6 +76,8 @@ export function LiveStructuredPage({
       onPasteUrl={pasteUrl}
       onChecked={check}
       onLink={onLink}
+      workSource={workSource}
+      pageViewSource={pageViewSource}
       menu={menu}
       onPick={(entry) => void pick(entry)}
       onHover={hover}

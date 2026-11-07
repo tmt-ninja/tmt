@@ -3211,6 +3211,8 @@ function OpenPage({
                         blocks={view.blocks}
                         seq={view.seq}
                         binding={liveError || archived ? undefined : snapshot.binding}
+                        workSource={workSource}
+                        pageViewSource={pageViewSource}
                         onLink={(href, newTab) =>
                           requestPageLink(
                             {

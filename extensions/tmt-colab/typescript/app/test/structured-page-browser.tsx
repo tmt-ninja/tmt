@@ -3,7 +3,9 @@ import '../src/style.css';
 import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { BlockOp, BlockRecord } from '../src/block-model.js';
+import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { Mark } from '../src/blocks.js';
+import type { ParentPageViewSource } from '../src/parent-page-view.js';
 import { applyOps } from '../src/block-apply.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
@@ -81,7 +83,7 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       ...record,
       marks: marks
         .map(([find, mark, value]) => {
-          const from = [...record.text!.slice(0, record.text!.indexOf(find))].length;
+          const from = Array.from(record.text!.slice(0, record.text!.indexOf(find))).length;
           return { from, to: from + [...find].length, mark, ...(value && { value }) };
         })
         .filter((run) => run.to <= chars.length)
@@ -110,15 +112,16 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       ['spec 頁', 'link', 'https://example.com/spec'],
     ),
     // A script link is not admitted, so it draws as plain text.
-    marked(
-      block('unsafe', 'paragraph', '這個連結不會打開。'),
-      ['連結', 'link', 'javascript:alert(1)'],
-    ),
+    marked(block('unsafe', 'paragraph', '這個連結不會打開。'), [
+      '連結',
+      'link',
+      'javascript:alert(1)',
+    ]),
     marked(
       block(
         'long',
         'paragraph',
-      '每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
+        '每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
       ),
       ['只有一種長相', 'bold'],
       ['被點到的那一塊', 'italic'],
@@ -143,6 +146,22 @@ const SPEC_PAGE: BlockRecord[] = (() => {
     block('n2', 'list', '驗證器和 Yjs 區塊', { style: 'number', indent: 1 }),
     block('n3', 'list', 'CLI 和批次', { style: 'number', indent: 1 }),
     block('n4', 'list', '瀏覽器編輯器', { style: 'number' }),
+    block('bundle', 'work-bundle', undefined, {
+      page: '6b1c0f3e-2a4d-4c8e-9f10-7a2b3c4d5e6f',
+      number: 6005,
+      work: '瀏覽器編輯器：一個人寫、agent 同時改',
+      tickets: [{ label: '#6005', href: 'https://github.com/tmt-ninja/tmt/issues/6005' }],
+    }),
+    block('pages', 'page-view', undefined, {
+      label: '相關頁面',
+      sort: 'title',
+      rows: [
+        { id: 'a', name: '區塊資料模型', stage: 'Done', updated: '今天', author: 'gui-4' },
+        { id: 'b', name: '瀏覽器編輯器', stage: 'Working', updated: '剛剛', author: 'gui-2' },
+        { id: 'c', name: '<img src=x onerror=alert(1)>', stage: 'Review', author: 'agent' },
+      ],
+    }),
+    block('live', 'page-view', undefined, { label: '我的頁面', groupBy: 'none' }),
     block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
       tone: 'working',
       label: '做的順序',
@@ -163,6 +182,8 @@ declare global {
     serveText(id: string): string | undefined;
     /** Ops the page sent, in order. */
     sent: BlockOp[];
+    /** The owner-only gate closes: the owner sources withhold from now on. */
+    revokeOwner(): void;
     /** Links the page asked to open, in order. */
     opened: { href: string; newTab: boolean }[];
     /** Hold the serve's commits (true) or let the held ones through (false). */
@@ -192,6 +213,59 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
   window.sent = [];
   window.opened = [];
+  // The page's gated owner sources, as the router's are: while the page is owner-only content
+  // they publish, and once revoked they withhold (the unavailable state).
+  let owner = true;
+  const gated = new Set<() => void>();
+  window.revokeOwner = () => {
+    owner = false;
+    for (const fail of gated) fail();
+  };
+  const workSource: WorkBundleSource = {
+    subscribe(_page, _signal, publish, failed) {
+      if (!owner) failed();
+      else
+        publish({
+          title: '瀏覽器區塊編輯器',
+          href: '#page-6005',
+          summary: '一個人寫和重排頁面，agent 同時改同一頁。',
+          stage: 'Working',
+          owner: 'gui-2',
+          updated: '剛剛',
+          projects: ['Colab'],
+        });
+      gated.add(failed);
+      return () => gated.delete(failed);
+    },
+  };
+  const pageViewSource: ParentPageViewSource = (publish, failed) => {
+    if (!owner) failed();
+    else
+      publish([
+        {
+          id: 'x',
+          name: 'Colab 區塊',
+          href: '#x',
+          projects: ['Colab'],
+          stage: 'Working',
+          updated: '今天',
+          author: 'Ben',
+          access: 'Private',
+        },
+        {
+          id: 'y',
+          name: '設計系統',
+          href: '#y',
+          projects: ['Design'],
+          stage: 'Review',
+          updated: '昨天',
+          author: 'Ben',
+          access: 'Team',
+        },
+      ]);
+    gated.add(failed);
+    return () => gated.delete(failed);
+  };
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
   window.agentReplace = (id, find, replacement) => {
     const text = window.serveText(id)!;
@@ -262,6 +336,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onKey={key}
           onPasteUrl={pasteUrl}
           onChecked={check}
+          {...(content === 'spec' && { workSource, pageViewSource })}
           onLink={(href, newTab) => window.opened.push({ href, newTab })}
           menu={menu}
           onPick={(entry) => void pick(entry)}

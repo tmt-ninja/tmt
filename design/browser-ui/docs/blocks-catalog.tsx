@@ -2,6 +2,7 @@ import { Button } from '../src/ui/index.js';
 import { useState } from 'react';
 import {
   ImageBlock,
+  MarkedText,
   MockupBlock,
   PageView,
   QuestionBlock,
@@ -190,9 +191,43 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'page-view',
     name: 'Page view',
     description:
-      'Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data.',
+      'Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data. authoredPageViewRows reads a view’s authored rows as plain values, filtered, sorted and cut at its limit.',
     preview: () => <PageViewControlsDemo />,
-    usage: `${entry('PageView')}<PageView title="Spec pages" rows={pages} />`,
+    usage: `${entry('PageView')}<PageView title="Spec pages" rows={pages} />\n<PageView title="Snapshot" rows={authoredPageViewRows(props.rows, { sort: 'title' })} />`,
     variants: [],
+  },
+  {
+    slug: 'marked-text',
+    name: 'Marked text',
+    description:
+      'A block’s text with its inline marks: bold, italic and inline code, a link, and @agent or @block mentions. Offsets count scalar values. A link draws only for an https, http or mailto URL (linkHref) and opens through the host’s onLink; anything else is plain text.',
+    preview: () => (
+      <p>
+        <MarkedText
+          text="Ship the stack today, see the spec."
+          marks={[
+            { from: 0, to: 4, mark: 'bold' },
+            { from: 9, to: 14, mark: 'code' },
+            { from: 15, to: 20, mark: 'italic' },
+            { from: 26, to: 34, mark: 'link', value: 'https://example.com/spec' },
+          ]}
+          onLink={(href) => window.open(href, '_blank', 'noopener')}
+        />
+      </p>
+    ),
+    usage: `${entry('MarkedText')}<MarkedText text={text} marks={marks} onLink={openLink} />`,
+    variants: [
+      [
+        'A script link draws as text',
+        () => (
+          <p>
+            <MarkedText
+              text="This link never opens."
+              marks={[{ from: 5, to: 9, mark: 'link', value: 'javascript:alert(1)' }]}
+            />
+          </p>
+        ),
+      ],
+    ],
   },
 ];

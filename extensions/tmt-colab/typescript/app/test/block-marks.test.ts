@@ -33,13 +33,12 @@ describe('inline marks as the serve keeps them (#6005)', () => {
   });
 
   it('a format sets or clears a range, in scalar offsets and canonical runs', () => {
-    expect(formatMarks('a😀bc', [bold(0, 1)], { from: 1, to: 3, mark: 'bold', value: true })).toEqual([
-      bold(0, 3),
-    ]);
-    expect(formatMarks('abcd', [bold(0, 4)], { from: 1, to: 2, mark: 'bold', value: false })).toEqual([
-      bold(0, 1),
-      bold(2, 4),
-    ]);
+    expect(
+      formatMarks('a😀bc', [bold(0, 1)], { from: 1, to: 3, mark: 'bold', value: true }),
+    ).toEqual([bold(0, 3)]);
+    expect(
+      formatMarks('abcd', [bold(0, 4)], { from: 1, to: 2, mark: 'bold', value: false }),
+    ).toEqual([bold(0, 1), bold(2, 4)]);
     expect(
       formatMarks('abcd', [], { from: 0, to: 2, mark: 'link', value: 'https://example.com/a' }),
     ).toEqual([link(0, 2, 'https://example.com/a')]);
@@ -51,7 +50,9 @@ describe('inline marks as the serve keeps them (#6005)', () => {
   it('a range is marked only when all of it is, across touching runs', () => {
     expect(marked([bold(0, 2), bold(2, 5)], 1, 4, 'bold')).toBe(true);
     expect(marked([bold(0, 2), bold(3, 5)], 1, 4, 'bold')).toBe(false);
-    expect(marked([link(0, 3, 'https://a.example/')], 0, 3, 'link', 'https://b.example/')).toBe(false);
+    expect(marked([link(0, 3, 'https://a.example/')], 0, 3, 'link', 'https://b.example/')).toBe(
+      false,
+    );
   });
 
   it('typed characters take the marks of the text they were typed into', () => {
@@ -94,7 +95,11 @@ describe('inline marks as the serve keeps them (#6005)', () => {
 
   it('undoing a format sets the mark back as it was on the range', () => {
     const before = new BlockTree([record('p', 'a0', 'abcdef', [bold(1, 2), bold(4, 6)])]);
-    const op: BlockOp = { op: 'text', id: 'p', format: { from: 0, to: 5, mark: 'bold', value: true } };
+    const op: BlockOp = {
+      op: 'text',
+      id: 'p',
+      format: { from: 0, to: 5, mark: 'bold', value: true },
+    };
     const done = applyOps(before.flat(), [op]);
     expect(done[0]!.marks).toEqual([bold(0, 6)]);
     const undone = applyOps(done, inverseOps(before, [op]));
@@ -117,7 +122,8 @@ describe('link schemes (#6005)', () => {
     'vbscript:msgbox(1)',
   ];
   it('the drawing opens only what the page admits: http, https and mailto', () => {
-    for (const url of urls) expect(linkHref(url) !== undefined, url).toBe(validMarkValue('link', url));
+    for (const url of urls)
+      expect(linkHref(url) !== undefined, url).toBe(validMarkValue('link', url));
     expect(urls.filter((url) => linkHref(url))).toEqual([
       'https://example.com/a',
       'http://example.com/',

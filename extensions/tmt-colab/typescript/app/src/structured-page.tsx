@@ -1,3 +1,5 @@
+// The parts draw on the design system's UI layer (buttons, selects, chips), as the router's do.
+import '@tmt/browser-ui/ui.css';
 import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   Block,
@@ -13,6 +15,11 @@ import {
   BlockToast,
   insertGroups,
   MarkedText,
+  authoredPageViewRows,
+  ConnectedWorkBundle,
+  PageView,
+  WorkBundle,
+  type WorkBundleSource,
   Callout,
   calloutLabels,
   CardBlock,
@@ -26,6 +33,8 @@ import {
 } from '@tmt/browser-ui/blocks';
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
 import { indentOf, listNumber } from './block-ops.js';
+import { pageViewSpec, workBundleProps } from './block-parts.js';
+import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -71,6 +80,10 @@ export interface StructuredPageProps {
   /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
    * took it. */
   onKey?(id: string, event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** A work bundle's page metadata, gated on owner-only content; absent draws it unavailable. */
+  workSource?: WorkBundleSource;
+  /** A live page view's owner list, gated the same way; absent draws its unavailable state. */
+  pageViewSource?: ParentPageViewSource;
   /** A to-do's checkbox was ticked or cleared. */
   onChecked?(id: string, checked: boolean): void;
   /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
@@ -411,18 +424,16 @@ function Content({
       onLink={(href) => rest.onLink?.(href, false)}
       onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
     />
+  ) : // Empty text stays empty, so the part keeps its one-line height (`data-empty`).
+  block.text ? (
+    <MarkedText
+      text={block.text}
+      marks={block.marks}
+      blockHref={(id) => `#block-${id}`}
+      onLink={rest.onLink}
+    />
   ) : (
-    // Empty text stays empty, so the part keeps its one-line height (`data-empty`).
-    block.text ? (
-      <MarkedText
-        text={block.text}
-        marks={block.marks}
-        blockHref={(id) => `#block-${id}`}
-        onLink={rest.onLink}
-      />
-    ) : (
-      block.text
-    )
+    block.text
   );
   switch (block.type) {
     case 'heading':
@@ -500,8 +511,44 @@ function Content({
           {text}
         </TextBlock>
       );
+    case 'work-bundle': {
+      // Page metadata is the owner's: only the gated source (owner-only content) gives it.
+      const bundle = workBundleProps(block);
+      const openTicket = (ticket: { href: string }) => rest.onLink?.(ticket.href, true);
+      return rest.workSource && bundle.page ? (
+        <ConnectedWorkBundle {...bundle} source={rest.workSource} onOpenTicket={openTicket} />
+      ) : (
+        <WorkBundle {...bundle} state="unavailable" onOpenTicket={openTicket} />
+      );
+    }
+    case 'page-view': {
+      const spec = pageViewSpec(block);
+      // Authored rows draw as plain values; a live view is the parent's owner list, gated.
+      if (Array.isArray(block.props.rows))
+        return (
+          <PageView
+            title={spec.title}
+            rows={authoredPageViewRows(block.props.rows, {
+              filters: spec.filters,
+              sort: spec.sort,
+              limit: spec.limit,
+            })}
+            filters={spec.filters.map((filter, index) => ({
+              id: String(index),
+              label: `${filter.field}: ${filter.value}`,
+            }))}
+            state={spec.state === 'auto' ? 'ready' : spec.state}
+            groupBy={spec.groupBy}
+            columns={spec.columns.length ? spec.columns : undefined}
+            density={spec.density}
+            selectable={spec.selectable}
+            selected={spec.selected}
+          />
+        );
+      return <ParentPageView spec={spec} source={rest.pageViewSource} />;
+    }
     default:
-      // Drawn by a later step (question, image, mockup, work bundle, page view).
+      // Drawn by a later step (question, image, mockup).
       return <TextBlock tone="muted">{block.type}</TextBlock>;
   }
 }

@@ -102,7 +102,8 @@ const LINK_STYLE =
 function segments(text: string, marks: readonly Mark[] = []) {
   const chars = [...text];
   const cuts = new Set([0, chars.length]);
-  for (const mark of marks) cuts.add(Math.min(mark.from, chars.length)).add(Math.min(mark.to, chars.length));
+  for (const mark of marks)
+    cuts.add(Math.min(mark.from, chars.length)).add(Math.min(mark.to, chars.length));
   const at = [...cuts].sort((a, b) => a - b);
   return at.slice(0, -1).map((from, i) => ({
     text: chars.slice(from, at[i + 1]).join(''),
@@ -111,7 +112,12 @@ function segments(text: string, marks: readonly Mark[] = []) {
 }
 
 /** Replace the block's text and marks, and select scalar `anchor..focus` (a caret when equal). */
-const $replace = (text: string, marks: readonly Mark[] | undefined, anchor: number, focus = anchor) => {
+const $replace = (
+  text: string,
+  marks: readonly Mark[] | undefined,
+  anchor: number,
+  focus = anchor,
+) => {
   const paragraph = $createParagraphNode();
   const nodes: TextNode[] = [];
   for (const part of segments(text, marks)) {
@@ -127,7 +133,8 @@ const $replace = (text: string, marks: readonly Mark[] | undefined, anchor: numb
     let left = utf16Offset(text, scalar);
     for (const [i, node] of nodes.entries()) {
       const size = node.getTextContentSize();
-      if (left <= size && (left < size || i === nodes.length - 1)) return [node.getKey(), left, 'text'];
+      if (left <= size && (left < size || i === nodes.length - 1))
+        return [node.getKey(), left, 'text'];
       left -= size;
     }
     return [paragraph.getKey(), 0, 'element'];
@@ -153,7 +160,10 @@ const looksOf = (text: string, marks: readonly Mark[] | undefined) =>
   looks(
     segments(text, marks).map((part) => ({
       text: part.text,
-      format: part.on.reduce((bits, mark) => bits | (FORMAT_BITS[mark as keyof typeof FORMAT_BITS] ?? 0), 0),
+      format: part.on.reduce(
+        (bits, mark) => bits | (FORMAT_BITS[mark as keyof typeof FORMAT_BITS] ?? 0),
+        0,
+      ),
       styled: part.on.includes('link'),
     })),
   );

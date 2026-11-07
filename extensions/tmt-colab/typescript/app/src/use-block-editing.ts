@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { blockKeyAction, insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
-import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES, type TextMark } from './block-model.js';
+import {
+  type BlockOp,
+  type BlockRecord,
+  isBlockType,
+  TEXT_TYPES,
+  type TextMark,
+} from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
 import { BlockHistory } from './block-history.js';
 import {
@@ -329,7 +335,13 @@ export function useBlockEditing(
         if (ops.length) void out(current, ops);
         return;
       }
-      const on = marked(local.marks, range.from, range.to, mark, value === true ? undefined : value);
+      const on = marked(
+        local.marks,
+        range.from,
+        range.to,
+        mark,
+        value === true ? undefined : value,
+      );
       const valued = mark === 'link' || mark === 'agent' || mark === 'block';
       const op: BlockOp = {
         op: 'text',

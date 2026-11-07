@@ -146,6 +146,10 @@
      "path": "components/list-item"
     },
     {
+     "title": "Marked text",
+     "path": "components/marked-text"
+    },
+    {
      "title": "Mockup block",
      "path": "components/mockup-block"
     },
