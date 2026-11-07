@@ -27,7 +27,7 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -333,7 +333,7 @@ pub struct Mounts {
     extensions: &'static [Extension],
     /// Live tunnels per extension, indexed like `extensions`.
     active: Vec<Arc<AtomicUsize>>,
-    tunnels: Mutex<Tunnels>,
+    connections: Mutex<MountConnections>,
     /// Receives the origins of upgrades to object-declared extensions, when there is one.
     origins: Option<Arc<dyn OriginSink>>,
     activation: Option<Arc<dyn ActivationSink>>,
@@ -341,9 +341,10 @@ pub struct Mounts {
     before_slot_drop: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 #[derive(Default)]
-struct Tunnels {
+struct MountConnections {
     closed: bool,
     running: Vec<(TcpStream, JoinHandle<()>)>,
+    requests: Vec<Weak<UnixStream>>,
 }
 /// One reserved tunnel slot, released when its splice ends.
 struct TunnelSlot(Arc<AtomicUsize>);
@@ -376,7 +377,7 @@ impl Mounts {
             reads: None,
             extensions,
             active: extensions.iter().map(|_| Arc::default()).collect(),
-            tunnels: Mutex::default(),
+            connections: Mutex::default(),
             origins: None,
             activation: None,
             #[cfg(test)]
@@ -401,25 +402,47 @@ impl Mounts {
         self.activation = Some(activation);
         self
     }
-    /// Close every live tunnel and join its thread; later tunnels are refused.
+    /// Close pending requests and tunnels before the door joins its request workers.
+    /// The same fence refuses requests and tunnel handoffs after shutdown.
     pub fn shutdown(&self) {
         self.shell.shutdown();
         if let Some(activation) = &self.activation {
             activation.close();
         }
-        let running = match self.tunnels.lock() {
-            Ok(mut tunnels) => {
-                tunnels.closed = true;
-                std::mem::take(&mut tunnels.running)
+        let (requests, running) = match self.connections.lock() {
+            Ok(mut connections) => {
+                connections.closed = true;
+                (
+                    std::mem::take(&mut connections.requests),
+                    std::mem::take(&mut connections.running),
+                )
             }
             Err(_) => return,
         };
+        for request in requests.into_iter().filter_map(|request| request.upgrade()) {
+            let _ = request.shutdown(Shutdown::Both);
+        }
         for (client, _) in &running {
             let _ = client.shutdown(Shutdown::Both);
         }
         for (_, thread) in running {
             let _ = thread.join();
         }
+    }
+    /// The caller retains this handle until forwarding finishes; the registry owns no
+    /// extra socket once the request returns or hands its stream to a tunnel.
+    fn retain_request(&self, stream: &UnixStream) -> Option<Arc<UnixStream>> {
+        let retained = Arc::new(stream.try_clone().ok()?);
+        let mut connections = self.connections.lock().ok()?;
+        if connections.closed {
+            let _ = stream.shutdown(Shutdown::Both);
+            return None;
+        }
+        connections
+            .requests
+            .retain(|request| request.strong_count() > 0);
+        connections.requests.push(Arc::downgrade(&retained));
+        Some(retained)
     }
     fn reserve(&self, index: usize) -> Option<TunnelSlot> {
         let active = &self.active[index];
@@ -441,14 +464,16 @@ impl Mounts {
         session: Option<SessionTransport>,
         origin: Option<Arc<dyn OriginTicket>>,
     ) -> bool {
-        let Ok(mut tunnels) = self.tunnels.lock() else {
+        let Ok(mut connections) = self.connections.lock() else {
             return false;
         };
-        tunnels.running.retain(|(_, thread)| !thread.is_finished());
+        connections
+            .running
+            .retain(|(_, thread)| !thread.is_finished());
         let Ok(retained) = client.try_clone() else {
             return false;
         };
-        if tunnels.closed {
+        if connections.closed {
             let _ = client.shutdown(Shutdown::Both);
             return false;
         }
@@ -474,7 +499,7 @@ impl Mounts {
             });
         match spawned {
             Ok(thread) => {
-                tunnels.running.push((retained, thread));
+                connections.running.push((retained, thread));
                 true
             }
             Err(_) => false,
@@ -545,6 +570,9 @@ impl Mounts {
         };
         let deadline = Instant::now() + limits::MOUNT_RESPONSE;
         let Ok(mut stream) = connect_event(&socket, deadline) else {
+            return Some(Reply::empty(503));
+        };
+        let Some(_request) = self.retain_request(&stream) else {
             return Some(Reply::empty(503));
         };
         let forwarded = self.forward(&request, rest, extension, None, false, None);
@@ -697,6 +725,9 @@ impl Mounts {
             .and_then(|s| s.set_nonblocking(true).map(|()| s))
             .ok()
         else {
+            return Some(Reply::empty(503));
+        };
+        let Some(_request) = self.retain_request(&stream) else {
             return Some(Reply::empty(503));
         };
         let context = admitted.as_ref().map(|a| &a.context);
@@ -1570,7 +1601,7 @@ mod reconnect_tests {
         assert_eq!(door.mounts.active[0].load(Ordering::Acquire), 1);
         door.refused(); // Splice ended, but the worker still owns its slot.
         release.send(()).unwrap();
-        let (_, worker) = door.mounts.tunnels.lock().unwrap().running.remove(0);
+        let (_, worker) = door.mounts.connections.lock().unwrap().running.remove(0);
         worker.join().unwrap();
         assert_eq!(
             door.mounts.active[0].load(Ordering::Acquire),

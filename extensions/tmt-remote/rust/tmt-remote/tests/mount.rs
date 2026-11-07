@@ -531,6 +531,59 @@ fn durable_device_events_retry_rename_revoke_and_replay_after_restarts() {
 }
 
 #[test]
+fn stop_closes_held_mounted_requests_before_the_reply_deadline() {
+    const HOLD: Duration = Duration::from_secs(10);
+    const STOP_GRACE: Duration = Duration::from_secs(3);
+    for public in [false, true] {
+        for _ in 0..2 {
+            let mut door = Mounted::new(Arc::new(NoSessions));
+            let (holding, held) = mpsc::channel();
+            let (closed, closure) = mpsc::channel();
+            let extension = door.extension(Arc::new(move |mut stream, seen| {
+                seen.push(request(&mut stream));
+                stream.set_read_timeout(Some(HOLD)).unwrap();
+                // No response is sent: the peer can hold its reply head for ten seconds.
+                holding.send(stream.try_clone().unwrap()).unwrap();
+                closed.send(stream.read(&mut [0])).unwrap();
+            }));
+            let path = if public {
+                "/read/abcd".to_owned()
+            } else {
+                door.at("/x/colab/held")
+            };
+            let mut client = TcpStream::connect(door.addr).unwrap();
+            client.write_all(door.get(&path, "").as_bytes()).unwrap();
+            let retained = held
+                .recv_timeout(Duration::from_secs(5))
+                .expect("request never reached the held extension");
+            let (finished, stopped) = mpsc::channel();
+            let stopping = thread::spawn(move || {
+                door.stop();
+                finished.send(()).unwrap();
+                door
+            });
+            let result = stopped.recv_timeout(STOP_GRACE);
+            let eof = result.is_ok().then(|| closure.recv_timeout(STOP_GRACE));
+            // Release and join even on the original bug, before asserting the stop deadline.
+            let _ = retained.shutdown(std::net::Shutdown::Both);
+            let _ = client.shutdown(std::net::Shutdown::Both);
+            let door = stopping.join().unwrap();
+            let seen = extension.seen.all();
+            drop(extension);
+            drop(door);
+            assert!(
+                result.is_ok(),
+                "door waited for a held mounted reply: {result:?}"
+            );
+            assert_eq!(eof.unwrap().unwrap().unwrap(), 0, "upstream socket leaked");
+            assert_eq!(seen.len(), 1);
+            let forwarded = if public { "/read/abcd" } else { "/held" };
+            assert!(seen[0].starts_with(&format!("GET {forwarded} HTTP/1.1\r\n")));
+        }
+    }
+}
+
+#[test]
 fn an_unresponsive_extension_cannot_block_mutation_or_worker_shutdown() {
     for _ in 0..2 {
         let door = Mounted::new(Arc::new(NoSessions));
