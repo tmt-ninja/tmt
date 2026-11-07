@@ -145,8 +145,16 @@ function Editor({
     <ContentEditable
       className="tmt-block-editor-text"
       aria-label={label}
-      data-placeholder={placeholder}
-      placeholder={null}
+      {...(placeholder
+        ? {
+            'aria-placeholder': placeholder,
+            placeholder: (
+              <div className="tmt-block-editor-placeholder" aria-hidden="true">
+                {placeholder}
+              </div>
+            ),
+          }
+        : { placeholder: null })}
       onKeyDownCapture={(event) => {
         if (!onKey) return;
         // An IME composition owns its keys until it ends.

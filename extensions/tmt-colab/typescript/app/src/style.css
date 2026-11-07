@@ -101,6 +101,18 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
 .tmt-block-insert[data-sheet] {
   z-index: 1;
 }
+/* The focused empty block's placeholder, over its editor in the design system's placeholder
+   colour; the block at rest shows none. */
+:has(> .tmt-block-editor-text) {
+  position: relative;
+}
+.tmt-block-editor-placeholder {
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--tmt-ui-color-secondary);
+  pointer-events: none;
+  user-select: none;
+}
 /* The block being typed in shows the block's selection tint, not a second frame around its text
    (#6005). */
 .tmt-block-editor-text:focus-visible {
