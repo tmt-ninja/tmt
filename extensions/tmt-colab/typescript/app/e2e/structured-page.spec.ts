@@ -136,6 +136,42 @@ test('/ in an empty paragraph opens the insert menu, which filters and inserts',
   expect(sent).toContain('delete');
 });
 
+test('Esc selects the block, Delete removes it with an Undo line, and ⌘Z brings it back', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const blocks = host.locator('[data-block-id]');
+  await host.locator('[data-block-id="p"]').click();
+  await host.locator('[data-block-id="p"] [contenteditable="true"]').press('Escape');
+  // Typing turned into selecting the block: no editor, the block selected and focused.
+  await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+  await expect(host.locator('[data-block-id="p"]')).toHaveAttribute('data-selected', '');
+  await expect(host.locator('[data-block-id="p"]')).toBeFocused();
+  await page.keyboard.press('Delete');
+  await expect(host.locator('[data-block-id="p"]')).toHaveCount(0);
+  await expect(blocks).toHaveCount(3);
+  const toast = page.getByRole('status').filter({ hasText: 'Deleted 1 block' });
+  await expect(toast).toBeVisible();
+  // The next block holds the selection, so the keys stay on the page.
+  await expect(host.locator('[data-block-id="e"]')).toBeFocused();
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(host.locator('[data-block-id="p"]')).toHaveText('Ship the stack.');
+  await expect(toast).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.sent.map((op) => op.op)))
+    .toEqual(['delete', 'restore']);
+  // The keyboard way: ↓ moves the selection, Delete, then ⌘Z (Ctrl+Z off macOS).
+  await host.locator('[data-block-id="p"]').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(host.locator('[data-block-id="e"]')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(host.locator('[data-block-id="t"]')).toHaveAttribute('data-selected', '');
+  await page.keyboard.press('Backspace');
+  await expect(host.locator('[data-block-id="t"]')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(host.locator('[data-block-id="t"]')).toHaveText('Review');
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
@@ -171,4 +207,13 @@ for (const width of [1440, 390])
       await page.mouse.move(0, 0);
       // The window as the person sees it: a phone sheet is fixed to the viewport, not the page.
       await page.screenshot({ path: capturePath(`structured-${width}-${theme}-insert.png`) });
+      // Esc closes the menu, Esc again selects the block; the table is selected and deleted.
+      await empty.press('Escape');
+      await empty.press('Escape');
+      await page.keyboard.press('ArrowDown');
+      await expect(host.locator('[data-block-id="table"]')).toHaveAttribute('data-selected', '');
+      await page.screenshot({ path: capturePath(`structured-${width}-${theme}-selected.png`) });
+      await page.keyboard.press('Delete');
+      await expect(page.getByRole('status').filter({ hasText: 'Deleted 1 block' })).toBeVisible();
+      await page.screenshot({ path: capturePath(`structured-${width}-${theme}-deleted.png`) });
     });

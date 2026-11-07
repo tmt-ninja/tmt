@@ -6,6 +6,7 @@ import {
   BlockMenuEmpty,
   BlockMenuFooter,
   BlockMenuItem,
+  BlockToast,
   insertGroups,
   Callout,
   calloutLabels,
@@ -22,7 +23,7 @@ import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block
 import { BlockTextEditor } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
-import type { InsertMenu } from './use-block-editing.js';
+import type { DeleteToast, InsertMenu } from './use-block-editing.js';
 
 /** The catalog row of each insert entry, for its icon and description. */
 const INSERT_ROWS = new Map(
@@ -72,6 +73,14 @@ export interface StructuredPageProps {
   onHover?(entry: string): void;
   /** The phone sheet's scrim was tapped: the menu closes and the typed text stays. */
   onCloseMenu?(): void;
+  /** The selected blocks, and the one keyboard focus sits on. */
+  selected?: readonly string[];
+  selectionFocus?: string;
+  /** A key on the page outside a block's editor (Delete, arrows, ⌘Z); true when taken. */
+  onPageKey?(event: KeyboardEvent): boolean;
+  /** The status line after a delete, and its Undo. */
+  toast?: DeleteToast;
+  onUndo?(): void;
 }
 
 /**
@@ -80,9 +89,22 @@ export interface StructuredPageProps {
  */
 export function StructuredPage(props: StructuredPageProps) {
   return (
-    <BlockDocument>
-      <Blocks {...props} parent={PAGE_PARENT} />
-    </BlockDocument>
+    <>
+      <BlockDocument
+        onKeyDown={(event) => {
+          if (props.onPageKey?.(event)) event.preventDefault();
+        }}
+      >
+        <Blocks {...props} parent={PAGE_PARENT} />
+      </BlockDocument>
+      {props.toast && (
+        <div className="tmt-block-toast-place" key={props.toast.id}>
+          <BlockToast onUndo={props.onUndo} undoLabel={strings.blockDelete.undo}>
+            {strings.blockDelete.deleted(props.toast.count)}
+          </BlockToast>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -95,7 +117,13 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
       kind={KIND[block.type]}
       level={block.type === 'heading' ? headingLevel(block) : undefined}
       depth={parent === PAGE_PARENT ? 0 : 1}
-      selected={rest.editing?.id === block.id}
+      selected={rest.editing?.id === block.id || rest.selected?.includes(block.id)}
+      // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page.
+      tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
+      ref={(node: HTMLDivElement | null) => {
+        if (node && rest.selectionFocus === block.id && document.activeElement !== node)
+          node.focus();
+      }}
       readonly={rest.readonly}
       onClick={() => {
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);

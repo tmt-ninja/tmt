@@ -58,6 +58,18 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* The status line after a delete sits at the bottom centre of the window, over the page. */
+.tmt-block-toast-place {
+  position: fixed;
+  inset: auto 0 calc(16px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.tmt-block-toast-place > * {
+  pointer-events: auto;
+}
 /* The insert menu opens under its block, over what follows; the phone sheet sits on the bottom
    edge (#6005). */
 .tmt-block-insert {
@@ -76,6 +88,18 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   align-items: flex-end;
   padding: 0 0 env(safe-area-inset-bottom);
   background: var(--tmt-ui-surface-scrim);
+}
+/* The block the slash was typed in stays above the scrim, so the person sees the filter text: it
+   lifts over the page, and its own content over the sheet's scrim. */
+.tmt-block:has(> .tmt-block-insert[data-sheet]) {
+  z-index: 21;
+}
+.tmt-block:has(> .tmt-block-insert[data-sheet]) > :not(.tmt-block-insert) {
+  position: relative;
+  z-index: 2;
+}
+.tmt-block-insert[data-sheet] {
+  z-index: 1;
 }
 /* The block being typed in shows the block's selection tint, not a second frame around its text
    (#6005). */
