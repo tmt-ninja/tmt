@@ -258,9 +258,15 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
   await page.mouse.move(from.x + 4, below.y + below.height - 2, { steps: 8 });
   await expect(heading).toHaveAttribute('data-state', 'dragging');
   await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(1);
+  // A ghost of the block follows the pointer.
+  const ghost = host.locator('[data-slot="block-ghost"]');
+  await expect(ghost).toHaveText('Plan');
+  const at = (await ghost.boundingBox())!;
+  expect(Math.abs(at.x - (from.x + 4 + 12))).toBeLessThan(2);
   await page.mouse.up();
   await expect.poll(ids).toEqual(['p', 'e', 'h', 't']);
   await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);
+  await expect(ghost).toHaveCount(0);
   // The drop was one move op, and the grip's click after a drag opened no menu.
   await expect(menu).toHaveCount(0);
   const sent = await page.evaluate(() => window.sent.map((op) => op.op));
@@ -358,7 +364,13 @@ for (const width of [1440, 390])
         await page.mouse.down();
         await page.mouse.move(grip.x + 4, over.y + over.height - 2, { steps: 8 });
         await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(1);
+        await expect(host.locator('[data-slot="block-ghost"]')).toBeVisible();
         await page.screenshot({ path: capturePath(`structured-${width}-${theme}-drag.png`) });
+        // Over the card's middle the block would go into it: the card takes the selection tint.
+        const card = (await host.locator('[data-block-id="card"]').boundingBox())!;
+        await page.mouse.move(grip.x + 4, card.y + card.height / 2, { steps: 8 });
+        await expect(host.locator('[data-block-id="card"]')).toHaveAttribute('data-selected', '');
+        await page.screenshot({ path: capturePath(`structured-${width}-${theme}-drag-card.png`) });
         await page.keyboard.press('Escape');
         await page.mouse.up();
         await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);

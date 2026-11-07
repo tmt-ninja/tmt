@@ -58,6 +58,13 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* The drag ghost shows the block's first line only. */
+.tmt-block-ghost-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The status line after a delete sits at the bottom centre of the window, over the page and under
    an open sheet's scrim, which it never covers. */
 .tmt-block-toast-place {
