@@ -8,6 +8,27 @@ import { pageAction, selectDiscussion } from '../test/page-actions.js';
 
 test.afterEach(disposeActiveWorlds);
 
+test('the mounted owner creates a structured sub-page', async () => {
+  await withWorld(async (world) => {
+    const parent = createPage(world, 'Parent', '<h1>Parent</h1>');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-subpage-owner');
+    const page = await openPage(door, browser, parent);
+    const band = page.getByRole('region', { name: 'Work on this page' });
+    await band.getByRole('button', { name: 'Add', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Parent”' });
+    await dialog.getByRole('combobox').fill('Structured child');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    const children = colab(['subpage', 'ls', parent.pageId]).children as string[];
+    expect(children).toHaveLength(1);
+    expect(colab(['show', children[0]]).page.title).toBe('Structured child');
+    expect(colab(['block', 'ls', children[0]]).blocks).toEqual([]);
+  });
+});
+
 test('a page converts in place and restores retained HTML after counted confirmation', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
