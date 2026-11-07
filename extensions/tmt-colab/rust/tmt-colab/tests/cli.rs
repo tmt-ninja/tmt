@@ -6046,7 +6046,7 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
         "(ready)",
         "attached · http://127.0.0.1:53253",
         "no",
-        "create tmt colab page create --title <title> --layout column",
+        "create tmt colab page create --title <title>",
         "pair for page access: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
@@ -6076,10 +6076,7 @@ fn serve_starts_a_door_without_a_port_and_stops_it_with_ctrl_c() {
     assert!(ready["paired"].is_null());
     assert_eq!(
         ready["next"],
-        json!([
-            "tmt remote pair",
-            "tmt colab page create --title <title> --layout column"
-        ])
+        json!(["tmt remote pair", "tmt colab page create --title <title>"])
     );
     // Remote owns the port policy: Colab passes none and never retries.
     assert_eq!(
@@ -6101,7 +6098,7 @@ fn serve_without_remote_runs_local_only_and_names_the_install_step() {
     assert!(ready["url"].is_null() && ready["origin"].is_null() && ready["paired"].is_null());
     assert_eq!(
         ready["next"],
-        json!(["tmt colab page create --title <title> --layout column"])
+        json!(["tmt colab page create --title <title>"])
     );
     assert_eq!(
         ready["warning"],
@@ -6529,7 +6526,7 @@ fn serve_preserves_remote_start_errors_on_either_stream_in_human_and_json_output
                 assert!(ready["url"].is_null() && ready["origin"].is_null());
                 assert_eq!(
                     ready["next"],
-                    json!(["tmt colab page create --title <title> --layout column"])
+                    json!(["tmt colab page create --title <title>"])
                 );
                 assert_eq!(fs::read_to_string(&serving.err).unwrap(), "");
             } else {

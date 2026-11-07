@@ -132,7 +132,8 @@ test('one command starts the door; pairing opens a page; stopping it closes both
       [
         'colab',
         'page',
-        'create', '--html',
+        'create',
+        '--html',
         '--title',
         'Linked',
         '--layout',
