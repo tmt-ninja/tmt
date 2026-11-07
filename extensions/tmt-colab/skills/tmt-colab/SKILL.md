@@ -27,7 +27,8 @@ seed; never create or disclose them to bypass pairing.
 
 Start a structured page with `tmt colab page create --title T` and edit it with
 `tmt colab block` (see [blocks](references/blocks.md)). To create an HTML page from a
-template, use `page create --html --template NAME`: [templates](references/templates.md).
+template, use `page create --html --template NAME`: [templates](references/templates.md)
+(`tmt colab skill templates`).
 Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
 
 ```html
