@@ -3,6 +3,7 @@ import {
   type BlockType,
   canHold,
   CONTAINER_TYPES,
+  isBlockType,
   PAGE_PARENT,
   type Parent,
   TEXT_TYPES,
@@ -107,13 +108,20 @@ const order = (tree: BlockTree, id: string) => tree.flat().findIndex((block) => 
  * same type right after it (a list item makes a list item). */
 export function splitBlock(tree: BlockTree, id: string, at: number, newId: string): BlockOp[] {
   const block = tree.get(id);
-  if (!block || !tree.visible(id) || !TEXT_TYPES.has(block.type) || block.text === undefined)
+  if (
+    !block ||
+    !tree.visible(id) ||
+    !isBlockType(block.type) ||
+    !TEXT_TYPES.has(block.type) ||
+    block.text === undefined
+  )
     throw new Error('Only a text block splits.');
+  const type = block.type;
   const text = block.text;
   const head = text.slice(0, at);
   return [
     ...(head === text ? [] : [{ op: 'text' as const, id, set: head, base: text }]),
-    insertBlock(tree, { id: newId, type: block.type, after: id, text: text.slice(at) }),
+    insertBlock(tree, { id: newId, type, after: id, text: text.slice(at) }),
   ];
 }
 

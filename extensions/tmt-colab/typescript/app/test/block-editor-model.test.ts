@@ -173,6 +173,29 @@ describe('the block tree', () => {
     expect(tree.visible('under-gone')).toBe(false);
     expect(tree.get('gone')?.deleted).toBe(true);
   });
+  it('keeps table rows out of the drawn blocks and gives each table its rows in order', () => {
+    const row = (id: string, pos: string, table: string, deleted = false) =>
+      block(id, pos, table, { type: 'row', text: undefined, deleted });
+    const tree = new BlockTree([
+      block('table', 'V', PAGE_PARENT, { type: 'table', text: undefined }),
+      row('r2', 'k', 'table'),
+      row('r1', 'F', 'table'),
+      row('gone', 'Z', 'table', true),
+      block('para', 'k'),
+      // A row whose table is missing, or is not a table, is not drawn at all.
+      row('stray', 'V', 'nowhere'),
+      row('odd', 'V', 'para'),
+    ]);
+    expect(ids(tree.flat())).toEqual(['table', 'para']);
+    expect(ids(tree.rows('table'))).toEqual(['r1', 'r2']);
+    expect(tree.visible('r1')).toBe(false);
+    // A deleted table takes its rows with it.
+    const deleted = new BlockTree([
+      block('table', 'V', PAGE_PARENT, { type: 'table', text: undefined, deleted: true }),
+      row('r1', 'F', 'table'),
+    ]);
+    expect(deleted.rows('table')).toEqual([]);
+  });
   it('draws a block whose parent is missing or cannot hold blocks at the top level', () => {
     const tree = new BlockTree([
       block('para', 'V'),
