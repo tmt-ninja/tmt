@@ -74,7 +74,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
         world.binaries.colab,
         [
           'page',
-          'create',
+          'create', '--html',
           '--title',
           'Hosted notes',
           '--layout',

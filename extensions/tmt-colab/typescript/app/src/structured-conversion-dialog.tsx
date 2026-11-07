@@ -1,14 +1,13 @@
 import { BrowserAction, BrowserDialog } from '@tmt/browser-ui/react';
 import { useRef } from 'react';
+import { text } from './strings.js';
 
 /** Confirm replacement before the caller requests a revision-checked conversion. */
 export function StructuredConversionDialog({
-  title,
   busy,
   onCancel,
   onConfirm,
 }: {
-  title: string;
   busy: boolean;
   onCancel(): void;
   onConfirm(): void;
@@ -17,8 +16,7 @@ export function StructuredConversionDialog({
   return (
     <BrowserDialog
       open
-      presentation="confirm"
-      title="Convert to a structured page?"
+      title={text.conversion.title}
       initialFocus={() => cancel.current?.querySelector('button') ?? null}
       onDismiss={() => {
         if (!busy) onCancel();
@@ -37,7 +35,7 @@ export function StructuredConversionDialog({
           <BrowserAction
             type="button"
             variant="primary"
-            label="Convert page"
+            label={text.conversion.convert}
             busy={busy}
             disabled={busy}
             onActivate={onConfirm}
@@ -45,11 +43,55 @@ export function StructuredConversionDialog({
         </>
       }
     >
-      <p>
-        The current page becomes an empty structured page. A copy of the old page is kept in the
-        archive as '{title} (before conversion)'.
-      </p>
-      <p>The current page's layout is removed; the archived copy keeps it.</p>
+      <p>{text.conversion.body}</p>
+    </BrowserDialog>
+  );
+}
+
+// Reverting removes the blocks created after conversion, so show their count before confirmation.
+export function StructuredRevertDialog({
+  blockCount,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  blockCount: number;
+  busy: boolean;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const cancel = useRef<HTMLSpanElement>(null);
+  return (
+    <BrowserDialog
+      open
+      title={text.conversion.revertTitle}
+      initialFocus={() => cancel.current?.querySelector('button') ?? null}
+      onDismiss={() => {
+        if (!busy) onCancel();
+      }}
+      actions={
+        <>
+          <span ref={cancel}>
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label="Cancel"
+              disabled={busy}
+              onActivate={onCancel}
+            />
+          </span>
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={text.conversion.revert}
+            busy={busy}
+            disabled={busy}
+            onActivate={onConfirm}
+          />
+        </>
+      }
+    >
+      <p>{text.conversion.revertBody(blockCount)}</p>
     </BrowserDialog>
   );
 }

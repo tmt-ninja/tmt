@@ -67,6 +67,8 @@ export interface PageSnapshot extends PageSummary {
   /** As on the view: the threads and asks follow through the binding once verified. */
   readonly discussionPending?: boolean;
   readonly shell?: Projection['shell'];
+  readonly blocks?: Projection['blocks'];
+  readonly convertedAt?: Projection['convertedAt'];
   /** The page's sub-pages and summary (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
   readonly pageState?: Projection['pageState'];
@@ -122,8 +124,9 @@ export interface PageBinding {
   refreshProgress?(): void;
   /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
   metadataRevision?(
-    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'>,
-    scope?: 'page-state',
+    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
+      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
+    scope?: 'page-state' | 'conversion',
   ): Promise<string>;
   metadata?(
     action: MetadataAction,

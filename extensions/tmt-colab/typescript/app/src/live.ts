@@ -919,8 +919,9 @@ export class Live implements PageBinding {
     return this.canWork();
   }
   async metadataRevision(
-    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'>,
-    scope?: 'page-state',
+    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
+      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
+    scope?: 'page-state' | 'conversion',
   ): Promise<string> {
     const connection = await this.#settled();
     // Capture through the same serialized owner as Export: a newly admitted revision cannot
@@ -934,7 +935,18 @@ export class Live implements PageBinding {
             ? { pageState: value.pageState ?? 'todo' }
             : { creator: value.creator, questions: value.questions },
         );
-      if (metadata(shown) !== metadata(this.#admitted))
+      const conversion = (value: typeof shown) =>
+        canonical({
+          pageType: value.pageType,
+          blocks: value.blocks,
+          convertedAt: value.convertedAt,
+        });
+      if (
+        scope === 'conversion'
+          ? shown.source !== this.#admitted.source ||
+            conversion(shown) !== conversion(this.#admitted)
+          : metadata(shown) !== metadata(this.#admitted)
+      )
         throw new SaveRefused(
           'COLAB_STALE_BASE',
           'Page metadata changed. Read it again before writing.',

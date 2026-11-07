@@ -1102,6 +1102,22 @@ impl Snapshot {
             receipt = Some(applied.receipt);
         }
         match edit.kind {
+            StructuredKind::Conversion if edit.action == "page.convert" && ordinary => {
+                crate::conversion::project(
+                    &serde_json::json!({"html": &base.source, "meta": &base.meta}),
+                    &edit.body,
+                )
+                .map(drop)
+                .map_err(|_| crate::closed::Invalid)
+            }
+            StructuredKind::Conversion if edit.action == "page.revert" && base.meta["pageType"] == "blocks" => {
+                crate::conversion::revert(
+                    &serde_json::json!({"html": &base.source, "meta": &base.meta, "blocks": &base.blocks}),
+                    &edit.body,
+                )
+                .map(drop)
+                .map_err(|_| crate::closed::Invalid)
+            }
             StructuredKind::Blocks => Ok(()),
             StructuredKind::Shell if shell => crate::shell::apply(
                 &base.meta["shell"],

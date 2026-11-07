@@ -420,6 +420,7 @@ fn grammar() -> Command {
                     .subcommand(cli_compact::command())
                     .subcommand(cli_storage::page_command())
                     .subcommand(cli_read::command())
+                    .subcommand(cli_read::convert_command())
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
                             .arg(cli_grammar::page())
@@ -1027,6 +1028,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     if command == "read" {
         return cli_read::run(root, args);
+    }
+    if command == "convert" {
+        return cli_read::convert(root, args);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;

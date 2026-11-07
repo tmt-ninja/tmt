@@ -2710,6 +2710,59 @@ it('page state revision capture compares the shown manual value without changing
   }
 });
 
+it('conversion revision capture refuses unseen source or block changes', async () => {
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    const shown = await live.snapshot();
+    expect(await live.metadataRevision(shown, 'conversion')).toBe('v1:revision');
+    connections.at(-1)!.publish({ source: 'new source', title: 'Page' });
+    await expect(live.metadataRevision(shown, 'conversion')).rejects.toMatchObject({
+      code: 'COLAB_STALE_BASE',
+    });
+    const blocks = {
+      '10000000-0000-4000-8000-000000000001': {
+        type: 'paragraph' as const,
+        parent: 'root',
+        pos: 'V',
+        props: {},
+        text: { s: 'A', marks: [] },
+      },
+    };
+    connections
+      .at(-1)!
+      .publish({ source: 'legacy', title: 'Page', pageType: 'blocks', convertedAt: 1, blocks });
+    const previous = await live.snapshot();
+    connections.at(-1)!.publish({
+      source: 'legacy',
+      title: 'Page',
+      pageType: 'blocks',
+      convertedAt: 1,
+      blocks: {
+        ...blocks,
+        '10000000-0000-4000-8000-000000000002': blocks['10000000-0000-4000-8000-000000000001'],
+      },
+    });
+    await expect(live.metadataRevision(previous, 'conversion')).rejects.toMatchObject({
+      code: 'COLAB_STALE_BASE',
+    });
+  } finally {
+    live.close();
+  }
+});
+
 it('a burst of admitted page observations coalesces details reads and rejects the old result', async () => {
   connections.length = 0;
   const pageId = '10000000-0000-4000-8000-000000000001';

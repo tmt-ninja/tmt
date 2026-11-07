@@ -723,7 +723,7 @@ export function designSystemCreation(
   const create = async (parent: Snapshot, key: string, title: string) => {
     const existing = made.get(key);
     if (existing) return existing;
-    const child = await parent.binding!.work!('subpage.create', { title });
+    const child = await parent.binding!.work!('subpage.create', { title, format: 'html' });
     if (!child.childPage) throw new Error(`The ${title} page was not made.`);
     made.set(key, child.childPage);
     return child.childPage;
@@ -860,7 +860,7 @@ export async function newRoot(transport: PageTransport, name: string): Promise<s
   if (!parent) throw new Error('Make a page first: the space has none to start from.');
   return withPage(transport, parent.id, async (page) => {
     if (!page.binding?.work) throw new Error('Pages cannot be made here.');
-    const created = await page.binding.work('subpage.create', { title: name });
+    const created = await page.binding.work('subpage.create', { title: name, format: 'html' });
     if (!created.childPage) throw new Error('The design system page was not made.');
     await page.binding.work('subpage.detach', { pageId: created.childPage });
     return created.childPage;

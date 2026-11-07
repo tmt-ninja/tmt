@@ -16,19 +16,32 @@ for (const width of [390, 1440])
         (await import(/* @vite-ignore */ fixture)).render();
       });
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Switch back to HTML…' }).click();
+      const revert = page.getByRole('dialog', { name: 'Switch back to HTML?' });
+      await expect(revert).toContainText(
+        'Switching back removes the 12 blocks written since conversion.',
+      );
+      if (process.env.COLAB_CONVERSION_CAPTURE_DIR) {
+        mkdirSync(process.env.COLAB_CONVERSION_CAPTURE_DIR, { recursive: true });
+        await page.screenshot({
+          path: `${process.env.COLAB_CONVERSION_CAPTURE_DIR}/revert-${width}-${theme}.png`,
+        });
+      }
+      await expect(revert.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await revert.getByRole('button', { name: 'Cancel' }).click();
+      await expect(page.getByTestId('confirm-count')).toHaveText('0');
       const open = async () => {
         await page.getByRole('button', { name: 'More', exact: true }).click();
         await page.getByRole('menuitem', { name: 'Convert to structured page…' }).click();
       };
       await open();
       const dialog = page.getByRole('dialog', { name: 'Convert to a structured page?' });
-      await expect(dialog).toContainText('The current page becomes an empty structured page.');
+      await expect(dialog).toContainText('This page becomes an empty structured page.');
       await expect(dialog).toContainText(
-        "A copy of the old page is kept in the archive as 'Planning (before conversion)'.",
+        'The old HTML is kept with the page; you can read it or switch back at any time.',
       );
-      await expect(dialog).toContainText(
-        "The current page's layout is removed; the archived copy keeps it.",
-      );
+      await expect(dialog).toContainText("The current page's layout is removed.");
       const captureDir = process.env.COLAB_CONVERSION_CAPTURE_DIR;
       if (captureDir) {
         mkdirSync(captureDir, { recursive: true });

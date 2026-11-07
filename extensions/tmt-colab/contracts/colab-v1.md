@@ -1806,18 +1806,16 @@ Snapshots are history, not a page-version switch.
 
 ### Conversion to a structured page
 
-New ordinary pages start as structured pages; existing HTML pages remain editable. A force
-conversion first creates an archived copy titled `<title> (before conversion)` and labelled
-`converted`. The copy's source is read back and verified byte-for-byte against the original before
-the original page changes. The original then becomes an empty structured page while retaining its
-page ID, link and discussions. An unsuccessful step leaves the original unchanged. Conversion
-records the copy ID in `meta.convertedFrom`, and retries reuse the copy rather than creating a
-duplicate. The old source is available by reading or unarchiving the copy; this operation does not
-depend on snapshot storage. CLI and browser confirmation state that the original becomes empty and
-name the archived copy before conversion proceeds. The original retains its work, attachments and
-template provenance. Its layout is removed and retained on the archived copy; confirmation names
-that change. A page marked as a template refuses conversion. An agent may rebuild the content using
-the block commands.
+New ordinary pages start as structured pages; existing HTML pages remain editable. One
+revision-fenced publication converts an HTML page to an empty blocks page, retaining its HTML root
+byte-for-byte as frozen legacy source. The page keeps its identity, links, work, questions,
+attachments and discussions. Its layout is removed, and a page marked as a template refuses
+conversion. The legacy source is never rendered or writable on the blocks page; `page read --legacy`
+reads it and export includes `legacy.html`. A revision-fenced `page convert --revert` restores the
+HTML page when legacy source is present, clearing every block in the same publication. Before
+reverting, CLI and browser confirmation show how many blocks will be removed; the CLI requires
+`--yes` when that count is nonzero. CLI and browser conversion confirmation name the empty result
+and retained source. An agent may rebuild the content using the block commands.
 
 ## Decoder isolation, compaction and limits
 
@@ -3079,13 +3077,12 @@ A page of blocks keeps the metadata of an ordinary page under the same schemas: 
 and the creation fields. It never has `meta.template` (it cannot be a template) or `meta.layout`
 and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedAt`, the
 time in milliseconds it was converted in place from HTML (set with the conversion, removed with a
-revert); every other page is refused one. A new epoch baseline keeps all of them. The vectors
+revert). Its presence marks retained legacy source even when the source is empty; new blocks pages
+do not have it, and every other page is refused one. A new epoch baseline keeps all of them. The vectors
 [`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule, the legacy `html` included,
 and run through the isolated decoder and the browser fold's Worker alike.
 
-`tmt colab page create --structured` creates an empty page of blocks (it conflicts with `--file`,
-`--layout`, `--reason`, `--template` and `--creator`). Making it the default for new pages and
-converting existing pages are not part of this contract.
+`tmt colab page create` creates an empty page of blocks by default; `--html` selects an HTML page.
 
 `page write` and `page patch` on a page of blocks, and `tmt colab block` on any other page, are
 refused with the typed codes `COLAB_STRUCTURED_PAGE` and `COLAB_NOT_STRUCTURED`.
