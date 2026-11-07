@@ -14,3 +14,4 @@ export * as link from './link.js';
 export * as attachment from './attachment.js';
 export * as editRequest from './edit-request.js';
 export * as metadataRequest from './metadata-request.js';
+export * as textMerge from './text-merge.js';

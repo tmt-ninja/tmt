@@ -3040,6 +3040,34 @@ Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
 
+### Structured pages (#6004)
+
+A structured page keeps its content as blocks, not authored HTML. Each addition to this section
+lands with the code that implements it; nothing below describes behavior that is not shipped.
+
+#### Block text merge
+
+`merge(base, remote, local)` applies an agent's whole-text replacement of one block to the text the
+page holds now. `base` is the text the agent read (`block get` returns it with the block), `local`
+is the text the agent wrote and `remote` is the stored text. The base only locates the agent's
+hunks; it never refuses a write. Both implementations, `blocks::merge` in the native crate and
+`textMerge.merge` in `@tmt/colab-client` (the only TypeScript copy; the browser editor imports it),
+run [`block-text-merge-v1.json`](vectors/block-text-merge-v1.json).
+
+- Units are Unicode scalar values. Hunk and report offsets count them, never bytes or UTF-16 units.
+- A hunk is a replacement of `base[from..to]` by `text`; an insertion has `from == to`. The hunks of
+  `a → b` keep the common prefix and suffix, diff the middle with Myers' O(ND) algorithm and make
+  each maximal run of changes between kept characters one hunk. A tie between a deletion and an
+  insertion takes the deletion. When the distance of the middle exceeds 1024, the whole middle is
+  one hunk.
+- The page's hunks (`base → remote`) always apply. An agent hunk (`base → local`) applies unless it
+  overlaps one of them: their deleted ranges intersect, or it inserts strictly inside what the
+  other deletes. Insertions at one point, and an insertion at the edge of a deletion, do not
+  overlap; the page's insertion comes first. A hunk equal to one of the page's applies once.
+- An overlapping agent hunk is dropped, because the text the page already holds wins. The receipt
+  lists it as `droppedHunks` (`{from, to, text}` in base offsets) so the agent can run `block get`
+  again and reapply it.
+
 ### Dashboards (#3648)
 
 A dashboard is an ordinary page with structured content, not authored HTML. It is the
