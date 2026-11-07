@@ -5,25 +5,13 @@
  * from this one module, so a rename is one edit.
  */
 
-/** The block types a structured page holds; a type is fixed once a block is made. */
-export const BLOCK_TYPES = [
-  'paragraph',
-  'heading',
-  'list',
-  'todo',
-  'table',
-  'card',
-  'question',
-  'callout',
-  'code',
-  'image',
-  'mockup',
-  'work-bundle',
-  'page-view',
-] as const;
-export type BlockType = (typeof BLOCK_TYPES)[number];
+import { BLOCK_TYPES, ROOT, ROW, type BlockType } from './blocks.js';
+
+// The block types, the row type and the page parent are the fold's own (`blocks.ts`, #6004), so
+// the editor and the validator never hold two lists.
+export { BLOCK_TYPES, type BlockType };
 /** A table row: an entry with the table as its parent, drawn by its table and never as a block. */
-export const ROW_TYPE = 'row';
+export const ROW_TYPE: typeof ROW = ROW;
 /** What an entry in the page's `blocks` map is: a block, or a table's row. */
 export type EntryType = BlockType | typeof ROW_TYPE;
 /** Whether an entry is a block, not a table's row. */
@@ -60,7 +48,7 @@ export const INSERT_TYPES: Readonly<Record<string, BlockType>> = {
 };
 
 /** The page itself as a parent: a block at the top level. */
-export const PAGE_PARENT = 'root';
+export const PAGE_PARENT = ROOT;
 /** `root`, or the card that holds the block. */
 export type Parent = string;
 
