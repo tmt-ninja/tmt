@@ -1,15 +1,15 @@
 /**
  * The structured page's block shape as the browser editor sees it (#6005), from the accepted spec
- * (Colab 838644c2, 區塊資料和操作). The names here are provisional until #6004 (the block data model
- * and the agent `tmt colab block` ops) fixes them; every other editor module takes them from this
- * one module, so a rename is one edit.
+ * (Colab 838644c2, 區塊資料和操作), named as #6004's plan names them (issue comment 6705971958: the
+ * block data model and the agent `tmt colab block` ops). Every other editor module takes the names
+ * from this one module, so a rename is one edit.
  */
 
 /** The block types a structured page holds; a type is fixed once a block is made. */
 export const BLOCK_TYPES = [
-  'heading',
   'paragraph',
-  'list-item',
+  'heading',
+  'list',
   'todo',
   'table',
   'card',
@@ -19,17 +19,21 @@ export const BLOCK_TYPES = [
   'image',
   'mockup',
   'work-bundle',
-  'page-list',
+  'page-view',
 ] as const;
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
 /** Types whose blocks hold other blocks (a card or section). */
 export const CONTAINER_TYPES: ReadonlySet<BlockType> = new Set<BlockType>(['card']);
+/** Whether a block of `parent`'s type may hold one of `child`'s: a card holds blocks, never another
+ * card. */
+export const canHold = (parent: BlockType, child: BlockType) =>
+  CONTAINER_TYPES.has(parent) && !CONTAINER_TYPES.has(child);
 /** Types with a text body (`text`, a Y.Text in the page document). */
 export const TEXT_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   'heading',
   'paragraph',
-  'list-item',
+  'list',
   'todo',
   'callout',
   'code',
@@ -47,8 +51,9 @@ export const INSERT_TYPES: Readonly<Record<string, BlockType>> = {
 };
 
 /** The page itself as a parent: a block at the top level. */
-export const PAGE_PARENT = null;
-export type Parent = string | typeof PAGE_PARENT;
+export const PAGE_PARENT = 'root';
+/** `root`, or the card that holds the block. */
+export type Parent = string;
 
 /** One block as the fold gives it: the editor reads only these fields. */
 export interface BlockRecord {
@@ -66,18 +71,26 @@ export interface BlockRecord {
   readonly deleted: boolean;
 }
 
-/** One block operation, as the browser sends it in a batch and as `tmt colab block batch` takes it. */
+/** One block operation, as the browser sends it in a `blocks.batch` and as `tmt colab block batch`
+ * takes it. The caller makes new IDs; the serve computes `pos` from `after` (`null` is first in
+ * `parent`). */
 export type BlockOp =
   | {
       readonly op: 'insert';
       readonly id: string;
       readonly type: BlockType;
       readonly parent: Parent;
-      readonly pos: string;
+      readonly after: string | null;
       readonly props?: Readonly<Record<string, unknown>>;
       readonly text?: string;
     }
-  | { readonly op: 'move'; readonly id: string; readonly parent: Parent; readonly pos: string }
+  /** Moves the block with everything under it; the last move wins. */
+  | {
+      readonly op: 'move';
+      readonly id: string;
+      readonly parent: Parent;
+      readonly after: string | null;
+    }
   | {
       readonly op: 'props';
       readonly id: string;
@@ -85,6 +98,6 @@ export type BlockOp =
       readonly unset: readonly string[];
     }
   /** The whole text, with the text it was edited from as the merge base. */
-  | { readonly op: 'text'; readonly id: string; readonly base: string; readonly text: string }
+  | { readonly op: 'text'; readonly id: string; readonly set: string; readonly base: string }
   | { readonly op: 'delete'; readonly id: string }
   | { readonly op: 'restore'; readonly id: string };

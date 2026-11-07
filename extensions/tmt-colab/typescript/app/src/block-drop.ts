@@ -1,4 +1,4 @@
-import { CONTAINER_TYPES, PAGE_PARENT, type Parent } from './block-model.js';
+import { canHold, PAGE_PARENT, type Parent } from './block-model.js';
 import type { BlockTree } from './block-tree.js';
 
 /** A drawn block's box on screen, top and bottom in page pixels. */
@@ -27,7 +27,7 @@ const CARD_EDGE = 0.25;
  * The drop target for a pointer at `y` while `dragging` moves (#6005): the drawn sibling run the
  * pointer is over, in the innermost card it is inside. Over a card's middle the block goes into
  * it (at its end, or before the child the pointer is over); near its top or bottom edge it goes
- * beside it. A block never drops into itself or a card inside it.
+ * beside it. A block never drops into itself, and a card never into a card.
  */
 export function dropTarget(
   tree: BlockTree,
@@ -36,6 +36,7 @@ export function dropTarget(
   dragging: string,
 ): DropTarget {
   const box = new Map(boxes.map((entry) => [entry.id, entry]));
+  const moving = tree.get(dragging);
   // A card's edge band: a share of its height, but no deeper than its padding before its first
   // child (or after its last one).
   const edge = (card: string, at: BlockBox, side: 'top' | 'bottom') => {
@@ -52,7 +53,8 @@ export function dropTarget(
       const at = box.get(child.id)!;
       if (y >= at.bottom) continue;
       const inside =
-        CONTAINER_TYPES.has(child.type) &&
+        moving !== undefined &&
+        canHold(child.type, moving.type) &&
         child.id !== dragging &&
         !tree.within(child.id, dragging) &&
         y >= at.top + edge(child.id, at, 'top') &&

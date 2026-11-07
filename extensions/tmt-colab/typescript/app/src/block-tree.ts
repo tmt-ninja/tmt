@@ -1,11 +1,12 @@
-import { type BlockRecord, CONTAINER_TYPES, PAGE_PARENT, type Parent } from './block-model.js';
+import { type BlockRecord, canHold, PAGE_PARENT, type Parent } from './block-model.js';
 
 /**
  * The blocks of a structured page in drawing order (#6005), from the fold's flat block map. Each
  * block sits under its parent in `pos` order (ties by ID, so two writers' equal keys still order
  * the same everywhere). A deleted block is hidden with everything under it. Two merged moves never
  * lose a block:
- * - a block whose parent is not in the map, or is not a container, is drawn at the top level;
+ * - a block whose parent is not in the map, or cannot hold it (a card holds no card), is drawn at
+ *   the top level;
  * - blocks that two moves put inside each other (a cycle) are drawn at the top level from the
  *   cycle's lowest ID, so each is drawn exactly once.
  */
@@ -51,7 +52,7 @@ export class BlockTree {
     const holder = (block: BlockRecord): string | undefined => {
       if (block.parent === PAGE_PARENT) return undefined;
       const parent = this.#blocks.get(block.parent);
-      return parent && CONTAINER_TYPES.has(parent.type) ? parent.id : undefined;
+      return parent && canHold(parent.type, block.type) ? parent.id : undefined;
     };
     const done = new Set<string>();
     for (const start of this.#blocks.keys()) {
