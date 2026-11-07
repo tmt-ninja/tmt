@@ -929,6 +929,11 @@
 .tmt-block[data-kind='heading'] {
   margin-top: 32px;
 }
+
+.tmt-block[data-kind='list-item'] + .tmt-block[data-kind='list-item'],
+.tmt-block[data-kind='todo'] + .tmt-block[data-kind='todo'] {
+  margin-top: 0;
+}
 .tmt-block[data-kind='heading'][data-level='3'] {
   margin-top: 22px;
 }
@@ -1282,6 +1287,12 @@
 }
 .tmt-block-callout > .tmt-ui-notice {
   margin: 0;
+}
+
+.tmt-block-callout {
+  --tmt-ui-host-notice-heading-size: 18px;
+  --tmt-ui-host-notice-heading-weight: 600;
+  --tmt-ui-host-notice-heading-tracking: normal;
 }
 .tmt-block-code {
   overflow: hidden;
