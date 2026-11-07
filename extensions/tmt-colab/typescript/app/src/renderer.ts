@@ -224,6 +224,9 @@ export async function mountRenderer(
     onOpenList?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
+    /** The frame is part of a page (a mockup block, #6005): it takes its content's height, with
+     * no viewport-high floor. Absent, a page's frame is at least the viewport. */
+    fitContent?: boolean;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
     /** The height of trusted content between the header and the frame at scroll 0 (the reader's
@@ -389,6 +392,8 @@ export async function mountRenderer(
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const lead = () => Math.max(0, options.frameLead?.() ?? 0);
   const viewportHeight = () => Math.max(1, window.innerHeight - inset() - lead());
+  /** The least height the frame takes while it follows its page (window scrolling). */
+  const floorHeight = () => (options.fitContent ? 1 : viewportHeight());
   let reportedHeight = 0,
     pendingHeight: number | undefined,
     heightTimer: ReturnType<typeof setTimeout> | undefined,
@@ -398,7 +403,7 @@ export async function mountRenderer(
     // Whether growth counts toward the fallback: false while design-system parts still paint.
     settled = true,
     settleTimer: ReturnType<typeof setTimeout> | undefined,
-    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
+    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(floorHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
   // The part of a window-scrolled frame the reader sees (#6090): from under the header to above
@@ -464,7 +469,7 @@ export async function mountRenderer(
       slotPositions = '';
       options.onSlots?.(lastSlots);
     }
-    lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
+    lastHeight = innerScroll ? viewportHeight() : Math.max(floorHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;
     queueViewport();
@@ -481,7 +486,7 @@ export async function mountRenderer(
     if (stopped || innerScroll || pendingHeight === undefined) return;
     const now = performance.now(),
       claimed = pendingHeight,
-      next = Math.max(viewportHeight(), claimed);
+      next = Math.max(floorHeight(), claimed);
     pendingHeight = undefined;
     // Repeated growth after sizing the frame is a viewport-coupled page. A bounded
     // cosmetic fallback is preferable to an indefinitely growing browser document.

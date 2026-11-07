@@ -46,9 +46,10 @@ a:not(
   ):hover {
   color: var(--c-accent);
 }
+/* DS block parts draw their own pressed state (the mockup toolbar's segments). */
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
-  )[aria-pressed='true'] {
+  ):not(.tmt-block-mockup-segments > button)[aria-pressed='true'] {
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }
@@ -381,6 +382,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
 }
+/* A mockup block's sandboxed frame takes the page frame's look inside the mockup stage. */
+.tmt-block-mockup-frame iframe,
 .frame-host iframe {
   display: block;
   color-scheme: light;

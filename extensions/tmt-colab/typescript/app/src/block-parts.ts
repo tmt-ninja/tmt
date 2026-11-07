@@ -1,6 +1,8 @@
 import type { PageViewRowFilter, WorkBundleTicket } from '@tmt/browser-ui/blocks';
 import type { BlockRecord } from './block-model.js';
 import type { ParentPageViewSpec } from './parent-page-view.js';
+import { pinContent } from './design-system.js';
+import { writePin } from './design-system-pages.js';
 
 /** A page writer's props are untrusted (#6005): each part reads only the fields it draws, as plain
  * values of their schema type; an enum outside its set takes the part's default. */
@@ -73,4 +75,23 @@ export function workBundleProps(block: BlockRecord): {
     ...(text(props.work) !== undefined && { work: text(props.work) }),
     tickets,
   };
+}
+
+/** The stage a mockup block asks for: its preset or custom width and a minimum height. */
+export function mockupStage(block: BlockRecord): { width: number; height: number } {
+  const preset = choice(block.props.preset, ['390', '1440', 'custom'] as const, '390');
+  const width = preset === 'custom' ? (integer(block.props.width, 1, 4000) ?? 390) : Number(preset);
+  return { width, height: integer(block.props.height, 0, 100_000) ?? 0 };
+}
+
+/**
+ * The page source a mockup block's markup renders as, in the sandboxed render frame and never in
+ * the parent (#6005): the markup the serve's page check admitted, pinned to the block's design
+ * system and lock when they are a pin's grammar (default `tmt-gui`, following); a markup that is
+ * not text renders nothing.
+ */
+export function mockupSource(block: BlockRecord): string {
+  const markup = typeof block.props.markup === 'string' ? block.props.markup : '';
+  const pin = pinContent(block.props.system ?? 'tmt-gui', block.props.lock);
+  return pin ? writePin(markup, pin) : markup;
 }
