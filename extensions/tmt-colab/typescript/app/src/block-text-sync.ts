@@ -35,11 +35,11 @@ export class BlockTextSync {
   #local: string;
   /** The op on its way, with the base it was sent with. */
   #inflight?: { set: string; base: string };
-  /** The page's latest text, while an op is in flight. */
-  #held?: string;
-  /** After an applied op, the text it replaced, until the page shows a newer one: the page can
-   * still draw that text once more from a view made before the commit. */
-  #stale?: string;
+  /** The page's latest text while an op is in flight, with the order of the view it came from. */
+  #held?: { text: string; seq?: number };
+  /** The first view order that shows the last applied op: a view below it predates the commit,
+   * however many of them arrive late. */
+  #after = -Infinity;
 
   constructor(
     readonly id: string,
@@ -78,33 +78,34 @@ export class BlockTextSync {
     return { op: 'text', id: this.id, set: this.#local, base: this.#base, overlap: 'both' };
   }
 
-  /** The page's text for the block is now `remote`. While an op is in flight it is held. */
-  remote(remote: string, caret: number): Shown {
+  /** The page's text for the block is now `remote`, from a view of order `seq` (`PageView.seq`;
+   * absent when the page gives none, and then taken as current). A view older than the last
+   * applied op is dropped; while an op is in flight the text is held. */
+  remote(remote: string, caret: number, seq?: number): Shown {
+    if (seq !== undefined && seq < this.#after) return { text: this.#local, caret, dropped: false };
     if (this.#inflight) {
-      this.#held = remote;
+      this.#held = { text: remote, seq };
       return { text: this.#local, caret, dropped: false };
     }
-    if (remote === this.#stale) return { text: this.#local, caret, dropped: false };
-    this.#stale = undefined;
     return this.#merge(this.#base, remote, caret);
   }
 
-  /** The op in flight settled: `applied` when the serve committed it (the page shows it), not when
-   * it was refused (its typing stays local and goes in the next op). */
-  settled(applied: boolean, caret: number): Shown {
+  /** The op in flight settled: `applied` when the serve committed it (the page shows it from view
+   * order `seq` on), not when it was refused (its typing stays local and goes in the next op). A
+   * held text from a view before the commit is dropped. */
+  settled(applied: boolean, caret: number, seq?: number): Shown {
     const sent = this.#inflight;
     if (!sent) return { text: this.#local, caret, dropped: false };
     this.#inflight = undefined;
     const from = applied ? sent.set : sent.base;
-    this.#stale = applied && sent.base !== sent.set ? sent.base : undefined;
+    if (applied && seq !== undefined) this.#after = Math.max(this.#after, seq);
     const held = this.#held;
     this.#held = undefined;
-    if (held === undefined || held === this.#stale) {
+    if (held === undefined || (held.seq !== undefined && held.seq < this.#after)) {
       this.#base = from;
       return { text: this.#local, caret, dropped: false };
     }
-    this.#stale = undefined;
-    return this.#merge(from, held, caret);
+    return this.#merge(from, held.text, caret);
   }
 
   // The serve merges the browser's ops with `overlap: 'both'`, so the editor shows the same merge.

@@ -70,6 +70,8 @@ export interface StructuredPageProps {
   /** An insert entry was chosen, or the pointer is over one. */
   onPick?(entry: string): void;
   onHover?(entry: string): void;
+  /** The phone sheet's scrim was tapped: the menu closes and the typed text stays. */
+  onCloseMenu?(): void;
 }
 
 /**
@@ -101,7 +103,12 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
     >
       <Content block={block} {...rest} tree={tree} />
       {rest.menu?.id === block.id && (
-        <InsertPopover menu={rest.menu} onPick={rest.onPick} onHover={rest.onHover} />
+        <InsertPopover
+          menu={rest.menu}
+          onPick={rest.onPick}
+          onHover={rest.onHover}
+          onCloseMenu={rest.onCloseMenu}
+        />
       )}
     </Block>
   ));
@@ -113,10 +120,20 @@ function InsertPopover({
   menu,
   onPick,
   onHover,
-}: Pick<StructuredPageProps, 'onPick' | 'onHover'> & { menu: InsertMenu }) {
+  onCloseMenu,
+}: Pick<StructuredPageProps, 'onPick' | 'onHover' | 'onCloseMenu'> & { menu: InsertMenu }) {
   const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
   return (
-    <div className="tmt-block-insert" data-sheet={sheet ? '' : undefined}>
+    <div
+      className="tmt-block-insert"
+      data-sheet={sheet ? '' : undefined}
+      onMouseDown={(event) => {
+        // The scrim closes the sheet; focus stays in the editor.
+        if (!sheet || event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onCloseMenu?.();
+      }}
+    >
       <BlockMenu
         kind="insert"
         label={strings.blockInsert.label}

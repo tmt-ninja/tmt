@@ -14,9 +14,12 @@ import { useBlockEditing } from './use-block-editing.js';
  */
 export function LiveStructuredPage({
   blocks,
+  seq,
   binding,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
+  /** The view's local order (`PageView.seq`). */
+  seq?: number;
   binding?: PageBinding;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
@@ -24,11 +27,15 @@ export function LiveStructuredPage({
   const send = useCallback(
     async (ops: BlockOp[]) => {
       if (!write) throw new Error('Page editing unavailable');
-      await write(ops);
+      return (await write(ops)).seq;
     },
     [write],
   );
-  const { tree, editing, focus, typed, key, menu, pick, hover } = useBlockEditing(records, send);
+  const { tree, editing, focus, typed, key, menu, pick, hover, closeMenu } = useBlockEditing(
+    records,
+    send,
+    seq,
+  );
   return (
     <StructuredPage
       tree={tree}
@@ -39,6 +46,7 @@ export function LiveStructuredPage({
       menu={menu}
       onPick={(entry) => void pick(entry)}
       onHover={hover}
+      onCloseMenu={closeMenu}
       readonly={!write}
     />
   );

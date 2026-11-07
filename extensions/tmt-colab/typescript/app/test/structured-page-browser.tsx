@@ -138,10 +138,14 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   host.style.cssText = 'max-width:720px;margin:24px auto;padding:12px';
   document.body.append(host);
   let blocks = content === 'spec' ? SPEC_PAGE : start;
-  const listeners = new Set<(next: BlockRecord[]) => void>();
+  // Each change is a new view with the next local order, as `PageView.seq` gives it.
+  let seq = 1;
+  const listeners = new Set<(next: { records: BlockRecord[]; seq: number }) => void>();
   const publish = (next: BlockRecord[]) => {
     blocks = next;
-    for (const listener of listeners) listener(next);
+    seq++;
+    for (const listener of listeners) listener({ records: next, seq });
+    return seq;
   };
   const write = (id: string, text: string) =>
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
@@ -153,7 +157,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     write(id, text.replace(find, replacement));
   };
   const send = (ops: BlockOp[]) =>
-    new Promise<void>((resolve) => {
+    new Promise<number>((resolve) => {
       window.sent.push(...ops);
       setTimeout(() => {
         // One batch commits as one change, as the serve's does.
@@ -183,17 +187,20 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             ];
           }
         }
-        publish(next);
-        resolve();
+        resolve(publish(next));
       }, SERVE_MS);
     });
   function Page() {
-    const [records, setRecords] = useState(blocks);
+    const [view, setView] = useState({ records: blocks, seq });
     const subscribe = useCallback((node: HTMLElement | null) => {
-      if (node) listeners.add(setRecords);
-      else listeners.delete(setRecords);
+      if (node) listeners.add(setView);
+      else listeners.delete(setView);
     }, []);
-    const { tree, editing, focus, typed, key, menu, pick, hover } = useBlockEditing(records, send);
+    const { tree, editing, focus, typed, key, menu, pick, hover, closeMenu } = useBlockEditing(
+      view.records,
+      send,
+      view.seq,
+    );
     return (
       <section ref={subscribe}>
         <StructuredPage
@@ -205,6 +212,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           menu={menu}
           onPick={(entry) => void pick(entry)}
           onHover={hover}
+          onCloseMenu={closeMenu}
         />
       </section>
     );

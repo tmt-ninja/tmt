@@ -17,6 +17,9 @@ import type { OwnState, Projection } from './fold-protocol.js';
 import type { BlocksResult, MetadataAction, WorkAction } from './save.js';
 import type { BlockOp } from './block-model.js';
 export interface PageView extends Projection {
+  /** The local, per-binding order of the content this view shows: higher is newer. It orders views
+   * of one binding only and is never sent over the wire (#6005). */
+  readonly seq?: number;
   /** Verified only after catch-up; false once a non-owner content writer is admitted. */
   readonly ownerOnlyContent?: boolean;
   /** The manual state of an ordinary page; a shell has none. */
@@ -97,6 +100,8 @@ export interface SaveOutcome {
  * writer's change under `overlap: 'remote'` (empty under `both`, and after a lost reply). */
 export interface BlocksOutcome {
   droppedHunks: NonNullable<BlocksResult['receipt']>['droppedHunks'];
+  /** The first `PageView.seq` that shows the commit: a view with a lower one predates it. */
+  seq: number;
 }
 /** What a work action made: the page of a `subpage.create`. */
 export interface WorkOutcome {

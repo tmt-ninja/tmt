@@ -388,7 +388,15 @@ export class Connection {
         .map(({ writer, update }) => ({ writer, update })),
     };
   }
-  async #apply(stream: string, entry: ReceivedEntry) {
+  /** The latest apply: a commit whose stream position the objects already show may still be
+   * folding, and `applied()` waits for it. */
+  #applying: Promise<void> = Promise.resolve();
+  #apply(stream: string, entry: ReceivedEntry): Promise<void> {
+    const run = this.#applyNow(stream, entry);
+    this.#applying = run.catch(() => {});
+    return run;
+  }
+  async #applyNow(stream: string, entry: ReceivedEntry) {
     const update = await this.objects.admit(stream, entry);
     if (!update) {
       if (!this.#stopped) this.#emit(this.#projection);
@@ -400,6 +408,10 @@ export class Connection {
     } finally {
       update.update.fill(0);
     }
+  }
+  /** Resolves once every entry admitted so far has been folded and published to the binding. */
+  applied(): Promise<void> {
+    return this.#applying;
   }
   async #receive(frame: Record<string, unknown>) {
     if (frame.type === 'error') {

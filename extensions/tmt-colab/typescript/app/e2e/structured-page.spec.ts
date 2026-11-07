@@ -169,8 +169,6 @@ for (const width of [1440, 390])
       await empty.pressSequentially('t', { delay: 20 });
       await expect(page.getByRole('listbox', { name: 'Insert a block' })).toBeVisible();
       await page.mouse.move(0, 0);
-      await page.screenshot({
-        path: capturePath(`structured-${width}-${theme}-insert.png`),
-        fullPage: true,
-      });
+      // The window as the person sees it: a phone sheet is fixed to the viewport, not the page.
+      await page.screenshot({ path: capturePath(`structured-${width}-${theme}-insert.png`) });
     });

@@ -389,12 +389,18 @@
 .tmt-block-callout > .tmt-ui-notice {
   margin: 0;
 }
-/* A callout's heading is a small in-document heading, never the host's page-notice size (Colab's
-   header sets that one large for its own notices). */
+/* A callout is part of the document, so it sets every host notice variable itself: its body is
+   the document's text size and its heading a small in-document heading, never the host's own
+   notice sizes (Colab's header sets those large for its page notices). */
 .tmt-block-callout {
+  --tmt-ui-host-notice-mark-size: 18px;
   --tmt-ui-host-notice-heading-size: 18px;
   --tmt-ui-host-notice-heading-weight: 600;
   --tmt-ui-host-notice-heading-tracking: normal;
+  --tmt-ui-host-notice-body-size: 15px;
+  --tmt-ui-host-notice-body-line-height: 1.6;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: var(--tmt-ui-space-l);
 }
 .tmt-block-code {
   overflow: hidden;
