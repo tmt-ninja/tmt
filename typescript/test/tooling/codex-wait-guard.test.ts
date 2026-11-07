@@ -933,6 +933,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       [bash('cat "${TMPDIR}"tmt-codex-wait-guard-*/key'), repository, script],
       [bash('cat $TMPDIR/tmt-codex-*/key'), repository, script],
       [bash('ls $TMPDIR/*'), repository, script],
+      [bash('ls /*/**'), repository, script],
       [bash(`cat ${parentsGlob}/key`), repository, script],
       [bash(`realpath ${path.join(c.dir, 'innocent')}/key`), repository, script],
       [{ tool_name: 'apply_patch', tool_input: { command: `cat ${CACHE}` } }, repository, script],
@@ -979,6 +980,51 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       const result = await c.guard(bash(command));
       expect(result.stdout, command).toBe('');
       expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip' });
+    }
+  });
+
+  it('reads `/**` in a patch as text, not as a glob, and still denies the shell globs', async () => {
+    const c = newCase();
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    // A JSDoc block in a patch (a context line starts with a space) splits as ['', '**'] with the
+    // literal prefix '/', which a shell would expand but apply_patch never does.
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: typescript/app/src/example.ts',
+      '@@',
+      ' /**',
+      '- * Old summary.',
+      '+ * New summary.',
+      '  */',
+      ' export const example = 1;',
+      '*** End Patch',
+    ].join('\n');
+    const allowed = [
+      { tool_name: 'apply_patch', tool_input: { command: patch } },
+      {
+        tool_name: 'apply_patch',
+        tool_input: { command: '*** Add File: a.ts\n+/**\n+ * Doc.\n+ */' },
+      },
+    ];
+    for (const payload of allowed) {
+      const result = await c.guard(payload);
+      expect(result.stdout, JSON.stringify(payload)).toBe('');
+      expect(c.lines().at(-1), JSON.stringify(payload)).toMatchObject({ verdict: 'skip' });
+    }
+    expect(received).toEqual([]);
+    // The same glob in a shell reaches the cache, and the cache's name is denied in a patch too.
+    for (const payload of [
+      bash('ls /*/**'),
+      bash('ls $TMPDIR/tmt-*'),
+      { tool_name: 'apply_patch', tool_input: { command: `cat ${CACHE}` } },
+    ]) {
+      const result = await c.guard(payload);
+      expect(
+        JSON.parse(result.stdout).hookSpecificOutput.permissionDecision,
+        JSON.stringify(payload)
+      ).toBe('deny');
     }
   });
 

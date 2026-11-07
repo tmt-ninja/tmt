@@ -934,8 +934,8 @@ function globReachesCache(pattern, cwd, temps, name) {
 const SELF = fileURLToPath(import.meta.url);
 
 /**
- * Whether the call names the key cache: by name, by a resolved path or symlink, or by a temp-dir
- * glob. This hook's own source, which names the cache to manage it, is the one script exempt.
+ * Whether the call names the key cache: by name, by a resolved path or symlink, or (in a shell
+ * command only) by a temp-dir glob. This hook's own source, which names the cache to manage it, is the one script exempt.
  */
 function touchesCache(tool, input, command, scripts, cwd) {
   const text = [
@@ -960,7 +960,8 @@ function touchesCache(tool, input, command, scripts, cwd) {
   const name = path.basename(cacheDir());
   const dir = path.join(tmp, name);
   for (const word of words) {
-    if (/[*?[]/.test(word)) {
+    // Only a shell expands a glob; in any other tool's input `/**` is text, such as a JSDoc block.
+    if (tool === 'Bash' && /[*?[]/.test(word)) {
       if (expandBraces(word).some((pattern) => globReachesCache(pattern, cwd, temps, name))) {
         return true;
       }
