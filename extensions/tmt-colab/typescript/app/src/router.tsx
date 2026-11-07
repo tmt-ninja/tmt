@@ -3213,6 +3213,19 @@ function OpenPage({
                         binding={liveError || archived ? undefined : snapshot.binding}
                         workSource={workSource}
                         pageViewSource={pageViewSource}
+                        questionPage={{
+                          title: view.title || snapshot.title,
+                          questions: view.questions,
+                          threads: view.threads,
+                          discussionPending: view.discussionPending,
+                          creator: view.creator,
+                          creationRecipient: view.creationRecipient,
+                          originalAuthor: view.originalAuthor,
+                          asks: view.asks,
+                          discussion: snapshot.binding?.discussion,
+                          ask: snapshot.binding?.ask,
+                          blocked: !!(liveError || archived),
+                        }}
                         onLink={(href, newTab) =>
                           requestPageLink(
                             {

@@ -18,6 +18,7 @@ import {
   authoredPageViewRows,
   ConnectedWorkBundle,
   PageView,
+  QuestionBlock,
   WorkBundle,
   type WorkBundleSource,
   Callout,
@@ -34,6 +35,7 @@ import {
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
 import { indentOf, listNumber } from './block-ops.js';
 import { pageViewSpec, workBundleProps } from './block-parts.js';
+import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
@@ -84,6 +86,8 @@ export interface StructuredPageProps {
   workSource?: WorkBundleSource;
   /** A live page view's owner list, gated the same way; absent draws its unavailable state. */
   pageViewSource?: ParentPageViewSource;
+  /** The page's question registry and discussion, for question blocks to answer through. */
+  questionPage?: QuestionPage;
   /** A to-do's checkbox was ticked or cleared. */
   onChecked?(id: string, checked: boolean): void;
   /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
@@ -386,6 +390,20 @@ function InsertPopover({
   );
 }
 
+/** A question block where nothing can be answered: its question and choices only. */
+function ReadOnlyQuestion({ block }: { block: BlockRecord }) {
+  const question = blockQuestion(block);
+  return (
+    <QuestionBlock
+      title={question.title}
+      agent={question.agent}
+      kind={question.kind === 'long' ? 'short' : question.kind}
+      choices={question.choices.map(({ label }) => label)}
+      other={question.other}
+    />
+  );
+}
+
 /** A callout's tone from its props: one the design system draws, else `working`. */
 const calloutTone = (tone: unknown): CalloutTone =>
   typeof tone === 'string' && Object.hasOwn(calloutLabels, tone)
@@ -547,8 +565,15 @@ function Content({
         );
       return <ParentPageView spec={spec} source={rest.pageViewSource} />;
     }
+    case 'question':
+      // Answers go through the page's answer path; without one (a reader) it only shows.
+      return rest.questionPage ? (
+        <StructuredQuestion block={block} page={rest.questionPage} />
+      ) : (
+        <ReadOnlyQuestion block={block} />
+      );
     default:
-      // Drawn by a later step (question, image, mockup).
+      // Drawn by a later step (image, mockup).
       return <TextBlock tone="muted">{block.type}</TextBlock>;
   }
 }

@@ -4,6 +4,7 @@ import { blockRecords } from './block-projection.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { BlockEntry } from './blocks.js';
 import type { ParentPageViewSource } from './parent-page-view.js';
+import type { QuestionPage } from './structured-question.js';
 import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
@@ -21,6 +22,7 @@ export function LiveStructuredPage({
   onLink,
   workSource,
   pageViewSource,
+  questionPage,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -31,6 +33,8 @@ export function LiveStructuredPage({
   /** The page's gated owner-data sources (`router`: owner-only content). */
   workSource?: WorkBundleSource;
   pageViewSource?: ParentPageViewSource;
+  /** The page's question registry and discussion, for answering question blocks. */
+  questionPage?: QuestionPage;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
@@ -78,6 +82,7 @@ export function LiveStructuredPage({
       onLink={onLink}
       workSource={workSource}
       pageViewSource={pageViewSource}
+      questionPage={questionPage}
       menu={menu}
       onPick={(entry) => void pick(entry)}
       onHover={hover}
