@@ -904,7 +904,7 @@ export const text = {
     project: (value: string) => `project: ${value}`,
     state: (value: string) => `State: ${value}`,
     summaryState: (value: string) => `stage: ${value}`,
-    filterState: (value: string) => `state: ${value}`,
+    filterState: (value: string) => `state:${value}`,
     readFailed: 'Saved shortcuts could not be read. Existing data has been kept.',
     saveFailed: 'Shortcut changes could not be saved on this machine. Your draft has been kept.',
     operationFailed: 'Shortcut changes could not be saved on this machine.',

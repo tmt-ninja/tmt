@@ -123,13 +123,12 @@ import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-v
 import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
-import { Home, validateHomeSearch, type HomeSearch } from './home.js';
+import { Home, validateHomeSearch } from './home.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
 import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
 import '@tmt/browser-ui/ui.css';
 import { getTheme, subscribeTheme } from './theme.js';
-import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import './about-drawer.css';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
@@ -989,18 +988,7 @@ const home = createRoute({
   path: '/',
   validateSearch: validateHomeSearch,
   loader: async (options) => {
-    const space = await loadSpaceHome(options);
-    // Colab opens on the project last chosen here; a project that is gone opens All pages.
-    if ((options.location.search as HomeSearch).scope === undefined) {
-      const remembered = readScope(options.context.space);
-      if (knownScope(remembered, space.projects) !== undefined)
-        throw redirect({
-          to: '/',
-          search: { ...(options.location.search as HomeSearch), scope: remembered },
-          replace: true,
-        });
-    }
-    return space;
+    return loadSpaceHome(options);
   },
   component: Home,
   pendingComponent: HomePending,
@@ -1313,7 +1301,7 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
       </Link>
     ),
     scopeCrumb: (scope) => (
-      <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
+      <Link to="/" search={{ project: [scope] }} className="colab-scope-crumb" title={scope}>
         {scope}
       </Link>
     ),

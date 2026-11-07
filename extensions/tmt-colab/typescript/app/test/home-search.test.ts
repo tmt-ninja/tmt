@@ -1,7 +1,12 @@
 import { expect, it } from 'vite-plus/test';
 import { validateHomeSearch } from '../src/home.js';
 import { DEFAULT_VIEW, takeStage } from '../src/list-stage.js';
-import { filterQuery } from '../src/page-list-search.js';
+import {
+  editFromSearch,
+  filterQuery,
+  searchFromEdit,
+  toggleProject,
+} from '../src/page-list-search.js';
 
 it('names every key, so one it cannot read replaces the raw value the route merges under it', () => {
   const dropped = validateHomeSearch({
@@ -43,7 +48,6 @@ it('keeps what it can read and bounds it', () => {
     }),
   ).toEqual({
     project: ['design', 'q4 plan'],
-    scope: 'q4 plan',
     by: ['Stu'],
     q: 'notes',
     sort: 'title',
@@ -59,10 +63,13 @@ it('reads the needs-you filter from a copied link (true or "true") and nothing e
     expect(validateHomeSearch({ needs: value }).needs).toBeUndefined();
 });
 
-it('reads the scope as one project name and nothing else', () => {
-  expect(validateHomeSearch({ scope: 'design' }).scope).toBe('design');
+it('reads an older scope as one more project condition and drops its raw key', () => {
+  expect(validateHomeSearch({ scope: 'design', project: ['review'] })).toMatchObject({
+    project: ['review', 'design'],
+    scope: undefined,
+  });
   for (const value of ['', ' lead', 'x'.repeat(33), 'tab\there', 7, null, ['design'], { a: 1 }])
-    expect(validateHomeSearch({ scope: value }).scope).toBeUndefined();
+    expect(validateHomeSearch({ scope: value }).project).toBeUndefined();
 });
 
 it('reads the stage tab from a copied link, keeping only a value that is not the default', () => {
@@ -99,4 +106,49 @@ it('completes project:, by: and stage: before the caret, with the right start', 
     query: 'q4',
   });
   expect(filterQuery('upstage:do', 10)).toBeUndefined();
+});
+
+it('puts every condition in the field in one fixed order, before the free text', () => {
+  const edit = editFromSearch(
+    ['blog'],
+    'night',
+    ['ben'],
+    [
+      { kind: 'include-archived', name: '' },
+      { kind: 'needs', name: '' },
+      { kind: 'state', name: 'in-progress' },
+      { kind: 'state', name: 'todo' },
+    ],
+  );
+  expect(edit.value).toBe(
+    'project:blog by:ben state:To do state:In progress Needs me Include archived night',
+  );
+  // Each token's range covers exactly its own text.
+  for (const token of edit.tokens)
+    expect(edit.value.slice(token.range.start, token.range.end)).not.toMatch(/^\s|\s$/);
+  expect(searchFromEdit(edit)).toEqual({
+    projects: ['blog'],
+    authors: ['ben'],
+    conditions: [
+      { kind: 'state', name: 'todo' },
+      { kind: 'state', name: 'in-progress' },
+      { kind: 'needs', name: '' },
+      { kind: 'include-archived', name: '' },
+    ],
+    q: 'night',
+  });
+});
+
+it('a project picked from Filter and a typed one are the same token', () => {
+  const typed = editFromSearch(['blog'], '');
+  const picked = toggleProject(editFromSearch([], ''), 'blog');
+  expect(picked).toEqual(typed);
+  // Picking it again takes the same token away and keeps the other conditions and the text.
+  const held = editFromSearch(['blog'], 'x', [], [{ kind: 'needs', name: '' }]);
+  expect(searchFromEdit(toggleProject(held, 'blog'))).toEqual({
+    projects: [],
+    authors: [],
+    conditions: [{ kind: 'needs', name: '' }],
+    q: 'x',
+  });
 });

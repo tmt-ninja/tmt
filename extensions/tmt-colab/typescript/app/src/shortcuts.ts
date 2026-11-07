@@ -20,19 +20,10 @@ export function shortcutNameError(name: string): 'empty' | 'form' | undefined {
       ? 'form'
       : undefined;
 }
-/** Scope becomes a normal project condition; the saved route never refers to another shortcut. */
+/** The validated route without its unset keys; the saved route never refers to another shortcut. */
 export function shortcutSearch(search: HomeSearch): HomeSearch {
-  const {
-    scope,
-    shortcut: _,
-    ...validated
-  } = validateHomeSearch(search as Record<string, unknown>);
-  const project = [...new Set([...(scope ? [scope] : []), ...(validated.project ?? [])])];
-  return Object.fromEntries(
-    Object.entries({ ...validated, project: project.length ? project : undefined }).filter(
-      ([, value]) => value !== undefined,
-    ),
-  );
+  const { shortcut: _, ...validated } = validateHomeSearch(search as Record<string, unknown>);
+  return Object.fromEntries(Object.entries(validated).filter(([, value]) => value !== undefined));
 }
 export function readShortcuts(raw: string | null): ShortcutCollection {
   if (raw === null) return { version: 1, migrated: false, items: [] };

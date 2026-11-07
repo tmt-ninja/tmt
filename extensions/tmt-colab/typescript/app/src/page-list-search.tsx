@@ -55,40 +55,73 @@ import './page-list-search.css';
 /** The two filters the search takes as tokens: a project the page is in, a creator it has. */
 export type FilterKind = 'project' | 'by';
 const TRIGGERS: Record<FilterKind, string> = { project: 'project:', by: 'by:' };
+/** The list conditions the Filter menu and the tabs set; they sit in the field as tokens too. */
+export type ConditionKind = 'state' | 'needs' | 'include-archived';
+export type TokenKind = FilterKind | ConditionKind;
+export interface Condition {
+  kind: ConditionKind;
+  /** The state or stage it names; empty for the yes/no conditions. */
+  name: string;
+}
+/** The order the field shows the conditions in, after the project and creator tokens. */
+const CONDITION_ORDER: readonly ConditionKind[] = ['state', 'needs', 'include-archived'];
+const STATE_ORDER = ['todo', 'in-progress', 'done'];
+/** A token's text: what typing it would read, or the Filter menu's own words. */
+export function tokenText(kind: TokenKind, name: string): string {
+  switch (kind) {
+    case 'project':
+    case 'by':
+      return `${TRIGGERS[kind]}${name}`;
+    case 'state':
+      return text.shortcuts.filterState(
+        text.workBand.taskState[name as keyof typeof text.workBand.taskState] ?? name,
+      );
+    case 'needs':
+      return text.shortcuts.needsMe;
+    case 'include-archived':
+      return text.shortcuts.includeArchived;
+  }
+}
+const rank = (condition: Condition) =>
+  CONDITION_ORDER.indexOf(condition.kind) * 8 + STATE_ORDER.indexOf(condition.name);
 
-/** The search draft: the editor's text and its tokens, each token's text being `project:<name>` or `by:<name>`. */
+/** The search draft: the editor's text and its tokens, each token's text being `tokenText`. */
 export interface SearchEdit {
   value: string;
-  tokens: { kind: FilterKind; name: string; range: RichInputRange }[];
+  tokens: { kind: TokenKind; name: string; range: RichInputRange }[];
 }
 
-/** Project tokens, then creator tokens, then the free text; the same shape the editor reads back. */
+/** Project tokens, creator tokens, then the conditions in their fixed order, then the free text;
+ * the same shape the editor reads back. */
 export function editFromSearch(
   projects: readonly string[],
   q: string,
   authors: readonly string[] = [],
+  conditions: readonly Condition[] = [],
 ): SearchEdit {
   let value = '';
   const tokens: SearchEdit['tokens'] = [];
-  for (const [kind, names] of [
-    ['project', projects],
-    ['by', authors],
-  ] as const)
-    for (const name of new Set(names)) {
-      const token = `${TRIGGERS[kind]}${name}`;
-      tokens.push({
-        kind,
-        name,
-        range: { start: value.length, end: value.length + token.length },
-      });
-      value += `${token} `;
-    }
+  const add = (kind: TokenKind, name: string) => {
+    const token = tokenText(kind, name);
+    tokens.push({ kind, name, range: { start: value.length, end: value.length + token.length } });
+    value += `${token} `;
+  };
+  for (const name of new Set(projects)) add('project', name);
+  for (const name of new Set(authors)) add('by', name);
+  const seen = new Set<string>();
+  for (const condition of [...conditions].sort((a, b) => rank(a) - rank(b))) {
+    const key = `${condition.kind}:${condition.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    add(condition.kind, condition.name);
+  }
   return { value: value + q, tokens };
 }
 /** What the draft asks for: its tokens' names and the text outside them, whitespace collapsed. */
 export function searchFromEdit(edit: SearchEdit): {
   projects: string[];
   authors: string[];
+  conditions: Condition[];
   q: string;
 } {
   let free = '';
@@ -104,19 +137,24 @@ export function searchFromEdit(edit: SearchEdit): {
   return {
     projects: names('project'),
     authors: names('by'),
+    conditions: edit.tokens.flatMap((token) =>
+      token.kind === 'project' || token.kind === 'by'
+        ? []
+        : [{ kind: token.kind, name: token.name }],
+    ),
     q: free.split(/\s+/).filter(Boolean).join(' '),
   };
 }
 /** Add the project as a token, or drop it when the draft already holds it; the rest stays. */
 export function toggleProject(edit: SearchEdit, name: string): SearchEdit {
-  const { projects, authors, q } = searchFromEdit(edit);
+  const { projects, authors, conditions, q } = searchFromEdit(edit);
   return editFromSearch(
     projects.includes(name) ? projects.filter((project) => project !== name) : [...projects, name],
     q,
     authors,
+    conditions,
   );
 }
-
 type SerializedFilterToken = Spread<{ kind: FilterKind; name: string }, SerializedLexicalNode>;
 /** An editing token only: the route search holds the applied names, so a stale one just matches nothing. */
 export class FilterTokenNode extends DecoratorNode<ReactNode> {
@@ -233,10 +271,11 @@ const searchDocument: RichInputDocument<SearchEdit> = {
   replace: (edit) =>
     $replaceRichInput(
       edit.value,
-      edit.tokens.map((token) => ({
-        range: token.range,
-        create: () => new FilterTokenNode(token.kind, token.name),
-      })),
+      edit.tokens.flatMap(({ kind, name, range }) =>
+        kind === 'project' || kind === 'by'
+          ? [{ range, create: () => new FilterTokenNode(kind, name) }]
+          : [],
+      ),
     ),
   equal: (a, b) => a.value === b.value && JSON.stringify(a.tokens) === JSON.stringify(b.tokens),
 };
@@ -467,16 +506,22 @@ export function SharedPageListSearch(props: PageListSearchProps) {
     value: edit.value,
     chips: edit.tokens.map((token) => ({
       kind: token.kind,
-      text: `${TRIGGERS[token.kind]}${token.name}`,
+      text: tokenText(token.kind, token.name),
       range: token.range,
     })),
   });
+  // A chip's text is the token's; the draft's own tokens give a condition back its name.
   const fromShared = (value: SharedRichInputValue): SearchEdit => ({
     value: value.value,
     tokens: value.chips.flatMap((chip) => {
-      if (chip.kind !== 'project' && chip.kind !== 'by') return [];
-      const kind = chip.kind;
-      return [{ kind, name: chip.text.slice(TRIGGERS[kind].length), range: chip.range }];
+      if (chip.kind === 'project' || chip.kind === 'by') {
+        const kind = chip.kind;
+        return [{ kind, name: chip.text.slice(TRIGGERS[kind].length), range: chip.range }];
+      }
+      const held = props.edit.tokens.find(
+        (token) => token.kind === chip.kind && tokenText(token.kind, token.name) === chip.text,
+      );
+      return held ? [{ kind: held.kind, name: held.name, range: chip.range }] : [];
     }),
   });
   const suggestions = (
@@ -523,7 +568,9 @@ export function SharedPageListSearch(props: PageListSearchProps) {
       removeLabel={(kind, value) =>
         kind === 'project'
           ? text.pageList.removeFilter(value.slice('project:'.length))
-          : text.pageList.removeAuthorFilter(value.slice('by:'.length))
+          : kind === 'by'
+            ? text.pageList.removeAuthorFilter(value.slice('by:'.length))
+            : text.shortcuts.removeCondition(value)
       }
     />
   );

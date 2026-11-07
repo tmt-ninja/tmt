@@ -67,7 +67,7 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(
-    app(page).getByRole('button', { name: 'Remove project: blog', exact: true }),
+    app(page).getByRole('button', { name: 'Remove project filter blog', exact: true }),
   ).toBeVisible();
   await expect(pins.getByRole('link')).toHaveText(['Review 2']);
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
