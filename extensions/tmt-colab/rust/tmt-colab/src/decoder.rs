@@ -241,9 +241,9 @@ pub struct BaselineInput<'a> {
     pub work: Option<&'a Value>,
     /// Manual page state; an absent value reads as todo.
     pub page_state: Option<&'a Value>,
-    /// `meta.convertedFrom`, the archived copy a converted page of blocks was made from (a
-    /// generated page ID); only a page of blocks has it, and a new epoch keeps it.
-    pub converted_from: Option<&'a Value>,
+    /// `meta.convertedAt`, the time (ms) a page was converted in place to blocks; only a page of
+    /// blocks has it, and a new epoch keeps it.
+    pub converted_at: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -783,9 +783,10 @@ impl Decoder {
             stop,
         )
     }
-    /// A structured page: no text, `meta.pageType = "blocks"` and the given blocks (`{}` for a new
-    /// page). A new epoch carries a page's blocks over with this, after compaction dropped the
-    /// tombstones it no longer keeps.
+    /// A structured page: `meta.pageType = "blocks"` and the given blocks (`{}` for a new page).
+    /// A new page has no text; a converted page keeps its old source as the frozen legacy `html`,
+    /// which a new epoch carries over with the blocks, after compaction dropped the tombstones it
+    /// no longer keeps.
     pub fn produce_blocks(
         &mut self,
         view: BaselineInput<'_>,
@@ -794,9 +795,10 @@ impl Decoder {
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
         crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
-        // A page of blocks has no text and no layout, and is never a template; it keeps work,
-        // attachments, what it was made from, a state and what it was converted from.
-        if !view.source.is_empty() || view.layout.is_some() || view.template.is_some() {
+        // A page of blocks has no layout and is never a template; it keeps work, attachments, what
+        // it was made from, a state, what it was converted from and, as a frozen legacy source, the
+        // HTML it was converted from.
+        if view.layout.is_some() || view.template.is_some() {
             return Err(DecodeFault::InvalidInput);
         }
         self.baseline(
@@ -906,11 +908,9 @@ impl Decoder {
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
-        if view.converted_from.is_some_and(|v| {
-            v.as_str()
-                .is_none_or(|id| tmt_colab_model::values::generated_id(id).is_err())
-        }) || (view.converted_from.is_some()
-            && matches!(&action, BaselineAction::Produce { blocks: None, .. }))
+        if view.converted_at.is_some_and(|v| !valid_time_ms(v))
+            || (view.converted_at.is_some()
+                && matches!(&action, BaselineAction::Produce { blocks: None, .. }))
         {
             return Err(DecodeFault::InvalidInput);
         }
@@ -961,7 +961,7 @@ impl Decoder {
             layout: view.layout.cloned(),
             work: view.work.cloned(),
             page_state: view.page_state.cloned(),
-            converted_from: view.converted_from.cloned(),
+            converted_at: view.converted_at.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1485,7 +1485,7 @@ struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page_state: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    converted_from: Option<Value>,
+    converted_at: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1502,8 +1502,8 @@ enum BaselineAction {
         chunk_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<Value>,
-        /// A structured page: `meta.pageType = "blocks"`, an empty `html` and these blocks (`{}` for
-        /// a new page; a compacted page's kept blocks).
+        /// A structured page: `meta.pageType = "blocks"`, these blocks (`{}` for a new page; a
+        /// compacted page's kept blocks) and its `html` (empty, or the frozen legacy source).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         blocks: Option<Value>,
     },
@@ -1602,9 +1602,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "layout" => v.as_str().and_then(LayoutKind::parse).is_none(),
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
                 "pageType" => !matches!(v.as_str(), Some("shell" | "blocks")),
-                "convertedFrom" => v
-                    .as_str()
-                    .is_none_or(|id| tmt_colab_model::values::generated_id(id).is_err()),
+                "convertedAt" => !valid_time_ms(v),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
@@ -1633,15 +1631,16 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     ]
                     .iter()
                     .any(|key| meta.contains_key(*key)))
-                // A page of blocks keeps no HTML, no template and no layout; it may keep work,
-                // attachments and what it was made from, as an ordinary page does, and it alone
+                // A page of blocks keeps no template and no layout; it may keep work, attachments
+                // and what it was made from, as an ordinary page does, and the HTML it was
+                // converted from as a frozen legacy source (never rendered or written); it alone
                 // says which archived copy it was converted from.
                 || (blocks
                     && ["template", "layout", "layoutReason"]
                         .iter()
                         .any(|key| meta.contains_key(*key)))
-                || (!blocks && meta.contains_key("convertedFrom"))
-                || ((shell || blocks) && roots["html"].as_str() != Some(""))
+                || (!blocks && meta.contains_key("convertedAt"))
+                || (shell && roots["html"].as_str() != Some(""))
                 || (shell && meta.contains_key("attachments"))
             {
                 return Err(DecodeFault::InvalidOutput);
@@ -1698,3 +1697,8 @@ pub fn child_main() -> std::process::ExitCode {
 }
 #[cfg(test)]
 mod tests;
+
+/// A time in milliseconds: a non-negative integer a browser number holds exactly.
+fn valid_time_ms(value: &Value) -> bool {
+    value.is_u64() && crate::closed::integer(value).is_ok()
+}

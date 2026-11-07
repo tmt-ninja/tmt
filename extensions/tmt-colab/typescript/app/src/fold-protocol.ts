@@ -95,9 +95,9 @@ export interface Projection {
   work?: StoredWork;
   pageState?: 'todo' | 'in-progress' | 'done';
   attachments?: attachment.AttachmentDescriptor[];
-  /** The archived copy a converted page of blocks was made from (`meta.convertedFrom`, a
-   * generated page ID); a page of blocks alone has it. */
-  convertedFrom?: string;
+  /** The time (ms) a page was converted in place to blocks (`meta.convertedAt`); a page of blocks
+   * alone has it. */
+  convertedAt?: number;
   creationRecipient?: CreationRecipient;
   source: string;
   title: string;
@@ -257,9 +257,9 @@ export function validateProjection(value: unknown): asserts value is Projection 
     requireValue(
       !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
     );
-  if (Object.hasOwn(value, 'convertedFrom')) {
-    requireValue(blocksPage);
-    generatedId((value as Projection).convertedFrom as string);
+  if (Object.hasOwn(value, 'convertedAt')) {
+    const at = (value as Projection).convertedAt;
+    requireValue(blocksPage && Number.isSafeInteger(at) && (at as number) >= 0);
   }
   if (Object.hasOwn(value, 'pageState'))
     requireValue(
@@ -275,9 +275,10 @@ export function validateProjection(value: unknown): asserts value is Projection 
   // The `blocks` root belongs to a page of blocks and to nothing else.
   requireValue(Object.hasOwn(value, 'blocks') === blocksPage);
   if (blocksPage) {
-    // No HTML and no dashboard value; work, attachments and what it was made from are checked
-    // below as an ordinary page's are, and a template or a layout is refused above and below.
-    requireValue(!Object.hasOwn(value, 'shell') && source === '');
+    // No dashboard value; `source` is empty, or the frozen legacy source of a converted page, which
+    // is never rendered or written. Work, attachments and what it was made from are checked below
+    // as an ordinary page's are, and a template or a layout is refused above and below.
+    requireValue(!Object.hasOwn(value, 'shell'));
     validateBlocks((value as Projection).blocks);
   } else if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
     const structured = value as Projection;
@@ -368,8 +369,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     canonical(a.template) === canonical(b.template) &&
     Object.hasOwn(a, 'fromTemplate') === Object.hasOwn(b, 'fromTemplate') &&
     canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
-    Object.hasOwn(a, 'convertedFrom') === Object.hasOwn(b, 'convertedFrom') &&
-    a.convertedFrom === b.convertedFrom &&
+    Object.hasOwn(a, 'convertedAt') === Object.hasOwn(b, 'convertedAt') &&
+    a.convertedAt === b.convertedAt &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&

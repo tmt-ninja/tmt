@@ -195,9 +195,19 @@ function project(doc: Y.Doc, complete = true) {
   const html = doc.getText('html'),
     meta = doc.getMap('meta');
   const blocksPage = meta.get('pageType') === 'blocks';
+  // A page reverted from blocks to HTML keeps an emptied `blocks` root: a Yjs root type cannot be
+  // dropped, only emptied. It is admitted on a page with no `pageType` while it holds nothing, and
+  // is not part of the projection; the next epoch baseline leaves it out.
+  const emptiedBlocks = !blocksPage && !meta.has('pageType') && doc.share.has('blocks');
+  if (emptiedBlocks) {
+    const stray = doc.getMap('blocks');
+    if (stray._start !== null || stray.size !== 0)
+      throw new Error('Rejected content roots or unresolved dependencies');
+  }
   if (
     [...doc.share.keys()].some(
-      (key) => key !== 'html' && key !== 'meta' && !(key === 'blocks' && blocksPage),
+      (key) =>
+        key !== 'html' && key !== 'meta' && !(key === 'blocks' && (blocksPage || emptiedBlocks)),
     ) ||
     html._map.size !== 0 ||
     meta._start !== null ||
@@ -225,7 +235,7 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'work' &&
         key !== 'pageState' &&
         key !== 'attachments' &&
-        key !== 'convertedFrom',
+        key !== 'convertedAt',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -248,7 +258,7 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
     ...(meta.has('work') ? { work: meta.get('work') } : {}),
     ...(meta.has('pageState') ? { pageState: meta.get('pageState') } : {}),
-    ...(meta.has('convertedFrom') ? { convertedFrom: meta.get('convertedFrom') } : {}),
+    ...(meta.has('convertedAt') ? { convertedAt: meta.get('convertedAt') } : {}),
   };
   validateProjection(projection);
   return projection;

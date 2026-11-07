@@ -25,8 +25,8 @@ not either implementation: `python3 blocks-reference.py` checks the file, `--wri
 after review.
 
 `blocks-page-v1.json` (written by the same script) holds the page around the blocks: which metadata a page of
-blocks may carry (work, attachments, fromTemplate, a state, convertedFrom) and refuse (a template, a layout,
-convertedFrom anywhere else). Each case is a content document run through the isolated decoder and through the
+blocks may carry (work, attachments, fromTemplate, a state, convertedAt, and an `html` holding the frozen legacy
+source of a converted page; a reverted page's emptied `blocks` root) and refuse (a template, a layout, convertedAt anywhere else). Each case is a content document run through the isolated decoder and through the
 browser fold's Worker. `blocks-html-v1.json` holds pages of blocks with the HTML export renders for them; the
 native `blocks::html` writes it (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html`) and the browser's
 `renderBlocks` must match it byte for byte.

@@ -4,7 +4,8 @@ A structured page is made of blocks, not HTML: paragraphs, headings, lists, todo
 questions, callouts, code, images, mockups, work bundles and page views. People edit it in the
 browser; you edit it with `tmt colab block`. Create one with `page create --structured`;
 `page write` and `page patch` refuse it (`COLAB_STRUCTURED_PAGE`), and `block` refuses an ordinary
-page (`COLAB_NOT_STRUCTURED`).
+page (`COLAB_NOT_STRUCTURED`). A page converted from HTML keeps its old HTML as a frozen legacy
+source: it is never shown, you cannot write it, and block edits leave it as it was.
 
 ```sh
 tmt colab page create --title 'Release notes' --structured --json      # prints pageId

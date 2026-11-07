@@ -1217,7 +1217,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
                 page_state: None,
-                converted_from: None,
+                converted_at: None,
                 creator: None,
                 questions: None,
                 template: None,

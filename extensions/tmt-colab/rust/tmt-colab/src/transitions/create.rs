@@ -230,7 +230,7 @@ impl Engine {
                 };
                 let input = BaselineInput {
                     page_state: None,
-                    converted_from: None,
+                    converted_at: None,
                     creator: creator.as_ref(),
                     questions: questions.as_ref(),
                     template: None,
