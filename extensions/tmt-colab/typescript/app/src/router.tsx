@@ -7,6 +7,10 @@ import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
 import { pageLocation, parentRefusal } from './work-tree.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
+import {
+  StructuredConversionDialog,
+  StructuredRevertDialog,
+} from './structured-conversion-dialog.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
@@ -1595,6 +1599,20 @@ function OpenPage({
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
   const [metadataDialog, setMetadataDialog] = useState<'creator' | 'questions' | null>(null);
+  const [conversion, setConversion] = useState<{
+    kind: 'convert' | 'revert';
+    revision: string;
+    count: number;
+  } | null>(null);
+  const [conversionError, setConversionError] = useState<string>();
+  const [conversionBusy, setConversionBusy] = useState(false);
+  const conversionLock = useRef(false);
+  const conversionPage = useRef(snapshot.id);
+  conversionPage.current = snapshot.id;
+  useEffect(() => {
+    setConversion(null);
+    setConversionError(undefined);
+  }, [snapshot.id]);
   const [pin, setPin] = useState<PagePinState>();
   const [pinRequest, setPinRequest] = useState<PagePinRequest>();
   const requestPin = (action: PagePinRequest['action']) =>
@@ -1602,6 +1620,8 @@ function OpenPage({
   const [view, setView] = useState<PageView>({
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
+    blocks: snapshot.blocks,
+    convertedAt: snapshot.convertedAt,
     shell: snapshot.shell,
     work: snapshot.work,
     archived: snapshot.archived,
@@ -1619,6 +1639,46 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  async function openConversion(kind: 'convert' | 'revert') {
+    const binding = snapshot.binding;
+    if (conversionLock.current || !binding?.metadataRevision || !binding.metadata) return;
+    const pageId = snapshot.id;
+    conversionLock.current = true;
+    setConversionError(undefined);
+    try {
+      const revision = await binding.metadataRevision(view, 'conversion');
+      if (conversionPage.current === pageId)
+        setConversion({ kind, revision, count: Object.keys(view.blocks ?? {}).length });
+    } catch (error) {
+      if (conversionPage.current === pageId)
+        setConversionError(error instanceof Error ? error.message : text.conversion.readFailed);
+    } finally {
+      conversionLock.current = false;
+    }
+  }
+  async function submitConversion() {
+    if (conversionLock.current || !conversion || !snapshot.binding?.metadata) return;
+    const pageId = snapshot.id;
+    conversionLock.current = true;
+    setConversionBusy(true);
+    setConversionError(undefined);
+    try {
+      await snapshot.binding.metadata(
+        conversion.kind === 'convert' ? 'page.convert' : 'page.revert',
+        {},
+        conversion.revision,
+      );
+      if (conversionPage.current === pageId) setConversion(null);
+    } catch (error) {
+      if (conversionPage.current === pageId) {
+        setConversion(null);
+        setConversionError(error instanceof Error ? error.message : text.conversion.changeFailed);
+      }
+    } finally {
+      conversionLock.current = false;
+      setConversionBusy(false);
+    }
+  }
   const attachmentDownload = usePageAttachmentDownload(
     snapshot.binding?.files?.attachments,
     view.attachments ?? [],
@@ -1690,6 +1750,8 @@ function OpenPage({
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
+      blocks: snapshot.blocks,
+      convertedAt: snapshot.convertedAt,
       shell: snapshot.shell,
       work: snapshot.work,
       archived: snapshot.archived,
@@ -2466,6 +2528,27 @@ function OpenPage({
               }
               pin={pin}
               creatorLabel={creatorName(view)}
+              showSource={view.pageType !== 'blocks'}
+              onConvert={
+                snapshot.binding?.canMetadata?.() &&
+                state === 'ready' &&
+                !archived &&
+                !liveError &&
+                !view.pageType &&
+                !view.template
+                  ? () => void openConversion('convert')
+                  : undefined
+              }
+              onRevert={
+                snapshot.binding?.canMetadata?.() &&
+                state === 'ready' &&
+                !archived &&
+                !liveError &&
+                view.pageType === 'blocks' &&
+                view.convertedAt !== undefined
+                  ? () => void openConversion('revert')
+                  : undefined
+              }
               onSelect={(action) => {
                 if (action === 'put-under') {
                   setChoosingParent(true);
@@ -2489,6 +2572,32 @@ function OpenPage({
         binding={snapshot.binding}
         onDismiss={() => setMetadataDialog(null)}
       />
+      {conversion &&
+        (conversion.kind === 'convert' ? (
+          <StructuredConversionDialog
+            busy={conversionBusy}
+            onCancel={() => setConversion(null)}
+            onConfirm={() => void submitConversion()}
+          />
+        ) : (
+          <StructuredRevertDialog
+            blockCount={conversion.count}
+            busy={conversionBusy}
+            onCancel={() => setConversion(null)}
+            onConfirm={() => void submitConversion()}
+          />
+        ))}
+      {conversionError && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="blocked"
+            announcement="alert"
+            stateLabel={text.conversion.failed}
+            mark={<X aria-hidden="true" />}
+            body={conversionError}
+          />
+        </div>
+      )}
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       {choosingParent && (
         <AddSubpageDialog

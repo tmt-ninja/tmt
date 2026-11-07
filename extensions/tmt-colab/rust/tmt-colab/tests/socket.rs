@@ -5168,10 +5168,16 @@ fn a_browser_create_makes_the_derived_page_attaches_it_and_answers_status_with_t
     let after = page_ids(&layout, &key);
     assert_eq!(after.len(), before.len() + 1);
     assert!(after.contains(&child));
-    // Its title and first text are the title, escaped, and nothing else.
-    let made = native_page(&layout, &key, &child);
+    // The default child is a structured page with the requested title and no blocks.
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let made = tmt_colab::page::read_blocks(&store, &key, &child, &mut decoder).unwrap();
     assert_eq!(made.title, "Draft <the> export");
-    assert_eq!(made.source, "<h1>Draft &lt;the&gt; export</h1>\n");
+    assert_eq!(made.blocks, json!({}));
+    store.close().unwrap();
     assert_eq!(native_work(&layout, &key), std::slice::from_ref(&child));
     // A lost reply is answered by the operation: the attach landed and the page is named.
     send(

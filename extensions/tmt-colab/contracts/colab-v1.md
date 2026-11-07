@@ -1210,7 +1210,7 @@ Question Send binds its ordinary answer comment to the registered ID before the 
 Ask cannot undo that answer; comment edits preserve the binding and last-answer deletion reopens an
 unhandled registration. No commenter writes an answered metadata state.
 
-`page create --file` refuses live question blocks before commit and prints the empty-create,
+`page create --html --file` refuses live question blocks before commit and prints the empty-create,
 per-question register and source-write sequence, using the file's IDs and admitted titles.
 There is no authored initial-registry input. Built-in `--template` creation instead fills
 question `data-agent` from the selected creator and registers the template's questions in the
@@ -1803,6 +1803,19 @@ permission and creates a new minimal text diff under the current epoch. It MUST
 NOT restore membership, sharing, grants, intents or replies. Missing or
 undecryptable snapshots return “unavailable”, never substitute newer state.
 Snapshots are history, not a page-version switch.
+
+### Conversion to a structured page
+
+New ordinary pages start as structured pages; existing HTML pages remain editable. One
+revision-fenced publication converts an HTML page to an empty blocks page, retaining its HTML root
+byte-for-byte as frozen legacy source. The page keeps its identity, links, work, questions,
+attachments and discussions. Its layout is removed, and a page marked as a template refuses
+conversion. The legacy source is never rendered or writable on the blocks page; `page read --legacy`
+reads it and export includes `legacy.html`. A revision-fenced `page convert --revert` restores the
+HTML page when legacy source is present, clearing every block in the same publication. Before
+reverting, CLI and browser confirmation show how many blocks will be removed; the CLI requires
+`--yes` when that count is nonzero. CLI and browser conversion confirmation name the empty result
+and retained source. An agent may rebuild the content using the block commands.
 
 ## Decoder isolation, compaction and limits
 
@@ -3064,13 +3077,12 @@ A page of blocks keeps the metadata of an ordinary page under the same schemas: 
 and the creation fields. It never has `meta.template` (it cannot be a template) or `meta.layout`
 and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedAt`, the
 time in milliseconds it was converted in place from HTML (set with the conversion, removed with a
-revert); every other page is refused one. A new epoch baseline keeps all of them. The vectors
+revert). Its presence marks retained legacy source even when the source is empty; new blocks pages
+do not have it, and every other page is refused one. A new epoch baseline keeps all of them. The vectors
 [`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule, the legacy `html` included,
 and run through the isolated decoder and the browser fold's Worker alike.
 
-`tmt colab page create --structured` creates an empty page of blocks (it conflicts with `--file`,
-`--layout`, `--reason`, `--template` and `--creator`). Making it the default for new pages and
-converting existing pages are not part of this contract.
+`tmt colab page create` creates an empty page of blocks by default; `--html` selects an HTML page.
 
 `page write` and `page patch` on a page of blocks, and `tmt colab block` on any other page, are
 refused with the typed codes `COLAB_STRUCTURED_PAGE` and `COLAB_NOT_STRUCTURED`.
@@ -4905,7 +4917,7 @@ facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v2"`, `state:"mounte
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
 first page's full link, or its relative path without a door), `shortLink` (its short owner link,
 `null` without a page or door), `next` (commands still
-needed: `tmt remote pair` unless paired, `tmt colab page create --title <title> --layout column` when there
+needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
 `pair` (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...` when
@@ -6412,8 +6424,11 @@ reading read, and neither does opening a chapter from a shell.
 
 ## Root-local page creation
 
-`tmt colab page create --title <title> --layout column|full|canvas [--reason <text>] [--file <path|->] [--json]` creates a private
-page at epoch 1. The layout choice is required: `--layout column`, `--layout full` or
+`tmt colab page create --title <title> [--json]` creates an empty structured page at epoch 1.
+`--structured` is an explicit synonym. HTML-specific creation options require `--html`; they are
+never silently ignored. `tmt colab page create --html --title <title> --layout column|full|canvas
+[--reason <text>] [--file <path|->] [--json]` creates a private HTML page at epoch 1. The HTML
+layout choice is required: `--layout column`, `--layout full` or
 `--layout canvas --reason <text>` (`--reason` belongs to `canvas` only, and `canvas` needs
 it). Without a choice the command refuses before it initializes state or reads `--file`, naming
 the three choices and `tmt colab skill layout`; a reason that is empty, longer than 1024 bytes,
@@ -6452,10 +6467,10 @@ moved since that revision. The JSON result is the write receipt plus `layout` an
 canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
 is no command that returns a page to freeform.
 
-`tmt colab page create --title <title> [--template <name|id>] [--json]` starts from a template
+`tmt colab page create --html --title <title> [--template <name|id>] [--json]` starts from a template
 instead of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and
 `--file`, because the template brings its own layout and source. A create that names none of
-`--template`, `--layout`, `--reason` and `--file` starts from the space default template (below);
+`--template`, `--layout`, `--reason` and `--file` on an HTML create starts from the space default template (below);
 one with `--layout` or `--file` and no template keeps its meaning and its refusals.
 
 A template is a compiled one or a page of the space marked with `meta.template` (#5066).
@@ -6563,14 +6578,14 @@ revision,memoryLimit,usage}` (`usage` is defined under
 [Page usage and requested compaction](#page-usage-and-requested-compaction-2846)) with optional bounded `publisherAgent` and `originalAuthor` and optional complete `creationRecipient`, omitted
 when absent. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
-Archived reads retain the fold's current inactive-page restriction; deleted
-operands fail through the shared CLI resolver described above.
+An admitted root-local read can read an archived page's exact source; archived pages remain
+read-only. Deleted operands fail through the shared CLI resolver described above.
 
 `tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
 refuses an existing page with exit 1 and `COLAB_INPUT_INVALID`, naming
 `tmt colab page patch` and `tmt colab skill editing`. It reads no source file or stdin,
 prepares no publication and changes nothing. `--replace` is unsupported. Create a new page with
-`page create --file`; existing pages use anchored patches, even for large changes.
+`page create --html --file`; existing pages use anchored patches, even for large changes.
 
 The shared source-publication owner used by `page patch` and browser Save
 retains the title and prepares the replacement as an ordered batch of text deltas in the

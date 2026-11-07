@@ -3,6 +3,7 @@ import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { localTransport, type PageBinding, type PageView } from '../src/transport.js';
@@ -11,6 +12,7 @@ import type { RegisteredQuestion } from '../src/question-registry.js';
 import type { ThreadView } from '../src/thread-records.js';
 import type { MetadataAction } from '../src/save.js';
 import { SaveRefused } from '../src/save.js';
+import { PageOperationDialog } from '../src/page-operation-dialog.js';
 import { destination, id } from './ask-fixtures.js';
 import vector from '../../../contracts/vectors/discussion-v1.json';
 
@@ -74,7 +76,12 @@ const binding: PageBinding = {
       });
     if (mode === 'stale' || expected !== revision)
       throw new SaveRefused('COLAB_STALE_BASE', 'Page changed. Read it again before writing.');
-    if (action === 'creator.set')
+    if (action === 'page.convert') {
+      view = { ...view, pageType: 'blocks', blocks: {}, convertedAt: 123 };
+    } else if (action === 'page.revert') {
+      const { pageType: _type, blocks: _blocks, convertedAt: _convertedAt, ...rest } = view;
+      view = rest;
+    } else if (action === 'creator.set')
       view = {
         ...view,
         creator: { agent: body.agent as { id: string; name: string }, attribution },
@@ -117,6 +124,44 @@ export function settle() {
 }
 export function proof() {
   return { commands, revision, view };
+}
+let referenceRoot: Root | undefined;
+let referenceNode: HTMLElement | undefined;
+export function showArchiveReference() {
+  referenceNode = document.createElement('div');
+  document.body.append(referenceNode);
+  referenceRoot = createRoot(referenceNode);
+  referenceRoot.render(
+    <PageOperationDialog
+      operation="page.archive"
+      titles={['Metadata page']}
+      busy={false}
+      onCancel={hideArchiveReference}
+      onConfirm={hideArchiveReference}
+    />,
+  );
+}
+export function hideArchiveReference() {
+  referenceRoot?.unmount();
+  referenceNode?.remove();
+  referenceRoot = undefined;
+  referenceNode = undefined;
+}
+export function addExampleBlock() {
+  view = {
+    ...view,
+    blocks: {
+      [id(401)]: {
+        type: 'paragraph',
+        parent: 'root',
+        pos: 'V',
+        props: {},
+        text: { s: 'New block', marks: [] },
+      },
+    },
+  };
+  revision = 'revision-changed';
+  publish?.(structuredClone(view));
 }
 export function checking() {
   view = { ...view, discussionPending: true, threads: undefined };

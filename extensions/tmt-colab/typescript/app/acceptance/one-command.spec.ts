@@ -119,7 +119,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
       paired: false,
       pages: 0,
       page: null,
-      next: ['tmt remote pair', 'tmt colab page create --title <title> --layout column'],
+      next: ['tmt remote pair', 'tmt colab page create --title <title>'],
     });
     const device = await pairBrowser(world, 'one-command');
     // The printed link itself opens as the paired device.
@@ -133,6 +133,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
         'colab',
         'page',
         'create',
+        '--html',
         '--title',
         'Linked',
         '--layout',

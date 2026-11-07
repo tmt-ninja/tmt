@@ -295,6 +295,8 @@ impl Bundle {
         })?;
         let mut view = snapshot.materialize(key, page, decoder)?;
         let blocks_page = view.meta.get("pageType").and_then(|v| v.as_str()) == Some("blocks");
+        let legacy = (blocks_page && view.meta.get("convertedAt").is_some())
+            .then(|| view.source.as_bytes().to_vec());
         // A page of blocks exports its canonical value as `blocks.json` and a rendering of it as
         // `page.html`, derived from that file.
         let rendered = blocks_page.then(|| {
@@ -385,6 +387,9 @@ impl Bundle {
                 ..FileInfo::new("page.html", html)
             });
         }
+        if let Some(source) = &legacy {
+            files.push(FileInfo::new("legacy.html", source));
+        }
         if let Some(work) = &work {
             files.push(FileInfo::new("work.json", work));
         }
@@ -431,6 +436,7 @@ impl Bundle {
         })?;
         let mut contents = vec![content];
         contents.extend(rendered);
+        contents.extend(legacy);
         contents.extend(work);
         contents.extend(derived.as_ref().and_then(|derived| derived.file.clone()));
         contents.extend([json, markdown]);

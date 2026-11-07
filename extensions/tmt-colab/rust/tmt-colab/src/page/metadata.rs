@@ -19,6 +19,10 @@ pub struct MetadataEdit {
 pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
     let invalid = || super::Fault::Invalid;
     match action {
+        "page.convert" | "page.revert" => {
+            crate::closed::keys(body, &[], &[]).map_err(|_| invalid())?;
+            Ok(StructuredKind::Conversion)
+        }
         "page.state" => {
             crate::page_state::validate_action(action, body).map_err(|_| invalid())?;
             Ok(StructuredKind::PageState)
@@ -52,6 +56,11 @@ pub fn prepare(
 ) -> crate::Result<Prepared> {
     let kind = validate(&edit.action, &edit.body)?;
     let mut source = open()?;
+    let body = if edit.action == "page.convert" {
+        serde_json::json!({"convertedAt": clock()?})
+    } else {
+        edit.body.clone()
+    };
     let prepared = super::prepare_structured_publication(
         &source.store,
         &source.keyring,
@@ -59,7 +68,7 @@ pub fn prepare(
         StructuredAction {
             kind,
             action: &edit.action,
-            body: &edit.body,
+            body: &body,
             expected_revision: Some(&edit.expected_revision),
             display_agent: None,
             operation_id: Some(&edit.operation_id),
@@ -77,6 +86,10 @@ mod tests {
     #[test]
     fn browser_metadata_is_closed_and_cannot_register_or_forge_attribution() {
         let id = "10000000-0000-4000-8000-000000000001";
+        for action in ["page.convert", "page.revert"] {
+            assert!(validate(action, &json!({})).is_ok());
+            assert!(validate(action, &json!({"convertedAt":1})).is_err());
+        }
         for action in ["question.handle", "question.reopen"] {
             assert!(validate(action, &json!({"id":id})).is_ok());
             for body in [

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 const PAIR: &str = "tmt remote pair";
-const CREATE: &str = "tmt colab page create --title <title> --layout column";
+const CREATE: &str = "tmt colab page create --title <title>";
 
 pub struct Status<'a> {
     pub space: &'a str,

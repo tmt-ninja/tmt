@@ -722,6 +722,10 @@ pub(crate) fn commit_creation(
 ) -> Result<Created> {
     commit_creation_with(root, title, source, page_layout, shell, false, None)
 }
+/// A new empty blocks page for a sub-page create, without opening or printing it.
+pub(crate) fn commit_blocks_creation(root: &Path, title: &str) -> Result<Created> {
+    commit_creation_with(root, title, String::new(), None, false, true, None)
+}
 fn commit_creation_with(
     root: &Path,
     title: &str,

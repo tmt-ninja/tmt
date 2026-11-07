@@ -157,6 +157,7 @@ export function createPage(
       [
         'page',
         'create',
+        '--html',
         '--title',
         title,
         '--layout',

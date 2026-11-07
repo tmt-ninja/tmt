@@ -1765,6 +1765,7 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
         vec![
             "page",
             "create",
+            "--html",
             "--title",
             "No creation",
             "--layout",
@@ -1825,6 +1826,7 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             &[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Source",
                 "--layout",
@@ -2057,6 +2059,7 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Fresh 🐈",
             "--layout",
@@ -2111,7 +2114,8 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
     let path = file.to_str().unwrap();
     fs::write(&file, &rows).unwrap();
     let created = pilot.call(&[
-        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+        "page", "create", "--html", "--title", "Plan", "--layout", "column", "--file", path,
+        "--json",
     ]);
     let id = created["pageId"].as_str().unwrap().to_owned();
     let quiet = |receipt: &Value| {
@@ -2215,6 +2219,7 @@ fn existing_page_writes_are_refused_without_reading_the_source_or_changing_state
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Patch only",
             "--layout",
@@ -2258,6 +2263,7 @@ fn multiple_find_replace_pairs_commit_together_and_large_patches_warn() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Atomic pairs",
         "--layout",
@@ -2361,6 +2367,7 @@ fn patch_warning_counts_removed_bytes_and_keeps_half_appends_and_noops_quiet() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Warning boundary",
         "--layout",
@@ -2422,7 +2429,8 @@ fn a_patch_of_two_far_apart_pairs_costs_the_edits_and_not_the_text_between_them(
     let path = file.to_str().unwrap();
     fs::write(&file, &page).unwrap();
     let created = pilot.call(&[
-        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+        "page", "create", "--html", "--title", "Plan", "--layout", "column", "--file", path,
+        "--json",
     ]);
     let id = created["pageId"].as_str().unwrap().to_owned();
     let edited =
@@ -2497,6 +2505,7 @@ fn page_compact_combines_this_devices_changes_and_reports_usage_offline_and_serv
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Compact",
             "--layout",
@@ -2592,6 +2601,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Sized",
             "--layout",
@@ -2696,6 +2706,7 @@ fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Patched",
             "--layout",
@@ -2895,6 +2906,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Retained tail",
         "--layout",
@@ -3024,6 +3036,7 @@ fn a_patch_reports_the_usage_a_fresh_read_reports_with_and_without_a_combine() {
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Usage",
             "--layout",
@@ -3075,6 +3088,7 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Large",
             "--layout",
@@ -3147,6 +3161,7 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Limits",
             "--layout",
@@ -3178,6 +3193,7 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Full",
             "--layout",
@@ -3231,6 +3247,33 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
     }
 }
 #[test]
+fn archived_html_source_is_readable_for_conversion_recovery() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("archive-source.html");
+    let original = "<p>Old café 🐈</p>\r\n";
+    fs::write(&file, original).unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Before conversion",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    pilot.call(&["archive", id, "--json"]);
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        original
+    );
+}
+
+#[test]
 fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("source.html");
@@ -3238,6 +3281,7 @@ fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Archived",
         "--layout",
@@ -3275,6 +3319,7 @@ fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_noth
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Attachments",
         "--layout",
@@ -3535,6 +3580,7 @@ fn attachment_attach_refuses_what_it_cannot_send_and_creates_nothing_without_a_s
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Attach",
         "--layout",
@@ -3651,6 +3697,7 @@ fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving()
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Same",
             "--layout",
@@ -4008,6 +4055,7 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Doubt",
         "--layout",
@@ -4124,6 +4172,7 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Skew",
         "--layout",
@@ -4232,7 +4281,7 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let invalid = pilot
         .command()
         .args([
-            "page", "create", "--title", "", "--layout", "column", "--json",
+            "page", "create", "--html", "--title", "", "--layout", "column", "--json",
         ])
         .output()
         .unwrap();
@@ -4249,6 +4298,7 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Bad",
             "--layout",
@@ -4266,7 +4316,7 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     );
     assert!(!pilot.root.join("selected/colab").exists());
     let created = pilot.call(&[
-        "page", "create", "--title", "Empty", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Empty", "--layout", "column", "--json",
     ]);
     let read = pilot.call(&[
         "page",
@@ -4279,7 +4329,8 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let mut child = pilot
         .command()
         .args([
-            "page", "create", "--title", "Stdin", "--layout", "column", "--file", "-", "--json",
+            "page", "create", "--html", "--title", "Stdin", "--layout", "column", "--file", "-",
+            "--json",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -4313,7 +4364,9 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(String::from_utf8_lossy(&help.stdout).contains("--title"));
     let human = pilot
         .command()
-        .args(["page", "create", "--title", "Human", "--layout", "column"])
+        .args([
+            "page", "create", "--html", "--title", "Human", "--layout", "column",
+        ])
         .output()
         .unwrap();
     assert!(human.status.success(), "{human:?}");
@@ -4335,6 +4388,7 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "Plan",
             "--file",
@@ -4362,7 +4416,7 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
         vec!["--layout", "column", "--reason", "not for a column"],
         vec!["--layout", "full", "--reason", "not for full width"],
     ] {
-        let mut command = vec!["page", "create", "--title", "Plan"];
+        let mut command = vec!["page", "create", "--html", "--title", "Plan"];
         command.extend(args.iter().copied());
         command.push("--json");
         failure(&pilot, &command, "COLAB_INPUT_INVALID");
@@ -4371,7 +4425,8 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     failure(
         &pilot,
         &[
-            "page", "create", "--title", "Plan", "--layout", "canvas", "--reason", &long, "--json",
+            "page", "create", "--html", "--title", "Plan", "--layout", "canvas", "--reason", &long,
+            "--json",
         ],
         "COLAB_INPUT_INVALID",
     );
@@ -4379,7 +4434,7 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     let freeform = pilot
         .command()
         .args([
-            "page", "create", "--title", "Plan", "--layout", "freeform", "--json",
+            "page", "create", "--html", "--title", "Plan", "--layout", "freeform", "--json",
         ])
         .output()
         .unwrap();
@@ -4416,7 +4471,7 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let mut ids = Vec::new();
     for (index, (layout, kind, why)) in cases.iter().enumerate() {
         let title = format!("Layout {index}");
-        let mut command = vec!["page", "create", "--title", title.as_str()];
+        let mut command = vec!["page", "create", "--html", "--title", title.as_str()];
         command.extend(layout.iter().copied());
         command.push("--json");
         let created = pilot.call(&command);
@@ -4473,7 +4528,9 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     // The human create result points at what to read before writing markup.
     let human = pilot
         .command()
-        .args(["page", "create", "--title", "Human", "--layout", "column"])
+        .args([
+            "page", "create", "--html", "--title", "Human", "--layout", "column",
+        ])
         .output()
         .unwrap();
     let text = String::from_utf8(human.stdout).unwrap();
@@ -4505,6 +4562,7 @@ fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() 
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Opt-in",
             "--layout",
@@ -4595,6 +4653,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             name,
             "--template",
@@ -4628,6 +4687,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
     let again = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "again",
         "--template",
@@ -4655,6 +4715,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Human",
             "--template",
@@ -4675,7 +4736,15 @@ fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
         vec!["--reason", "why"],
         vec!["--file", "page.html"],
     ] {
-        let mut command = vec!["page", "create", "--title", "Plan", "--template", "report"];
+        let mut command = vec![
+            "page",
+            "create",
+            "--html",
+            "--title",
+            "Plan",
+            "--template",
+            "report",
+        ];
         command.extend(extra.iter().copied());
         let output = pilot.command().args(&command).output().unwrap();
         assert_eq!(output.status.code(), Some(1), "{output:?}");
@@ -4686,7 +4755,15 @@ fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
     }
     let unknown = pilot
         .command()
-        .args(["page", "create", "--title", "Plan", "--template", "memo"])
+        .args([
+            "page",
+            "create",
+            "--html",
+            "--title",
+            "Plan",
+            "--template",
+            "memo",
+        ])
         .output()
         .unwrap();
     assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
@@ -4713,7 +4790,7 @@ fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
         let created = pilot.call(&[
-            "page", "create", "--title", "Board", "--layout", "column", "--json",
+            "page", "create", "--html", "--title", "Board", "--layout", "column", "--json",
         ]);
         let id = created["pageId"].as_str().unwrap().to_owned();
         let file = pilot.root.join("page.html");
@@ -4725,8 +4802,8 @@ fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
         if serving {
             // Through the running serve, creation carries the whole layout and its reason too.
             let served = pilot.call(&[
-                "page", "create", "--title", "Served", "--layout", "canvas", "--reason", "A board",
-                "--json",
+                "page", "create", "--html", "--title", "Served", "--layout", "canvas", "--reason",
+                "A board", "--json",
             ]);
             assert_eq!(served["layout"], "canvas", "{served}");
             let shown = pilot.call(&["show", served["pageId"].as_str().unwrap(), "--json"]);
@@ -4860,7 +4937,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         let out = pilot
             .command_with_creation_door(status)
             .args([
-                "page", "create", "--title", "Linked", "--layout", "column", "--json",
+                "page", "create", "--html", "--title", "Linked", "--layout", "column", "--json",
             ])
             .output()
             .unwrap();
@@ -4870,7 +4947,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
     };
     // No door (the fixture core has no remote status): relative path, no url.
     let plain = pilot.call(&[
-        "page", "create", "--title", "Plain", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Plain", "--layout", "column", "--json",
     ]);
     assert!(plain.get("url").is_none());
     for status in [
@@ -4917,6 +4994,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Human link",
             "--layout",
@@ -4934,7 +5012,9 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
     // A stopped opt-in is exact; an extra field is malformed rather than evidence of stopping.
     let stopped = pilot
         .command_with_creation_door(r#"{"running":false,"lastPort":53253}"#)
-        .args(["page", "create", "--title", "Stopped", "--layout", "column"])
+        .args([
+            "page", "create", "--html", "--title", "Stopped", "--layout", "column",
+        ])
         .output()
         .unwrap();
     let text = String::from_utf8(stopped.stdout).unwrap();
@@ -4947,6 +5027,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Malformed stopped",
             "--layout",
@@ -4971,7 +5052,8 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         .command()
         .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
         .args([
-            "page", "create", "--title", "Old CLI", "--layout", "column", "--open", "--json",
+            "page", "create", "--html", "--title", "Old CLI", "--layout", "column", "--open",
+            "--json",
         ])
         .output()
         .unwrap();
@@ -4991,6 +5073,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Old CLI human",
             "--layout",
@@ -5039,7 +5122,7 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     let started = Instant::now();
     let status = cmd
         .args([
-            "page", "create", "--title", "Slow", "--layout", "column", "--json",
+            "page", "create", "--html", "--title", "Slow", "--layout", "column", "--json",
         ])
         .stdout(fs::File::create(&capture).unwrap())
         .status()
@@ -5073,7 +5156,7 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
 fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&[
-        "page", "create", "--title", "Notes", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     confirm_cloud_copy(&pilot, page, 30 * DAY_MS);
@@ -5338,6 +5421,7 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
                 pilot.call(&[
                     "page",
                     "create",
+                    "--html",
                     "--title",
                     "Later page",
                     "--layout",
@@ -5716,6 +5800,7 @@ fn cli_member_changes_capture_complete_verified_assignments() {
             let second = pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Second assignment",
                 "--layout",
@@ -5961,7 +6046,7 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
         "(ready)",
         "attached · http://127.0.0.1:53253",
         "no",
-        "create tmt colab page create --title <title> --layout column",
+        "create tmt colab page create --title <title>",
         "pair for page access: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
@@ -5991,10 +6076,7 @@ fn serve_starts_a_door_without_a_port_and_stops_it_with_ctrl_c() {
     assert!(ready["paired"].is_null());
     assert_eq!(
         ready["next"],
-        json!([
-            "tmt remote pair",
-            "tmt colab page create --title <title> --layout column"
-        ])
+        json!(["tmt remote pair", "tmt colab page create --title <title>"])
     );
     // Remote owns the port policy: Colab passes none and never retries.
     assert_eq!(
@@ -6016,7 +6098,7 @@ fn serve_without_remote_runs_local_only_and_names_the_install_step() {
     assert!(ready["url"].is_null() && ready["origin"].is_null() && ready["paired"].is_null());
     assert_eq!(
         ready["next"],
-        json!(["tmt colab page create --title <title> --layout column"])
+        json!(["tmt colab page create --title <title>"])
     );
     assert_eq!(
         ready["warning"],
@@ -6444,7 +6526,7 @@ fn serve_preserves_remote_start_errors_on_either_stream_in_human_and_json_output
                 assert!(ready["url"].is_null() && ready["origin"].is_null());
                 assert_eq!(
                     ready["next"],
-                    json!(["tmt colab page create --title <title> --layout column"])
+                    json!(["tmt colab page create --title <title>"])
                 );
                 assert_eq!(fs::read_to_string(&serving.err).unwrap(), "");
             } else {
@@ -6568,7 +6650,7 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     let pilot = Pilot::new(None);
     pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[{"clientId":"revoked-browser","revoked":true},{"clientId":"laptop","revoked":false}],"nextCursor":null}"#);
     let created = pilot.call(&[
-        "page", "create", "--title", "First", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "First", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let mut serving = Serving::start(
@@ -6761,7 +6843,7 @@ fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_comma
     ] {
         let pilot = Pilot::new(None);
         pilot.call(&[
-            "page", "create", "--title", "First", "--layout", "column", "--json",
+            "page", "create", "--html", "--title", "First", "--layout", "column", "--json",
         ]);
         let mut serving = Serving::start(&pilot, pilot.remote_core(core, Serve::Fail), &[]);
         let text = Serving::wait_for(&serving.out, "open");
@@ -6788,6 +6870,7 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Published",
         "--layout",
@@ -6845,7 +6928,7 @@ fn an_agent_patch_labels_its_publication_with_the_caller_it_already_observed() {
     )
     .unwrap();
     let created = pilot.call(&[
-        "page", "create", "--title", "Once", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Once", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let file = pilot.root.join("page.html");
@@ -6933,7 +7016,7 @@ fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
     let pilot = Pilot::new(None);
     pilot.opener(0);
     let created = pilot.call(&[
-        "page", "create", "--title", "Only", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Only", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     pilot.call(&["settings", "open", "off", "--json"]);
@@ -6989,6 +7072,7 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     command.args([
                         "page",
                         "create",
+                        "--html",
                         "--title",
                         "Created",
                         "--layout",
@@ -7119,7 +7203,7 @@ fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation
             .env_remove("CI")
             .env("DISPLAY", ":fixture")
             .args([
-                "page", "create", "--title", "Kept", "--layout", "column", "--json",
+                "page", "create", "--html", "--title", "Kept", "--layout", "column", "--json",
             ])
             .output()
             .unwrap();
@@ -7154,7 +7238,9 @@ fn create_with_launch(
         .env_remove("CI")
         .env("DISPLAY", ":fixture")
         .env("TMT_EXECUTABLE", core)
-        .args(["page", "create", "--title", "Created", "--layout", "column"])
+        .args([
+            "page", "create", "--html", "--title", "Created", "--layout", "column",
+        ])
         .args(extra);
     command.output().unwrap()
 }
@@ -7530,6 +7616,7 @@ fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Idle page",
         "--layout",
@@ -7642,6 +7729,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Relative expiry",
         "--layout",
@@ -7831,7 +7919,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     let pilot = Pilot::new(None);
     pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let created = pilot.call(&[
-        "page", "create", "--title", "Notes", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let path = format!("/colab/p/{}", &page[..8]);
@@ -8413,7 +8501,7 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
             pilot.creation_core(Some(CREATION_DOOR), None),
         )
         .args([
-            "page", "create", "--title", "Kept", "--layout", "column", "--open",
+            "page", "create", "--html", "--title", "Kept", "--layout", "column", "--open",
         ])
         .output()
         .unwrap();
@@ -8682,7 +8770,7 @@ fn an_error_envelope_from_remote_is_shown_as_it_is_and_never_starts_a_second_doo
 fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&[
-        "page", "create", "--title", "Notes", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let human = |envelope: &str, args: &[&str]| {
@@ -8722,6 +8810,7 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
             .args([
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Refused link",
                 "--layout",
@@ -8761,6 +8850,7 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
             .args([
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Refused JSON link",
                 "--layout",
@@ -8810,7 +8900,7 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
 fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
     let pilot = Pilot::new(None);
     pilot.call(&[
-        "page", "create", "--title", "Kept", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Kept", "--layout", "column", "--json",
     ]);
     let mut serving = Serving::start(
         &pilot,
@@ -9018,6 +9108,7 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Ask and flag",
         "--layout",
@@ -9113,6 +9204,7 @@ fn the_starters_examples_are_inert_in_a_created_page_and_create_no_question_or_r
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "From the starter",
         "--layout",
@@ -9138,6 +9230,7 @@ fn dashboard_skill_examples_publish_the_documented_data_without_changing_the_sou
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Source",
         "--layout",
@@ -9876,6 +9969,7 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Styled",
         "--layout",
@@ -9891,6 +9985,7 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
     let templated = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Report",
         "--template",
@@ -9905,6 +10000,7 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
         .args([
             "page",
             "create",
+            "--html",
             "--title",
             "Again",
             "--layout",
@@ -10099,7 +10195,7 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let strict = failure_args(
         &pilot,
         &[
-            "page", "create", "--title", "Strict", "--layout", "column", "--file", dirty,
+            "page", "create", "--html", "--title", "Strict", "--layout", "column", "--file", dirty,
             "--strict", "--json",
         ],
     );
@@ -10112,7 +10208,8 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
 
     // Without --strict the page is created and the findings are warnings.
     let created = pilot.call(&[
-        "page", "create", "--title", "Warned", "--layout", "column", "--file", dirty, "--json",
+        "page", "create", "--html", "--title", "Warned", "--layout", "column", "--file", dirty,
+        "--json",
     ]);
     assert_eq!(finding_codes(&created["warnings"]), expected);
     let id = created["pageId"].as_str().unwrap();
@@ -10125,6 +10222,7 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let plain = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Plain",
         "--layout",
@@ -10137,7 +10235,7 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let human = pilot
         .command()
         .args([
-            "page", "create", "--title", "Human", "--layout", "column", "--file", dirty,
+            "page", "create", "--html", "--title", "Human", "--layout", "column", "--file", dirty,
         ])
         .output()
         .unwrap();
@@ -10193,7 +10291,8 @@ fn a_new_page_has_no_attachments_so_every_reference_in_it_is_unresolved() {
     .unwrap();
     let path = file.to_str().unwrap();
     let created = pilot.call(&[
-        "page", "create", "--title", "Refs", "--layout", "column", "--file", path, "--json",
+        "page", "create", "--html", "--title", "Refs", "--layout", "column", "--file", path,
+        "--json",
     ]);
     let mut codes = finding_codes(&created["warnings"]);
     codes.sort();
@@ -10232,6 +10331,7 @@ fn titled_page(pilot: &Pilot, title: &str) -> String {
     pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         title,
         "--layout",
@@ -10531,6 +10631,7 @@ fn ranged_read_page(pilot: &Pilot, source: &str) -> String {
     pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Ranged source",
         "--layout",
@@ -11002,6 +11103,7 @@ fn page_edit_lock_cli_replaces_and_unlocks_and_stale_requires_observed_nonactive
     let (ok, created) = run(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Locked page",
         "--layout",
@@ -11114,6 +11216,7 @@ fn holder_patch_releases_a_disjoint_quote_in_the_same_list_item_only_after_succe
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Patch lock",
             "--layout",
@@ -11197,6 +11300,7 @@ fn agent_patch_without_canonical_identity_skips_acquisition_and_releases_nothing
                 let created = pilot.call(&[
                     "page",
                     "create",
+                    "--html",
                     "--title",
                     "Unresolved patch caller",
                     "--layout",
@@ -11320,6 +11424,7 @@ fn agent_patch_auto_lock_publishes_acquisition_before_content_and_release_after_
             let created = pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Auto lock",
                 "--layout",
@@ -11468,6 +11573,7 @@ fn agent_patch_auto_lock_is_visible_during_evaluation_and_released_when_evaluati
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Failed patch lock",
             "--layout",
@@ -11601,6 +11707,7 @@ fn agent_patch_reports_failed_automatic_cleanup_without_hiding_the_original_erro
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Cleanup failure",
             "--layout",
@@ -11693,6 +11800,7 @@ fn agent_patch_auto_lock_refuses_stale_input_and_never_replays_an_uncertain_acqu
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Acquisition failure",
         "--layout",
@@ -11760,6 +11868,7 @@ fn agent_patch_keeps_its_disjoint_lock_when_caller_observation_is_lost() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Lost caller",
         "--layout",
@@ -11823,6 +11932,7 @@ fn repeated_lock_unlock_and_compaction_keep_one_current_holder_cell() {
     let created = run(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Bounded locks",
         "--layout",
@@ -11880,6 +11990,7 @@ fn a_failed_post_patch_release_reports_saved_content_and_the_captured_unlock_com
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Release failure",
         "--layout",
@@ -11956,6 +12067,7 @@ fn retired_local_writer_holder_is_hidden_and_can_be_unlocked_by_another_identity
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Retired holder",
         "--layout",
@@ -11998,6 +12110,7 @@ fn agent_patch_refuses_foreign_overlap_but_people_disjoint_and_noop_edits_procee
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Guarded edit",
             "--layout",
@@ -12094,6 +12207,7 @@ fn agent_patch_lock_lifecycle_keeps_unknown_and_failed_presence_but_releases_for
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Lock lifecycle guard",
         "--layout",
@@ -12195,6 +12309,7 @@ fn agent_patch_rechecks_a_lock_acquired_after_its_initial_lock_snapshot() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Concurrent lock",
         "--layout",
@@ -12280,6 +12395,7 @@ fn a_write_between_a_patch_read_and_its_commit_is_never_overwritten() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Concurrent write",
         "--layout",
@@ -12378,6 +12494,7 @@ fn page_compact_history_current_preserves_native_edits() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Control",
         "--layout",
@@ -12418,6 +12535,7 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Storage",
         "--layout",
@@ -12483,6 +12601,7 @@ fn storage_reclaim_space_dry_run_reports_pages_without_mutating_them() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Space preview",
         "--layout",
@@ -12523,6 +12642,7 @@ fn storage_reclaim_keeps_page_source_and_reports_actual_result_offline_and_servi
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Reclaim",
             "--layout",
@@ -12566,6 +12686,7 @@ fn storage_reclaim_failure_reports_the_measured_result() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Failed reclaim",
         "--layout",
@@ -12614,6 +12735,7 @@ fn storage_reclaim_skips_shared_history_and_keeps_page_revision() {
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Shared history",
         "--layout",
@@ -12648,6 +12770,7 @@ fn check_subpage_refusal(case: &str) {
             let made = pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 title,
                 "--layout",
@@ -12734,6 +12857,7 @@ fn an_archived_sub_page_stays_listed_marked_archived_and_leaves_the_counts() {
             let made = pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 title,
                 "--layout",
@@ -12801,6 +12925,7 @@ fn subpages_nest_at_any_depth_and_create_below_a_child() {
                 let made = pilot.call(&[
                     "page",
                     "create",
+                    "--html",
                     "--title",
                     title,
                     "--layout",
@@ -12876,6 +13001,7 @@ fn subpage_commands_list_attach_move_detach_and_create_with_the_summary_beside_t
             pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 title,
                 "--layout",
@@ -12982,7 +13108,7 @@ fn subpage_commands_list_attach_move_detach_and_create_with_the_summary_beside_t
             );
         }
         assert_eq!(listed(&top)["revision"], before["revision"]);
-        // Create makes a page with the title as its heading, then attaches it.
+        // Create makes an empty blocks page by default, then attaches it.
         let created = pilot.call(&[
             "subpage",
             "create",
@@ -12993,11 +13119,24 @@ fn subpage_commands_list_attach_move_detach_and_create_with_the_summary_beside_t
         ]);
         let child = created["childPage"].as_str().unwrap().to_owned();
         assert_eq!(listed(&top)["children"], json!([two, child]));
-        let read = pilot.call(&["page", "read", &child, "--json"]);
-        assert_eq!(read["source"], "<h1>Fresh &lt;one&gt;</h1>\n");
+        let blocks = pilot.call(&["block", "ls", &child, "--json"]);
+        assert_eq!(blocks["blocks"], json!([]));
+        // An authored HTML page is explicit and retains the title heading.
+        let html = pilot.call(&[
+            "subpage",
+            "create",
+            &top,
+            "--title",
+            "HTML <one>",
+            "--html",
+            "--json",
+        ]);
+        let html_id = html["childPage"].as_str().unwrap();
+        let read = pilot.call(&["page", "read", html_id, "--json"]);
+        assert_eq!(read["source"], "<h1>HTML &lt;one&gt;</h1>\n");
         // The human list names each sub-page with its state.
         let text = String::from_utf8(run(&pilot, &["subpage", "ls", &top]).stdout).unwrap();
-        assert!(text.contains("in-progress (0/2 done)"), "{text}");
+        assert!(text.contains("in-progress (0/3 done)"), "{text}");
         assert!(
             text.contains(&format!("{child}  todo  Fresh <one>")),
             "{text}"
@@ -13079,6 +13218,7 @@ fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
                 let made = pilot.call(&[
                     "page",
                     "create",
+                    "--html",
                     "--title",
                     title,
                     "--layout",
@@ -13177,6 +13317,7 @@ fn subpage_detach_repairs_a_legacy_cycle() {
             let made = pilot.call(&[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 title,
                 "--layout",
@@ -13219,6 +13360,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
                 let made = pilot.call(&[
                     "page",
                     "create",
+                    "--html",
                     "--title",
                     title,
                     "--layout",
@@ -13320,6 +13462,7 @@ fn page_state_commands_read_filter_and_never_auto_complete() {
             &[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "State test",
                 "--layout",
@@ -13697,6 +13840,7 @@ fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() 
         let copy = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Copy",
             "--layout",
@@ -13935,15 +14079,7 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
         }
         let created = call(
             &pilot,
-            &[
-                "page",
-                "create",
-                "--title",
-                "Plan",
-                "--structured",
-                "--no-open",
-                "--json",
-            ],
+            &["page", "create", "--title", "Plan", "--no-open", "--json"],
         );
         let page = created["pageId"].as_str().unwrap();
         let blocks = |all: bool| {
@@ -14277,6 +14413,26 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
         assert_eq!(blocks(true).len(), before);
 
         // A structured page has no HTML source to write or patch; an HTML page has no blocks.
+        // A newly created blocks page has no retained legacy source, even though its HTML root is empty.
+        assert_eq!(
+            code(&pilot, &["page", "read", page, "--legacy", "--json"]),
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "page",
+                    "create",
+                    "--title",
+                    "Needs html",
+                    "--layout",
+                    "column",
+                    "--json"
+                ],
+            ),
+            "COLAB_INPUT_INVALID"
+        );
         assert_eq!(
             code(
                 &pilot,
@@ -14298,6 +14454,7 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
             &[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Html",
                 "--layout",
@@ -14314,4 +14471,186 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
             "COLAB_NOT_STRUCTURED"
         );
     }
+}
+
+#[test]
+fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
+    let pilot = Pilot::new(None);
+    let source = "<p>café 🐈</p>\r\n";
+    let file = pilot.root.join("source.html");
+    fs::write(&file, source).unwrap();
+    let run = |args: &[&str]| {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let call = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()
+    };
+    let created = call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Legacy",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    assert!(
+        !run(&["page", "read", page, "--legacy", "--json"])
+            .status
+            .success()
+    );
+    let refused = run(&["page", "convert", page, "--json"]);
+    assert!(!refused.status.success());
+    call(&["page", "convert", page, "--yes", "--json"]);
+    assert_eq!(
+        call(&["page", "read", page, "--legacy", "--json"])["source"],
+        source
+    );
+    let repeated = run(&["page", "convert", page, "--yes", "--json"]);
+    assert!(!repeated.status.success());
+    assert_eq!(
+        call(&["page", "read", page, "--legacy", "--json"])["source"],
+        source
+    );
+    let destination = pilot.root.join("legacy-export");
+    fs::create_dir(&destination).unwrap();
+    let exported = call(&[
+        "export",
+        page,
+        "--dir",
+        destination.to_str().unwrap(),
+        "--json",
+    ]);
+    let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+    assert_eq!(
+        fs::read(directory.join("legacy.html")).unwrap(),
+        source.as_bytes()
+    );
+    assert!(
+        !fs::read_to_string(directory.join("page.html"))
+            .unwrap()
+            .contains("café")
+    );
+    call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "paragraph",
+        "--text",
+        "New",
+        "--json",
+    ]);
+    let refused = run(&["page", "convert", page, "--revert", "--json"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stdout).contains("removes the 1 block"));
+    let seen = call(&["block", "ls", page, "--json"]);
+    let seen_revision = seen["revision"].as_str().unwrap();
+    call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "paragraph",
+        "--text",
+        "Later",
+        "--json",
+    ]);
+    let stale_revert = run(&[
+        "page",
+        "convert",
+        page,
+        "--revert",
+        "--yes",
+        "--expected-revision",
+        seen_revision,
+        "--json",
+    ]);
+    assert!(!stale_revert.status.success());
+    assert_eq!(
+        call(&["block", "ls", page, "--json"])["blocks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    call(&["page", "convert", page, "--revert", "--yes", "--json"]);
+    assert_eq!(call(&["page", "read", page, "--json"])["source"], source);
+
+    fs::write(&file, "").unwrap();
+    let empty = call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Empty",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let empty_page = empty["pageId"].as_str().unwrap();
+    call(&["page", "convert", empty_page, "--yes", "--json"]);
+    assert_eq!(
+        call(&["page", "read", empty_page, "--legacy", "--json"])["source"],
+        ""
+    );
+    call(&["page", "convert", empty_page, "--revert", "--json"]);
+
+    fs::write(&file, source).unwrap();
+    let stale = call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Stale",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let stale_page = stale["pageId"].as_str().unwrap();
+    let before = call(&["page", "read", stale_page, "--json"]);
+    let revision = before["revision"].as_str().unwrap();
+    call(&[
+        "page",
+        "patch",
+        stale_page,
+        "--find",
+        "café",
+        "--replace",
+        "Café",
+        "--json",
+    ]);
+    let refused = run(&[
+        "page",
+        "convert",
+        stale_page,
+        "--yes",
+        "--expected-revision",
+        revision,
+        "--json",
+    ]);
+    assert!(!refused.status.success());
+    assert_eq!(
+        call(&["page", "read", stale_page, "--json"])["source"],
+        source.replace("café", "Café")
+    );
 }

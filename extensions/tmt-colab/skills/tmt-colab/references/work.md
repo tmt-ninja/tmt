@@ -47,6 +47,7 @@ tried again at the next serve. Until it is rewritten, every `subpage` and `summa
 is refused as `COLAB_WORK_NOT_MIGRATED`: run `tmt colab serve` first. Do not recreate old tasks
 yourself: tell the person where the copy is.
 
-`subpage create` makes the page first, with the title as its heading, then attaches it. If the
+`subpage create` makes an empty structured page first, then attaches it. Use `--html` for an HTML
+page with the title as its heading. If the
 attach fails it prints the page it made and the `subpage attach` command that finishes; it never
 searches for a page to adopt, so running it again makes another page.

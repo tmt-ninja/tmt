@@ -25,8 +25,10 @@ seed; never create or disclose them to bypass pairing.
 
 ## Start and ask
 
-Start a page with `tmt colab page create --title T` (the space's default template) or
-`--template NAME`: [templates](references/templates.md) (`tmt colab skill templates`).
+Start a structured page with `tmt colab page create --title T` and edit it with
+`tmt colab block` (see [blocks](references/blocks.md)). To create an HTML page from a
+template, use `page create --html --template NAME`: [templates](references/templates.md)
+(`tmt colab skill templates`).
 Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
 
 ```html
@@ -66,12 +68,12 @@ browser they intend to use, compare the four words with the terminal and confirm
 there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find pages: `tmt colab ls --json` (cached titles; folds misses). Create from UTF-8 with
+Find pages: `tmt colab ls --json` (cached titles; folds misses). Create an HTML page from UTF-8 with `--html` and
 `--layout column` (most pages), `full` or `canvas --reason TEXT`, or a template (above);
 `page layout PAGE KIND` changes it:
 
 ```sh
-tmt colab page create --title "Weekly plan" --layout column --file page.html --json
+tmt colab page create --html --title "Weekly plan" --layout column --file page.html --json
 ```
 
 Use `--file -` for stdin; omit `--file` for an empty page. Returns
@@ -111,7 +113,7 @@ tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
 [editing](references/editing.md) (`tmt colab skill editing`) for lock/unlock and page hints.
 On `COLAB_PATCH_CONFLICT`, reread and rebuild the patch. Existing pages use `page patch`;
 `page write` refuses them. Repeat `--find/--replace` pairs for several non-overlapping changes
-against the original source in one revision. Patches replacing over half the source warn. Use `page create --file` for a new page.
+against the original source in one revision. Patches replacing over half the source warn. Use `page create --html --file` for a new page.
 
 `revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);
 title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
@@ -126,7 +128,7 @@ editing reference; never delete the original to clear a limit.
 ## Page type and look
 
 Dashboards: [dashboard](references/dashboard.md) (`tmt colab skill dashboard`). Edit data only; the app owns the look.
-Structured pages made of blocks (`page create --structured`): [blocks](references/blocks.md) (`tmt colab skill blocks`).
+Structured pages made of blocks (`page create`): [blocks](references/blocks.md) (`tmt colab skill blocks`).
 HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
 [components](references/components.md) (`tmt colab skill components`) and
 [page-style](references/page-style.md) (`tmt colab skill page-style`).

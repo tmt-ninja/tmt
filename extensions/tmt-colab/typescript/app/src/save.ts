@@ -53,7 +53,13 @@ export type WorkAction =
   | 'subpage.create';
 
 /** Closed metadata actions; the native owner checks the expected revision and body. */
-export type MetadataAction = 'creator.set' | 'question.handle' | 'question.reopen' | 'page.state';
+export type MetadataAction =
+  | 'creator.set'
+  | 'question.handle'
+  | 'question.reopen'
+  | 'page.state'
+  | 'page.convert'
+  | 'page.revert';
 
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {

@@ -534,7 +534,24 @@ pub fn read_metadata(
     page: &str,
     decoder: &mut Decoder,
 ) -> Result<Page> {
-    Ok(read_with_meta(store, key, page, decoder, true)?.0)
+    let (mut read, meta, _) = read_with_meta(store, key, page, decoder, true)?;
+    if meta["pageType"] == "blocks" {
+        read.source.clear();
+    }
+    Ok(read)
+}
+/// Read the frozen HTML of a converted page, including an originally empty source.
+pub fn read_legacy(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<Page> {
+    let (read, meta, _) = read_with_meta(store, key, page, decoder, true)?;
+    if meta["pageType"] != "blocks" || !meta.get("convertedAt").is_some_and(|v| v.is_u64()) {
+        return Err(Fault::Invalid.into());
+    }
+    Ok(read)
 }
 /// The authenticated bytes, source and content metadata a patch read and evaluated, at the
 /// revision it read them. A preparation that finds the page still at that revision reuses them
@@ -960,6 +977,11 @@ fn prepare_structured(
         decoder::{ContentBatch, StructuredEdit},
         publication::PublicationKind,
     };
+    if action.kind == crate::decoder::StructuredKind::Conversion
+        && action.expected_revision.is_none()
+    {
+        return Err(Fault::Invalid.into());
+    }
     values::generated_id(page)?;
     let s = snapshot(store, key, page, true)?;
     let revision = token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?;

@@ -944,7 +944,7 @@ export const text = {
     newPageClose: 'Close',
     newPageHint: 'Return to your TMT workspace after creating the page.',
     newPageBody: 'Pages are created on your machine. Run this in a terminal there:',
-    newPageCommand: 'tmt colab page create --title "Notes" --layout column',
+    newPageCommand: 'tmt colab page create --title "Notes"',
     /** The list's count line: how many rows are drawn of how many match. */
     showing: (shown: number, total: number) =>
       shown < total
@@ -1223,6 +1223,20 @@ export const text = {
     system: 'Theme: System',
   },
   source: 'Source',
+  convertStructured: 'Convert to structured page…',
+  revertStructured: 'Switch back to HTML…',
+  conversion: {
+    title: 'Convert to a structured page?',
+    body: "This page becomes an empty structured page. The old HTML is kept with the page; you can read it or switch back at any time. The current page's layout is removed.",
+    convert: 'Convert page',
+    revertTitle: 'Switch back to HTML?',
+    revertBody: (count: number) =>
+      `The page shows its old HTML again. Switching back removes the ${count} ${count === 1 ? 'block' : 'blocks'} written since conversion.`,
+    revert: 'Switch back',
+    failed: 'Page conversion failed',
+    readFailed: 'Unable to read the current page.',
+    changeFailed: 'Unable to change this page.',
+  },
   sourceSave: 'Save',
   sourceEditorLabel: 'Page source',
   sourceFormat: 'HTML',

@@ -175,6 +175,7 @@ pub trait Admission: Send {
         _operation_id: &str,
         _title: &str,
         _source: &str,
+        _blocks: bool,
         _now: u64,
     ) -> crate::Result<()> {
         Err(crate::page::Fault::Denied.into())
@@ -873,8 +874,8 @@ impl<A: Admission> Server<A> {
             } else {
                 match (&job.subpage, &job.hunks) {
                     (Some(subpage), _) if crate::page::subpage::is_create(&subpage.action) => {
-                        let mut create = |page: &str, title: &str, source: &str| {
-                            self.create_child(job, page, title, source)
+                        let mut create = |page: &str, title: &str, source: &str, blocks: bool| {
+                            self.create_child(job, page, title, source, blocks)
                         };
                         let created = crate::page::subpage_create::prepare(
                             &job.open,
@@ -922,6 +923,7 @@ impl<A: Admission> Server<A> {
         page: &str,
         title: &str,
         source: &str,
+        blocks: bool,
     ) -> crate::Result<()> {
         let now = crate::registration::now_ms()?;
         let mut state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
@@ -931,7 +933,7 @@ impl<A: Admission> Server<A> {
             .map_err(|_| crate::page::Fault::Denied)?;
         state
             .admission
-            .create_child(page, &job.save.operation_id, title, source, now)?;
+            .create_child(page, &job.save.operation_id, title, source, blocks, now)?;
         state.recheck();
         Ok(())
     }

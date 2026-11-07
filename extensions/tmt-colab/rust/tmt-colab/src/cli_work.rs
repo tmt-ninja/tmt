@@ -3,7 +3,7 @@
 //! read (or the `--expected-revision` it was given). An attach the link rules refuse (one parent,
 //! no loop, an available page) is refused here, before anything is prepared (`work_admission`).
 use crate::cli_management::{fail, resolve_page};
-use clap::{Arg, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{Value, json};
 use std::{
     io::Write,
@@ -125,11 +125,12 @@ pub fn subpage_command() -> Command {
         spec(
             "create",
             "Make a new page and attach it",
-            "The new page starts with the title as its heading. The page is made first, so an attach that fails leaves the page and says how to finish; it never searches for a page to adopt.",
+            "The new page is an empty structured page. Use --html for an HTML page with the title as its heading. The page is made first, so an attach that fails leaves the page and says how to finish; it never searches for a page to adopt.",
             example!("tmt colab subpage create 10000000-0000-4000-8000-000000000001 --title 'Launch checklist' --json"),
         )
         .arg(crate::cli_grammar::page())
-        .arg(text_arg("title", "The new page's title").required(true)),
+        .arg(text_arg("title", "The new page's title").required(true))
+        .arg(Arg::new("html").long("html").action(ArgAction::SetTrue).help("Create an HTML page instead")),
     )
 }
 
@@ -519,16 +520,20 @@ fn create_subpage(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
     if let Some(why) = Graph(&found).creation_refusal(&page_id) {
         return Err(fault(work_admission::link_refusal(&why, &page_id, "")));
     }
-    let created = crate::cli_management::commit_creation(
-        root,
-        &title,
-        tmt_colab::subpage_create::child_source(&title),
-        Some(&tmt_colab::decoder::PageLayout {
-            kind: tmt_colab::decoder::LayoutKind::Column,
-            reason: None,
-        }),
-        false,
-    )?;
+    let created = if args.get_flag("html") {
+        crate::cli_management::commit_creation(
+            root,
+            &title,
+            tmt_colab::subpage_create::child_source(&title),
+            Some(&tmt_colab::decoder::PageLayout {
+                kind: tmt_colab::decoder::LayoutKind::Column,
+                reason: None,
+            }),
+            false,
+        )?
+    } else {
+        crate::cli_management::commit_blocks_creation(root, &title)?
+    };
     let child = created.page_id;
     let finish = format!(
         "The page {child} was created; finish with: tmt colab subpage attach {page_id} {child}"
