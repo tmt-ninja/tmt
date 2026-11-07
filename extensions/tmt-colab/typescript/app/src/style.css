@@ -46,9 +46,10 @@ a:not(
   ):hover {
   color: var(--c-accent);
 }
+/* DS block parts draw their own pressed state (the mockup toolbar's segments). */
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
-  )[aria-pressed='true'] {
+  ):not(.tmt-block-mockup-segments > button)[aria-pressed='true'] {
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }
@@ -57,6 +58,85 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
 :focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+/* The drag ghost shows the block's first line only. */
+.tmt-block-ghost-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The status line after a delete sits at the bottom centre of the window, over the page and under
+   an open sheet's scrim, which it never covers. */
+.tmt-block-toast-place {
+  position: fixed;
+  inset: auto 0 calc(16px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.tmt-block-toast-place > * {
+  pointer-events: auto;
+}
+/* The insert menu opens under its block, over what follows; the phone sheet sits on the bottom
+   edge (#6005). */
+.tmt-block-insert {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  padding-top: 4px;
+}
+/* The phone sheet sits on the viewport's bottom edge, above the bottom safe area, over the
+   design system's scrim, so the page under it reads as inactive. */
+.tmt-block-insert[data-sheet] {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 env(safe-area-inset-bottom);
+  background: var(--tmt-ui-surface-scrim);
+}
+/* The block the slash was typed in stays above the scrim, so the person sees the filter text: it
+   lifts over the page, and its own content over the sheet's scrim. */
+.tmt-block:has(> .tmt-block-insert[data-sheet]) {
+  z-index: 21;
+}
+.tmt-block:has(> .tmt-block-insert[data-sheet]) > :not(.tmt-block-insert) {
+  position: relative;
+  z-index: 2;
+}
+.tmt-block-insert[data-sheet] {
+  z-index: 1;
+}
+/* The focused empty block's placeholder, over its editor in the design system's placeholder
+   colour; the block at rest shows none. */
+:has(> .tmt-block-editor-text) {
+  position: relative;
+}
+/* Lexical holds the text in its own paragraph: it takes the part's metrics, so typing draws the
+   block exactly as at rest. */
+.tmt-block-editor-text > p {
+  margin: 0;
+}
+/* Lexical wraps inline code in a bare <code> around the design system's part
+   (`.tmt-block-inline-code`): the wrapper takes no look of its own, so the line keeps its
+   height as at rest. */
+.tmt-block-editor-text code:not(.tmt-block-inline-code) {
+  font: inherit;
+}
+.tmt-block-editor-placeholder {
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--tmt-ui-color-secondary);
+  pointer-events: none;
+  user-select: none;
+}
+/* The block being typed in shows the block's selection tint, not a second frame around its text
+   (#6005). */
+.tmt-block-editor-text:focus-visible {
+  outline: none;
 }
 /* A heading that takes focus from code (an error view, so a screen reader reads it) is not a place
    to type or tab to: it announces itself and paints no frame. */
@@ -302,6 +382,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
 }
+/* A mockup block's sandboxed frame takes the page frame's look inside the mockup stage. */
+/* The stage's sheet insets its content as the DS stage example does; the frame still hugs it. */
+.tmt-block-mockup-frame {
+  padding: var(--tmt-ui-space-m);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-block-mockup-frame iframe,
 .frame-host iframe {
   display: block;
   color-scheme: light;

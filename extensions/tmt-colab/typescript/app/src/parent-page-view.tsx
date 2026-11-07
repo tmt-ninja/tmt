@@ -61,14 +61,15 @@ export function shareParentPageViews(source: ParentPageViewSource): ParentPageVi
 }
 
 /** This component and all page metadata stay in the trusted parent, outside the page frame. */
-function ParentPageView({
+export function ParentPageView({
   spec,
   source,
   onHeight,
 }: {
   spec: ParentPageViewSpec;
   source?: ParentPageViewSource;
-  onHeight: (height: number) => void;
+  /** The view's drawn height, for a frame slot that follows it; a page of blocks needs none. */
+  onHeight?: (height: number) => void;
 }) {
   const [rows, setRows] = useState<PageViewRecord[] | null | undefined>(undefined);
   const [filters, setFilters] = useState(spec.filters);
@@ -89,7 +90,7 @@ function ParentPageView({
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    const measure = () => onHeight(Math.ceil(element.getBoundingClientRect().height));
+    const measure = () => onHeight?.(Math.ceil(element.getBoundingClientRect().height));
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     measure();

@@ -28,6 +28,11 @@
 .tmt-block[data-kind='heading'] {
   margin-top: 32px;
 }
+/* A run of list items or of to-dos reads as one list: the block gap is only between runs. */
+.tmt-block[data-kind='list-item'] + .tmt-block[data-kind='list-item'],
+.tmt-block[data-kind='todo'] + .tmt-block[data-kind='todo'] {
+  margin-top: 0;
+}
 .tmt-block[data-kind='heading'][data-level='3'] {
   margin-top: 22px;
 }
@@ -281,6 +286,12 @@
   content: attr(data-placeholder);
   color: var(--tmt-ui-color-secondary);
 }
+/* An empty block keeps one line, with or without its placeholder, so it reads as space and does
+   not move when an editor opens in it. */
+.tmt-block-text[data-empty],
+.tmt-block-heading[data-empty] {
+  min-height: 1lh;
+}
 .tmt-block-list {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -384,6 +395,19 @@
 .tmt-block-callout > .tmt-ui-notice {
   margin: 0;
 }
+/* A callout is part of the document, so it sets every host notice variable itself: its body is
+   the document's text size and its heading a small in-document heading, never the host's own
+   notice sizes (Colab's header sets those large for its page notices). */
+.tmt-block-callout {
+  --tmt-ui-host-notice-mark-size: 18px;
+  --tmt-ui-host-notice-heading-size: 18px;
+  --tmt-ui-host-notice-heading-weight: 600;
+  --tmt-ui-host-notice-heading-tracking: normal;
+  --tmt-ui-host-notice-body-size: 15px;
+  --tmt-ui-host-notice-body-line-height: 1.6;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: var(--tmt-ui-space-l);
+}
 .tmt-block-code {
   overflow: hidden;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -440,6 +464,19 @@
 .tmt-block-code-body[data-wrap='false'] {
   overflow-x: auto;
   white-space: pre;
+}
+/* Inline marks on a block's text (MarkedText). */
+.tmt-block-inline-code {
+  padding: 0 4px;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-selection);
+  font-family: var(--tmt-ui-font-mono);
+  font-size: 0.9em;
+}
+.tmt-block-link {
+  color: var(--tmt-ui-color-text-action);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .tmt-block-mention {
   display: inline-flex;
@@ -794,6 +831,10 @@ a.tmt-block-mention:focus-visible {
 }
 .tmt-block-work-field textarea {
   width: 100%;
+}
+/* The work text sits on the label's line in any host, whatever its paragraph margins. */
+.tmt-block-work-field > p {
+  margin-block-start: 0;
 }
 @media (max-width: 760px) {
   .tmt-block-work-field {

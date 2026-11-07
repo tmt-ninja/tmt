@@ -2642,6 +2642,72 @@
       }
     },
     {
+      "name": "a link that is data",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "link",
+                "value": "data:text/html,<script>alert(1)</script>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a link with an upper-case script scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "link",
+                "value": "JAVASCRIPT:alert(1)"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a link with a file scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "link",
+                "value": "file:///etc/passwd"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "a link with a space",
       "blocks": {
         "10000000-0000-4000-8000-000000000001": {

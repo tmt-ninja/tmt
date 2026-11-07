@@ -89,6 +89,19 @@ function supportsCapabilities(bundle: DesignSystemBundle): boolean {
 
 /** `<system>` or `<system>@<version>#<hash>`; the system is its root page's id. */
 const PIN = /^([A-Za-z0-9_-]{1,128})(?:@(\d+\.\d+\.\d+)#(sha256-[0-9a-f]{64}))?$/;
+/** A pin's content from a system and an optional lock (`follow`, or `<version>#<hash>`), or null
+ * when they are not a pin's grammar: the frame is never handed a pin it would not parse itself. */
+export function pinContent(system: unknown, lock?: unknown): string | null {
+  const content =
+    lock === undefined || lock === 'follow'
+      ? `${String(system)}`
+      : `${String(system)}@${String(lock)}`;
+  return typeof system === 'string' &&
+    (lock === undefined || typeof lock === 'string') &&
+    PIN.test(content)
+    ? content
+    : null;
+}
 /** The page's pin: the first `<meta name="tmt-ds">` in document order, parsed with scripting off. */
 export function designSystemPin(source: string): DesignSystemPin | null {
   if (!source.includes(MARKER)) return null;

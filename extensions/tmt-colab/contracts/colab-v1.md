@@ -4584,7 +4584,9 @@ each answer; it posts each list's revisions on the BroadcastChannel of the same 
 new tab's `hello` with the latest. The other tabs only listen: a message that is not exactly
 `{v:1,type:"hello"}` or `{v:1,type:"revisions",listToken,revisions:[[pageId,revision],…]}` (a
 canonical list token, at most 1,000 canonical page IDs and revision tokens) is ignored, and a valid
-one is only a hint that pages moved, since every tab compiles from its own verified page reads. A
+one is only a hint that pages moved, since every tab compiles from its own verified page reads. The
+hint also decides whether a page open may reuse the last verified owner list (below), so a forged
+same-origin broadcast can at worst open a page from a stale but authentic verified list. A
 tab that becomes visible takes the lock (`steal`), so a hidden or frozen holder never stalls the
 rest; at that handover the old read is cancelled as the new one starts, held on the last token the
 tab heard, so a handover reads no whole list (a stale token only answers at once). When the holder closes, a waiting tab takes the lock. Where

@@ -81,6 +81,22 @@ export const text = {
     handle: 'Mark handled',
     reopen: 'Reopen',
   },
+  blockText: {
+    paragraph: 'Type / for blocks',
+    heading: 'Heading',
+  },
+  blockActions: {
+    label: 'Block actions',
+  },
+  blockDelete: {
+    deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
+    undo: 'Undo',
+  },
+  blockInsert: {
+    label: 'Insert a block',
+    empty: 'No matching block',
+    keys: '↑↓ choose · Enter insert · Esc close',
+  },
   pageLink: {
     close: 'Close',
     external: 'Open this link in a new tab?',
@@ -220,6 +236,10 @@ export const text = {
   brandIdentity: (connection: string) => `${text.product} · ${connection}`,
   byAuthor: (name: string) => `By ${name}`,
   unknownAuthor: 'Unknown author',
+  /** A question block whose registry entry names no agent, on a page with no creator. */
+  /** The meta line's name when no agent can be asked. */
+  questionNoAgent: 'No agent',
+  questionNoRecipient: 'No agent to answer: this page has no creator to ask.',
   latestPublisher: 'Latest publisher',
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',

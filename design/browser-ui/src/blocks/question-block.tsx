@@ -6,6 +6,8 @@ export interface QuestionBlockProps {
   agent: string;
   kind?: 'single' | 'multiple' | 'short';
   choices?: readonly string[];
+  /** Whether an Other answer may be written beside the choices (the default). */
+  other?: boolean;
   otherMax?: number;
   state?: 'waiting' | 'answered' | 'dismissed';
   answer?: string;
@@ -23,6 +25,7 @@ export function QuestionBlock({
   agent,
   kind = 'single',
   choices = [],
+  other: otherAllowed = true,
   otherMax = 200,
   state = 'waiting',
   answer,
@@ -116,7 +119,7 @@ export function QuestionBlock({
       /^[1-9]$/.test(event.key)
     ) {
       const index = Number(event.key) - 1;
-      if (index === choices.length) {
+      if (index === choices.length && otherAllowed) {
         event.preventDefault();
         setOther(true);
         if (kind === 'single') setSelected([]);
@@ -173,28 +176,32 @@ export function QuestionBlock({
                     )}
                   </label>
                 ))}
-                <label className="tmt-ui-choice">
-                  <input
-                    type={kind === 'multiple' ? 'checkbox' : 'radio'}
-                    className={kind === 'multiple' ? 'tmt-ui-checkbox' : 'tmt-ui-radio'}
-                    ref={otherChoice}
-                    aria-label="Other…"
-                    aria-keyshortcuts={choices.length < 9 ? String(choices.length + 1) : undefined}
-                    name={id}
-                    checked={other}
-                    onChange={(event) => {
-                      setOther(event.target.checked);
-                      if (kind === 'single') setSelected([]);
-                      if (!event.target.checked) setValue('');
-                    }}
-                  />
-                  <span className="tmt-ui-choice-text">Other…</span>
-                  {choices.length < 9 && (
-                    <kbd className="tmt-ui-choice-hint" aria-hidden="true">
-                      {choices.length + 1}
-                    </kbd>
-                  )}
-                </label>
+                {otherAllowed && (
+                  <label className="tmt-ui-choice">
+                    <input
+                      type={kind === 'multiple' ? 'checkbox' : 'radio'}
+                      className={kind === 'multiple' ? 'tmt-ui-checkbox' : 'tmt-ui-radio'}
+                      ref={otherChoice}
+                      aria-label="Other…"
+                      aria-keyshortcuts={
+                        choices.length < 9 ? String(choices.length + 1) : undefined
+                      }
+                      name={id}
+                      checked={other}
+                      onChange={(event) => {
+                        setOther(event.target.checked);
+                        if (kind === 'single') setSelected([]);
+                        if (!event.target.checked) setValue('');
+                      }}
+                    />
+                    <span className="tmt-ui-choice-text">Other…</span>
+                    {choices.length < 9 && (
+                      <kbd className="tmt-ui-choice-hint" aria-hidden="true">
+                        {choices.length + 1}
+                      </kbd>
+                    )}
+                  </label>
+                )}
               </div>
             </fieldset>
           )}

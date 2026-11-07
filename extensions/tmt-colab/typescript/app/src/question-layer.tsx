@@ -23,7 +23,7 @@ import type {
   mountRenderer,
 } from './renderer.js';
 import { text } from './strings.js';
-import { verifiedQuestionStates } from './question-registry.js';
+import { questionCreator, verifiedQuestionStates } from './question-registry.js';
 import type { CommentContext } from './thread-store.js';
 import { useQuestionDismissal } from './use-question-dismissal.js';
 
@@ -297,15 +297,7 @@ export function useQuestionLayer({
                 group={group}
                 registry={view.questions}
                 states={verifiedQuestionStates(view)}
-                creator={
-                  view.creator?.agent ??
-                  (view.creationRecipient
-                    ? {
-                        id: view.creationRecipient.agentId,
-                        name: view.originalAuthor ?? text.unknownAuthor,
-                      }
-                    : undefined)
-                }
+                creator={questionCreator(view, text.unknownAuthor)}
                 members={members}
                 selected={current}
                 onSelect={(id) => setActive((previous) => ({ ...previous, [group.id]: id }))}

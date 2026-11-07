@@ -22,7 +22,7 @@ import {
 } from './parent-page-view.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import { text } from './strings.js';
-import { getTheme, subscribeTheme } from './theme.js';
+import { getTheme, subscribeTheme, type Theme } from './theme.js';
 import { switcherModifiers, type SwitcherKeyRequest } from './quick-switcher-key.js';
 import {
   DocumentImages,
@@ -221,6 +221,12 @@ export async function mountRenderer(
     onOpenList?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
+    /** The frame is part of a page (a mockup block, #6005): it takes its content's height, with
+     * no viewport-high floor. Absent, a page's frame is at least the viewport. */
+    fitContent?: boolean;
+    /** The theme the frame paints instead of the app's (a mockup stage's Light or Dark); the
+     * handle's `setTheme` changes it, and absent follows the app. */
+    theme?: Theme;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
     /** The height of trusted content between the header and the frame at scroll 0 (the reader's
@@ -249,6 +255,8 @@ export async function mountRenderer(
   readonly snapshot: RenderSnapshot;
   /** Recompute viewport room after trusted content above the frame changes height. */
   resize(): void;
+  /** Paint `theme` instead of the app's (`options.theme`); absent follows the app again. */
+  setTheme(theme?: Theme): void;
   editLocks(locks: RenderEditLock[]): void;
   highlight(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
@@ -349,12 +357,14 @@ export async function mountRenderer(
       requestId: current,
     });
   };
+  let chosenTheme = options.theme;
+  const frameTheme = () => chosenTheme ?? getTheme();
   const sendTheme = () => {
     if (stopped || !ready) return;
     channel.port1.postMessage({
       type: 'colab.render.theme',
       renderId: snapshot.renderId,
-      theme: getTheme(),
+      theme: frameTheme(),
     });
   };
   const stopTheme = subscribeTheme(sendTheme);
@@ -385,6 +395,8 @@ export async function mountRenderer(
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const lead = () => Math.max(0, options.frameLead?.() ?? 0);
   const viewportHeight = () => Math.max(1, window.innerHeight - inset() - lead());
+  /** The least height the frame takes while it follows its page (window scrolling). */
+  const floorHeight = () => (options.fitContent ? 1 : viewportHeight());
   let reportedHeight = 0,
     pendingHeight: number | undefined,
     heightTimer: ReturnType<typeof setTimeout> | undefined,
@@ -394,7 +406,7 @@ export async function mountRenderer(
     // Whether growth counts toward the fallback: false while design-system parts still paint.
     settled = true,
     settleTimer: ReturnType<typeof setTimeout> | undefined,
-    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
+    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(floorHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
   // The part of a window-scrolled frame the reader sees (#6090): from under the header to above
@@ -460,7 +472,7 @@ export async function mountRenderer(
       slotPositions = '';
       options.onSlots?.(lastSlots);
     }
-    lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
+    lastHeight = innerScroll ? viewportHeight() : Math.max(floorHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;
     queueViewport();
@@ -477,7 +489,7 @@ export async function mountRenderer(
     if (stopped || innerScroll || pendingHeight === undefined) return;
     const now = performance.now(),
       claimed = pendingHeight,
-      next = Math.max(viewportHeight(), claimed);
+      next = Math.max(floorHeight(), claimed);
     pendingHeight = undefined;
     // Repeated growth after sizing the frame is a viewport-coupled page. A bounded
     // cosmetic fallback is preferable to an indefinitely growing browser document.
@@ -1645,7 +1657,7 @@ export async function mountRenderer(
       {
         type: 'colab.render.bind',
         ...snapshot,
-        theme: getTheme(),
+        theme: frameTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(bundle ? { runtime: bundle } : {}),
         ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
@@ -1748,6 +1760,10 @@ export async function mountRenderer(
   };
   return {
     resize,
+    setTheme: (theme?: Theme) => {
+      chosenTheme = theme;
+      sendTheme();
+    },
     snapshot,
     update,
     editLocks,

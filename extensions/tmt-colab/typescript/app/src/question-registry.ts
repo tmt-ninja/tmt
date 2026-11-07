@@ -125,3 +125,21 @@ export function verifiedQuestionStates(view: {
     return undefined;
   return questionStates(view.questions, view.threads);
 }
+
+/** The agent a question with no agent of its own goes to: the page's creator, else the agent the
+ * page was created for (named by its original author, or `unknownName`). */
+export function questionCreator(
+  view: {
+    creator?: PageCreator;
+    creationRecipient?: { agentId: string };
+    originalAuthor?: string;
+  },
+  unknownName: string,
+): RegisteredAgent | undefined {
+  return (
+    view.creator?.agent ??
+    (view.creationRecipient
+      ? { id: view.creationRecipient.agentId, name: view.originalAuthor ?? unknownName }
+      : undefined)
+  );
+}
