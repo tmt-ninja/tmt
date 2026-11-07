@@ -9,7 +9,15 @@ import {
   nudgeBlock,
   splitBlock,
 } from '../src/block-ops.js';
+import { BlockHistory, UNDO_DEPTH } from '../src/block-history.js';
 import { posBetween, posRun, validPos } from '../src/block-pos.js';
+import {
+  extendSelection,
+  extendTo,
+  selectBlock,
+  selectedIds,
+  settleSelection,
+} from '../src/block-selection.js';
 import { BlockTree } from '../src/block-tree.js';
 
 const block = (
@@ -274,5 +282,75 @@ describe('gestures to ops, and undo', () => {
       { op: 'props', id: 'todo', set: { done: false }, unset: ['due'] },
     ]);
     roundTrip(blocks, ops);
+  });
+});
+
+describe('undo history', () => {
+  it('undoes and redoes gestures in order, and a new gesture clears redo', () => {
+    const blocks = [block('one', 'F'), block('two', 'V')];
+    const history = new BlockHistory();
+    const tree = new BlockTree(blocks);
+    const moved = moveBlock(tree, 'two', PAGE_PARENT, 0);
+    history.record(tree, moved);
+    const after = apply(blocks, moved);
+    const removed = deleteBlocks(new BlockTree(after), ['one']);
+    history.record(new BlockTree(after), removed);
+    expect(history.undo()).toEqual([{ op: 'restore', id: 'one' }]);
+    expect(history.undo()).toEqual([{ op: 'move', id: 'two', parent: PAGE_PARENT, pos: 'V' }]);
+    expect(history.undo()).toBeUndefined();
+    expect(history.redo()).toEqual(moved);
+    expect(history.canRedo()).toBe(true);
+    history.record(tree, [{ op: 'delete', id: 'two' }]);
+    expect(history.canRedo()).toBe(false);
+    // A gesture that changed nothing is not an undo step.
+    history.record(tree, []);
+    expect(history.undo()).toEqual([{ op: 'restore', id: 'two' }]);
+  });
+  it('keeps at most UNDO_DEPTH gestures', () => {
+    const tree = new BlockTree([block('one', 'F')]);
+    const history = new BlockHistory();
+    for (let index = 0; index < UNDO_DEPTH + 5; index++)
+      history.record(tree, [
+        { op: 'text', id: 'one', base: String(index), text: String(index + 1) },
+      ]);
+    let count = 0;
+    while (history.undo()) count++;
+    expect(count).toBe(UNDO_DEPTH);
+  });
+});
+
+describe('block selection', () => {
+  const tree = new BlockTree([
+    block('one', 'F'),
+    card('box', 'V'),
+    block('in-a', 'V', 'box'),
+    block('two', 'k'),
+  ]);
+  it('Esc selects one block; Shift+arrows extend in reading order and stop at the ends', () => {
+    let selection = selectBlock('box');
+    expect(selectedIds(tree, selection)).toEqual(['box']);
+    selection = extendSelection(tree, selection, 'down');
+    expect(selectedIds(tree, selection)).toEqual(['box', 'in-a']);
+    selection = extendSelection(tree, extendSelection(tree, selection, 'down'), 'down');
+    expect(selectedIds(tree, selection)).toEqual(['box', 'in-a', 'two']);
+    selection = extendTo(selection, 'one');
+    expect(selectedIds(tree, selection)).toEqual(['one', 'box']);
+    expect(selectedIds(tree, extendSelection(tree, selection, 'up'))).toEqual(['one', 'box']);
+  });
+  it('a selection follows the page: an end another writer deleted leaves it', () => {
+    const selection = extendTo(selectBlock('one'), 'two');
+    const changed = new BlockTree([
+      block('one', 'F'),
+      card('box', 'V'),
+      block('in-a', 'V', 'box'),
+      { ...block('two', 'k'), deleted: true },
+    ]);
+    expect(settleSelection(changed, selection)).toEqual(selectBlock('one'));
+    expect(settleSelection(new BlockTree([]), selection)).toBeUndefined();
+    expect(settleSelection(tree, selection)).toBe(selection);
+    // Deleting the selection deletes the card with what is in it, once.
+    expect(deleteBlocks(tree, selectedIds(tree, extendTo(selectBlock('box'), 'in-a')))).toEqual([
+      { op: 'delete', id: 'box' },
+    ]);
   });
 });
