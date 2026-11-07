@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { blockKeyAction, insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
-import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES } from './block-model.js';
+import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES, type TextMark } from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
-import { applyOps } from './block-apply.js';
 import { BlockHistory } from './block-history.js';
 import {
   deleteBlocks,
@@ -22,6 +21,10 @@ import {
   settleSelection,
 } from './block-selection.js';
 import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
+import { marked, typedMarks } from './block-marks.js';
+import type { TextRange } from './block-text-editor.js';
+import { applyOps } from './block-apply.js';
+import { richType } from './blocks.js';
 import { BlockTree } from './block-tree.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
@@ -44,6 +47,13 @@ export type BlockMenuAction = (typeof BLOCK_MENU_ACTIONS)[number];
 
 /** How long the status line after a delete stays. */
 export const TOAST_MS = 6000;
+
+/** The format keys with ⌘ (Ctrl elsewhere) on a selected range: each toggles its mark. */
+const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
+  b: 'bold',
+  i: 'italic',
+  e: 'code',
+};
 
 /** The status line after a delete, with Undo. */
 export interface DeleteToast {
@@ -86,6 +96,8 @@ export function useBlockEditing(
   const batchKey = useRef(0);
   /** The page as the serve shows it: what the focused block's text merges with. */
   const pageTree = useMemo(() => new BlockTree(records), [records]);
+  const pageRef = useRef(pageTree);
+  pageRef.current = pageTree;
   /** The page as drawn: the serve's blocks with this tab's batches on their way applied. A batch
    * the serve would refuse is left out. */
   const tree = useMemo(() => {
@@ -154,13 +166,24 @@ export function useBlockEditing(
     );
     return sent;
   }, []);
+  /** The typing not sent yet, with the marks its new characters take from the text they were
+   * typed into (as the editor draws them). */
+  const typedOps = useCallback((current: BlockTextSync): BlockOp[] => {
+    const op = current.flush();
+    if (!op) return [];
+    if (op.op !== 'text' || !('set' in op)) return [op];
+    const from = [treeRef.current.get(op.id), pageRef.current.get(op.id)].find(
+      (block) => block?.text === op.base,
+    );
+    return [op, ...typedMarks(op.id, op.base, op.set, from?.marks)];
+  }, []);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     const current = sync.current;
-    const op = current?.flush();
-    if (!current || !op) return;
-    void out(current, [op]);
-  }, [out]);
+    const ops = current ? typedOps(current) : [];
+    if (!current || !ops.length) return;
+    void out(current, ops);
+  }, [out, typedOps]);
   const show = useCallback(
     (current: BlockTextSync, shown: { text: string; caret: number }) => {
       if (sync.current !== current) return;
@@ -284,6 +307,52 @@ export function useBlockEditing(
     [open, out],
   );
 
+  /** A format key or a pasted link on `range` of the focused block: the mark goes on, or off when
+   * the whole range has it, in one batch with the typing not sent yet. */
+  const format = useCallback(
+    async (current: BlockTextSync, range: TextRange, mark: TextMark, value: unknown = true) => {
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current || range.from >= range.to) return;
+      const block = treeRef.current.get(current.id);
+      if (!block) return;
+      const ops = typedOps(current);
+      let local: BlockRecord;
+      try {
+        [local] = applyOps([block], ops) as [BlockRecord];
+      } catch {
+        return;
+      }
+      // The page moved under the typing: the range no longer names what the person selected.
+      if (local.text !== current.text) {
+        if (ops.length) void out(current, ops);
+        return;
+      }
+      const on = marked(local.marks, range.from, range.to, mark, value === true ? undefined : value);
+      const valued = mark === 'link' || mark === 'agent' || mark === 'block';
+      const op: BlockOp = {
+        op: 'text',
+        id: current.id,
+        format: { ...range, mark, value: on ? (valued ? null : false) : value },
+      };
+      history.current.record(new BlockTree([local]), [op]);
+      await out(current, [...ops, op]).catch(() => {});
+    },
+    [out, typedOps],
+  );
+  /** A URL pasted over a selected range links the range. */
+  const pasteUrl = useCallback(
+    (id: string, url: string, text: string, range: TextRange): boolean => {
+      const current = sync.current;
+      const block = treeRef.current.get(id);
+      if (current?.id !== id || !block || !richType(block.type)) return false;
+      current.typed(text);
+      void format(current, range, 'link', url);
+      return true;
+    },
+    [format],
+  );
+
   /** The insert menu's choice: a new block of its type replaces the slash paragraph (a block's
    * type is fixed once made), focused when it holds text; a paragraph just clears the slash. */
   const pick = useCallback(
@@ -330,10 +399,20 @@ export function useBlockEditing(
 
   /** A key in the focused block; true when the block took it. */
   const key = useCallback(
-    (id: string, event: KeyboardEvent, text: string, at: number, collapsed: boolean): boolean => {
+    (id: string, event: KeyboardEvent, text: string, at: number, range: TextRange): boolean => {
       const current = sync.current;
-      if (current?.id !== id || event.altKey || event.metaKey || event.ctrlKey) return false;
       const block = treeRef.current.get(id);
+      const formatKey =
+        (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
+          ? FORMAT_KEYS[event.key.toLowerCase()]
+          : undefined;
+      if (current?.id === id && block && formatKey && richType(block.type)) {
+        current.typed(text);
+        if (range.from < range.to) void format(current, range, formatKey);
+        return true;
+      }
+      const collapsed = range.from === range.to;
+      if (current?.id !== id || event.altKey || event.metaKey || event.ctrlKey) return false;
       if (!block || !TEXT_TYPES.has(block.type)) return false;
       current.typed(text);
       const menu = menuRef.current?.id === id ? menuRef.current : undefined;
@@ -377,7 +456,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush],
+    [split, join, pick, flush, format],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -601,6 +680,7 @@ export function useBlockEditing(
     tree,
     editing,
     focus,
+    pasteUrl,
     typed,
     flush,
     key,

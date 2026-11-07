@@ -51,6 +51,8 @@ export type {
   TodoBlockProps,
 } from './content.js';
 export { BlockMention, BlockToast } from './mention.js';
+export { MarkedText } from './marked-text.js';
+export type { TextMarkRun } from './marked-text.js';
 export type { BlockMentionProps, BlockToastProps } from './mention.js';
 // Structured page blocks have their own entry and stylesheet.
 export { QuestionBlock } from './question-block.js';

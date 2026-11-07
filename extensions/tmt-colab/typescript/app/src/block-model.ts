@@ -5,7 +5,7 @@
  * from this one module, so a rename is one edit.
  */
 
-import { BLOCK_TYPES, ROOT, ROW, type BlockType } from './blocks.js';
+import { BLOCK_TYPES, MARKS, ROOT, ROW, type BlockType, type Mark } from './blocks.js';
 
 // The block types, the row type and the page parent are the fold's own (`blocks.ts`, #6004), so
 // the editor and the validator never hold two lists.
@@ -64,6 +64,8 @@ export interface BlockRecord {
   readonly props: Readonly<Record<string, unknown>>;
   /** The plain text of a text block. */
   readonly text?: string;
+  /** The text's inline marks, on scalar offsets, as the fold projects them. */
+  readonly marks?: readonly Mark[];
   /** Deleted is only a mark: history and comments stay, and `restore` brings it back. */
   readonly deleted: boolean;
   /** A table row's cells by column ID, as plain text. */
@@ -85,8 +87,9 @@ export function tableColumns(
 }
 
 /** The marks a block's text may carry. */
-export const TEXT_MARKS = ['bold', 'italic', 'code', 'link', 'agent', 'block'] as const;
-export type TextMark = (typeof TEXT_MARKS)[number];
+/** The marks a block's text may carry: the fold's own list (`blocks.ts`). */
+export const TEXT_MARKS = MARKS;
+export type TextMark = (typeof MARKS)[number];
 
 /** A table's row and column actions. The action names are #6004's (plan (a)); the field names are
  * provisional until its table schema is posted. Rows and columns keep stable IDs. */

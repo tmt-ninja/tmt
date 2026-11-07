@@ -1,11 +1,18 @@
 import { textMerge } from '@tmt/colab-client';
 import type { BlockOp, BlockRecord } from './block-model.js';
+import { formatMarks, marksThrough } from './block-marks.js';
 import { posBetween } from './block-pos.js';
 import { BlockTree } from './block-tree.js';
 
+/** `entry` with `marks`, which a record leaves out when there are none (as the reader does). */
+function marked({ marks: _was, ...entry }: BlockRecord, marks: BlockRecord['marks']): BlockRecord {
+  return marks?.length ? { ...entry, marks } : entry;
+}
+
 /**
  * `ops` applied to `blocks` as the serve applies a batch (#6005): a new or moved block lands after
- * `after` (first with `null`), a whole-text op merges from its base with `textMerge`, and a delete
+ * `after` (first with `null`), a whole-text op merges from its base with `textMerge` (marks kept
+ * on the characters it keeps), a format op marks its range, and a delete
  * is only a mark. The editor draws the page with this tab's batches on their way applied, so a
  * gesture shows at once. A batch the serve would refuse (an op on a block it does not hold, an
  * `after` that is not a child of the parent) throws, and the caller draws without it.
@@ -53,9 +60,14 @@ export function applyOps(blocks: readonly BlockRecord[], ops: readonly BlockOp[]
       }
       case 'text': {
         const current = held(op.id);
-        if (!('set' in op)) throw new Error('Only whole-text edits are applied here.');
-        const text = textMerge.merge(op.base, current.text ?? '', op.set, op.overlap).text;
-        map.set(op.id, { ...current, text });
+        const was = current.text ?? '';
+        if ('format' in op) {
+          map.set(op.id, marked(current, formatMarks(was, current.marks, op.format)));
+          break;
+        }
+        if (!('set' in op)) throw new Error('Only whole-text and format edits are applied here.');
+        const text = textMerge.merge(op.base, was, op.set, op.overlap).text;
+        map.set(op.id, marked({ ...current, text }, marksThrough(was, text, current.marks)));
         break;
       }
       case 'delete':

@@ -1,3 +1,4 @@
+import { markOps, marksThrough, typedMarks } from './block-marks.js';
 import {
   type BlockOp,
   type BlockRecord,
@@ -167,11 +168,18 @@ export function splitBlock(
   const { text, base } = typed ?? { text: block.text, base: block.text };
   const scalars = [...text];
   const head = scalars.slice(0, at).join('');
+  // The marks as the person sees them: the page's, carried through the typing not sent yet.
+  const marks = marksThrough(block.text, text, block.marks);
+  const baseMarks = marksThrough(block.text, base, block.marks);
   return [
     ...(head === base
       ? []
-      : [{ op: 'text' as const, id, set: head, base, overlap: 'both' as const }]),
+      : [
+          { op: 'text' as const, id, set: head, base, overlap: 'both' as const },
+          ...typedMarks(id, base, head, baseMarks),
+        ]),
     insertBlock(tree, { id: newId, type: block.type, after: id, text: scalars.slice(at).join('') }),
+    ...markOps(newId, marks, at, scalars.length, -at),
   ];
 }
 
@@ -193,6 +201,7 @@ export function joinBlock(tree: BlockTree, id: string, text?: string): BlockOp[]
   const previous = joinTarget(tree, id);
   const moved = text ?? block?.text;
   if (!block || !previous || moved === undefined) return [];
+  const marks = marksThrough(block.text ?? '', moved, block.marks);
   return [
     ...(moved
       ? [
@@ -203,6 +212,7 @@ export function joinBlock(tree: BlockTree, id: string, text?: string): BlockOp[]
             base: previous.text!,
             overlap: 'both' as const,
           },
+          ...markOps(previous.id, marks, 0, [...moved].length, [...previous.text!].length),
         ]
       : []),
     { op: 'delete', id },
@@ -212,7 +222,7 @@ export function joinBlock(tree: BlockTree, id: string, text?: string): BlockOp[]
 /** The ops that undo `ops`, made from the tree before they were applied, in reverse order. */
 export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[] {
   return ops
-    .map((op): BlockOp => {
+    .map((op): BlockOp | BlockOp[] => {
       switch (op.op) {
         case 'insert':
           return { op: 'delete', id: op.id };
@@ -223,8 +233,33 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         case 'text':
           if ('set' in op)
             return { op: 'text', id: op.id, set: op.base, base: op.set, overlap: 'both' };
-          // The editor sends whole text, never these; they come from agents.
-          throw new Error('Only whole-text edits are undone here.');
+          if ('format' in op) {
+            // Marks that go with text the same batch inserts or replaces leave with that text.
+            if (ops.some((other) => other.id === op.id && (other.op === 'insert' || (other.op === 'text' && 'set' in other))))
+              return [];
+            // The mark cleared on the range, then set back where it was.
+            const { from, to, mark } = op.format;
+            const valued = mark === 'link' || mark === 'agent' || mark === 'block';
+            return [
+              { op: 'text', id: op.id, format: { from, to, mark, value: valued ? null : false } },
+              ...(before.get(op.id)?.marks ?? [])
+                .filter((run) => run.mark === mark && run.from < to && run.to > from)
+                .map(
+                  (run): BlockOp => ({
+                    op: 'text',
+                    id: op.id,
+                    format: {
+                      from: Math.max(run.from, from),
+                      to: Math.min(run.to, to),
+                      mark,
+                      value: run.value ?? true,
+                    },
+                  }),
+                ),
+            ];
+          }
+          // The editor sends whole text and marks, never these; they come from agents.
+          throw new Error('Only whole-text and format edits are undone here.');
         case 'table':
           throw new Error('Table edits are undone by their table.');
         case 'move': {
@@ -247,5 +282,6 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         }
       }
     })
-    .reverse();
+    .reverse()
+    .flat();
 }
