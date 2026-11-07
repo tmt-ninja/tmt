@@ -2,6 +2,11 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import {
   Block,
   BlockDocument,
+  BlockMenu,
+  BlockMenuEmpty,
+  BlockMenuFooter,
+  BlockMenuItem,
+  insertGroups,
   Callout,
   calloutLabels,
   CardBlock,
@@ -16,6 +21,13 @@ import {
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
 import { BlockTextEditor } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
+import { text as strings } from './strings.js';
+import type { InsertMenu } from './use-block-editing.js';
+
+/** The catalog row of each insert entry, for its icon and description. */
+const INSERT_ROWS = new Map(
+  insertGroups.flatMap((group) => group.items.map((item) => [item.id, item] as const)),
+);
 
 /** The design system's look for each block type the editor draws so far (#6005 step 1). */
 const KIND: Partial<Record<BlockRecord['type'], BlockKind>> = {
@@ -53,6 +65,11 @@ export interface StructuredPageProps {
   ): boolean;
   /** No editing at all: a reader, or a page this device may not change. */
   readonly?: boolean;
+  /** The insert menu open under the focused block. */
+  menu?: InsertMenu;
+  /** An insert entry was chosen, or the pointer is over one. */
+  onPick?(entry: string): void;
+  onHover?(entry: string): void;
 }
 
 /**
@@ -83,8 +100,55 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
       }}
     >
       <Content block={block} {...rest} tree={tree} />
+      {rest.menu?.id === block.id && (
+        <InsertPopover menu={rest.menu} onPick={rest.onPick} onHover={rest.onHover} />
+      )}
     </Block>
   ));
+}
+
+/** The insert menu under the block the slash was typed in: focus stays in the editor, and the
+ * active row follows the keys and the pointer. A phone gets the bottom sheet. */
+function InsertPopover({
+  menu,
+  onPick,
+  onHover,
+}: Pick<StructuredPageProps, 'onPick' | 'onHover'> & { menu: InsertMenu }) {
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  return (
+    <div className="tmt-block-insert" data-sheet={sheet ? '' : undefined}>
+      <BlockMenu
+        kind="insert"
+        label={strings.blockInsert.label}
+        placement={sheet ? 'sheet' : 'below'}
+        activeId={menu.active && `block-insert-${menu.active}`}
+      >
+        {menu.entries.map((entry) => {
+          const row = INSERT_ROWS.get(entry.id);
+          return (
+            <BlockMenuItem
+              key={entry.id}
+              id={`block-insert-${entry.id}`}
+              icon={row?.icon}
+              description={row?.description}
+              shortcut={entry.shortcut}
+              active={entry.id === menu.active}
+              onMouseEnter={() => onHover?.(entry.id)}
+              // Choosing never takes focus from the editor.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onPick?.(entry.id);
+              }}
+            >
+              {entry.label}
+            </BlockMenuItem>
+          );
+        })}
+        {menu.entries.length === 0 && <BlockMenuEmpty>{strings.blockInsert.empty}</BlockMenuEmpty>}
+        {!sheet && <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>}
+      </BlockMenu>
+    </div>
+  );
 }
 
 /** A callout's tone from its props: one the design system draws, else `working`. */

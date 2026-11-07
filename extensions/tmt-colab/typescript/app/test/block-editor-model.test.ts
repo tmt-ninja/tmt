@@ -430,10 +430,10 @@ describe('the insert menu', () => {
   ];
   const shown = (query: string) => filterInsert(catalog, query).map((entry) => entry.id);
   it('filters as the person types, label starts first, and leaves out what it cannot make', () => {
-    expect(shown('')).toEqual(['text', 'heading', 'table', 'todo', 'question', 'code']);
+    expect(shown('')).toEqual(['text', 'heading', 'table', 'todo', 'code']);
     expect(shown('/ta')).toEqual(['table']);
     expect(shown('do')).toEqual(['todo']);
-    expect(shown('q')).toEqual(['question']);
+    expect(shown('q')).toEqual([]);
     expect(shown('text')).toEqual(['text']);
     expect(shown('PARA')).toEqual(['text']);
     expect(shown('new')).toEqual([]);

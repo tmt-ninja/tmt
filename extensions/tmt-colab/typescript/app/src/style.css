@@ -58,6 +58,20 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* The insert menu opens under its block, over what follows; the phone sheet sits on the bottom
+   edge (#6005). */
+.tmt-block-insert {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  padding-top: 4px;
+}
+.tmt-block-insert[data-sheet] {
+  position: fixed;
+  inset: auto 0 0;
+  padding: 0;
+}
 /* The block being typed in shows the block's selection tint, not a second frame around its text
    (#6005). */
 .tmt-block-editor-text:focus-visible {

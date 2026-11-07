@@ -32,6 +32,15 @@ const start: BlockRecord[] = [
     deleted: false,
   },
   {
+    id: 'e',
+    type: 'paragraph',
+    parent: 'root',
+    pos: 'g',
+    props: {},
+    text: '',
+    deleted: false,
+  },
+  {
     id: 't',
     type: 'todo',
     parent: 'root',
@@ -184,10 +193,19 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       if (node) listeners.add(setRecords);
       else listeners.delete(setRecords);
     }, []);
-    const { tree, editing, focus, typed, key } = useBlockEditing(records, send);
+    const { tree, editing, focus, typed, key, menu, pick, hover } = useBlockEditing(records, send);
     return (
       <section ref={subscribe}>
-        <StructuredPage tree={tree} editing={editing} onFocus={focus} onTyped={typed} onKey={key} />
+        <StructuredPage
+          tree={tree}
+          editing={editing}
+          onFocus={focus}
+          onTyped={typed}
+          onKey={key}
+          menu={menu}
+          onPick={(entry) => void pick(entry)}
+          onHover={hover}
+        />
       </section>
     );
   }
