@@ -213,7 +213,7 @@ pub fn command() -> Command {
         spec(
             "detach",
             "Release an attachment the page no longer shows",
-            "Removes the attachment from the page's list (refused while a live image or file block still names it: delete or change the block first). The file is swept 30 days after nothing references it. Add one with tmt colab attachment attach, then name it in an image block's src as colab-attachment:<ID>.",
+            "Removes the attachment from the page's list (refused while a live image or file block still names it: delete or change the block first). Detaching frees the descriptor's place in the page's list; the file itself is swept 30 days after no block on the page references it, whether or not it is detached. Add one with tmt colab attachment attach, then name it in an image block's src as colab-attachment:<ID>.",
             example!("tmt colab block detach 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002"),
         )
         .arg(page())

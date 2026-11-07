@@ -927,5 +927,278 @@
         "list": null
       }
     }
-  ]
+  ],
+  "kept": [
+    {
+      "name": "a descriptor a live block references is kept",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a descriptor only a deleted block references is kept, so an undo or a restore keeps its image",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a purged block references nothing, so its descriptor is no longer kept",
+      "blocks": {},
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "a descriptor no block references is not kept",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a.png"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "only the referenced one of two descriptors is kept",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000002-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000002-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "two blocks that name one descriptor keep it once",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        },
+        "10000000-0000-4000-8000-000000000002": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a file's href keeps its descriptor",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "files": [
+              {
+                "name": "a",
+                "href": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a short reference keeps the one descriptor with that prefix",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a short reference two descriptors share keeps both: a sweep only ever widens what is kept",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ]
+    },
+    {
+      "name": "a reference to a descriptor the page does not hold keeps nothing",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000007-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "a malformed reference keeps nothing",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:zz"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "a page with no descriptors keeps none",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "expect": []
+    }
+  ],
+  "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced`: a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept."
 }

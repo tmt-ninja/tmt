@@ -30,9 +30,10 @@ An image or file block keeps an upload only through the page's attachment list. 
 (`tmt colab attachment attach PAGE FILE --json` prints its attachment ID), then insert an image whose
 `src` is `colab-attachment:ID` (or the first 8 hex digits of the ID):
 `block insert PAGE --type image --props '{"images":[{"src":"colab-attachment:ID"}]}'`. A reference the
-page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); `https:` sources are not judged. To drop a
-file, delete the block, then `block detach PAGE ID`; detaching one a live block still shows is
-refused, and the object is swept 30 days after the page stops listing it.
+page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); `https:` sources are not judged. The file
+is kept while a block on the page references it, deleted blocks included until compaction purges
+them (so an undo or a restore keeps the image), and swept 30 days after none does. `block detach
+PAGE ID` also drops it from the page's list; detaching one a live block still shows is refused.
 
 ## Change text
 
