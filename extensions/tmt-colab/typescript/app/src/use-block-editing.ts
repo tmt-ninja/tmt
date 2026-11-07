@@ -22,6 +22,7 @@ import {
 } from './block-selection.js';
 import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
+import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
 import { richType, validMarkValue } from './blocks.js';
@@ -340,6 +341,19 @@ export function useBlockEditing(
     },
     [out, typedOps],
   );
+  /** Tab or Shift+Tab in a list item or to-do: its indent moves, with the typing not sent yet. */
+  const indent = useCallback(
+    async (current: BlockTextSync, by: 1 | -1) => {
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current) return;
+      const ops = indentBlock(treeRef.current, current.id, by);
+      if (!ops.length) return;
+      history.current.record(treeRef.current, ops);
+      await out(current, [...typedOps(current), ...ops]).catch(() => {});
+    },
+    [out, typedOps],
+  );
   /** A URL pasted over a selected range links the range. */
   const pasteUrl = useCallback(
     (id: string, url: string, text: string, range: TextRange): boolean => {
@@ -414,6 +428,12 @@ export function useBlockEditing(
       }
       const collapsed = range.from === range.to;
       if (current?.id !== id || event.altKey || event.metaKey || event.ctrlKey) return false;
+      if (event.key === 'Tab' && block && (block.type === 'list' || block.type === 'todo')) {
+        current.typed(text);
+        void indent(current, event.shiftKey ? -1 : 1);
+        // Tab never leaves an indentable block, even at an edge.
+        return true;
+      }
       if (!block || !TEXT_TYPES.has(block.type)) return false;
       current.typed(text);
       const menu = menuRef.current?.id === id ? menuRef.current : undefined;
@@ -457,7 +477,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush, format],
+    [split, join, pick, flush, format, indent],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -485,6 +505,16 @@ export function useBlockEditing(
       void out(undefined, ops).catch(() => {});
     },
     [out],
+  );
+  /** A to-do's checkbox: one gesture, recorded for ⌘Z. */
+  const check = useCallback(
+    (id: string, checked: boolean) =>
+      gesture(
+        checked
+          ? [{ op: 'props', id, set: { checked: true }, unset: [] }]
+          : [{ op: 'props', id, set: {}, unset: ['checked'] }],
+      ),
+    [gesture],
   );
 
   /** Delete these blocks: they go at once, and the status line offers Undo. */
@@ -682,6 +712,7 @@ export function useBlockEditing(
     editing,
     focus,
     pasteUrl,
+    check,
     typed,
     flush,
     key,

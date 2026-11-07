@@ -5,8 +5,10 @@ import {
   deleteBlocks,
   duplicateBlock,
   insertBlock,
+  indentBlock,
   inverseOps,
   joinBlock,
+  listNumber,
   moveBlock,
   nudgeBlock,
   splitBlock,
@@ -550,5 +552,42 @@ describe('the tree from a fold projection', () => {
     });
     expect(unreadable).toEqual(['future']);
     expect(ids(tree.flat())).toEqual(['child']);
+  });
+});
+
+describe('list numbering and indent (#6005)', () => {
+  const item = (id: string, pos: string, style: string, indent = 0) =>
+    block(id, pos, PAGE_PARENT, {
+      type: 'list',
+      props: { style, ...(indent && { indent }) },
+    });
+  it('numbers each run at its indent; deeper items do not end it, other blocks do', () => {
+    const tree = new BlockTree([
+      item('a', 'a1', 'number'),
+      item('b', 'a2', 'number'),
+      item('b1', 'a3', 'number', 1),
+      item('b2', 'a4', 'number', 1),
+      item('c', 'a5', 'number'),
+      item('d', 'a6', 'bullet'),
+      item('e', 'a7', 'number'),
+      block('p', 'a8'),
+      item('f', 'a9', 'number'),
+    ]);
+    expect(['a', 'b', 'b1', 'b2', 'c', 'e', 'f'].map((id) => listNumber(tree, id))).toEqual([
+      1, 2, 1, 2, 3, 1, 1,
+    ]);
+  });
+  it('Tab and Shift+Tab move the indent one step within 0..2, and undo puts it back', () => {
+    const tree = new BlockTree([item('a', 'a1', 'bullet', 2), block('p', 'a2')]);
+    expect(indentBlock(tree, 'a', 1)).toEqual([]);
+    expect(indentBlock(tree, 'p', 1)).toEqual([]);
+    const out = indentBlock(tree, 'a', -1);
+    expect(out).toEqual([{ op: 'props', id: 'a', set: { indent: 1 }, unset: [] }]);
+    const back = applyOps(applyOps(tree.flat(), out), inverseOps(tree, out));
+    expect(back.find((b) => b.id === 'a')!.props).toEqual({ style: 'bullet', indent: 2 });
+    const flat = new BlockTree([item('z', 'a1', 'bullet', 1)]);
+    expect(indentBlock(flat, 'z', -1)).toEqual([
+      { op: 'props', id: 'z', set: {}, unset: ['indent'] },
+    ]);
   });
 });

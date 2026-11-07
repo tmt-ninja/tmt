@@ -138,6 +138,11 @@ const SPEC_PAGE: BlockRecord[] = (() => {
     block('l1', 'list', '區塊之間沒有框線，只有卡片畫框。'),
     block('l2', 'list', '滑過或選取是淡色底。'),
     block('l3', 'list', '整個編輯器一個把手，滑過或鍵盤焦點時才出現。'),
+    block('steps', 'heading', '做的步驟', { level: 3 }),
+    block('n1', 'list', '區塊資料和 agent 指令', { style: 'number' }),
+    block('n2', 'list', '驗證器和 Yjs 區塊', { style: 'number', indent: 1 }),
+    block('n3', 'list', 'CLI 和批次', { style: 'number', indent: 1 }),
+    block('n4', 'list', '瀏覽器編輯器', { style: 'number' }),
     block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
       tone: 'working',
       label: '做的順序',
@@ -229,6 +234,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       typed,
       key,
       pasteUrl,
+      check,
       menu,
       pick,
       hover,
@@ -255,6 +261,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onTyped={typed}
           onKey={key}
           onPasteUrl={pasteUrl}
+          onChecked={check}
           onLink={(href, newTab) => window.opened.push({ href, newTab })}
           menu={menu}
           onPick={(entry) => void pick(entry)}

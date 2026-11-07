@@ -285,3 +285,49 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
     .reverse()
     .flat();
 }
+
+/** The deepest indent a list item or to-do takes (the validator's `indent` bound). */
+export const MAX_INDENT = 2;
+
+/** A list item's or to-do's indent, as drawn: an integer from 0 to `MAX_INDENT`. */
+export function indentOf(block: BlockRecord): 0 | 1 | 2 {
+  const indent = block.props.indent;
+  return indent === 1 || indent === 2 ? indent : 0;
+}
+
+/** The number a numbered list item shows: one more than the numbered items before it at its
+ * indent in the same run. A run ends at a block that is not a list item, at a bulleted item of the
+ * same indent and at an item of a smaller indent; deeper items inside it do not end it. */
+export function listNumber(tree: BlockTree, id: string): number {
+  const block = tree.get(id);
+  const parent = tree.parentOf(id);
+  if (!block || parent === undefined) return 1;
+  const level = indentOf(block);
+  const siblings = tree.children(parent);
+  let number = 1;
+  for (let at = tree.indexOf(id) - 1; at >= 0; at--) {
+    const before = siblings[at]!;
+    if (before.type !== 'list') break;
+    const indent = indentOf(before);
+    if (indent < level) break;
+    if (indent > level) continue;
+    if (before.props.style !== 'number') break;
+    number++;
+  }
+  return number;
+}
+
+/** Tab (`by` 1) or Shift+Tab (`by` -1) on a list item or to-do: its indent moves one step, within
+ * 0 and `MAX_INDENT`. No op when it is already at that edge, or the block takes no indent. */
+export function indentBlock(tree: BlockTree, id: string, by: 1 | -1): BlockOp[] {
+  const block = tree.get(id);
+  if (!block || (block.type !== 'list' && block.type !== 'todo')) return [];
+  const now = indentOf(block);
+  const next = Math.max(0, Math.min(MAX_INDENT, now + by));
+  if (next === now) return [];
+  return [
+    next === 0
+      ? { op: 'props', id, set: {}, unset: ['indent'] }
+      : { op: 'props', id, set: { indent: next }, unset: [] },
+  ];
+}

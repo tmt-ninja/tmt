@@ -39,6 +39,7 @@ export function LiveStructuredPage({
     editing,
     focus,
     pasteUrl,
+    check,
     typed,
     key,
     menu,
@@ -66,6 +67,7 @@ export function LiveStructuredPage({
       onTyped={typed}
       onKey={key}
       onPasteUrl={pasteUrl}
+      onChecked={check}
       onLink={onLink}
       menu={menu}
       onPick={(entry) => void pick(entry)}
