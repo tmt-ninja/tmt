@@ -1,4 +1,5 @@
 mod cli_attachments;
+mod cli_block;
 mod cli_compact;
 mod cli_dashboard;
 mod cli_design;
@@ -385,6 +386,7 @@ fn grammar() -> Command {
             .subcommand(cli_design::command())
             .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
+            .subcommand(cli_block::command())
             .subcommand(cli_work::subpage_command())
             .subcommand(cli_work::summary_command())
             .subcommand(cli_metadata::question_command())
@@ -400,7 +402,10 @@ fn grammar() -> Command {
                                     .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new drafts; uses the invoking identity when known, otherwise leaves no creator"))
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
-                                        .value_parser(clap::value_parser!(std::path::PathBuf))),
+                                        .value_parser(clap::value_parser!(std::path::PathBuf)))
+                                    .arg(Arg::new("structured").long("structured").action(ArgAction::SetTrue)
+                                        .conflicts_with_all(["file", "layout", "reason", "template", "creator"])
+                                        .help("Create a page of blocks, edited with tmt colab block (no HTML source)")),
                             )),
                         ),
                     )
@@ -526,6 +531,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "dashboard" {
         return cli_dashboard::run(&root, args);
+    }
+    if command == "block" {
+        return cli_block::run(&root, args);
     }
     if command == "subpage" || command == "summary" {
         return cli_work::run(&root, command, args);
@@ -943,6 +951,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     if command == "creator" || command == "state" {
         return cli_metadata::run(root, command, args);
+    }
+    if command == "create" && args.get_flag("structured") {
+        return cli_management::create_blocks_page(root, args);
     }
     if command == "create" {
         // The layout is chosen before any state is initialized or any source is read. A template

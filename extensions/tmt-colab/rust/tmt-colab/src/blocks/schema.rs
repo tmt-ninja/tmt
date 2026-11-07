@@ -174,7 +174,7 @@ fn date(value: &str) -> bool {
         )
         && matches!(value[8..10].parse::<u8>(), Ok(1..=31))
 }
-fn list<'a>(value: &'a Value, max: usize) -> Result<&'a Vec<Value>> {
+fn list(value: &Value, max: usize) -> Result<&Vec<Value>> {
     let items = value.as_array().ok_or(Invalid)?;
     require(items.len() <= max)?;
     Ok(items)
@@ -394,4 +394,31 @@ pub fn validate(blocks: &Value) -> Result<()> {
 
 pub fn empty() -> Value {
     Value::Object(Map::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The shared vectors the TypeScript validator runs too: `blocks-reference.py` regenerates them.
+    fn vectors() -> Value {
+        serde_json::from_str(include_str!("../../../../contracts/vectors/blocks-v1.json")).unwrap()
+    }
+
+    #[test]
+    fn valid_vectors_are_accepted() {
+        for case in vectors()["valid"].as_array().unwrap() {
+            assert!(validate(&case["blocks"]).is_ok(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn invalid_vectors_are_refused() {
+        let vectors = vectors();
+        let invalid = vectors["invalid"].as_array().unwrap();
+        assert!(invalid.len() > 50);
+        for case in invalid {
+            assert!(validate(&case["blocks"]).is_err(), "{}", case["name"]);
+        }
+    }
 }

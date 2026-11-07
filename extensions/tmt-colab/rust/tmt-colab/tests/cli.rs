@@ -13039,7 +13039,7 @@ fn legacy_subpage_action(pilot: &Pilot, page: &str, action: &str, body: Value) {
             kind: StructuredKind::Work,
             action,
             body: &body,
-            expected_revision: &before.revision,
+            expected_revision: Some(&before.revision),
             display_agent: None,
             operation_id: None,
         },
@@ -13487,4 +13487,417 @@ fn show_reuses_one_work_index_including_archived_pages() {
         modified,
         "unchanged show must not rewrite the cache"
     );
+}
+
+#[test]
+fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
+    fn output(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = output(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn code(pilot: &Pilot, args: &[&str]) -> String {
+        let out = output(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let created = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Plan",
+                "--structured",
+                "--no-open",
+                "--json",
+            ],
+        );
+        let page = created["pageId"].as_str().unwrap();
+        let blocks = |all: bool| {
+            let mut args = vec!["block", "ls", page, "--json"];
+            if all {
+                args.push("--all");
+            }
+            call(&pilot, &args)["blocks"].as_array().unwrap().clone()
+        };
+        assert!(blocks(false).is_empty());
+
+        // Build: a heading, a paragraph, a card holding a todo, a table with a row.
+        let heading = call(
+            &pilot,
+            &[
+                "block", "insert", page, "--type", "heading", "--text", "Roadmap", "--json",
+            ],
+        );
+        let heading_id = heading["blockIds"][0].as_str().unwrap().to_owned();
+        let paragraph = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "paragraph",
+                "--text",
+                "The quick brown fox jumps",
+                "--json",
+            ],
+        );
+        let paragraph_id = paragraph["blockIds"][0].as_str().unwrap().to_owned();
+        let card = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "card",
+                "--props",
+                r#"{"title":"Next"}"#,
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let todo = call(
+            &pilot,
+            &[
+                "block", "insert", page, "--type", "todo", "--parent", &card, "--text", "ship",
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let table = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "table",
+                "--props",
+                r#"{"columns":[{"id":"a","name":"Item"}]}"#,
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let row = call(
+            &pilot,
+            &[
+                "block", "table", page, &table, "add-row", "--cell", "a=alpha", "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let tree = blocks(false);
+        let order: Vec<(&str, u64)> = tree
+            .iter()
+            .map(|b| (b["id"].as_str().unwrap(), b["depth"].as_u64().unwrap()))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                (heading_id.as_str(), 0),
+                (paragraph_id.as_str(), 0),
+                (card.as_str(), 0),
+                (todo.as_str(), 1),
+                (table.as_str(), 0),
+                (row.as_str(), 1),
+            ]
+        );
+
+        // Edits: props, a find/replace, a mark, a move, and the refusals of the closed rules.
+        call(
+            &pilot,
+            &[
+                "block",
+                "props",
+                page,
+                &todo,
+                "--set",
+                "checked=true",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "brown",
+                "--replace",
+                "red",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--mark",
+                "bold",
+                "--from",
+                "0",
+                "--to",
+                "3",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &["block", "move", page, &paragraph_id, "--first", "--json"],
+        );
+        assert_eq!(blocks(false)[0]["id"], paragraph_id.as_str());
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "text",
+                    page,
+                    &paragraph_id,
+                    "--find",
+                    "zebra",
+                    "--replace",
+                    "x",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_TEXT_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "text",
+                    page,
+                    &paragraph_id,
+                    "--find",
+                    "e",
+                    "--replace",
+                    "E",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_TEXT_AMBIGUOUS"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "move",
+                    page,
+                    &heading_id,
+                    "--parent",
+                    &card,
+                    "--after",
+                    &heading_id,
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_BAD_AFTER"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "props",
+                    page,
+                    "10000000-0000-4000-8000-0000000000ff",
+                    "--set",
+                    "tone=muted",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &["block", "props", page, &todo, "--set", "nope=1", "--json"]
+            ),
+            "COLAB_INPUT_INVALID"
+        );
+
+        // A whole-text replacement carries the base `block get` returned and keeps what others
+        // changed meanwhile: here a concurrent edit of another word.
+        let got = call(&pilot, &["block", "get", page, &paragraph_id, "--json"]);
+        let base = got["block"]["base"].as_str().unwrap().to_owned();
+        assert_eq!(base, "The quick red fox jumps");
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "quick",
+                "--replace",
+                "slow",
+                "--json",
+            ],
+        );
+        let (base_file, new_file) = (pilot.root.join("base.txt"), pilot.root.join("new.txt"));
+        fs::write(&base_file, &base).unwrap();
+        fs::write(&new_file, "The quick red fox leaps").unwrap();
+        let merged = call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--file",
+                new_file.to_str().unwrap(),
+                "--base-file",
+                base_file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(merged["droppedHunks"], json!([]));
+        let after = call(&pilot, &["block", "get", page, &paragraph_id, "--json"]);
+        assert_eq!(after["block"]["base"], "The slow red fox leaps");
+        // An overlapping change is dropped, reported, and the page's own text stays.
+        fs::write(&base_file, "The slow red fox leaps").unwrap();
+        fs::write(&new_file, "The SLOW red fox leaps").unwrap();
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "slow",
+                "--replace",
+                "swift",
+                "--json",
+            ],
+        );
+        let overlap = call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--file",
+                new_file.to_str().unwrap(),
+                "--base-file",
+                base_file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(overlap["droppedHunks"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            call(&pilot, &["block", "get", page, &paragraph_id, "--json"])["block"]["base"],
+            "The swift red fox leaps"
+        );
+
+        // Delete and restore keep the block's place; a batch is all or nothing.
+        call(&pilot, &["block", "delete", page, &heading_id, "--json"]);
+        assert!(!blocks(false).iter().any(|b| b["id"] == heading_id.as_str()));
+        assert!(blocks(true).iter().any(|b| b["id"] == heading_id.as_str()));
+        call(&pilot, &["block", "restore", page, &heading_id, "--json"]);
+        let ops = pilot.root.join("ops.json");
+        let extra = "10000000-0000-4000-8000-0000000000aa";
+        fs::write(
+            &ops,
+            json!([
+                {"op": "insert", "id": extra, "type": "callout", "text": "Heads up", "props": {"tone": "waiting"}},
+                {"op": "props", "id": extra, "set": {"tone": "not-a-tone"}},
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let before = blocks(true).len();
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "batch",
+                    page,
+                    "--file",
+                    ops.to_str().unwrap(),
+                    "--json"
+                ]
+            ),
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(blocks(true).len(), before);
+
+        // A structured page has no HTML source to write or patch; an HTML page has no blocks.
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "page",
+                    "patch",
+                    page,
+                    "--find",
+                    "a",
+                    "--replace",
+                    "b",
+                    "--json"
+                ]
+            ),
+            "COLAB_STRUCTURED_PAGE"
+        );
+        let html = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Html",
+                "--layout",
+                "column",
+                "--no-open",
+                "--json",
+            ],
+        )["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            code(&pilot, &["block", "ls", &html, "--json"]),
+            "COLAB_NOT_STRUCTURED"
+        );
+    }
 }

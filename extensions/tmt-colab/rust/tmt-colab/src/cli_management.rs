@@ -701,6 +701,10 @@ pub fn create_page(
 pub fn create_dashboard(root: &Path, args: &ArgMatches) -> Result<()> {
     create_page_kind(root, args, String::new(), CreateKind::Dashboard, &[], &[])
 }
+/// `page create --structured`: a page of blocks, empty until `tmt colab block` fills it.
+pub fn create_blocks_page(root: &Path, args: &ArgMatches) -> Result<()> {
+    create_page_kind(root, args, String::new(), CreateKind::Blocks, &[], &[])
+}
 /// A page committed through ordinary creation, and what was observed of the machine while it was.
 pub(crate) struct Created {
     pub page_id: String,
@@ -716,7 +720,7 @@ pub(crate) fn commit_creation(
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
 ) -> Result<Created> {
-    commit_creation_with(root, title, source, page_layout, shell, None)
+    commit_creation_with(root, title, source, page_layout, shell, false, None)
 }
 fn commit_creation_with(
     root: &Path,
@@ -724,6 +728,7 @@ fn commit_creation_with(
     source: String,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
+    blocks: bool,
     metadata: Option<crate::cli_metadata::CreateMetadata>,
 ) -> Result<Created> {
     if title.is_empty() {
@@ -741,7 +746,7 @@ fn commit_creation_with(
         ),
         None => {
             let caller = crate::core::caller_snapshot();
-            let selected = if shell {
+            let selected = if shell || blocks {
                 None
             } else {
                 crate::cli_metadata::default_creator(caller.as_ref())
@@ -776,8 +781,8 @@ fn commit_creation_with(
     if let Some(template_page) = &template_page {
         payload["templatePage"] = json!(template_page);
     }
-    if shell {
-        payload["pageType"] = json!("shell");
+    if shell || blocks {
+        payload["pageType"] = json!(if shell { "shell" } else { "blocks" });
     }
     if let Some(layout) = page_layout {
         payload["layout"] = serde_json::to_value(layout)?;
@@ -851,6 +856,7 @@ enum CreateKind<'a> {
         metadata: crate::cli_metadata::CreateMetadata,
     },
     Dashboard,
+    Blocks,
 }
 fn create_page_kind(
     root: &Path,
@@ -860,16 +866,21 @@ fn create_page_kind(
     checks: &[page_check::Finding],
     hints: &[page_check::Hint],
 ) -> Result<()> {
-    let (page_layout, shell, metadata) = match kind {
-        CreateKind::Page { layout, metadata } => (Some(layout), false, Some(metadata)),
-        CreateKind::Dashboard => (None, true, None),
+    let (page_layout, shell, blocks, metadata) = match kind {
+        CreateKind::Page { layout, metadata } => (Some(layout), false, false, Some(metadata)),
+        CreateKind::Dashboard => (None, true, false, None),
+        CreateKind::Blocks => (None, false, true, None),
     };
     // The receipt names the template the page started from, as resolved: a name typed as an ID, or
     // the space default, is the template's name.
     let template = metadata.as_ref().and_then(|m| m.template.clone());
     let template_default = metadata.as_ref().is_some_and(|m| m.template_default);
     let title = text(args, "title");
-    let mut read = crate::cli_layout::read_first(shell, page_layout, &source);
+    let mut read = if blocks {
+        vec!["tmt colab skill blocks".to_owned()]
+    } else {
+        crate::cli_layout::read_first(shell, page_layout, &source)
+    };
     // A page from a template starts by reading the template's rules.
     if let Some(name) = &template {
         read.insert(0, format!("tmt colab template show {name}"));
@@ -878,7 +889,7 @@ fn create_page_kind(
         page_id,
         result,
         observation,
-    } = commit_creation_with(root, title, source, page_layout, shell, metadata)?;
+    } = commit_creation_with(root, title, source, page_layout, shell, blocks, metadata)?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {

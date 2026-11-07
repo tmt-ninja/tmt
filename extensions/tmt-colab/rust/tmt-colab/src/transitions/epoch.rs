@@ -55,6 +55,12 @@ impl Prepared {
         };
         let baseline = if let Some(shell) = view.meta.get("shell") {
             decoder.produce_shell(baseline_input, shell, false, None)?
+        } else if let Some(blocks) = &view.blocks {
+            // A new epoch is built from the page as it stands: it is where the tombstones the
+            // page no longer keeps are dropped (`blocks::purge`).
+            let now = crate::registration::now_ms().map_err(|_| OwnerFault::Invalid)?;
+            let kept = crate::blocks::purge::purge(blocks, now);
+            decoder.produce_blocks(baseline_input, &kept, false, None)?
         } else {
             decoder.produce_baseline(baseline_input, None)?
         };

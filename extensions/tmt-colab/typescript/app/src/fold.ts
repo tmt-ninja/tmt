@@ -144,6 +144,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
           ...(Object.hasOwn(event.data as object, 'pageType') ? ['pageType'] : []),
           ...(Object.hasOwn(event.data as object, 'shell') ? ['shell'] : []),
+          ...(Object.hasOwn(event.data as object, 'blocks') ? ['blocks'] : []),
           ...(Object.hasOwn(event.data as object, 'work') ? ['work'] : []),
           ...(Object.hasOwn(event.data as object, 'pageState') ? ['pageState'] : []),
           ...(Object.hasOwn(event.data as object, 'creator') ? ['creator'] : []),
@@ -180,6 +181,7 @@ export class Fold {
               attachments: value.attachments,
               pageType: value.pageType,
               shell: value.shell,
+              blocks: value.blocks,
               work: value.work,
               pageState: value.pageState,
               own: value.own,
@@ -201,8 +203,9 @@ export class Fold {
           ...(value.layoutReason === undefined ? {} : { layoutReason: value.layoutReason }),
           ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
           ...(Object.hasOwn(value, 'pageType')
-            ? { pageType: value.pageType, shell: value.shell }
+            ? { pageType: value.pageType, ...(value.pageType === 'shell' ? { shell: value.shell } : {}) }
             : {}),
+          ...(Object.hasOwn(value, 'blocks') ? { blocks: value.blocks } : {}),
           ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
           ...(Object.hasOwn(value, 'pageState') ? { pageState: value.pageState } : {}),
           ...(Object.hasOwn(value, 'creator') ? { creator: value.creator } : {}),
@@ -230,8 +233,8 @@ export class Fold {
     base: ContentSnapshot,
     attachments?: attachment.DocumentChange,
   ): Promise<ContentPreparation> {
-    if (base.pageType === 'shell')
-      throw new Error('HTML source operations cannot replace a dashboard');
+    if (base.pageType !== undefined)
+      throw new Error('HTML source operations cannot replace a dashboard or a page of blocks');
     exactKeys(base, [
       'source',
       'title',

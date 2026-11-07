@@ -481,7 +481,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             kind,
             action,
             body: &body,
-            expected_revision: expected,
+            expected_revision: Some(expected),
             display_agent,
             operation_id: None,
         },

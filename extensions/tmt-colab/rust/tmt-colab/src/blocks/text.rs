@@ -64,6 +64,9 @@ impl Attrs {
     }
 }
 
+/// One run of a `Y.Text`: its characters and the marks (name, and value for a valued mark) on them.
+pub type Run = (String, Vec<(String, Option<String>)>);
+
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct RichText {
     chars: Vec<char>,
@@ -202,31 +205,8 @@ impl RichText {
         Ok(())
     }
 
-    /// The text and mark of one character range as the decoder reads a `Y.Text` run.
-    pub fn runs(&self) -> Vec<(String, Vec<(&'static str, Option<String>)>)> {
-        let mut out: Vec<(String, Vec<(&'static str, Option<String>)>)> = Vec::new();
-        let mut start = 0;
-        while start < self.chars.len() {
-            let mut end = start + 1;
-            while end < self.chars.len() && self.attrs[end] == self.attrs[start] {
-                end += 1;
-            }
-            let attrs = self.attrs[start];
-            let marks = (0..MARKS.len())
-                .filter(|m| attrs.get(*m) != 0)
-                .map(|m| {
-                    let value = (m >= FLAGS).then(|| self.table[attrs.get(m) as usize - 1].clone());
-                    (MARKS[m], value)
-                })
-                .collect();
-            out.push((self.chars[start..end].iter().collect(), marks));
-            start = end;
-        }
-        out
-    }
-
     /// Build from the runs of a `Y.Text`: each run's text and its marks.
-    pub fn from_runs(runs: &[(String, Vec<(String, Option<String>)>)]) -> Result<Self> {
+    pub fn from_runs(runs: &[Run]) -> Result<Self> {
         let mut out = Self::default();
         for (piece, marks) in runs {
             let mut attrs = Attrs::default();

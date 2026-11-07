@@ -306,6 +306,9 @@ pub struct PreparedContent {
     pub child_pid: u32,
     /// How much of the existing source the edit replaces; empty for a structured action.
     pub scale: crate::edit_scale::EditScale,
+    /// A block batch's receipt (`ops`, `droppedHunks`), set by the parent from the same validator
+    /// the child ran; `None` for every other edit.
+    pub receipt: Option<Value>,
 }
 #[derive(Clone, Copy)]
 enum DecodeMode {
@@ -729,7 +732,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: None,
                 shell: None,
-                blocks: false,
+                blocks: None,
             },
             stop,
         )
@@ -746,7 +749,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: Some(CREATE_CHUNK_BYTES),
                 shell: None,
-                blocks: false,
+                blocks: None,
             },
             stop,
         )
@@ -773,18 +776,22 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
                 shell: Some(shell.clone()),
-                blocks: false,
+                blocks: None,
             },
             stop,
         )
     }
-    /// A structured page starts empty: no text, no blocks, `meta.pageType = "blocks"`. Its blocks
-    /// arrive through `prepare_structured_batch`.
+    /// A structured page: no text, `meta.pageType = "blocks"` and the given blocks (`{}` for a new
+    /// page). A new epoch carries a page's blocks over with this, after compaction dropped the
+    /// tombstones it no longer keeps.
     pub fn produce_blocks(
         &mut self,
         view: BaselineInput<'_>,
+        blocks: &Value,
+        page: bool,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
+        crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
         if !view.source.is_empty()
             || view.attachments.is_some()
             || view.work.is_some()
@@ -798,9 +805,9 @@ impl Decoder {
         self.baseline(
             view,
             BaselineAction::Produce {
-                chunk_bytes: None,
+                chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
                 shell: None,
-                blocks: true,
+                blocks: Some(blocks.clone()),
             },
             stop,
         )
@@ -1430,6 +1437,7 @@ fn admit_prepared_content(
         memory_limit: reply.memory_limit,
         child_pid: reply.pid,
         scale: crate::edit_scale::EditScale::NONE,
+        receipt: None,
     })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
@@ -1475,9 +1483,10 @@ enum BaselineAction {
         chunk_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<Value>,
-        /// A new structured page: `meta.pageType = "blocks"`, an empty `html`, no blocks yet.
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        blocks: bool,
+        /// A structured page: `meta.pageType = "blocks"`, an empty `html` and these blocks (`{}` for
+        /// a new page; a compacted page's kept blocks).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blocks: Option<Value>,
     },
     Verify {
         update: String,

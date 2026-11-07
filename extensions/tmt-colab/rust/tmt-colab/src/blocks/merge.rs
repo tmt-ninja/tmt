@@ -188,27 +188,68 @@ fn conflicts(remote: &Hunk, local: &Hunk) -> bool {
     remote.from < local.to && local.from < remote.to
 }
 
+/// What happens to an agent hunk that overlaps a concurrent edit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Overlap {
+    /// The page's text stays and the whole hunk is dropped and reported: an agent rereads.
+    #[default]
+    Remote,
+    /// The hunk's new text is kept right after the page's own text there and only its deletion is
+    /// dropped (and reported): a person's typing is never lost. A hunk that only deletes is
+    /// dropped whole.
+    Both,
+}
+
 /// Apply the agent's hunks (`base → local`) to the current text. Hunks that overlap a concurrent
 /// edit are dropped and reported; a hunk the other writer also made is absorbed; insertions at
 /// one point keep the other writer's first.
 pub fn merge(base: &str, remote: &str, local: &str) -> Merged {
+    merge_with(base, remote, local, Overlap::Remote)
+}
+
+/// [`merge`], with the choice of what an overlap does.
+pub fn merge_with(base: &str, remote: &str, local: &str, overlap: Overlap) -> Merged {
     let base: Vec<char> = base.chars().collect();
     let remote_hunks = hunks(&base, &remote.chars().collect::<Vec<_>>());
     let local_hunks = hunks(&base, &local.chars().collect::<Vec<_>>());
-    let mut accepted: Vec<(&Hunk, u8)> = remote_hunks.iter().map(|h| (h, 0)).collect();
+    let mut accepted: Vec<(Hunk, u8)> = remote_hunks.iter().map(|h| (h.clone(), 0)).collect();
     let mut dropped = Vec::new();
     for hunk in &local_hunks {
         if remote_hunks.contains(hunk) {
             continue;
         }
-        if remote_hunks.iter().any(|other| conflicts(other, hunk)) {
+        let over: Vec<&Hunk> = remote_hunks
+            .iter()
+            .filter(|other| conflicts(other, hunk))
+            .collect();
+        if over.is_empty() {
+            accepted.push((hunk.clone(), 1));
+            continue;
+        }
+        if overlap == Overlap::Both && !hunk.text.is_empty() {
+            // The typed text lands after the page's own text where it overlapped.
+            let at = over.iter().map(|other| other.to).max().unwrap_or(hunk.to);
+            accepted.push((
+                Hunk {
+                    from: at,
+                    to: at,
+                    text: hunk.text.clone(),
+                },
+                1,
+            ));
+            if hunk.from < hunk.to {
+                dropped.push(Dropped {
+                    from: hunk.from,
+                    to: hunk.to,
+                    text: String::new(),
+                });
+            }
+        } else {
             dropped.push(Dropped {
                 from: hunk.from,
                 to: hunk.to,
                 text: hunk.text.iter().collect(),
             });
-        } else {
-            accepted.push((hunk, 1));
         }
     }
     accepted.sort_by_key(|(hunk, side)| (hunk.from, hunk.to, *side));
@@ -264,14 +305,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn merge_matches_the_vectors() {
+    fn check_merges(set: &str, overlap: Overlap) {
         let vectors = vectors();
-        for case in vectors["merges"].as_array().unwrap() {
-            let merged = merge(
+        for case in vectors[set].as_array().unwrap() {
+            let merged = merge_with(
                 case["base"].as_str().unwrap(),
                 case["remote"].as_str().unwrap(),
                 case["local"].as_str().unwrap(),
+                overlap,
             );
             let dropped: Vec<Hunk> = case["dropped"]
                 .as_array()
@@ -300,6 +341,23 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    #[test]
+    fn merge_matches_the_vectors() {
+        check_merges("merges", Overlap::Remote);
+    }
+
+    #[test]
+    fn merge_with_both_matches_the_vectors() {
+        check_merges("mergesBoth", Overlap::Both);
+    }
+
+    #[test]
+    fn the_default_overlap_is_remote() {
+        assert_eq!(Overlap::default(), Overlap::Remote);
+        let (b, r, l) = ("abcd", "ad", "abXcd");
+        assert_eq!(merge(b, r, l), merge_with(b, r, l, Overlap::Remote));
     }
 
     #[test]
