@@ -32,6 +32,11 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     // Held list reads in flight across this browser's tabs (#6162), counted from the first request.
     // A closed tab never reports its last request finished, so each tab counts its own.
     const inFlight = new Map<number, number>();
+    let patched = 0;
+    const timeline: { tab: number; at: number; event: string }[] = [];
+    const record = (tab: number, event: string) => {
+      if (patched && timeline.length < 200) timeline.push({ tab, at: Date.now() - patched, event });
+    };
     const held = {
       by: new Set<number>(),
       get now() {
@@ -41,13 +46,19 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const watch = (tab: number, target: typeof page) => {
       const isHeld = (url: string) =>
         /\/api\/pages\/after\/[0-9a-f]{64}$/.test(new URL(url).pathname);
+      const isList = (url: string) => new URL(url).pathname.endsWith('/api/pages');
       target.on('request', (request) => {
+        if (isHeld(request.url())) record(tab, 'held-start');
+        else if (isList(request.url())) record(tab, 'list-start');
         if (!isHeld(request.url())) return;
         inFlight.set(tab, (inFlight.get(tab) ?? 0) + 1);
         held.by.add(tab);
       });
       const done = (request: { url(): string }) => {
-        if (isHeld(request.url())) inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
+        if (isHeld(request.url())) {
+          record(tab, 'held-end');
+          inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
+        } else if (isList(request.url())) record(tab, 'list-end');
       };
       target.on('requestfinished', done);
       target.on('requestfailed', done);
@@ -202,32 +213,37 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '.zz-live-6162b{outline:0}',
       '--json',
     ]);
-    const patched = Date.now();
-    for (const [index, tab] of tabs.entries()) {
-      try {
-        await expect
-          .poll(
-            () =>
-              tab
-                .locator('.design-workspace iframe')
-                .first()
-                .contentFrame()
-                .locator('style')
-                .evaluateAll((nodes) =>
-                  nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
-                ),
-            { timeout: 30_000 },
-          )
-          .toBe(true);
-      } catch (error) {
-        // Which tab missed the edit, and which tabs held the list meanwhile.
-        console.log(
-          `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
-        );
-        throw error;
-      }
-      console.log(`tab ${index} drew the CLI edit ${Date.now() - patched} ms after it`);
-    }
+    patched = Date.now();
+    await Promise.all(
+      tabs.map(async (tab, index) => {
+        try {
+          await expect
+            .poll(
+              () =>
+                tab
+                  .locator('.design-workspace iframe')
+                  .first()
+                  .contentFrame()
+                  .locator('style')
+                  .evaluateAll((nodes) =>
+                    nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
+                  ),
+              { timeout: 30_000 },
+            )
+            .toBe(true);
+        } catch (error) {
+          // Which tab missed the edit, and which tabs held the list meanwhile.
+          console.log(
+            `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
+          );
+          console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
+          throw error;
+        }
+        console.log(`tab ${index} drew the CLI edit ${Date.now() - patched} ms after it`);
+        record(index, 'drawn');
+      }),
+    );
+    console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);
