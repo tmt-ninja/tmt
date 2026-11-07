@@ -232,7 +232,7 @@ export function ImageBlock({
                 </figure>
               ))}
             </div>
-            {images.length > 1 && (
+            {images.length > 1 && layout !== 'grid' && (
               <div className="tmt-block-image-controls">
                 <Button
                   type="button"

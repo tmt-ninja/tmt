@@ -998,8 +998,14 @@ The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-u
 `tmt-ui-table-block`, `tmt-ui-card-block`, `tmt-ui-callout`, `tmt-ui-code-block`,
 `tmt-ui-block-mention` and `tmt-ui-block-toast`; `block-document` carries `blocks.css` for all
 of them. The additional tags are `tmt-ui-question-block`, `tmt-ui-image-block`,
-`tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. Runtime 3 admits only named,
-declared host parts and page-data capabilities; runtime 2 bundles retain their prior skeleton.
+`tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. Every one of these tags is a
+thin runtime 4 wrapper that reads its attributes and renders the part above through `ui`
+(`uiParts`), so a page draws exactly what these docs draw and the shared block stylesheet is the
+only owner of the look; a part's controls are the `Button` part, never raw buttons that borrow a
+host page's button style (#6176). Runtime 3 admits only named, declared host parts and page-data
+capabilities, which the work bundle (`page` data) and the page view (`PageListTable`, which
+marks the slot the trusted parent paints) still declare; runtime 2 bundles retain their prior
+skeleton.
 Colab renders live page views in trusted parent chrome and only supplies work-bundle data when
 the page has proven owner-only authorship; see the [renderer contract](../../extensions/tmt-colab/contracts/colab-v1.md).
 `tmt-ui-table-block` takes its columns and rows as text lists, so the port drift check

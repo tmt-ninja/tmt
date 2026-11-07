@@ -1525,12 +1525,15 @@ a.tmt-block-mention:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
 .tmt-block-question-answered span:nth-child(2) {
+  flex: none;
   max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tmt-block-question-answered span:last-child {
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

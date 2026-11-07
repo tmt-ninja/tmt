@@ -233,3 +233,46 @@ for (const width of [1440, 390])
         await block.screenshot({ path: join(captureDir, `image-carousel-${width}-${theme}.png`) });
     });
   }
+
+// The spec page (838644c2) shows a grid without carousel controls, and an answered question keeps
+// its whole title while the answer takes the rest of the row.
+test('a grid has no carousel controls and an answered question keeps its title', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 700 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(
+    async ({ release, images }) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      host.style.width = '100%';
+      document.body.replaceChildren(host);
+      await mountRenderer(
+        host,
+        `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+        <tmt-ui-image-block layout="grid" size="s" images='${JSON.stringify(images)}'></tmt-ui-image-block>
+        <tmt-ui-question-block label="Which screen first?" agent="gui" state="answered" answer="${'A long answer. '.repeat(30)}"></tmt-ui-question-block>`,
+        {
+          signal: new AbortController().signal,
+          onState: () => {},
+          designSystem: {
+            release: async () => release,
+            draft: async () => release,
+            watch: () => () => {},
+          },
+        },
+      );
+      const frame = host.querySelector('iframe');
+      if (frame) frame.style.width = '100%';
+    },
+    { release: bundle, images: carousel },
+  );
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  await expect(frame.locator('tmt-ui-image-block img').first()).toBeVisible();
+  await expect(frame.locator('.tmt-block-image-controls')).toHaveCount(0);
+  const title = frame.locator('.tmt-block-question-answered span:nth-child(2)');
+  await expect(title).toHaveText('Which screen first?');
+  expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+});

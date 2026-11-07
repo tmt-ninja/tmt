@@ -5620,6 +5620,10 @@ browser-ui parts running on the page runtime's React. A component declares its n
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
+The tmt GUI's block and structured-page tags (question, image, mockup, work bundle and page view
+among them) render their browser-ui part through `ui`; the `page` data and `PageListTable` slot
+capabilities above stay declared by the tags that need them, and a page view with authored `rows`
+draws them in the frame while a live one holds its slot for the trusted parent's list.
 Runtime 4 also supplies an immutable `pagePin` with the page's system identifier, resolved version,
 and lock (`follow` or `version#hash`). It describes the already admitted system; it grants no
 additional resolution or transport capability. A mockup inherits that pin when its system or lock
