@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
 import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES } from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
-import { insertBlock, joinBlock, joinTarget, splitBlock } from './block-ops.js';
+import { BlockHistory } from './block-history.js';
+import { deleteBlocks, insertBlock, joinBlock, joinTarget, splitBlock } from './block-ops.js';
+import {
+  type BlockSelection,
+  extendSelection,
+  selectBlock,
+  selectedIds,
+  settleSelection,
+} from './block-selection.js';
 import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { BlockTree } from './block-tree.js';
 
@@ -17,6 +25,17 @@ export interface InsertMenu {
   entries: InsertEntry[];
   /** The active entry's id. */
   active?: string;
+}
+
+/** How long the status line after a delete stays. */
+export const TOAST_MS = 6000;
+
+/** The status line after a delete, with Undo. */
+export interface DeleteToast {
+  /** How many blocks the delete took. */
+  count: number;
+  /** Moves with every delete, so a new one restarts the line. */
+  id: number;
 }
 
 /** What the focused block shows while it is edited. */
@@ -60,6 +79,11 @@ export function useBlockEditing(
   const arriving = useRef<string | undefined>(undefined);
   const sendRef = useRef(send);
   sendRef.current = send;
+  /** This tab's own gestures, for ⌘Z and Undo (`BlockHistory`). */
+  const history = useRef(new BlockHistory());
+  const [selection, setSelection] = useState<BlockSelection>();
+  const [toast, setToast] = useState<DeleteToast>();
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The block the insert menu is open on, and its active entry. */
   const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
   const menuRef = useRef(menuAt);
@@ -116,6 +140,11 @@ export function useBlockEditing(
   );
   showRef.current = show;
 
+  // A selected block the page no longer draws leaves the selection.
+  useEffect(() => {
+    setSelection((now) => settleSelection(tree, now));
+  }, [tree]);
+
   // The page's text for the focused block moved: merge it into what the editor shows.
   useEffect(() => {
     const current = sync.current;
@@ -137,6 +166,7 @@ export function useBlockEditing(
 
   const focus = useCallback(
     (id: string) => {
+      setSelection(undefined);
       if (sync.current?.id === id) return;
       flush();
       const block = tree.get(id);
@@ -173,6 +203,7 @@ export function useBlockEditing(
         base: current.base,
       });
       const tail = [...text].slice(at).join('');
+      history.current.record(before, ops);
       arriving.current = newId;
       open(new BlockTextSync(newId, tail), 0);
       try {
@@ -202,6 +233,7 @@ export function useBlockEditing(
       const previous = joinTarget(before, current.id);
       if (!previous) return;
       const ops = joinBlock(before, current.id, current.text);
+      history.current.record(before, ops);
       const into = new BlockTextSync(previous.id, previous.text!);
       into.typed(previous.text! + current.text);
       // The join's text op is the one `into` has on its way.
@@ -241,6 +273,7 @@ export function useBlockEditing(
         }),
         { op: 'delete', id: current.id },
       ];
+      history.current.record(treeRef.current, ops);
       if (text) {
         arriving.current = newId;
         open(new BlockTextSync(newId, ''), 0);
@@ -279,6 +312,13 @@ export function useBlockEditing(
           void pick(menu.active && ids.includes(menu.active) ? menu.active : ids[0]!);
           return true;
         }
+      } else if (event.key === 'Escape') {
+        // Typing turns into selecting this block; the typing goes out as it would on blur.
+        flush();
+        sync.current = undefined;
+        setEditing(undefined);
+        setSelection(selectBlock(id));
+        return true;
       } else if (
         event.key === '/' &&
         isBlockType(block.type) &&
@@ -297,8 +337,93 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick],
+    [split, join, pick, flush],
   );
+
+  /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
+   * others wrote meanwhile. A restored block is selected again. */
+  const replay = useCallback(
+    (direction: 'undo' | 'redo') => {
+      const ops = direction === 'undo' ? history.current.undo() : history.current.redo();
+      if (!ops) return;
+      clearTimeout(toastTimer.current);
+      setToast(undefined);
+      const restored = ops.filter((op) => op.op === 'restore').map((op) => op.id);
+      if (restored.length)
+        setSelection({ anchor: restored[0]!, focus: restored[restored.length - 1]! });
+      void out(undefined, ops).catch(() => {});
+    },
+    [out],
+  );
+  const undo = useCallback(() => replay('undo'), [replay]);
+
+  /** Delete the selected blocks: they go at once, and the status line offers Undo. */
+  const deleteSelected = useCallback(() => {
+    const before = treeRef.current;
+    const ops = deleteBlocks(before, selectedIds(before, selection));
+    if (!ops.length) return;
+    history.current.record(before, ops);
+    // The block after the deleted ones (else the one before) takes the selection, so the keys
+    // and ⌘Z stay on the page.
+    const ids = before.flat().map((block) => block.id);
+    const gone = new Set(selectedIds(before, selection));
+    const last = Math.max(...[...gone].map((id) => ids.indexOf(id)));
+    const first = Math.min(...[...gone].map((id) => ids.indexOf(id)));
+    const next =
+      ids.slice(last + 1).find((id) => !gone.has(id)) ??
+      ids
+        .slice(0, first)
+        .reverse()
+        .find((id) => !gone.has(id));
+    setSelection(next ? selectBlock(next) : undefined);
+    clearTimeout(toastTimer.current);
+    setToast((now) => ({ count: ops.length, id: (now?.id ?? 0) + 1 }));
+    toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
+    void out(undefined, ops).catch(() => {});
+  }, [selection, out]);
+
+  /** A key on the page while blocks are selected (no block is being typed in); true when taken. */
+  const pageKey = useCallback(
+    (event: KeyboardEvent): boolean => {
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && event.key.toLowerCase() === 'z') {
+        replay(event.shiftKey ? 'redo' : 'undo');
+        return true;
+      }
+      if (mod && event.key.toLowerCase() === 'y') {
+        replay('redo');
+        return true;
+      }
+      if (!selection || sync.current) return false;
+      const ids = treeRef.current.flat().map((block) => block.id);
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        deleteSelected();
+        return true;
+      }
+      if (event.key === 'Escape') {
+        setSelection(undefined);
+        return true;
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        const direction = event.key === 'ArrowUp' ? 'up' : 'down';
+        if (event.shiftKey) setSelection(extendSelection(treeRef.current, selection, direction));
+        else {
+          const at = ids.indexOf(selection.focus) + (direction === 'up' ? -1 : 1);
+          const next = ids[Math.max(0, Math.min(ids.length - 1, at))];
+          if (next) setSelection(selectBlock(next));
+        }
+        return true;
+      }
+      if (event.key === 'Enter' && selection.anchor === selection.focus) {
+        focus(selection.focus);
+        return true;
+      }
+      return false;
+    },
+    [selection, replay, deleteSelected, focus],
+  );
+  const selected = useMemo(() => selectedIds(tree, selection), [tree, selection]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const menu = useMemo((): InsertMenu | undefined => {
     if (!menuAt || editing?.id !== menuAt.id) return undefined;
@@ -315,5 +440,21 @@ export function useBlockEditing(
   }, []);
 
   useEffect(() => () => clearTimeout(timer.current), []);
-  return { tree, editing, focus, typed, flush, key, menu, pick, hover, closeMenu };
+  return {
+    tree,
+    editing,
+    focus,
+    typed,
+    flush,
+    key,
+    menu,
+    pick,
+    hover,
+    closeMenu,
+    selected,
+    selectionFocus: selection?.focus,
+    pageKey,
+    toast,
+    undo,
+  };
 }

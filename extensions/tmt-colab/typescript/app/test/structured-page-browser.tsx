@@ -167,8 +167,10 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             const now = next.find((block) => block.id === op.id)!.text!;
             const text = textMerge.merge(op.base, now, op.set, op.overlap).text;
             next = next.map((block) => (block.id === op.id ? { ...block, text } : block));
-          } else if (op.op === 'delete')
-            next = next.map((block) => (block.id === op.id ? { ...block, deleted: true } : block));
+          } else if (op.op === 'delete' || op.op === 'restore')
+            next = next.map((block) =>
+              block.id === op.id ? { ...block, deleted: op.op === 'delete' } : block,
+            );
           else if (op.op === 'insert') {
             const siblings = new BlockTree(next).children(op.parent);
             const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
@@ -196,11 +198,22 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       if (node) listeners.add(setView);
       else listeners.delete(setView);
     }, []);
-    const { tree, editing, focus, typed, key, menu, pick, hover, closeMenu } = useBlockEditing(
-      view.records,
-      send,
-      view.seq,
-    );
+    const {
+      tree,
+      editing,
+      focus,
+      typed,
+      key,
+      menu,
+      pick,
+      hover,
+      closeMenu,
+      selected,
+      selectionFocus,
+      pageKey,
+      toast,
+      undo,
+    } = useBlockEditing(view.records, send, view.seq);
     return (
       <section ref={subscribe}>
         <StructuredPage
@@ -213,6 +226,11 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onPick={(entry) => void pick(entry)}
           onHover={hover}
           onCloseMenu={closeMenu}
+          selected={selected}
+          selectionFocus={selectionFocus}
+          onPageKey={pageKey}
+          toast={toast}
+          onUndo={undo}
         />
       </section>
     );
