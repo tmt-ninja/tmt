@@ -66,23 +66,37 @@ async function traceLargeWrites(page: Page, name: string) {
         truncated = true;
         continue;
       }
-      const data = (
-        item.args as unknown as {
-          data?: {
-            url?: unknown;
-            functionName?: unknown;
-            message?: unknown;
-            startTime?: unknown;
-            cpuProfile?: { nodes?: unknown; samples?: unknown };
-            timeDeltas?: unknown;
-          };
-        }
-      )?.data;
+      const args = item.args as unknown as {
+        data?: {
+          url?: unknown;
+          functionName?: unknown;
+          message?: unknown;
+          startTime?: unknown;
+          cpuProfile?: { nodes?: unknown; samples?: unknown };
+          timeDeltas?: unknown;
+          stackTrace?: unknown;
+        };
+        beginData?: { stackTrace?: unknown };
+      };
+      const data = args?.data;
       if (item.name === 'TimeStamp' && data?.message !== 'colab-large-start') continue;
       const module = moduleName(data?.url);
       const fn = module ? functionName(data?.functionName) : undefined;
       const numbers = (value: unknown) =>
         Array.isArray(value) ? value.slice(0, 10_000).filter(Number.isSafeInteger) : [];
+      const rawId = (item as unknown as { id?: unknown }).id;
+      const profileId =
+        typeof rawId === 'string' && /^(?:0x)?[0-9a-f]{1,16}$/i.test(rawId) ? rawId : undefined;
+      const rawStack = args?.beginData?.stackTrace ?? data?.stackTrace;
+      const stack = Array.isArray(rawStack)
+        ? rawStack.slice(0, 64).flatMap((value: unknown) => {
+            if (!value || typeof value !== 'object') return [];
+            const frame = value as { url?: unknown; functionName?: unknown };
+            const own = moduleName(frame.url);
+            const fn = own ? functionName(frame.functionName) : undefined;
+            return own && fn ? [{ module: own, function: fn }] : [];
+          })
+        : [];
       const nodes = Array.isArray(data?.cpuProfile?.nodes)
         ? data.cpuProfile.nodes.slice(0, 10_000).flatMap((node: unknown) => {
             if (!node || typeof node !== 'object') return [];
@@ -112,6 +126,8 @@ async function traceLargeWrites(page: Page, name: string) {
         dur: item.dur,
         pid: item.pid,
         tid: item.tid,
+        ...(profileId ? { profileId } : {}),
+        ...(stack.length ? { stack } : {}),
         ...(module ? { module } : {}),
         ...(fn ? { function: fn } : {}),
         ...(typeof data?.startTime === 'number' ? { startTime: data.startTime } : {}),
