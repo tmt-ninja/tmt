@@ -104,13 +104,12 @@ const isItem = (block: Json) => block.type === 'list' || block.type === 'todo';
 function item(block: Json): string {
   const props = obj(block.props);
   if (block.type !== 'todo') return rich(block.text);
-  const mark = props.checked === true ? '☑' : '☐';
   const note: string[] = [];
   const who = str(props.assignee);
   if (who !== undefined) note.push(escape(who));
   const due = str(props.due);
   if (due !== undefined) note.push(`due ${escape(due)}`);
-  return `${mark} ${rich(block.text)}${note.length === 0 ? '' : ` (${note.join(', ')})`}`;
+  return `${rich(block.text)}${note.length === 0 ? '' : ` (${note.join(', ')})`}`;
 }
 
 /** Adjacent items as nested `ul`/`ol`: each level takes its first item's kind. */
@@ -135,7 +134,13 @@ function listRun(run: Entry[]): string {
       out += `<${tag}>`;
       open.push(tag);
     }
-    out += `<li>${item(block)}`;
+    const kind =
+      block.type === 'todo'
+        ? props.checked === true
+          ? ' class="todo done"'
+          : ' class="todo"'
+        : '';
+    out += `<li${kind}>${item(block)}`;
   }
   for (let tag = open.pop(); tag !== undefined; tag = open.pop()) out += `</li></${tag}>`;
   return `${out}\n`;
@@ -144,9 +149,12 @@ function listRun(run: Entry[]): string {
 function table(all: Json, id: string, block: Json): string {
   const props = obj(block.props);
   const columns = arr(props.columns).map(obj);
-  let out = '<table>';
+  let out = '<section class="tmt-ui-section">';
   const label = str(props.label);
-  if (label !== undefined) out += `<caption>${escape(label)}</caption>`;
+  if (label !== undefined) {
+    out += `<h2 class="tmt-ui-section-heading" data-variant="label">${escape(label)}</h2>`;
+  }
+  out += '<table>';
   if (props.header !== false && columns.length > 0) {
     out += '<thead><tr>';
     for (const column of columns) out += `<th>${escape(str(column.name) ?? '')}</th>`;
@@ -163,7 +171,7 @@ function table(all: Json, id: string, block: Json): string {
     }
     out += '</tr>';
   }
-  return `${out}</tbody></table>\n`;
+  return `${out}</tbody></table></section>\n`;
 }
 
 function render1(all: Json, id: string, block: Json): string {
@@ -180,43 +188,55 @@ function render1(all: Json, id: string, block: Json): string {
     case 'card': {
       const title = str(props.title);
       const meta = str(props.meta);
-      const collapsible = props.collapsible === true;
       let out = '';
-      if (collapsible) {
-        out += `<details${props.collapsed === true ? '' : ' open'}>`;
+      if (props.collapsible === true) {
+        out += `<details class="tmt-ui-disclosure"${props.collapsed === true ? '' : ' open'}>`;
         out += `<summary>${title === undefined ? '' : escape(title)}</summary>`;
-      } else {
-        out += '<section>';
-        if (title !== undefined) out += `<h3>${escape(title)}</h3>`;
+        if (meta !== undefined) out += `<p><small>${escape(meta)}</small></p>`;
+        out += '\n';
+        out += children(all, id);
+        return `${out}</details>\n`;
       }
-      if (meta !== undefined) out += `<p><small>${escape(meta)}</small></p>`;
+      if (props.variant === 'section') {
+        out += '<section class="tmt-ui-section">';
+        if (title !== undefined) {
+          out += `<h2 class="tmt-ui-section-heading" data-variant="label">${escape(title)}</h2>`;
+        }
+        out += '\n';
+        out += children(all, id);
+        return `${out}</section>\n`;
+      }
+      out += '<section class="tmt-ui-section"><div class="tmt-ui-card">';
+      if (title !== undefined || meta !== undefined) {
+        out += '<div class="tmt-ui-card-head">';
+        if (title !== undefined) out += `<h3 class="tmt-ui-card-title">${escape(title)}</h3>`;
+        if (meta !== undefined) out += `<span class="tmt-ui-card-meta">${escape(meta)}</span>`;
+        out += '</div>';
+      }
       out += '\n';
       out += children(all, id);
-      return out + (collapsible ? '</details>\n' : '</section>\n');
+      return `${out}</div></section>\n`;
     }
     case 'question': {
       const choices = arr(props.choices);
       const kind = str(props.kind) ?? (choices.length === 0 ? 'short' : 'single');
       let out = `<tmt-question data-id="${escape(id)}" data-kind="${escape(kind)}"`;
-      const agent = str(props.agent);
-      if (agent !== undefined) out += ` data-agent="${escape(agent)}"`;
+      // Routing lives in the page's question registry, which a rendering must agree with and an
+      // unassigned entry has no agent, so the markup carries no `data-agent`.
       out += `><p data-question>${plain(block.text)}</p>`;
       for (const choice of choices) out += `<span data-choice>${escape(str(choice) ?? '')}</span>`;
       return `${out}</tmt-question>\n`;
     }
     case 'callout': {
-      let out = '<aside';
+      let out = '<div class="tmt-ui-notice" data-tinted';
       const tone = str(props.tone);
       if (tone !== undefined) out += ` data-tone="${escape(tone)}"`;
       out += '>';
       const label = str(props.label);
+      if (label !== undefined) out += `<div class="tmt-ui-notice-eyebrow">${escape(label)}</div>`;
       const heading = str(props.heading);
-      const parts = [
-        ...(label === undefined ? [] : [`<strong>${escape(label)}</strong>`]),
-        ...(heading === undefined ? [] : [escape(heading)]),
-      ];
-      if (parts.length > 0) out += `<p>${parts.join(' ')}</p>`;
-      return `${out}<p>${rich(block.text)}</p></aside>\n`;
+      if (heading !== undefined) out += `<h3 class="tmt-ui-notice-heading">${escape(heading)}</h3>`;
+      return `${out}<div class="tmt-ui-notice-body">${rich(block.text)}</div></div>\n`;
     }
     case 'code': {
       let out = '<pre';
@@ -268,9 +288,11 @@ function render1(all: Json, id: string, block: Json): string {
       return `${out}</div>\n`;
     }
     case 'page-view': {
-      let out = '<section data-page-view>';
+      let out = '<section class="tmt-ui-section" data-page-view>';
       const label = str(props.label);
-      if (label !== undefined) out += `<h3>${escape(label)}</h3>`;
+      if (label !== undefined) {
+        out += `<h2 class="tmt-ui-section-heading" data-variant="label">${escape(label)}</h2>`;
+      }
       const rows = arr(props.rows).map(obj);
       if (rows.length > 0) {
         out += '<ul>';
@@ -302,7 +324,14 @@ function children(all: Json, parent: string): string {
   return out;
 }
 
-/** The page's live blocks as HTML, each block-level fragment on its own line. */
+/** The first line of a rendering: the starter layer's section rhythm, which also marks the page as
+ * one that uses the design system, so Colab paints its plain elements with the editorial layer. */
+const STARTER =
+  '<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:"\\2610  "}li.done{list-style-type:"\\2611  "}}</style>\n';
+
+/** The page's live blocks as HTML, each block-level fragment on its own line; nothing for a page
+ * without live blocks. */
 export function renderBlocks(blocks: unknown): string {
-  return children(obj(blocks), 'root');
+  const body = children(obj(blocks), 'root');
+  return body === '' ? body : STARTER + body;
 }

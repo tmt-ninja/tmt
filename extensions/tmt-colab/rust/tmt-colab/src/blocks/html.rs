@@ -101,11 +101,6 @@ fn item(block: &Value) -> String {
     if block["type"] != "todo" {
         return rich(&block["text"]);
     }
-    let mark = if props["checked"] == true {
-        "☑"
-    } else {
-        "☐"
-    };
     let mut note: Vec<String> = Vec::new();
     if let Some(who) = str_of(props, "assignee") {
         note.push(escape(who));
@@ -118,7 +113,7 @@ fn item(block: &Value) -> String {
     } else {
         format!(" ({})", note.join(", "))
     };
-    format!("{mark} {}{note}", rich(&block["text"]))
+    format!("{}{note}", rich(&block["text"]))
 }
 
 /// Adjacent items as nested `ul`/`ol`: each level takes its first item's kind.
@@ -146,7 +141,13 @@ fn list_run(out: &mut String, run: &[(&str, &Value)]) {
             out.push_str(&format!("<{tag}>"));
             open.push(tag);
         }
-        out.push_str("<li>");
+        out.push_str(
+            match (block["type"].as_str(), block["props"]["checked"] == true) {
+                (Some("todo"), true) => "<li class=\"todo done\">",
+                (Some("todo"), false) => "<li class=\"todo\">",
+                _ => "<li>",
+            },
+        );
         out.push_str(&item(block));
     }
     while let Some(tag) = open.pop() {
@@ -161,10 +162,14 @@ fn table(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
         .get("columns")
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice);
-    out.push_str("<table>");
+    out.push_str("<section class=\"tmt-ui-section\">");
     if let Some(label) = str_of(props, "label") {
-        out.push_str(&format!("<caption>{}</caption>", escape(label)));
+        out.push_str(&format!(
+            "<h2 class=\"tmt-ui-section-heading\" data-variant=\"label\">{}</h2>",
+            escape(label)
+        ));
     }
+    out.push_str("<table>");
     if props["header"] != false && !columns.is_empty() {
         out.push_str("<thead><tr>");
         for column in columns {
@@ -185,7 +190,7 @@ fn table(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
         }
         out.push_str("</tr>");
     }
-    out.push_str("</tbody></table>\n");
+    out.push_str("</tbody></table></section>\n");
 }
 
 fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
@@ -201,34 +206,48 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
         "card" => {
             let title = str_of(props, "title").map(escape);
             let meta = str_of(props, "meta").map(escape);
-            let collapsible = props["collapsible"] == true;
-            if collapsible {
+            if props["collapsible"] == true {
                 let open = if props["collapsed"] == true {
                     ""
                 } else {
                     " open"
                 };
-                out.push_str(&format!("<details{open}>"));
                 out.push_str(&format!(
-                    "<summary>{}</summary>",
+                    "<details class=\"tmt-ui-disclosure\"{open}><summary>{}</summary>",
                     title.as_deref().unwrap_or_default()
                 ));
-            } else {
-                out.push_str("<section>");
-                if let Some(title) = &title {
-                    out.push_str(&format!("<h3>{title}</h3>"));
+                if let Some(meta) = &meta {
+                    out.push_str(&format!("<p><small>{meta}</small></p>"));
                 }
-            }
-            if let Some(meta) = &meta {
-                out.push_str(&format!("<p><small>{meta}</small></p>"));
-            }
-            out.push('\n');
-            children(out, all, id);
-            out.push_str(if collapsible {
-                "</details>\n"
+                out.push('\n');
+                children(out, all, id);
+                out.push_str("</details>\n");
+            } else if props["variant"] == "section" {
+                out.push_str("<section class=\"tmt-ui-section\">");
+                if let Some(title) = &title {
+                    out.push_str(&format!(
+                        "<h2 class=\"tmt-ui-section-heading\" data-variant=\"label\">{title}</h2>"
+                    ));
+                }
+                out.push('\n');
+                children(out, all, id);
+                out.push_str("</section>\n");
             } else {
-                "</section>\n"
-            });
+                out.push_str("<section class=\"tmt-ui-section\"><div class=\"tmt-ui-card\">");
+                if title.is_some() || meta.is_some() {
+                    out.push_str("<div class=\"tmt-ui-card-head\">");
+                    if let Some(title) = &title {
+                        out.push_str(&format!("<h3 class=\"tmt-ui-card-title\">{title}</h3>"));
+                    }
+                    if let Some(meta) = &meta {
+                        out.push_str(&format!("<span class=\"tmt-ui-card-meta\">{meta}</span>"));
+                    }
+                    out.push_str("</div>");
+                }
+                out.push('\n');
+                children(out, all, id);
+                out.push_str("</div></section>\n");
+            }
         }
         "question" => {
             let choices: &[Value] = props
@@ -245,9 +264,8 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
                 escape(id),
                 escape(kind)
             ));
-            if let Some(agent) = str_of(props, "agent") {
-                out.push_str(&format!(" data-agent=\"{}\"", escape(agent)));
-            }
+            // Routing lives in the page's question registry, which a rendering must agree with
+            // and an unassigned entry has no agent, so the markup carries no `data-agent`.
             out.push_str(&format!("><p data-question>{}</p>", plain(&block["text"])));
             for choice in choices {
                 out.push_str(&format!(
@@ -258,18 +276,27 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
             out.push_str("</tmt-question>\n");
         }
         "callout" => {
-            out.push_str("<aside");
+            out.push_str("<div class=\"tmt-ui-notice\" data-tinted");
             if let Some(tone) = str_of(props, "tone") {
                 out.push_str(&format!(" data-tone=\"{}\"", escape(tone)));
             }
             out.push('>');
-            let label = str_of(props, "label").map(|l| format!("<strong>{}</strong>", escape(l)));
-            let heading = str_of(props, "heading").map(escape);
-            if label.is_some() || heading.is_some() {
-                let parts: Vec<String> = [label, heading].into_iter().flatten().collect();
-                out.push_str(&format!("<p>{}</p>", parts.join(" ")));
+            if let Some(label) = str_of(props, "label") {
+                out.push_str(&format!(
+                    "<div class=\"tmt-ui-notice-eyebrow\">{}</div>",
+                    escape(label)
+                ));
             }
-            out.push_str(&format!("<p>{}</p></aside>\n", rich(&block["text"])));
+            if let Some(heading) = str_of(props, "heading") {
+                out.push_str(&format!(
+                    "<h3 class=\"tmt-ui-notice-heading\">{}</h3>",
+                    escape(heading)
+                ));
+            }
+            out.push_str(&format!(
+                "<div class=\"tmt-ui-notice-body\">{}</div></div>\n",
+                rich(&block["text"])
+            ));
         }
         "code" => {
             out.push_str("<pre");
@@ -356,9 +383,12 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
             out.push_str("</div>\n");
         }
         "page-view" => {
-            out.push_str("<section data-page-view>");
+            out.push_str("<section class=\"tmt-ui-section\" data-page-view>");
             if let Some(label) = str_of(props, "label") {
-                out.push_str(&format!("<h3>{}</h3>", escape(label)));
+                out.push_str(&format!(
+                    "<h2 class=\"tmt-ui-section-heading\" data-variant=\"label\">{}</h2>",
+                    escape(label)
+                ));
             }
             let rows: &[Value] = props
                 .get("rows")
@@ -398,13 +428,22 @@ fn children(out: &mut String, all: &Map<String, Value>, parent: &str) {
     }
 }
 
-/// The page's live blocks as HTML, each block-level fragment on its own line.
+/// The first line of a rendering: the starter layer's section rhythm, which also marks the page as
+/// one that uses the design system, so Colab paints its plain elements with the editorial layer.
+const STARTER: &str = "<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:\"\\2610  \"}li.done{list-style-type:\"\\2611  \"}}</style>\n";
+
+/// The page's live blocks as HTML, each block-level fragment on its own line; nothing for a page
+/// without live blocks.
 pub fn render(blocks: &Value) -> String {
-    let mut out = String::new();
+    let mut body = String::new();
     if let Some(all) = blocks.as_object() {
-        children(&mut out, all, "root");
+        children(&mut body, all, "root");
     }
-    out
+    if body.is_empty() {
+        body
+    } else {
+        format!("{STARTER}{body}")
+    }
 }
 
 #[cfg(test)]
@@ -763,6 +802,25 @@ mod tests {
             stored == fresh,
             "blocks-html-v1.json is stale; run TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html"
         );
+    }
+
+    #[test]
+    fn a_rendered_question_agrees_with_the_registry_a_new_question_block_gets() {
+        // The registry entry a question block gets has no agent, so the markup must carry none.
+        let (_, blocks) = cases()
+            .into_iter()
+            .find(|(name, _)| name.starts_with("question"))
+            .unwrap();
+        let html = render(&blocks);
+        assert!(!html.contains("data-agent=\"Ada\"><p data-question"));
+        let report = crate::page_check::check(&html).unwrap();
+        let attribution = json!({"writerId": id(99), "timeMs": 1_700_000_000_000u64});
+        let meta = json!({"questions": [
+            {"id": id(1), "state": "open", "attribution": attribution},
+            {"id": id(2), "state": "open", "attribution": attribution},
+        ]});
+        let findings = crate::question_registry::findings(&report, &meta, &id(50), None);
+        assert!(findings.is_empty(), "{findings:?}");
     }
 
     #[test]

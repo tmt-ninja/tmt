@@ -13671,7 +13671,7 @@ fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() 
         let directory = PathBuf::from(exported["directory"].as_str().unwrap());
         assert_eq!(
             fs::read_to_string(directory.join("page.html")).unwrap(),
-            "<h2>Roadmap</h2>\n<p>Ship &lt;it&gt; &amp; go</p>\n"
+            "<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:\"\\2610  \"}li.done{list-style-type:\"\\2611  \"}}</style>\n<h2>Roadmap</h2>\n<p>Ship &lt;it&gt; &amp; go</p>\n"
         );
         let blocks: Value =
             serde_json::from_slice(&fs::read(directory.join("blocks.json")).unwrap()).unwrap();
@@ -13692,6 +13692,87 @@ fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() 
         );
         assert_eq!(files[1]["derivedFrom"], "blocks.json");
         assert!(files[0].get("derivedFrom").is_none());
+        // The round trip: the exported HTML is a page of its own, byte for byte.
+        let html = directory.join("page.html");
+        let copy = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Copy",
+            "--layout",
+            "column",
+            "--file",
+            html.to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
+        let read = pilot.call(&["page", "read", copy["pageId"].as_str().unwrap(), "--json"]);
+        assert_eq!(read["source"], fs::read_to_string(&html).unwrap(), "{read}");
+    }
+}
+
+/// A page of blocks keeps work like any other page (#6004): it gains and loses sub-pages and a
+/// summary through the same actions, the blocks stay as they were, and a dashboard still refuses.
+#[test]
+fn a_page_of_blocks_gains_and_loses_sub_pages_and_a_summary_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let make = |pilot: &Pilot, title: &str| {
+            let created = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--structured",
+                "--no-open",
+                "--json",
+            ]);
+            created["pageId"].as_str().unwrap().to_owned()
+        };
+        let (parent, child) = (make(&pilot, "Parent"), make(&pilot, "Child"));
+        pilot.call(&[
+            "block",
+            "insert",
+            &parent,
+            "--type",
+            "paragraph",
+            "--text",
+            "Kept",
+            "--json",
+        ]);
+        let blocks =
+            |pilot: &Pilot| pilot.call(&["block", "ls", &parent, "--json"])["blocks"].clone();
+        let before = blocks(&pilot);
+        pilot.call(&["subpage", "attach", &parent, &child, "--json"]);
+        pilot.call(&[
+            "summary", "set", &parent, "--line1", "Start", "--line2", "Next", "--json",
+        ]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert_eq!(listed["children"].as_array().unwrap().len(), 1, "{listed}");
+        assert_eq!(blocks(&pilot), before);
+        // The page still takes block edits beside its work, and the work survives them.
+        pilot.call(&[
+            "block",
+            "insert",
+            &parent,
+            "--type",
+            "paragraph",
+            "--text",
+            "More",
+            "--json",
+        ]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert_eq!(listed["children"].as_array().unwrap().len(), 1, "{listed}");
+        pilot.call(&["subpage", "detach", &parent, &child, "--json"]);
+        pilot.call(&["summary", "clear", &parent, "--json"]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert!(
+            listed["children"].as_array().unwrap().is_empty(),
+            "{listed}"
+        );
     }
 }
 
