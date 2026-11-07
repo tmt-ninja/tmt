@@ -1817,6 +1817,19 @@ NOT restore membership, sharing, grants, intents or replies. Missing or
 undecryptable snapshots return “unavailable”, never substitute newer state.
 Snapshots are history, not a page-version switch.
 
+### Conversion to a structured page
+
+New ordinary pages start as structured pages; existing HTML pages remain editable. A force
+conversion first creates an archived copy titled `<title> (before conversion)` and labelled
+`converted`. The copy's source is read back and verified byte-for-byte against the original before
+the original page changes. The original then becomes an empty structured page while retaining its
+page ID, link and discussions. An unsuccessful step leaves the original unchanged. Conversion
+records the copy ID in `meta.convertedFrom`, and retries reuse the copy rather than creating a
+duplicate. The old source is available by reading or unarchiving the copy; this operation does not
+depend on snapshot storage. CLI and browser confirmation state that the original becomes empty and
+name the archived copy before conversion proceeds. An agent may rebuild its content using the block
+commands.
+
 ## Decoder isolation, compaction and limits
 
 The separate local-byte accounting and conservative cleanup estimate do not replace write admission

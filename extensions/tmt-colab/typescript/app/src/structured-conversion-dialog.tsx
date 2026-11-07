@@ -3,10 +3,12 @@ import { useRef } from 'react';
 
 /** Confirm replacement before the caller requests a revision-checked conversion. */
 export function StructuredConversionDialog({
+  title,
   busy,
   onCancel,
   onConfirm,
 }: {
+  title: string;
   busy: boolean;
   onCancel(): void;
   onConfirm(): void;
@@ -44,8 +46,8 @@ export function StructuredConversionDialog({
       }
     >
       <p>
-        The structured page will start empty. The old HTML will remain in page history, where it can
-        be recovered. An agent can read the old content and rebuild it with the block commands.
+        The current page becomes an empty structured page. A copy of the old page is kept in the
+        archive as '{title} (before conversion)'.
       </p>
     </BrowserDialog>
   );

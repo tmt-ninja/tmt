@@ -13,6 +13,7 @@ function Fixture() {
       <output data-testid="confirm-count">{confirmed}</output>
       {open && (
         <StructuredConversionDialog
+          title="Planning"
           busy={busy}
           onCancel={() => setOpen(false)}
           onConfirm={() => {

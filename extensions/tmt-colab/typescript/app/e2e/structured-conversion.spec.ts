@@ -12,9 +12,10 @@ test('conversion explains replacement and requires confirmation', async ({ page 
   const opener = page.getByRole('button', { name: 'Open conversion' });
   await opener.click();
   const dialog = page.getByRole('dialog', { name: 'Convert to a structured page?' });
-  await expect(dialog).toContainText('start empty');
-  await expect(dialog).toContainText('old HTML will remain in page history');
-  await expect(dialog).toContainText('agent can read the old content');
+  await expect(dialog).toContainText('The current page becomes an empty structured page.');
+  await expect(dialog).toContainText(
+    "A copy of the old page is kept in the archive as 'Planning (before conversion)'.",
+  );
   const cancel = dialog.getByRole('button', { name: 'Cancel' });
   await expect(cancel).toBeFocused();
   await cancel.click();
