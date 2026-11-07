@@ -759,12 +759,12 @@ a.tmt-block-mention:focus-visible {
     display: none;
   }
 }
+/* The card sets its own type, so a page whose body is larger draws the same card as the docs. */
 .tmt-block-work {
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
   border-radius: var(--tmt-ui-radius);
   padding: var(--tmt-ui-space-m);
   color: var(--tmt-ui-color-text);
-  /* The card sets its own type, so a page whose body is larger draws the same card as the docs. */
   font: var(--tmt-ui-type-body-size)/var(--tmt-ui-type-body-line-height) var(--tmt-ui-font-body);
 }
 .tmt-block-work header {
