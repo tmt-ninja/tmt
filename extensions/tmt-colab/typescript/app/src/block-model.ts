@@ -80,6 +80,31 @@ export interface BlockRecord {
   readonly deleted: boolean;
 }
 
+/** The marks a block's text may carry. */
+export const TEXT_MARKS = ['bold', 'italic', 'code', 'link', 'agent', 'block'] as const;
+export type TextMark = (typeof TEXT_MARKS)[number];
+
+/** A table's row and column actions. The action names are #6004's (plan (a)); the field names are
+ * provisional until its table schema is posted. Rows and columns keep stable IDs. */
+export type TableAction =
+  | { readonly action: 'add-row'; readonly row: string; readonly after: string | null }
+  | { readonly action: 'remove-row'; readonly row: string }
+  | {
+      readonly action: 'set-cell';
+      readonly row: string;
+      readonly column: string;
+      readonly text: string;
+    }
+  | {
+      readonly action: 'add-column';
+      readonly column: string;
+      readonly name: string;
+      readonly after: string | null;
+    }
+  | { readonly action: 'rename-column'; readonly column: string; readonly name: string }
+  | { readonly action: 'move-column'; readonly column: string; readonly after: string | null }
+  | { readonly action: 'remove-column'; readonly column: string };
+
 /** The serve's refusal of an `after` that does not name a child of `parent`. */
 export const BAD_AFTER = 'COLAB_BLOCK_BAD_AFTER';
 
@@ -109,7 +134,25 @@ export type BlockOp =
       readonly set: Readonly<Record<string, unknown>>;
       readonly unset: readonly string[];
     }
-  /** The whole text, with the text it was edited from as the merge base. */
+  /** The whole text, with the text it was edited from as the merge base (`textMerge.merge`). */
   | { readonly op: 'text'; readonly id: string; readonly set: string; readonly base: string }
+  /** One exact passage replaced; refused when it is not there once. */
+  | {
+      readonly op: 'text';
+      readonly id: string;
+      readonly replace: { readonly find: string; readonly with: string };
+    }
+  /** A mark set on scalar offsets `from..to` (`value` false or null removes it). */
+  | {
+      readonly op: 'text';
+      readonly id: string;
+      readonly format: {
+        readonly from: number;
+        readonly to: number;
+        readonly mark: TextMark;
+        readonly value: unknown;
+      };
+    }
+  | ({ readonly op: 'table'; readonly id: string } & TableAction)
   | { readonly op: 'delete'; readonly id: string }
   | { readonly op: 'restore'; readonly id: string };

@@ -160,7 +160,11 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         case 'restore':
           return { op: 'delete', id: op.id };
         case 'text':
-          return { op: 'text', id: op.id, set: op.base, base: op.set };
+          if ('set' in op) return { op: 'text', id: op.id, set: op.base, base: op.set };
+          // The editor sends whole text, never these; they come from agents.
+          throw new Error('Only whole-text edits are undone here.');
+        case 'table':
+          throw new Error('Table edits are undone by their table.');
         case 'move': {
           // Back where it was drawn: after the sibling that was before it, or first.
           const parent = before.parentOf(op.id);
