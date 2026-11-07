@@ -58,6 +58,18 @@ export interface RichText {
   s: string;
   marks: Mark[];
 }
+/** One block of the projected `blocks` value, as `validateBlocks` accepts it: its type (one of
+ * `BLOCK_TYPES`, or the internal `ROW`), its place in the tree, its props under the type's schema,
+ * its text when the type has one, a table row's cells, and the time it was deleted. */
+export interface BlockEntry {
+  type: string;
+  parent: string;
+  pos: string;
+  props: Record<string, unknown>;
+  text?: RichText;
+  cells?: Record<string, RichText>;
+  deleted?: number;
+}
 
 export function validMarkValue(mark: string, value: unknown): boolean {
   if (typeof value !== 'string') return false;
@@ -475,7 +487,7 @@ function validateBlock(key: string, block: unknown, all: Record<string, unknown>
 
 /** The whole `blocks` value: at most `BLOCKS` entries (tombstones included), every one valid, no
  * table holding too many rows, and the whole within the document size. */
-export function validateBlocks(blocks: unknown): asserts blocks is Record<string, unknown> {
+export function validateBlocks(blocks: unknown): asserts blocks is Record<string, BlockEntry> {
   const all = object(blocks);
   const entries = Object.entries(all);
   requireValue(entries.length <= BLOCKS);

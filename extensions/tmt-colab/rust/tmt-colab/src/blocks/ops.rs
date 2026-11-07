@@ -27,6 +27,8 @@ pub enum Refusal {
     TextNotFound,
     TextAmbiguous,
     Capacity,
+    /// A mockup's markup has page-check findings.
+    Markup,
 }
 impl From<Invalid> for Refusal {
     fn from(_: Invalid) -> Self {
@@ -101,7 +103,7 @@ enum After<'a> {
     Block(&'a str),
 }
 
-struct Batch {
+struct Editing {
     doc: Map<String, Value>,
     steps: Vec<Step>,
     ops: Vec<Value>,
@@ -136,7 +138,7 @@ fn plain_text(value: &Value, bytes: usize) -> Result<&str> {
     Ok(value)
 }
 
-impl Batch {
+impl Editing {
     fn block(&self, key: &str) -> Result<&Value> {
         self.doc.get(key).ok_or(Refusal::NotFound)
     }
@@ -591,7 +593,7 @@ pub fn apply(base: &Value, body: &Value, attribution: &Value) -> Result<Applied>
     let now = attribution["timeMs"].as_u64().ok_or(Invalid)?;
     values::time(now).map_err(|_| Invalid)?;
     schema::validate(base)?;
-    let mut batch = Batch {
+    let mut batch = Editing {
         doc: object(base)?.clone(),
         steps: Vec::new(),
         ops: Vec::new(),

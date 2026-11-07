@@ -156,7 +156,10 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `apply`, replays the steps as granular Yjs edits (`decoder/blocks_doc.rs`) and refuses a
   mismatch. Browser `blocks.ts` and the fold Worker mirror the schema; both run the shared
   `blocks-v1.json` and the merge vectors. `page create --structured` makes a page of blocks, and
-  `page write`/`page patch` refuse one. The
+  `page write`/`page patch` refuse one. `questions.rs` registers a new question block in
+  `meta.questions` and `mockups.rs` checks a mockup's markup, both in the same publication; `html.rs`
+  renders the page for export (with `blocks.json`; the browser's `blocks-html.ts` matches it). All
+  Yjs reading and replay of the `blocks` root sits in the child module `decoder/child.rs`. The
   [Structured pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#structured-pages-6004)
   owns roots, types, limits, ops, receipt and the purge rule.
 

@@ -1085,15 +1085,21 @@ impl Snapshot {
                 return Err(crate::page::Fault::Invalid.into());
             }
             let empty = crate::blocks::schema::empty();
-            receipt = Some(
-                crate::blocks::ops::apply(
-                    base.blocks.as_ref().unwrap_or(&empty),
-                    &edit.body,
-                    &edit.attribution,
-                )
-                .map_err(crate::page::Fault::from)?
-                .receipt,
-            );
+            let before = base.blocks.as_ref().unwrap_or(&empty);
+            let applied = crate::blocks::ops::apply(before, &edit.body, &edit.attribution)
+                .map_err(crate::page::Fault::from)?;
+            // The mockups it adds or changes must pass the page check.
+            crate::blocks::mockups::check(before, &applied.next)
+                .map_err(crate::page::Fault::from)?;
+            // A question block registers in the same publication, within the registry's bound.
+            crate::blocks::questions::register(
+                &base.meta,
+                before,
+                &applied.next,
+                &edit.attribution,
+            )
+            .map_err(crate::page::Fault::from)?;
+            receipt = Some(applied.receipt);
         }
         match edit.kind {
             StructuredKind::Blocks => Ok(()),
@@ -1211,6 +1217,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
                 page_state: None,
+                converted_from: None,
                 creator: None,
                 questions: None,
                 template: None,

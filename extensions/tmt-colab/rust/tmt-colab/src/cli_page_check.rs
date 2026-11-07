@@ -401,7 +401,7 @@ pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatc
             // Supported writes perform this comparison at their final publication owner. The
             // explicit read-only check performs it here without adding another write preflight.
             if !report.question_sources.is_empty() {
-                let metadata = tmt_colab::page::read(store, key, page, decoder)?;
+                let metadata = tmt_colab::page::read_metadata(store, key, page, decoder)?;
                 let mut meta = json!({});
                 if let Some(creator) = &metadata.creator {
                     meta["creator"] = creator.clone();

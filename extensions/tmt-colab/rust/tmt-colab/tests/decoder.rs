@@ -100,6 +100,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
     }});
     let view = || BaselineInput {
         page_state: None,
+        converted_from: None,
         creator: None,
         questions: None,
         template: None,
@@ -153,6 +154,7 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
         page_state: None,
+        converted_from: None,
         creator: None,
         questions: None,
         template: None,
@@ -250,6 +252,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_page(
             BaselineInput {
                 page_state: None,
+                converted_from: None,
                 creator: Some(&creator),
                 questions: Some(&questions),
                 ..work_view(source, None)
@@ -313,6 +316,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_from: None,
                 creator: rewritten.projection["meta"].get("creator"),
                 questions: rewritten.projection["meta"].get("questions"),
                 ..work_view(b"<p>changed</p>", None)
@@ -512,6 +516,7 @@ fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
         page_state: None,
+        converted_from: None,
         creator: None,
         questions: None,
         template: None,
@@ -1560,6 +1565,7 @@ fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
         page_state: None,
+        converted_from: None,
         creator: None,
         questions: None,
         template: None,
@@ -1638,6 +1644,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             .produce_baseline(
                 BaselineInput {
                     page_state: None,
+                    converted_from: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -1715,6 +1722,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
         page_state: None,
+        converted_from: None,
         creator: None,
         questions: None,
         template: None,
@@ -1931,6 +1939,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_from: None,
                 creator: None,
                 questions: None,
                 template: None,
@@ -2051,6 +2060,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
         .produce_page(
             BaselineInput {
                 page_state: None,
+                converted_from: None,
                 work: None,
                 layout: None,
                 original_author: Some("original-author"),
@@ -2170,6 +2180,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    converted_from: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2654,6 +2665,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    converted_from: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2751,6 +2763,7 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_from: None,
                 work: None,
                 template: None,
                 from_template: None,
@@ -3086,6 +3099,7 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
         .produce_baseline(
             BaselineInput {
                 page_state: after.projection["meta"].get("pageState"),
+                converted_from: None,
                 ..work_view(source, None)
             },
             None,
@@ -3111,6 +3125,274 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
                 &edit(serde_json::json!("blocked")),
                 None
             )
+            .is_err()
+    );
+}
+
+/// A restore that meets the purge (#6004): the epoch baseline drops the tombstones the page no
+/// longer keeps, with their subtrees, and from then on the id is simply not on the page. A restore
+/// of it, alone or inside a batch, is refused as not found by the validator and by the isolated
+/// decoder, and never leaves part of the block, its children or the rest of the batch behind.
+#[test]
+fn a_restore_after_the_purge_is_not_found_and_resurrects_nothing() {
+    use serde_json::json;
+    use tmt_colab::blocks::{
+        ops::{Refusal, apply},
+        purge::purge,
+        schema,
+    };
+    use tmt_colab::decoder::{ContentBatch, StructuredEdit, StructuredKind};
+    const DAY: u64 = 86_400_000;
+    let (t0, now) = (1_700_000_000_000u64, 1_700_000_000_000u64 + 8 * DAY);
+    let id = |n: u32| format!("20000000-0000-4000-8000-{n:012}");
+    let (paragraph, card, todo, young) = (id(1), id(2), id(3), id(4));
+    let text = |s: &str| json!({"s": s, "marks": []});
+    let blocks = json!({
+        paragraph.clone(): {"type": "paragraph", "parent": "root", "pos": "V", "props": {}, "text": text("keep")},
+        card.clone(): {"type": "card", "parent": "root", "pos": "W", "props": {}, "deleted": t0},
+        todo.clone(): {"type": "todo", "parent": card, "pos": "V", "props": {}, "text": text("inside")},
+        young.clone(): {"type": "paragraph", "parent": "root", "pos": "X", "props": {},
+                         "text": text("recent"), "deleted": now - DAY},
+    });
+    schema::validate(&blocks).unwrap();
+    let attribution = json!({"writerId": WRITER, "timeMs": now});
+    let restore = |target: &str| json!({"ops": [{"op": "restore", "id": target}]});
+    // Before the baseline the same restore is admitted: the outcome depends only on which side of
+    // the baseline the op lands.
+    assert!(apply(&blocks, &restore(&card), &attribution).is_ok());
+
+    let kept = purge(&blocks, now);
+    let present = |value: &serde_json::Value, key: &str| value.get(key).is_some();
+    assert!(
+        !present(&kept, &card) && !present(&kept, &todo),
+        "the subtree goes with it"
+    );
+    assert!(present(&kept, &paragraph) && present(&kept, &young));
+    assert_eq!(
+        apply(&kept, &restore(&card), &attribution).unwrap_err(),
+        Refusal::NotFound
+    );
+    let mixed = json!({"ops": [
+        {"op": "props", "id": paragraph, "set": {"tone": "muted"}},
+        {"op": "restore", "id": card},
+    ]});
+    assert_eq!(
+        apply(&kept, &mixed, &attribution).unwrap_err(),
+        Refusal::NotFound
+    );
+
+    let view = || BaselineInput {
+        page_state: None,
+        converted_from: None,
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
+        work: None,
+        layout: None,
+        original_author: None,
+        attachments: None,
+        source: b"",
+        title: "Blocks",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+    };
+    let mut decoder = owner();
+    let baseline = decoder.produce_blocks(view(), &kept, false, None).unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(before.projection["blocks"], kept);
+    let edit = |body: serde_json::Value| StructuredEdit {
+        kind: StructuredKind::Blocks,
+        action: "blocks.batch".into(),
+        body,
+        attribution: attribution.clone(),
+    };
+    for body in [restore(&card), restore(&todo), mixed.clone()] {
+        assert!(
+            decoder
+                .prepare_structured_batch(batch(), &before.projection, &edit(body), None)
+                .is_err()
+        );
+    }
+    // Nothing was written: the base decodes to the same page.
+    let again = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(again.projection, before.projection);
+
+    // A tombstone the purge kept still restores, and replays to the projection the validator derives.
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &edit(restore(&young)), None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected an update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert!(after.projection["blocks"][&young].get("deleted").is_none());
+}
+
+/// Which metadata a page of blocks may carry (#6004): the shared page vectors, run through the
+/// actual isolated decoder. A page of blocks keeps work, attachments, fromTemplate, a state and
+/// convertedFrom, never a template or a layout.
+#[test]
+fn a_page_of_blocks_carries_the_metadata_the_page_vectors_allow() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/blocks-page-v1.json"
+    ))
+    .unwrap();
+    let mut decoder = owner();
+    for case in corpus["cases"].as_array().unwrap() {
+        let doc = Doc::new();
+        doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut tx = doc.transact_mut();
+        meta.insert(&mut tx, "title", "Page");
+        for (key, value) in case["meta"].as_object().unwrap() {
+            meta.insert(
+                &mut tx,
+                key.as_str(),
+                yrs::Any::from_json(&value.to_string()).unwrap(),
+            );
+        }
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        let result = decoder.decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &bytes,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        );
+        assert_eq!(
+            result.is_ok(),
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if let Ok(decoded) = result {
+            for (key, value) in case["meta"].as_object().unwrap() {
+                assert_eq!(&decoded.projection["meta"][key], value, "{}", case["name"]);
+            }
+            gone(decoded.child_pid);
+        }
+    }
+}
+
+/// A new epoch keeps what a page of blocks carries beside its blocks (#6004): work, attachments,
+/// fromTemplate, a state, questions and convertedFrom survive the baseline the decoder produces.
+#[test]
+fn a_baseline_of_a_page_of_blocks_keeps_its_metadata() {
+    let archive = "10000000-0000-4000-8000-000000000007";
+    let work = serde_json::json!({"version": 2, "order": []});
+    let from = serde_json::json!({"name": "report"});
+    let state = serde_json::json!("done");
+    let converted = serde_json::json!(archive);
+    let attachments = tmt_colab_model::attachment::DocumentAttachments::default();
+    let plain = || BaselineInput {
+        page_state: Some(&state),
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: Some(&from),
+        work: Some(&work),
+        layout: None,
+        original_author: None,
+        attachments: Some(&attachments),
+        source: b"",
+        title: "Blocks",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+        converted_from: None,
+    };
+    fn view<'a>(
+        mut input: BaselineInput<'a>,
+        converted: Option<&'a serde_json::Value>,
+    ) -> BaselineInput<'a> {
+        input.converted_from = converted;
+        input
+    }
+    let mut decoder = owner();
+    let blocks = serde_json::json!({});
+    let baseline = decoder
+        .produce_blocks(view(plain(), Some(&converted)), &blocks, false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let decoded = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    let meta = &decoded.projection["meta"];
+    assert_eq!(meta["pageType"], "blocks");
+    assert_eq!(meta["work"], work);
+    assert_eq!(meta["fromTemplate"], from);
+    assert_eq!(meta["pageState"], state);
+    assert_eq!(meta["convertedFrom"], converted);
+    assert!(meta.get("attachments").is_some());
+    let verified = decoder
+        .verify_baseline(
+            view(plain(), Some(&converted)),
+            &baseline.update,
+            baseline.commitment,
+            None,
+        )
+        .unwrap();
+    gone(verified.child_pid);
+    // convertedFrom is a generated ID of a page of blocks, nothing else.
+    let bad = serde_json::json!("archive");
+    assert!(
+        decoder
+            .produce_blocks(view(plain(), Some(&bad)), &blocks, false, None)
+            .is_err()
+    );
+    assert!(
+        decoder
+            .produce_shell(
+                view(plain(), Some(&converted)),
+                &tmt_colab::shell::empty(),
+                false,
+                None
+            )
+            .is_err()
+    );
+    assert!(
+        decoder
+            .produce_baseline(view(plain(), Some(&converted)), None)
+            .is_err()
+    );
+    // A template mark and a layout still refuse.
+    let template = serde_json::json!({"name": "weekly", "description": ""});
+    let mut with_template = view(plain(), None);
+    with_template.template = Some(&template);
+    assert!(
+        decoder
+            .produce_blocks(with_template, &blocks, false, None)
             .is_err()
     );
 }

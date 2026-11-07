@@ -44,6 +44,8 @@ pub enum Fault {
     BlockBadAfter,
     BlockTextNotFound,
     BlockTextAmbiguous,
+    /// A mockup block's markup does not pass the page check.
+    BlockMarkup,
 }
 impl Fault {
     pub fn code(&self) -> &'static str {
@@ -63,6 +65,7 @@ impl Fault {
             Self::BlockBadAfter => "COLAB_BLOCK_BAD_AFTER",
             Self::BlockTextNotFound => "COLAB_BLOCK_TEXT_NOT_FOUND",
             Self::BlockTextAmbiguous => "COLAB_BLOCK_TEXT_AMBIGUOUS",
+            Self::BlockMarkup => "COLAB_BLOCK_MARKUP",
         }
     }
 }
@@ -113,6 +116,9 @@ impl std::fmt::Display for Fault {
             }
             Self::BlockTextAmbiguous => {
                 "The text to replace occurs more than once in the block. Quote more of it. Nothing was written."
+            }
+            Self::BlockMarkup => {
+                "A mockup's markup does not pass the page check. Save it to a file and run `tmt colab page check FILE` to see what to fix. Nothing was written."
             }
         })
     }
@@ -517,7 +523,18 @@ pub fn usage_after_patch(
     snapshot(store, key, page, false)?.usage_reusing(key, page, decoder, &base.input)
 }
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
-    Ok(read_with_meta(store, key, page, decoder)?.0)
+    Ok(read_with_meta(store, key, page, decoder, false)?.0)
+}
+/// [`read`] for what a page has besides its source (title, state, questions, creator, locks): a
+/// page of blocks is admitted, with an empty source, so the metadata commands and the browser's
+/// metadata edits work on it. A caller that needs the source keeps [`read`], which refuses it.
+pub fn read_metadata(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<Page> {
+    Ok(read_with_meta(store, key, page, decoder, true)?.0)
 }
 /// The authenticated bytes, source and content metadata a patch read and evaluated, at the
 /// revision it read them. A preparation that finds the page still at that revision reuses them
@@ -536,7 +553,7 @@ pub fn read_for_patch(
     page: &str,
     decoder: &mut Decoder,
 ) -> Result<(Page, PatchBase)> {
-    let (read, meta, input) = read_with_meta(store, key, page, decoder)?;
+    let (read, meta, input) = read_with_meta(store, key, page, decoder, false)?;
     let base = PatchBase {
         revision: read.revision.clone(),
         source: read.source.clone(),
@@ -550,10 +567,13 @@ fn read_with_meta(
     key: &Keyring,
     page: &str,
     decoder: &mut Decoder,
+    metadata_only: bool,
 ) -> Result<(Page, serde_json::Value, crate::fold::MaterializationInput)> {
     let s = snapshot(store, key, page, false)?;
     let (view, input) = s.materialize_measured(key, page, decoder)?;
-    if let Some(page_type) = view.meta.get("pageType") {
+    if let Some(page_type) = view.meta.get("pageType")
+        && !(metadata_only && page_type == "blocks")
+    {
         // A page of blocks points to `tmt colab block`; a dashboard has its own commands.
         return Err(if page_type == "blocks" {
             Fault::StructuredPage
@@ -887,6 +907,7 @@ impl From<crate::blocks::ops::Refusal> for Fault {
             Refusal::TextNotFound => Self::BlockTextNotFound,
             Refusal::TextAmbiguous => Self::BlockTextAmbiguous,
             Refusal::Capacity => Self::Capacity,
+            Refusal::Markup => Self::BlockMarkup,
         }
     }
 }

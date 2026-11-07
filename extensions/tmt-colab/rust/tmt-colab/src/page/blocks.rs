@@ -53,7 +53,7 @@ pub fn action<'a>(
 }
 
 /// What a prepared batch is: a publication to commit (or nothing to commit) and its receipt.
-pub struct Batch {
+pub struct Edited {
     pub prepared: PublicationPreparation,
     pub receipt: Value,
 }
@@ -66,7 +66,7 @@ pub fn prepare_open(
     display_agent: Option<Value>,
     operation_id: Option<&str>,
     clock: &dyn Fn() -> crate::Result<u64>,
-) -> crate::Result<Batch> {
+) -> crate::Result<Edited> {
     validate(ops)?;
     let body = body(ops);
     let (prepared, receipt) = super::prepare_blocks_publication(
@@ -77,7 +77,7 @@ pub fn prepare_open(
         &mut source.decoder,
         clock,
     )?;
-    Ok(Batch { prepared, receipt })
+    Ok(Edited { prepared, receipt })
 }
 
 /// The browser's batch: prepared from a source the serve opens, framed as a save result.

@@ -1,6 +1,7 @@
 import type { CreationRecipient } from './fold-protocol.js';
 import type { Projection } from './fold-protocol.js';
 import { canonical } from './closed.js';
+import { renderBlocks } from './blocks-html.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -39,6 +40,8 @@ export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {
   pageType?: Projection['pageType'];
   shell?: Projection['shell'];
+  /** A page of blocks: exported as `blocks.json`, with a rendering as `page.html`. */
+  blocks?: Projection['blocks'];
   /** An ordinary page's work; exported as `work.json` beside its HTML. */
   work?: Projection['work'];
   creationRecipient?: CreationRecipient;
@@ -84,6 +87,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     ...(input.creator === undefined ? {} : { creator: structuredClone(input.creator) }),
     ...(input.questions === undefined ? {} : { questions: structuredClone(input.questions) }),
     ...(input.shell === undefined ? {} : { shell: structuredClone(input.shell) }),
+    ...(input.blocks === undefined ? {} : { blocks: structuredClone(input.blocks) }),
     ...(input.work === undefined ? {} : { work: structuredClone(input.work) }),
     ...(input.creationRecipient === undefined
       ? {}
@@ -123,8 +127,18 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     statusWriter: (writer) => statusWriters.has(writer),
   });
   const attachments = await listAttachments(copiedAttachments);
-  const contentName = view.pageType === 'shell' ? 'shell.json' : 'page.html';
-  const content = text(view.pageType === 'shell' ? canonical(view.shell) : view.source);
+  const blocksPage = view.pageType === 'blocks';
+  const contentName =
+    view.pageType === 'shell' ? 'shell.json' : blocksPage ? 'blocks.json' : 'page.html';
+  const content = text(
+    view.pageType === 'shell'
+      ? canonical(view.shell)
+      : blocksPage
+        ? canonical(view.blocks)
+        : view.source,
+  );
+  // A page of blocks also exports a rendering of its blocks, derived from `blocks.json`.
+  const rendered = blocksPage ? text(renderBlocks(view.blocks)) : undefined;
   const work = view.work === undefined ? undefined : text(canonical(view.work));
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
@@ -132,12 +146,15 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const describe = async (name: ExportFile, bytes: Uint8Array): Promise<FileInfo> =>
     Object.freeze({ name, sizeBytes: bytes.length, sha256: hex(await digest(bytes)) });
   const derived =
-    view.pageType === 'shell' || view.standalone === undefined
+    view.pageType !== undefined || view.standalone === undefined
       ? undefined
       : deriveStandalone(view.source, view.standalone);
   const standalone = derived?.document === undefined ? undefined : text(derived.document);
   const files = [
     await describe(contentName, content),
+    ...(rendered === undefined
+      ? []
+      : [Object.freeze({ ...(await describe('page.html', rendered)), derivedFrom: contentName })]),
     ...(work === undefined ? [] : [await describe('work.json', work)]),
     ...(standalone === undefined
       ? []
@@ -187,6 +204,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   return new ExportBundle(
     new Map<ExportFile, Uint8Array>([
       [contentName, content],
+      ...(rendered === undefined ? [] : [['page.html', rendered] as [ExportFile, Uint8Array]]),
       ...(work === undefined ? [] : [['work.json', work] as [ExportFile, Uint8Array]]),
       ...(standalone === undefined
         ? []
