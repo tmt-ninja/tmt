@@ -17,6 +17,7 @@ use tmt_extension_objects::sync::{self, Method};
 
 const FIRST: &str = "10000000-0000-4000-8000-000000000001";
 const SECOND: &str = "10000000-0000-4000-8000-000000000002";
+const THIRD: &str = "10000000-0000-4000-8000-000000000003";
 
 fn until(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -349,11 +350,32 @@ impl Local for PageUpdates {
 
 #[test]
 fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
-    // Page A is edited and left for page B, and nothing touches A again (#6158).
+    // Page A is edited and left for page B, and nothing touches A again (#6158). Both touches land
+    // while the worker is busy publishing page C, so it next sees B active with A left behind,
+    // whatever the scheduling (#6173).
     let mut peer = peer();
     let firestore = super::fixture::Firestore::default();
     let answer = firestore.clone();
+    // Once armed, the next publish waits until the gate opens.
+    let gate = Arc::new((Mutex::new((false, false)), std::sync::Condvar::new()));
+    let held = Arc::clone(&gate);
     let remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        if matches!(call, sync::Call::Publish { .. }) {
+            let (lock, opened) = &*held;
+            let mut state = lock.lock().unwrap();
+            if std::mem::take(&mut state.0) {
+                state.1 = true;
+                opened.notify_all();
+                let (state, waited) = opened
+                    .wait_timeout_while(state, Duration::from_secs(10), |state| state.1)
+                    .unwrap();
+                drop(state);
+                assert!(
+                    !waited.timed_out(),
+                    "timed out: the test opening the held publish"
+                );
+            }
+        }
         answer.answer(call, id)
     });
     let (mut rig, confirmed, edits) = start_pages(Arc::clone(&peer.channels), activated);
@@ -361,23 +383,38 @@ fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
     until("the first page is published", || {
         *confirmed.lock().unwrap() == [FIRST]
     });
-    // A later edit of A, then B becomes active before the worker looks at A again.
+    let (lock, opened) = &*gate;
+    lock.lock().unwrap().0 = true;
+    rig.activity.touch(page(THIRD, 1));
+    let (state, waited) = opened
+        .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(10), |state| {
+            !state.1
+        })
+        .unwrap();
+    drop(state);
+    assert!(
+        !waited.timed_out(),
+        "timed out: the third page's publish to be held"
+    );
+    // While C is in flight: a later edit of A, then B becomes active.
     edits.lock().unwrap().insert(FIRST.into(), 2);
     rig.activity.touch(page(FIRST, 1));
     rig.activity.touch(page(SECOND, 1));
+    lock.lock().unwrap().1 = false;
+    opened.notify_all();
     until(
         "the active page, then the edit of the page left behind",
-        || *confirmed.lock().unwrap() == [FIRST, SECOND, FIRST],
+        || *confirmed.lock().unwrap() == [FIRST, THIRD, SECOND, FIRST],
     );
     // Nothing more is due: the queue is drained and the worker waits.
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(confirmed.lock().unwrap().len(), 3);
+    assert_eq!(confirmed.lock().unwrap().len(), 4);
     let publishes = remote
         .methods()
         .into_iter()
         .filter(|m| *m == Method::Publish)
         .count();
-    assert_eq!(publishes, 3, "one publish per update, none repeated");
+    assert_eq!(publishes, 4, "one publish per update, none repeated");
     assert!(rig.reports.lock().unwrap().is_empty());
     rig.sync.take().unwrap().stop();
 }

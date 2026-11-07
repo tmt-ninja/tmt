@@ -506,9 +506,12 @@ impl super::publisher::Local for OneUpdate {
     fn confirm(
         &mut self,
         _: &super::PageRef,
-        _: &super::publisher::Confirm,
+        confirm: &super::publisher::Confirm,
     ) -> Result<(), super::publisher::Fault> {
-        self.next = 0;
+        // As the Store does, a confirm covers the update it names: a later edit stays due (#6173).
+        if !matches!(confirm, super::publisher::Confirm::Update { seq, .. } if *seq != self.next) {
+            self.next = 0;
+        }
         Ok(())
     }
     fn page_row_confirmed(
