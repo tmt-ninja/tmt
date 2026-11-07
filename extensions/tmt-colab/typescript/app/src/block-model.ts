@@ -37,13 +37,13 @@ export const TEXT_TYPES: ReadonlySet<EntryType> = new Set<EntryType>([
 ]);
 
 /** The block type each insert-menu entry makes, by the design system's catalog ID (browser-ui
- * `insertGroups`). */
+ * `insertGroups`). A question joins once the editor draws it and registers it on insert (#6005,
+ * a later step). */
 export const INSERT_TYPES: Readonly<Record<string, BlockType>> = {
   text: 'paragraph',
   heading: 'heading',
   table: 'table',
   todo: 'todo',
-  question: 'question',
   code: 'code',
 };
 

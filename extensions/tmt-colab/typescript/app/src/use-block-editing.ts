@@ -1,8 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { type BlockOp, type BlockRecord, TEXT_TYPES } from './block-model.js';
-import { joinBlock, joinTarget, splitBlock } from './block-ops.js';
+import { insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
+import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES } from './block-model.js';
+import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
+import { insertBlock, joinBlock, joinTarget, splitBlock } from './block-ops.js';
 import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { BlockTree } from './block-tree.js';
+
+/** The insert menu's entries: the design system's catalog, the one the menu draws. */
+const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
+  group.items.map(({ id, label, shortcut }) => ({ id, label, shortcut })),
+);
+
+/** The insert menu open on a block: what follows `/` filters it. */
+export interface InsertMenu {
+  id: string;
+  entries: InsertEntry[];
+  /** The active entry's id. */
+  active?: string;
+}
 
 /** What the focused block shows while it is edited. */
 export interface Editing {
@@ -42,6 +57,10 @@ export function useBlockEditing(
   const arriving = useRef<string | undefined>(undefined);
   const sendRef = useRef(send);
   sendRef.current = send;
+  /** The block the insert menu is open on, and its active entry. */
+  const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
+  const menuRef = useRef(menuAt);
+  menuRef.current = menuAt;
 
   const open = useCallback((next: BlockTextSync, at: number) => {
     sync.current = next;
@@ -125,6 +144,8 @@ export function useBlockEditing(
       if (current?.id !== id) return;
       current.typed(text);
       caret.current = at;
+      const menu = menuRef.current;
+      if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
       clearTimeout(timer.current);
       timer.current = setTimeout(flush, TEXT_FLUSH_MS);
     },
@@ -184,6 +205,49 @@ export function useBlockEditing(
     [open, out],
   );
 
+  /** The insert menu's choice: a new block of its type replaces the slash paragraph (a block's
+   * type is fixed once made), focused when it holds text; a paragraph just clears the slash. */
+  const pick = useCallback(
+    async (entry: string) => {
+      const current = sync.current;
+      const at = menuRef.current;
+      if (!current || at?.id !== current.id) return;
+      setMenuAt(undefined);
+      const type = insertType(entry);
+      if (type === 'paragraph') {
+        current.typed('');
+        open(current, 0);
+        flush();
+        return;
+      }
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current) return;
+      const newId = crypto.randomUUID();
+      const text = TEXT_TYPES.has(type);
+      const ops: BlockOp[] = [
+        insertBlock(treeRef.current, {
+          id: newId,
+          type,
+          after: current.id,
+          ...(text && { text: '' }),
+        }),
+        { op: 'delete', id: current.id },
+      ];
+      if (text) {
+        arriving.current = newId;
+        open(new BlockTextSync(newId, ''), 0);
+      } else {
+        sync.current = undefined;
+        setEditing(undefined);
+      }
+      await out(undefined, ops).catch(() => {
+        if (arriving.current === newId) arriving.current = undefined;
+      });
+    },
+    [open, out, flush],
+  );
+
   /** A key in the focused block; true when the block took it. */
   const key = useCallback(
     (id: string, event: KeyboardEvent, text: string, at: number, collapsed: boolean): boolean => {
@@ -192,6 +256,29 @@ export function useBlockEditing(
       const block = treeRef.current.get(id);
       if (!block || !TEXT_TYPES.has(block.type)) return false;
       current.typed(text);
+      const menu = menuRef.current?.id === id ? menuRef.current : undefined;
+      if (menu) {
+        const ids = filterInsert(INSERT_ENTRIES, text).map((entry) => entry.id);
+        if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
+          setMenuAt({ ...menu, active: nextBlockMenuItem(ids, menu.active, event.key) });
+          return true;
+        }
+        if (event.key === 'Escape') {
+          // Closes and keeps what was typed.
+          setMenuAt(undefined);
+          return true;
+        }
+        if (event.key === 'Enter' && ids.length) {
+          void pick(menu.active && ids.includes(menu.active) ? menu.active : ids[0]!);
+          return true;
+        }
+      } else if (
+        event.key === '/' &&
+        isBlockType(block.type) &&
+        opensInsert(event.key, { type: block.type, text })
+      )
+        // The slash is typed as usual; what follows it filters the menu.
+        setMenuAt({ id, query: '/' });
       if (event.key === 'Enter' && !event.shiftKey && block.type !== 'code' && collapsed) {
         void split(current, at);
         return true;
@@ -203,9 +290,22 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join],
+    [split, join, pick],
   );
 
+  const menu = useMemo((): InsertMenu | undefined => {
+    if (!menuAt || editing?.id !== menuAt.id) return undefined;
+    const entries = filterInsert(INSERT_ENTRIES, menuAt.query);
+    const active =
+      menuAt.active && entries.some((entry) => entry.id === menuAt.active)
+        ? menuAt.active
+        : entries[0]?.id;
+    return { id: menuAt.id, entries, ...(active && { active }) };
+  }, [menuAt, editing?.id]);
+  const hover = useCallback((entry: string) => {
+    setMenuAt((at) => (at ? { ...at, active: entry } : at));
+  }, []);
+
   useEffect(() => () => clearTimeout(timer.current), []);
-  return { tree, editing, focus, typed, flush, key };
+  return { tree, editing, focus, typed, flush, key, menu, pick, hover };
 }

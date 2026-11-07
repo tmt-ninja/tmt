@@ -28,7 +28,7 @@ export function LiveStructuredPage({
     },
     [write],
   );
-  const { tree, editing, focus, typed, key } = useBlockEditing(records, send);
+  const { tree, editing, focus, typed, key, menu, pick, hover } = useBlockEditing(records, send);
   return (
     <StructuredPage
       tree={tree}
@@ -36,6 +36,9 @@ export function LiveStructuredPage({
       onFocus={focus}
       onTyped={typed}
       onKey={key}
+      menu={menu}
+      onPick={(entry) => void pick(entry)}
+      onHover={hover}
       readonly={!write}
     />
   );

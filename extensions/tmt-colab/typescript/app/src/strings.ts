@@ -81,6 +81,11 @@ export const text = {
     handle: 'Mark handled',
     reopen: 'Reopen',
   },
+  blockInsert: {
+    label: 'Insert a block',
+    empty: 'No matching block',
+    keys: '↑↓ choose · Enter insert · Esc close',
+  },
   pageLink: {
     close: 'Close',
     external: 'Open this link in a new tab?',
