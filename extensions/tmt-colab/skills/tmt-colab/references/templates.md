@@ -2,14 +2,15 @@
 
 A template is a starting page: TMT's own (`starter`, `report`, `review`, `compare`, `board`,
 `gallery`) or a page of this space that someone saved. `tmt colab template ls` lists both and marks
-the default. A create that names no template, layout or file copies the space default (`starter`
-until `template default` says otherwise).
+the default. An HTML create (`--html`) that names no template, layout or file copies the space default
+(`starter` until `template default` says otherwise). A create without `--html` starts a
+structured page instead.
 
 Before you write a page from a template, read its rules:
 
 ```sh
 tmt colab template show NAME
-tmt colab page create --title "Week 43" --template NAME
+tmt colab page create --html --title "Week 43" --template NAME
 ```
 
 `show` numbers the rules: the HTML comments of the template's source, in order. Fill each block
@@ -25,5 +26,5 @@ registered and open; do not register them again, and answer them as you would an
 To make a template of a page you wrote: `tmt colab template save PAGE --name NAME [--description
 TEXT]`. The name is 1 to 40 of `a-z`, `0-9` and `-`, not one of TMT's. Write rules as one HTML
 comment before each block, one line each. The page needs a layout and registered questions.
-`template default NAME|ID` and `--reset` choose what a bare create copies; `template remove
+`template default NAME|ID` and `--reset` choose what a bare HTML create copies; `template remove
 NAME|ID` only stops the page being a template. Errors name the fix (`hint:`).

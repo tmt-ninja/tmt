@@ -3231,6 +3231,33 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
     }
 }
 #[test]
+fn archived_html_source_is_readable_for_conversion_recovery() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("archive-source.html");
+    let original = "<p>Old café 🐈</p>\r\n";
+    fs::write(&file, original).unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Before conversion",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    pilot.call(&["archive", id, "--json"]);
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        original
+    );
+}
+
+#[test]
 fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("source.html");
@@ -14021,15 +14048,7 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
         }
         let created = call(
             &pilot,
-            &[
-                "page",
-                "create",
-                "--title",
-                "Plan",
-                "--structured",
-                "--no-open",
-                "--json",
-            ],
+            &["page", "create", "--title", "Plan", "--no-open", "--json"],
         );
         let page = created["pageId"].as_str().unwrap();
         let blocks = |all: bool| {
@@ -14368,6 +14387,21 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
                 &pilot,
                 &[
                     "page",
+                    "create",
+                    "--title",
+                    "Needs html",
+                    "--layout",
+                    "column",
+                    "--json"
+                ],
+            ),
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "page",
                     "patch",
                     page,
                     "--find",
@@ -14384,6 +14418,7 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
             &[
                 "page",
                 "create",
+                "--html",
                 "--title",
                 "Html",
                 "--layout",

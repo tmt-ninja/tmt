@@ -518,7 +518,7 @@ test('empty owner space names the product page-create command', async ({ page })
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
   await expect(
-    page.getByText('tmt colab page create --title "Notes" --layout column', { exact: true }),
+    page.getByText('tmt colab page create --title "Notes"', { exact: true }),
   ).toBeVisible();
   await expect(page.locator('.page-list-table')).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);
@@ -1043,7 +1043,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.page-list-table [data-page-id]')).toHaveCount(0);
   await expect(
-    page.getByText('tmt colab page create --title "Notes" --layout column', { exact: true }),
+    page.getByText('tmt colab page create --title "Notes"', { exact: true }),
   ).toBeVisible();
 });
 

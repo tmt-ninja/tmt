@@ -6,7 +6,7 @@ Use a unique canonical UUID for every question and group. Register each question
 its block (groups themselves are not registrations):
 
 ```sh
-tmt colab page create --title 'Decision' --layout column --creator NAME
+tmt colab page create --html --title 'Decision' --layout column --creator NAME
 tmt colab question add PAGE --id 10000000-0000-4000-8000-000000000001 --agent NAME --title 'Which option fits this passage?'
 tmt colab page read PAGE --lines 1:1 --json
 tmt colab page patch PAGE --lines 1:1 --range-sha256 HASH --file page.html
@@ -14,7 +14,7 @@ tmt colab page patch PAGE --lines 1:1 --range-sha256 HASH --file page.html
 
 Replace PAGE with the created ID, NAME with the resolved identity, and HASH with the
 rangeSha256 returned by the read. Use 1:1 for an empty page; otherwise choose the intended range. Register every other
-question ID in the examples before writing them. `page create --file` containing live questions
+question ID in the examples before writing them. `page create --html --file` containing live questions
 refuses and prints this sequence. Built-in `--template` creation fills the creator and registers
 its compiled questions in the same commit. User-authored templates do not get that exception.
 `page create` uses its invoking stable identity when available and otherwise creates with no
