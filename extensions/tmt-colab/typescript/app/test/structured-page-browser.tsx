@@ -126,6 +126,8 @@ declare global {
     serveText(id: string): string | undefined;
     /** Ops the page sent, in order. */
     sent: BlockOp[];
+    /** Hold the serve's commits (true) or let the held ones through (false). */
+    holdServe(hold: boolean): void;
   }
 }
 
@@ -156,10 +158,18 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     if (!text.includes(find)) throw new Error(`${find} is not in ${id}`);
     write(id, text.replace(find, replacement));
   };
+  let holding = false;
+  const held: (() => void)[] = [];
+  window.holdServe = (hold) => {
+    holding = hold;
+    if (!hold) for (const commit of held.splice(0)) commit();
+  };
   const send = (ops: BlockOp[]) =>
     new Promise<number>((resolve) => {
       window.sent.push(...ops);
-      setTimeout(() => {
+      const later = (commit: () => void) =>
+        setTimeout(() => (holding ? held.push(commit) : commit()), SERVE_MS);
+      later(() => {
         // One batch commits as one change, as the serve's does.
         let next = blocks;
         for (const op of ops) {
@@ -171,7 +181,16 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             next = next.map((block) =>
               block.id === op.id ? { ...block, deleted: op.op === 'delete' } : block,
             );
-          else if (op.op === 'insert') {
+          else if (op.op === 'move') {
+            const siblings = new BlockTree(next)
+              .children(op.parent)
+              .filter((block) => block.id !== op.id);
+            const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
+            const pos = posBetween(siblings[at]?.pos, siblings[at + 1]?.pos);
+            next = next.map((block) =>
+              block.id === op.id ? { ...block, parent: op.parent, pos } : block,
+            );
+          } else if (op.op === 'insert') {
             const siblings = new BlockTree(next).children(op.parent);
             const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
             const pos = posBetween(siblings[at]?.pos, siblings[at + 1]?.pos);
@@ -190,7 +209,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           }
         }
         resolve(publish(next));
-      }, SERVE_MS);
+      });
     });
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
@@ -213,6 +232,13 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       pageKey,
       toast,
       undo,
+      blockMenu,
+      act,
+      move,
+      openBlockMenu,
+      insertAfter,
+      closeBlockMenu,
+      hoverBlockMenu,
     } = useBlockEditing(view.records, send, view.seq);
     return (
       <section ref={subscribe}>
@@ -231,6 +257,13 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onPageKey={pageKey}
           toast={toast}
           onUndo={undo}
+          blockMenu={blockMenu}
+          onAction={act}
+          onHoverAction={hoverBlockMenu}
+          onCloseBlockMenu={closeBlockMenu}
+          onOpenBlockMenu={openBlockMenu}
+          onInsertAfter={insertAfter}
+          onMove={move}
         />
       </section>
     );

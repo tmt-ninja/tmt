@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { applyOps } from '../src/block-apply.js';
 import { type BlockOp, type BlockRecord, PAGE_PARENT, type Parent } from '../src/block-model.js';
 import {
   deleteBlocks,
+  duplicateBlock,
   insertBlock,
   inverseOps,
   joinBlock,
@@ -44,57 +46,7 @@ const ids = (list: readonly BlockRecord[]) => list.map((entry) => entry.id);
 
 /** Apply ops the way the serve does to the flat block map, for round-trip checks: `after` becomes a
  * `pos` between that sibling and the next. */
-function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRecord[] {
-  const map = new Map(blocks.map((entry) => [entry.id, entry]));
-  const posAfter = (parent: string, after: string | null, moving: string) => {
-    const siblings = new BlockTree(map.values()).children(parent).filter((b) => b.id !== moving);
-    const at = after === null ? 0 : siblings.findIndex((b) => b.id === after) + 1;
-    if (after !== null && at === 0) throw new Error(`${after} is not in ${parent}`);
-    return posBetween(siblings[at - 1]?.pos, siblings[at]?.pos);
-  };
-  for (const op of ops) {
-    const current = map.get(op.id);
-    switch (op.op) {
-      case 'insert':
-        map.set(op.id, {
-          id: op.id,
-          type: op.type,
-          parent: op.parent,
-          pos: posAfter(op.parent, op.after, op.id),
-          props: op.props ?? {},
-          ...(op.text !== undefined && { text: op.text }),
-          deleted: false,
-        });
-        break;
-      case 'move':
-        map.set(op.id, {
-          ...current!,
-          parent: op.parent,
-          pos: posAfter(op.parent, op.after, op.id),
-        });
-        break;
-      case 'props': {
-        const props = { ...current!.props, ...op.set };
-        for (const key of op.unset) delete props[key];
-        map.set(op.id, { ...current!, props });
-        break;
-      }
-      case 'text':
-        if (!('set' in op)) throw new Error('the editor sends whole text');
-        map.set(op.id, { ...current!, text: op.set });
-        break;
-      case 'delete':
-        map.set(op.id, { ...current!, deleted: true });
-        break;
-      case 'restore':
-        map.set(op.id, { ...current!, deleted: false });
-        break;
-      case 'table':
-        throw new Error('no table ops in these tests');
-    }
-  }
-  return [...map.values()];
-}
+const apply = applyOps;
 /** The ops, then their inverse, leave every block as it was; a block the ops made is left only as a
  * deleted mark, as the data model keeps it. */
 function roundTrip(blocks: BlockRecord[], ops: BlockOp[]) {
@@ -228,6 +180,29 @@ describe('gestures to ops, and undo', () => {
     block('in-b', 'k', 'box'),
     block('two', 'k'),
   ];
+  it('duplicates a block right after it, and a card with copies of its blocks', () => {
+    let next = 0;
+    const id = () => `copy-${++next}`;
+    const tree = new BlockTree(page());
+    const card = duplicateBlock(tree, 'box', id);
+    expect(card.map((op) => op.op === 'insert' && [op.id, op.parent, op.after])).toEqual([
+      ['copy-1', PAGE_PARENT, 'box'],
+      ['copy-2', 'copy-1', null],
+      ['copy-3', 'copy-1', 'copy-2'],
+    ]);
+    const after = new BlockTree(apply(page(), card));
+    expect(ids(after.children())).toEqual(['one', 'box', 'copy-1', 'two']);
+    expect(ids(after.children('copy-1'))).toEqual(['copy-2', 'copy-3']);
+    roundTrip(page(), card);
+    // A table waits for the table step: its rows are table ops.
+    expect(
+      duplicateBlock(
+        new BlockTree([block('t', 'V', PAGE_PARENT, { type: 'table', text: undefined })]),
+        't',
+        id,
+      ),
+    ).toEqual([]);
+  });
   it('inserts after a block, first in a card, and refuses a parent that cannot hold blocks', () => {
     const tree = new BlockTree(page());
     const after = insertBlock(tree, { id: 'new', type: 'paragraph', after: 'one' });

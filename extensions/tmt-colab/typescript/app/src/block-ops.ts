@@ -95,6 +95,39 @@ export function nudgeBlock(tree: BlockTree, id: string, direction: 'up' | 'down'
   return moveBlock(tree, id, outer, direction === 'up' ? at : at + 1);
 }
 
+/** ⌘D: a copy of the block right after it; a card's copy holds copies of its blocks. A table is
+ * not copied here: its rows are table ops, which come with the table step. */
+export function duplicateBlock(tree: BlockTree, id: string, newId: () => string): BlockOp[] {
+  const block = tree.get(id);
+  if (!block || !tree.visible(id) || !isBlockType(block.type) || block.type === 'table') return [];
+  const copy = newId();
+  const ops: BlockOp[] = [
+    insertBlock(tree, {
+      id: copy,
+      type: block.type,
+      after: id,
+      props: { ...block.props },
+      ...(block.text !== undefined && { text: block.text }),
+    }),
+  ];
+  let after: string | null = null;
+  for (const child of tree.children(id)) {
+    if (!isBlockType(child.type) || child.type === 'table') continue;
+    const childCopy = newId();
+    ops.push({
+      op: 'insert',
+      id: childCopy,
+      type: child.type,
+      parent: copy,
+      after,
+      props: { ...child.props },
+      ...(child.text !== undefined && { text: child.text }),
+    });
+    after = childCopy;
+  }
+  return ops;
+}
+
 /** Delete: each selected block once; a block under another selected block goes with it. */
 export function deleteBlocks(tree: BlockTree, ids: readonly string[]): BlockOp[] {
   const chosen = ids.filter((id) => tree.visible(id));

@@ -213,6 +213,92 @@ test('typing in a block draws it pixel for pixel as at rest, in valid markup', a
   expect(errors.filter((error) => error.includes('cannot be a descendant'))).toEqual([]);
 });
 
+test('the handle opens the block menu, moves and duplicates, and its grip drags a block', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const ids = () =>
+    host
+      .locator('[data-block-id]')
+      .evaluateAll((nodes) => nodes.map((node) => node.dataset.blockId));
+  await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
+  // Hovering a block shows the one handle beside it.
+  await host.locator('[data-block-id="t"]').hover();
+  await expect(host.locator('[data-slot="block-handle"]')).toHaveCount(1);
+  await expect(host.locator('[data-block-id="t"] [data-slot="block-handle"]')).toBeVisible();
+  // ⋯ opens the block menu; Move up moves the to-do above the empty paragraph.
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  const menu = page.getByRole('menu', { name: 'Block actions' });
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    /Move up/,
+    /Move down/,
+    /Duplicate/,
+    /Delete/,
+  ]);
+  await menu.getByRole('menuitem', { name: /Move up/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect.poll(ids).toEqual(['h', 'p', 't', 'e']);
+  // The keys: ⌥⇧↓ moves the selected block back, ⌘D duplicates it.
+  await expect(host.locator('[data-block-id="t"]')).toBeFocused();
+  await page.keyboard.press('Alt+Shift+ArrowDown');
+  await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
+  await page.keyboard.press('ControlOrMeta+d');
+  await expect.poll(async () => (await ids()).length).toBe(5);
+  await expect(host.locator('[data-block-id]').nth(4)).toHaveText('Review');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
+  // Dragging the grip: the source dims, the accent line shows where it lands, release drops it.
+  const heading = host.locator('[data-block-id="h"]');
+  await heading.hover();
+  const grip = host.locator('[data-block-id="h"] [data-grip]');
+  const from = (await grip.boundingBox())!;
+  const below = (await host.locator('[data-block-id="e"]').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 4, below.y + below.height - 2, { steps: 8 });
+  await expect(heading).toHaveAttribute('data-state', 'dragging');
+  await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(1);
+  await page.mouse.up();
+  await expect.poll(ids).toEqual(['p', 'e', 'h', 't']);
+  await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);
+  // The drop was one move op, and the grip's click after a drag opened no menu.
+  await expect(menu).toHaveCount(0);
+  const sent = await page.evaluate(() => window.sent.map((op) => op.op));
+  expect(sent.filter((op) => op === 'move')).toHaveLength(3);
+});
+
+test('＋ on the handle opens the insert menu in a new block after it', async ({ page }) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="h"]').hover();
+  await host.getByRole('button', { name: 'Insert block' }).click();
+  const menu = page.getByRole('listbox', { name: 'Insert a block' });
+  await expect(menu).toBeVisible();
+  const editor = host.locator('[contenteditable="true"]');
+  await editor.pressSequentially('to', { delay: 20 });
+  await expect(menu.getByRole('option')).toHaveText([/To-do/]);
+  await editor.press('Enter');
+  await expect(host.locator('[data-block-id]').nth(1).locator('[data-slot="todo"]')).toHaveCount(1);
+});
+
+test('a gesture shows at once, before the serve commits it', async ({ page }) => {
+  const host = await mountFixture(page);
+  await page.evaluate(() => window.holdServe(true));
+  // Typing, then Esc: the text stays while its op waits.
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' Now', { delay: 20 });
+  await editor.press('Escape');
+  await expect(host.locator('[data-block-id="p"]')).toHaveText('Ship the stack. Now');
+  // Delete: the block goes at once.
+  await page.keyboard.press('Delete');
+  await expect(host.locator('[data-block-id="p"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.serveText('p'))).toBe('Ship the stack.');
+  await page.evaluate(() => window.holdServe(false));
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toBe('Ship the stack. Now');
+  await expect(host.locator('[data-block-id="p"]')).toHaveCount(0);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
@@ -257,4 +343,24 @@ for (const width of [1440, 390])
       await page.keyboard.press('Delete');
       await expect(page.getByRole('status').filter({ hasText: 'Deleted 1 block' })).toBeVisible();
       await page.screenshot({ path: capturePath(`structured-${width}-${theme}-deleted.png`) });
+      // The block menu on the selected block from the menu key (the phone shows the sheet).
+      await page.keyboard.press('Shift+F10');
+      await expect(page.getByRole('menu', { name: 'Block actions' })).toBeVisible();
+      await page.screenshot({ path: capturePath(`structured-${width}-${theme}-blockmenu.png`) });
+      await page.keyboard.press('Escape');
+      if (width === 1440) {
+        // Dragging the long paragraph by its grip, held over the list.
+        const long = host.locator('[data-block-id="long"]');
+        await long.hover();
+        const grip = (await long.locator('[data-grip]').boundingBox())!;
+        const over = (await host.locator('[data-block-id="l2"]').boundingBox())!;
+        await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(grip.x + 4, over.y + over.height - 2, { steps: 8 });
+        await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(1);
+        await page.screenshot({ path: capturePath(`structured-${width}-${theme}-drag.png`) });
+        await page.keyboard.press('Escape');
+        await page.mouse.up();
+        await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);
+      }
     });

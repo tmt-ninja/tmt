@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
+import { blockKeyAction, insertGroups, nextBlockMenuItem } from '@tmt/browser-ui/blocks';
 import { type BlockOp, type BlockRecord, isBlockType, TEXT_TYPES } from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
+import { applyOps } from './block-apply.js';
 import { BlockHistory } from './block-history.js';
-import { deleteBlocks, insertBlock, joinBlock, joinTarget, splitBlock } from './block-ops.js';
+import {
+  deleteBlocks,
+  duplicateBlock,
+  insertBlock,
+  joinBlock,
+  joinTarget,
+  moveBlock,
+  nudgeBlock,
+  splitBlock,
+} from './block-ops.js';
 import {
   type BlockSelection,
   extendSelection,
@@ -26,6 +36,11 @@ export interface InsertMenu {
   /** The active entry's id. */
   active?: string;
 }
+
+/** The block menu's actions this editor runs, in the design system's catalog order (Move to…, copy
+ * link and @ this block come with their own steps). */
+export const BLOCK_MENU_ACTIONS = ['move-up', 'move-down', 'duplicate', 'delete'] as const;
+export type BlockMenuAction = (typeof BLOCK_MENU_ACTIONS)[number];
 
 /** How long the status line after a delete stays. */
 export const TOAST_MS = 6000;
@@ -65,7 +80,24 @@ export function useBlockEditing(
   /** The local order of the view `records` came from (`PageView.seq`), when the page gives one. */
   seq?: number,
 ) {
-  const tree = useMemo(() => new BlockTree(records), [records]);
+  /** This tab's batches on their way: the page draws them at once and drops each when it settles
+   * (the page then shows it, or it was refused). */
+  const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
+  const batchKey = useRef(0);
+  /** The page as the serve shows it: what the focused block's text merges with. */
+  const pageTree = useMemo(() => new BlockTree(records), [records]);
+  /** The page as drawn: the serve's blocks with this tab's batches on their way applied. A batch
+   * the serve would refuse is left out. */
+  const tree = useMemo(() => {
+    let drawn: readonly BlockRecord[] = records;
+    for (const batch of pending)
+      try {
+        drawn = applyOps(drawn, batch.ops);
+      } catch {
+        // Drawn without it; the serve refuses it too, and the page stays as it shows.
+      }
+    return pending.length ? new BlockTree(drawn) : pageTree;
+  }, [records, pending, pageTree]);
   const treeRef = useRef(tree);
   treeRef.current = tree;
   const [editing, setEditing] = useState<Editing>();
@@ -83,6 +115,8 @@ export function useBlockEditing(
   const history = useRef(new BlockHistory());
   const [selection, setSelection] = useState<BlockSelection>();
   const [toast, setToast] = useState<DeleteToast>();
+  /** The block menu open on a block, and its active action. */
+  const [blockMenu, setBlockMenu] = useState<{ id: string; active?: string }>();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The block the insert menu is open on, and its active entry. */
   const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
@@ -101,7 +135,11 @@ export function useBlockEditing(
   );
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
   const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
+    const key = ++batchKey.current;
+    setPending((now) => [...now, { key, ops }]);
     const sent = sendRef.current(ops);
+    const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
+    sent.then(drop, drop);
     inflight.current = sent.then(
       (at) => {
         if (current)
@@ -149,8 +187,10 @@ export function useBlockEditing(
   useEffect(() => {
     const current = sync.current;
     if (!current) return;
-    const block = tree.get(current.id);
-    if (!block || !tree.visible(current.id)) {
+    // The serve's page, not the drawn one: the focused text merges with what others wrote, and this
+    // tab's own batches settle through `BlockTextSync`.
+    const block = pageTree.get(current.id);
+    if (!block || !pageTree.visible(current.id)) {
       // Not on the page yet: this tab's own insert is on its way.
       if (arriving.current === current.id) return;
       // Deleted or gone under another writer: the editor closes; unsent typing is kept on the op.
@@ -162,7 +202,7 @@ export function useBlockEditing(
     if (arriving.current === current.id) arriving.current = undefined;
     show(current, current.remote(block.text ?? '', caret.current, seq));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tree]);
+  }, [pageTree]);
 
   const focus = useCallback(
     (id: string) => {
@@ -357,62 +397,179 @@ export function useBlockEditing(
   );
   const undo = useCallback(() => replay('undo'), [replay]);
 
-  /** Delete the selected blocks: they go at once, and the status line offers Undo. */
-  const deleteSelected = useCallback(() => {
-    const before = treeRef.current;
-    const ops = deleteBlocks(before, selectedIds(before, selection));
-    if (!ops.length) return;
-    history.current.record(before, ops);
-    // The block after the deleted ones (else the one before) takes the selection, so the keys
-    // and ⌘Z stay on the page.
-    const ids = before.flat().map((block) => block.id);
-    const gone = new Set(selectedIds(before, selection));
-    const last = Math.max(...[...gone].map((id) => ids.indexOf(id)));
-    const first = Math.min(...[...gone].map((id) => ids.indexOf(id)));
-    const next =
-      ids.slice(last + 1).find((id) => !gone.has(id)) ??
-      ids
-        .slice(0, first)
-        .reverse()
-        .find((id) => !gone.has(id));
-    setSelection(next ? selectBlock(next) : undefined);
-    clearTimeout(toastTimer.current);
-    setToast((now) => ({ count: ops.length, id: (now?.id ?? 0) + 1 }));
-    toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
-    void out(undefined, ops).catch(() => {});
-  }, [selection, out]);
+  /** One gesture of this tab: recorded for ⌘Z, then sent. */
+  const gesture = useCallback(
+    (ops: BlockOp[]) => {
+      if (!ops.length) return;
+      history.current.record(treeRef.current, ops);
+      void out(undefined, ops).catch(() => {});
+    },
+    [out],
+  );
 
-  /** A key on the page while blocks are selected (no block is being typed in); true when taken. */
+  /** Delete these blocks: they go at once, and the status line offers Undo. */
+  const deleteIds = useCallback(
+    (chosen: readonly string[]) => {
+      const before = treeRef.current;
+      const ops = deleteBlocks(before, chosen);
+      if (!ops.length) return;
+      // The block after the deleted ones (else the one before) takes the selection, so the keys
+      // and ⌘Z stay on the page.
+      const ids = before.flat().map((block) => block.id);
+      const gone = new Set(chosen);
+      const last = Math.max(...chosen.map((id) => ids.indexOf(id)));
+      const first = Math.min(...chosen.map((id) => ids.indexOf(id)));
+      const next =
+        ids.slice(last + 1).find((id) => !gone.has(id)) ??
+        ids
+          .slice(0, first)
+          .reverse()
+          .find((id) => !gone.has(id));
+      setSelection(next ? selectBlock(next) : undefined);
+      clearTimeout(toastTimer.current);
+      setToast((now) => ({ count: ops.length, id: (now?.id ?? 0) + 1 }));
+      toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
+      gesture(ops);
+    },
+    [gesture],
+  );
+
+  /** A block menu action, or its key, on `id`. */
+  const act = useCallback(
+    (action: BlockMenuAction, id: string) => {
+      setBlockMenu(undefined);
+      const tree = treeRef.current;
+      if (action === 'delete') return deleteIds([id]);
+      if (action === 'move-up' || action === 'move-down') {
+        gesture(nudgeBlock(tree, id, action === 'move-up' ? 'up' : 'down'));
+        setSelection(selectBlock(id));
+        return;
+      }
+      // Duplicate: a copy right after it, a card with copies of its blocks.
+      const ops = duplicateBlock(tree, id, () => crypto.randomUUID());
+      gesture(ops);
+      const copy = ops[0]?.op === 'insert' ? ops[0].id : undefined;
+      if (copy) setSelection(selectBlock(copy));
+    },
+    [deleteIds, gesture],
+  );
+
+  /** A drop from the handle: `id` goes to `index` among `parent`'s children. */
+  const move = useCallback(
+    (id: string, parent: string, index: number) => {
+      gesture(moveBlock(treeRef.current, id, parent, index));
+      setSelection(selectBlock(id));
+    },
+    [gesture],
+  );
+
+  /** Open the block menu on `id` (the handle's ⋯, or the menu key); the block is selected so the
+   * menu's keys reach the page. */
+  const openBlockMenu = useCallback(
+    (id: string) => {
+      flush();
+      sync.current = undefined;
+      setEditing(undefined);
+      setMenuAt(undefined);
+      setSelection(selectBlock(id));
+      setBlockMenu({ id, active: BLOCK_MENU_ACTIONS[0] });
+    },
+    [flush],
+  );
+
+  /** ＋ on the handle: an empty paragraph right after `id` holding "/", with the insert menu. */
+  const insertAfter = useCallback(
+    (id: string) => {
+      const newId = crypto.randomUUID();
+      const ops = [
+        insertBlock(treeRef.current, { id: newId, type: 'paragraph', after: id, text: '/' }),
+      ];
+      flush();
+      setSelection(undefined);
+      setBlockMenu(undefined);
+      arriving.current = newId;
+      const next = new BlockTextSync(newId, '/');
+      open(next, 1);
+      setMenuAt({ id: newId, query: '/' });
+      history.current.record(treeRef.current, ops);
+      void out(undefined, ops).catch(() => {
+        if (arriving.current === newId) arriving.current = undefined;
+      });
+    },
+    [flush, open, out],
+  );
+
+  /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
     (event: KeyboardEvent): boolean => {
-      const mod = event.metaKey || event.ctrlKey;
-      if (mod && event.key.toLowerCase() === 'z') {
-        replay(event.shiftKey ? 'redo' : 'undo');
+      const menuOn = blockMenu;
+      if (menuOn) {
+        if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+          setBlockMenu({
+            ...menuOn,
+            active: nextBlockMenuItem(BLOCK_MENU_ACTIONS, menuOn.active, event.key),
+          });
+          return true;
+        }
+        if (event.key === 'Enter' && menuOn.active) {
+          act(menuOn.active as BlockMenuAction, menuOn.id);
+          return true;
+        }
+        if (event.key === 'Escape') {
+          setBlockMenu(undefined);
+          return true;
+        }
+      }
+      const selecting = Boolean(selection) && !sync.current;
+      const action = blockKeyAction(event, selecting);
+      if (action === 'undo') {
+        replay('undo');
         return true;
       }
-      if (mod && event.key.toLowerCase() === 'y') {
+      const mod = event.metaKey || event.ctrlKey;
+      if (
+        mod &&
+        (event.key.toLowerCase() === 'y' || (event.shiftKey && event.key.toLowerCase() === 'z'))
+      ) {
         replay('redo');
         return true;
       }
-      if (!selection || sync.current) return false;
+      if (!selection || !selecting) return false;
       const ids = treeRef.current.flat().map((block) => block.id);
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        deleteSelected();
-        return true;
-      }
-      if (event.key === 'Escape') {
-        setSelection(undefined);
-        return true;
-      }
-      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        const direction = event.key === 'ArrowUp' ? 'up' : 'down';
-        if (event.shiftKey) setSelection(extendSelection(treeRef.current, selection, direction));
-        else {
-          const at = ids.indexOf(selection.focus) + (direction === 'up' ? -1 : 1);
+      switch (action) {
+        case 'menu':
+          openBlockMenu(selection.focus);
+          return true;
+        case 'delete':
+          deleteIds(selectedIds(treeRef.current, selection));
+          return true;
+        case 'escape':
+          setSelection(undefined);
+          return true;
+        case 'move-up':
+        case 'move-down':
+          act(action, selection.focus);
+          return true;
+        case 'duplicate':
+          act('duplicate', selection.focus);
+          return true;
+        case 'extend-previous':
+        case 'extend-next':
+          setSelection(
+            extendSelection(
+              treeRef.current,
+              selection,
+              action === 'extend-previous' ? 'up' : 'down',
+            ),
+          );
+          return true;
+        case 'previous':
+        case 'next': {
+          const at = ids.indexOf(selection.focus) + (action === 'previous' ? -1 : 1);
           const next = ids[Math.max(0, Math.min(ids.length - 1, at))];
           if (next) setSelection(selectBlock(next));
+          return true;
         }
-        return true;
       }
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
         focus(selection.focus);
@@ -420,7 +577,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [selection, replay, deleteSelected, focus],
+    [blockMenu, selection, replay, deleteIds, focus, act, openBlockMenu],
   );
   const selected = useMemo(() => selectedIds(tree, selection), [tree, selection]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
@@ -454,6 +611,14 @@ export function useBlockEditing(
     selected,
     selectionFocus: selection?.focus,
     pageKey,
+    blockMenu,
+    act,
+    move,
+    openBlockMenu,
+    insertAfter,
+    closeBlockMenu: () => setBlockMenu(undefined),
+    hoverBlockMenu: (action: string) =>
+      setBlockMenu((now) => (now ? { ...now, active: action } : now)),
     toast,
     undo,
   };
