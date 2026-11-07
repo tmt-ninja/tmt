@@ -160,6 +160,9 @@ export interface RenderSnapshot {
 
 /** SHA-256 of the exact source UTF-8 bytes, which bind and every in-place update carry. */
 async function digestSource(source: string): Promise<string> {
+  // Encoding a large page can take a full frame. Start it in a separate task from React's
+  // update/commit so its cost cannot turn the preceding page update into a long task.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const bytes = new TextEncoder().encode(source);
   if (bytes.byteLength > MAX_RENDER_SOURCE_BYTES) throw new Error('Page exceeds preview limit');
   const digest = await crypto.subtle.digest('SHA-256', bytes);
