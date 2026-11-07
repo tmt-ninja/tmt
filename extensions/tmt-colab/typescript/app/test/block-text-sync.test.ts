@@ -92,17 +92,35 @@ describe('a focused block while the page changes', () => {
     expect(shown.text).toContain('bird');
     expect(shown.text).toContain('dog');
   });
-  it('ignores the page drawing the replaced text once more after its op settled', () => {
+  it('drops a view held from before the commit when the op settles', () => {
     const sync = new BlockTextSync('b', 'Ship');
     sync.typed('Ship it');
     sync.flush();
-    expect(sync.settled(true, 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
-    // A view made before the commit still shows the old text: not a change by anyone.
-    expect(sync.remote('Ship', 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    // While the op is out, a view made before the commit (order 4) still shows the old text.
+    expect(sync.remote('Ship', 7, 4).text).toBe('Ship it');
+    // The commit shows from order 5 on: the held view predates it and is not merged as a revert.
+    expect(sync.settled(true, 7, 5)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
     expect(sync.pending).toBe(false);
-    // The page then moves on, and a real change merges as usual.
-    expect(sync.remote('Ship it', 7).text).toBe('Ship it');
-    expect(sync.remote('Ship it now', 7).text).toBe('Ship it now');
+  });
+  it('drops any number of views older than the commit that arrive after it settled', () => {
+    const sync = new BlockTextSync('b', 'Ship');
+    sync.typed('Ship it');
+    sync.flush();
+    sync.settled(true, 7, 9);
+    // Two late views from before the commit: neither moves the text or the caret.
+    expect(sync.remote('Ship', 7, 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    expect(sync.remote('Sh', 7, 8)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    expect(sync.pending).toBe(false);
+    // A view from the commit on merges as usual.
+    expect(sync.remote('Ship it now', 7, 10).text).toBe('Ship it now');
+  });
+  it('merges a view held from after the commit when the op settles', () => {
+    const sync = new BlockTextSync('b', 'Ship');
+    sync.typed('Ship it');
+    sync.flush();
+    // The page showed the commit and then an agent's change (order 6) while the op was out.
+    sync.remote('Merge it', 7, 6);
+    expect(sync.settled(true, 8, 5).text).toBe('Merge it');
   });
   it('shows the page text at once when nothing is typed', () => {
     const sync = new BlockTextSync('b', 'a');

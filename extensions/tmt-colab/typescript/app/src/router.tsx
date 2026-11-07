@@ -3209,6 +3209,7 @@ function OpenPage({
                     <Suspense fallback={null}>
                       <LazyStructuredPage
                         blocks={view.blocks}
+                        seq={view.seq}
                         binding={liveError || archived ? undefined : snapshot.binding}
                       />
                     </Suspense>

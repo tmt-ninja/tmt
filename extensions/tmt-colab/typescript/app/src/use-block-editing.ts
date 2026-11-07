@@ -33,15 +33,18 @@ export interface Editing {
  * The structured page's editing state (#6005): the tree the page draws from `records` (the page's
  * latest blocks), and the one focused text block's typing. Typing goes out through `send` as one
  * op once it rests `TEXT_FLUSH_MS` (or when focus leaves); `send` resolves once the page shows the
- * op and rejects when the serve refuses it. While an op is out, the page's text for that block is
- * held and merged when it settles (`BlockTextSync`).
+ * op (with the first view order that shows it) and rejects when the serve refuses it. While an op
+ * is out, the page's text for that block is held and merged when it settles; views older than the
+ * commit are dropped by their order (`BlockTextSync`).
  *
  * Enter and Backspace at a block's edges are one batch each: the split or join with the typing not
  * sent yet. They wait for the text op on its way, so each batch starts from what the page shows.
  */
 export function useBlockEditing(
   records: readonly BlockRecord[],
-  send: (ops: BlockOp[]) => Promise<void>,
+  send: (ops: BlockOp[]) => Promise<number | void>,
+  /** The local order of the view `records` came from (`PageView.seq`), when the page gives one. */
+  seq?: number,
 ) {
   const tree = useMemo(() => new BlockTree(records), [records]);
   const treeRef = useRef(tree);
@@ -76,8 +79,12 @@ export function useBlockEditing(
   const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
     const sent = sendRef.current(ops);
     inflight.current = sent.then(
-      () => {
-        if (current) showRef.current(current, current.settled(true, caret.current));
+      (at) => {
+        if (current)
+          showRef.current(
+            current,
+            current.settled(true, caret.current, typeof at === 'number' ? at : undefined),
+          );
       },
       () => {
         if (current) showRef.current(current, current.settled(false, caret.current));
@@ -124,7 +131,7 @@ export function useBlockEditing(
       return;
     }
     if (arriving.current === current.id) arriving.current = undefined;
-    show(current, current.remote(block.text ?? '', caret.current));
+    show(current, current.remote(block.text ?? '', caret.current, seq));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree]);
 
@@ -302,10 +309,11 @@ export function useBlockEditing(
         : entries[0]?.id;
     return { id: menuAt.id, entries, ...(active && { active }) };
   }, [menuAt, editing?.id]);
+  const closeMenu = useCallback(() => setMenuAt(undefined), []);
   const hover = useCallback((entry: string) => {
     setMenuAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
 
   useEffect(() => () => clearTimeout(timer.current), []);
-  return { tree, editing, focus, typed, flush, key, menu, pick, hover };
+  return { tree, editing, focus, typed, flush, key, menu, pick, hover, closeMenu };
 }

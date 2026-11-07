@@ -101,6 +101,9 @@ export class Live implements PageBinding {
   #discussionVerified = false;
   #processingViews = false;
   #pendingView: { value: PageView; admission: Admission; open: LiveOpen } | null = null;
+  /** The local, per-binding order of the page content this binding received (`PageView.seq`).
+   * It orders views only within this binding and is never sent anywhere. */
+  #contentSeq = 0;
   #admitted: PageView = { source: '', title: '' };
   #connection: Connection | null = null;
   #current: Promise<Connection>;
@@ -421,7 +424,7 @@ export class Live implements PageBinding {
         this.page.sharing,
         (value) => {
           if (!this.#owns(open)) return;
-          this.#admitted = structuredClone(value);
+          this.#admitted = { ...structuredClone(value), seq: ++this.#contentSeq };
           const progressKey = canonical({ work: value.work, state: value.state });
           if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
             this.#progressKey = progressKey;
@@ -936,8 +939,10 @@ export class Live implements PageBinding {
     }
     settled(result);
     await this.#showsRevision(result.revision);
+    // The objects show the commit once it is admitted; its content may still be folding.
+    await c.applied();
     // A status reply carries no receipt: the page's text then shows what landed.
-    return { droppedHunks: result.receipt?.droppedHunks ?? [] };
+    return { droppedHunks: result.receipt?.droppedHunks ?? [], seq: this.#contentSeq };
   }
   refreshProgress(): void {
     void this.#progressReads.refresh();

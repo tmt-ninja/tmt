@@ -67,10 +67,15 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   z-index: 20;
   padding-top: 4px;
 }
+/* The phone sheet sits on the viewport's bottom edge, above the bottom safe area, over the
+   design system's scrim, so the page under it reads as inactive. */
 .tmt-block-insert[data-sheet] {
   position: fixed;
-  inset: auto 0 0;
-  padding: 0;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 env(safe-area-inset-bottom);
+  background: var(--tmt-ui-surface-scrim);
 }
 /* The block being typed in shows the block's selection tint, not a second frame around its text
    (#6005). */
