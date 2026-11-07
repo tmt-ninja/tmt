@@ -1,5 +1,6 @@
 //! One caller-owned decoder per page. This parent never parses Yjs bytes.
 //! Admission and atomic application remain with the caller; no server integration.
+mod blocks_doc;
 mod child;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -152,6 +153,8 @@ pub enum StructuredKind {
     Creator,
     Template,
     PageState,
+    /// The page's `blocks` root (a structured page), edited by one validated batch of ops.
+    Blocks,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -163,6 +166,7 @@ impl StructuredKind {
             Self::Creator => "creator",
             Self::Template => "template",
             Self::PageState => "pageState",
+            Self::Blocks => "blocks",
         }
     }
 }
@@ -725,6 +729,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: None,
                 shell: None,
+                blocks: false,
             },
             stop,
         )
@@ -741,6 +746,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: Some(CREATE_CHUNK_BYTES),
                 shell: None,
+                blocks: false,
             },
             stop,
         )
@@ -767,6 +773,34 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
                 shell: Some(shell.clone()),
+                blocks: false,
+            },
+            stop,
+        )
+    }
+    /// A structured page starts empty: no text, no blocks, `meta.pageType = "blocks"`. Its blocks
+    /// arrive through `prepare_structured_batch`.
+    pub fn produce_blocks(
+        &mut self,
+        view: BaselineInput<'_>,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Baseline, DecodeFault> {
+        if !view.source.is_empty()
+            || view.attachments.is_some()
+            || view.work.is_some()
+            || view.page_state.is_some()
+            || view.layout.is_some()
+            || view.template.is_some()
+            || view.from_template.is_some()
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.baseline(
+            view,
+            BaselineAction::Produce {
+                chunk_bytes: None,
+                shell: None,
+                blocks: true,
             },
             stop,
         )
@@ -1204,8 +1238,17 @@ struct WireContentPreparation<
 }
 fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<Value, DecodeFault> {
     let shell = base["meta"]["pageType"].as_str() == Some("shell");
+    // An ordinary page has no `pageType`; a page of blocks may also carry questions, a creator and
+    // a state, but never work or a template.
+    let ordinary = base["meta"].get("pageType").is_none();
     let mut expected = base.clone();
     match edit.kind {
+        StructuredKind::Blocks if base["meta"]["pageType"].as_str() == Some("blocks") => {
+            expected["blocks"] =
+                crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
+                    .map_err(|_| DecodeFault::InvalidInput)?
+                    .next;
+        }
         StructuredKind::Shell if shell => {
             expected["meta"]["shell"] = crate::shell::apply(
                 &base["meta"]["shell"],
@@ -1215,7 +1258,7 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
             )
             .map_err(|_| DecodeFault::InvalidInput)?;
         }
-        StructuredKind::Work if !shell => {
+        StructuredKind::Work if ordinary => {
             let stored = base["meta"].get("work");
             let next = crate::work::apply(
                 stored.unwrap_or(&crate::work::empty()),
@@ -1251,7 +1294,7 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 expected["meta"]["pageState"] = state.clone();
             }
         }
-        StructuredKind::Template if !shell => {
+        StructuredKind::Template if ordinary => {
             match crate::template_marks::apply(&edit.action, &edit.body)
                 .map_err(|_| DecodeFault::InvalidInput)?
             {
@@ -1432,6 +1475,9 @@ enum BaselineAction {
         chunk_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<Value>,
+        /// A new structured page: `meta.pageType = "blocks"`, an empty `html`, no blocks yet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        blocks: bool,
     },
     Verify {
         update: String,
@@ -1483,18 +1529,25 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
     let roots = value.as_object().ok_or(DecodeFault::InvalidOutput)?;
     match namespace {
         Namespace::Content => {
-            if roots.len() != 2
-                || roots
-                    .get("html")
-                    .and_then(Value::as_str)
-                    .is_none_or(|v| v.len() > STATE_BYTES)
-            {
-                return Err(DecodeFault::InvalidOutput);
-            }
             let meta = roots
                 .get("meta")
                 .and_then(Value::as_object)
                 .ok_or(DecodeFault::InvalidOutput)?;
+            let page_type = meta.get("pageType").and_then(Value::as_str);
+            let blocks = page_type == Some("blocks");
+            // A page of blocks has the `blocks` root and no other page has it.
+            if roots.len() != 2 + usize::from(blocks)
+                || roots
+                    .get("html")
+                    .and_then(Value::as_str)
+                    .is_none_or(|v| v.len() > STATE_BYTES)
+                || (blocks
+                    && roots
+                        .get("blocks")
+                        .is_none_or(|v| crate::blocks::schema::validate(v).is_err()))
+            {
+                return Err(DecodeFault::InvalidOutput);
+            }
             if meta.iter().any(|(k, v)| match k.as_str() {
                 "title" => !v.is_string(),
                 "publisherAgent" | "originalAuthor" => {
@@ -1520,7 +1573,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 }),
                 "layout" => v.as_str().and_then(LayoutKind::parse).is_none(),
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
-                "pageType" => v.as_str() != Some("shell"),
+                "pageType" => !matches!(v.as_str(), Some("shell" | "blocks")),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
@@ -1536,8 +1589,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 return Err(DecodeFault::InvalidOutput);
             }
             // Work belongs to an ordinary page; a shell keeps its own summary.
-            if meta.contains_key("pageType") != meta.contains_key("shell")
-                || (meta.contains_key("pageType")
+            let shell = page_type == Some("shell");
+            if meta.contains_key("shell") != shell
+                || (shell
                     && [
                         "work",
                         "creator",
@@ -1548,7 +1602,20 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     ]
                     .iter()
                     .any(|key| meta.contains_key(*key)))
-                || (meta.contains_key("shell")
+                // A page of blocks keeps no HTML, no attachments (nothing in its text to bind
+                // them to), no work and no template.
+                || (blocks
+                    && [
+                        "work",
+                        "template",
+                        "fromTemplate",
+                        "attachments",
+                        "layout",
+                        "layoutReason",
+                    ]
+                    .iter()
+                    .any(|key| meta.contains_key(*key)))
+                || ((shell || blocks)
                     && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
             {
                 return Err(DecodeFault::InvalidOutput);

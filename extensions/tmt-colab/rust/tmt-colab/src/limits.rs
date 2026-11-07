@@ -170,6 +170,21 @@ pub const SHELL_ITEMS: usize = 256;
 pub const SHELL_BYTES: usize = 128 * 1024;
 pub const SHELL_NOTE_BYTES: usize = 512;
 pub const SHELL_AUDIENCE_BYTES: usize = 128;
+/// Structured-page block bounds (contract: Structured pages). Tombstones count toward `BLOCKS`;
+/// compaction is what removes them.
+pub const BLOCKS: usize = 2048;
+pub const BLOCKS_PURGE_ABOVE: usize = BLOCKS * 3 / 4;
+pub const BLOCK_PROPS_BYTES: usize = 8 * 1024;
+pub const BLOCK_TEXT_BYTES: usize = 64 * 1024;
+pub const BLOCK_CELL_BYTES: usize = 4 * 1024;
+pub const BLOCK_ROW_CELLS: usize = 64;
+pub const BLOCK_TABLE_ROWS: usize = 512;
+pub const BLOCK_TABLE_COLUMNS: usize = 32;
+pub const BLOCK_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
+pub const BLOCK_BATCH_OPS: usize = 256;
+pub const BLOCK_BATCH_BYTES: usize = 1024 * 1024;
+/// A tombstone older than this is dropped, with its subtree, when the page is compacted.
+pub const BLOCK_UNDO_WINDOW_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// The two-line summary of a structured page value (`shell`, `work`): line 1 says where it is,
 /// line 2 what comes next.
 pub const SUMMARY_LINE1_POINTS: usize = 24;

@@ -456,7 +456,22 @@ fn prepare_content(
     checkpoint(Stage::Generation, CheckpointBoundary::Enter, 0);
     let mut updates = Vec::new();
     if expected != before {
-        if let Some(structured) = &wire.structured {
+        if let Some(structured) = wire
+            .structured
+            .as_ref()
+            .filter(|s| s.kind == StructuredKind::Blocks)
+        {
+            let applied = crate::blocks::ops::apply(
+                &before["blocks"],
+                &structured.body,
+                &structured.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+            let blocks = doc.get_or_insert_map("blocks");
+            let mut tx = doc.transact_mut();
+            blocks_doc::apply(&mut tx, &blocks, &applied.steps)?;
+            updates.push(tx.encode_update_v1());
+        } else if let Some(structured) = &wire.structured {
             let key = structured.kind.key();
             let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
@@ -789,12 +804,19 @@ mod comparison {
 }
 use comparison::equivalent_update;
 
-fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
+pub(super) fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
+    let txn = doc.transact();
+    // A page of blocks has a `blocks` root; it is absent from the document until its first block.
+    let blocks_page = namespace == Namespace::Content
+        && Root::<MapRef>::new("meta")
+            .get(&txn)
+            .and_then(|meta| meta.get(&txn, "pageType"))
+            .is_some_and(|v| matches!(v, Out::Any(Any::String(s)) if &*s == "blocks"));
     let names: &[&str] = match namespace {
+        Namespace::Content if blocks_page => &["html", "meta", "blocks"],
         Namespace::Content => &["html", "meta"],
         Namespace::Own => &["threads", "messages", "intents", "replies"],
     };
-    let txn = doc.transact();
     if txn.store().pending_update().is_some()
         || txn.store().pending_ds().is_some()
         || txn.root_refs().any(|(name, _)| !names.contains(&name))
@@ -803,6 +825,22 @@ fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
     }
     let mut roots = serde_json::Map::new();
     for name in names {
+        if *name == "blocks" {
+            let value = match Root::<MapRef>::new("blocks").get(&txn) {
+                Some(map) => {
+                    if Root::<TextRef>::new("blocks")
+                        .get(&txn)
+                        .is_some_and(|text| text.len(&txn) != 0)
+                    {
+                        return Err(DecodeFault::Rejected);
+                    }
+                    blocks_doc::project(&txn, &map)?
+                }
+                None => Value::Object(serde_json::Map::new()),
+            };
+            roots.insert("blocks".into(), value);
+            continue;
+        }
         // Named roots do not carry a wire-level type declaration. Inspect both
         // list and map aspects to reject mixed-type mutations of declared roots.
         let map = Root::<MapRef>::new(*name)
@@ -893,7 +931,11 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     };
     let mut chunks = Vec::new();
     let (update, expected_source, expected_commitment) = match wire.action {
-        BaselineAction::Produce { chunk_bytes, shell } => {
+        BaselineAction::Produce {
+            chunk_bytes,
+            shell,
+            blocks,
+        } => {
             let source = binary(&wire.source, BASELINE_BYTES)?;
             validate_view(&source, &wire.title, &digest)?;
             let source_text =
@@ -925,7 +967,20 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     return Err(DecodeFault::InvalidInput);
                 }
             }
-            let update = if let Some(shell) = shell {
+            let update = if blocks {
+                if chunk_bytes.is_some() || shell.is_some() || !source.is_empty() {
+                    return Err(DecodeFault::InvalidInput);
+                }
+                let doc = Doc::new();
+                let initial = fresh_baseline(Doc::new(), source_text, &wire.title, &creation);
+                doc.get_or_insert_text("html");
+                let meta = doc.get_or_insert_map("meta");
+                let mut tx = doc.transact_mut();
+                tx.apply_update(Update::decode_v1(&initial).map_err(|_| DecodeFault::Rejected)?)
+                    .map_err(|_| DecodeFault::Rejected)?;
+                meta.insert(&mut tx, "pageType", "blocks");
+                tx.encode_state_as_update_v1(&StateVector::default())
+            } else if let Some(shell) = shell {
                 crate::shell::validate(&shell).map_err(|_| DecodeFault::InvalidInput)?;
                 if !source.is_empty() || wire.attachments.is_some() || wire.layout.is_some() {
                     return Err(DecodeFault::InvalidInput);
