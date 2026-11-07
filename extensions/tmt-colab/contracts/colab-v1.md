@@ -4389,13 +4389,13 @@ other burst. A page whose fingerprint did not change adds no traffic.
 `GET /api/pages/after/<listToken>` is the same owner-only read held open: it answers with the full
 list as soon as the list's token is no longer `<listToken>`, and otherwise after the hold with
 exactly `{listToken, unchanged:true}`. The serve checks every 250 ms (`PAGE_LIST_POLL`), holds at
-most 2.5 s (`PAGE_LIST_HOLD`) and at most 4 such reads at once (`PAGE_LIST_HOLDS`); a fifth gets 503
+most 10 s (`PAGE_LIST_HOLD`) and at most 4 such reads at once (`PAGE_LIST_HOLDS`); a fifth gets 503
 `{code:"CAPACITY"}` at once and is never queued. A read whose client leaves, or whose serve stops,
-ends at once. The hold must stay under two timeouts: Remote's mounted-reply deadline,
-`limits::MOUNT_RESPONSE` (15 s) in `extensions/tmt-remote`, and the 3 s grace a serve gives its
-Remote to stop (`REMOTE_STOP_GRACE`), because the door waits for in-flight mounted replies when it
-stops. A change to either changes this one. Once the door ends in-flight requests at stop
-([#6171](https://github.com/tmt-ninja/tmt/issues/6171)) the hold goes back to 10 s. A held read takes one of the door's 32 connections (`limits::SOCKETS`) and one of
+ends at once. The hold must stay under Remote's mounted-reply deadline, `limits::MOUNT_RESPONSE`
+(15 s) in `extensions/tmt-remote`; a change to it changes this one. It need not stay under the 3 s
+grace a serve gives its Remote to stop (`REMOTE_STOP_GRACE`): at stop the door closes in-flight
+mounted requests as it closes tunnels ([#6171](https://github.com/tmt-ninja/tmt/issues/6171)), so a
+held read never delays it. A held read takes one of the door's 32 connections (`limits::SOCKETS`) and one of
 the serve's 16 non-tunnel workers, never a sync tunnel. A non-owner read is 403 `{code:"DENIED"}`, a
 malformed token 404, and a method other than GET or an upgrade `{code:"INVALID"}`.
 
