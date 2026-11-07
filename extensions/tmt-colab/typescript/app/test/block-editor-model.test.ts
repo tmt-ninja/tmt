@@ -510,14 +510,28 @@ describe('the drop target', () => {
 
 describe('the tree from a fold projection', () => {
   it('reads the blocks root: parent and pos order, tombstones hidden, rows with their table', () => {
+    // The shape the fold projects: rich text as `{s, marks}`, `deleted` as the time of the delete.
+    const rich = (s: string) => ({ s, marks: [] });
     const { tree, unreadable } = blockTree({
-      b: { type: 'paragraph', parent: 'root', pos: 'k', props: {}, text: 'second' },
-      a: { type: 'heading', parent: 'root', pos: 'F', props: { level: 2 }, text: 'first' },
-      gone: { type: 'paragraph', parent: 'root', pos: 'V', props: {}, text: 'x', deleted: true },
+      b: { type: 'paragraph', parent: 'root', pos: 'k', props: {}, text: rich('second') },
+      a: { type: 'heading', parent: 'root', pos: 'F', props: { level: 2 }, text: rich('first') },
+      gone: {
+        type: 'paragraph',
+        parent: 'root',
+        pos: 'V',
+        props: {},
+        text: rich('x'),
+        deleted: 1_794_000_000_000,
+      },
       box: { type: 'card', parent: 'root', pos: 'z', props: {} },
-      inner: { type: 'todo', parent: 'box', pos: 'V', props: { done: false }, text: 'do it' },
-      table: { type: 'table', parent: 'root', pos: 'zz', props: { columns: [] } },
-      r1: { type: 'row', parent: 'table', pos: 'V', props: {} },
+      inner: { type: 'todo', parent: 'box', pos: 'V', props: { checked: false }, text: rich('do') },
+      table: {
+        type: 'table',
+        parent: 'root',
+        pos: 'zz',
+        props: { columns: [{ id: 'c1', name: 'Name' }] },
+      },
+      r1: { type: 'row', parent: 'table', pos: 'V', props: {}, cells: { c1: rich('Ada') } },
     });
     expect(unreadable).toEqual([]);
     expect(ids(tree.flat())).toEqual(['a', 'b', 'box', 'inner', 'table']);
@@ -532,15 +546,24 @@ describe('the tree from a fold projection', () => {
     });
     expect(tree.get('gone')?.deleted).toBe(true);
     expect(ids(tree.rows('table'))).toEqual(['r1']);
+    expect(tree.rows('table')[0]!.cells).toEqual({ c1: 'Ada' });
   });
   it('names entries it cannot read and still draws what is under them', () => {
     const { tree, unreadable } = blockTree({
       future: { type: 'hologram', parent: 'root', pos: 'F', props: {} },
       broken: { type: 'paragraph', parent: 'root', pos: 3, props: {} },
       list: 'not an entry',
-      child: { type: 'paragraph', parent: 'future', pos: 'V', props: {}, text: 'kept' },
+      // Text the fold never projects: a bare string, not rich text.
+      bare: { type: 'paragraph', parent: 'root', pos: 'k', props: {}, text: 'plain' },
+      child: {
+        type: 'paragraph',
+        parent: 'future',
+        pos: 'V',
+        props: {},
+        text: { s: 'kept', marks: [] },
+      },
     });
-    expect(unreadable).toEqual(['future', 'broken', 'list']);
+    expect(unreadable).toEqual(['future', 'broken', 'list', 'bare']);
     expect(ids(tree.flat())).toEqual(['child']);
   });
 });

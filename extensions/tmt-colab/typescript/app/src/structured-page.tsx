@@ -119,7 +119,7 @@ function Content({
     case 'list':
       return <ListItemBlock>{text}</ListItemBlock>;
     case 'todo':
-      return <TodoBlock checked={block.props.done === true}>{text}</TodoBlock>;
+      return <TodoBlock checked={block.props.checked === true}>{text}</TodoBlock>;
     case 'card':
       return (
         <CardBlock title={typeof block.props.title === 'string' ? block.props.title : undefined}>
@@ -130,7 +130,7 @@ function Content({
       const columns = tableColumns(block.props);
       return (
         <TableBlock
-          label={typeof block.props.title === 'string' ? block.props.title : 'Table'}
+          label={typeof block.props.label === 'string' ? block.props.label : 'Table'}
           columns={columns.map(({ name }) => ({ name }))}
           rows={tree.rows(block.id).map((row) => columns.map(({ id }) => row.cells?.[id] ?? ''))}
         />

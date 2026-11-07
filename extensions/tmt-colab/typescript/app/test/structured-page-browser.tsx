@@ -34,7 +34,7 @@ const start: BlockRecord[] = [
     type: 'todo',
     parent: 'root',
     pos: 'k',
-    props: { done: false },
+    props: { checked: false },
     text: 'Review',
     deleted: false,
   },
@@ -82,7 +82,7 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       '每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
     ),
     block('table', 'table', undefined, {
-      title: '區塊',
+      label: '區塊',
       columns: [
         { id: 'name', name: '區塊' },
         { id: 'use', name: '用途' },

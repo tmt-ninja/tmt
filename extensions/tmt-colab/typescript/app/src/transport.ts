@@ -14,7 +14,8 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
-import type { MetadataAction, WorkAction } from './save.js';
+import type { BlocksResult, MetadataAction, WorkAction } from './save.js';
+import type { BlockOp } from './block-model.js';
 export interface PageView extends Projection {
   /** Verified only after catch-up; false once a non-owner content writer is admitted. */
   readonly ownerOnlyContent?: boolean;
@@ -92,6 +93,11 @@ export interface PageSnapshot extends PageSummary {
 export interface SaveOutcome {
   merged: boolean;
 }
+/** What a block batch could not apply: a whole-text op's typed hunks that overlapped another
+ * writer's change under `overlap: 'remote'` (empty under `both`, and after a lost reply). */
+export interface BlocksOutcome {
+  droppedHunks: NonNullable<BlocksResult['receipt']>['droppedHunks'];
+}
 /** What a work action made: the page of a `subpage.create`. */
 export interface WorkOutcome {
   /** The page a committed `subpage.create` made and attached. */
@@ -116,6 +122,10 @@ export interface PageBinding {
   /** One closed work action, committed by the serve; the new value follows through `subscribe`.
    * Throws `SaveRefused` with the serve's code (`COLAB_LINK_REFUSED`, `COLAB_STALE_BASE`, …). */
   work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
+  /** One batch of a structured page's block ops (#6004), merged and committed by the serve; it
+   * resolves once the page shows the commit, with the typed hunks a whole-text op could not apply.
+   * Throws `SaveRefused` with the serve's code (`COLAB_BLOCK_BAD_AFTER`, …). */
+  blocks?(ops: readonly BlockOp[]): Promise<BlocksOutcome>;
   /** Metadata writes belong only to the authenticated owner device, independently of Work. */
   canMetadata?(): boolean;
   /** Invalidate optional owner progress after an already-observed child state changes. */
