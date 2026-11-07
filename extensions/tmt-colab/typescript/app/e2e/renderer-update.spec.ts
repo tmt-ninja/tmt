@@ -118,6 +118,22 @@ test('removing a run of sibling nodes preserves the following page and frame', a
   await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);
 });
 
+test('in-place updates report frame growth and shrinkage', async ({ page }) => {
+  const renderId = await open(page);
+  const element = iframe(page);
+  const height = async () => (await element.boundingBox())?.height ?? 0;
+  await expect.poll(height).toBeGreaterThan(4000);
+  const before = await height();
+  await run(page, 'change', long({ extra: '<div id="tall" style="height:500px"></div>' }));
+  await expect(frame(page).locator('#tall')).toBeVisible();
+  await expect.poll(height).toBeGreaterThan(before + 450);
+  await expect(element).toHaveAttribute('data-render-id', renderId!);
+  await run(page, 'change', long());
+  await expect(frame(page).locator('#tall')).toHaveCount(0);
+  await expect.poll(async () => Math.abs((await height()) - before)).toBeLessThan(3);
+  await expect(element).toHaveAttribute('data-render-id', renderId!);
+});
+
 test('an edit next to a question places its slot again in the same frame', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');

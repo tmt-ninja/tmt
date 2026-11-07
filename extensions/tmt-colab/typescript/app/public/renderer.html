@@ -1377,11 +1377,21 @@
               '*',
             );
           }
+          const scheduleCapture = () => {
+            if (selectionFrame !== undefined) return;
+            selectionFrame = requestAnimationFrame(() => {
+              selectionFrame = undefined;
+              capture();
+            });
+          };
+          const resetGesture = () => {
+            pointerSelecting = false;
+            keyboardSelecting = false;
+          };
           // Gesture endpoints can arrive outside this frame (focus loss or a released drag).
           // Always let the next selection report through, even when its matching up event was lost.
           const endGesture = () => {
-            pointerSelecting = false;
-            keyboardSelecting = false;
+            resetGesture();
             return capture();
           };
           const selectionChanged = () => {
@@ -1392,11 +1402,7 @@
               endGesture();
               return;
             }
-            if (selectionFrame !== undefined) return;
-            selectionFrame = requestAnimationFrame(() => {
-              selectionFrame = undefined;
-              capture();
-            });
+            scheduleCapture();
           };
           const startSelection = (event) => {
             if (!event.isTrusted || event.button !== 0) return;
@@ -2523,9 +2529,12 @@
             boundSource = source;
             prepareLockQuotes();
             resolve();
-            measureHeight();
+            // The resize and mutation observers also schedule height, including overflow-only edits.
+            // Defer geometry reads until after the source message has finished.
+            scheduleHeight();
             measureScheme();
-            endGesture();
+            resetGesture();
+            scheduleCapture();
             return true;
           }
           port.onmessage = (event) => {
