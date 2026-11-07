@@ -3,7 +3,8 @@
     "Approximate seconds each real-binary acceptance spec file takes in CI, used only to balance the Colab acceptance shards (typescript/scripts/colab-acceptance-shards.mjs).",
     "A stale or missing weight costs balance, never coverage: every spec file always lands in exactly one shard (guarded by typescript/test/tooling/colab-acceptance-shards.test.ts).",
     "Whole seconds rounded up from passed-test duration sums in PR run 40812698080 (2026-10-29, #5516 head fedcb56b1d81cdc106717e7d971b0bb6d52f2741, both shards), where page-compaction.spec.ts carries the 2 MiB case at its #5511 cost. Its shard 1 stopped at the deadline before page-save-large.spec.ts and titles.spec.ts ran; those two come from run 40806552100 (#5516 head 6a47b04ec4b58901de413f148796f623297ecd35). Outcomes matched to list-reporter file/location/title because the public outcomes omit file IDs.",
-    "This is one observed run per file, not a stable estimate or a measured improvement. Earlier weights used green main runs 39240809828 (2026-10-19), 38218284566 and 38222074650 (2026-10-12), with up to 1.6x per-file variance; the 2026-10-29 run took about 1.2x the 2026-10-19 sums. Refit after coverage changes; defaultSeconds applies to new files. Shard 1 also runs a separate hosted-reader proof (about 190 seconds in run 40812698080), outside these suite weights."
+    "This is one observed run per file, not a stable estimate or a measured improvement. Earlier weights used green main runs 39240809828 (2026-10-19), 38218284566 and 38222074650 (2026-10-12), with up to 1.6x per-file variance; the 2026-10-29 run took about 1.2x the 2026-10-19 sums. Refit after coverage changes; defaultSeconds applies to new files. Shard 1 also runs a separate hosted-reader proof (about 190 seconds in run 40812698080), outside these suite weights.",
+    "The 2 MiB 300-write case is a separate file so the 2026-11-07 measured 535-second case can be balanced separately from the browser compaction cases (#6166)."
   ],
   "defaultSeconds": 16,
   "files": {
@@ -32,7 +33,8 @@
     "page-check.spec.ts": 5,
     "page-compact-own.spec.ts": 11,
     "page-compact.spec.ts": 12,
-    "page-compaction.spec.ts": 792,
+    "page-compaction-large.spec.ts": 535,
+    "page-compaction.spec.ts": 600,
     "page-reentry.spec.ts": 12,
     "page-revision-parity.spec.ts": 20,
     "page-save-large.spec.ts": 114,
