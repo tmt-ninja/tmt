@@ -442,13 +442,50 @@ test('a work bundle and page views draw owner data only while the page is owner-
   await expect(pages).toContainText('區塊資料模型');
 });
 
+for (const [width, theme] of [
+  [1440, 'light'],
+  [1440, 'dark'],
+  [390, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`a question block answers through the page discussion, bound to its question ${width} ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    const host = await mountFixture(page, 'spec');
+    const question = host.locator('[data-block-id="q"]');
+    await expect(question.getByRole('group', { name: '先做哪個區塊？' })).toBeVisible();
+    // The question allows no Other answer, so the part offers none.
+    await expect(question.getByLabel('Other…')).toHaveCount(0);
+    await question.getByLabel('圖片', { exact: true }).check();
+    await question.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    await question.screenshot({
+      path: capturePath(`structured-question-${width}-${theme}-waiting.png`),
+    });
+    await question.getByRole('button', { name: /Send/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.answers()))
+      .toEqual([{ body: 'Answer to “先做哪個區塊？”: 圖片\nPage: 區塊編輯器', questionId: 'q' }]);
+    // The recorded answer folds the question to its answered line.
+    await expect(question.getByRole('button', { name: /先做哪個區塊？.*圖片/ })).toBeVisible();
+    await page.mouse.move(0, 0);
+    await question.screenshot({
+      path: capturePath(`structured-question-${width}-${theme}-answered.png`),
+    });
+    // Answering never starts editing the block, and sends no block op.
+    await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.sent)).toEqual([]);
+  });
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(21);
+      await expect(host.locator('[data-block-id]')).toHaveCount(22);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({

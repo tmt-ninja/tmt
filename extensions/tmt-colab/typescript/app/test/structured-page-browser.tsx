@@ -1,10 +1,12 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { BlockOp, BlockRecord } from '../src/block-model.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { Mark } from '../src/blocks.js';
+import type { ThreadBinding } from '../src/thread-store.js';
+import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { ParentPageViewSource } from '../src/parent-page-view.js';
 import { applyOps } from '../src/block-apply.js';
 import { StructuredPage } from '../src/structured-page.js';
@@ -162,6 +164,10 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       ],
     }),
     block('live', 'page-view', undefined, { label: '我的頁面', groupBy: 'none' }),
+    block('q', 'question', '先做哪個區塊？', {
+      kind: 'single',
+      choices: ['問題', '圖片', 'Mockup'],
+    }),
     block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
       tone: 'working',
       label: '做的順序',
@@ -182,6 +188,8 @@ declare global {
     serveText(id: string): string | undefined;
     /** Ops the page sent, in order. */
     sent: BlockOp[];
+    /** The answer comments this page recorded, in order. */
+    answers(): { body: string; questionId?: string }[];
     /** The owner-only gate closes: the owner sources withhold from now on. */
     revokeOwner(): void;
     /** Links the page asked to open, in order. */
@@ -238,6 +246,70 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       return () => gated.delete(failed);
     },
   };
+  // The page's discussion: an answer is a comment on its own thread, bound to the question, which
+  // the page then shows as a verified record (as the serve's discussion read does).
+  let threads: ThreadView[] = [];
+  const threadListeners = new Set<(next: ThreadView[]) => void>();
+  window.answers = () =>
+    threads.flatMap((thread) =>
+      thread.comments.map(({ body, questionId }) => ({ body, ...(questionId && { questionId }) })),
+    );
+  const scope = { spaceId: 'a'.repeat(32), pageId: '1'.repeat(32), epoch: '1' };
+  const discussion = {
+    deviceId: 'device-1',
+    scope,
+    async create(
+      body: string,
+      anchor: QuoteSelector | null,
+      _attach?: unknown,
+      questionId?: string,
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, SERVE_MS));
+      const threadId = crypto.randomUUID();
+      const messageId = crypto.randomUUID();
+      const ref = { writer: 'device-1', id: threadId };
+      const at = String(Date.now());
+      const common = {
+        version: 1,
+        ...scope,
+        senderDevice: 'device-1',
+        deviceName: 'You',
+        revision: '1',
+        at,
+        deleted: false,
+      };
+      const thread = {
+        ...common,
+        kind: 'thread',
+        threadId,
+        createdAt: at,
+        anchor,
+        resolved: false,
+        ref,
+        comments: [
+          {
+            ...common,
+            kind: 'comment',
+            deviceAuthor: true,
+            sequence: '1',
+            thread: ref,
+            body,
+            messageId,
+            ...(questionId && { questionId }),
+            ref: { writer: 'device-1', id: messageId },
+          },
+        ],
+      } as unknown as ThreadView;
+      threads = [...threads, thread];
+      for (const listener of threadListeners) listener(threads);
+      return {
+        thread: ref,
+        threadRevision: '1',
+        message: thread.comments[0]!.ref,
+        messageRevision: '1',
+      };
+    },
+  } as unknown as ThreadBinding;
   const pageViewSource: ParentPageViewSource = (publish, failed) => {
     if (!owner) failed();
     else
@@ -297,6 +369,11 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     });
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
+    const [pageThreads, setPageThreads] = useState(threads);
+    useEffect(() => {
+      threadListeners.add(setPageThreads);
+      return () => void threadListeners.delete(setPageThreads);
+    }, []);
     const subscribe = useCallback((node: HTMLElement | null) => {
       if (node) listeners.add(setView);
       else listeners.delete(setView);
@@ -336,7 +413,17 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onKey={key}
           onPasteUrl={pasteUrl}
           onChecked={check}
-          {...(content === 'spec' && { workSource, pageViewSource })}
+          {...(content === 'spec' && {
+            workSource,
+            pageViewSource,
+            questionPage: {
+              title: '區塊編輯器',
+              questions: [],
+              threads: pageThreads,
+              discussion,
+              blocked: false,
+            },
+          })}
           onLink={(href, newTab) => window.opened.push({ href, newTab })}
           menu={menu}
           onPick={(entry) => void pick(entry)}
