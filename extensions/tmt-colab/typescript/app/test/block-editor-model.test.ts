@@ -9,7 +9,9 @@ import {
   nudgeBlock,
   splitBlock,
 } from '../src/block-ops.js';
+import { dropTarget } from '../src/block-drop.js';
 import { BlockHistory, UNDO_DEPTH } from '../src/block-history.js';
+import { filterInsert, insertType, opensInsert } from '../src/block-insert.js';
 import { posBetween, posRun, validPos } from '../src/block-pos.js';
 import {
   extendSelection,
@@ -352,5 +354,103 @@ describe('block selection', () => {
     expect(deleteBlocks(tree, selectedIds(tree, extendTo(selectBlock('box'), 'in-a')))).toEqual([
       { op: 'delete', id: 'box' },
     ]);
+  });
+});
+
+describe('the insert menu', () => {
+  // The design system's catalog rows (browser-ui insertGroups), as the menu passes them.
+  const catalog = [
+    { id: 'text', label: 'Paragraph', shortcut: '/text' },
+    { id: 'heading', label: 'Heading', shortcut: '##' },
+    { id: 'table', label: 'Table', shortcut: '/table' },
+    { id: 'todo', label: 'To-do', shortcut: '[]' },
+    { id: 'question', label: 'Question', shortcut: '/q' },
+    { id: 'code', label: 'Code', shortcut: '```' },
+    { id: 'someday', label: 'Something new', shortcut: '/new' },
+  ];
+  const shown = (query: string) => filterInsert(catalog, query).map((entry) => entry.id);
+  it('filters as the person types, label starts first, and leaves out what it cannot make', () => {
+    expect(shown('')).toEqual(['text', 'heading', 'table', 'todo', 'question', 'code']);
+    expect(shown('/ta')).toEqual(['table']);
+    expect(shown('do')).toEqual(['todo']);
+    expect(shown('q')).toEqual(['question']);
+    expect(shown('text')).toEqual(['text']);
+    expect(shown('PARA')).toEqual(['text']);
+    expect(shown('new')).toEqual([]);
+    expect(shown('zz')).toEqual([]);
+  });
+  it('maps each entry to the block it makes, and opens on / in an empty paragraph only', () => {
+    expect(insertType('text')).toBe('paragraph');
+    expect(() => insertType('someday')).toThrow('cannot make');
+    expect(opensInsert('/', { type: 'paragraph', text: '' })).toBe(true);
+    expect(opensInsert('/', { type: 'paragraph', text: 'a' })).toBe(false);
+    expect(opensInsert('/', { type: 'heading', text: '' })).toBe(false);
+    expect(opensInsert('a', { type: 'paragraph', text: '' })).toBe(false);
+  });
+});
+
+describe('the drop target', () => {
+  // one 0-40, box 40-240 (in-a 60-100, in-b 100-140), two 240-280.
+  const tree = new BlockTree([
+    block('one', 'F'),
+    card('box', 'V'),
+    block('in-a', 'V', 'box'),
+    block('in-b', 'k', 'box'),
+    block('two', 'k'),
+  ]);
+  const boxes = [
+    { id: 'one', top: 0, bottom: 40 },
+    { id: 'box', top: 40, bottom: 240 },
+    { id: 'in-a', top: 60, bottom: 100 },
+    { id: 'in-b', top: 100, bottom: 140 },
+    { id: 'two', top: 240, bottom: 280 },
+  ];
+  it('drops before or after a block by its half, and past the last at the end', () => {
+    expect(dropTarget(tree, boxes, 5, 'two')).toEqual({
+      parent: PAGE_PARENT,
+      index: 0,
+      lineBefore: 'one',
+    });
+    expect(dropTarget(tree, boxes, 30, 'two')).toEqual({
+      parent: PAGE_PARENT,
+      index: 1,
+      lineBefore: 'box',
+    });
+    expect(dropTarget(tree, boxes, 500, 'one')).toEqual({ parent: PAGE_PARENT, index: 3 });
+  });
+  it('drops into a card over its middle, beside it near its edges', () => {
+    expect(dropTarget(tree, boxes, 70, 'two')).toEqual({
+      parent: 'box',
+      index: 0,
+      lineBefore: 'in-a',
+      into: 'box',
+    });
+    expect(dropTarget(tree, boxes, 180, 'two')).toEqual({ parent: 'box', index: 2, into: 'box' });
+    expect(dropTarget(tree, boxes, 45, 'two')).toEqual({
+      parent: PAGE_PARENT,
+      index: 1,
+      lineBefore: 'box',
+    });
+    expect(dropTarget(tree, boxes, 235, 'two')).toEqual({
+      parent: PAGE_PARENT,
+      index: 2,
+      lineBefore: 'two',
+    });
+    // The drop moves the block where the line showed.
+    const drop = dropTarget(tree, boxes, 70, 'two');
+    expect(
+      ids(
+        new BlockTree(apply(tree.flat(), moveBlock(tree, 'two', drop.parent, drop.index))).children(
+          'box',
+        ),
+      ),
+    ).toEqual(['two', 'in-a', 'in-b']);
+  });
+  it('a card never takes itself', () => {
+    expect(dropTarget(tree, boxes, 140, 'box')).toEqual({
+      parent: PAGE_PARENT,
+      index: 2,
+      lineBefore: 'two',
+    });
   });
 });

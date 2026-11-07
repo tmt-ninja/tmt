@@ -35,6 +35,17 @@ export const TEXT_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   'code',
 ]);
 
+/** The block type each insert-menu entry makes, by the design system's catalog ID (browser-ui
+ * `insertGroups`). */
+export const INSERT_TYPES: Readonly<Record<string, BlockType>> = {
+  text: 'paragraph',
+  heading: 'heading',
+  table: 'table',
+  todo: 'todo',
+  question: 'question',
+  code: 'code',
+};
+
 /** The page itself as a parent: a block at the top level. */
 export const PAGE_PARENT = null;
 export type Parent = string | typeof PAGE_PARENT;
