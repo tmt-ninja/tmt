@@ -78,6 +78,22 @@ export interface BlockRecord {
   readonly text?: string;
   /** Deleted is only a mark: history and comments stay, and `restore` brings it back. */
   readonly deleted: boolean;
+  /** A table row's cells by column ID (field name provisional until #6004's table schema). */
+  readonly cells?: Readonly<Record<string, string>>;
+}
+
+/** A table's columns from its props (`columns: [{id, name}]`, provisional like `cells`). */
+export function tableColumns(
+  props: Readonly<Record<string, unknown>>,
+): { id: string; name: string }[] {
+  const columns = props.columns;
+  if (!Array.isArray(columns)) return [];
+  return columns.flatMap((column: unknown) => {
+    const value = column as { id?: unknown; name?: unknown } | null;
+    return value && typeof value.id === 'string' && typeof value.name === 'string'
+      ? [{ id: value.id, name: value.name }]
+      : [];
+  });
 }
 
 /** The marks a block's text may carry. */

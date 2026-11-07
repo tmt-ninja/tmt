@@ -29,7 +29,8 @@ export function blockRecords(blocks: Readonly<Record<string, unknown>>): {
       typeof entry.props === 'object' &&
       !Array.isArray(entry.props) &&
       (entry.text === undefined || typeof entry.text === 'string') &&
-      (entry.deleted === undefined || typeof entry.deleted === 'boolean');
+      (entry.deleted === undefined || typeof entry.deleted === 'boolean') &&
+      (entry.cells === undefined || stringMap(entry.cells));
     if (!ok) {
       unreadable.push(id);
       continue;
@@ -42,10 +43,17 @@ export function blockRecords(blocks: Readonly<Record<string, unknown>>): {
       props: entry.props as Record<string, unknown>,
       ...(entry.text !== undefined && { text: entry.text as string }),
       deleted: entry.deleted === true,
+      ...(entry.cells !== undefined && { cells: entry.cells as Record<string, string> }),
     });
   }
   return { records, unreadable };
 }
+
+const stringMap = (value: unknown) =>
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.values(value).every((cell) => typeof cell === 'string');
 
 /** The tree the editor draws from a fold projection's `blocks` root. */
 export function blockTree(blocks: Readonly<Record<string, unknown>>): {

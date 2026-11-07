@@ -40,6 +40,73 @@ const start: BlockRecord[] = [
   },
 ];
 
+/** The 838644c2 spec-page mockup ("整頁：spec 頁") as blocks, with a long paragraph added so the
+ * trial captures show filled states: a card holding a paragraph, headings, a table with rows, a list
+ * and two callouts. */
+const SPEC_PAGE: BlockRecord[] = (() => {
+  let at = 0;
+  const pos = () => String.fromCharCode(66 + at++);
+  const block = (
+    id: string,
+    type: BlockRecord['type'],
+    text: string | undefined,
+    props: Record<string, unknown> = {},
+    parent = 'root',
+  ): BlockRecord => ({
+    id,
+    type,
+    parent,
+    pos: pos(),
+    props,
+    ...(text !== undefined && { text }),
+    deleted: false,
+  });
+  const row = (id: string, name: string, use: string): BlockRecord => ({
+    ...block(id, 'row', undefined, {}, 'table'),
+    cells: { name, use },
+  });
+  return [
+    block('card', 'card', undefined, { title: '一句話' }),
+    block(
+      'card-p',
+      'paragraph',
+      '新的 Colab 頁面類型：頁面由一個個有類型的區塊組成，長相由區塊決定。只改 Colab 的內容區；頁面標題在共用的 GUI header。',
+      {},
+      'card',
+    ),
+    block('kinds', 'heading', '區塊種類', { level: 2 }),
+    block('first', 'paragraph', '第一批 13 種區塊。Colab 頁面本身就是 ticket。'),
+    block(
+      'long',
+      'paragraph',
+      '每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
+    ),
+    block('table', 'table', undefined, {
+      title: '區塊',
+      columns: [
+        { id: 'name', name: '區塊' },
+        { id: 'use', name: '用途' },
+      ],
+    }),
+    row('r1', '小標題', '## 和 ###'),
+    row('r2', '段落', '一般文字'),
+    row('r3', '卡片／區段', '唯一能放其他區塊的區塊'),
+    block('look', 'heading', '文件的樣子', { level: 2 }),
+    block('l1', 'list', '區塊之間沒有框線，只有卡片畫框。'),
+    block('l2', 'list', '滑過或選取是淡色底。'),
+    block('l3', 'list', '整個編輯器一個把手，滑過或鍵盤焦點時才出現。'),
+    block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
+      tone: 'working',
+      label: '做的順序',
+    }),
+    block('agent', 'callout', 'tmt colab block insert PAGE --type table --after b-12 --json', {
+      tone: 'waiting',
+      label: '等你',
+      heading: 'agent 怎麼改',
+    }),
+  ];
+})();
+
 declare global {
   interface Window {
     /** The scripted agent: one exact replacement in a block's text, as `block text --find`. */
@@ -53,13 +120,13 @@ declare global {
 
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
  * serve applies a whole-text op with `textMerge.merge`, as the native one does. */
-export function mount() {
+export function mount(content: 'plan' | 'spec' = 'plan') {
   document.getElementById('root')?.setAttribute('hidden', '');
   const host = document.createElement('main');
   host.id = 'structured-page-fixture';
   host.style.cssText = 'max-width:720px;margin:24px auto;padding:12px';
   document.body.append(host);
-  let blocks = start;
+  let blocks = content === 'spec' ? SPEC_PAGE : start;
   const listeners = new Set<(next: BlockRecord[]) => void>();
   const publish = (next: BlockRecord[]) => {
     blocks = next;

@@ -2,14 +2,18 @@ import type { ReactNode } from 'react';
 import {
   Block,
   BlockDocument,
+  Callout,
+  calloutLabels,
   CardBlock,
   HeadingBlock,
   ListItemBlock,
+  TableBlock,
   TextBlock,
   TodoBlock,
   type BlockKind,
+  type CalloutTone,
 } from '@tmt/browser-ui/blocks';
-import { type BlockRecord, PAGE_PARENT, TEXT_TYPES } from './block-model.js';
+import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
 import { BlockTextEditor } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 
@@ -71,6 +75,7 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
       kind={KIND[block.type]}
       level={block.type === 'heading' ? headingLevel(block) : undefined}
       depth={parent === PAGE_PARENT ? 0 : 1}
+      selected={rest.editing?.id === block.id}
       readonly={rest.readonly}
       onClick={() => {
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
@@ -80,6 +85,12 @@ function Blocks({ tree, parent, ...rest }: StructuredPageProps & { parent: strin
     </Block>
   ));
 }
+
+/** A callout's tone from its props: one the design system draws, else `working`. */
+const calloutTone = (tone: unknown): CalloutTone =>
+  typeof tone === 'string' && Object.hasOwn(calloutLabels, tone)
+    ? (tone as CalloutTone)
+    : 'working';
 
 const headingLevel = (block: BlockRecord): 2 | 3 => (block.props.level === 3 ? 3 : 2);
 
@@ -115,12 +126,31 @@ function Content({
           <Blocks tree={tree} parent={block.id} editing={editing} onTyped={onTyped} {...rest} />
         </CardBlock>
       );
-    case 'paragraph':
+    case 'table': {
+      const columns = tableColumns(block.props);
+      return (
+        <TableBlock
+          label={typeof block.props.title === 'string' ? block.props.title : 'Table'}
+          columns={columns.map(({ name }) => ({ name }))}
+          rows={tree.rows(block.id).map((row) => columns.map(({ id }) => row.cells?.[id] ?? ''))}
+        />
+      );
+    }
     case 'callout':
+      return (
+        <Callout
+          tone={calloutTone(block.props.tone)}
+          label={typeof block.props.label === 'string' ? block.props.label : undefined}
+          heading={typeof block.props.heading === 'string' ? block.props.heading : undefined}
+        >
+          {text}
+        </Callout>
+      );
+    case 'paragraph':
     case 'code':
       return <TextBlock>{text}</TextBlock>;
     default:
-      // Drawn by a later step (table, question, image, mockup, work bundle, page view).
+      // Drawn by a later step (question, image, mockup, work bundle, page view).
       return <TextBlock tone="muted">{block.type}</TextBlock>;
   }
 }
