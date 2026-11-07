@@ -79,6 +79,7 @@ function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRe
         break;
       }
       case 'text':
+        if (!('set' in op)) throw new Error('the editor sends whole text');
         map.set(op.id, { ...current!, text: op.set });
         break;
       case 'delete':
@@ -87,6 +88,8 @@ function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRe
       case 'restore':
         map.set(op.id, { ...current!, deleted: false });
         break;
+      case 'table':
+        throw new Error('no table ops in these tests');
     }
   }
   return [...map.values()];
