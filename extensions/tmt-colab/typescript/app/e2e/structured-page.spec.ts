@@ -358,7 +358,9 @@ test('marks draw at rest, toggle with the format keys and link a pasted URL', as
     editor.evaluate((node, value) => {
       const data = new DataTransfer();
       data.setData('text/plain', value);
-      node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      node.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+      );
     }, text);
   await paste('https://example.com/stack');
   await expect
@@ -392,12 +394,9 @@ test('numbered lists count their runs, Tab indents, and a to-do ticks', async ({
   // Shift+Tab takes n3 out to the top level: it becomes 2 and n4 becomes 3.
   await host.locator('[data-block-id="n3"]').click();
   await host.locator('[data-block-id="n3"] [contenteditable="true"]').press('Shift+Tab');
-  await expect.poll(() => Promise.all(['n1', 'n2', 'n3', 'n4'].map(marker))).toEqual([
-    '1.',
-    '1.',
-    '2.',
-    '3.',
-  ]);
+  await expect
+    .poll(() => Promise.all(['n1', 'n2', 'n3', 'n4'].map(marker)))
+    .toEqual(['1.', '1.', '2.', '3.']);
   await expect
     .poll(() => page.evaluate(() => window.sent.filter((op) => op.op === 'props')))
     .toEqual([{ op: 'props', id: 'n3', set: {}, unset: ['indent'] }]);
@@ -416,13 +415,40 @@ test('numbered lists count their runs, Tab indents, and a to-do ticks', async ({
     .toEqual([{ op: 'props', id: 't', set: { checked: true }, unset: [] }]);
 });
 
+test('a work bundle and page views draw owner data only while the page is owner-only', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const bundle = host.locator('[data-block-id="bundle"]');
+  await expect(bundle).toContainText('瀏覽器區塊編輯器');
+  await expect(bundle).toContainText('瀏覽器編輯器：一個人寫、agent 同時改');
+  const pages = host.locator('[data-block-id="pages"]');
+  await expect(pages).toContainText('區塊資料模型');
+  // An authored row's name is text, never markup.
+  await expect(pages).toContainText('<img src=x onerror=alert(1)>');
+  await expect(pages.locator('img')).toHaveCount(0);
+  const live = host.locator('[data-block-id="live"]');
+  await expect(live).toContainText('Colab 區塊');
+  // A ticket opens through the page's link path.
+  await bundle.getByRole('button', { name: '#6005' }).click();
+  expect(await page.evaluate(() => window.opened)).toEqual([
+    { href: 'https://github.com/tmt-ninja/tmt/issues/6005', newTab: true },
+  ]);
+  await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+  // The gate closes: owner data goes, authored rows stay.
+  await page.evaluate(() => window.revokeOwner());
+  await expect(bundle).not.toContainText('瀏覽器區塊編輯器');
+  await expect(live).not.toContainText('Colab 區塊');
+  await expect(pages).toContainText('區塊資料模型');
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(18);
+      await expect(host.locator('[data-block-id]')).toHaveCount(21);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({

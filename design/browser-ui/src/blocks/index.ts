@@ -70,5 +70,6 @@ export { MockupBlock } from './mockup-block.js';
 export type { MockupBlockProps, MockupLabels, MockupUnavailable } from './mockup-block.js';
 export { PageViewToolbar } from './page-view-toolbar.js';
 export type { PageViewColumn, PageViewFilter, PageViewToolbarProps } from './page-view-toolbar.js';
+export { authoredPageViewRows, type PageViewRowFilter } from './page-view-rows.js';
 export { PageView } from './page-view.js';
 export type { PageViewProps } from './page-view.js';

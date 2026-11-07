@@ -22,6 +22,10 @@ export function linkHref(value: string | undefined): string | undefined {
     : undefined;
 }
 
+/** A block mark's ID when it is one the page can hold (a generated v4 UUID, as the validator
+ * admits); anything else draws as a plain mention with no link. */
+const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 /**
  * A block's text with its inline marks: bold, italic and code as text styles, a link as a link,
  * and an @agent or @block mark as the mention chip. Offsets count scalar values, as the page's
@@ -86,8 +90,14 @@ export function MarkedText({
     const agent = has('agent');
     const block = has('block');
     if (agent) node = <BlockMention>{node}</BlockMention>;
-    else if (block?.value)
-      node = <BlockMention href={blockHref?.(block.value)}>{node}</BlockMention>;
+    else if (block)
+      node = (
+        <BlockMention
+          href={block.value && BLOCK_ID.test(block.value) ? blockHref?.(block.value) : undefined}
+        >
+          {node}
+        </BlockMention>
+      );
     out.push(<span key={`${from}-${to}`}>{node}</span>);
   }
   return out;

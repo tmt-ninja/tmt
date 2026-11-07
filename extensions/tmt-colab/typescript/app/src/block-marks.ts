@@ -55,7 +55,12 @@ export function marked(
   if (from >= to) return false;
   let at = from;
   for (const run of marks)
-    if (run.mark === mark && run.from <= at && run.to > at && (value === undefined || run.value === value))
+    if (
+      run.mark === mark &&
+      run.from <= at &&
+      run.to > at &&
+      (value === undefined || run.value === value)
+    )
       at = run.to;
   return at >= to;
 }

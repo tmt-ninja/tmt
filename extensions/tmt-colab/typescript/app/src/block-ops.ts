@@ -235,7 +235,13 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
             return { op: 'text', id: op.id, set: op.base, base: op.set, overlap: 'both' };
           if ('format' in op) {
             // Marks that go with text the same batch inserts or replaces leave with that text.
-            if (ops.some((other) => other.id === op.id && (other.op === 'insert' || (other.op === 'text' && 'set' in other))))
+            if (
+              ops.some(
+                (other) =>
+                  other.id === op.id &&
+                  (other.op === 'insert' || (other.op === 'text' && 'set' in other)),
+              )
+            )
               return [];
             // The mark cleared on the range, then set back where it was.
             const { from, to, mark } = op.format;
@@ -244,18 +250,16 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
               { op: 'text', id: op.id, format: { from, to, mark, value: valued ? null : false } },
               ...(before.get(op.id)?.marks ?? [])
                 .filter((run) => run.mark === mark && run.from < to && run.to > from)
-                .map(
-                  (run): BlockOp => ({
-                    op: 'text',
-                    id: op.id,
-                    format: {
-                      from: Math.max(run.from, from),
-                      to: Math.min(run.to, to),
-                      mark,
-                      value: run.value ?? true,
-                    },
-                  }),
-                ),
+                .map((run): BlockOp => ({
+                  op: 'text',
+                  id: op.id,
+                  format: {
+                    from: Math.max(run.from, from),
+                    to: Math.min(run.to, to),
+                    mark,
+                    value: run.value ?? true,
+                  },
+                })),
             ];
           }
           // The editor sends whole text and marks, never these; they come from agents.

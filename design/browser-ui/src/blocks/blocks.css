@@ -832,6 +832,10 @@ a.tmt-block-mention:focus-visible {
 .tmt-block-work-field textarea {
   width: 100%;
 }
+/* The work text sits on the label's line in any host, whatever its paragraph margins. */
+.tmt-block-work-field > p {
+  margin-block-start: 0;
+}
 @media (max-width: 760px) {
   .tmt-block-work-field {
     grid-template-columns: 1fr;
