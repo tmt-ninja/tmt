@@ -41,9 +41,16 @@ const card = (id: string, pos: string, parent: Parent = PAGE_PARENT) =>
   block(id, pos, parent, { type: 'card', text: undefined });
 const ids = (list: readonly BlockRecord[]) => list.map((entry) => entry.id);
 
-/** Apply ops the way the serve does to the flat block map, for round-trip checks. */
+/** Apply ops the way the serve does to the flat block map, for round-trip checks: `after` becomes a
+ * `pos` between that sibling and the next. */
 function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRecord[] {
   const map = new Map(blocks.map((entry) => [entry.id, entry]));
+  const posAfter = (parent: string, after: string | null, moving: string) => {
+    const siblings = new BlockTree(map.values()).children(parent).filter((b) => b.id !== moving);
+    const at = after === null ? 0 : siblings.findIndex((b) => b.id === after) + 1;
+    if (after !== null && at === 0) throw new Error(`${after} is not in ${parent}`);
+    return posBetween(siblings[at - 1]?.pos, siblings[at]?.pos);
+  };
   for (const op of ops) {
     const current = map.get(op.id);
     switch (op.op) {
@@ -52,14 +59,18 @@ function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRe
           id: op.id,
           type: op.type,
           parent: op.parent,
-          pos: op.pos,
+          pos: posAfter(op.parent, op.after, op.id),
           props: op.props ?? {},
           ...(op.text !== undefined && { text: op.text }),
           deleted: false,
         });
         break;
       case 'move':
-        map.set(op.id, { ...current!, parent: op.parent, pos: op.pos });
+        map.set(op.id, {
+          ...current!,
+          parent: op.parent,
+          pos: posAfter(op.parent, op.after, op.id),
+        });
         break;
       case 'props': {
         const props = { ...current!.props, ...op.set };
@@ -68,7 +79,7 @@ function apply(blocks: readonly BlockRecord[], ops: readonly BlockOp[]): BlockRe
         break;
       }
       case 'text':
-        map.set(op.id, { ...current!, text: op.text });
+        map.set(op.id, { ...current!, text: op.set });
         break;
       case 'delete':
         map.set(op.id, { ...current!, deleted: true });
@@ -86,7 +97,10 @@ function roundTrip(blocks: BlockRecord[], ops: BlockOp[]) {
   const before = new BlockTree(blocks);
   const back = apply(apply(blocks, ops), inverseOps(before, ops));
   const byId = new Map(back.map((entry) => [entry.id, entry]));
-  for (const original of blocks) expect(byId.get(original.id)).toEqual(original);
+  // A moved block is back in its place, with a new pos there.
+  const placeless = ({ pos: _pos, ...rest }: BlockRecord) => rest;
+  for (const original of blocks)
+    expect(placeless(byId.get(original.id)!)).toEqual(placeless(original));
   for (const entry of back)
     if (!blocks.some((original) => original.id === entry.id)) expect(entry.deleted).toBe(true);
   expect(ids(new BlockTree(back).flat())).toEqual(ids(before.flat()));
@@ -168,12 +182,12 @@ describe('the block tree', () => {
     expect(ids(tree.children())).toEqual(['para', 'under-para', 'lost']);
     expect(tree.parentOf('lost')).toBe(PAGE_PARENT);
   });
-  it('draws each block of a cycle of moves once, from its lowest ID', () => {
-    // Two writers moved b into a and a into b at once.
-    const tree = new BlockTree([card('a', 'V', 'b'), card('b', 'V', 'a'), block('x', 'k', 'b')]);
+  it('draws cards that two merged moves put inside each other at the top level, each once', () => {
+    // Two writers moved card b into card a and a into b at once: neither card can hold the other.
+    const tree = new BlockTree([card('a', 'V', 'b'), card('b', 'k', 'a'), block('x', 'k', 'b')]);
     expect(ids(tree.flat())).toEqual(['a', 'b', 'x']);
     expect(tree.parentOf('a')).toBe(PAGE_PARENT);
-    expect(tree.parentOf('b')).toBe('a');
+    expect(tree.parentOf('b')).toBe(PAGE_PARENT);
     // A block that is its own parent.
     expect(ids(new BlockTree([card('self', 'V', 'self')]).flat())).toEqual(['self']);
   });
@@ -227,8 +241,13 @@ describe('gestures to ops, and undo', () => {
     roundTrip(page(), out);
     expect(moveBlock(tree, 'one', PAGE_PARENT, 0)).toEqual([]);
     expect(moveBlock(tree, 'one', PAGE_PARENT, 1)).toEqual([]);
-    const nested = [...page(), card('inner', 'z', 'box')];
-    expect(() => moveBlock(new BlockTree(nested), 'box', 'inner', 0)).toThrow('inside itself');
+    // A block never goes inside itself, and a card never inside a card.
+    expect(() => moveBlock(tree, 'box', 'box', 0)).toThrow('inside itself');
+    const pair = new BlockTree([...page(), card('other', 'z')]);
+    expect(() => moveBlock(pair, 'other', 'box', 0)).toThrow('card cannot hold a card');
+    expect(() => insertBlock(tree, { id: 'c', type: 'card', parent: 'box' })).toThrow(
+      'card cannot hold a card',
+    );
     expect(() => moveBlock(tree, 'one', 'two', 0)).toThrow('cannot hold');
   });
   it('nudges within siblings, leaves a card at its edge, and stays at the page edge', () => {
@@ -258,7 +277,7 @@ describe('gestures to ops, and undo', () => {
     const tree = new BlockTree(blocks);
     const split = splitBlock(tree, 'one', 5, 'tail');
     expect(split).toEqual([
-      { op: 'text', id: 'one', base: 'Hello world', text: 'Hello' },
+      { op: 'text', id: 'one', set: 'Hello', base: 'Hello world' },
       expect.objectContaining({ op: 'insert', id: 'tail', type: 'paragraph', text: ' world' }),
     ]);
     const after = apply(blocks, split);
@@ -298,7 +317,7 @@ describe('undo history', () => {
     const removed = deleteBlocks(new BlockTree(after), ['one']);
     history.record(new BlockTree(after), removed);
     expect(history.undo()).toEqual([{ op: 'restore', id: 'one' }]);
-    expect(history.undo()).toEqual([{ op: 'move', id: 'two', parent: PAGE_PARENT, pos: 'V' }]);
+    expect(history.undo()).toEqual([{ op: 'move', id: 'two', parent: PAGE_PARENT, after: 'one' }]);
     expect(history.undo()).toBeUndefined();
     expect(history.redo()).toEqual(moved);
     expect(history.canRedo()).toBe(true);
@@ -313,7 +332,7 @@ describe('undo history', () => {
     const history = new BlockHistory();
     for (let index = 0; index < UNDO_DEPTH + 5; index++)
       history.record(tree, [
-        { op: 'text', id: 'one', base: String(index), text: String(index + 1) },
+        { op: 'text', id: 'one', set: String(index + 1), base: String(index) },
       ]);
     let count = 0;
     while (history.undo()) count++;
@@ -446,7 +465,14 @@ describe('the drop target', () => {
       ),
     ).toEqual(['two', 'in-a', 'in-b']);
   });
-  it('a card never takes itself', () => {
+  it('a card never takes itself, and a dragged card never drops into a card', () => {
+    const withCard = new BlockTree([...tree.flat(), card('other', 'z')]);
+    const more = [...boxes, { id: 'other', top: 280, bottom: 320 }];
+    expect(dropTarget(withCard, more, 180, 'other')).toEqual({
+      parent: PAGE_PARENT,
+      index: 2,
+      lineBefore: 'two',
+    });
     expect(dropTarget(tree, boxes, 140, 'box')).toEqual({
       parent: PAGE_PARENT,
       index: 2,

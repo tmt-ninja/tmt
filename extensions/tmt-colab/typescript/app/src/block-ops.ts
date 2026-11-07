@@ -1,12 +1,12 @@
 import {
   type BlockOp,
   type BlockType,
+  canHold,
   CONTAINER_TYPES,
   PAGE_PARENT,
   type Parent,
   TEXT_TYPES,
 } from './block-model.js';
-import { posBetween } from './block-pos.js';
 import type { BlockTree } from './block-tree.js';
 
 /**
@@ -15,15 +15,16 @@ import type { BlockTree } from './block-tree.js';
  * them. A gesture that would change nothing makes no ops.
  */
 
-/** A position among `parent`'s drawn children at `index` (0 is first), leaving out `moving`. */
-function posAt(tree: BlockTree, parent: Parent, index: number, moving?: string): string {
+/** The sibling a block placed at `index` among `parent`'s drawn children comes after (`null` is
+ * first), leaving out `moving`. */
+function afterAt(tree: BlockTree, parent: Parent, index: number, moving?: string): string | null {
   const siblings = tree.children(parent).filter((block) => block.id !== moving);
   const at = Math.max(0, Math.min(index, siblings.length));
-  return posBetween(siblings[at - 1]?.pos, siblings[at]?.pos);
+  return siblings[at - 1]?.id ?? null;
 }
 
 /** A new block right after `after` (or first in `parent` when `after` is absent): the insert menu,
- * Enter at the end of a block, the handle's +. */
+ * Enter at the end of a block, the handle's +. A card never goes inside a card. */
 export function insertBlock(
   tree: BlockTree,
   input: {
@@ -37,15 +38,21 @@ export function insertBlock(
 ): BlockOp {
   const parent = input.after ? tree.parentOf(input.after) : (input.parent ?? PAGE_PARENT);
   if (parent === undefined) throw new Error('That block is not on the page.');
-  if (parent !== PAGE_PARENT && !CONTAINER_TYPES.has(tree.get(parent)!.type))
-    throw new Error('That block cannot hold blocks.');
-  const index = input.after ? tree.indexOf(input.after) + 1 : 0;
+  if (parent !== PAGE_PARENT) {
+    const holder = tree.get(parent);
+    if (!holder || !canHold(holder.type, input.type))
+      throw new Error(
+        holder && CONTAINER_TYPES.has(holder.type)
+          ? 'A card cannot hold a card.'
+          : 'That block cannot hold blocks.',
+      );
+  }
   return {
     op: 'insert',
     id: input.id,
     type: input.type,
     parent,
-    pos: posAt(tree, parent, index),
+    after: input.after ?? null,
     ...(input.props && { props: input.props }),
     ...(input.text !== undefined && { text: input.text }),
   };
@@ -61,13 +68,14 @@ export function moveBlock(tree: BlockTree, id: string, parent: Parent, index: nu
     if (!holder || !tree.visible(parent) || !CONTAINER_TYPES.has(holder.type))
       throw new Error('That block cannot hold blocks.');
     if (tree.within(parent, id)) throw new Error('A block cannot go inside itself.');
+    if (!canHold(holder.type, tree.get(id)!.type)) throw new Error('A card cannot hold a card.');
   }
   const from = tree.parentOf(id);
   const current = tree.indexOf(id);
   // Counted with the block in place: a drop just after itself is where it is.
   const target = from === parent && index > current ? index - 1 : index;
   if (from === parent && target === current) return [];
-  return [{ op: 'move', id, parent, pos: posAt(tree, parent, target, id) }];
+  return [{ op: 'move', id, parent, after: afterAt(tree, parent, target, id) }];
 }
 
 /** ⌥⇧↑ / ⌥⇧↓: one place up or down among its siblings; past the first or last it leaves its card,
@@ -104,7 +112,7 @@ export function splitBlock(tree: BlockTree, id: string, at: number, newId: strin
   const text = block.text;
   const head = text.slice(0, at);
   return [
-    ...(head === text ? [] : [{ op: 'text' as const, id, base: text, text: head }]),
+    ...(head === text ? [] : [{ op: 'text' as const, id, set: head, base: text }]),
     insertBlock(tree, { id: newId, type: block.type, after: id, text: text.slice(at) }),
   ];
 }
@@ -123,8 +131,8 @@ export function joinBlock(tree: BlockTree, id: string): BlockOp[] {
           {
             op: 'text' as const,
             id: previous.id,
+            set: previous.text + block.text,
             base: previous.text,
-            text: previous.text + block.text,
           },
         ]
       : []),
@@ -144,11 +152,13 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         case 'restore':
           return { op: 'delete', id: op.id };
         case 'text':
-          return { op: 'text', id: op.id, base: op.text, text: op.base };
+          return { op: 'text', id: op.id, set: op.base, base: op.set };
         case 'move': {
-          const block = before.get(op.id);
-          if (!block) throw new Error('That block is not on the page.');
-          return { op: 'move', id: op.id, parent: block.parent, pos: block.pos };
+          // Back where it was drawn: after the sibling that was before it, or first.
+          const parent = before.parentOf(op.id);
+          if (parent === undefined) throw new Error('That block is not on the page.');
+          const index = before.indexOf(op.id);
+          return { op: 'move', id: op.id, parent, after: afterAt(before, parent, index, op.id) };
         }
         case 'props': {
           const block = before.get(op.id);
