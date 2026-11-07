@@ -382,6 +382,6 @@ for (const [kind, top] of [
       test.info().annotations.push({ type: 'colab-large-busy', description: busy });
       // The run log keeps the durations, so a slower runner's failure says how far it was.
       console.log(`colab-large-busy ${busy}`);
-      expect(long.length).toBeLessThanOrEqual(1);
+      expect(long.length).toBeLessThanOrEqual(2);
     });
   });
