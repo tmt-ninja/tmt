@@ -16,11 +16,14 @@ export function LiveStructuredPage({
   blocks,
   seq,
   binding,
+  onLink,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
   seq?: number;
   binding?: PageBinding;
+  /** A link in a block was activated: the page's trusted open path (`usePageLinks`) takes it. */
+  onLink?(href: string, newTab: boolean): void;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
@@ -63,6 +66,7 @@ export function LiveStructuredPage({
       onTyped={typed}
       onKey={key}
       onPasteUrl={pasteUrl}
+      onLink={onLink}
       menu={menu}
       onPick={(entry) => void pick(entry)}
       onHover={hover}

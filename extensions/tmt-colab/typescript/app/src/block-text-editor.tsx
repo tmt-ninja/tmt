@@ -17,6 +17,7 @@ import {
   HISTORY_MERGE_TAG,
   type TextNode,
 } from 'lexical';
+import { linkHref } from '@tmt/browser-ui/blocks';
 import type { Mark } from './blocks.js';
 
 /** The editor's update tag for text the page sent, so the change is not reported back as typing. */
@@ -26,6 +27,8 @@ const blockTextExtension = defineExtension({
   name: 'TmtBlockText',
   namespace: 'TmtBlockText',
   dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
+  // Inline code draws as the design system's, as it does at rest (`MarkedText`).
+  theme: { text: { code: 'tmt-block-inline-code' } },
   $initialEditorState: () => {
     $getRoot().append($createParagraphNode());
   },
@@ -89,9 +92,11 @@ const $selected = (): { anchor: number; focus: number } => {
 };
 const $caret = (): number => $selected().anchor;
 
-/** Lexical's text formats for the flag marks; valued marks draw as a style (a link underlined). */
+/** Lexical's text formats for the flag marks. A link draws with the design system's link look
+ * (`.tmt-block-link`) as a node style; an @agent or @block mark draws as its text while typed in. */
 const FORMATS = { bold: 'bold', italic: 'italic', code: 'code' } as const;
-const VALUED_STYLE = 'text-decoration: underline';
+const LINK_STYLE =
+  'color: var(--tmt-ui-color-text-action); text-decoration: underline; text-underline-offset: 2px';
 
 /** The text split where its marks change, each part with the marks on it. */
 function segments(text: string, marks: readonly Mark[] = []) {
@@ -113,7 +118,7 @@ const $replace = (text: string, marks: readonly Mark[] | undefined, anchor: numb
     const node = $createTextNode(part.text);
     for (const mark of part.on)
       if (mark in FORMATS) node.toggleFormat(FORMATS[mark as keyof typeof FORMATS]);
-      else node.setStyle(VALUED_STYLE);
+      else if (mark === 'link') node.setStyle(LINK_STYLE);
     nodes.push(node);
   }
   paragraph.append(...nodes);
@@ -149,7 +154,7 @@ const looksOf = (text: string, marks: readonly Mark[] | undefined) =>
     segments(text, marks).map((part) => ({
       text: part.text,
       format: part.on.reduce((bits, mark) => bits | (FORMAT_BITS[mark as keyof typeof FORMAT_BITS] ?? 0), 0),
-      styled: part.on.some((mark) => !(mark in FORMATS)),
+      styled: part.on.includes('link'),
     })),
   );
 const $looks = () =>
@@ -186,6 +191,8 @@ export interface BlockTextEditorProps {
   /** Keys the block handles (Enter, Backspace at the start, Escape, the format keys); return true
    * to take one. `range` is the selection as scalar offsets, empty for a caret. */
   onKey?(event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** ⌘-click (Ctrl-click) on linked text: the page opens the link through its trusted path. */
+  onLink?(href: string): void;
   /** A URL pasted over a selected range: the block may link the range instead of pasting. */
   onPasteUrl?(url: string, text: string, range: TextRange): boolean;
   placeholder?: string;
@@ -214,6 +221,7 @@ function Editor({
   onTyped,
   onKey,
   onPasteUrl,
+  onLink,
   placeholder,
 }: BlockTextEditorProps) {
   const [editor] = useLexicalComposerContext();
@@ -262,9 +270,19 @@ function Editor({
             ),
           }
         : { placeholder: null })}
+      onClickCapture={(event) => {
+        if (!onLink || !(event.metaKey || event.ctrlKey)) return;
+        const now = editor.getEditorState().read($text);
+        const { at } = domRange(event.currentTarget, now);
+        const run = marks?.find((mark) => mark.mark === 'link' && mark.from <= at && mark.to > at);
+        const href = linkHref(run?.value);
+        if (!href) return;
+        event.preventDefault();
+        onLink(href);
+      }}
       onPasteCapture={(event) => {
         const url = event.clipboardData.getData('text/plain').trim();
-        if (!onPasteUrl || !/^https?:\/\/\S+$/.test(url)) return;
+        if (!onPasteUrl || !linkHref(url)) return;
         const now = editor.getEditorState().read($text);
         const { from, to } = domRange(event.currentTarget, now);
         if (from < to && onPasteUrl(url, now, { from, to })) {

@@ -70,6 +70,9 @@ export interface StructuredPageProps {
   /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
    * took it. */
   onKey?(id: string, event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
+   * open path decides, as for any page link. */
+  onLink?(href: string, newTab: boolean): void;
   /** A URL pasted over a selected range of the focused block; true when the page linked it. */
   onPasteUrl?(id: string, url: string, text: string, range: TextRange): boolean;
   /** No editing at all: a reader, or a page this device may not change. */
@@ -396,12 +399,18 @@ function Content({
       placeholder={placeholder}
       onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
       onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}
+      onLink={(href) => rest.onLink?.(href, false)}
       onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
     />
   ) : (
     // Empty text stays empty, so the part keeps its one-line height (`data-empty`).
     block.text ? (
-      <MarkedText text={block.text} marks={block.marks} blockHref={(id) => `#block-${id}`} />
+      <MarkedText
+        text={block.text}
+        marks={block.marks}
+        blockHref={(id) => `#block-${id}`}
+        onLink={rest.onLink}
+      />
     ) : (
       block.text
     )

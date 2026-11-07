@@ -119,6 +119,12 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
 .tmt-block-editor-text > p {
   margin: 0;
 }
+/* Lexical wraps inline code in a bare <code> around the design system's part
+   (`.tmt-block-inline-code`): the wrapper takes no look of its own, so the line keeps its
+   height as at rest. */
+.tmt-block-editor-text code:not(.tmt-block-inline-code) {
+  font: inherit;
+}
 .tmt-block-editor-placeholder {
   position: absolute;
   inset: 0 auto auto 0;

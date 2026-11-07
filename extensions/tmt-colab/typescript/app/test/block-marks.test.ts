@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { linkHref } from '@tmt/browser-ui/blocks';
 import { applyOps } from '../src/block-apply.js';
 import { formatMarks, marked, marksThrough, typedMarks } from '../src/block-marks.js';
 import { type BlockOp, type BlockRecord, PAGE_PARENT } from '../src/block-model.js';
 import { inverseOps, joinBlock, splitBlock } from '../src/block-ops.js';
 import { posBetween } from '../src/block-pos.js';
 import { BlockTree } from '../src/block-tree.js';
-import type { Mark } from '../src/blocks.js';
+import { type Mark, validMarkValue } from '../src/blocks.js';
 
 const bold = (from: number, to: number): Mark => ({ from, to, mark: 'bold' });
 const link = (from: number, to: number, value: string): Mark => ({ from, to, mark: 'link', value });
@@ -98,5 +99,29 @@ describe('inline marks as the serve keeps them (#6005)', () => {
     expect(done[0]!.marks).toEqual([bold(0, 6)]);
     const undone = applyOps(done, inverseOps(before, [op]));
     expect(undone[0]!.marks).toEqual([bold(1, 2), bold(4, 6)]);
+  });
+});
+
+describe('link schemes (#6005)', () => {
+  const urls = [
+    'https://example.com/a',
+    'http://example.com/',
+    'mailto:a@example.com',
+    'javascript:alert(1)',
+    'JAVASCRIPT:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'file:///etc/passwd',
+    'https://a b/',
+    'https://',
+    ' https://example.com/',
+    'vbscript:msgbox(1)',
+  ];
+  it('the drawing opens only what the page admits: http, https and mailto', () => {
+    for (const url of urls) expect(linkHref(url) !== undefined, url).toBe(validMarkValue('link', url));
+    expect(urls.filter((url) => linkHref(url))).toEqual([
+      'https://example.com/a',
+      'http://example.com/',
+      'mailto:a@example.com',
+    ]);
   });
 });

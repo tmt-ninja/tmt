@@ -24,7 +24,7 @@ import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
-import { richType } from './blocks.js';
+import { richType, validMarkValue } from './blocks.js';
 import { BlockTree } from './block-tree.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
@@ -345,7 +345,8 @@ export function useBlockEditing(
     (id: string, url: string, text: string, range: TextRange): boolean => {
       const current = sync.current;
       const block = treeRef.current.get(id);
-      if (current?.id !== id || !block || !richType(block.type)) return false;
+      if (current?.id !== id || !block || !richType(block.type) || !validMarkValue('link', url))
+        return false;
       current.typed(text);
       void format(current, range, 'link', url);
       return true;

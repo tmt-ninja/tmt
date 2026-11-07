@@ -1,11 +1,10 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
-import { textMerge } from '@tmt/colab-client';
 import { useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { BlockOp, BlockRecord } from '../src/block-model.js';
-import { posBetween } from '../src/block-pos.js';
-import { BlockTree } from '../src/block-tree.js';
+import type { Mark } from '../src/blocks.js';
+import { applyOps } from '../src/block-apply.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 
@@ -72,6 +71,23 @@ const SPEC_PAGE: BlockRecord[] = (() => {
     ...(text !== undefined && { text }),
     deleted: false,
   });
+  /** `text` with `marks` on the passages they name: [passage, mark, value?]. */
+  const marked = (
+    record: BlockRecord,
+    ...marks: [string, Mark['mark'], string?][]
+  ): BlockRecord => {
+    const chars = [...record.text!];
+    return {
+      ...record,
+      marks: marks
+        .map(([find, mark, value]) => {
+          const from = [...record.text!.slice(0, record.text!.indexOf(find))].length;
+          return { from, to: from + [...find].length, mark, ...(value && { value }) };
+        })
+        .filter((run) => run.to <= chars.length)
+        .sort((a, b) => a.from - b.from || a.to - b.to),
+    };
+  };
   const row = (id: string, name: string, use: string): BlockRecord => ({
     ...block(id, 'row', undefined, {}, 'table'),
     cells: { name, use },
@@ -86,11 +102,27 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       'card',
     ),
     block('kinds', 'heading', '區塊種類', { level: 2 }),
-    block('first', 'paragraph', '第一批 13 種區塊。Colab 頁面本身就是 ticket。'),
-    block(
-      'long',
-      'paragraph',
+    marked(
+      block('first', 'paragraph', '第一批 13 種區塊。Colab 頁面本身就是 ticket，見 spec 頁。'),
+      ['第一批', 'bold'],
+      ['13', 'code'],
+      ['ticket', 'italic'],
+      ['spec 頁', 'link', 'https://example.com/spec'],
+    ),
+    // A script link is not admitted, so it draws as plain text.
+    marked(
+      block('unsafe', 'paragraph', '這個連結不會打開。'),
+      ['連結', 'link', 'javascript:alert(1)'],
+    ),
+    marked(
+      block(
+        'long',
+        'paragraph',
       '每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
+      ),
+      ['只有一種長相', 'bold'],
+      ['被點到的那一塊', 'italic'],
+      ['agent', 'code'],
     ),
     block('table', 'table', undefined, {
       label: '區塊',
@@ -126,13 +158,15 @@ declare global {
     serveText(id: string): string | undefined;
     /** Ops the page sent, in order. */
     sent: BlockOp[];
+    /** Links the page asked to open, in order. */
+    opened: { href: string; newTab: boolean }[];
     /** Hold the serve's commits (true) or let the held ones through (false). */
     holdServe(hold: boolean): void;
   }
 }
 
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
- * serve applies a whole-text op with `textMerge.merge`, as the native one does. */
+ * serve applies a batch with `applyOps`, the editor's one model of the serve's apply. */
 export function mount(content: 'plan' | 'spec' = 'plan') {
   document.getElementById('root')?.setAttribute('hidden', '');
   const host = document.createElement('main');
@@ -152,6 +186,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   const write = (id: string, text: string) =>
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
   window.sent = [];
+  window.opened = [];
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
   window.agentReplace = (id, find, replacement) => {
     const text = window.serveText(id)!;
@@ -170,43 +205,13 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       const later = (commit: () => void) =>
         setTimeout(() => (holding ? held.push(commit) : commit()), SERVE_MS);
       later(() => {
-        // One batch commits as one change, as the serve's does.
+        // One batch commits as one change, as the serve's does; one it would refuse changes
+        // nothing.
         let next = blocks;
-        for (const op of ops) {
-          if (op.op === 'text' && 'set' in op) {
-            const now = next.find((block) => block.id === op.id)!.text!;
-            const text = textMerge.merge(op.base, now, op.set, op.overlap).text;
-            next = next.map((block) => (block.id === op.id ? { ...block, text } : block));
-          } else if (op.op === 'delete' || op.op === 'restore')
-            next = next.map((block) =>
-              block.id === op.id ? { ...block, deleted: op.op === 'delete' } : block,
-            );
-          else if (op.op === 'move') {
-            const siblings = new BlockTree(next)
-              .children(op.parent)
-              .filter((block) => block.id !== op.id);
-            const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
-            const pos = posBetween(siblings[at]?.pos, siblings[at + 1]?.pos);
-            next = next.map((block) =>
-              block.id === op.id ? { ...block, parent: op.parent, pos } : block,
-            );
-          } else if (op.op === 'insert') {
-            const siblings = new BlockTree(next).children(op.parent);
-            const at = op.after === null ? -1 : siblings.findIndex((b) => b.id === op.after);
-            const pos = posBetween(siblings[at]?.pos, siblings[at + 1]?.pos);
-            next = [
-              ...next,
-              {
-                id: op.id,
-                type: op.type,
-                parent: op.parent,
-                pos,
-                props: op.props ?? {},
-                ...(op.text !== undefined && { text: op.text }),
-                deleted: false,
-              },
-            ];
-          }
+        try {
+          next = applyOps(blocks, ops);
+        } catch {
+          // Refused.
         }
         resolve(publish(next));
       });
@@ -223,6 +228,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       focus,
       typed,
       key,
+      pasteUrl,
       menu,
       pick,
       hover,
@@ -248,6 +254,8 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onFocus={focus}
           onTyped={typed}
           onKey={key}
+          onPasteUrl={pasteUrl}
+          onLink={(href, newTab) => window.opened.push({ href, newTab })}
           menu={menu}
           onPick={(entry) => void pick(entry)}
           onHover={hover}
