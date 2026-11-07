@@ -42,6 +42,16 @@ export interface SaveResult {
 
 /** The one reply to a `work` frame: a save's fields. */
 export type WorkResult = SaveResult;
+/** A block batch's reply (contract: Blocks): the save outcome plus, once the batch reached the
+ * page, its receipt: the ops it applied, and the typed hunks a whole-text op could not apply. */
+export interface BlocksResult extends SaveResult {
+  receipt?: {
+    ops: { op: string; id: string }[];
+    droppedHunks: { id: string; from: number; to: number; text: string }[];
+  };
+}
+/** The most ops one block batch carries (`limits::BLOCK_BATCH_OPS`). */
+export const BLOCK_BATCH_OPS = 256;
 /** The closed work actions a browser sends (contract: Work); the serve refuses any other. */
 export type WorkAction =
   | 'summary.set'
@@ -214,6 +224,37 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
 }
 export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {
   return saveResult(frame, operationId);
+}
+export function blocksResult(frame: Record<string, unknown>, operationId: string): BlocksResult {
+  const { receipt, ...rest } = frame;
+  const result = saveResult(rest, operationId);
+  if (receipt === undefined) return result;
+  exactKeys(receipt, ['ops', 'droppedHunks']);
+  const { ops, droppedHunks } = receipt as Record<string, unknown>;
+  requireValue(Array.isArray(ops) && ops.length <= BLOCK_BATCH_OPS);
+  requireValue(Array.isArray(droppedHunks) && droppedHunks.length <= BLOCK_BATCH_OPS * SAVE_HUNKS);
+  for (const op of ops) {
+    exactKeys(op, ['op', 'id']);
+    requireValue(typeof op.op === 'string' && typeof op.id === 'string');
+  }
+  for (const hunk of droppedHunks) {
+    exactKeys(hunk, ['id', 'from', 'to', 'text']);
+    requireValue(
+      typeof hunk.id === 'string' &&
+        Number.isSafeInteger(hunk.from) &&
+        Number.isSafeInteger(hunk.to) &&
+        (hunk.from as number) >= 0 &&
+        (hunk.to as number) >= (hunk.from as number) &&
+        typeof hunk.text === 'string',
+    );
+  }
+  return {
+    ...result,
+    receipt: {
+      ops: ops as { op: string; id: string }[],
+      droppedHunks: droppedHunks as { id: string; from: number; to: number; text: string }[],
+    },
+  };
 }
 /** A settled result as the outcome the caller sees: success returns, everything else throws. */
 export function settled(result: SaveResult): SaveResult {

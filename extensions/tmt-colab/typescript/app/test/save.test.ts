@@ -1,5 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import {
+  blocksResult,
   conflictAt,
   saveMessage,
   saveResult,
@@ -272,4 +273,35 @@ it('keeps stable link refusal reasons through parsing and settlement', () => {
     { state: 'committed', revision: 'v1:abc', reason: 'cycle' },
   ])
     expect(() => workResult(reply(fields), 'o')).toThrow();
+});
+
+it('a block batch reply carries its receipt, and nothing else beyond a save reply', () => {
+  const receipt = {
+    ops: [{ op: 'text', id: 'b1' }],
+    droppedHunks: [{ id: 'b1', from: 4, to: 7, text: 'dog' }],
+  };
+  expect(
+    blocksResult(
+      frame({ type: 'blocksresult', state: 'committed', revision: 'v1:a', receipt }),
+      'o',
+    ),
+  ).toEqual({ operationId: 'o', state: 'committed', revision: 'v1:a', receipt });
+  // A refusal before the batch reached the page has no receipt.
+  expect(
+    blocksResult(
+      frame({ type: 'blocksresult', state: 'rejected', code: 'COLAB_BLOCK_BAD_AFTER' }),
+      'o',
+    ),
+  ).toEqual({ operationId: 'o', state: 'rejected', code: 'COLAB_BLOCK_BAD_AFTER' });
+  for (const bad of [
+    { ...receipt, extra: 1 },
+    { ops: [{ op: 'text', id: 'b1', pos: 'a' }], droppedHunks: [] },
+    { ops: [], droppedHunks: [{ id: 'b1', from: 5, to: 4, text: '' }] },
+  ])
+    expect(() =>
+      blocksResult(
+        frame({ type: 'blocksresult', state: 'committed', revision: 'v1:a', receipt: bad }),
+        'o',
+      ),
+    ).toThrow();
 });
