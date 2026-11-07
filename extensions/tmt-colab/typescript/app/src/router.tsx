@@ -3211,6 +3211,17 @@ function OpenPage({
                         blocks={view.blocks}
                         seq={view.seq}
                         binding={liveError || archived ? undefined : snapshot.binding}
+                        onLink={(href, newTab) =>
+                          requestPageLink(
+                            {
+                              type: 'colab.render.link',
+                              renderId: crypto.randomUUID(),
+                              href,
+                              newTab,
+                            },
+                            true,
+                          )
+                        }
                       />
                     </Suspense>
                   )}

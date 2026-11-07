@@ -305,13 +305,92 @@ test('a gesture shows at once, before the serve commits it', async ({ page }) =>
   await expect(host.locator('[data-block-id="p"]')).toHaveCount(0);
 });
 
+test('marks draw at rest, toggle with the format keys and link a pasted URL', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const first = host.locator('[data-block-id="first"]');
+  await expect(first.locator('strong')).toHaveText('第一批');
+  await expect(first.locator('code')).toHaveText('13');
+  await expect(first.locator('em')).toHaveText('ticket');
+  await expect(first.getByRole('link')).toHaveAttribute('href', 'https://example.com/spec');
+  // A script URL is never a link.
+  await expect(host.locator('[data-block-id="unsafe"] a')).toHaveCount(0);
+  // Marked text draws the same while typing as at rest.
+  await page.addStyleTag({
+    content: '.tmt-block{background:none!important}[contenteditable]{caret-color:transparent}',
+  });
+  const atRest = await first.screenshot({ path: capturePath('structured-marks-rest.png') });
+  await first.getByText('種區塊', { exact: false }).click({ position: { x: 4, y: 4 } });
+  await expect(first.locator('[contenteditable="true"]')).toHaveCount(1);
+  await page.mouse.move(0, 0);
+  const typing = await first.screenshot({ path: capturePath('structured-marks-typing.png') });
+  expect(typing.equals(atRest), 'marked text shifts while typing').toBe(true);
+  await first.locator('[contenteditable="true"]').press('Escape');
+  await page.keyboard.press('Escape');
+  // A link opens through the page's path, and the block does not start editing.
+  await first.getByRole('link').click();
+  expect(await page.evaluate(() => window.opened)).toEqual([
+    { href: 'https://example.com/spec', newTab: false },
+  ]);
+  await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
+
+  // ⌘B on "Plan"'s neighbour: select the first four characters of "Ship the stack." and bold them.
+  const plan = await mountFixture(page);
+  await plan.locator('[data-block-id="p"]').click();
+  const editor = plan.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('Home');
+  for (let i = 0; i < 4; i++) await editor.press('Shift+ArrowRight');
+  await editor.press('ControlOrMeta+b');
+  await expect(editor.locator('strong')).toHaveText('Ship');
+  await expect
+    .poll(() => page.evaluate(() => window.sent.filter((op) => 'format' in op)))
+    .toEqual([{ op: 'text', id: 'p', format: { from: 0, to: 4, mark: 'bold', value: true } }]);
+  // Typing inside the bold run stays bold, as the editor draws it.
+  await editor.press('ArrowLeft');
+  await editor.press('ArrowRight');
+  await editor.press('ArrowRight');
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect(editor.locator('strong')).toHaveText('ShXip');
+  // A URL pasted over "stack" links it; a script URL is pasted as text.
+  await editor.press('End');
+  await editor.press('ArrowLeft');
+  for (let i = 0; i < 5; i++) await editor.press('Shift+ArrowLeft');
+  const paste = (text: string) =>
+    editor.evaluate((node, value) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', value);
+      node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, text);
+  await paste('https://example.com/stack');
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.sent.filter((op) => 'format' in op && op.format.mark === 'link')),
+    )
+    .toEqual([
+      {
+        op: 'text',
+        id: 'p',
+        format: { from: 10, to: 15, mark: 'link', value: 'https://example.com/stack' },
+      },
+    ]);
+  await editor.press('Escape');
+  await page.keyboard.press('Escape');
+  const rest = plan.locator('[data-block-id="p"]');
+  await expect(rest.locator('strong')).toHaveText('ShXip');
+  await expect(rest.getByRole('link')).toHaveText('stack');
+  // Undo takes the link back.
+  await rest.click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(rest.getByRole('link')).toHaveCount(0);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(12);
+      await expect(host.locator('[data-block-id]')).toHaveCount(13);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
       await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
       await page.screenshot({
