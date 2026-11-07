@@ -465,6 +465,19 @@
   overflow-x: auto;
   white-space: pre;
 }
+/* Inline marks on a block's text (MarkedText). */
+.tmt-block-inline-code {
+  padding: 0 4px;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-selection);
+  font-family: var(--tmt-ui-font-mono);
+  font-size: 0.9em;
+}
+.tmt-block-link {
+  color: var(--tmt-ui-color-text-action);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .tmt-block-mention {
   display: inline-flex;
   gap: 4px;

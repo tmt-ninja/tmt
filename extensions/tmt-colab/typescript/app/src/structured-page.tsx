@@ -12,6 +12,7 @@ import {
   BlockMenuItem,
   BlockToast,
   insertGroups,
+  MarkedText,
   Callout,
   calloutLabels,
   CardBlock,
@@ -24,7 +25,7 @@ import {
   type CalloutTone,
 } from '@tmt/browser-ui/blocks';
 import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
-import { BlockTextEditor } from './block-text-editor.js';
+import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
 import { type Drag, useBlockDrag } from './use-block-drag.js';
@@ -66,14 +67,11 @@ export interface StructuredPageProps {
   onFocus?(id: string): void;
   /** Typing in the focused block. */
   onTyped?(id: string, text: string, caret: number): void;
-  /** A key in the focused block (Enter, Backspace at its start); true when the page took it. */
-  onKey?(
-    id: string,
-    event: KeyboardEvent,
-    text: string,
-    caret: number,
-    collapsed: boolean,
-  ): boolean;
+  /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
+   * took it. */
+  onKey?(id: string, event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** A URL pasted over a selected range of the focused block; true when the page linked it. */
+  onPasteUrl?(id: string, url: string, text: string, range: TextRange): boolean;
   /** No editing at all: a reader, or a page this device may not change. */
   readonly?: boolean;
   /** The insert menu open under the focused block. */
@@ -391,16 +389,23 @@ function Content({
     <BlockTextEditor
       label={blockLabel(block)}
       text={editing.text}
+      // Marks drawn for the text the page holds; for other text they wait until it does.
+      marks={block.text === editing.text ? block.marks : undefined}
       caret={editing.caret}
       version={editing.version}
       placeholder={placeholder}
       onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
-      onKey={(event, value, caret, collapsed) =>
-        onKey?.(block.id, event, value, caret, collapsed) ?? false
-      }
+      onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}
+      onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
     />
   ) : (
-    block.text
+    block.text !== undefined && (
+      <MarkedText
+        text={block.text}
+        marks={block.marks}
+        blockHref={(id) => `#block-${id}`}
+      />
+    )
   );
   switch (block.type) {
     case 'heading':

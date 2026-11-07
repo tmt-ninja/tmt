@@ -35,6 +35,7 @@ export function LiveStructuredPage({
     tree,
     editing,
     focus,
+    pasteUrl,
     typed,
     key,
     menu,
@@ -61,6 +62,7 @@ export function LiveStructuredPage({
       onFocus={focus}
       onTyped={typed}
       onKey={key}
+      onPasteUrl={pasteUrl}
       menu={menu}
       onPick={(entry) => void pick(entry)}
       onHover={hover}
