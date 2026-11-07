@@ -156,6 +156,8 @@ interface Follow {
   components: ReadonlySet<string>;
   /** Each component page's revision when the list last named it. */
   readonly revisions: Map<string, string>;
+  /** Pages that moved after a list arrived while the followed root was still opening. */
+  readonly openingChanges: Set<string>;
   /** The live list's latest revisions, so components the root names later start from them. */
   latest?: ReadonlyMap<string, string>;
   /** Settles when the live list first names revisions. */
@@ -243,6 +245,9 @@ export function pageDesignSystems(
       if (state.root !== undefined && state.root !== source) notify(state);
       state.root = source;
       state.components = componentsOf(source);
+      if (state.draft && [...state.openingChanges].some((id) => state.components.has(id)))
+        notify(state);
+      state.openingChanges.clear();
       if (state.latest) baseline(state, state.latest);
     };
     seen(page.source);
@@ -264,6 +269,11 @@ export function pageDesignSystems(
   };
   // A component page whose revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
+    if (state.root === undefined && state.latest)
+      for (const [id, revision] of latest) {
+        const before = state.latest.get(id);
+        if (before !== undefined && before !== revision) state.openingChanges.add(id);
+      }
     state.latest = latest;
     state.heard();
     let moved = false;
@@ -345,6 +355,7 @@ export function pageDesignSystems(
           stops: [],
           components: new Set(),
           revisions: new Map(),
+          openingChanges: new Set(),
           listed,
           heard,
         };
