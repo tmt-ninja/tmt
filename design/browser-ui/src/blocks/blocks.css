@@ -286,6 +286,12 @@
   content: attr(data-placeholder);
   color: var(--tmt-ui-color-secondary);
 }
+/* An empty block keeps one line, with or without its placeholder, so it reads as space and does
+   not move when an editor opens in it. */
+.tmt-block-text[data-empty],
+.tmt-block-heading[data-empty] {
+  min-height: 1lh;
+}
 .tmt-block-list {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);

@@ -133,11 +133,11 @@ test('/ in an empty paragraph opens the insert menu, which filters and inserts',
   await editor.press('Enter');
   await expect(menu).toHaveCount(0);
   // The heading replaced the slash paragraph and holds the editor.
-  const heading = host.locator('[data-block-id] h2, [data-block-id] h3').last();
   await expect(host.locator('[data-block-id="e"]')).toHaveCount(0);
   const typedIn = host.locator('[contenteditable="true"]');
   await typedIn.pressSequentially('Next', { delay: 20 });
-  await expect(heading).toHaveText('Next');
+  // While typing, the heading part is a div with the heading role (valid markup for the editor).
+  await expect(host.getByRole('heading', { name: 'Next' })).toBeVisible();
   const sent = await page.evaluate(() => window.sent.map((op) => op.op));
   expect(sent).toContain('insert');
   expect(sent).toContain('delete');
@@ -177,6 +177,40 @@ test('Esc selects the block, Delete removes it with an Undo line, and ⌘Z bring
   await expect(host.locator('[data-block-id="t"]')).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+z');
   await expect(host.locator('[data-block-id="t"]')).toHaveText('Review');
+});
+
+test('typing in a block draws it pixel for pixel as at rest, in valid markup', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  const host = await mountFixture(page);
+  // Compare only the layout: no selection tint, caret or placeholder.
+  await page.addStyleTag({
+    content:
+      '.tmt-block{background:none!important}[contenteditable]{caret-color:transparent}' +
+      '.tmt-block-editor-placeholder{visibility:hidden}',
+  });
+  for (const id of ['h', 'p', 'e', 't']) {
+    const block = host.locator(`[data-block-id="${id}"]`);
+    const rest = await block.screenshot();
+    const box = await block.boundingBox();
+    await block.click();
+    await expect(block.locator('[contenteditable="true"]')).toHaveCount(1);
+    await page.mouse.move(0, 0);
+    expect(await block.boundingBox(), id).toEqual(box);
+    expect((await block.screenshot()).equals(rest), `${id} shifts while typing`).toBe(true);
+    // No contenteditable root inside a phrasing element (p, h2, h3, span).
+    expect(
+      await block
+        .locator('[contenteditable="true"]')
+        .evaluate((node) => node.parentElement!.tagName),
+      id,
+    ).toBe('DIV');
+    await block.locator('[contenteditable="true"]').press('Escape');
+    await page.keyboard.press('Escape');
+  }
+  expect(errors.filter((error) => error.includes('cannot be a descendant'))).toEqual([]);
 });
 
 for (const width of [1440, 390])

@@ -1185,6 +1185,11 @@
   content: attr(data-placeholder);
   color: var(--tmt-ui-color-secondary);
 }
+
+.tmt-block-text[data-empty],
+.tmt-block-heading[data-empty] {
+  min-height: 1lh;
+}
 .tmt-block-list {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
