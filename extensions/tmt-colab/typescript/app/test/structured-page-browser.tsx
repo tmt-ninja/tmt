@@ -147,7 +147,10 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       setTimeout(() => {
         for (const op of ops)
           if (op.op === 'text' && 'set' in op)
-            write(op.id, textMerge.merge(op.base, window.serveText(op.id)!, op.set).text);
+            write(
+              op.id,
+              textMerge.merge(op.base, window.serveText(op.id)!, op.set, op.overlap).text,
+            );
         resolve();
       }, SERVE_MS);
     });
