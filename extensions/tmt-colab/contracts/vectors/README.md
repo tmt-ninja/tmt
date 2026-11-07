@@ -27,7 +27,9 @@ after review.
 `blocks-page-v1.json` (written by the same script) holds the page around the blocks: which metadata a page of
 blocks may carry (work, attachments, fromTemplate, a state, convertedAt, and an `html` holding the frozen legacy
 source of a converted page; a reverted page's emptied `blocks` root) and refuse (a template, a layout, convertedAt anywhere else). Each case is a content document run through the isolated decoder and through the
-browser fold's Worker. `blocks-html-v1.json` holds pages of blocks with the HTML export renders for them; the
+browser fold's Worker. `block-attachments-v1.json` (written by the same script) holds the attachment rules of a batch on a page of blocks: which
+references it may add and which descriptors it may remove, run by the native `blocks::attachments` and the browser's
+`admitAttachments`. `blocks-html-v1.json` holds pages of blocks with the HTML export renders for them; the
 native `blocks::html` writes it (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html`) and the browser's
 `renderBlocks` must match it byte for byte.
 

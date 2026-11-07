@@ -1641,18 +1641,23 @@ impl<A: Admission> State<A> {
                 return Ok(Some(job));
             }
             Frame::Blocks {
-                operation_id, ops, ..
+                operation_id,
+                ops,
+                attachments,
+                ..
             } => {
                 if self.peers[&id].incoming.is_some() {
                     return Err(Code::Invalid);
                 }
                 values::generated_id(&operation_id)?;
-                crate::page::blocks::validate(&ops).map_err(|_| Code::Invalid)?;
+                crate::page::blocks::validate(&ops, attachments.as_ref())
+                    .map_err(|_| Code::Invalid)?;
                 let mut job = self.structured_job_base(&scope, principal, operation_id.clone())?;
                 job.blocks = Some(crate::page::blocks::BlockBatch {
                     page: scope.page.clone(),
                     operation_id,
                     ops,
+                    attachments,
                 });
                 return Ok(Some(job));
             }

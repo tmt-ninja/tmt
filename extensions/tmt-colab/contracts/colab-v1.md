@@ -3151,7 +3151,8 @@ The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from,
 nothing overlapped). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
 `COLAB_BLOCK_BAD_AFTER` (`after` is not a child of `parent`), `COLAB_BLOCK_TEXT_NOT_FOUND` and
 `COLAB_BLOCK_TEXT_AMBIGUOUS` (`replace`), `COLAB_BLOCK_MARKUP` (a mockup's markup has page-check
-findings), `COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
+findings), `COLAB_BLOCK_ATTACHMENT` ([attachments](#attachments-on-a-page-of-blocks)),
+`COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
 
 Two blocks have a side effect that the batch carries in the same publication:
 
@@ -3163,6 +3164,45 @@ Two blocks have a side effect that the batch carries in the same publication:
 - A `mockup` block's `markup` passes the page check (`tmt colab page check`) when the batch adds or
   changes it: any finding refuses the batch as `COLAB_BLOCK_MARKUP`. The parent admits it before the
   decoder is asked to prepare the batch, as it does an HTML page's source.
+
+#### Attachments on a page of blocks
+
+A batch may carry a typed change to the page's attachment list: `{ops, attachments?: {set?:
+descriptor[], remove?: attachmentId[]}}`, the same `DocumentChange` and vectors
+(`attachment-change-v1.json`) as an HTML save, applied in the same atomic update as the ops. A batch
+with no ops is allowed when it carries a change (attach or detach alone). The list is
+`meta.attachments`; it is what the 30-day [sweep](#unreferenced-attachments-5284) counts as a
+reference and what authorizes a read, so an image or file can only be kept by having its descriptor
+there.
+
+A descriptor is bound to the sha256 of the source written with it. A page of blocks has no source
+to write, but its `html` root is stable (empty, or the frozen legacy source of a converted page), so
+every added descriptor must be sealed against exactly that root, and the isolated decoder re-checks
+it. Each added descriptor must also name this space, page and epoch and be witnessed by its
+creator's own-stream creation proof, as for an HTML save.
+
+A reference is a string in an image's `props.images[].src` or a file's `props.files[].href` that
+starts with `colab-attachment:`; its token is the full attachment ID or the first 8 lowercase hex
+digits of exactly one ID on the page (the grammar of an HTML `<img>`). Anything else (an `https:`
+URL, a `data:` URI) is not judged here. A batch is refused as `COLAB_BLOCK_ATTACHMENT`, with
+nothing written, when:
+
+- a reference it adds (live afterwards, not live before) is malformed or names no descriptor of the
+  list the batch leaves; or
+- a change removes a descriptor that a live block, after the batch, still names.
+
+The rules are checked when a batch is admitted and not when a state is folded. Two writers can
+leave a dangling reference on a merged page (one removes a descriptor while the other inserts an
+image that names it); that page must still fold, and a reference that was already dangling in the
+base is not judged again. The renderer draws such an image in its error state. A deleted block shows
+nothing, so a reference on one is not live: delete the block, then detach, and the object is swept
+30 days after the descriptor leaves the list. Restoring a block brings its references back and they
+are judged like new ones. The receipt adds `attachments: {set: [id], remove: [id]}`.
+
+`tmt colab attachment attach PAGE FILE` adds a file to a page of blocks through this batch (it
+publishes the creation proof, then the list change); `tmt colab block detach PAGE ATTACHMENT`
+removes one. The vectors [`block-attachments-v1.json`](vectors/block-attachments-v1.json) run
+through the native `blocks::attachments` and the browser's `admitAttachments`.
 
 #### Tombstones
 

@@ -24,6 +24,16 @@ a revision and none can answer `COLAB_STALE_BASE`. Block IDs are generated; `--i
 Nothing goes in a block's text as HTML: marks are separate (`block text ... --mark bold --from 0 --to 5`;
 `--value` for `link`, `agent` and `block`, `--clear` to remove).
 
+## Images and files
+
+An image or file block keeps an upload only through the page's attachment list. Attach the file
+(`tmt colab attachment attach PAGE FILE --json` prints its attachment ID), then insert an image whose
+`src` is `colab-attachment:ID` (or the first 8 hex digits of the ID):
+`block insert PAGE --type image --props '{"images":[{"src":"colab-attachment:ID"}]}'`. A reference the
+page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); `https:` sources are not judged. To drop a
+file, delete the block, then `block detach PAGE ID`; detaching one a live block still shows is
+refused, and the object is swept 30 days after the page stops listing it.
+
 ## Change text
 
 - A small change: `block text PAGE BLOCK --find 'old' --replace 'new'`. `old` must occur exactly once
