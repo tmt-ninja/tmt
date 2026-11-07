@@ -141,3 +141,25 @@ describe('the caret through a change', () => {
     expect(caretThrough('abcdef', 'ab', 5)).toBe(2);
   });
 });
+
+describe('a focused table cell (#6005)', () => {
+  it('sends its typing as set-cell with its merge base, then merges the page as a block does', () => {
+    const cell = new BlockTextSync('r1', 'open', { table: 't', column: 'b' });
+    cell.typed('opened');
+    expect(cell.flush()).toEqual({
+      op: 'table',
+      id: 't',
+      action: 'set-cell',
+      row: 'r1',
+      column: 'b',
+      text: 'opened',
+      base: 'open',
+      overlap: 'both',
+    });
+    // Nothing more goes while that op is on its way.
+    cell.typed('opened!');
+    expect(cell.flush()).toBeUndefined();
+    cell.settled(true, 7);
+    expect(cell.flush()).toMatchObject({ text: 'opened!', base: 'opened' });
+  });
+});

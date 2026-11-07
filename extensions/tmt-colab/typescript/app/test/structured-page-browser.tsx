@@ -9,6 +9,7 @@ import type { ThreadBinding } from '../src/thread-store.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { ParentPageViewSource } from '../src/parent-page-view.js';
 import { applyOps } from '../src/block-apply.js';
+import { BlockTree } from '../src/block-tree.js';
 import { mountRenderer } from '../src/renderer.js';
 import { pageDesignSystems } from '../src/design-system-pages.js';
 import type { PageTransport } from '../src/transport.js';
@@ -194,6 +195,10 @@ declare global {
     agentReplace(id: string, find: string, replacement: string): void;
     /** The serve's text for a block now. */
     serveText(id: string): string | undefined;
+    /** The scripted agent: one batch of block ops, as `tmt colab block batch`. */
+    agentBatch(ops: BlockOp[]): void;
+    /** The serve's cells for a table's rows now, in order. */
+    serveRows(table: string): { id: string; cells?: Record<string, string> }[];
     /** Ops the page sent, in order. */
     sent: BlockOp[];
     /** The answer comments this page recorded, in order. */
@@ -363,6 +368,9 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     return () => gated.delete(failed);
   };
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
+  window.agentBatch = (ops) => void publish(applyOps(blocks, ops));
+  window.serveRows = (table) =>
+    new BlockTree(blocks).rows(table).map(({ id, cells }) => ({ id, ...(cells && { cells }) }));
   window.agentReplace = (id, find, replacement) => {
     const text = window.serveText(id)!;
     if (!text.includes(find)) throw new Error(`${find} is not in ${id}`);
@@ -406,6 +414,9 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       tree,
       editing,
       focus,
+      focusCell,
+      cellKey,
+      addRowTo,
       typed,
       key,
       pasteUrl,
@@ -435,6 +446,9 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onFocus={focus}
           onTyped={typed}
           onKey={key}
+          onFocusCell={focusCell}
+          onCellKey={cellKey}
+          onAddRow={(table) => void addRowTo(table)}
           onPasteUrl={pasteUrl}
           onChecked={check}
           {...(content === 'spec' && {

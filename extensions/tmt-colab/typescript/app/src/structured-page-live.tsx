@@ -53,6 +53,9 @@ export function LiveStructuredPage({
     tree,
     editing,
     focus,
+    focusCell,
+    cellKey,
+    addRowTo,
     pasteUrl,
     check,
     typed,
@@ -81,6 +84,9 @@ export function LiveStructuredPage({
       onFocus={focus}
       onTyped={typed}
       onKey={key}
+      onFocusCell={focusCell}
+      onCellKey={cellKey}
+      onAddRow={(table) => void addRowTo(table)}
       onPasteUrl={pasteUrl}
       onChecked={check}
       onLink={onLink}

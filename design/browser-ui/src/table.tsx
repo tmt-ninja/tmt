@@ -13,6 +13,8 @@ export interface BrowserTableProps {
   hideNarrow?: readonly number[];
   /** Column indexes whose cells never wrap (`data-nowrap`). */
   nowrap?: readonly number[];
+  /** With no rows: one row across every column holding this (an editor's "Add a row"). */
+  empty?: ReactNode;
 }
 export function BrowserTable({
   label,
@@ -21,6 +23,7 @@ export function BrowserTable({
   numeric,
   hideNarrow,
   nowrap,
+  empty,
 }: BrowserTableProps) {
   const cell = (index: number) => ({
     'data-hide-narrow': hideNarrow?.includes(index) ? '' : undefined,
@@ -38,6 +41,13 @@ export function BrowserTable({
         </tr>
       </thead>
       <tbody>
+        {!rows.length && empty !== undefined && (
+          <tr>
+            <td colSpan={Math.max(1, columns.length)} data-empty="">
+              {empty}
+            </td>
+          </tr>
+        )}
         {rows.map((row, index) => (
           <tr key={index}>
             <th scope="row" {...cell(0)}>

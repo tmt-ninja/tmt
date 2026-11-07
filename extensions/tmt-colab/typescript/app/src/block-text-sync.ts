@@ -28,6 +28,12 @@ export interface Shown {
  * for a refused op, from the old base, so the person's newer typing is never mistaken for a
  * conflict with their own sent edit.
  */
+/** A table cell: its table and column; the row is the sync's `id`. */
+export interface TableCell {
+  readonly table: string;
+  readonly column: string;
+}
+
 export class BlockTextSync {
   /** The page text that local typing started from. */
   #base: string;
@@ -44,6 +50,8 @@ export class BlockTextSync {
   constructor(
     readonly id: string,
     text: string,
+    /** A table cell's text instead of a block's: `id` is its row. */
+    readonly cell?: TableCell,
   ) {
     this.#base = text;
     this.#local = text;
@@ -75,7 +83,18 @@ export class BlockTextSync {
   flush(): BlockOp | undefined {
     if (this.#inflight || this.#local === this.#base) return undefined;
     this.#inflight = { set: this.#local, base: this.#base };
-    return { op: 'text', id: this.id, set: this.#local, base: this.#base, overlap: 'both' };
+    return this.cell
+      ? {
+          op: 'table',
+          id: this.cell.table,
+          action: 'set-cell',
+          row: this.id,
+          column: this.cell.column,
+          text: this.#local,
+          base: this.#base,
+          overlap: 'both',
+        }
+      : { op: 'text', id: this.id, set: this.#local, base: this.#base, overlap: 'both' };
   }
 
   /** The page's text for the block is now `remote`, from a view of order `seq` (`PageView.seq`;
