@@ -454,7 +454,7 @@ for (const [width, theme] of [
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: theme });
     const host = await mountFixture(page, 'spec');
-    const question = host.locator('[data-block-id="q"]');
+    const question = host.locator('[data-block-id="7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b"]');
     await expect(question.getByRole('group', { name: '先做哪個區塊？' })).toBeVisible();
     // The question allows no Other answer, so the part offers none.
     await expect(question.getByLabel('Other…')).toHaveCount(0);
@@ -467,7 +467,12 @@ for (const [width, theme] of [
     await question.getByRole('button', { name: /Send/ }).click();
     await expect
       .poll(() => page.evaluate(() => window.answers()))
-      .toEqual([{ body: 'Answer to “先做哪個區塊？”: 圖片\nPage: 區塊編輯器', questionId: 'q' }]);
+      .toEqual([
+        {
+          body: 'Answer to “先做哪個區塊？”: 圖片\nPage: 區塊編輯器',
+          questionId: '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b',
+        },
+      ]);
     // The recorded answer folds the question to its answered line.
     await expect(question.getByRole('button', { name: /先做哪個區塊？.*圖片/ })).toBeVisible();
     await page.mouse.move(0, 0);

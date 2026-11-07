@@ -150,9 +150,7 @@ export function QuestionBlock({
             </button>
           )}
           <div className="tmt-block-question-eyebrow">
-            {state === 'answered' ? '✓ Answered' : '◆ Waiting for your answer'}
-            {/* No agent is asked: the answer stays on the page, and no name follows. */}
-            {agent && <> · {agent}</>}
+            {state === 'answered' ? '✓ Answered' : '◆ Waiting for your answer'} · {agent}
           </div>
           <h3>{title}</h3>
           {kind !== 'short' && (

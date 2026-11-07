@@ -164,7 +164,7 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       ],
     }),
     block('live', 'page-view', undefined, { label: '我的頁面', groupBy: 'none' }),
-    block('q', 'question', '先做哪個區塊？', {
+    block('7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b', 'question', '先做哪個區塊？', {
       kind: 'single',
       choices: ['問題', '圖片', 'Mockup'],
     }),
@@ -418,7 +418,14 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             pageViewSource,
             questionPage: {
               title: '區塊編輯器',
-              questions: [],
+              questions: [
+                {
+                  id: '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b',
+                  agent: { id: '50000000-0000-4000-8000-000000000003', name: 'tmt-gui-lead' },
+                  state: 'open',
+                  attribution: { writerId: '30000000-0000-4000-8000-000000000001', timeMs: 1_000 },
+                },
+              ],
               threads: pageThreads,
               discussion,
               blocked: false,
