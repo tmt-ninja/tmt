@@ -3297,6 +3297,116 @@ fn a_page_of_blocks_carries_the_metadata_the_page_vectors_allow() {
     }
 }
 
+/// A page of blocks takes work actions (#6004): the decoder re-derives a sub-page attach and a
+/// summary against it, the blocks and the rest of the page stay as they were, and the update replays.
+/// A dashboard still refuses them.
+#[test]
+fn a_page_of_blocks_takes_work_actions_and_keeps_its_blocks() {
+    use tmt_colab::decoder::{ContentBatch, StructuredKind};
+    let mut decoder = owner();
+    let blocks = serde_json::json!({
+        "20000000-0000-4000-8000-000000000001": {
+            "type": "paragraph", "parent": "root", "pos": "V", "props": {},
+            "text": {"s": "keep", "marks": []}
+        }
+    });
+    let baseline = decoder
+        .produce_blocks(work_view(b"", None), &blocks, false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert!(before.projection["meta"].get("work").is_none());
+    let child = "20000000-0000-4000-8000-00000000000a";
+    let add = work_edit("subpage.attach", serde_json::json!({"pageId": child}));
+    assert_eq!(add.kind, StructuredKind::Work);
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &add, None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert_eq!(after.projection["blocks"], blocks);
+    assert_eq!(after.projection["meta"]["pageType"], "blocks");
+    assert_eq!(
+        after.projection["meta"]["work"],
+        serde_json::json!({"version": 2, "order": [child]})
+    );
+    // A summary joins it and the sub-page stays.
+    let summary = work_edit(
+        "summary.set",
+        serde_json::json!({"line1": "Start", "line2": "Next"}),
+    );
+    let more = decoder
+        .prepare_structured_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &after.projection,
+            &summary,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        more.projection["meta"]["work"]["order"],
+        serde_json::json!([child])
+    );
+    assert!(more.projection["meta"]["work"].get("summary").is_some());
+    // A dashboard still has no work.
+    let shell_page = decoder
+        .produce_shell(
+            work_view(b"", None),
+            &tmt_colab::shell::empty(),
+            false,
+            None,
+        )
+        .unwrap();
+    let shell_before = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: shell_page.update.as_slice(),
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert!(
+        decoder
+            .prepare_structured_batch(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: shell_page.update.as_slice(),
+                    updates: &[],
+                },
+                &shell_before.projection,
+                &add,
+                None,
+            )
+            .is_err()
+    );
+}
+
 /// A new epoch keeps what a page of blocks carries beside its blocks (#6004): work, attachments,
 /// fromTemplate, a state, questions and convertedFrom survive the baseline the decoder produces.
 #[test]

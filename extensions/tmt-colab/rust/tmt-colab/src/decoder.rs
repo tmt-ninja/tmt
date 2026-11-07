@@ -237,7 +237,7 @@ pub struct BaselineInput<'a> {
     pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
     pub creation_recipient: Option<&'a CreationRecipient>,
-    /// The work an ordinary page carries beside its HTML; a new epoch keeps it.
+    /// The work a page carries beside its HTML or blocks (never a dashboard); a new epoch keeps it.
     pub work: Option<&'a Value>,
     /// Manual page state; an absent value reads as todo.
     pub page_state: Option<&'a Value>,
@@ -1251,8 +1251,8 @@ struct WireContentPreparation<
 }
 fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<Value, DecodeFault> {
     let shell = base["meta"]["pageType"].as_str() == Some("shell");
-    // An ordinary page has no `pageType`; a page of blocks may also carry questions, a creator and
-    // a state, but never work or a template.
+    // An ordinary page has no `pageType`; a page of blocks also carries questions, a creator, a
+    // state and work (a sub-page list and a summary), but never a template.
     let ordinary = base["meta"].get("pageType").is_none();
     let mut expected = base.clone();
     match edit.kind {
@@ -1282,7 +1282,7 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
             )
             .map_err(|_| DecodeFault::InvalidInput)?;
         }
-        StructuredKind::Work if ordinary => {
+        StructuredKind::Work if !shell => {
             let stored = base["meta"].get("work");
             let next = crate::work::apply(
                 stored.unwrap_or(&crate::work::empty()),
@@ -1619,7 +1619,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             {
                 return Err(DecodeFault::InvalidOutput);
             }
-            // Work belongs to an ordinary page; a shell keeps its own summary.
+            // Work belongs to a page that is not a dashboard; a shell keeps its own summary.
             let shell = page_type == Some("shell");
             if meta.contains_key("shell") != shell
                 || (shell

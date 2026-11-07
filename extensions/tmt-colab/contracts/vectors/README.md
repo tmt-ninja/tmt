@@ -8,7 +8,7 @@ shared by the native shell validator and browser fold validator. Expected result
 cover item order, complete replacement, summary attribution and reading references;
 they establish no target access or signature authority.
 
-`work-v2.json` contains closed work values (an ordinary page's direct sub-pages and summary) and
+`work-v2.json` contains closed work values (a page's direct sub-pages and summary; a dashboard has none) and
 detached actions with their results, shared by the native work validator, the isolated decoder and
 the browser fold validator. The generator is an independent model of the contract rules, not either
 implementation. Cases cover the list actions (attach, move and detach, with and without `before`),

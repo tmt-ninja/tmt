@@ -1110,7 +1110,7 @@ impl Snapshot {
                 &edit.attribution,
             )
             .map(drop),
-            StructuredKind::Work if ordinary => crate::work::apply(
+            StructuredKind::Work if !shell => crate::work::apply(
                 base.meta.get("work").unwrap_or(&crate::work::empty()),
                 &edit.action,
                 &edit.body,

@@ -163,7 +163,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   [Structured pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#structured-pages-6004)
   owns roots, types, limits, ops, receipt and the purge rule.
 
-- `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
+- `work.rs` and browser `work.ts` own the closed work value an ordinary page or a page of blocks carries in
   `meta.work` (its direct sub-pages in order and a two-line summary), its detached trial actions,
   and the read-only projection of the task-era version 1 value (#5825); `closed.rs`/`closed.ts` and
   `summary_lines.rs`/`summary-lines.ts` hold the checks the dashboard and work values share

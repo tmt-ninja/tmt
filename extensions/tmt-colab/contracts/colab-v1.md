@@ -3334,10 +3334,12 @@ Page progress is derived at read time and never stored in the page or used to ch
 
 ### Work (#4050)
 
-An ordinary HTML page may carry work: its direct sub-pages in order and a two-line summary, in the
-content document's `meta.work` beside its HTML. A page with sub-pages is just a page; there is no
+An ordinary HTML page or a [page of blocks](#structured-pages-6004) may carry work: its direct
+sub-pages in order and a two-line summary, in the content document's `meta.work` beside its HTML or
+blocks. A page with sub-pages is just a page; there is no
 task, assignee or other tracker concept. A dashboard never carries work (it keeps its own
-summary), and a page with `meta.work` has no `pageType`. The isolated native decoder and the
+summary), and a page with `meta.work` is not a dashboard (`pageType` is absent or `blocks`). The
+isolated native decoder and the
 browser fold validate the value on every incoming state and prepared action, so raw Yjs cannot
 bypass the schema. Writing a page's HTML source and rotating its epoch keep the value exactly. A
 page that has had no work carries no `meta.work`; its first action starts from the empty value,
@@ -7349,7 +7351,9 @@ blocks](#structured-pages-6004) exports `blocks.json`, its canonical `blocks` va
 stored); the manifest row of `page.html` carries `derivedFrom:"blocks.json"` and the manifest
 `pageType:"blocks"`. The native `blocks::html` and the browser's `renderBlocks` produce the same
 bytes and run [`blocks-html-v1.json`](vectors/blocks-html-v1.json); the rendering passes the page
-check. No standalone copy is made for it. An ordinary page
+check. A rendering starts with a `tmt-starter` layer `<style>` (the same marker a page's starter
+carries, so Colab applies its editorial layer), uses the documented `tmt-ui-*` classes and writes a
+question without `data-agent` (the registry routes it). No standalone copy is made for it. An ordinary page
 that has [work](#work-4050) also exports `work.json` right after `page.html`: the
 canonical `meta.work` value (sorted ASCII keys, compact separators, raw UTF-8), so
 a copy never loses its sub-pages or summary; a page without work has no such file.

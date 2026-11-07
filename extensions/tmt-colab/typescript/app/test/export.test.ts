@@ -70,7 +70,9 @@ it('exports a page of blocks as blocks.json and a rendering derived from it', as
   const json = await bytes(bundle.blob('blocks.json'));
   expect(JSON.parse(new TextDecoder().decode(json))).toEqual(blocks);
   const html = await bytes(bundle.blob('page.html'));
-  expect(new TextDecoder().decode(html)).toBe('<p>Ship &lt;it&gt; &amp; go</p>\n');
+  expect(new TextDecoder().decode(html)).toBe(
+    '<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:"\\2610  "}li.done{list-style-type:"\\2611  "}}</style>\n<p>Ship &lt;it&gt; &amp; go</p>\n',
+  );
   const manifest = JSON.parse(new TextDecoder().decode(await bytes(bundle.blob('manifest.json'))));
   expect(manifest.pageType).toBe('blocks');
   expect(manifest.files[1]).toEqual({
