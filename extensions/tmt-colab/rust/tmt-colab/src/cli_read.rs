@@ -82,13 +82,28 @@ pub fn command() -> Command {
         )
 }
 
+const CONVERT: CommandSpec = CommandSpec {
+    name: "convert",
+    summary: "Convert HTML to blocks or switch back to retained HTML",
+    examples: &[
+        Example {
+            command: "tmt colab page convert 10000000-0000-4000-8000-000000000001 --yes",
+            note: "Keep the HTML as legacy source and start a structured page",
+        },
+        Example {
+            command: "tmt colab page convert 10000000-0000-4000-8000-000000000001 --revert --yes",
+            note: "Restore the HTML and remove the blocks written since conversion",
+        },
+    ],
+    outputs: OutputModes::HumanAndJson,
+    details: "Conversion retains the old HTML as legacy source and removes the page layout. Reverting restores the old HTML and removes all blocks; --yes is required when blocks exist. An expected revision refuses a changed page.",
+};
+
 pub fn convert_command() -> Command {
-    Command::new("convert")
-        .about("Convert HTML to blocks or switch back to retained HTML")
+    tmt_cli_style::command(&CONVERT)
         .arg(crate::cli_grammar::page())
         .arg(Arg::new("revert").long("revert").action(ArgAction::SetTrue))
         .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
-        .arg(Arg::new("json").long("json").action(ArgAction::SetTrue))
         .arg(
             Arg::new("expected-revision")
                 .long("expected-revision")

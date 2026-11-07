@@ -61,7 +61,8 @@ test('page create opens the committed page through Remote with the same short-on
         world.binaries.colab,
         [
           'page',
-          'create', '--html',
+          'create',
+          '--html',
           '--title',
           'Created launch',
           '--layout',
