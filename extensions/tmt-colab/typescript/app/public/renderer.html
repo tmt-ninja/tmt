@@ -876,6 +876,16 @@
             if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
             scheduleScheme();
           };
+          let updateGeometryFrame;
+          const scheduleUpdateGeometry = () => {
+            if (stopped || updateGeometryFrame !== undefined) return;
+            updateGeometryFrame = requestAnimationFrame(() => {
+              updateGeometryFrame = undefined;
+              clearTimeout(heightTimer);
+              measureHeight();
+              capture();
+            });
+          };
           const paintObserver = new MutationObserver(scheduleScheme);
           matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleScheme);
           const sizeObserver = new ResizeObserver(() => {
@@ -2529,12 +2539,11 @@
             boundSource = source;
             prepareLockQuotes();
             resolve();
-            // The resize and mutation observers also schedule height, including overflow-only edits.
-            // Defer geometry reads until after the source message has finished.
-            scheduleHeight();
+            // Measure height and the retained selection together at the next paint, outside the
+            // source message task, before the frame can display outdated geometry.
             measureScheme();
             resetGesture();
-            scheduleCapture();
+            scheduleUpdateGeometry();
             return true;
           }
           port.onmessage = (event) => {
@@ -3258,6 +3267,7 @@
               clearTimeout(heightTimer);
               clearTimeout(schemeTimer);
               cancelAnimationFrame(selectionFrame);
+              cancelAnimationFrame(updateGeometryFrame);
               sizeObserver.disconnect();
               paintObserver.disconnect();
               observer.disconnect();
