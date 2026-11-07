@@ -58,6 +58,11 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* The block being typed in shows the block's selection tint, not a second frame around its text
+   (#6005). */
+.tmt-block-editor-text:focus-visible {
+  outline: none;
+}
 /* A heading that takes focus from code (an error view, so a screen reader reads it) is not a place
    to type or tab to: it announces itself and paints no frame. */
 :is(h1, h2)[tabindex='-1']:focus-visible {
