@@ -34,7 +34,7 @@ for (const width of [1440, 390])
         <tmt-ui-question-block label="Which screen should we build first?" agent="gui-lead" choices='["Insert menu","Block handle"]'></tmt-ui-question-block>
         <tmt-ui-image-block images='[{"src":"${image}","alt":"Screen","caption":"390 light","tag":"Review"}]'></tmt-ui-image-block>
         <tmt-ui-mockup-block height="200"><tmt-ui-button>Approve</tmt-ui-button></tmt-ui-mockup-block>
-        <tmt-ui-work-bundle page="allowed" work="Review the shared component."></tmt-ui-work-bundle>
+        <tmt-ui-work-bundle page="allowed" number="3" work="Review the shared component." tickets='[{"label":"#5972","href":"https://github.com/tmt-ninja/tmt/issues/5972"}]'></tmt-ui-work-bundle>
         <tmt-ui-page-view label="Spec pages"></tmt-ui-page-view>`;
         const renderer = await mountRenderer(host, source, {
           signal: new AbortController().signal,
@@ -147,6 +147,18 @@ for (const width of [1440, 390])
       }
       const pageView = page.locator('[data-parent-page-view]');
       await expect(pageView.getByText('Structured pages')).toBeVisible();
+      // The card shows its number and tickets, and the list drawn over its slot starts below the
+      // card's last pixel row, never over its border.
+      await expect(frame.locator('.tmt-block-work-number')).toHaveText('3');
+      await expect(frame.getByRole('link', { name: '#5972' })).toBeVisible();
+      const cardBottom = await frame
+        .locator('article.tmt-block-work')
+        .evaluate((card) => card.getBoundingClientRect().bottom);
+      const frameTop = await page
+        .locator('iframe[title="Page content"]')
+        .evaluate((node) => node.getBoundingClientRect().top + node.clientTop);
+      const listTop = await pageView.evaluate((node) => node.getBoundingClientRect().top);
+      expect(listTop).toBeGreaterThanOrEqual(frameTop + cardBottom);
       await expect(frame.getByText('Shared page components')).toBeVisible();
       await frame.getByLabel('Other…').check();
       await frame.getByLabel('Other: your answer').fill('Show the list first');
