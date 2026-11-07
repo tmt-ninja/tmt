@@ -96,9 +96,7 @@ export class BlockTextSync {
     return this.#merge(from, held, caret);
   }
 
-  // The serve merges the browser's ops with `overlap: 'both'`. Until `textMerge` takes that option
-  // (#6004, in progress) this local view uses its default, so a real overlap shows `dropped` here
-  // while the serve keeps both; switch to the option as soon as it lands.
+  // The serve merges the browser's ops with `overlap: 'both'`, so the editor shows the same merge.
   #merge(from: string, remote: string, caret: number): Shown {
     if (remote === from) {
       this.#base = from;
@@ -107,7 +105,7 @@ export class BlockTextSync {
     const merged =
       this.#local === from
         ? { text: remote, dropped: [] }
-        : textMerge.merge(from, remote, this.#local);
+        : textMerge.merge(from, remote, this.#local, 'both');
     const moved = caretThrough(this.#local, merged.text, caret);
     this.#base = remote;
     this.#local = merged.text;

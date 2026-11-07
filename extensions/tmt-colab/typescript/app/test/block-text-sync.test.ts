@@ -10,6 +10,11 @@ describe('the editor uses the one text merge', () => {
         text: vector.merged,
         dropped: vector.dropped,
       });
+    for (const vector of vectors.mergesBoth)
+      expect(
+        textMerge.merge(vector.base, vector.remote, vector.local, 'both'),
+        vector.name,
+      ).toEqual({ text: vector.merged, dropped: vector.dropped });
   });
 });
 
@@ -76,13 +81,16 @@ describe('a focused block while the page changes', () => {
       overlap: 'both',
     });
   });
-  it('reports typing that overlapped another writer change at the same place', () => {
+  it("keeps both writers' text where typing overlapped another change at the same place", () => {
     const sync = new BlockTextSync('b', 'the cat sat');
     sync.typed('the dog sat');
     const shown = sync.remote('the bird sat', 7);
-    // The same rule as the serve: the page keeps the other writer's text there.
-    expect(shown.text).toBe(textMerge.merge('the cat sat', 'the bird sat', 'the dog sat').text);
-    expect(shown.dropped).toBe(true);
+    // The same merge as the serve applies to the browser's ops: the page's text, then the typing.
+    expect(shown.text).toBe(
+      textMerge.merge('the cat sat', 'the bird sat', 'the dog sat', 'both').text,
+    );
+    expect(shown.text).toContain('bird');
+    expect(shown.text).toContain('dog');
   });
   it('shows the page text at once when nothing is typed', () => {
     const sync = new BlockTextSync('b', 'a');
