@@ -481,6 +481,21 @@ fn prepare_content(
                     Any::from_json(&questions.to_string()).map_err(|_| DecodeFault::Rejected)?,
                 );
             }
+            // So does an attach or detach: the descriptor list changes with the blocks.
+            if expected["meta"].get("attachments") != before["meta"].get("attachments") {
+                match expected["meta"].get("attachments") {
+                    Some(list) => {
+                        meta.insert(
+                            &mut tx,
+                            "attachments",
+                            Any::from_json(&list.to_string()).map_err(|_| DecodeFault::Rejected)?,
+                        );
+                    }
+                    None => {
+                        meta.remove(&mut tx, "attachments");
+                    }
+                }
+            }
             updates.push(tx.encode_update_v1());
         } else if let Some(structured) = &wire.structured {
             let key = structured.kind.key();

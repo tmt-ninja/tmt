@@ -1099,7 +1099,44 @@ impl Snapshot {
                 &edit.attribution,
             )
             .map_err(crate::page::Fault::from)?;
-            receipt = Some(applied.receipt);
+            // An attach or detach rides in it too (#6190): bound to the page's html root, and each
+            // added descriptor must belong to this page and epoch and be witnessed by its
+            // creator's own-stream proof, as an HTML save's are.
+            let change =
+                crate::blocks::attachments::change(&edit.body).map_err(crate::page::Fault::from)?;
+            let current: Vec<tmt_colab_model::attachment::Descriptor> =
+                match base.meta.get("attachments") {
+                    Some(list) => serde_json::from_value(list.clone())
+                        .map_err(|_| crate::page::Fault::Invalid)?,
+                    None => Vec::new(),
+                };
+            crate::blocks::attachments::admit(
+                before,
+                &applied.next,
+                &current,
+                change.as_ref(),
+                &crypto::digest(base.source.as_bytes()),
+            )
+            .map_err(crate::page::Fault::from)?;
+            if let Some(change) = &change {
+                for descriptor in change.set.as_slice() {
+                    if descriptor.space != key.space_id
+                        || descriptor.page != page
+                        || descriptor.epoch != self.epoch.to_string()
+                    {
+                        return Err(crate::page::Fault::Invalid.into());
+                    }
+                    crate::attachments::creation_proof(&base, descriptor)?;
+                }
+            }
+            let mut receipt_value = applied.receipt;
+            if let Some(change) = change.as_ref().filter(|change| !change.is_empty()) {
+                receipt_value["attachments"] = serde_json::json!({
+                    "set": change.set.as_slice().iter().map(|d| &d.attachment_id).collect::<Vec<_>>(),
+                    "remove": change.remove.as_slice(),
+                });
+            }
+            receipt = Some(receipt_value);
         }
         match edit.kind {
             StructuredKind::Blocks => Ok(()),

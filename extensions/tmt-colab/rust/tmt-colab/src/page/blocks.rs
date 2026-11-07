@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{decoder::StructuredKind, limits};
 use serde_json::{Value, json};
+use tmt_colab_model::attachment::DocumentChange;
 
 /// The action name the decoder's structured edit carries.
 pub const ACTION: &str = "blocks.batch";
@@ -17,13 +18,17 @@ pub struct BlockBatch {
     pub page: String,
     pub operation_id: String,
     pub ops: Value,
+    /// A typed change to the page's attachment list (#6190), judged with the ops.
+    pub attachments: Option<DocumentChange>,
 }
 
-/// The cheap shape check before a source is opened; the validator checks every op's content.
-pub fn validate(ops: &Value) -> crate::Result<()> {
+/// The cheap shape check before a source is opened; the validator checks every op's content. A
+/// batch may have no ops only when it carries an attachment change (attach or detach alone).
+pub fn validate(ops: &Value, attachments: Option<&DocumentChange>) -> crate::Result<()> {
+    let changes = attachments.is_some_and(|change| !change.is_empty());
     let ok = ops
         .as_array()
-        .is_some_and(|ops| !ops.is_empty() && ops.len() <= limits::BLOCK_BATCH_OPS)
+        .is_some_and(|ops| (!ops.is_empty() || changes) && ops.len() <= limits::BLOCK_BATCH_OPS)
         && serde_json::to_vec(ops).is_ok_and(|bytes| bytes.len() <= limits::BLOCK_BATCH_BYTES);
     if ok {
         Ok(())
@@ -32,8 +37,12 @@ pub fn validate(ops: &Value) -> crate::Result<()> {
     }
 }
 
-pub fn body(ops: &Value) -> Value {
-    json!({ "ops": ops })
+pub fn body(ops: &Value, attachments: Option<&DocumentChange>) -> Value {
+    let mut body = json!({ "ops": ops });
+    if let Some(change) = attachments.filter(|change| !change.is_empty()) {
+        body["attachments"] = serde_json::to_value(change).expect("typed attachment change");
+    }
+    body
 }
 
 /// The structured action for a batch. `display_agent` is the caller's display-only label.
@@ -63,12 +72,13 @@ pub fn prepare_open(
     source: &mut super::save::Source,
     page: &str,
     ops: &Value,
+    attachments: Option<&DocumentChange>,
     display_agent: Option<Value>,
     operation_id: Option<&str>,
     clock: &dyn Fn() -> crate::Result<u64>,
 ) -> crate::Result<Edited> {
-    validate(ops)?;
-    let body = body(ops);
+    validate(ops, attachments)?;
+    let body = body(ops, attachments);
     let (prepared, receipt) = super::prepare_blocks_publication(
         &source.store,
         &source.keyring,
@@ -91,6 +101,7 @@ pub fn prepare(
         &mut source,
         &batch.page,
         &batch.ops,
+        batch.attachments.as_ref(),
         None,
         Some(&batch.operation_id),
         clock,
