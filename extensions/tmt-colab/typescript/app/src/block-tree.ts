@@ -1,4 +1,4 @@
-import { type BlockRecord, canHold, PAGE_PARENT, type Parent } from './block-model.js';
+import { type BlockRecord, canHold, PAGE_PARENT, type Parent, ROW_TYPE } from './block-model.js';
 
 /**
  * The blocks of a structured page in drawing order (#6005), from the fold's flat block map. Each
@@ -9,6 +9,7 @@ import { type BlockRecord, canHold, PAGE_PARENT, type Parent } from './block-mod
  *   the top level;
  * - blocks that two moves put inside each other (a cycle) are drawn at the top level from the
  *   cycle's lowest ID, so each is drawn exactly once.
+ * A table's rows are entries too: they are never drawn as blocks, only as their table's `rows`.
  */
 export class BlockTree {
   readonly #blocks: ReadonlyMap<string, BlockRecord>;
@@ -16,6 +17,8 @@ export class BlockTree {
   readonly #children = new Map<Parent, BlockRecord[]>();
   /** Each visible block's effective parent. */
   readonly #parent = new Map<string, Parent>();
+  /** Each drawn table's rows that are not deleted, in order. */
+  readonly #rows = new Map<string, BlockRecord[]>();
 
   constructor(blocks: Iterable<BlockRecord>) {
     this.#blocks = new Map([...blocks].map((block) => [block.id, block]));
@@ -35,13 +38,22 @@ export class BlockTree {
     };
     for (const block of this.#blocks.values()) {
       if (isHidden(block)) continue;
+      // A row belongs to its table, which draws it; one whose table is gone is not drawn.
+      if (block.type === ROW_TYPE) {
+        const table = this.#blocks.get(block.parent);
+        if (table?.type !== 'table' || isHidden(table)) continue;
+        const list = this.#rows.get(table.id) ?? [];
+        list.push(block);
+        this.#rows.set(table.id, list);
+        continue;
+      }
       const parent = effective(block);
       this.#parent.set(block.id, parent);
       const list = this.#children.get(parent) ?? [];
       list.push(block);
       this.#children.set(parent, list);
     }
-    for (const list of this.#children.values())
+    for (const list of [...this.#children.values(), ...this.#rows.values()])
       list.sort((a, b) => (a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : a.id < b.id ? -1 : 1));
   }
 
@@ -79,6 +91,10 @@ export class BlockTree {
   /** A block by ID, drawn or not (a deleted block is still known, so it can be restored). */
   get(id: string): BlockRecord | undefined {
     return this.#blocks.get(id);
+  }
+  /** A drawn table's rows, in order. */
+  rows(table: string): readonly BlockRecord[] {
+    return this.#rows.get(table) ?? [];
   }
   /** Whether the block is drawn. */
   visible(id: string): boolean {

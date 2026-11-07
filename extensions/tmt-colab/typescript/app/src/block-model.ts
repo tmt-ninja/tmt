@@ -22,15 +22,24 @@ export const BLOCK_TYPES = [
   'page-view',
 ] as const;
 export type BlockType = (typeof BLOCK_TYPES)[number];
+/** A table row: an entry with the table as its parent, drawn by its table and never as a block. */
+export const ROW_TYPE = 'row';
+/** What an entry in the page's `blocks` map is: a block, or a table's row. */
+export type EntryType = BlockType | typeof ROW_TYPE;
+/** Whether an entry is a block, not a table's row. */
+export const isBlockType = (type: EntryType): type is BlockType => type !== ROW_TYPE;
 
 /** Types whose blocks hold other blocks (a card or section). */
-export const CONTAINER_TYPES: ReadonlySet<BlockType> = new Set<BlockType>(['card']);
+export const CONTAINER_TYPES: ReadonlySet<EntryType> = new Set<EntryType>(['card']);
 /** Whether a block of `parent`'s type may hold one of `child`'s: a card holds blocks, never another
  * card. */
-export const canHold = (parent: BlockType, child: BlockType) =>
-  CONTAINER_TYPES.has(parent) && !CONTAINER_TYPES.has(child);
+export const canHold = (parent: EntryType, child: EntryType) =>
+  parent !== ROW_TYPE &&
+  child !== ROW_TYPE &&
+  CONTAINER_TYPES.has(parent) &&
+  !CONTAINER_TYPES.has(child);
 /** Types with a text body (`text`, a Y.Text in the page document). */
-export const TEXT_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
+export const TEXT_TYPES: ReadonlySet<EntryType> = new Set<EntryType>([
   'heading',
   'paragraph',
   'list',
@@ -58,8 +67,8 @@ export type Parent = string;
 /** One block as the fold gives it: the editor reads only these fields. */
 export interface BlockRecord {
   readonly id: string;
-  readonly type: BlockType;
-  /** The block that holds it, or the page. */
+  readonly type: EntryType;
+  /** The block that holds it, or the page (a row: its table). */
   readonly parent: Parent;
   /** Its fractional order among its siblings (`block-pos.ts`); ties order by `id`. */
   readonly pos: string;
@@ -70,6 +79,9 @@ export interface BlockRecord {
   /** Deleted is only a mark: history and comments stay, and `restore` brings it back. */
   readonly deleted: boolean;
 }
+
+/** The serve's refusal of an `after` that does not name a child of `parent`. */
+export const BAD_AFTER = 'COLAB_BLOCK_BAD_AFTER';
 
 /** One block operation, as the browser sends it in a `blocks.batch` and as `tmt colab block batch`
  * takes it. The caller makes new IDs; the serve computes `pos` from `after` (`null` is first in
