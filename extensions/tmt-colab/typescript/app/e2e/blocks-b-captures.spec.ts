@@ -308,14 +308,14 @@ for (const width of [1440, 390])
         host.style.width = '100%';
         document.body.replaceChildren(host);
         const content = (label: string) =>
-          `<tmt-ui-notice heading="Needs you" tone="waiting">${label}: approve the block menu before merging.</tmt-ui-notice><tmt-ui-button>Approve</tmt-ui-button>`;
+          `<div style="display:grid;gap:12px;padding:16px"><tmt-ui-notice heading="Needs you" tone="waiting">${label}: approve the block menu before merging.</tmt-ui-notice><tmt-ui-button>Approve</tmt-ui-button></div>`;
         await mountRenderer(
           host,
           `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
-          <tmt-ui-mockup-block id="matching" lock="0.1.0" preset="390" height="160">${content('Matching lock')}</tmt-ui-mockup-block>
-          <tmt-ui-mockup-block id="wrong-system" system="acme" preset="390" height="160">${content('Other system')}</tmt-ui-mockup-block>
-          <tmt-ui-mockup-block id="wrong-lock" lock="follow" preset="390" height="160">${content('Other lock')}</tmt-ui-mockup-block>
-          <tmt-ui-mockup-block id="wrong-hash" lock="0.1.0#sha256-wrong" preset="390" height="160">${content('Other hash')}</tmt-ui-mockup-block>`,
+          <tmt-ui-mockup-block id="matching" lock="0.1.0" preset="390" height="120">${content('Matching lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-system" system="acme" preset="390" height="120">${content('Other system')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-lock" lock="follow" preset="390" height="120">${content('Other lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-hash" lock="0.1.0#sha256-wrong" preset="390" height="120">${content('Other hash')}</tmt-ui-mockup-block>`,
           {
             signal: new AbortController().signal,
             onState: () => {},
@@ -333,9 +333,26 @@ for (const width of [1440, 390])
       await expect(
         frame.locator('#matching').getByRole('button', { name: 'Approve' }),
       ).toBeVisible();
-      for (const id of ['wrong-system', 'wrong-lock', 'wrong-hash']) {
+      // The stage holds its content: its bottom edge is below the button's.
+      expect(
+        await frame.locator('#matching').evaluate((block) => {
+          const stage = block.querySelector('.tmt-block-mockup-stage')!.getBoundingClientRect();
+          const button = block.querySelector('tmt-ui-button button')!.getBoundingClientRect();
+          return stage.bottom - button.bottom;
+        }),
+      ).toBeGreaterThanOrEqual(12);
+      // Each mismatch names what differs and what to do, in the shared notice where the stage was.
+      for (const [id, heading, says] of [
+        ['wrong-system', 'A different design system', 'asks for acme'],
+        ['wrong-lock', 'A different version', 'follows the tmt-gui draft'],
+        ['wrong-hash', 'A different release hash', 'another hash'],
+      ]) {
         const block = frame.locator(`#${id}`);
-        await expect(block.getByRole('status')).toContainText('This page uses tmt-gui@0.1.0');
+        const notice = block.getByRole('status');
+        await expect(notice.getByRole('heading', { name: heading })).toBeVisible();
+        await expect(notice).toContainText(says!);
+        await expect(notice).toContainText('tmt-gui@0.1.0');
+        await expect(notice).toContainText(/open the page|leave the lock out|Use the page/);
         await expect(block.locator('[data-tmt-ds-scope]')).toHaveCount(0);
       }
       if (captureDir)

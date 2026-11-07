@@ -130,9 +130,14 @@ test('mockup stages accept the page pin and explain mismatched systems and locks
   await expect(
     frame.locator('#matching-hash').getByRole('button', { name: 'Matching hash' }),
   ).toBeVisible();
-  for (const id of ['wrong-system', 'wrong-lock', 'wrong-hash']) {
+  for (const [id, heading] of [
+    ['wrong-system', 'A different design system'],
+    ['wrong-lock', 'A different version'],
+    ['wrong-hash', 'A different release hash'],
+  ]) {
     const block = frame.locator(`#${id}`);
     await expect(block.getByRole('status')).toContainText('tmt-gui@0.1.0');
+    await expect(block.getByRole('heading', { name: heading })).toBeVisible();
     await expect(block.locator('[data-tmt-ds-scope]')).toHaveCount(0);
   }
   await frame
@@ -207,7 +212,7 @@ test('verified custom-prefix components receive only their declared data', async
   await expect(frame.getByText('Custom work')).toBeVisible();
   await expect(frame.locator('#draft').getByRole('button', { name: 'Draft stage' })).toBeVisible();
   await expect(frame.locator('#locked').getByRole('status')).toContainText(
-    'acme@0.1.0 (following draft)',
+    'this page follows the acme draft',
   );
   await expect(frame.locator('#locked').locator('[data-tmt-ds-scope]')).toHaveCount(0);
   expect(

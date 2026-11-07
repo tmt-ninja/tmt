@@ -6,10 +6,39 @@ export default ({ React, ui, pagePin }) =>
     const lock = props.lock || pagePin.lock;
     const matchesLock =
       lock === pagePin.lock || (pagePin.lock !== 'follow' && lock === pagePin.version);
-    const unavailable =
-      system !== pagePin.system || !matchesLock
-        ? `This page uses ${pagePin.system}@${pagePin.version}${pagePin.lock === 'follow' ? ' (following draft)' : ''}. The requested mockup system or version is unavailable.`
-        : false;
+    const following = pagePin.lock === 'follow';
+    const page = `${pagePin.system}@${pagePin.version}${following ? ' (following its draft)' : ''}`;
+    // The notice names what differs and what to do about it; nothing about the page beyond its
+    // own pin is revealed.
+    let unavailable = false;
+    if (system !== pagePin.system)
+      unavailable = {
+        heading: 'A different design system',
+        message: `This stage asks for ${system}, but this page uses ${page}. Change the stage to use ${pagePin.system}, or open the page with ${system}.`,
+      };
+    else if (!matchesLock) {
+      const [version] = lock.split('#');
+      if (lock === 'follow')
+        unavailable = {
+          heading: 'A different version',
+          message: `This stage follows the ${system} draft, but this page is locked to ${page}. Lock the stage to ${pagePin.version}, or open the page following the draft.`,
+        };
+      else if (following)
+        unavailable = {
+          heading: 'A different version',
+          message: `This stage is locked to ${version}, but this page follows the ${system} draft. Leave the lock out so the stage follows the draft too, or open the page locked to ${version}.`,
+        };
+      else if (version !== pagePin.version)
+        unavailable = {
+          heading: 'A different version',
+          message: `This stage is locked to ${version}, but this page is locked to ${pagePin.version}. Use ${pagePin.version} for the stage, or open the page locked to ${version}.`,
+        };
+      else
+        unavailable = {
+          heading: 'A different release hash',
+          message: `This stage names ${version} with another hash than this page's ${page}, so it is not the same release. Use the page's lock for the stage, or leave the lock out.`,
+        };
+    }
     const width =
       props.preset === '1440'
         ? 1440

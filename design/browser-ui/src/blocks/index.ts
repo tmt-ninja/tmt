@@ -65,7 +65,7 @@ export type {
   WorkBundleSource,
 } from './work-bundle.js';
 export { MockupBlock } from './mockup-block.js';
-export type { MockupBlockProps, MockupLabels } from './mockup-block.js';
+export type { MockupBlockProps, MockupLabels, MockupUnavailable } from './mockup-block.js';
 export { PageViewToolbar } from './page-view-toolbar.js';
 export type { PageViewColumn, PageViewFilter, PageViewToolbarProps } from './page-view-toolbar.js';
 export { PageView } from './page-view.js';
