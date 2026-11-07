@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
-import { Fold, decodeBudgetMs } from '../src/fold.js';
+import { Fold, decodeBudgetMs, withinStateBytes } from '../src/fold.js';
 import {
   WRITE_TAIL_BYTES,
+  STATE_BYTES,
   validateProjection,
   sameContent,
   type DecoderCommand,
@@ -12,6 +13,29 @@ import { contentBase } from './content-base.js';
 import shellVectors from '../../../contracts/vectors/shell-v1.json';
 import workVectors from '../../../contracts/vectors/work-v2.json';
 import * as Y from 'yjs';
+
+it('bounds serialized state exactly across escaped Unicode and the byte limit', () => {
+  const encode = new TextEncoder();
+  const exact = (value: { source: string; padding: string }) =>
+    encode.encode(JSON.stringify(value)).length <= STATE_BYTES;
+  for (const source of [
+    'ordinary source',
+    '\u0000\n"\\'.repeat(512),
+    '😀é\ud800'.repeat(512),
+    'x'.repeat(2 * 1024 * 1024),
+  ]) {
+    const small = { source, padding: 'metadata' };
+    expect(withinStateBytes(small)).toBe(exact(small));
+  }
+  // Exercise the exact fallback just below, on and above the 24 MiB boundary.
+  const source = '\u0000😀\ud800"\\'.repeat(64);
+  const base = encode.encode(JSON.stringify({ source, padding: '' })).length;
+  const padding = 'x'.repeat(STATE_BYTES - base);
+  for (const value of [padding.slice(1), padding, `${padding}x`]) {
+    const projection = { source, padding: value };
+    expect(withinStateBytes(projection)).toBe(exact(projection));
+  }
+});
 
 it('validates structured shell projections with the shared corpus and refuses HTML replacement', () => {
   for (const fixture of shellVectors.cases) {

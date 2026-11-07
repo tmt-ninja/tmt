@@ -876,6 +876,16 @@
             if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
             scheduleScheme();
           };
+          let updateGeometryFrame;
+          const scheduleUpdateGeometry = () => {
+            if (stopped || updateGeometryFrame !== undefined) return;
+            updateGeometryFrame = requestAnimationFrame(() => {
+              updateGeometryFrame = undefined;
+              clearTimeout(heightTimer);
+              measureHeight();
+              capture();
+            });
+          };
           const paintObserver = new MutationObserver(scheduleScheme);
           matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleScheme);
           const sizeObserver = new ResizeObserver(() => {
@@ -1377,11 +1387,21 @@
               '*',
             );
           }
+          const scheduleCapture = () => {
+            if (selectionFrame !== undefined) return;
+            selectionFrame = requestAnimationFrame(() => {
+              selectionFrame = undefined;
+              capture();
+            });
+          };
+          const resetGesture = () => {
+            pointerSelecting = false;
+            keyboardSelecting = false;
+          };
           // Gesture endpoints can arrive outside this frame (focus loss or a released drag).
           // Always let the next selection report through, even when its matching up event was lost.
           const endGesture = () => {
-            pointerSelecting = false;
-            keyboardSelecting = false;
+            resetGesture();
             return capture();
           };
           const selectionChanged = () => {
@@ -1392,11 +1412,7 @@
               endGesture();
               return;
             }
-            if (selectionFrame !== undefined) return;
-            selectionFrame = requestAnimationFrame(() => {
-              selectionFrame = undefined;
-              capture();
-            });
+            scheduleCapture();
           };
           const startSelection = (event) => {
             if (!event.isTrusted || event.button !== 0) return;
@@ -2491,8 +2507,10 @@
               // parsed ones take their place, so the bound body stays the parse of the source.
               const replaced = document.createDocumentFragment();
               const next = boundBody.childNodes[plan.to] ?? null;
-              for (const node of [...boundBody.childNodes].slice(plan.from, plan.to))
-                replaced.append(node);
+              // childNodes is live: removing the first node advances the changed run. Avoid
+              // copying every bound node when a small edit is near the end of a large page.
+              for (let index = plan.from; index < plan.to; index++)
+                replaced.append(boundBody.childNodes[plan.from]);
               morphPage(
                 document.body,
                 doc.body,
@@ -2521,9 +2539,11 @@
             boundSource = source;
             prepareLockQuotes();
             resolve();
-            measureHeight();
+            // Measure height and the retained selection together at the next paint, outside the
+            // source message task, before the frame can display outdated geometry.
             measureScheme();
-            endGesture();
+            resetGesture();
+            scheduleUpdateGeometry();
             return true;
           }
           port.onmessage = (event) => {
@@ -3247,6 +3267,7 @@
               clearTimeout(heightTimer);
               clearTimeout(schemeTimer);
               cancelAnimationFrame(selectionFrame);
+              cancelAnimationFrame(updateGeometryFrame);
               sizeObserver.disconnect();
               paintObserver.disconnect();
               observer.disconnect();

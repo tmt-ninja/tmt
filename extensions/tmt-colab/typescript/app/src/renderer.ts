@@ -160,6 +160,9 @@ export interface RenderSnapshot {
 
 /** SHA-256 of the exact source UTF-8 bytes, which bind and every in-place update carry. */
 async function digestSource(source: string): Promise<string> {
+  // Encoding a large page can take a full frame. Start it in a separate task from React's
+  // update/commit so its cost cannot turn the preceding page update into a long task.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const bytes = new TextEncoder().encode(source);
   if (bytes.byteLength > MAX_RENDER_SOURCE_BYTES) throw new Error('Page exceeds preview limit');
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -334,6 +337,7 @@ export async function mountRenderer(
   const readyWaiters: (() => void)[] = [];
   let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let updates = 0;
+  let updateHeightPending = false;
   let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
   const images = (input: DocumentImageInput) => {
@@ -612,8 +616,13 @@ export async function mountRenderer(
         if (innerScroll) return;
         pendingHeight = Math.min(MAX_RENDER_HEIGHT, Math.ceil(value.height));
         const remaining = HEIGHT_UPDATE_MS - (performance.now() - updatedAt);
-        if (remaining <= 0) applyHeight();
-        else if (heightTimer === undefined) heightTimer = setTimeout(applyHeight, remaining);
+        // Admit the first report after a source update promptly, then resume the normal throttle.
+        const updateHeight = updateHeightPending;
+        updateHeightPending = false;
+        if (remaining <= 0 || updateHeight) {
+          clearTimeout(heightTimer);
+          applyHeight();
+        } else if (heightTimer === undefined) heightTimer = setTimeout(applyHeight, remaining);
         return;
       }
       if (
@@ -1723,6 +1732,7 @@ export async function mountRenderer(
         resolve(result);
       };
       pendingUpdate = { requestId, settle };
+      updateHeightPending = true;
       try {
         channel.port1.postMessage({
           type: 'colab.render.source',

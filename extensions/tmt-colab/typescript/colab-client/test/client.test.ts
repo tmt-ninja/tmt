@@ -154,6 +154,9 @@ describe('colab browser values and immutable crypto', () => {
     });
     for (const binary of ['Zg=', 'Zh', '+w', '_w==']) expect(() => c.binary(binary, 32)).toThrow();
     expect(() => c.text('\ud800')).toThrow();
+    expect(() => c.text('\udc00')).toThrow();
+    expect(() => c.text('a\ud800b')).toThrow();
+    expect(c.text('a🌍b')).toEqual(new TextEncoder().encode('a🌍b'));
     expect(() => c.time(-0)).toThrow();
     expect(() =>
       c.idList(['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002']),

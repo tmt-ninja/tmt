@@ -49,6 +49,33 @@ async function render(page: Page, source: string, served: unknown = bundle, layo
   return page.frameLocator('#probe iframe');
 }
 
+test('a pinned frame reports settlement once per render', async ({ page }) => {
+  await page.addInitScript(() => {
+    const settled: string[] = [];
+    Object.assign(window, { settledRenders: settled });
+    addEventListener('message', (event) => {
+      if (event.data?.type === 'colab.render.settled') settled.push(event.data.renderId);
+    });
+  });
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}"><p id="content">Before</p><tmt-ui-button>Save</tmt-ui-button>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+  const renderId = await page.locator('#probe iframe').getAttribute('data-render-id');
+  const settled = () =>
+    page.evaluate(() => (window as unknown as { settledRenders: string[] }).settledRenders);
+  await expect.poll(settled).toEqual([renderId]);
+  await frame.getByRole('button', { name: 'Save' }).click();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  expect(await settled()).toEqual([renderId]);
+});
+
 test('a pinned page draws its components with their props, slots and tokens', async ({ page }) => {
   const frame = await mount(
     page,

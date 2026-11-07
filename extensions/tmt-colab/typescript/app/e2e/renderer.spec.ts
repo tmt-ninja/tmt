@@ -1464,6 +1464,43 @@ for (const backward of [false, true])
     await page.mouse.up();
   });
 
+test('an in-place update refreshes the retained selection rectangle', async ({ page }) => {
+  await page.goto('/');
+  const source =
+    '<p id="before" style="height:20px">Before</p><p id="quote">Select these words</p>';
+  await mount(page, source);
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((item) => item.url().endsWith('/renderer.html'))!;
+  await frame.locator('#quote').evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  const probe = page.locator('#probe');
+  await expect(probe).toHaveAttribute('data-selection', 'Select these words');
+  const before = JSON.parse((await probe.getAttribute('data-rectangle'))!) as { y: number };
+  const result = await page.evaluate(
+    async (updated) => {
+      const probe = (
+        window as unknown as { probe: { handle: { update(value: string): Promise<string> } } }
+      ).probe;
+      return probe.handle.update(updated);
+    },
+    source.replace('height:20px', 'height:80px'),
+  );
+  expect(result).toBe('applied');
+  await expect(probe).toHaveAttribute('data-selection', 'Select these words');
+  await expect
+    .poll(async () => {
+      const value = await probe.getAttribute('data-rectangle');
+      return value ? (JSON.parse(value) as { y: number }).y : 0;
+    })
+    .toBeGreaterThan(before.y + 50);
+});
+
 test('keyboard selection waits for key release; C annotates a completed selection or toggles mode with editing guards', async ({
   page,
 }) => {

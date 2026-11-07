@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Frame, type Page } from '@playwright/test';
 
 /**
@@ -95,6 +96,86 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   await expect(doc.locator('#para-5')).toHaveCSS('color', 'rgb(200, 0, 0)');
   await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);
   expect(await sameDocument(page)).toBe(true);
+});
+
+test('removing a run of sibling nodes preserves the following page and frame', async ({ page }) => {
+  const renderId = await open(page);
+  const doc = await frameDocument(page);
+  await run(
+    page,
+    'change',
+    long({ inserted: '<p id="first">One</p><p id="second">Two</p><p id="third">Three</p>' }),
+  );
+  await expect(doc.locator('#third')).toHaveText('Three');
+  await doc.locator('#para-1').evaluate((node) => Object.assign(window, { keptNode: node }));
+  await run(page, 'change', long());
+  await expect(doc.locator('#first, #second, #third')).toHaveCount(0);
+  await expect(doc.locator('#para-1')).toContainText('Paragraph 1');
+  expect(
+    await doc
+      .locator('#para-1')
+      .evaluate((node) => node === (window as unknown as { keptNode: Node }).keptNode),
+  ).toBe(true);
+  await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);
+});
+
+test('in-place updates report frame growth and shrinkage', async ({ page }) => {
+  const renderId = await open(page);
+  const element = iframe(page);
+  const height = async () => (await element.boundingBox())?.height ?? 0;
+  await expect.poll(height).toBeGreaterThan(4000);
+  const before = await height();
+  await run(page, 'change', long({ extra: '<div id="tall" style="height:500px"></div>' }));
+  await expect(frame(page).locator('#tall')).toBeVisible();
+  await expect.poll(height).toBeGreaterThan(before + 450);
+  await expect(element).toHaveAttribute('data-render-id', renderId!);
+  await run(page, 'change', long());
+  await expect(frame(page).locator('#tall')).toHaveCount(0);
+  await expect.poll(async () => Math.abs((await height()) - before)).toBeLessThan(3);
+  await expect(element).toHaveAttribute('data-render-id', renderId!);
+});
+
+test('a selected block and frame height stay aligned as an in-place update paints', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount');
+  const element = iframe(page);
+  const content = frame(page);
+  const before =
+    '<div id="shift" style="height:0px"></div><p id="selected">Exact selected text</p><div style="height:1100px"></div>';
+  await run(page, 'change', before);
+  await expect.poll(async () => (await element.boundingBox())?.height ?? 0).toBeGreaterThan(1100);
+  const quote = content.locator('#selected');
+  await quote.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  const action = page.getByTestId('selection-ask');
+  await expect(action).toBeVisible();
+  const actionBefore = (await action.boundingBox())!;
+  const heightBefore = (await element.boundingBox())!.height;
+  await run(page, 'change', before.replace('height:0px', 'height:180px'));
+  await expect(content.locator('#shift')).toHaveAttribute('style', 'height:180px');
+  const captureDir = process.env.COLAB_UPDATE_CAPTURE_DIR;
+  if (captureDir) mkdirSync(captureDir, { recursive: true });
+  // Capture the first rendered state after the changed block arrives, before waiting for geometry.
+  await page.screenshot(captureDir ? { path: `${captureDir}/selection-mid-update-1440.png` } : {});
+  expect((await element.boundingBox())!.height).toBeGreaterThan(heightBefore + 150);
+  expect((await action.boundingBox())!.y).toBeGreaterThan(actionBefore.y + 150);
+  await run(page, 'change', before);
+  await expect(content.locator('#shift')).toHaveAttribute('style', 'height:0px');
+  await expect
+    .poll(async () => Math.abs((await element.boundingBox())!.height - heightBefore))
+    .toBeLessThan(3);
+  await expect
+    .poll(async () => Math.abs((await action.boundingBox())!.y - actionBefore.y))
+    .toBeLessThan(3);
 });
 
 test('an edit next to a question places its slot again in the same frame', async ({ page }) => {
