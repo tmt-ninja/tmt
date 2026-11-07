@@ -360,6 +360,7 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "proof",
             "--layout",
@@ -573,6 +574,7 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "proof",
             "--layout",
@@ -854,6 +856,7 @@ fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local()
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "proof",
             "--layout",
@@ -1003,6 +1006,7 @@ fn a_link_holder_enrolls_by_the_links_token_and_is_removed_with_the_link() {
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "proof",
             "--layout",
@@ -1232,6 +1236,7 @@ fn a_new_epochs_baseline_reaches_the_cloud_before_its_wraps_and_a_link_holder_re
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "proof",
             "--layout",

@@ -13843,6 +13843,7 @@ fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() 
         let copy = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "Copy",
             "--layout",
