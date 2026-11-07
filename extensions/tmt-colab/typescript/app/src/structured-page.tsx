@@ -212,24 +212,36 @@ function Content({
   onKey,
   ...rest
 }: StructuredPageProps & { block: BlockRecord }): ReactNode {
-  const text =
-    editing?.id === block.id ? (
-      <BlockTextEditor
-        label={blockLabel(block)}
-        text={editing.text}
-        caret={editing.caret}
-        version={editing.version}
-        onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
-        onKey={(event, value, caret, collapsed) =>
-          onKey?.(block.id, event, value, caret, collapsed) ?? false
-        }
-      />
-    ) : (
-      block.text
-    );
+  // Only the block being typed in shows its placeholder: an empty block at rest reads as space.
+  const typing = editing?.id === block.id;
+  const placeholder =
+    block.type === 'paragraph'
+      ? strings.blockText.paragraph
+      : block.type === 'heading'
+        ? strings.blockText.heading
+        : undefined;
+  const text = typing ? (
+    <BlockTextEditor
+      label={blockLabel(block)}
+      text={editing.text}
+      caret={editing.caret}
+      version={editing.version}
+      placeholder={placeholder}
+      onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
+      onKey={(event, value, caret, collapsed) =>
+        onKey?.(block.id, event, value, caret, collapsed) ?? false
+      }
+    />
+  ) : (
+    block.text
+  );
   switch (block.type) {
     case 'heading':
-      return <HeadingBlock level={headingLevel(block)}>{text}</HeadingBlock>;
+      return (
+        <HeadingBlock level={headingLevel(block)} placeholder="">
+          {text}
+        </HeadingBlock>
+      );
     case 'list':
       return <ListItemBlock>{text}</ListItemBlock>;
     case 'todo':
@@ -269,7 +281,7 @@ function Content({
       );
     case 'paragraph':
     case 'code':
-      return <TextBlock>{text}</TextBlock>;
+      return <TextBlock placeholder="">{text}</TextBlock>;
     default:
       // Drawn by a later step (question, image, mockup, work bundle, page view).
       return <TextBlock tone="muted">{block.type}</TextBlock>;

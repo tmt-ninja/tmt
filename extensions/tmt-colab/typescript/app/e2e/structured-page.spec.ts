@@ -101,7 +101,14 @@ test('/ in an empty paragraph opens the insert menu, which filters and inserts',
   page,
 }) => {
   const host = await mountFixture(page);
+  // An empty paragraph at rest reads as space; only the focused one shows its placeholder.
+  const drawn = () =>
+    host
+      .locator('[data-block-id="e"] [data-slot="text-block"]')
+      .evaluate((node) => getComputedStyle(node, '::before').content);
+  expect(['none', 'normal', '""']).toContain(await drawn());
   await host.locator('[data-block-id="e"]').click();
+  await expect(host.locator('[data-block-id="e"]')).toContainText('Type / for blocks');
   const editor = host.locator('[data-block-id="e"] [contenteditable="true"]');
   await editor.press('/');
   const menu = page.getByRole('listbox', { name: 'Insert a block' });
