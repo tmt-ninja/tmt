@@ -366,7 +366,14 @@ fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
             if std::mem::take(&mut state.0) {
                 state.1 = true;
                 opened.notify_all();
-                drop(opened.wait_while(state, |state| state.1).unwrap());
+                let (state, waited) = opened
+                    .wait_timeout_while(state, Duration::from_secs(10), |state| state.1)
+                    .unwrap();
+                drop(state);
+                assert!(
+                    !waited.timed_out(),
+                    "timed out: the test opening the held publish"
+                );
             }
         }
         answer.answer(call, id)
@@ -379,10 +386,15 @@ fn a_page_left_for_another_reaches_the_cloud_without_another_touch() {
     let (lock, opened) = &*gate;
     lock.lock().unwrap().0 = true;
     rig.activity.touch(page(THIRD, 1));
-    drop(
-        opened
-            .wait_while(lock.lock().unwrap(), |state| !state.1)
-            .unwrap(),
+    let (state, waited) = opened
+        .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(10), |state| {
+            !state.1
+        })
+        .unwrap();
+    drop(state);
+    assert!(
+        !waited.timed_out(),
+        "timed out: the third page's publish to be held"
     );
     // While C is in flight: a later edit of A, then B becomes active.
     edits.lock().unwrap().insert(FIRST.into(), 2);
