@@ -10,6 +10,9 @@ const DRAG_PX = 4;
 export interface Drag {
   id: string;
   target?: DropTarget;
+  /** The pointer, in viewport pixels, where the ghost follows it. */
+  x: number;
+  y: number;
 }
 
 /**
@@ -50,7 +53,12 @@ export function useBlockDrag(
       if (!at) return;
       if (!at.moved && Math.abs(event.pageY - at.y) < DRAG_PX) return;
       at.moved = true;
-      setDrag({ id: at.id, target: dropTarget(treeRef.current, boxes(), event.pageY, at.id) });
+      setDrag({
+        id: at.id,
+        target: dropTarget(treeRef.current, boxes(), event.pageY, at.id),
+        x: event.clientX,
+        y: event.clientY,
+      });
     };
     const release = (event: globalThis.PointerEvent) => {
       const at = press.current;

@@ -4,6 +4,7 @@ import {
   blockActions,
   BlockDocument,
   BlockDropLine,
+  BlockGhost,
   BlockHandle,
   BlockMenu,
   BlockMenuEmpty,
@@ -141,6 +142,7 @@ export function StructuredPage(props: StructuredPageProps) {
         {drag?.target && drag.target.parent === PAGE_PARENT && !drag.target.lineBefore && (
           <BlockDropLine />
         )}
+        {drag && <DragGhost drag={drag} tree={props.tree} root={root.current} />}
       </BlockDocument>
       {props.toast && (
         <div className="tmt-block-toast-place" key={props.toast.id}>
@@ -224,6 +226,29 @@ function Blocks({
       )}
     </Block>,
   ]);
+}
+
+/** The dragged block under the pointer: its opening text (else its type), as the design system's
+ * ghost.
+ * It sits in the document body, which positions it. */
+function DragGhost({
+  drag,
+  tree,
+  root,
+}: {
+  drag: Drag;
+  tree: BlockTree;
+  root: HTMLElement | null;
+}) {
+  const block = tree.get(drag.id);
+  const body = root?.querySelector<HTMLElement>('.tmt-block-doc-body');
+  if (!block || !body) return null;
+  const box = body.getBoundingClientRect();
+  return (
+    <BlockGhost style={{ left: drag.x - box.left + 12, top: drag.y - box.top + 12 }}>
+      <span className="tmt-block-ghost-line">{(block.text ?? '').trim() || block.type}</span>
+    </BlockGhost>
+  );
 }
 
 /** The block menu from the handle's ⋯ or the menu key: the design system's block actions this
