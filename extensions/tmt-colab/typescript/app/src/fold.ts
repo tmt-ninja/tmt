@@ -54,6 +54,17 @@ export type DecoderUnavailableReason =
   | 'Decoder unavailable: post failed';
 type DecoderCloseReason = Exclude<DecoderUnavailableReason, 'Decoder unavailable: busy'>;
 
+/** Preserve the exact JSON byte limit without serializing a large source when a conservative
+ * bound already proves the complete state fits. JSON encodes each UTF-16 code unit in at most
+ * six UTF-8 bytes; the empty source's quotes are already counted in the remaining JSON.
+ * Near the limit, measure the original JSON exactly. */
+export function withinStateBytes<T extends { source: string }>(value: T): boolean {
+  const encoder = new TextEncoder();
+  const rest = encoder.encode(JSON.stringify({ ...value, source: '' })).length;
+  if (rest + value.source.length * 6 <= STATE_BYTES) return true;
+  return encoder.encode(JSON.stringify(value)).length <= STATE_BYTES;
+}
+
 /** Decoder output is checked again by the authority-holding parent. Failure
  * terminates the Worker and flags the binding; callers must resync from scratch. */
 export class Fold {
@@ -115,7 +126,7 @@ export class Fold {
           validateOwn(value.projection.own);
           if (
             !sameContent(value.projection, this.#pending.expected) ||
-            new TextEncoder().encode(JSON.stringify(value.projection)).length > STATE_BYTES
+            !withinStateBytes(value.projection)
           )
             throw new Error('Content preparation projection mismatch');
           if (value.kind === 'updates') validateContentUpdates(value.updates);
@@ -164,27 +175,25 @@ export class Fold {
             Object.keys(value.own).every((writer) => this.#pending!.writers.has(writer)),
         );
         if (
-          new TextEncoder().encode(
-            JSON.stringify({
-              source: value.source,
-              title: value.title,
-              publisherAgent: value.publisherAgent,
-              originalAuthor: value.originalAuthor,
-              layout: value.layout,
-              layoutReason: value.layoutReason,
-              creationRecipient: value.creationRecipient,
-              creator: value.creator,
-              questions: value.questions,
-              template: value.template,
-              fromTemplate: value.fromTemplate,
-              attachments: value.attachments,
-              pageType: value.pageType,
-              shell: value.shell,
-              work: value.work,
-              pageState: value.pageState,
-              own: value.own,
-            }),
-          ).length > STATE_BYTES
+          !withinStateBytes({
+            source: value.source,
+            title: value.title,
+            publisherAgent: value.publisherAgent,
+            originalAuthor: value.originalAuthor,
+            layout: value.layout,
+            layoutReason: value.layoutReason,
+            creationRecipient: value.creationRecipient,
+            creator: value.creator,
+            questions: value.questions,
+            template: value.template,
+            fromTemplate: value.fromTemplate,
+            attachments: value.attachments,
+            pageType: value.pageType,
+            shell: value.shell,
+            work: value.work,
+            pageState: value.pageState,
+            own: value.own,
+          })
         )
           throw new Error('Decoder projection capacity');
         if (!(value.update instanceof Uint8Array) || value.update.length > UPDATE_BYTES)
@@ -252,8 +261,7 @@ export class Fold {
     validateProjection(base);
     validateProjection({ ...base, source });
     validateOwn(base.own);
-    if (new TextEncoder().encode(JSON.stringify({ ...base, source })).length > STATE_BYTES)
-      throw new Error('Decoder input capacity');
+    if (!withinStateBytes({ ...base, source })) throw new Error('Decoder input capacity');
     return this.#run({
       type: 'prepare-content',
       source,
