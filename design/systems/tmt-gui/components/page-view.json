@@ -18,10 +18,11 @@
     "selectable": {"type": "boolean"}
   },
   "slots": ["default"],
-  "css": "page-view.css",
+  "css": "callout.css",
   "examples": [{
     "title": "Grouped pages",
     "markup": "<tmt-ui-page-view label=\"Spec pages\" rows='[{&quot;id&quot;:&quot;one&quot;,&quot;name&quot;:&quot;Structured pages&quot;,&quot;projects&quot;:[&quot;spec&quot;],&quot;stage&quot;:&quot;Awaiting decision&quot;,&quot;updated&quot;:&quot;Today&quot;,&quot;author&quot;:&quot;gui-lead&quot;},{&quot;id&quot;:&quot;two&quot;,&quot;name&quot;:&quot;Night plan&quot;,&quot;projects&quot;:[&quot;night&quot;],&quot;stage&quot;:&quot;In progress&quot;,&quot;updated&quot;:&quot;Yesterday&quot;,&quot;author&quot;:&quot;night-lead&quot;}]'></tmt-ui-page-view>",
     "widths": [1440, 390]
-  }]
+  }],
+  "uiParts": ["PageView"]
 }

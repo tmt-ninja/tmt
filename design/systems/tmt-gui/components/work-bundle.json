@@ -3,7 +3,6 @@
   "kind": "component",
   "tag": "work-bundle",
   "source": "work-bundle.js",
-  "requires": ["badge"],
   "data": ["page"],
   "props": {
     "page": {"type": "string"},
@@ -13,10 +12,11 @@
     "tickets": {"type": "string"}
   },
   "slots": ["default"],
-  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "css": "callout.css",
   "examples": [{
     "title": "A page and its work",
     "markup": "<tmt-ui-work-bundle page=\"example-page\" number=\"1\" work=\"Review the shared component.\"></tmt-ui-work-bundle>",
     "widths": [1440, 390]
-  }]
+  }],
+  "uiParts": ["WorkBundle"]
 }

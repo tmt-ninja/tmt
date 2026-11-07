@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { DsScope, UiTheme } from '../ui/index.js';
+import { BrowserNotice } from '../notice.js';
 
 export interface MockupBlockProps {
   system?: string;
@@ -8,8 +9,9 @@ export interface MockupBlockProps {
   /** The least stage height; the stage otherwise hugs its content. */
   height?: number;
   theme?: 'light' | 'dark' | 'viewer';
-  /** No stage: true, or the reason shown instead (a page pin that does not match). */
-  unavailable?: boolean | string;
+  /** No stage: true, or the reason shown instead (a page pin that does not match), as text or as
+   * a heading that names what differs plus the message that says what the viewer can do. */
+  unavailable?: boolean | string | MockupUnavailable;
   systems?: readonly { id: string; name: string; versions: readonly string[] }[];
   onSystemChange?(system: string): void;
   onVersionChange?(version: string): void;
@@ -17,6 +19,11 @@ export interface MockupBlockProps {
   /** The toolbar's segment words in the page's language; any one left out stays English. */
   labels?: MockupLabels;
   children?: ReactNode;
+}
+
+export interface MockupUnavailable {
+  heading: string;
+  message: string;
 }
 
 export interface MockupLabels {
@@ -198,11 +205,25 @@ export function MockupBlock({
             )}
           </div>
           {unavailable ? (
-            <p role="status">
-              {typeof unavailable === 'string'
-                ? unavailable
-                : 'This design system version is not available.'}
-            </p>
+            // The notice takes the stage's place, in the shared tinted notice (#5981).
+            <div className="tmt-block-mockup-notice">
+              <BrowserNotice
+                tone="waiting"
+                variant="tinted"
+                announcement="status"
+                mark="◆"
+                stateLabel="Stage not drawn"
+                title={typeof unavailable === 'object' ? unavailable.heading : undefined}
+                headingLevel="h3"
+                body={
+                  typeof unavailable === 'object'
+                    ? unavailable.message
+                    : typeof unavailable === 'string'
+                      ? unavailable
+                      : 'This design system version is not available.'
+                }
+              />
+            </div>
           ) : (
             <div
               className="tmt-block-mockup-viewport"

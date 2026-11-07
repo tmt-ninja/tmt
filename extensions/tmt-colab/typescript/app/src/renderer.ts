@@ -905,9 +905,13 @@ export async function mountRenderer(
           left + width > frame.clientWidth
         )
           return;
+        // The slot is in the frame's own coordinates; the list sits in the host beside the frame,
+        // so the frame's offset and its border are added. Whole pixels, rounded down the page: a
+        // fractional slot top would paint the list's first row over the last pixel row of the
+        // block above it.
         Object.assign(item.element.style, {
-          top: `${top}px`,
-          left: `${left}px`,
+          top: `${Math.ceil(frame.offsetTop + frame.clientTop + top)}px`,
+          left: `${frame.offsetLeft + frame.clientLeft + left}px`,
           width: `${width}px`,
           visibility: 'visible',
         });

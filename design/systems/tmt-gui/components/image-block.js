@@ -1,286 +1,47 @@
-export default ({ React, html }) =>
-  function ImageBlock(props) {
-    const read = (text) => {
-      try {
-        const value = JSON.parse(text || '[]');
-        return Array.isArray(value) ? value : [];
-      } catch {
-        return [];
-      }
-    };
-    const images = read(props.images)
-      .slice(0, 100)
-      .filter((item) => item && typeof item.src === 'string');
-    const files = read(props.files)
-      .slice(0, 100)
-      .filter((item) => item && typeof item.name === 'string');
-    const [index, setIndex] = React.useState(0);
-    const [open, setOpen] = React.useState(false);
-    const [zoom, setZoom] = React.useState(1);
-    const [failed, setFailed] = React.useState(new Set());
-    const opener = React.useRef(null);
-    const viewer = React.useRef(null);
-    const list = React.useRef(null);
-    const touch = React.useRef(null);
-    const at = Math.min(index, Math.max(0, images.length - 1));
-    const image = images[at];
-    const move = (delta) => {
-      const next = Math.max(0, Math.min(images.length - 1, at + delta));
-      setIndex(next);
-      if (!open && props.layout !== 'grid')
-        list.current?.children[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    };
-    const changeZoom = (value) => setZoom(Math.max(1, Math.min(4, value)));
-    const close = () => {
-      setOpen(false);
-    };
-    React.useEffect(() => {
-      const dialog = viewer.current;
-      if (!open || !dialog) return;
-      const boundary = dialog.closest('[data-tmt-ds-scope]') || dialog.ownerDocument.body;
-      const changed = [];
-      for (let node = dialog; node && node !== boundary; node = node.parentElement) {
-        for (const sibling of node.parentElement?.children || []) {
-          if (sibling !== node && !sibling.inert) {
-            sibling.inert = true;
-            changed.push(sibling);
-          }
-        }
-      }
-      dialog.focus();
-      return () => {
-        changed.forEach((node) => {
-          node.inert = false;
-        });
-        opener.current?.focus();
-      };
-    }, [open]);
-    const keys = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        close();
-      }
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        move(-1);
-      }
-      if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        move(1);
-      }
-      if (event.key === '+' || event.key === '=') {
-        event.preventDefault();
-        changeZoom(zoom + 0.25);
-      }
-      if (event.key === '-') {
-        event.preventDefault();
-        changeZoom(zoom - 0.25);
-      }
-      if (event.key === 'Tab') {
-        const controls = [
-          ...event.currentTarget.querySelectorAll('button:not([disabled]),a[href]'),
-        ];
-        if (!controls.length) {
-          event.preventDefault();
-          return;
-        }
-        const active = event.currentTarget.ownerDocument.activeElement;
-        const position = controls.indexOf(active);
-        if (event.shiftKey && position <= 0) {
-          event.preventDefault();
-          controls[controls.length - 1].focus();
-        } else if (!event.shiftKey && (position < 0 || position === controls.length - 1)) {
-          event.preventDefault();
-          controls[0].focus();
-        }
-      }
-    };
-    const start = (event) => {
-      const p = event.touches[0],
-        q = event.touches[1];
-      if (p)
-        touch.current = {
-          x: p.clientX,
-          y: p.clientY,
-          zoom,
-          ...(q ? { distance: Math.hypot(p.clientX - q.clientX, p.clientY - q.clientY) } : {}),
-        };
-    };
-    const drag = (event) => {
-      const p = event.touches[0],
-        q = event.touches[1],
-        initial = touch.current;
-      if (p && q && initial?.distance)
-        changeZoom(
-          (initial.zoom * Math.hypot(p.clientX - q.clientX, p.clientY - q.clientY)) /
-            initial.distance,
-        );
-    };
-    const end = (event) => {
-      const p = event.changedTouches[0],
-        initial = touch.current;
-      touch.current = null;
-      if (!p || !initial || initial.distance) return;
-      const x = p.clientX - initial.x,
-        y = p.clientY - initial.y;
-      if (Math.abs(x) > 50 && Math.abs(x) > Math.abs(y)) move(x < 0 ? 1 : -1);
-      else if (y > 80 && Math.abs(y) > Math.abs(x)) close();
-    };
-    return html`<section
-      className="tmt-image-block"
-      data-layout=${props.layout || 'carousel'}
-      data-size=${props.size || 'm'}
-      role="region"
-      aria-label=${props.variant === 'file' ? 'Files' : 'Images'}
-      aria-roledescription=${props.variant === 'file' ? undefined : 'carousel'}
-    >
-      ${props.variant === 'file' && files.length === 0 && html`<p>No files</p>`}
-      ${props.variant !== 'file' && images.length === 0 && html`<p>No images</p>`}
-      ${
-        props.variant !== 'file' &&
-        html`<div
-          className="tmt-image-block-list"
-          ref=${list}
-          onScroll=${(event) => {
-            if ((props.layout || 'carousel') !== 'carousel' || open) return;
-            const node = event.currentTarget;
-            let nearest = 0,
-              distance = Infinity;
-            [...node.children].forEach((child, i) => {
-              const next = Math.abs(
-                child.getBoundingClientRect().left - node.getBoundingClientRect().left,
-              );
-              if (next < distance) {
-                nearest = i;
-                distance = next;
-              }
-            });
-            setIndex(nearest);
-          }}
-        >
-          ${images.map(
-            (item, i) => html`<figure key=${i} hidden=${props.layout === 'single' && i !== at}>
-              ${
-                !item.alt
-                  ? html`<div role="alert">Image needs alt text.</div>`
-                  : item.status === 'loading'
-                    ? html`<span role="status">Loading image…</span>`
-                    : item.status === 'error'
-                      ? html`<div role="alert">Image failed to load</div>`
-                      : failed.has(i)
-                        ? html`<div role="alert">
-                            Image failed to load
-                            <button
-                              type="button"
-                              onClick=${() => {
-                                setFailed((old) => {
-                                  const next = new Set(old);
-                                  next.delete(i);
-                                  return next;
-                                });
-                              }}
-                            >
-                              Retry
-                            </button>
-                          </div>`
-                        : html`<button
-                            type="button"
-                            aria-label=${`Open ${item.alt}`}
-                            onClick=${(event) => {
-                              opener.current = event.currentTarget;
-                              setIndex(i);
-                              setZoom(1);
-                              setOpen(true);
-                            }}
-                          >
-                            <img
-                              src=${item.src}
-                              alt=${item.alt}
-                              onError=${() => {
-                                if (!item.src.startsWith('colab-attachment:'))
-                                  setFailed((old) => new Set([...old, i]));
-                              }}
-                            />
-                          </button>`
-              }
-              ${item.caption && html`<figcaption>${item.caption} ${item.tag || ''}</figcaption>`}
-            </figure>`,
-          )}
-        </div>`
-      }
-      ${
-        props.variant !== 'file' &&
-        images.length > 1 &&
-        props.layout !== 'grid' &&
-        html`<div className="tmt-image-block-controls">
-          <button type="button" disabled=${at === 0} onClick=${() => move(-1)}>
-            Previous image
-          </button>
-          <span aria-live="polite">${at + 1} / ${images.length}</span>
-          <button type="button" disabled=${at === images.length - 1} onClick=${() => move(1)}>
-            Next image
-          </button>
-        </div>`
-      }
-      ${
-        files.length > 0 &&
-        html`<div className="tmt-image-block-files">
-          ${files.map(
-            (file, i) => html`<div className="tmt-image-block-file" key=${i}>
-              ${file.href && /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(file.href) ? html`<a href=${file.href} download>${file.name}</a>` : html`<span>${file.name}</span>`}
-              <span>${file.type || ''} ${file.size || ''}</span>
-            </div>`,
-          )}
-        </div>`
-      }
-      ${
-        open &&
-        image &&
-        html`<div
-          className="tmt-image-block-viewer"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Image viewer"
-          tabindex="-1"
-          ref=${viewer}
-          onKeyDown=${keys}
-          onTouchStart=${start}
-          onTouchMove=${drag}
-          onTouchEnd=${end}
-        >
-          <div className="tmt-image-block-viewer-toolbar">
-            <button type="button" onClick=${close}>Close</button>
-            <button type="button" disabled=${at === 0} onClick=${() => move(-1)}>Previous</button>
-            <button type="button" disabled=${at === images.length - 1} onClick=${() => move(1)}>
-              Next
-            </button>
-            <button type="button" onClick=${() => changeZoom(zoom - 0.25)}>Zoom out</button>
-            <span>${Math.round(zoom * 100)}%</span
-            ><button type="button" onClick=${() => changeZoom(zoom + 0.25)}>Zoom in</button>
-            ${
-              /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
-                image.src,
-              )
-                ? html`<a
-                    href=${image.src}
-                    download=${image.filename || ''}
-                    aria-label=${`Download ${image.filename || image.alt}`}
-                    >Download</a
-                  >`
-                : html`<button type="button" disabled>Download</button>`
-            }
-          </div>
-          <div
-            className="tmt-image-block-viewer-canvas"
-            onWheel=${(event) => {
-              event.preventDefault();
-              changeZoom(zoom + (event.deltaY < 0 ? 0.25 : -0.25));
-            }}
-          >
-            <img src=${image.src} alt=${image.alt} style=${{ transform: `scale(${zoom})` }} />
-          </div>
-          ${image.caption && html`<p>${image.caption} ${image.tag || ''}</p>`}
-        </div>`
-      }
-    </section>`;
+// Runtime 4 supplies the real browser-ui ImageBlock. This tag only reads its attributes: the part
+// owns the carousel, the viewer and every look, so a page draws exactly what the docs draw.
+const reference = /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
+const list = (text) => {
+  try {
+    const value = JSON.parse(text || '[]');
+    return Array.isArray(value) ? value.slice(0, 100) : [];
+  } catch {
+    return [];
+  }
+};
+const text = (value) => (typeof value === 'string' ? value : undefined);
+const choose = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
+
+export default ({ React, ui }) =>
+  function ImageBlockTag(props) {
+    const images = list(props.images)
+      .filter((item) => item && typeof item.src === 'string')
+      .map((item) => ({
+        src: item.src,
+        alt: text(item.alt) ?? '',
+        caption: text(item.caption),
+        tag: text(item.tag),
+        filename: text(item.filename),
+        status: choose(item.status, ['loading', 'error'], undefined),
+        // The page runtime swaps an attachment reference for its image in place, so a load error
+        // before the swap is not a failure.
+        hostResolved: reference.test(item.src),
+        // A failed load can be tried again; a failure the page itself declared cannot.
+        onRetry: item.status === 'error' ? undefined : () => {},
+      }));
+    const files = list(props.files)
+      .filter((item) => item && typeof item.name === 'string')
+      .map((item) => ({
+        name: item.name,
+        size: text(item.size) ?? '',
+        type: text(item.type),
+        href: reference.test(item.href || '') ? item.href : undefined,
+      }));
+    return React.createElement(ui.ImageBlock, {
+      images,
+      files,
+      variant: choose(props.variant, ['image', 'file'], 'image'),
+      layout: choose(props.layout, ['carousel', 'grid', 'single'], 'carousel'),
+      size: choose(props.size, ['s', 'm', 'l'], 'm'),
+    });
   };

@@ -8,7 +8,7 @@ import {
   type WheelEvent,
 } from 'react';
 import { FileText } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle, UiTheme } from '../ui/index.js';
+import { Button, Dialog, DialogContent, DialogTitle, UiTheme } from '../ui/index.js';
 
 export interface BlockImage {
   src: string;
@@ -17,6 +17,9 @@ export interface BlockImage {
   tag?: string;
   status?: 'loading' | 'ready' | 'error';
   filename?: string;
+  /** The host swaps this source in place (an attachment it resolves), so a load error before the
+   * swap is not a failure. */
+  hostResolved?: boolean;
   onRetry?(): void;
 }
 export interface BlockFile {
@@ -183,8 +186,10 @@ export function ImageBlock({
                     <div role="alert">
                       ✗ Image failed to load{' '}
                       {image.onRetry && (
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="xs"
                           onClick={() => {
                             setFailed((old) => {
                               const next = new Set(old);
@@ -195,7 +200,7 @@ export function ImageBlock({
                           }}
                         >
                           Retry
-                        </button>
+                        </Button>
                       )}
                     </div>
                   ) : (
@@ -211,7 +216,10 @@ export function ImageBlock({
                         <img
                           src={image.src}
                           alt={image.alt}
-                          onError={() => setFailed((old) => new Set(old).add(image.src))}
+                          onError={() => {
+                            if (!image.hostResolved)
+                              setFailed((old) => new Set(old).add(image.src));
+                          }}
                         />
                       )}
                     </button>
@@ -224,27 +232,31 @@ export function ImageBlock({
                 </figure>
               ))}
             </div>
-            {images.length > 1 && (
+            {images.length > 1 && layout !== 'grid' && (
               <div className="tmt-block-image-controls">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   aria-label="Previous image"
                   disabled={index === 0}
                   onClick={() => move(-1)}
                 >
                   ←
-                </button>
+                </Button>
                 <span aria-live="polite">
                   {index + 1} / {images.length}
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   aria-label="Next image"
                   disabled={index >= images.length - 1}
                   onClick={() => move(1)}
                 >
                   →
-                </button>
+                </Button>
                 <span>{current?.caption}</span>
               </div>
             )}
@@ -295,52 +307,62 @@ export function ImageBlock({
               <div className="tmt-block-image-viewer-controls">
                 {images.length > 1 && (
                   <>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="icon-xs"
                       aria-label="Previous image"
                       disabled={index === 0}
                       onClick={() => move(-1)}
                     >
                       ←
-                    </button>
+                    </Button>
                     <span aria-live="polite">
                       {index + 1} / {images.length}
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="icon-xs"
                       aria-label="Next image"
                       disabled={index >= images.length - 1}
                       onClick={() => move(1)}
                     >
                       →
-                    </button>
+                    </Button>
                   </>
                 )}
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   aria-label="Zoom out"
                   disabled={zoom <= 1}
                   onClick={() => changeZoom(zoom - 0.25)}
                 >
                   −
-                </button>
+                </Button>
                 <span>{Math.round(zoom * 100)}%</span>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   aria-label="Zoom in"
                   disabled={zoom >= 4}
                   onClick={() => changeZoom(zoom + 0.25)}
                 >
                   +
-                </button>
+                </Button>
                 {current?.src && (
-                  <a
-                    href={current.src}
-                    download={current.filename || 'image'}
-                    aria-label={`Download ${current.filename || 'image'}`}
-                  >
-                    Download
-                  </a>
+                  <Button variant="outline" size="xs" asChild>
+                    <a
+                      href={current.src}
+                      download={current.filename || 'image'}
+                      aria-label={`Download ${current.filename || 'image'}`}
+                    >
+                      Download
+                    </a>
+                  </Button>
                 )}
               </div>
             </DialogContent>

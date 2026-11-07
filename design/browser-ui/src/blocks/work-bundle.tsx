@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, UiTheme } from '../ui/index.js';
 import { PageListProjectChip, PageListStageChip } from '../data-table/index.js';
+import { BrowserNotice } from '../notice.js';
 
 export interface WorkBundlePage {
   title: string;
@@ -24,6 +25,7 @@ export interface WorkBundleProps {
   data?: WorkBundlePage;
   state?: 'loading' | 'ready' | 'unavailable';
   onWorkChange?(value: string): void;
+  /** With it a ticket is a button the host answers; without it, a link the host's own link handling opens. */
   onOpenTicket?(ticket: WorkBundleTicket): void;
 }
 
@@ -105,7 +107,15 @@ export function WorkBundle({
               ) : available ? (
                 <a href={data.href}>{data.title}</a>
               ) : (
-                <span>Page not found</span>
+                // The page is gone or not shared: the shared muted notice, with the card's own work below.
+                <BrowserNotice
+                  tone="muted"
+                  announcement="status"
+                  mark="○"
+                  stateLabel="Page not found"
+                  body="It was deleted or is not shared with you. This card keeps its own work text."
+                  headingLevel="none"
+                />
               )}
               {available && (
                 <div className="tmt-block-work-meta">
@@ -145,18 +155,24 @@ export function WorkBundle({
           {tickets.length > 0 && (
             <div className="tmt-block-work-tickets">
               <span>GitHub</span>
-              {tickets.map((ticket) => (
-                <Button
-                  variant="outline"
-                  size="xs"
-                  type="button"
-                  key={ticket.href}
-                  disabled={!onOpenTicket}
-                  onClick={() => onOpenTicket?.(ticket)}
-                >
-                  {ticket.label}
-                </Button>
-              ))}
+              {tickets.map((ticket) =>
+                onOpenTicket ? (
+                  // A host that confirms or routes the open takes the click over.
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    type="button"
+                    key={ticket.href}
+                    onClick={() => onOpenTicket(ticket)}
+                  >
+                    {ticket.label}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="xs" asChild key={ticket.href}>
+                    <a href={ticket.href}>{ticket.label}</a>
+                  </Button>
+                ),
+              )}
             </div>
           )}
         </article>

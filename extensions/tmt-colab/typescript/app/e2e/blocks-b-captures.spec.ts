@@ -34,7 +34,7 @@ for (const width of [1440, 390])
         <tmt-ui-question-block label="Which screen should we build first?" agent="gui-lead" choices='["Insert menu","Block handle"]'></tmt-ui-question-block>
         <tmt-ui-image-block images='[{"src":"${image}","alt":"Screen","caption":"390 light","tag":"Review"}]'></tmt-ui-image-block>
         <tmt-ui-mockup-block height="200"><tmt-ui-button>Approve</tmt-ui-button></tmt-ui-mockup-block>
-        <tmt-ui-work-bundle page="allowed" work="Review the shared component."></tmt-ui-work-bundle>
+        <tmt-ui-work-bundle page="allowed" number="3" work="Review the shared component." tickets='[{"label":"#5972","href":"https://github.com/tmt-ninja/tmt/issues/5972"}]'></tmt-ui-work-bundle>
         <tmt-ui-page-view label="Spec pages"></tmt-ui-page-view>`;
         const renderer = await mountRenderer(host, source, {
           signal: new AbortController().signal,
@@ -140,13 +140,25 @@ for (const width of [1440, 390])
               );
             });
             await expect(
-              frame.getByRole('button', { name: 'Open Screen' }).locator('img'),
+              frame.getByRole('button', { name: 'Image 1: open viewer' }).locator('img'),
             ).toHaveAttribute('src', /^data:image\/png;base64,/);
           }
         }
       }
       const pageView = page.locator('[data-parent-page-view]');
       await expect(pageView.getByText('Structured pages')).toBeVisible();
+      // The card shows its number and tickets, and the list drawn over its slot starts below the
+      // card's last pixel row, never over its border.
+      await expect(frame.locator('.tmt-block-work-number')).toHaveText('3');
+      await expect(frame.getByRole('link', { name: '#5972' })).toBeVisible();
+      const cardBottom = await frame
+        .locator('article.tmt-block-work')
+        .evaluate((card) => card.getBoundingClientRect().bottom);
+      const frameTop = await page
+        .locator('iframe[title="Page content"]')
+        .evaluate((node) => node.getBoundingClientRect().top + node.clientTop);
+      const listTop = await pageView.evaluate((node) => node.getBoundingClientRect().top);
+      expect(listTop).toBeGreaterThanOrEqual(frameTop + cardBottom);
       await expect(frame.getByText('Shared page components')).toBeVisible();
       await frame.getByLabel('Other…').check();
       await frame.getByLabel('Other: your answer').fill('Show the list first');
@@ -154,8 +166,8 @@ for (const width of [1440, 390])
         await frame
           .locator('tmt-ui-question-block')
           .screenshot({ path: join(captureDir, `question-other-${width}-${theme}.png`) });
-      await frame.getByRole('button', { name: 'Open Screen' }).click();
-      const viewer = frame.getByRole('dialog', { name: 'Image viewer' });
+      await frame.getByRole('button', { name: 'Image 1: open viewer' }).click();
+      const viewer = frame.getByRole('dialog');
       await expect(viewer).toBeVisible();
       if (captureDir)
         await viewer.screenshot({ path: join(captureDir, `image-viewer-${width}-${theme}.png`) });
@@ -165,5 +177,199 @@ for (const width of [1440, 390])
         await pageView.screenshot({
           path: join(captureDir, `page-view-columns-${width}-${theme}.png`),
         });
+    });
+  }
+
+// #6176: the carousel's control row is the part's own, drawn by the shared block stylesheet, so a
+// page shows the controls the docs show: laid out in a row with a gap, never native buttons run
+// together.
+const swatch = (fill: string, label: string) =>
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${fill}"/><text x="24" y="96" font-size="28" font-family="sans-serif" fill="#222">${label}</text></svg>`,
+  );
+const carousel = ['#d3d3d3', '#c9d6ea', '#d9ead3', '#f4e1c1', '#e8d0e8', '#cfe8e8'].map(
+  (fill, index) => ({
+    src: swatch(fill, `Screen ${index + 1}`),
+    alt: `Screen ${index + 1}`,
+    caption: `Screen ${index + 1} of 6`,
+  }),
+);
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`the image block carousel controls are styled at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 700 });
+      await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
+      await page.goto('/');
+      await page.evaluate(
+        async ({ release, images }) => {
+          const path = '/src/renderer.ts';
+          const { mountRenderer } = await import(path);
+          const host = document.createElement('div');
+          host.style.width = '100%';
+          document.body.replaceChildren(host);
+          await mountRenderer(
+            host,
+            `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+            <tmt-ui-image-block images='${JSON.stringify(images)}'></tmt-ui-image-block>`,
+            {
+              signal: new AbortController().signal,
+              onState: () => {},
+              designSystem: {
+                release: async () => release,
+                draft: async () => release,
+                watch: () => () => {},
+              },
+            },
+          );
+          const frame = host.querySelector('iframe');
+          if (frame) frame.style.width = '100%';
+        },
+        { release: bundle, images: carousel },
+      );
+      const frame = page.frameLocator('iframe[title="Page content"]');
+      const block = frame.locator('tmt-ui-image-block');
+      const controls = block.locator('.tmt-block-image-controls');
+      await expect(controls).toBeVisible();
+      await expect(controls).toHaveCSS('display', 'flex');
+      await expect(controls).toHaveCSS('align-items', 'center');
+      await expect(controls).not.toHaveCSS('column-gap', /^(normal|0px)$/);
+      await expect(controls.getByText('1 / 6')).toBeVisible();
+      // The track scrolls inside the block: nothing makes the page itself scroll sideways.
+      const overflow = await frame.locator('html').evaluate((root) => {
+        const list = root.querySelector('.tmt-block-image-list')!;
+        const block = root.querySelector('tmt-ui-image-block')!.getBoundingClientRect();
+        return {
+          page: root.scrollWidth - root.clientWidth,
+          list: list.getBoundingClientRect().right - block.right,
+          scrolls: list.scrollWidth > list.clientWidth,
+        };
+      });
+      expect(overflow.page).toBeLessThanOrEqual(0);
+      expect(overflow.list).toBeLessThanOrEqual(0);
+      expect(overflow.scrolls).toBe(true);
+      // The arrows go on a phone, where the images scroll by touch; the count stays.
+      if (width === 1440) {
+        await controls.getByRole('button', { name: 'Next image' }).click();
+        await expect(controls.getByText('2 / 6')).toBeVisible();
+      }
+      if (captureDir)
+        await block.screenshot({ path: join(captureDir, `image-carousel-${width}-${theme}.png`) });
+    });
+  }
+
+// The spec page (838644c2) shows a grid without carousel controls, and an answered question keeps
+// its whole title while the answer takes the rest of the row.
+test('a grid has no carousel controls and an answered question keeps its title', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 700 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(
+    async ({ release, images }) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      host.style.width = '100%';
+      document.body.replaceChildren(host);
+      await mountRenderer(
+        host,
+        `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+        <tmt-ui-image-block layout="grid" size="s" images='${JSON.stringify(images)}'></tmt-ui-image-block>
+        <tmt-ui-question-block label="Which screen first?" agent="gui" state="answered" answer="${'A long answer. '.repeat(30)}"></tmt-ui-question-block>`,
+        {
+          signal: new AbortController().signal,
+          onState: () => {},
+          designSystem: {
+            release: async () => release,
+            draft: async () => release,
+            watch: () => () => {},
+          },
+        },
+      );
+      const frame = host.querySelector('iframe');
+      if (frame) frame.style.width = '100%';
+    },
+    { release: bundle, images: carousel },
+  );
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  await expect(frame.locator('tmt-ui-image-block img').first()).toBeVisible();
+  await expect(frame.locator('.tmt-block-image-controls')).toHaveCount(0);
+  const title = frame.locator('.tmt-block-question-answered span:nth-child(2)');
+  await expect(title).toHaveText('Which screen first?');
+  expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+});
+
+// The page pin: a stage that asks for another system or lock explains which one the page uses
+// and draws no stage; a matching one draws its filled content. Captured in both themes.
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`mockup stages show the page-pin notice beside a matching stage at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
+      await page.goto('/');
+      await page.evaluate(async (release) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        host.style.width = '100%';
+        document.body.replaceChildren(host);
+        const content = (label: string) =>
+          `<div style="display:grid;gap:12px;padding:16px"><tmt-ui-notice heading="Needs you" tone="waiting">${label}: approve the block menu before merging.</tmt-ui-notice><tmt-ui-button>Approve</tmt-ui-button></div>`;
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+          <tmt-ui-mockup-block id="matching" lock="0.1.0" preset="390" height="120">${content('Matching lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-system" system="acme" preset="390" height="120">${content('Other system')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-lock" lock="follow" preset="390" height="120">${content('Other lock')}</tmt-ui-mockup-block>
+          <tmt-ui-mockup-block id="wrong-hash" lock="0.1.0#sha256-wrong" preset="390" height="120">${content('Other hash')}</tmt-ui-mockup-block>`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+        const frame = host.querySelector('iframe');
+        if (frame) frame.style.width = '100%';
+      }, bundle);
+      const frame = page.frameLocator('iframe[title="Page content"]');
+      await expect(
+        frame.locator('#matching').getByRole('button', { name: 'Approve' }),
+      ).toBeVisible();
+      // The stage holds its content: its bottom edge is below the button's.
+      expect(
+        await frame.locator('#matching').evaluate((block) => {
+          const stage = block.querySelector('.tmt-block-mockup-stage')!.getBoundingClientRect();
+          const button = block.querySelector('tmt-ui-button button')!.getBoundingClientRect();
+          return stage.bottom - button.bottom;
+        }),
+      ).toBeGreaterThanOrEqual(12);
+      // Each mismatch names what differs and what to do, in the shared notice where the stage was.
+      for (const [id, heading, says] of [
+        ['wrong-system', 'A different design system', 'asks for acme'],
+        ['wrong-lock', 'A different version', 'follows the tmt-gui draft'],
+        ['wrong-hash', 'A different release hash', 'another hash'],
+      ]) {
+        const block = frame.locator(`#${id}`);
+        const notice = block.getByRole('status');
+        await expect(notice.getByRole('heading', { name: heading })).toBeVisible();
+        await expect(notice).toContainText(says!);
+        await expect(notice).toContainText('tmt-gui@0.1.0');
+        await expect(notice).toContainText(/open the page|leave the lock out|Use the page/);
+        await expect(block.locator('[data-tmt-ds-scope]')).toHaveCount(0);
+      }
+      if (captureDir)
+        await frame
+          .locator('body')
+          .screenshot({ path: join(captureDir, `mockup-pin-notice-${width}-${theme}.png`) });
     });
   }

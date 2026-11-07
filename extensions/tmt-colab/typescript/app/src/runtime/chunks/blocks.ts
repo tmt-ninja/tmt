@@ -19,6 +19,10 @@ import {
   BlockMention,
   BlockToast,
   MockupBlock,
+  QuestionBlock,
+  ImageBlock,
+  WorkBundle,
+  PageView,
 } from '@tmt/browser-ui/blocks';
 import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
 import * as React from 'react';
@@ -98,6 +102,10 @@ registerChunk('blocks', {
     BlockMention,
     BlockToast,
     MockupBlock,
+    QuestionBlock,
+    ImageBlock,
+    WorkBundle,
+    PageView,
   },
   parts: { PageListTable: SharedPageListTable },
 });
