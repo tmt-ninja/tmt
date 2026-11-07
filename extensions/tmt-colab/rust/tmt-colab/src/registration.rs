@@ -211,6 +211,9 @@ pub struct Registration {
     summaries: std::sync::Arc<crate::summary::SummaryCache>,
     /// How the background refresh opens its own read-only source; without it no summary is made.
     summary_source: Option<crate::page::save::SourceOpener>,
+    /// The page list token at a store write generation: a held read's idle check reuses it while
+    /// nothing was written, instead of digesting every page's fingerprint again.
+    list_token: std::cell::RefCell<Option<(crate::store::WriteGeneration, String)>>,
 }
 impl Registration {
     pub fn new(
@@ -234,6 +237,7 @@ impl Registration {
             save_source: None,
             summaries: Default::default(),
             summary_source: None,
+            list_token: Default::default(),
         })
     }
     /// The page's current epoch, to name it when the cloud worker is asked to look at it again.
@@ -353,14 +357,27 @@ impl Registration {
     }
     /// The page list's opaque change token (contract: Live page list): it moves when any page's
     /// fingerprint does, which is when its revision token does, and never otherwise.
+    /// While the store has no write since the last answer, the token is that answer's.
     pub fn page_list_token(&self, context: Option<&str>) -> std::result::Result<String, Code> {
         Context::parse(context)?;
-        self.store
+        let generation = self
+            .store
+            .write_generation()
+            .map_err(|error| map_error(error.into()))?;
+        if let Some((at, token)) = self.list_token.borrow().as_ref()
+            && *at == generation
+        {
+            return Ok(token.clone());
+        }
+        let token = self
+            .store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
                 tx.page_fingerprints()
             })
             .map_err(map_error)
-            .and_then(|fingerprints| list_token(&fingerprints))
+            .and_then(|fingerprints| list_token(&fingerprints))?;
+        *self.list_token.borrow_mut() = Some((generation, token.clone()));
+        Ok(token)
     }
     /// Complete cached chapter metadata. The owner read checks authority and the current
     /// fingerprint without subscribing, touching activity or decoding on this request path.

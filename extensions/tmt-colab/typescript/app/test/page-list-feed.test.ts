@@ -281,16 +281,18 @@ describe('one held read per browser (#6162)', () => {
     await vi.waitFor(() => expect(server.inFlight.held).toBe(0));
   });
 
-  it('a tab that becomes visible takes the lock from a hidden holder', async () => {
+  it('a tab that becomes visible takes the lock from a hidden holder and resumes its held read', async () => {
     const tabs = browser();
     const server = serve();
     const hidden = new PageListFeed(server.reads(), tabs.tab(0));
     const second = tabs.tab(1);
-    const visible = new PageListFeed(server.reads(), second);
+    const reads = server.reads();
+    const visible = new PageListFeed(reads, second);
     const stopHidden = hidden.watch(() => {});
     const heard: string[] = [];
     const stopVisible = visible.watch((latest) => heard.push(latest.get(PAGE_A)!));
     await vi.waitFor(() => expect(tabs.holder()).toBe(0));
+    await vi.waitFor(() => expect(heard.length).toBeGreaterThan(0));
     second.show();
     await vi.waitFor(() => expect(tabs.holder()).toBe(1));
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
@@ -298,9 +300,35 @@ describe('one held read per browser (#6162)', () => {
     await vi.waitFor(() => expect(heard.at(-1)).toBe(`v1:${'2'.padStart(64, '0')}`));
     // The stolen holder cancels its read as the new holder starts one: they overlap at most once.
     expect(server.inFlight.max).toBeLessThanOrEqual(2);
+    // The broadcast named the list's token: the new holder held on it, with no whole-list read.
+    expect(reads.list).not.toHaveBeenCalled();
+    expect(reads.held).toHaveBeenCalled();
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
     stopHidden();
     stopVisible();
+  });
+
+  it('tabs that open one by one, each taking the lock as it shows, all hear the next change', async () => {
+    // The acceptance's five tabs: each new tab is visible, so it steals the lock from the last.
+    const tabs = browser();
+    const server = serve();
+    const heard = new Map<number, string[]>();
+    const stops: (() => void)[] = [];
+    for (let index = 0; index < 5; index++) {
+      const tab = tabs.tab(index, true);
+      const feed = new PageListFeed(server.reads(), tab);
+      heard.set(index, []);
+      stops.push(feed.watch((latest) => heard.get(index)!.push(latest.get(PAGE_A)!)));
+      await vi.waitFor(() => expect(tabs.holder()).toBe(index));
+      await vi.waitFor(() => expect(heard.get(index)!.length).toBeGreaterThan(0));
+    }
+    await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
+    server.move();
+    const moved = `v1:${'2'.padStart(64, '0')}`;
+    await vi.waitFor(() =>
+      expect([...heard.entries()].filter(([, list]) => list.at(-1) !== moved)).toEqual([]),
+    );
+    for (const stop of stops) stop();
   });
 
   it('a listening tab ignores a malformed broadcast', async () => {
@@ -317,14 +345,32 @@ describe('one held read per browser (#6162)', () => {
     for (const data of [
       null,
       'revisions',
-      { v: 1, type: 'revisions', revisions: [['page-a', 'v1:' + '0'.repeat(64)]] },
+      {
+        v: 1,
+        type: 'revisions',
+        listToken: '0'.repeat(64),
+        revisions: [['page-a', 'v1:' + '0'.repeat(64)]],
+      },
+      // A list without its token, or with one the serve never makes.
       {
         v: 1,
         type: 'revisions',
         revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
+      },
+      {
+        v: 1,
+        type: 'revisions',
+        listToken: 'A'.repeat(64),
+        revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
+      },
+      {
+        v: 1,
+        type: 'revisions',
+        listToken: '0'.repeat(64),
+        revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
         extra: 1,
       },
-      { v: 2, type: 'revisions', revisions: [] },
+      { v: 2, type: 'revisions', listToken: '0'.repeat(64), revisions: [] },
     ])
       tabs.post(data);
     await new Promise((resolve) => setTimeout(resolve, 10));

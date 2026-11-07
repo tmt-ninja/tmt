@@ -39,7 +39,8 @@ import templateSections from '../../../../../design/systems/tmt-gui/generated/pa
 
 /** #5821 / epic #5866: design systems as ordinary pages, over an in-memory space whose pages
  * hold source, sub-pages and attachments the way the live bindings do. */
-function space() {
+/** `summaries` lists each page with the owner's fresh summary: its sub-page count and its parent. */
+function space({ summaries = false }: { summaries?: boolean } = {}) {
   const pages = new Map<
     string,
     {
@@ -128,6 +129,17 @@ function space() {
       },
     } as unknown as PageBinding;
   };
+  const summaryOf = (id: string) => {
+    const live = pages.get(id)!.order.filter((child) => !pages.get(child)!.archived);
+    const parent = [...pages].find(([, page]) => page.order.includes(id));
+    return {
+      comments: 0,
+      waiting: false,
+      needsYou: 0,
+      ...(live.length && { work: { stage: 'in-progress', done: 0, total: live.length } }),
+      ...(parent && { parent: { page: parent[0], index: parent[1].order.indexOf(id) } }),
+    };
+  };
   const transport = {
     watchPages: (changed: (latest: ReadonlyMap<string, string>) => void) => {
       listWatchers.add(changed);
@@ -157,6 +169,7 @@ function space() {
         sharing: 'private',
         projects: [...page.projects],
         ...(page.archived && { archived: true }),
+        ...(summaries && { summary: summaryOf(id) }),
       })),
     }),
     management: {
@@ -503,6 +516,51 @@ describe('template, publish and the renderer source', () => {
     for (const id of acmeTree) expect(opens.get(id), id).toBe(1);
   });
 
+  it('lists a tree from the owner list, opening only the root and pages the list cannot place', async () => {
+    const walked = space();
+    walked.make('Notes');
+    await createDesignSystem(walked.transport, { name: 'Acme', prefix: 'acme' });
+    const listed = space({ summaries: true });
+    listed.make('Notes');
+    const rootId = await createDesignSystem(listed.transport, { name: 'Acme', prefix: 'acme' });
+    const beta = await createDesignSystem(listed.transport, { name: 'Beta', prefix: 'beta' });
+    const opened: string[] = [];
+    // The owner orders its list its own way: here every sub-page comes before its root, and still
+    // only the roots are opened.
+    const counted = {
+      ...listed.transport,
+      spaceHome: async () => {
+        const value = await listed.transport.spaceHome();
+        return { ...value, pages: [...value.pages].reverse() };
+      },
+      page: (id: string) => (opened.push(id), listed.transport.page(id)),
+    } as PageTransport;
+    const system = (await listDesignSystems(counted)).systems.find((entry) => entry.id === rootId);
+    expect(opened).toEqual([beta, rootId]);
+    // The same tree as opening every page: titles, order, kinds and component tags.
+    expect(system!.tree).toEqual((await listDesignSystems(walked.transport)).systems[0]!.tree);
+    // A sub-page whose summary is not derived yet is opened, and only it.
+    const components = system!.tree.children[1]!;
+    const button = components.children.find((node) => node.tag === 'button')!;
+    const home = counted.spaceHome;
+    opened.length = 0;
+    const partial = {
+      ...counted,
+      spaceHome: async () => {
+        const value = await home();
+        return {
+          ...value,
+          pages: value.pages.map((page) =>
+            page.id === button.id ? { ...page, summary: undefined } : page,
+          ),
+        };
+      },
+    } as PageTransport;
+    const again = (await listDesignSystems(partial)).systems.find((entry) => entry.id === rootId);
+    expect(opened).toEqual([beta, rootId, components.id, button.id]);
+    expect(again!.tree).toEqual(system!.tree);
+  });
+
   it('lists systems with their tree for Design and hides them from the Colab list', async () => {
     const { make, transport } = space();
     const note = make('Notes');
@@ -647,6 +705,50 @@ describe('live draft (#5967)', () => {
     stop();
     expect(open.count).toBe(before);
     expect(listWatchers.size).toBe(0);
+  });
+
+  it('the next open page of a system reuses the docs the last one read, even its first draft (#6177)', async () => {
+    const { make, transport, open } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    // Each open page makes its own source; the first draft starts before the list has answered.
+    const first = pageDesignSystems(transport);
+    const stopFirst = first.watch(rootId, () => {});
+    const drawn = await first.draft(rootId);
+    stopFirst();
+    const opensBefore = open.total;
+    const next = pageDesignSystems(transport);
+    const stop = next.watch(rootId, () => {});
+    expect((await next.draft(rootId)).hash).toBe(drawn.hash);
+    // Its follow's root and the draft's root: no component page is read again.
+    expect(open.total - opensBefore).toBe(2);
+    stop();
+  });
+
+  it('two pages drafting the same system at once read each component page once (#6177)', async () => {
+    const { pages, make, transport, listWatchers } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const components = new Set(config.components.map((entry) => entry.page!));
+    const reads = new Map<string, number>();
+    const counted = {
+      ...transport,
+      page: (id: string) => {
+        if (components.has(id)) reads.set(id, (reads.get(id) ?? 0) + 1);
+        return transport.page(id);
+      },
+    } as PageTransport;
+    // The system page is still compiling when the next page opens and drafts too.
+    const first = pageDesignSystems(counted);
+    const second = pageDesignSystems(counted);
+    const stops = [first.watch(rootId, () => {}), second.watch(rootId, () => {})];
+    await vi.waitFor(() => expect(listWatchers.size).toBe(2));
+    const [a, b] = await Promise.all([first.draft(rootId), second.draft(rootId)]);
+    expect(b.hash).toBe(a.hash);
+    expect(reads.size).toBe(components.size);
+    for (const [id, count] of reads) expect(count, id).toBe(1);
+    for (const stop of stops) stop();
   });
 
   it('a component write after the list arrived before the root loaded still changes the draft', async () => {

@@ -4388,7 +4388,9 @@ other burst. A page whose fingerprint did not change adds no traffic.
 
 `GET /api/pages/after/<listToken>` is the same owner-only read held open: it answers with the full
 list as soon as the list's token is no longer `<listToken>`, and otherwise after the hold with
-exactly `{listToken, unchanged:true}`. The serve checks every 250 ms (`PAGE_LIST_POLL`), holds at
+exactly `{listToken, unchanged:true}`. The serve checks every 250 ms (`PAGE_LIST_POLL`); while the
+store's write generation (SQLite `data_version` and the serve connection's own changes) is the one
+the last token was made at, a check reuses that token instead of digesting every page again. It holds at
 most 10 s (`PAGE_LIST_HOLD`) and at most 4 such reads at once (`PAGE_LIST_HOLDS`); a fifth gets 503
 `{code:"CAPACITY"}` at once and is never queued. A read whose client leaves, or whose serve stops,
 ends at once. The hold must stay under Remote's mounted-reply deadline, `limits::MOUNT_RESPONSE`
@@ -4405,15 +4407,18 @@ so a held read in every tab would queue behind each other and starve the origin.
 Web Lock `colab-page-list:<mount>` reads the list once, holds with its token and holds again after
 each answer; it posts each list's revisions on the BroadcastChannel of the same name, and answers a
 new tab's `hello` with the latest. The other tabs only listen: a message that is not exactly
-`{v:1,type:"hello"}` or `{v:1,type:"revisions",revisions:[[pageId,revision],…]}` (at most 1,000
-canonical page IDs and revision tokens) is ignored, and a valid one is only a hint that pages moved,
-since every tab compiles from its own verified page reads. A tab that becomes visible takes the
-lock (`steal`), so a hidden or frozen holder never stalls the rest; at that handover the old read is
-cancelled as the new one starts. When the holder closes, a waiting tab takes the lock. Where
+`{v:1,type:"hello"}` or `{v:1,type:"revisions",listToken,revisions:[[pageId,revision],…]}` (a
+canonical list token, at most 1,000 canonical page IDs and revision tokens) is ignored, and a valid
+one is only a hint that pages moved, since every tab compiles from its own verified page reads. A
+tab that becomes visible takes the lock (`steal`), so a hidden or frozen holder never stalls the
+rest; at that handover the old read is cancelled as the new one starts, held on the last token the
+tab heard, so a handover reads no whole list (a stale token only answers at once). When the holder closes, a waiting tab takes the lock. Where
 `navigator.locks` or `BroadcastChannel` is missing, each tab holds its own read and the serve's cap
 bounds them. A refused or failed read is never shown as an error: the reading tab waits 30 s
 (`PAGE_LIST_BACKOFF_MS`), reads the whole list once and tries a held read again. Only the mounted
-owner transport has the live list.
+owner transport has the live list. A page open on that transport reuses the owner list the last open
+verified, for the same session, while the live list names the same revision for the page (the token
+covers its epoch, cuts and the membership head); otherwise it reads and verifies the list again.
 
 A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
 follows the install's `current` selection (`serve_release.rs`); version direction belongs to
@@ -5585,7 +5590,10 @@ compiles them; a page that follows it redraws when one of those pages changes (e
 500 ms, so a burst is one recompile, and a newer recompile replaces an older one's frame). While a
 page follows, only the root stays subscribed, so a follow holds one page connection whatever the
 system's size: component changes come from the [live page list](#live-page-list)'s revisions, and a
-component page is opened only for the compile itself. Where no live list exists (hosted, readers)
+component page is opened only for the compile itself. A compile reuses each component's block read
+at the revision the live list still names, kept for the session across every page that follows the
+system, so the next open page reads only the pages that moved; a follow's first compile waits up to
+1 s for the list's first revisions so its reads can be kept. Where no live list exists (hosted, readers)
 a component edit shows on the next open or root change. A draft that does not compile shows the page's design-system notice, never a blank page.
 A page waits 4 s for its design system, then draws the notice; a followed draft that finishes later
 redraws its followers once with it.

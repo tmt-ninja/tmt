@@ -754,3 +754,23 @@ mod page_titles {
         assert!(refused.is_err());
     }
 }
+
+#[test]
+fn the_write_generation_moves_on_every_write_by_any_connection_and_only_then() {
+    let mut f = Fixture::new();
+    let idle = f.store.write_generation().unwrap();
+    assert_eq!(f.store.write_generation().unwrap(), idle);
+    // This connection's own write.
+    f.append("s", 1).unwrap();
+    let own = f.store.write_generation().unwrap();
+    assert_ne!(own, idle);
+    assert_eq!(f.store.write_generation().unwrap(), own);
+    // Another connection's commit, as a CLI write to the same store makes.
+    let layout = Layout::existing(&f.root).unwrap().unwrap();
+    let other = Store::open(&layout).unwrap();
+    other
+        .create_page("10000000-0000-4000-8000-000000000002")
+        .unwrap();
+    other.close().unwrap();
+    assert_ne!(f.store.write_generation().unwrap(), own);
+}

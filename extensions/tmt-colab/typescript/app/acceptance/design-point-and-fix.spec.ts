@@ -61,15 +61,22 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     await dialog.getByRole('textbox', { name: 'Tag prefix', exact: true }).fill('brio');
     await dialog.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(dialog).toHaveCount(0, { timeout: 120_000 });
+    const created = Date.now();
     const frame = page.locator('.design-workspace iframe').first().contentFrame();
     await frame.getByRole('link', { name: /brio-button/ }).click();
+    const opened = Date.now();
     await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
     const pageId = page.url().split('/').pop()!;
     const example = frame.locator('[data-ds-example="button:secondary"]');
     const draft = example.getByRole('button', { name: 'Draft', exact: true });
-    // The first render of a new system's page waits on its tree load and a full draft compile;
-    // a slow runner takes longer than the default expect wait (#6177 makes it fast).
-    await expect(draft).toBeVisible({ timeout: 30_000 });
+    // A new system's tree comes from the owner list and its page reuses the docs the system page
+    // just compiled from, so the first draft draws within the default wait (#6177).
+    await expect(draft).toBeVisible();
+    // The measurement #6177 reports: from the dialog closing to the first Draft, and the part
+    // after the system page drew and its component link was followed.
+    console.log(
+      `first draft ${Date.now() - created} ms after creation (${Date.now() - opened} ms after opening the page)`,
+    );
     await expect(draft).not.toHaveAttribute('data-variant', 'outline');
 
     // The open page follows its system's draft (#6162). A new system has far more component pages
@@ -195,21 +202,32 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '.zz-live-6162b{outline:0}',
       '--json',
     ]);
-    for (const tab of tabs)
-      await expect
-        .poll(
-          () =>
-            tab
-              .locator('.design-workspace iframe')
-              .first()
-              .contentFrame()
-              .locator('style')
-              .evaluateAll((nodes) =>
-                nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
-              ),
-          { timeout: 30_000 },
-        )
-        .toBe(true);
+    const patched = Date.now();
+    for (const [index, tab] of tabs.entries()) {
+      try {
+        await expect
+          .poll(
+            () =>
+              tab
+                .locator('.design-workspace iframe')
+                .first()
+                .contentFrame()
+                .locator('style')
+                .evaluateAll((nodes) =>
+                  nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
+                ),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+      } catch (error) {
+        // Which tab missed the edit, and which tabs held the list meanwhile.
+        console.log(
+          `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
+        );
+        throw error;
+      }
+      console.log(`tab ${index} drew the CLI edit ${Date.now() - patched} ms after it`);
+    }
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);

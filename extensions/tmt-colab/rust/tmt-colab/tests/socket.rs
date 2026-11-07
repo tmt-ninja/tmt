@@ -7277,6 +7277,32 @@ fn a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap() {
     assert_eq!(changed["pages"][0]["sharing"], "link");
     assert_ne!(changed["pages"][0]["revision"].as_str().unwrap(), revision);
 
+    // A write through another store connection (a CLI write under the serve's lifecycle lock, or
+    // a worker's own handle) answers a waiting read too: the idle check's write generation moves
+    // with SQLite's data_version, not only with the serve connection's own changes (#6177).
+    let idle = body(&server.request(&Running::get("/api/pages", &header)))["listToken"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(idle, next);
+    let started = std::time::Instant::now();
+    let elsewhere = std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| held(&next));
+        std::thread::sleep(Duration::from_millis(500));
+        server
+            .oracle()
+            .execute(
+                "INSERT INTO pages(page,epoch) VALUES ('10000000-0000-4000-8000-0000000061a7','1')",
+                [],
+            )
+            .unwrap();
+        waiting.join().unwrap()
+    });
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let elsewhere = body(&elsewhere);
+    assert_ne!(elsewhere["listToken"].as_str().unwrap(), next);
+    let next = elsewhere["listToken"].as_str().unwrap().to_owned();
+
     // Four reads wait at once; a fifth is refused with CAPACITY, never queued. One change
     // answers the four.
     std::thread::scope(|scope| {
