@@ -819,6 +819,18 @@ fn serve(
                 }
                 let _ = response_as(&mut socket, 200, &bytes, "application/json");
             }
+            // The browser reads JSON `{code}` like every other browser route; the reserved
+            // local socket keeps the bare text code the CLI maps.
+            Err(code) if request.path == management::PATH => {
+                let body = serde_json::to_vec(&serde_json::json!({"code":code.text()}))
+                    .expect("error JSON");
+                let _ = response_as(
+                    &mut socket,
+                    management::status(code),
+                    &body,
+                    "application/json",
+                );
+            }
             Err(code) => {
                 let _ = response(
                     &mut socket,

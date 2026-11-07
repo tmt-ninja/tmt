@@ -2719,6 +2719,21 @@ fn management_recipient(
         .unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
+/// A refused browser management request answers its status with the JSON `{code}` the browser
+/// reads; the reserved local socket keeps the bare text code for the CLI.
+fn assert_management_refused(raw: &str, status: u16, code: &str) {
+    let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with(&format!("HTTP/1.1 {status} ")), "{raw}");
+    assert!(
+        head.contains("\r\nContent-Type: application/json\r\n"),
+        "{raw}"
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(body).unwrap(),
+        json!({"code":code}),
+        "{raw}"
+    );
+}
 fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
     assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
     let body: Value = serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
@@ -2791,24 +2806,13 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
             issued,
         );
         let header = format!("{}\r\n", owner(DEVICE));
-        let denied = server.event(path, "", &body);
-        assert!(
-            denied.starts_with("HTTP/1.1 403") && denied.ends_with("DENIED"),
-            "{denied}"
-        );
+        assert_management_refused(&server.event(path, "", &body), 403, "DENIED");
         let wrong_device = server.event(path, &format!("{}\r\n", owner(OTHER)), &body);
-        assert!(
-            wrong_device.starts_with("HTTP/1.1 403") && wrong_device.ends_with("DENIED"),
-            "{wrong_device}"
-        );
+        assert_management_refused(&wrong_device, 403, "DENIED");
         let mut non_owner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
         non_owner["owner"] = false.into();
         let non_owner_header = format!("tmt-device-context: {non_owner}\r\n");
-        assert!(
-            server
-                .event(path, &non_owner_header, &body)
-                .ends_with("DENIED")
-        );
+        assert_management_refused(&server.event(path, &non_owner_header, &body), 403, "DENIED");
         let expired = management_body(
             &server,
             OP,
@@ -2818,13 +2822,13 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
             DEVICE,
             issued - 120_000,
         );
-        assert!(server.event(path, &header, &expired).ends_with("EXPIRED"));
+        assert_management_refused(&server.event(path, &header, &expired), 403, "EXPIRED");
         let mut bad_signature: Value = serde_json::from_str(&body).unwrap();
         bad_signature["signature"] = values::encode_binary(&[0; 64]).into();
-        assert!(
-            server
-                .event(path, &header, &bad_signature.to_string())
-                .ends_with("DENIED")
+        assert_management_refused(
+            &server.event(path, &header, &bad_signature.to_string()),
+            403,
+            "DENIED",
         );
         let computed = management_body(
             &server,
@@ -2835,7 +2839,7 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
             DEVICE,
             issued,
         );
-        assert!(server.event(path, &header, &computed).ends_with("INVALID"));
+        assert_management_refused(&server.event(path, &header, &computed), 400, "INVALID");
         let rows = |table| {
             server
                 .oracle()
@@ -2865,7 +2869,7 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
             DEVICE,
             issued - 1,
         );
-        assert!(server.event(path, &header, &changed).ends_with("CONFLICT"));
+        assert_management_refused(&server.event(path, &header, &changed), 409, "CONFLICT");
         let stale = management_body(
             &server,
             STALE,
@@ -2875,8 +2879,7 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
             DEVICE,
             issued,
         );
-        let stale_response = server.event(path, &header, &stale);
-        assert!(stale_response.ends_with("STALE_HEAD"), "{stale_response}");
+        assert_management_refused(&server.event(path, &header, &stale), 409, "STALE_HEAD");
         assert_eq!(rows("membership_log"), 2);
         let local = local_management(
             &server,
@@ -2903,7 +2906,11 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
                 .request(&Running::get(ipc, ""))
                 .starts_with("HTTP/1.1 400")
         );
-        assert!(server.event(ipc, "", &body).ends_with("INVALID"));
+        let local_refused = server.event(ipc, "", &body);
+        let (head, text) = local_refused.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 400 "), "{local_refused}");
+        assert!(head.contains("\r\nContent-Type: text/plain; charset=utf-8\r\n"));
+        assert_eq!(text, "INVALID");
         let mut peer = server.peer(DEVICE);
         hello(&server, &mut peer, DEVICE);
         let advance =
@@ -2951,8 +2958,7 @@ fn management_owner_admission_exact_replay_local_ipc_and_epoch_close_twice() {
                 [DEVICE],
             )
             .unwrap();
-        let revoked = server.event(path, &header, &body);
-        assert!(revoked.starts_with("HTTP/1.1 403") && revoked.ends_with("DENIED"));
+        assert_management_refused(&server.event(path, &header, &body), 403, "DENIED");
         assert_eq!(rows("owner_operations"), 6);
         drop(peer);
         let socket_path = server.path.clone();
@@ -2983,10 +2989,7 @@ fn management_receipt_failure_rolls_back_signed_membership_and_remains_retryable
     );
     let header = format!("{}\r\n", owner(DEVICE));
     let failed = server.event(tmt_colab::management::PATH, &header, &body);
-    assert!(
-        failed.starts_with("HTTP/1.1 503") && failed.ends_with("UNAVAILABLE"),
-        "{failed}"
-    );
+    assert_management_refused(&failed, 503, "UNAVAILABLE");
     assert_eq!(
         server
             .oracle()
@@ -3067,10 +3070,10 @@ fn management_link_add_reset_remove_fence_scope_replay_and_seed_disclosure() {
         DEVICE,
         now(),
     );
-    assert!(
-        server
-            .event(tmt_colab::management::PATH, &header, &bad)
-            .ends_with("STALE_HEAD")
+    assert_management_refused(
+        &server.event(tmt_colab::management::PATH, &header, &bad),
+        409,
+        "STALE_HEAD",
     );
     let mut peer = server.peer(DEVICE);
     hello(&server, &mut peer, DEVICE);
@@ -3099,10 +3102,10 @@ fn management_link_add_reset_remove_fence_scope_replay_and_seed_disclosure() {
     let mut changed = reset_payload;
     changed["replacement"]["seed"] = values::encode_binary(&[34; 32]).into();
     let changed = management_body(&server, RESET, 3, "link.remove", changed, DEVICE, now());
-    assert!(
-        server
-            .event(tmt_colab::management::PATH, &header, &changed)
-            .ends_with("CONFLICT")
+    assert_management_refused(
+        &server.event(tmt_colab::management::PATH, &header, &changed),
+        409,
+        "CONFLICT",
     );
     let remove = management_body(
         &server,
@@ -3366,7 +3369,7 @@ fn management_public_share_uses_trusted_loopback_and_owner_published_keys() {
         DEVICE,
         now(),
     );
-    assert!(server.event(path, &header, &invalid).ends_with("INVALID"));
+    assert_management_refused(&server.event(path, &header, &invalid), 400, "INVALID");
     let body = management_body(
         &server,
         id,
@@ -4594,10 +4597,7 @@ fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twi
             ),
             &management,
         );
-        assert!(
-            denial.starts_with("HTTP/1.1 403") && denial.ends_with("DENIED"),
-            "{denial}"
-        );
+        assert_management_refused(&denial, 403, "DENIED");
         assert_eq!(
             server
                 .oracle()
