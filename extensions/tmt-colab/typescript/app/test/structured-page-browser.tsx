@@ -321,8 +321,19 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   // The real sandboxed renderer, as the router's mount uses it; one function for the page's life.
   // The built-in tmt GUI system ships with the app, so it needs no page behind it.
   const designSystem = pageDesignSystems({} as PageTransport);
-  const mountMockup = (frameHost: HTMLElement, source: string, signal: AbortSignal) =>
-    mountRenderer(frameHost, source, { signal, onState: () => {}, designSystem, fitContent: true });
+  const mountMockup = (
+    frameHost: HTMLElement,
+    source: string,
+    signal: AbortSignal,
+    theme?: 'light' | 'dark',
+  ) =>
+    mountRenderer(frameHost, source, {
+      signal,
+      onState: () => {},
+      designSystem,
+      fitContent: true,
+      theme,
+    });
   const pageViewSource: ParentPageViewSource = (publish, failed) => {
     if (!owner) failed();
     else

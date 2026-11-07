@@ -45,6 +45,7 @@ import { indentOf, listNumber } from './block-ops.js';
 import { mockupSource, mockupStage, pageViewSpec, workBundleProps } from './block-parts.js';
 import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
+import type { Theme } from './theme.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -406,7 +407,9 @@ export type MountMockup = (
   host: HTMLElement,
   source: string,
   signal: AbortSignal,
-) => Promise<{ destroy(): void }>;
+  /** The stage's Light or Dark; absent follows the viewer. */
+  theme?: Theme,
+) => Promise<{ destroy(): void; setTheme(theme?: Theme): void }>;
 
 /**
  * A mockup block (#6005): DS `MockupBlock`'s stage around a sandboxed render frame. The markup is
@@ -418,15 +421,23 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const source = mockupSource(block);
   const [failed, setFailed] = useState(false);
+  // The stage's theme control is this viewer's: the frame paints it, and Viewer follows the app.
+  const [theme, setTheme] = useState<Theme>();
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  const frame = useRef<Awaited<ReturnType<MountMockup>>>(undefined);
+  useEffect(() => frame.current?.setTheme(theme), [theme]);
   useEffect(() => {
     if (!node || !mount) return;
     const controller = new AbortController();
-    let frame: { destroy(): void } | undefined;
     setFailed(false);
-    mount(node, source, controller.signal).then(
+    mount(node, source, controller.signal, themeRef.current).then(
       (handle) => {
         if (controller.signal.aborted) handle.destroy();
-        else frame = handle;
+        else {
+          frame.current = handle;
+          handle.setTheme(themeRef.current);
+        }
       },
       () => {
         if (!controller.signal.aborted) setFailed(true);
@@ -434,7 +445,8 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
     );
     return () => {
       controller.abort();
-      frame?.destroy();
+      frame.current?.destroy();
+      frame.current = undefined;
       node.replaceChildren();
     };
   }, [node, mount, source]);
@@ -445,6 +457,9 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
       width={stage.width}
       height={stage.height}
       unavailable={!mount || failed}
+      onSettingsChange={(settings) =>
+        setTheme(settings.theme === 'viewer' ? undefined : settings.theme)
+      }
     >
       <div ref={setNode} className="tmt-block-mockup-frame" />
     </MockupBlock>
