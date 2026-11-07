@@ -3,6 +3,7 @@ mod app_inventory;
 pub mod ask;
 pub mod assets;
 pub mod attachments;
+pub mod blocks;
 mod browser_policy;
 mod chrome;
 pub mod closed;

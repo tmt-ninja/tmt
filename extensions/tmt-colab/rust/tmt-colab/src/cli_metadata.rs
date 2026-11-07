@@ -344,7 +344,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     store.require_current_schema()?;
     let page_id = resolve_page(&store, &key, args.get_one::<String>("page").expect("page"))?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let current = page::read(&store, &key, &page_id, &mut decoder)?;
+    let current = page::read_metadata(&store, &key, &page_id, &mut decoder)?;
     if name == "ls" {
         store.close()?;
         let value = json!({"pageId":page_id,"revision":current.revision,"questions":current.question_states});
@@ -481,7 +481,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             kind,
             action,
             body: &body,
-            expected_revision: expected,
+            expected_revision: Some(expected),
             display_agent,
             operation_id: None,
         },

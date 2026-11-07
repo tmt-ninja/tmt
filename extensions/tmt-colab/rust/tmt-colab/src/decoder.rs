@@ -152,6 +152,8 @@ pub enum StructuredKind {
     Creator,
     Template,
     PageState,
+    /// The page's `blocks` root (a structured page), edited by one validated batch of ops.
+    Blocks,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -163,6 +165,7 @@ impl StructuredKind {
             Self::Creator => "creator",
             Self::Template => "template",
             Self::PageState => "pageState",
+            Self::Blocks => "blocks",
         }
     }
 }
@@ -234,10 +237,13 @@ pub struct BaselineInput<'a> {
     pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
     pub creation_recipient: Option<&'a CreationRecipient>,
-    /// The work an ordinary page carries beside its HTML; a new epoch keeps it.
+    /// The work a page carries beside its HTML or blocks (never a dashboard); a new epoch keeps it.
     pub work: Option<&'a Value>,
     /// Manual page state; an absent value reads as todo.
     pub page_state: Option<&'a Value>,
+    /// `meta.convertedAt`, the time (ms) a page was converted in place to blocks; only a page of
+    /// blocks has it, and a new epoch keeps it.
+    pub converted_at: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -302,6 +308,9 @@ pub struct PreparedContent {
     pub child_pid: u32,
     /// How much of the existing source the edit replaces; empty for a structured action.
     pub scale: crate::edit_scale::EditScale,
+    /// A block batch's receipt (`ops`, `droppedHunks`), set by the parent from the same validator
+    /// the child ran; `None` for every other edit.
+    pub receipt: Option<Value>,
 }
 #[derive(Clone, Copy)]
 enum DecodeMode {
@@ -725,6 +734,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: None,
                 shell: None,
+                blocks: None,
             },
             stop,
         )
@@ -741,6 +751,7 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: Some(CREATE_CHUNK_BYTES),
                 shell: None,
+                blocks: None,
             },
             stop,
         )
@@ -767,6 +778,35 @@ impl Decoder {
             BaselineAction::Produce {
                 chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
                 shell: Some(shell.clone()),
+                blocks: None,
+            },
+            stop,
+        )
+    }
+    /// A structured page: `meta.pageType = "blocks"` and the given blocks (`{}` for a new page).
+    /// A new page has no text; a converted page keeps its old source as the frozen legacy `html`,
+    /// which a new epoch carries over with the blocks, after compaction dropped the tombstones it
+    /// no longer keeps.
+    pub fn produce_blocks(
+        &mut self,
+        view: BaselineInput<'_>,
+        blocks: &Value,
+        page: bool,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Baseline, DecodeFault> {
+        crate::blocks::schema::validate(blocks).map_err(|_| DecodeFault::InvalidInput)?;
+        // A page of blocks has no layout and is never a template; it keeps work, attachments, what
+        // it was made from, a state, what it was converted from and, as a frozen legacy source, the
+        // HTML it was converted from.
+        if view.layout.is_some() || view.template.is_some() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.baseline(
+            view,
+            BaselineAction::Produce {
+                chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
+                shell: None,
+                blocks: Some(blocks.clone()),
             },
             stop,
         )
@@ -868,6 +908,12 @@ impl Decoder {
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view.converted_at.is_some_and(|v| !valid_time_ms(v))
+            || (view.converted_at.is_some()
+                && matches!(&action, BaselineAction::Produce { blocks: None, .. }))
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view
             .original_author
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -915,6 +961,7 @@ impl Decoder {
             layout: view.layout.cloned(),
             work: view.work.cloned(),
             page_state: view.page_state.cloned(),
+            converted_at: view.converted_at.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1204,8 +1251,28 @@ struct WireContentPreparation<
 }
 fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<Value, DecodeFault> {
     let shell = base["meta"]["pageType"].as_str() == Some("shell");
+    // An ordinary page has no `pageType`; a page of blocks also carries questions, a creator, a
+    // state and work (a sub-page list and a summary), but never a template.
+    let ordinary = base["meta"].get("pageType").is_none();
     let mut expected = base.clone();
     match edit.kind {
+        StructuredKind::Blocks if base["meta"]["pageType"].as_str() == Some("blocks") => {
+            let next = crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
+                .map_err(|_| DecodeFault::InvalidInput)?
+                .next;
+            // A question block registers in the same publication that adds it.
+            if let Some(questions) = crate::blocks::questions::register(
+                &base["meta"],
+                &base["blocks"],
+                &next,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?
+            {
+                expected["meta"]["questions"] = questions;
+            }
+            expected["blocks"] = next;
+        }
         StructuredKind::Shell if shell => {
             expected["meta"]["shell"] = crate::shell::apply(
                 &base["meta"]["shell"],
@@ -1251,7 +1318,7 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 expected["meta"]["pageState"] = state.clone();
             }
         }
-        StructuredKind::Template if !shell => {
+        StructuredKind::Template if ordinary => {
             match crate::template_marks::apply(&edit.action, &edit.body)
                 .map_err(|_| DecodeFault::InvalidInput)?
             {
@@ -1387,6 +1454,7 @@ fn admit_prepared_content(
         memory_limit: reply.memory_limit,
         child_pid: reply.pid,
         scale: crate::edit_scale::EditScale::NONE,
+        receipt: None,
     })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
@@ -1416,6 +1484,8 @@ struct WireBaseline {
     work: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page_state: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    converted_at: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1432,6 +1502,10 @@ enum BaselineAction {
         chunk_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<Value>,
+        /// A structured page: `meta.pageType = "blocks"`, these blocks (`{}` for a new page; a
+        /// compacted page's kept blocks) and its `html` (empty, or the frozen legacy source).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blocks: Option<Value>,
     },
     Verify {
         update: String,
@@ -1483,18 +1557,25 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
     let roots = value.as_object().ok_or(DecodeFault::InvalidOutput)?;
     match namespace {
         Namespace::Content => {
-            if roots.len() != 2
-                || roots
-                    .get("html")
-                    .and_then(Value::as_str)
-                    .is_none_or(|v| v.len() > STATE_BYTES)
-            {
-                return Err(DecodeFault::InvalidOutput);
-            }
             let meta = roots
                 .get("meta")
                 .and_then(Value::as_object)
                 .ok_or(DecodeFault::InvalidOutput)?;
+            let page_type = meta.get("pageType").and_then(Value::as_str);
+            let blocks = page_type == Some("blocks");
+            // A page of blocks has the `blocks` root and no other page has it.
+            if roots.len() != 2 + usize::from(blocks)
+                || roots
+                    .get("html")
+                    .and_then(Value::as_str)
+                    .is_none_or(|v| v.len() > STATE_BYTES)
+                || (blocks
+                    && roots
+                        .get("blocks")
+                        .is_none_or(|v| crate::blocks::schema::validate(v).is_err()))
+            {
+                return Err(DecodeFault::InvalidOutput);
+            }
             if meta.iter().any(|(k, v)| match k.as_str() {
                 "title" => !v.is_string(),
                 "publisherAgent" | "originalAuthor" => {
@@ -1520,7 +1601,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 }),
                 "layout" => v.as_str().and_then(LayoutKind::parse).is_none(),
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
-                "pageType" => v.as_str() != Some("shell"),
+                "pageType" => !matches!(v.as_str(), Some("shell" | "blocks")),
+                "convertedAt" => !valid_time_ms(v),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
@@ -1535,9 +1617,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             {
                 return Err(DecodeFault::InvalidOutput);
             }
-            // Work belongs to an ordinary page; a shell keeps its own summary.
-            if meta.contains_key("pageType") != meta.contains_key("shell")
-                || (meta.contains_key("pageType")
+            // Work belongs to a page that is not a dashboard; a shell keeps its own summary.
+            let shell = page_type == Some("shell");
+            if meta.contains_key("shell") != shell
+                || (shell
                     && [
                         "work",
                         "creator",
@@ -1548,8 +1631,17 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     ]
                     .iter()
                     .any(|key| meta.contains_key(*key)))
-                || (meta.contains_key("shell")
-                    && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
+                // A page of blocks keeps no template and no layout; it may keep work, attachments
+                // and what it was made from, as an ordinary page does, and the HTML it was
+                // converted from as a frozen legacy source (never rendered or written); it alone
+                // says which archived copy it was converted from.
+                || (blocks
+                    && ["template", "layout", "layoutReason"]
+                        .iter()
+                        .any(|key| meta.contains_key(*key)))
+                || (!blocks && meta.contains_key("convertedAt"))
+                || (shell && roots["html"].as_str() != Some(""))
+                || (shell && meta.contains_key("attachments"))
             {
                 return Err(DecodeFault::InvalidOutput);
             }
@@ -1605,3 +1697,8 @@ pub fn child_main() -> std::process::ExitCode {
 }
 #[cfg(test)]
 mod tests;
+
+/// A time in milliseconds: a non-negative integer a browser number holds exactly.
+fn valid_time_ms(value: &Value) -> bool {
+    value.is_u64() && crate::closed::integer(value).is_ok()
+}

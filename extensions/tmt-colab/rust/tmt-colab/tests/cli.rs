@@ -13039,7 +13039,7 @@ fn legacy_subpage_action(pilot: &Pilot, page: &str, action: &str, body: Value) {
             kind: StructuredKind::Work,
             action,
             body: &body,
-            expected_revision: &before.revision,
+            expected_revision: Some(&before.revision),
             display_agent: None,
             operation_id: None,
         },
@@ -13487,4 +13487,831 @@ fn show_reuses_one_work_index_including_archived_pages() {
         modified,
         "unchanged show must not rewrite the cache"
     );
+}
+
+/// A new epoch of a page of blocks, through the real owner path (#6004): the baseline drops the
+/// oldest tombstones of a page over its purge line, a restore of one of them is then refused as not
+/// found with nothing written, a tombstone that stayed still restores, and what the page carries
+/// beside its blocks (its question registry and its state) survives into the new epoch.
+#[test]
+fn a_new_epoch_of_a_page_of_blocks_purges_old_tombstones_and_keeps_its_metadata() {
+    let pilot = Pilot::new(None);
+    let call = |args: &[&str]| pilot.call(args);
+    let code = |args: &[&str]| {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let created = call(&[
+        "page",
+        "create",
+        "--title",
+        "Big",
+        "--structured",
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    call(&["page", "state", page, "done", "--json"]);
+    let question = call(&[
+        "block", "insert", page, "--type", "question", "--text", "Ship?", "--json",
+    ]);
+    assert_eq!(question["blockIds"].as_array().unwrap().len(), 1);
+    // 1539 paragraphs: with the question, 1540 blocks, four over the purge line.
+    let id = |n: usize| format!("50000000-0000-4000-8000-{n:012}");
+    let total = 1539;
+    for start in (0..total).step_by(256) {
+        let ops: Vec<Value> = (start..(start + 256).min(total))
+            .map(|n| json!({"op": "insert", "id": id(n), "type": "paragraph", "text": "x"}))
+            .collect();
+        let file = pilot.root.join("ops.json");
+        fs::write(&file, serde_json::to_vec(&ops).unwrap()).unwrap();
+        call(&[
+            "block",
+            "batch",
+            page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+    }
+    // Five deletions, one after another, so their times differ and the first is the oldest.
+    for n in 0..5 {
+        call(&["block", "delete", page, &id(n), "--json"]);
+    }
+    let count = |all: bool| {
+        let mut args = vec!["block", "ls", page, "--json"];
+        if all {
+            args.push("--all");
+        }
+        call(&args)["blocks"].as_array().unwrap().len()
+    };
+    assert_eq!(count(true), 1540);
+    assert_eq!(count(false), 1535);
+
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    {
+        let _lock = layout.serve_lock().unwrap();
+        let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+        let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+        let head = store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        let mut engine = tmt_colab::transitions::Engine::with_decoder_config(
+            support::decoder_config(BINARY.into()),
+        )
+        .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        engine
+            .advance_epoch(
+                &mut store,
+                &key,
+                tmt_colab::transitions::EpochAdvance {
+                    operation_id: "40000000-0000-4000-8000-000000000098",
+                    expected_revision: head.revision,
+                    page,
+                },
+                now,
+            )
+            .unwrap();
+        store.close().unwrap();
+    }
+    // The four oldest tombstones are gone, the newest stayed: 1536 blocks, 1535 of them live.
+    assert_eq!(count(true), 1536);
+    assert_eq!(count(false), 1535);
+    for n in 0..4 {
+        assert_eq!(
+            code(&["block", "restore", page, &id(n), "--json"]),
+            "COLAB_BLOCK_NOT_FOUND"
+        );
+    }
+    assert_eq!(count(true), 1536, "a refused restore writes nothing");
+    call(&["block", "restore", page, &id(4), "--json"]);
+    assert_eq!(count(false), 1536);
+    // The registry and the state came across the new epoch.
+    assert_eq!(
+        call(&["question", "ls", page, "--json"])["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let destination = pilot.root.join("export");
+    fs::create_dir(&destination).unwrap();
+    let exported = call(&[
+        "export",
+        page,
+        "--dir",
+        destination.to_str().unwrap(),
+        "--json",
+    ]);
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(PathBuf::from(exported["directory"].as_str().unwrap()).join("manifest.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["epoch"], "2");
+    assert_eq!(manifest["pageType"], "blocks");
+}
+
+#[test]
+fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Plan",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        pilot.call(&[
+            "block", "insert", page, "--type", "heading", "--text", "Roadmap", "--json",
+        ]);
+        pilot.call(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "paragraph",
+            "--text",
+            "Ship <it> & go",
+            "--json",
+        ]);
+        let destination = pilot.root.join("export");
+        fs::create_dir(&destination).unwrap();
+        let exported = pilot.call(&[
+            "export",
+            page,
+            "--dir",
+            destination.to_str().unwrap(),
+            "--json",
+        ]);
+        let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+        assert_eq!(
+            fs::read_to_string(directory.join("page.html")).unwrap(),
+            "<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:\"\\2610  \"}li.done{list-style-type:\"\\2611  \"}}</style>\n<h2>Roadmap</h2>\n<p>Ship &lt;it&gt; &amp; go</p>\n"
+        );
+        let blocks: Value =
+            serde_json::from_slice(&fs::read(directory.join("blocks.json")).unwrap()).unwrap();
+        assert_eq!(blocks.as_object().unwrap().len(), 2, "{blocks}");
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["pageType"], "blocks");
+        let files = manifest["files"].as_array().unwrap();
+        let names: Vec<_> = files.iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "blocks.json",
+                "page.html",
+                "conversations.json",
+                "conversations.md"
+            ]
+        );
+        assert_eq!(files[1]["derivedFrom"], "blocks.json");
+        assert!(files[0].get("derivedFrom").is_none());
+        // The round trip: the exported HTML is a page of its own, byte for byte.
+        let html = directory.join("page.html");
+        let copy = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Copy",
+            "--layout",
+            "column",
+            "--file",
+            html.to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ]);
+        let read = pilot.call(&["page", "read", copy["pageId"].as_str().unwrap(), "--json"]);
+        assert_eq!(read["source"], fs::read_to_string(&html).unwrap(), "{read}");
+    }
+}
+
+/// A page of blocks keeps work like any other page (#6004): it gains and loses sub-pages and a
+/// summary through the same actions, the blocks stay as they were, and a dashboard still refuses.
+#[test]
+fn a_page_of_blocks_gains_and_loses_sub_pages_and_a_summary_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let make = |pilot: &Pilot, title: &str| {
+            let created = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--structured",
+                "--no-open",
+                "--json",
+            ]);
+            created["pageId"].as_str().unwrap().to_owned()
+        };
+        let (parent, child) = (make(&pilot, "Parent"), make(&pilot, "Child"));
+        pilot.call(&[
+            "block",
+            "insert",
+            &parent,
+            "--type",
+            "paragraph",
+            "--text",
+            "Kept",
+            "--json",
+        ]);
+        let blocks =
+            |pilot: &Pilot| pilot.call(&["block", "ls", &parent, "--json"])["blocks"].clone();
+        let before = blocks(&pilot);
+        pilot.call(&["subpage", "attach", &parent, &child, "--json"]);
+        pilot.call(&[
+            "summary", "set", &parent, "--line1", "Start", "--line2", "Next", "--json",
+        ]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert_eq!(listed["children"].as_array().unwrap().len(), 1, "{listed}");
+        assert_eq!(blocks(&pilot), before);
+        // The page still takes block edits beside its work, and the work survives them.
+        pilot.call(&[
+            "block",
+            "insert",
+            &parent,
+            "--type",
+            "paragraph",
+            "--text",
+            "More",
+            "--json",
+        ]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert_eq!(listed["children"].as_array().unwrap().len(), 1, "{listed}");
+        pilot.call(&["subpage", "detach", &parent, &child, "--json"]);
+        pilot.call(&["summary", "clear", &parent, "--json"]);
+        let listed = pilot.call(&["subpage", "ls", &parent, "--json"]);
+        assert!(
+            listed["children"].as_array().unwrap().is_empty(),
+            "{listed}"
+        );
+    }
+}
+
+#[test]
+fn a_mockup_block_must_pass_the_page_check_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let run = |args: &[&str]| {
+            pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let created = run(&[
+            "page",
+            "create",
+            "--title",
+            "Mock",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let created: Value = serde_json::from_slice(&created.stdout).unwrap();
+        let page = created["pageId"].as_str().unwrap();
+        let ok = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "mockup",
+            "--props",
+            r#"{"markup":"<tmt-card title=\"A\"><p>Hi</p></tmt-card>"}"#,
+            "--json",
+        ]);
+        assert!(ok.status.success(), "{ok:?}");
+        let bad = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "mockup",
+            "--props",
+            r#"{"markup":"<tmt-question data-id=\"nope\" data-kind=\"single\"></tmt-question>"}"#,
+            "--json",
+        ]);
+        assert!(!bad.status.success(), "{bad:?}");
+        let value: Value = serde_json::from_slice(&bad.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "COLAB_BLOCK_MARKUP", "{value}");
+        let listed = run(&["block", "ls", page, "--json"]);
+        let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
+        assert_eq!(listed["blocks"].as_array().unwrap().len(), 1, "{listed}");
+    }
+}
+
+#[test]
+fn a_question_block_registers_with_its_publication_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let run = |args: &[&str]| {
+            let out = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {out:?}");
+            serde_json::from_slice::<Value>(&out.stdout).unwrap()
+        };
+        let created = run(&[
+            "page",
+            "create",
+            "--title",
+            "Ask",
+            "--structured",
+            "--no-open",
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        assert!(
+            run(&["question", "ls", page, "--json"])["questions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let question = run(&[
+            "block",
+            "insert",
+            page,
+            "--type",
+            "question",
+            "--props",
+            r#"{"kind":"single","choices":["Yes","No"]}"#,
+            "--text",
+            "Ship it?",
+            "--json",
+        ]);
+        let id = question["blockIds"][0].as_str().unwrap();
+        let registry = run(&["question", "ls", page, "--json"]);
+        let entries = registry["questions"].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{registry}");
+        assert_eq!(entries[0]["id"], id);
+        assert_eq!(entries[0]["state"], "open");
+        // Editing and deleting the block leave its one entry.
+        run(&[
+            "block",
+            "text",
+            page,
+            id,
+            "--find",
+            "Ship",
+            "--replace",
+            "Release",
+            "--json",
+        ]);
+        run(&["block", "delete", page, id, "--json"]);
+        let after = run(&["question", "ls", page, "--json"]);
+        assert_eq!(after["questions"].as_array().unwrap().len(), 1, "{after}");
+    }
+}
+
+#[test]
+fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
+    fn output(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = output(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn code(pilot: &Pilot, args: &[&str]) -> String {
+        let out = output(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let created = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Plan",
+                "--structured",
+                "--no-open",
+                "--json",
+            ],
+        );
+        let page = created["pageId"].as_str().unwrap();
+        let blocks = |all: bool| {
+            let mut args = vec!["block", "ls", page, "--json"];
+            if all {
+                args.push("--all");
+            }
+            call(&pilot, &args)["blocks"].as_array().unwrap().clone()
+        };
+        assert!(blocks(false).is_empty());
+
+        // Build: a heading, a paragraph, a card holding a todo, a table with a row.
+        let heading = call(
+            &pilot,
+            &[
+                "block", "insert", page, "--type", "heading", "--text", "Roadmap", "--json",
+            ],
+        );
+        let heading_id = heading["blockIds"][0].as_str().unwrap().to_owned();
+        let paragraph = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "paragraph",
+                "--text",
+                "The quick brown fox jumps",
+                "--json",
+            ],
+        );
+        let paragraph_id = paragraph["blockIds"][0].as_str().unwrap().to_owned();
+        let card = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "card",
+                "--props",
+                r#"{"title":"Next"}"#,
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let todo = call(
+            &pilot,
+            &[
+                "block", "insert", page, "--type", "todo", "--parent", &card, "--text", "ship",
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let table = call(
+            &pilot,
+            &[
+                "block",
+                "insert",
+                page,
+                "--type",
+                "table",
+                "--props",
+                r#"{"columns":[{"id":"a","name":"Item"}]}"#,
+                "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let row = call(
+            &pilot,
+            &[
+                "block", "table", page, &table, "add-row", "--cell", "a=alpha", "--json",
+            ],
+        )["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let tree = blocks(false);
+        let order: Vec<(&str, u64)> = tree
+            .iter()
+            .map(|b| (b["id"].as_str().unwrap(), b["depth"].as_u64().unwrap()))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                (heading_id.as_str(), 0),
+                (paragraph_id.as_str(), 0),
+                (card.as_str(), 0),
+                (todo.as_str(), 1),
+                (table.as_str(), 0),
+                (row.as_str(), 1),
+            ]
+        );
+
+        // Edits: props, a find/replace, a mark, a move, and the refusals of the closed rules.
+        call(
+            &pilot,
+            &[
+                "block",
+                "props",
+                page,
+                &todo,
+                "--set",
+                "checked=true",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "brown",
+                "--replace",
+                "red",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--mark",
+                "bold",
+                "--from",
+                "0",
+                "--to",
+                "3",
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &["block", "move", page, &paragraph_id, "--first", "--json"],
+        );
+        assert_eq!(blocks(false)[0]["id"], paragraph_id.as_str());
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "text",
+                    page,
+                    &paragraph_id,
+                    "--find",
+                    "zebra",
+                    "--replace",
+                    "x",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_TEXT_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "text",
+                    page,
+                    &paragraph_id,
+                    "--find",
+                    "e",
+                    "--replace",
+                    "E",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_TEXT_AMBIGUOUS"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "move",
+                    page,
+                    &heading_id,
+                    "--parent",
+                    &card,
+                    "--after",
+                    &heading_id,
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_BAD_AFTER"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "props",
+                    page,
+                    "10000000-0000-4000-8000-0000000000ff",
+                    "--set",
+                    "tone=muted",
+                    "--json"
+                ]
+            ),
+            "COLAB_BLOCK_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                &pilot,
+                &["block", "props", page, &todo, "--set", "nope=1", "--json"]
+            ),
+            "COLAB_INPUT_INVALID"
+        );
+
+        // A whole-text replacement carries the base `block get` returned and keeps what others
+        // changed meanwhile: here a concurrent edit of another word.
+        let got = call(&pilot, &["block", "get", page, &paragraph_id, "--json"]);
+        let base = got["block"]["base"].as_str().unwrap().to_owned();
+        assert_eq!(base, "The quick red fox jumps");
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "quick",
+                "--replace",
+                "slow",
+                "--json",
+            ],
+        );
+        let (base_file, new_file) = (pilot.root.join("base.txt"), pilot.root.join("new.txt"));
+        fs::write(&base_file, &base).unwrap();
+        fs::write(&new_file, "The quick red fox leaps").unwrap();
+        let merged = call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--file",
+                new_file.to_str().unwrap(),
+                "--base-file",
+                base_file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(merged["droppedHunks"], json!([]));
+        let after = call(&pilot, &["block", "get", page, &paragraph_id, "--json"]);
+        assert_eq!(after["block"]["base"], "The slow red fox leaps");
+        // An overlapping change is dropped, reported, and the page's own text stays.
+        fs::write(&base_file, "The slow red fox leaps").unwrap();
+        fs::write(&new_file, "The SLOW red fox leaps").unwrap();
+        call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--find",
+                "slow",
+                "--replace",
+                "swift",
+                "--json",
+            ],
+        );
+        let overlap = call(
+            &pilot,
+            &[
+                "block",
+                "text",
+                page,
+                &paragraph_id,
+                "--file",
+                new_file.to_str().unwrap(),
+                "--base-file",
+                base_file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(overlap["droppedHunks"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            call(&pilot, &["block", "get", page, &paragraph_id, "--json"])["block"]["base"],
+            "The swift red fox leaps"
+        );
+
+        // Delete and restore keep the block's place; a batch is all or nothing.
+        call(&pilot, &["block", "delete", page, &heading_id, "--json"]);
+        assert!(!blocks(false).iter().any(|b| b["id"] == heading_id.as_str()));
+        assert!(blocks(true).iter().any(|b| b["id"] == heading_id.as_str()));
+        call(&pilot, &["block", "restore", page, &heading_id, "--json"]);
+        let ops = pilot.root.join("ops.json");
+        let extra = "10000000-0000-4000-8000-0000000000aa";
+        fs::write(
+            &ops,
+            json!([
+                {"op": "insert", "id": extra, "type": "callout", "text": "Heads up", "props": {"tone": "waiting"}},
+                {"op": "props", "id": extra, "set": {"tone": "not-a-tone"}},
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let before = blocks(true).len();
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "block",
+                    "batch",
+                    page,
+                    "--file",
+                    ops.to_str().unwrap(),
+                    "--json"
+                ]
+            ),
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(blocks(true).len(), before);
+
+        // A structured page has no HTML source to write or patch; an HTML page has no blocks.
+        assert_eq!(
+            code(
+                &pilot,
+                &[
+                    "page",
+                    "patch",
+                    page,
+                    "--find",
+                    "a",
+                    "--replace",
+                    "b",
+                    "--json"
+                ]
+            ),
+            "COLAB_STRUCTURED_PAGE"
+        );
+        let html = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Html",
+                "--layout",
+                "column",
+                "--no-open",
+                "--json",
+            ],
+        )["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            code(&pilot, &["block", "ls", &html, "--json"]),
+            "COLAB_NOT_STRUCTURED"
+        );
+    }
 }

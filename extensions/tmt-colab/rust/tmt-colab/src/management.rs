@@ -479,10 +479,9 @@ impl Command {
                     || create.title.is_empty()
                     || create.title.len() > crate::decoder::BASELINE_TITLE_BYTES
                     || create.source.len() > crate::decoder::BASELINE_BYTES
-                    || create
-                        .page_type
-                        .as_deref()
-                        .is_some_and(|kind| kind != "shell" || !create.source.is_empty())
+                    || create.page_type.as_deref().is_some_and(|kind| {
+                        !matches!(kind, "shell" | "blocks") || !create.source.is_empty()
+                    })
                     || create
                         .publisher_agent
                         .as_deref()
@@ -644,11 +643,26 @@ fn apply(
             if v.creator.is_some() || v.template.is_some() || v.template_page.is_some() {
                 return Err(Code::Invalid);
             }
-            OwnerAction::CreateShell {
-                page: &v.page_id,
-                title: &v.title,
-                publisher_agent: v.publisher_agent.as_deref(),
-                creation_recipient: v.creation_recipient.as_ref(),
+            if v.layout.is_some() {
+                return Err(Code::Invalid);
+            }
+            let (page, title) = (&v.page_id, &v.title);
+            let (publisher_agent, creation_recipient) =
+                (v.publisher_agent.as_deref(), v.creation_recipient.as_ref());
+            if v.page_type.as_deref() == Some("blocks") {
+                OwnerAction::CreateBlocks {
+                    page,
+                    title,
+                    publisher_agent,
+                    creation_recipient,
+                }
+            } else {
+                OwnerAction::CreateShell {
+                    page,
+                    title,
+                    publisher_agent,
+                    creation_recipient,
+                }
             }
         }
         Action::Create(v) => OwnerAction::Create {

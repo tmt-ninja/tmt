@@ -1,0 +1,424 @@
+{
+  "format": "tmt-colab-block-text-merge",
+  "version": 1,
+  "description": "Hand-derived cases for merge(base, remote, local) of one block's text (#6004). Offsets count Unicode scalar values. `hunks` pins the diff base -> local (common prefix and suffix kept, Myers on the middle, deletions first on ties, one hunk past the distance limit); `merges` pins the three-way result and the agent hunks dropped because they overlapped the page's own edit (overlap `remote`, the default); `mergesBoth` pins the same merge with overlap `both`, which keeps an overlapping hunk's new text after the page's and drops only its deletion. Shared by the native merge and the browser mirror in colab-client.",
+  "unit": "unicode-scalar-value",
+  "diffLimit": 1024,
+  "hunks": [
+    {
+      "name": "equal",
+      "base": "abc",
+      "local": "abc",
+      "hunks": []
+    },
+    {
+      "name": "insert in the middle",
+      "base": "hello world",
+      "local": "hello brave world",
+      "hunks": [
+        {
+          "from": 6,
+          "to": 6,
+          "text": "brave "
+        }
+      ]
+    },
+    {
+      "name": "delete a word",
+      "base": "hello brave world",
+      "local": "hello world",
+      "hunks": [
+        {
+          "from": 6,
+          "to": 12,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "replace one character",
+      "base": "cat",
+      "local": "cot",
+      "hunks": [
+        {
+          "from": 1,
+          "to": 2,
+          "text": "o"
+        }
+      ]
+    },
+    {
+      "name": "two separate hunks around kept text",
+      "base": "abcdef",
+      "local": "aXcdeY",
+      "hunks": [
+        {
+          "from": 1,
+          "to": 2,
+          "text": "X"
+        },
+        {
+          "from": 5,
+          "to": 6,
+          "text": "Y"
+        }
+      ]
+    },
+    {
+      "name": "swap pins the tie-break",
+      "base": "ab",
+      "local": "ba",
+      "hunks": [
+        {
+          "from": 0,
+          "to": 0,
+          "text": "b"
+        },
+        {
+          "from": 1,
+          "to": 2,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "astral characters are one unit",
+      "base": "a🐈b",
+      "local": "a🐕b",
+      "hunks": [
+        {
+          "from": 1,
+          "to": 2,
+          "text": "🐕"
+        }
+      ]
+    },
+    {
+      "name": "empty base",
+      "base": "",
+      "local": "xyz",
+      "hunks": [
+        {
+          "from": 0,
+          "to": 0,
+          "text": "xyz"
+        }
+      ]
+    },
+    {
+      "name": "empty local",
+      "base": "xyz",
+      "local": "",
+      "hunks": [
+        {
+          "from": 0,
+          "to": 3,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "distance exactly at the limit is diffed",
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaamcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "local": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "hunks": [
+        {
+          "from": 0,
+          "to": 256,
+          "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "from": 257,
+          "to": 513,
+          "text": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    {
+      "name": "distance over the limit is one hunk",
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaamcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "local": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "hunks": [
+        {
+          "from": 0,
+          "to": 514,
+          "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    }
+  ],
+  "merges": [
+    {
+      "name": "nothing changed",
+      "base": "hello",
+      "remote": "hello",
+      "local": "hello",
+      "merged": "hello",
+      "dropped": []
+    },
+    {
+      "name": "only the agent changed",
+      "base": "hello world",
+      "remote": "hello world",
+      "local": "hello brave world",
+      "merged": "hello brave world",
+      "dropped": []
+    },
+    {
+      "name": "only the page changed",
+      "base": "hello world",
+      "remote": "hello brave world",
+      "local": "hello world",
+      "merged": "hello brave world",
+      "dropped": []
+    },
+    {
+      "name": "disjoint edits both stay",
+      "base": "The quick brown fox jumps",
+      "remote": "The quick red fox jumps",
+      "local": "The quick brown fox leaps",
+      "merged": "The quick red fox leaps",
+      "dropped": []
+    },
+    {
+      "name": "an overlap keeps the page text and reports the agent hunks",
+      "base": "alpha beta gamma",
+      "remote": "alpha BETA gamma",
+      "local": "alpha bEtA gamma",
+      "merged": "alpha BETA gamma",
+      "dropped": [
+        {
+          "from": 7,
+          "to": 8,
+          "text": "E"
+        },
+        {
+          "from": 9,
+          "to": 10,
+          "text": "A"
+        }
+      ]
+    },
+    {
+      "name": "insertions at one point keep the page's first",
+      "base": "ab",
+      "remote": "aXb",
+      "local": "aYb",
+      "merged": "aXYb",
+      "dropped": []
+    },
+    {
+      "name": "the same edit by both is applied once",
+      "base": "abc",
+      "remote": "aXc",
+      "local": "aXc",
+      "merged": "aXc",
+      "dropped": []
+    },
+    {
+      "name": "an insertion at the start of a deletion applies",
+      "base": "abcd",
+      "remote": "ad",
+      "local": "aXbcd",
+      "merged": "aXd",
+      "dropped": []
+    },
+    {
+      "name": "an insertion inside a deletion is dropped",
+      "base": "abcd",
+      "remote": "ad",
+      "local": "abXcd",
+      "merged": "ad",
+      "dropped": [
+        {
+          "from": 2,
+          "to": 2,
+          "text": "X"
+        }
+      ]
+    },
+    {
+      "name": "astral characters count as one",
+      "base": "🐈 sat",
+      "remote": "🐈 sat down",
+      "local": "The 🐈 sat",
+      "merged": "The 🐈 sat down",
+      "dropped": []
+    },
+    {
+      "name": "carriage returns are ordinary characters",
+      "base": "a\r\nb",
+      "remote": "a\r\nB",
+      "local": "A\r\nb",
+      "merged": "A\r\nB",
+      "dropped": []
+    },
+    {
+      "name": "empty base",
+      "base": "",
+      "remote": "x",
+      "local": "y",
+      "merged": "xy",
+      "dropped": []
+    },
+    {
+      "name": "the agent clears the text while the page edited inside",
+      "base": "one two three",
+      "remote": "one 2 three",
+      "local": "",
+      "merged": "one 2 three",
+      "dropped": [
+        {
+          "from": 0,
+          "to": 13,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "an agent hunk over the diff limit is one hunk and overlaps",
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaamcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "remote": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "local": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "merged": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "dropped": [
+        {
+          "from": 0,
+          "to": 514,
+          "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    {
+      "name": "hunks at the diff limit stay separate and both apply",
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaamcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "remote": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "local": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "merged": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbMdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "dropped": []
+    }
+  ],
+  "mergesBoth": [
+    {
+      "name": "an overlap keeps the page text and adds the agent's new text after it",
+      "base": "alpha beta gamma",
+      "remote": "alpha BETA gamma",
+      "local": "alpha bEtA gamma",
+      "merged": "alpha BETAEA gamma",
+      "dropped": [
+        {
+          "from": 7,
+          "to": 8,
+          "text": ""
+        },
+        {
+          "from": 9,
+          "to": 10,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "an insertion inside a deletion is kept after it",
+      "base": "abcd",
+      "remote": "ad",
+      "local": "abXcd",
+      "merged": "aXd",
+      "dropped": []
+    },
+    {
+      "name": "an agent replacement over a page edit keeps both",
+      "base": "one two three",
+      "remote": "one 2 three",
+      "local": "one TWO three",
+      "merged": "one 2TWO three",
+      "dropped": [
+        {
+          "from": 4,
+          "to": 7,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "an agent delete-only hunk that overlaps is still dropped whole",
+      "base": "one two three",
+      "remote": "one 2 three",
+      "local": "",
+      "merged": "one 2 three",
+      "dropped": [
+        {
+          "from": 0,
+          "to": 13,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "one agent replacement over two page hunks lands after the last",
+      "base": "abcdef",
+      "remote": "aXcYef",
+      "local": "aZZef",
+      "merged": "aXcYZZef",
+      "dropped": [
+        {
+          "from": 1,
+          "to": 4,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "astral characters count as one",
+      "base": "a🐈b",
+      "remote": "aXb",
+      "local": "a🐩b",
+      "merged": "aX🐩b",
+      "dropped": [
+        {
+          "from": 1,
+          "to": 2,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "carriage returns are ordinary characters",
+      "base": "a\r\nb",
+      "remote": "a\r\nB",
+      "local": "a\r\nc",
+      "merged": "a\r\nBc",
+      "dropped": [
+        {
+          "from": 3,
+          "to": 4,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "insertions at one point do not overlap",
+      "base": "",
+      "remote": "x",
+      "local": "y",
+      "merged": "xy",
+      "dropped": []
+    },
+    {
+      "name": "disjoint edits are unchanged",
+      "base": "The quick brown fox jumps",
+      "remote": "The quick red fox jumps",
+      "local": "The quick brown fox leaps",
+      "merged": "The quick red fox leaps",
+      "dropped": []
+    },
+    {
+      "name": "the same edit by both is applied once",
+      "base": "abc",
+      "remote": "aXc",
+      "local": "aXc",
+      "merged": "aXc",
+      "dropped": []
+    }
+  ]
+}

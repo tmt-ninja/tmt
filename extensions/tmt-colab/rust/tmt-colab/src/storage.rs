@@ -135,7 +135,7 @@ pub fn read_page(
     let title = if archived {
         None
     } else {
-        Some(page::read(store, key, id, decoder)?.title)
+        Some(page::read_metadata(store, key, id, decoder)?.title)
     };
     let history = if skipped.is_none() && bytes.eligible_history > 0 {
         let streams = page::owner_fold::eligible_streams(store, key, id)?;

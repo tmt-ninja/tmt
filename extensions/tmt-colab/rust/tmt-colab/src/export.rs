@@ -294,10 +294,31 @@ impl Bundle {
             }
         })?;
         let mut view = snapshot.materialize(key, page, decoder)?;
+        let blocks_page = view.meta.get("pageType").and_then(|v| v.as_str()) == Some("blocks");
+        // A page of blocks exports its canonical value as `blocks.json` and a rendering of it as
+        // `page.html`, derived from that file.
+        let rendered = blocks_page.then(|| {
+            crate::blocks::html::render(
+                view.blocks
+                    .as_ref()
+                    .unwrap_or(&crate::blocks::schema::empty()),
+            )
+            .into_bytes()
+        });
         let (content_name, content) = if let Some(shell) = view.meta.get("shell") {
             (
                 "shell.json",
                 crate::closed::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
+            )
+        } else if blocks_page {
+            (
+                "blocks.json",
+                crate::closed::canonical(
+                    view.blocks
+                        .as_ref()
+                        .unwrap_or(&crate::blocks::schema::empty()),
+                )
+                .map_err(|_| crate::page::Fault::Invalid)?,
             )
         } else {
             ("page.html", std::mem::take(&mut view.source).into_bytes())
@@ -358,6 +379,12 @@ impl Bundle {
             None
         };
         let mut files = vec![FileInfo::new(content_name, &content)];
+        if let Some(html) = &rendered {
+            files.push(FileInfo {
+                derived_from: Some("blocks.json"),
+                ..FileInfo::new("page.html", html)
+            });
+        }
         if let Some(work) = &work {
             files.push(FileInfo::new("work.json", work));
         }
@@ -376,7 +403,11 @@ impl Bundle {
             space_id: &key.space_id,
             page_id: page,
             title: &view.title,
-            page_type: view.meta.get("shell").map(|_| "shell"),
+            page_type: if blocks_page {
+                Some("blocks")
+            } else {
+                view.meta.get("shell").map(|_| "shell")
+            },
             original_author: view.original_author.as_deref(),
             creator: view.meta.get("creator"),
             questions: view.meta.get("questions"),
@@ -399,6 +430,7 @@ impl Bundle {
             files: &files,
         })?;
         let mut contents = vec![content];
+        contents.extend(rendered);
         contents.extend(work);
         contents.extend(derived.as_ref().and_then(|derived| derived.file.clone()));
         contents.extend([json, markdown]);

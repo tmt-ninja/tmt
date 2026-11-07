@@ -1,4 +1,5 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
+pub mod blocks;
 pub mod compact;
 pub mod compact_ipc;
 pub mod ipc;
@@ -33,6 +34,18 @@ pub enum Fault {
     Unavailable,
     StreamGap,
     ServerMismatch,
+    /// A structured page (`pageType` `blocks`) is edited by `tmt colab block`, never by source.
+    StructuredPage,
+    /// `tmt colab block` was run on a page that is HTML.
+    NotStructured,
+    /// A block op names a block the page does not have (never added, or purged by compaction).
+    BlockNotFound,
+    /// `after` names a block that is not a child of `parent`.
+    BlockBadAfter,
+    BlockTextNotFound,
+    BlockTextAmbiguous,
+    /// A mockup block's markup does not pass the page check.
+    BlockMarkup,
 }
 impl Fault {
     pub fn code(&self) -> &'static str {
@@ -46,6 +59,13 @@ impl Fault {
             Self::Unavailable => "COLAB_UNAVAILABLE",
             Self::StreamGap => "COLAB_STREAM_GAP",
             Self::ServerMismatch => "COLAB_SERVER_MISMATCH",
+            Self::StructuredPage => "COLAB_STRUCTURED_PAGE",
+            Self::NotStructured => "COLAB_NOT_STRUCTURED",
+            Self::BlockNotFound => "COLAB_BLOCK_NOT_FOUND",
+            Self::BlockBadAfter => "COLAB_BLOCK_BAD_AFTER",
+            Self::BlockTextNotFound => "COLAB_BLOCK_TEXT_NOT_FOUND",
+            Self::BlockTextAmbiguous => "COLAB_BLOCK_TEXT_AMBIGUOUS",
+            Self::BlockMarkup => "COLAB_BLOCK_MARKUP",
         }
     }
 }
@@ -78,6 +98,27 @@ impl std::fmt::Display for Fault {
             }
             Self::ServerMismatch => {
                 "The running Colab server and this CLI are different builds that cannot write pages together. Nothing was written. Run `tmt colab stop`, then start `tmt colab serve` again so the server runs the installed build (or upgrade the CLI if the server is newer)."
+            }
+            Self::StructuredPage => {
+                "This page is made of blocks, so it has no HTML source to write or patch. Change it with `tmt colab block` (ls, get, insert, props, text, move, delete, restore, table, batch). Nothing was written."
+            }
+            Self::NotStructured => {
+                "This page is HTML, not blocks. Read and change it with `tmt colab page read` and `page patch`; `tmt colab block` works on pages made with `page create --structured`."
+            }
+            Self::BlockNotFound => {
+                "A block named in the request is not on the page; it was never added, or compaction removed it after it was deleted. Run `tmt colab block ls`. Nothing was written."
+            }
+            Self::BlockBadAfter => {
+                "`after` must name a block that is a child of `parent` (or be null for the first place). Nothing was written."
+            }
+            Self::BlockTextNotFound => {
+                "The text to replace is not in the block now. Run `tmt colab block get` and try again. Nothing was written."
+            }
+            Self::BlockTextAmbiguous => {
+                "The text to replace occurs more than once in the block. Quote more of it. Nothing was written."
+            }
+            Self::BlockMarkup => {
+                "A mockup's markup does not pass the page check. Save it to a file and run `tmt colab page check FILE` to see what to fix. Nothing was written."
             }
         })
     }
@@ -482,7 +523,18 @@ pub fn usage_after_patch(
     snapshot(store, key, page, false)?.usage_reusing(key, page, decoder, &base.input)
 }
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
-    Ok(read_with_meta(store, key, page, decoder)?.0)
+    Ok(read_with_meta(store, key, page, decoder, false)?.0)
+}
+/// [`read`] for what a page has besides its source (title, state, questions, creator, locks): a
+/// page of blocks is admitted, with an empty source, so the metadata commands and the browser's
+/// metadata edits work on it. A caller that needs the source keeps [`read`], which refuses it.
+pub fn read_metadata(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<Page> {
+    Ok(read_with_meta(store, key, page, decoder, true)?.0)
 }
 /// The authenticated bytes, source and content metadata a patch read and evaluated, at the
 /// revision it read them. A preparation that finds the page still at that revision reuses them
@@ -501,7 +553,7 @@ pub fn read_for_patch(
     page: &str,
     decoder: &mut Decoder,
 ) -> Result<(Page, PatchBase)> {
-    let (read, meta, input) = read_with_meta(store, key, page, decoder)?;
+    let (read, meta, input) = read_with_meta(store, key, page, decoder, false)?;
     let base = PatchBase {
         revision: read.revision.clone(),
         source: read.source.clone(),
@@ -515,11 +567,20 @@ fn read_with_meta(
     key: &Keyring,
     page: &str,
     decoder: &mut Decoder,
+    metadata_only: bool,
 ) -> Result<(Page, serde_json::Value, crate::fold::MaterializationInput)> {
     let s = snapshot(store, key, page, false)?;
     let (view, input) = s.materialize_measured(key, page, decoder)?;
-    if view.meta.get("pageType").is_some() {
-        return Err(Fault::Invalid.into());
+    if let Some(page_type) = view.meta.get("pageType")
+        && !(metadata_only && page_type == "blocks")
+    {
+        // A page of blocks points to `tmt colab block`; a dashboard has its own commands.
+        return Err(if page_type == "blocks" {
+            Fault::StructuredPage
+        } else {
+            Fault::Invalid
+        }
+        .into());
     }
     let question_states = if let Some(registry) = view.meta.get("questions") {
         let conversations = crate::discussion::project(key, page, &s, &view);
@@ -620,6 +681,32 @@ pub struct WorkPage {
     pub epoch: String,
     pub membership_head: Head,
     pub revision: String,
+}
+/// What `tmt colab block ls` and `get` read: a structured page's blocks and the revision they are at.
+pub struct BlocksPage {
+    pub page_id: String,
+    pub title: String,
+    pub revision: String,
+    pub blocks: serde_json::Value,
+}
+pub fn read_blocks(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<BlocksPage> {
+    let s = snapshot(store, key, page, false)?;
+    let view = s.materialize(key, page, decoder)?;
+    let blocks = match (view.meta["pageType"].as_str(), view.blocks) {
+        (Some("blocks"), blocks) => blocks.unwrap_or_else(crate::blocks::schema::empty),
+        _ => return Err(Fault::NotStructured.into()),
+    };
+    Ok(BlocksPage {
+        page_id: page.into(),
+        title: view.title,
+        revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
+        blocks,
+    })
 }
 pub fn read_work(
     store: &Store,
@@ -810,6 +897,20 @@ pub fn prepare_publication_with_clock<'a>(
         ..frozen
     }))
 }
+impl From<crate::blocks::ops::Refusal> for Fault {
+    fn from(refusal: crate::blocks::ops::Refusal) -> Self {
+        use crate::blocks::ops::Refusal;
+        match refusal {
+            Refusal::Invalid => Self::Invalid,
+            Refusal::NotFound => Self::BlockNotFound,
+            Refusal::BadAfter => Self::BlockBadAfter,
+            Refusal::TextNotFound => Self::BlockTextNotFound,
+            Refusal::TextAmbiguous => Self::BlockTextAmbiguous,
+            Refusal::Capacity => Self::Capacity,
+            Refusal::Markup => Self::BlockMarkup,
+        }
+    }
+}
 /// One explicit structured action (a shell's, or the work of an ordinary page) against the
 /// revision the caller read. Agent metadata is display only; the writer and time below come from
 /// the authenticated write owner.
@@ -817,7 +918,9 @@ pub struct StructuredAction<'a> {
     pub kind: crate::decoder::StructuredKind,
     pub action: &'a str,
     pub body: &'a serde_json::Value,
-    pub expected_revision: &'a str,
+    /// The revision the caller read; a different one is a stale base. `None` for a block batch,
+    /// whose ops address blocks by id and merge into whatever the page holds now.
+    pub expected_revision: Option<&'a str>,
     pub display_agent: Option<serde_json::Value>,
     /// The caller's own operation ID, so the outcome can be read back by it (a browser's work
     /// action); `None` for a command that has its receipt.
@@ -831,6 +934,28 @@ pub fn prepare_structured_publication(
     decoder: &mut Decoder,
     clock: &dyn Fn() -> Result<u64>,
 ) -> Result<PublicationPreparation> {
+    prepare_structured(store, key, page, action, decoder, clock).map(|(prepared, _)| prepared)
+}
+/// [`prepare_structured_publication`] for a block batch, with the batch's receipt.
+pub fn prepare_blocks_publication(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    action: StructuredAction<'_>,
+    decoder: &mut Decoder,
+    clock: &dyn Fn() -> Result<u64>,
+) -> Result<(PublicationPreparation, serde_json::Value)> {
+    let (prepared, receipt) = prepare_structured(store, key, page, action, decoder, clock)?;
+    Ok((prepared, receipt.ok_or(Fault::Invalid)?))
+}
+fn prepare_structured(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    action: StructuredAction<'_>,
+    decoder: &mut Decoder,
+    clock: &dyn Fn() -> Result<u64>,
+) -> Result<(PublicationPreparation, Option<serde_json::Value>)> {
     use crate::{
         decoder::{ContentBatch, StructuredEdit},
         publication::PublicationKind,
@@ -838,7 +963,10 @@ pub fn prepare_structured_publication(
     values::generated_id(page)?;
     let s = snapshot(store, key, page, true)?;
     let revision = token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?;
-    if action.expected_revision != revision {
+    if action
+        .expected_revision
+        .is_some_and(|expected| expected != revision)
+    {
         return Err(Fault::StaleBase.into());
     }
     let now = clock()?;
@@ -856,13 +984,17 @@ pub fn prepare_structured_publication(
         attribution,
     };
     let prepared = s.prepare_structured_batch(key, page, &edit, decoder)?;
+    let receipt = prepared.receipt.clone();
     let ContentBatch::Updates(updates) = prepared.batch else {
-        return Ok(PublicationPreparation::Noop {
-            epoch: s.epoch.to_string(),
-            membership_head: Head::from(&s.authority.head),
-            base_revision: revision,
-            memory_limit: prepared.memory_limit,
-        });
+        return Ok((
+            PublicationPreparation::Noop {
+                epoch: s.epoch.to_string(),
+                membership_head: Head::from(&s.authority.head),
+                base_revision: revision,
+                memory_limit: prepared.memory_limit,
+            },
+            receipt,
+        ));
     };
     let frozen = freeze(
         key,
@@ -880,7 +1012,7 @@ pub fn prepare_structured_publication(
         },
         now,
     )?;
-    Ok(PublicationPreparation::Write(frozen))
+    Ok((PublicationPreparation::Write(frozen), receipt))
 }
 /// One own-namespace update of the local writer's stream, frozen through the same
 /// signed publication as a content batch (status actions; the decoder prepared `update`).

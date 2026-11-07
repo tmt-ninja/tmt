@@ -94,7 +94,8 @@ impl Request {
         operation: &str,
     ) -> crate::Result<crate::page::metadata::MetadataEdit> {
         let mut source = open()?;
-        let current = crate::page::read(&source.store, &source.keyring, page, &mut source.decoder)?;
+        let current =
+            crate::page::read_metadata(&source.store, &source.keyring, page, &mut source.decoder)?;
         if self.target != self.current_target(&current) {
             return Err(crate::page::Fault::StaleBase.into());
         }

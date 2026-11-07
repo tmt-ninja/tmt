@@ -8,7 +8,7 @@ shared by the native shell validator and browser fold validator. Expected result
 cover item order, complete replacement, summary attribution and reading references;
 they establish no target access or signature authority.
 
-`work-v2.json` contains closed work values (an ordinary page's direct sub-pages and summary) and
+`work-v2.json` contains closed work values (a page's direct sub-pages and summary; a dashboard has none) and
 detached actions with their results, shared by the native work validator, the isolated decoder and
 the browser fold validator. The generator is an independent model of the contract rules, not either
 implementation. Cases cover the list actions (attach, move and detach, with and without `before`),
@@ -16,6 +16,27 @@ the sub-page, text and byte bounds at their exact edges and summary attribution,
 task-era values as migration input: what is accepted, the sub-pages a reader projects, and the
 version 2 value every action and `work.migrate` stores. The link rules are admission rules of the
 write owner and appear in none; a refused task-era action shows the old actions are gone.
+
+`blocks-v1.json` contains closed `blocks` values of a structured page (#6004): the valid documents and,
+for every rule, a value that breaks only that rule (shapes, tree and parent rules, every type's props,
+text and marks, table cells, limits at their exact edges). The native schema (`blocks::schema`) and
+the browser fold validator both run it. `blocks-reference.py` is an independent model of the rules,
+not either implementation: `python3 blocks-reference.py` checks the file, `--write` regenerates it
+after review.
+
+`blocks-page-v1.json` (written by the same script) holds the page around the blocks: which metadata a page of
+blocks may carry (work, attachments, fromTemplate, a state, convertedAt, and an `html` holding the frozen legacy
+source of a converted page; a reverted page's emptied `blocks` root) and refuse (a template, a layout, convertedAt anywhere else). Each case is a content document run through the isolated decoder and through the
+browser fold's Worker. `blocks-html-v1.json` holds pages of blocks with the HTML export renders for them; the
+native `blocks::html` writes it (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html`) and the browser's
+`renderBlocks` must match it byte for byte.
+
+`block-text-merge-v1.json` holds hand-derived cases of the three-way text merge of one block
+(`diff` hunks, `merges` with overlap `remote`, `mergesBoth` with overlap `both`), and
+`block-text-merge-generated-v1.json` 500 seeded random triples merged under both modes. The native
+merge (`blocks::merge`) and `textMerge` in `@tmt/colab-client` run both; the native test regenerates
+the second file and fails when it differs (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab
+merge_generated` rewrites it).
 
 `template-marks-v1.json` contains the two template marks of a page's content metadata
 (`template` and `fromTemplate`, #5066) with their expected verdicts, shared by the native
