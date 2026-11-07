@@ -27,13 +27,14 @@ export function LiveStructuredPage({
     },
     [write],
   );
-  const { tree, editing, focus, typed } = useBlockEditing(records, send);
+  const { tree, editing, focus, typed, key } = useBlockEditing(records, send);
   return (
     <StructuredPage
       tree={tree}
       editing={editing}
       onFocus={focus}
       onTyped={typed}
+      onKey={key}
       readonly={!write}
     />
   );

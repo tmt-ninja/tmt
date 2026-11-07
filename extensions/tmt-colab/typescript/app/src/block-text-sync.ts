@@ -37,6 +37,9 @@ export class BlockTextSync {
   #inflight?: { set: string; base: string };
   /** The page's latest text, while an op is in flight. */
   #held?: string;
+  /** After an applied op, the text it replaced, until the page shows a newer one: the page can
+   * still draw that text once more from a view made before the commit. */
+  #stale?: string;
 
   constructor(
     readonly id: string,
@@ -46,6 +49,10 @@ export class BlockTextSync {
     this.#local = text;
   }
 
+  /** The page text the next op merges from. */
+  get base(): string {
+    return this.#base;
+  }
   /** The text the editor shows. */
   get text(): string {
     return this.#local;
@@ -77,6 +84,8 @@ export class BlockTextSync {
       this.#held = remote;
       return { text: this.#local, caret, dropped: false };
     }
+    if (remote === this.#stale) return { text: this.#local, caret, dropped: false };
+    this.#stale = undefined;
     return this.#merge(this.#base, remote, caret);
   }
 
@@ -87,12 +96,14 @@ export class BlockTextSync {
     if (!sent) return { text: this.#local, caret, dropped: false };
     this.#inflight = undefined;
     const from = applied ? sent.set : sent.base;
+    this.#stale = applied && sent.base !== sent.set ? sent.base : undefined;
     const held = this.#held;
     this.#held = undefined;
-    if (held === undefined) {
+    if (held === undefined || held === this.#stale) {
       this.#base = from;
       return { text: this.#local, caret, dropped: false };
     }
+    this.#stale = undefined;
     return this.#merge(from, held, caret);
   }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import {
   Block,
   BlockDocument,
@@ -43,6 +43,14 @@ export interface StructuredPageProps {
   onFocus?(id: string): void;
   /** Typing in the focused block. */
   onTyped?(id: string, text: string, caret: number): void;
+  /** A key in the focused block (Enter, Backspace at its start); true when the page took it. */
+  onKey?(
+    id: string,
+    event: KeyboardEvent,
+    text: string,
+    caret: number,
+    collapsed: boolean,
+  ): boolean;
   /** No editing at all: a reader, or a page this device may not change. */
   readonly?: boolean;
 }
@@ -51,17 +59,10 @@ export interface StructuredPageProps {
  * A structured page drawn from its block tree with the design system's block parts (#6005). Every
  * block draws as static content except the focused text block, which holds the one editor.
  */
-export function StructuredPage({ tree, editing, onFocus, onTyped, readonly }: StructuredPageProps) {
+export function StructuredPage(props: StructuredPageProps) {
   return (
     <BlockDocument>
-      <Blocks
-        tree={tree}
-        parent={PAGE_PARENT}
-        editing={editing}
-        onFocus={onFocus}
-        onTyped={onTyped}
-        readonly={readonly}
-      />
+      <Blocks {...props} parent={PAGE_PARENT} />
     </BlockDocument>
   );
 }
@@ -99,6 +100,7 @@ function Content({
   tree,
   editing,
   onTyped,
+  onKey,
   ...rest
 }: StructuredPageProps & { block: BlockRecord }): ReactNode {
   const text =
@@ -109,6 +111,9 @@ function Content({
         caret={editing.caret}
         version={editing.version}
         onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
+        onKey={(event, value, caret, collapsed) =>
+          onKey?.(block.id, event, value, caret, collapsed) ?? false
+        }
       />
     ) : (
       block.text
@@ -123,7 +128,14 @@ function Content({
     case 'card':
       return (
         <CardBlock title={typeof block.props.title === 'string' ? block.props.title : undefined}>
-          <Blocks tree={tree} parent={block.id} editing={editing} onTyped={onTyped} {...rest} />
+          <Blocks
+            tree={tree}
+            parent={block.id}
+            editing={editing}
+            onTyped={onTyped}
+            onKey={onKey}
+            {...rest}
+          />
         </CardBlock>
       );
     case 'table': {

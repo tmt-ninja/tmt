@@ -92,6 +92,18 @@ describe('a focused block while the page changes', () => {
     expect(shown.text).toContain('bird');
     expect(shown.text).toContain('dog');
   });
+  it('ignores the page drawing the replaced text once more after its op settled', () => {
+    const sync = new BlockTextSync('b', 'Ship');
+    sync.typed('Ship it');
+    sync.flush();
+    expect(sync.settled(true, 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    // A view made before the commit still shows the old text: not a change by anyone.
+    expect(sync.remote('Ship', 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    expect(sync.pending).toBe(false);
+    // The page then moves on, and a real change merges as usual.
+    expect(sync.remote('Ship it', 7).text).toBe('Ship it');
+    expect(sync.remote('Ship it now', 7).text).toBe('Ship it now');
+  });
   it('shows the page text at once when nothing is typed', () => {
     const sync = new BlockTextSync('b', 'a');
     // Text inserted at the caret goes before it, as the merge keeps the page's insertion first at

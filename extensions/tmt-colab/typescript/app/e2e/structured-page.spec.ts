@@ -62,6 +62,41 @@ test('an agent edit while the person sends lands without moving the caret back',
     .toBe('Ship the whole stack. AB');
 });
 
+test('Enter splits a block at the caret and Backspace at its start joins it back', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const first = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await first.press('End');
+  // Typing not sent yet goes in the split's batch.
+  await first.pressSequentially(' Now', { delay: 20 });
+  for (let i = 0; i < ' the stack. Now'.length; i++) await first.press('ArrowLeft');
+  await first.press('Enter');
+  const blocks = host.locator('[data-block-id]');
+  await expect(blocks).toHaveCount(4);
+  await expect(blocks.nth(1)).toHaveText('Ship');
+  // The new block holds the rest and the editor, with the caret at its start.
+  const second = blocks.nth(2).locator('[contenteditable="true"]');
+  await expect(second).toHaveText(' the stack. Now');
+  await second.pressSequentially('X', { delay: 20 });
+  await expect(second).toHaveText('X the stack. Now');
+  await expect.poll(() => page.evaluate(() => window.sent.at(-1))).toMatchObject({ op: 'text' });
+  await second.press('Home');
+  await second.press('Backspace');
+  await expect(blocks).toHaveCount(3);
+  const joined = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await expect(joined).toHaveText('ShipX the stack. Now');
+  // The caret sits at the join.
+  await joined.pressSequentially('|', { delay: 20 });
+  await expect(joined).toHaveText('Ship|X the stack. Now');
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toBe('Ship|X the stack. Now');
+  // Each gesture went out as one batch.
+  const sent = await page.evaluate(() => window.sent.map((op) => op.op));
+  expect(sent.filter((op) => op === 'insert')).toHaveLength(1);
+  expect(sent.filter((op) => op === 'delete')).toHaveLength(1);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the spec page draws read-only and mid-typing at ${width} ${theme}`, async ({ page }) => {

@@ -42,6 +42,16 @@ export function scalarOffset(text: string, utf16: number): number {
 }
 
 const $text = () => $getRoot().getTextContent();
+/** The DOM caret in `root` as a scalar offset into `text`, and whether no range is selected. */
+function domCaret(root: HTMLElement, text: string): { at: number; collapsed: boolean } {
+  const selection = root.ownerDocument.getSelection();
+  if (!selection || selection.rangeCount === 0 || !root.contains(selection.anchorNode))
+    return { at: [...text].length, collapsed: true };
+  const range = root.ownerDocument.createRange();
+  range.setStart(root, 0);
+  range.setEnd(selection.anchorNode!, selection.anchorOffset);
+  return { at: scalarOffset(text, range.toString().length), collapsed: selection.isCollapsed };
+}
 /** The caret as a scalar offset in the block's text, or its end when there is none. */
 const $caret = (): number => {
   const text = $text();
@@ -84,8 +94,9 @@ export interface BlockTextEditorProps {
   version: number;
   /** The person typed: the editor's text and caret now. */
   onTyped(text: string, caret: number): void;
-  /** Keys the block handles (Enter, Backspace at the start, Escape); return true to take one. */
-  onKey?(event: KeyboardEvent, text: string, caret: number): boolean;
+  /** Keys the block handles (Enter, Backspace at the start, Escape); return true to take one.
+   * `collapsed` is false while a range is selected. */
+  onKey?(event: KeyboardEvent, text: string, caret: number, collapsed: boolean): boolean;
   placeholder?: string;
 }
 
@@ -138,8 +149,13 @@ function Editor({
       placeholder={null}
       onKeyDownCapture={(event) => {
         if (!onKey) return;
-        const [now, at] = editor.getEditorState().read(() => [$text(), $caret()] as const);
-        if (onKey(event, now, at)) {
+        // An IME composition owns its keys until it ends.
+        if (event.nativeEvent.isComposing) return;
+        const now = editor.getEditorState().read($text);
+        // The caret from the DOM: Lexical takes a selection change on the next `selectionchange`,
+        // so at a keydown its own selection can still be an earlier one.
+        const { at, collapsed } = domCaret(event.currentTarget, now);
+        if (onKey(event, now, at, collapsed)) {
           event.preventDefault();
           event.stopPropagation();
         }
