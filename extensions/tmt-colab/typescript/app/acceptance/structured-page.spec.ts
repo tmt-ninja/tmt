@@ -83,3 +83,174 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
     await expect.poll(textNow, { timeout: 30_000 }).toBe(merged);
   });
 });
+
+// #6005's done condition: a person writes and rearranges a page in the browser, and edits its
+// table, while an agent edits the same page through the CLI; both land, and the page the CLI reads
+// back is the page the browser draws.
+test('a person writes, rearranges and edits a table while an agent edits the same page', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-together');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    // Block and row IDs are UUIDs, as the serve requires.
+    const id = Object.fromEntries(
+      ['plan', 'first', 'second', 'work', 'w1', 'w2', 'w3', 'note'].map((key) => [
+        key,
+        crypto.randomUUID(),
+      ]),
+    ) as Record<'plan' | 'first' | 'second' | 'work' | 'w1' | 'w2' | 'w3' | 'note', string>;
+    const { pageId, path } = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Together',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const batch = (ops: unknown[]) =>
+      run(world, colab, ['block', 'batch', pageId, '--file', '-', '--json'], JSON.stringify(ops));
+    batch([
+      {
+        op: 'insert',
+        id: id.plan,
+        type: 'heading',
+        parent: 'root',
+        text: 'Plan',
+        props: { level: 2 },
+      },
+      {
+        op: 'insert',
+        id: id.first,
+        type: 'paragraph',
+        parent: 'root',
+        after: id.plan,
+        text: 'First step.',
+      },
+      {
+        op: 'insert',
+        id: id.second,
+        type: 'paragraph',
+        parent: 'root',
+        after: id.first,
+        text: 'Second step.',
+      },
+      {
+        op: 'insert',
+        id: id.work,
+        type: 'table',
+        parent: 'root',
+        after: id.second,
+        props: {
+          label: 'Work',
+          columns: [
+            { id: 'task', name: 'Task' },
+            { id: 'state', name: 'State' },
+          ],
+        },
+      },
+      { op: 'table', id: id.work, action: 'add-row', row: id.w1, cells: { task: 'Model' } },
+      { op: 'table', id: id.work, action: 'add-row', row: id.w2, cells: { task: 'Menus' } },
+    ]);
+    type Listed = {
+      id: string;
+      type: string;
+      depth: number;
+      text?: { s: string };
+      cells?: Record<string, { s: string }>;
+      props?: { columns?: { id: string; name: string }[] };
+    };
+    const listed = () =>
+      (JSON.parse(run(world, colab, ['block', 'ls', pageId, '--json'])) as { blocks: Listed[] })
+        .blocks;
+    const texts = () =>
+      listed()
+        .filter((block) => block.depth === 0 && block.text)
+        .map((block) => block.text!.s);
+    const table = () => {
+      const blocks = listed();
+      return {
+        columns: blocks.find((block) => block.id === id.work)!.props!.columns!.map((c) => c.name),
+        rows: blocks
+          .filter((block) => block.type === 'row')
+          .map((row) =>
+            Object.fromEntries(Object.entries(row.cells ?? {}).map(([key, cell]) => [key, cell.s])),
+          ),
+      };
+    };
+
+    const page = await browser.context.newPage();
+    await page.goto(new URL(path, `${door.address}/`).href);
+    const second = page.locator(`[data-block-id="${id.second}"]`);
+    await expect(second).toHaveText('Second step.');
+
+    // The person writes at the end of a block and starts a new one with Enter.
+    await second.click();
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.press('End');
+    await editor.pressSequentially(' Now.', { delay: 40 });
+    // Meanwhile the agent adds a note under the heading and fills a cell.
+    batch([
+      {
+        op: 'insert',
+        id: id.note,
+        type: 'paragraph',
+        parent: 'root',
+        after: id.plan,
+        text: 'Agent note.',
+      },
+      { op: 'table', id: id.work, action: 'set-cell', row: id.w1, column: 'state', text: 'done' },
+    ]);
+    await editor.press('Enter');
+    await editor.pressSequentially('Third step.', { delay: 40 });
+    await expect
+      .poll(texts, { timeout: 30_000 })
+      .toEqual(['Plan', 'Agent note.', 'First step.', 'Second step. Now.', 'Third step.']);
+
+    // The person rearranges: Esc selects the block, and ⌥⇧↑ moves it above the first step.
+    await editor.press('Escape');
+    await page.locator(`[data-block-id="${id.second}"]`).click();
+    await page.keyboard.press('Escape');
+    await expect(second).toHaveAttribute('data-selected', '');
+    await page.keyboard.press('Alt+Shift+ArrowUp');
+    await expect
+      .poll(texts, { timeout: 30_000 })
+      .toEqual(['Plan', 'Agent note.', 'Second step. Now.', 'First step.', 'Third step.']);
+
+    // The table: the person fills a cell and adds a column while the agent adds a row.
+    const work = page.locator(`[data-block-id="${id.work}"]`);
+    await expect(work.locator('tbody tr').first()).toContainText('done');
+    await work.locator('tbody tr').nth(1).locator('td').first().click();
+    await editor.pressSequentially('open', { delay: 40 });
+    batch([{ op: 'table', id: id.work, action: 'add-row', row: id.w3, cells: { task: 'Review' } }]);
+    await editor.press('Escape');
+    await work.getByRole('button', { name: 'Column actions: State' }).click();
+    await page.getByRole('menuitem', { name: 'Add a column after' }).click();
+    const name = work.getByRole('textbox', { name: 'Column name' });
+    await name.fill('Owner');
+    await name.press('Enter');
+    await expect.poll(table, { timeout: 30_000 }).toEqual({
+      columns: ['Task', 'State', 'Owner'],
+      rows: [
+        { task: 'Model', state: 'done' },
+        { task: 'Menus', state: 'open' },
+        { task: 'Review' },
+      ],
+    });
+
+    // The browser draws the page the CLI reads back.
+    const drawn = page.locator('[data-block-id]');
+    await expect(drawn).toHaveText([
+      'Plan',
+      'Agent note.',
+      'Second step. Now.',
+      'First step.',
+      'Third step.',
+      /Task.*State.*Owner.*Model.*done.*Menus.*open.*Review/,
+    ]);
+  });
+});

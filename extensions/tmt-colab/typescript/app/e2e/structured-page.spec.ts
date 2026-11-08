@@ -270,8 +270,12 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
   await expect(ghost).toHaveCount(0);
   // The drop was one move op, and the grip's click after a drag opened no menu.
   await expect(menu).toHaveCount(0);
-  const sent = await page.evaluate(() => window.sent.map((op) => op.op));
-  expect(sent.filter((op) => op === 'move')).toHaveLength(3);
+  // This tab's batches go in order, each once the one before it settles.
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.sent.map((op) => op.op))).filter((op) => op === 'move'),
+    )
+    .toHaveLength(3);
 });
 
 test('＋ on the handle opens the insert menu in a new block after it', async ({ page }) => {
@@ -792,22 +796,56 @@ for (const width of [1440, 390])
       };
       await page.mouse.move(0, 0);
       await shot('filled');
+      // Short labels never break while there is room: each row of the label columns is one line.
+      const labels = table.locator('tbody th');
+      const heights = await labels.evaluateAll((cells) =>
+        cells.map((cell) => Math.round(cell.getBoundingClientRect().height)),
+      );
+      const line = await table
+        .locator('tbody tr')
+        .first()
+        .evaluate((row) => Math.round(row.getBoundingClientRect().height));
+      if (width === 1440) expect(heights).toEqual([line, heights[1], line]);
+      // The label columns hug their content; the long 備註 column wraps in what is left.
+      expect(
+        await table
+          .locator('thead th')
+          .evaluateAll((cells) =>
+            cells.slice(0, 3).map((cell) => getComputedStyle(cell).whiteSpace),
+          ),
+      ).toEqual(['nowrap', 'nowrap', 'normal']);
       // The phone folds the 備註 column; its cells stay in the DOM.
       const note = table.locator('thead th').nth(2);
       if (width === 390) await expect(note).toBeHidden();
       else await expect(note).toBeVisible();
+      const weight = (name: string) =>
+        page.getByRole('menuitem', { name }).evaluate((node) => getComputedStyle(node).fontWeight);
       await table.locator('tbody tr').nth(1).hover();
       await table.getByRole('button', { name: 'Row 2 actions' }).click();
       await expect(page.getByRole('menuitem', { name: 'Insert a row above' })).toBeVisible();
       await shot('row-menu', 200);
+      const bodyWeight = await weight('Insert a row above');
       await page.keyboard.press('Escape');
       await table.getByRole('button', { name: 'Column actions: 用途' }).click();
       await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
       await shot('column-menu', 260);
+      // The menu in a heading cell draws at the same weight as the one in a body cell.
+      expect(await weight('Rename')).toBe(bodyWeight);
       await page.keyboard.press('Escape');
+      const boxes = () =>
+        table.locator('thead th').evaluateAll((cells) =>
+          cells.map((cell) => {
+            const box = cell.getBoundingClientRect();
+            return [box.x, box.width, box.height].map(Math.round);
+          }),
+        );
+      const resting = await boxes();
       await table.getByRole('button', { name: 'Column actions: 用途' }).click();
       await page.getByRole('menuitem', { name: 'Rename' }).click();
-      await expect(table.getByRole('textbox', { name: 'Column name' })).toBeFocused();
+      const field = table.getByRole('textbox', { name: 'Column name' });
+      await expect(field).toBeFocused();
+      // The field takes the heading's own box: no column moves or grows.
+      expect(await boxes()).toEqual(resting);
       await shot('rename');
     });
 

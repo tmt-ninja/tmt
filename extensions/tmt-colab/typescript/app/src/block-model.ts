@@ -138,6 +138,12 @@ export type TableAction =
   | { readonly action: 'move-column'; readonly column: string; readonly after?: string | null }
   | { readonly action: 'remove-column'; readonly column: string };
 
+/** The serve's column ID rule (`schema.rs` `column_id`): 1–32 ASCII letters, digits, `_` or `-`. */
+export const isColumnId = (id: string) => /^[A-Za-z0-9_-]{1,32}$/.test(id);
+
+/** A new column's ID: a UUID's 32 hex digits, inside the serve's rule. */
+export const newColumnId = () => crypto.randomUUID().replaceAll('-', '');
+
 /** A column edit, as the table's column menu sends it. */
 export type TableColumnEdit = Extract<
   TableAction,

@@ -89,6 +89,9 @@
   overflow: auto;
   overscroll-behavior: contain;
   color: var(--tmt-ui-color-text);
+  /* Its own weight, so a menu in a table heading draws like any other; face and size follow the
+     host. */
+  font-weight: 400;
   background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
@@ -142,6 +145,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-menu-item[data-separated] {
   position: relative;
@@ -155,9 +159,6 @@
   /* Internal list dividers stay square; the interactive row and its focus frame are rounded. */
   border-radius: 0;
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.tmt-ui-menu-item {
-  transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-menu-item:hover:not(:disabled),
 .tmt-ui-menu-item:focus-visible {

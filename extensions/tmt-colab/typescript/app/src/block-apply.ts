@@ -1,5 +1,11 @@
 import { textMerge } from '@tmt/colab-client';
-import { type BlockOp, type BlockRecord, ROW_TYPE, tableColumns } from './block-model.js';
+import {
+  type BlockOp,
+  type BlockRecord,
+  isColumnId,
+  ROW_TYPE,
+  tableColumns,
+} from './block-model.js';
 import { formatMarks, marksThrough } from './block-marks.js';
 import { posBetween } from './block-pos.js';
 import { BlockTree } from './block-tree.js';
@@ -148,6 +154,7 @@ function tableOp(
         after === undefined ? next.length : after === null ? 0 : at(after) + 1;
       switch (op.action) {
         case 'add-column':
+          if (!isColumnId(op.column.id)) throw new Error(`${op.column.id} is not a column ID`);
           if (next.some((c) => c.id === op.column.id))
             throw new Error(`${op.column.id} is already a column of ${op.id}`);
           next.splice(place(op.after), 0, op.column);

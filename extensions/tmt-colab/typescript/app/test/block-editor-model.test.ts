@@ -6,6 +6,8 @@ import {
   PAGE_PARENT,
   type Parent,
   ROW_TYPE,
+  isColumnId,
+  newColumnId,
   type TableColumnEdit,
   tableColumns,
 } from '../src/block-model.js';
@@ -751,6 +753,11 @@ describe('table rows and cells (#6005)', () => {
       );
       expect(() => apply(three(), [edit({ action: 'remove-column', column: 'zzz' })])).toThrow();
       expect(() => apply(three(), [edit({ action: 'add-column', column: columns[0]! })])).toThrow();
+      // The serve's column ID rule: a UUID is too long, a new column's ID is not.
+      const uuid = { id: crypto.randomUUID(), name: 'Owner' };
+      expect(() => apply(three(), [edit({ action: 'add-column', column: uuid })])).toThrow();
+      expect(isColumnId(newColumnId())).toBe(true);
+      expect(isColumnId(uuid.id)).toBe(false);
       expect(() =>
         apply(three(), [edit({ action: 'move-column', column: 'a', after: 'zzz' })]),
       ).toThrow();

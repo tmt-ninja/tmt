@@ -183,10 +183,17 @@ export function useBlockEditing(
     () => {},
   );
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
+  const queue = useRef<Promise<void>>(Promise.resolve());
   const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
     const key = ++batchKey.current;
     setPending((now) => [...now, { key, ops }]);
-    const sent = sendRef.current(ops);
+    // This tab's batches commit in the order it made them (a column's rename after its add): each
+    // goes once the one before it settles, and is drawn at once meanwhile.
+    const sent = queue.current.then(() => sendRef.current(ops));
+    queue.current = sent.then(
+      () => {},
+      () => {},
+    );
     const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
     sent.then(drop, drop);
     inflight.current = sent.then(

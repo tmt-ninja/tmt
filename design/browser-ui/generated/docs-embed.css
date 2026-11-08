@@ -1242,7 +1242,25 @@
   width: 100%;
 }
 .tmt-block-table [data-nowrap] {
+  width: 1px;
   white-space: nowrap;
+}
+
+.tmt-block-table-rename {
+  position: relative;
+  display: inline-block;
+}
+.tmt-block-table-rename > [aria-hidden] {
+  visibility: hidden;
+}
+.tmt-block-table-rename > .tmt-block-table-rename-field {
+  position: absolute;
+  inset: calc(var(--tmt-ui-space-xs) * -1) calc(var(--tmt-ui-space-s) * -1);
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 0 calc(var(--tmt-ui-space-s) - var(--tmt-ui-rule-width));
+  font: inherit;
 }
 
 .tmt-block-table-heading {

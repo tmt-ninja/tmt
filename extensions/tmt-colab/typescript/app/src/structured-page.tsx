@@ -46,6 +46,7 @@ import {
   type TableColumn,
   type TableColumnEdit,
   type TableRowAction,
+  newColumnId,
   tableColumns,
   TEXT_TYPES,
 } from './block-model.js';
@@ -494,6 +495,8 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
 const COLUMN_MENU = ['rename', 'move-left', 'move-right', 'add', 'remove'] as const;
 type ColumnMenuKey = (typeof COLUMN_MENU)[number];
 const ROW_MENU: readonly TableRowAction[] = ['above', 'below', 'remove'];
+/** The longest cell, in characters, of a column that hugs its content. */
+const SHORT_CELL = 16;
 
 /** A table block: each cell edits in place, and the column and row menus (the design system's
  * menu) add, rename, move and remove columns and add or remove rows. */
@@ -512,6 +515,12 @@ function Table({
   const columns = tableColumns(block.props);
   const rows = tree.rows(block.id);
   const editable = !readonly && onFocusCell !== undefined;
+  // A column of short labels takes its content's width and the long columns share the rest, so a
+  // label never breaks while there is room.
+  const short = (column: TableColumn) =>
+    [column.name, ...rows.map((row) => row.cells?.[column.id] ?? '')].every(
+      (value) => [...value].length <= SHORT_CELL,
+    );
   // The column whose name is being typed, after Rename or a new column.
   const [renaming, setRenaming] = useState<string>();
   const columnChoice = (column: TableColumn, index: number, key: ColumnMenuKey) => {
@@ -529,7 +538,7 @@ function Table({
       case 'move-right':
         return edit({ action: 'move-column', column: column.id, after: columns[index + 1]!.id });
       case 'add': {
-        const id = crypto.randomUUID();
+        const id = newColumnId();
         edit({
           action: 'add-column',
           column: { id, name: strings.blockTable.newColumn(columns.length + 1) },
@@ -576,20 +585,25 @@ function Table({
       if (value && value !== column.name)
         onColumnAction?.(block.id, { action: 'rename-column', column: column.id, name: value });
     };
+    // The field lies over the heading's own box, so the columns keep their widths.
     return (
-      <Input
-        aria-label={strings.blockTable.columnName}
-        defaultValue={column.name}
-        autoFocus
-        onFocus={(event) => event.currentTarget.select()}
-        onBlur={(event) => done(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          // The name field's keys are its own, never the page's block keys.
-          event.stopPropagation();
-          if (event.key === 'Enter') done(event.currentTarget.value);
-          if (event.key === 'Escape') done();
-        }}
-      />
+      <span className="tmt-block-table-rename">
+        <span aria-hidden="true">{column.name}</span>
+        <Input
+          className="tmt-block-table-rename-field"
+          aria-label={strings.blockTable.columnName}
+          defaultValue={column.name}
+          autoFocus
+          onFocus={(event) => event.currentTarget.select()}
+          onBlur={(event) => done(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            // The name field's keys are its own, never the page's block keys.
+            event.stopPropagation();
+            if (event.key === 'Enter') done(event.currentTarget.value);
+            if (event.key === 'Escape') done();
+          }}
+        />
+      </span>
     );
   };
   return (
@@ -610,11 +624,11 @@ function Table({
           key: column.id,
           name: column.name,
           ...(column.hideNarrow && { hideNarrow: true }),
-          ...(column.width === 'narrow' && { nowrap: true }),
+          ...((column.width === 'narrow' || short(column)) && { nowrap: true }),
           ...(editable &&
             onColumnAction && {
               name: heading(column),
-              action: renaming === column.id ? undefined : columnMenu(column, index),
+              action: columnMenu(column, index),
             }),
         }))}
         rowKeys={rows.map((row) => row.id)}
