@@ -371,6 +371,160 @@ test('an attached image draws on a page of blocks and comes back on undo', async
   });
 });
 
+// #6202: a person drops an image and pastes a text file onto a page of blocks; each uploads, and
+// one batch inserts its block and lists the file, so the CLI reads both back byte for byte. A
+// delete in the browser keeps the file listed, so Undo draws the card again.
+test('a dropped image and a pasted file upload, list and come back on undo', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-files');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId, path: pagePath } = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Files',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const anchor = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Files follow.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'structured-files-'));
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, `${door.address}/`).href);
+    await expect(page.getByText('Files follow.')).toBeVisible({ timeout: 30_000 });
+    try {
+      // A 2x2 PNG, and a text file whose name claims an image: its bytes decide it is a file card.
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwnwEJMOAQBACsjQf5o4qoqgAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      const notes = Buffer.from('Ship the stack.\n');
+      const add = (how: 'drop' | 'paste', name: string, bytes: Buffer, type: string) =>
+        page.evaluate(
+          ({ how, name, data, type, anchor }) => {
+            const transfer = new DataTransfer();
+            const raw = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+            transfer.items.add(new File([raw], name, { type }));
+            const block = document.querySelector(`[data-block-id="${anchor}"]`)!;
+            const target =
+              how === 'paste' ? (block.querySelector('[contenteditable="true"]') ?? block) : block;
+            target.dispatchEvent(
+              how === 'paste'
+                ? new ClipboardEvent('paste', {
+                    clipboardData: transfer,
+                    bubbles: true,
+                    cancelable: true,
+                  })
+                : new DragEvent('drop', {
+                    dataTransfer: transfer,
+                    bubbles: true,
+                    cancelable: true,
+                  }),
+            );
+          },
+          { how, name, data: bytes.toString('base64'), type, anchor },
+        );
+      type Listed = {
+        id: string;
+        type: string;
+        props: Record<string, unknown>;
+        deleted?: unknown;
+      };
+      const listed = () =>
+        (
+          JSON.parse(run(world, colab, ['block', 'ls', pageId, '--all', '--json'])) as {
+            blocks: Listed[];
+          }
+        ).blocks;
+      const reference = (block: Listed) =>
+        String(
+          (block.props.images as { src: string }[] | undefined)?.[0]?.src ??
+            (block.props.files as { href: string }[])[0]!.href,
+        ).slice('colab-attachment:'.length);
+      const readBack = (block: Listed) =>
+        fs.readFileSync(
+          (
+            JSON.parse(
+              run(world, colab, [
+                'attachment',
+                'read',
+                pageId,
+                reference(block),
+                '--output',
+                out,
+                '--json',
+              ]),
+            ) as { path: string }
+          ).path,
+        );
+
+      await add('drop', 'sketch.png', png, 'image/png');
+      const image = page.locator('[data-block-id]').getByRole('img', { name: 'sketch.png' });
+      await expect(image).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(2);
+      await page.getByText('Files follow.').click();
+      await add('paste', 'notes.png', notes, 'image/png');
+      const card = page.locator('.tmt-block-file');
+      await expect(card).toContainText('notes.png', { timeout: 30_000 });
+      await expect(card).toContainText('text/plain');
+
+      // The serve holds both blocks, each naming a file the page lists, with the same bytes.
+      await expect
+        .poll(() => listed().filter((block) => block.type === 'image').length, { timeout: 30_000 })
+        .toBe(2);
+      const blocks = listed();
+      const files = blocks.filter((block) => block.type === 'image');
+      const drawnImage = files.find((block) => Array.isArray(block.props.images))!;
+      const fileCard = files.find((block) => block.props.variant === 'file')!;
+      expect(readBack(drawnImage)).toEqual(png);
+      expect(readBack(fileCard)).toEqual(notes);
+      // The paste went after the focused paragraph; the drop after the paragraph it landed on.
+      expect(blocks.filter((block) => !block.deleted).map((block) => block.id)).toEqual([
+        anchor,
+        fileCard.id,
+        drawnImage.id,
+      ]);
+
+      // Delete the card from the block menu, then Undo: the file stayed listed, so it draws again.
+      const cardBlock = page.locator(`[data-block-id="${fileCard.id}"]`);
+      await cardBlock.hover();
+      await cardBlock.getByRole('button', { name: 'Block actions' }).click();
+      await page
+        .getByRole('menu', { name: 'Block actions' })
+        .getByRole('menuitem', { name: /Delete/ })
+        .click();
+      await expect(cardBlock).toHaveCount(0);
+      const state = () => listed().find((block) => block.id === fileCard.id)?.deleted;
+      await expect.poll(() => state() !== undefined, { timeout: 30_000 }).toBe(true);
+      expect(readBack(fileCard)).toEqual(notes);
+      await page.getByRole('button', { name: 'Undo' }).click();
+      await expect(card).toContainText('notes.png', { timeout: 30_000 });
+      await expect.poll(state, { timeout: 30_000 }).toBeUndefined();
+      await page.close();
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
 // #6194: a person writes a question in the browser on a page an agent made; the serve registers
 // it, and the person's answer reaches that agent, the page's creator.
 test('a question written in the browser is registered and its answer reaches the page creator', async () => {
