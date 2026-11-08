@@ -27,7 +27,6 @@ async function fixture(
     payloadBytes?: number;
     /** What a connection reopened for the object channel answers; none offers no reopen. */
     replacement?: Script;
-    refreshBeforeWrite?: boolean;
   } = {},
 ) {
   const signer = (await crypto.subtle.generateKey('Ed25519', false, [
@@ -41,12 +40,10 @@ async function fixture(
     : undefined;
   // As in the live page, the connection asked for after a reopen is the replacement.
   let current = first.connection;
-  const fresh = vi.fn(async () => current);
   const service = new AttachmentService({
     connection: async () => current,
     available: () => true,
     sharing: 'private',
-    ...(options.refreshBeforeWrite && { fresh }),
     ...(replacement && {
       reopen: async (from: Connection) => {
         reopened.push(from);
@@ -55,7 +52,7 @@ async function fixture(
     }),
   });
   const { calls, admission, deadlines } = first;
-  return { service, calls, admission, deadlines, reopened, replacement, fresh };
+  return { service, calls, admission, deadlines, reopened, replacement };
 }
 function connect(
   signer: CryptoKeyPair,
@@ -140,12 +137,6 @@ const input = (size = 100 * 1024) => ({
   filename: 'notes.bin',
   mediaType: 'application/octet-stream',
   bytes: Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff),
-});
-
-it('refreshes the verified connection before freezing an upload fence', async () => {
-  const { service, fresh } = await fixture({ refreshBeforeWrite: true });
-  await service.upload(input(10), { kind: 'message', messageId }, () => {});
-  expect(fresh).toHaveBeenCalledTimes(1);
 });
 
 it('a read of the page has no deadline, while an upload request keeps its own bound', async () => {

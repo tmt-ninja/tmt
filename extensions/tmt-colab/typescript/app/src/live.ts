@@ -83,6 +83,8 @@ export function sameDescriptors(
 }
 
 export class Live implements PageBinding {
+  /** The exact page cuts associated with recent displayed metadata fences. */
+  #metadataCuts = new Map<string, string>();
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
@@ -163,7 +165,6 @@ export class Live implements PageBinding {
           : undefined,
       connection: () => this.#current,
       settled: () => this.#settled(),
-      fresh: () => this.#settled(true),
       reopen: (from) => this.#reopenForObjects(from),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () =>
@@ -685,14 +686,9 @@ export class Live implements PageBinding {
    * connection as a notice only. When the serve holds a checkpoint this connection has not
    * recorded, reopen once: catch-up admits that checkpoint and verifies it. Nothing retries, and
    * nothing reopens on a timer; the caller decides what a cut still unseen afterwards means. */
-  async #settled(refreshMembership = false): Promise<Connection> {
+  async #settled(): Promise<Connection> {
     const c = await this.#current;
-    if (
-      this.#closed ||
-      this.#error ||
-      c !== this.#connection ||
-      (!refreshMembership && !c.objects.hasUnseenCut())
-    )
+    if (this.#closed || this.#error || c !== this.#connection || !c.objects.hasUnseenCut())
       return c;
     this.#failed(new Error('RESYNC_REQUIRED'));
     return this.#current;
@@ -987,9 +983,8 @@ export class Live implements PageBinding {
         'COLAB_STALE_BASE',
         'Page metadata changed. Read it again before writing.',
       );
-    // A page created elsewhere advances the space membership head without an object notice for
-    // this page. Reopen and verify catch-up before taking any metadata write's fence.
-    const connection = await this.#settled(true);
+    // Freeze the displayed page's current admitted base before sending a metadata write.
+    const connection = await this.#settled();
     // Capture through the same serialized owner as Export: a newly admitted revision cannot
     // silently turn an old visible choice into an edit of newer metadata.
     return connection.run(async () => {
@@ -1000,8 +995,62 @@ export class Live implements PageBinding {
           'COLAB_STALE_BASE',
           'Page metadata changed. Read it again before writing.',
         );
-      return connection.objects.revision();
+      const revision = await connection.objects.revision();
+      this.#metadataCuts.set(revision, connection.objects.cuts());
+      if (this.#metadataCuts.size > 32)
+        this.#metadataCuts.delete(this.#metadataCuts.keys().next().value!);
+      return revision;
     });
+  }
+  /** Verify a fresh head without retiring the page connection; retry only if its cuts agree. */
+  async #membershipOnlyRevision(connection: Connection, cuts: string): Promise<string | undefined> {
+    const registration = this.registration;
+    const admission = new Admission(
+      this.bootstrap.space,
+      this.page.pageId,
+      this.page.epoch,
+      this.bootstrap.owner,
+      registration,
+    );
+    await admission.restore();
+    if (this.#closed || this.#error || connection !== this.#connection) return undefined;
+    const witness = new Connection(
+      admission,
+      this.mount,
+      this.page.sharing,
+      () => {},
+      () => {},
+      ['colab-sync-v2'],
+      true,
+    );
+    try {
+      await witness.ready;
+      return await connection.run(async () => {
+        if (
+          this.#closed ||
+          this.#error ||
+          connection !== this.#connection ||
+          !connection.active ||
+          this.registration !== registration ||
+          connection.objects.cuts() !== cuts ||
+          witness.objects.cuts() !== cuts ||
+          admission
+            .statements()
+            .slice(connection.admission.statements().length)
+            .some(
+              ({ payload }) =>
+                'pageId' in payload.value && payload.value.pageId === this.page.pageId,
+            )
+        )
+          return undefined;
+        await connection.admission.advanceFrom(admission);
+        connection.admission.validatePage(this.page.sharing);
+        if (!connection.admission.ownerDevice(registration.deviceId)) return undefined;
+        return connection.objects.revision();
+      });
+    } finally {
+      witness.close();
+    }
   }
   async metadata(
     action: MetadataAction,
@@ -1017,6 +1066,21 @@ export class Live implements PageBinding {
     } catch (error) {
       if (!(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
+    }
+    if (result.state === 'rejected' && result.code === 'COLAB_STALE_BASE') {
+      const cuts = this.#metadataCuts.get(expectedRevision);
+      if (cuts !== undefined) {
+        const revision = await this.#membershipOnlyRevision(c, cuts).catch(() => undefined);
+        if (revision && revision !== expectedRevision) {
+          const retryId = crypto.randomUUID();
+          try {
+            result = await c.metadata(retryId, action, body, revision);
+          } catch (error) {
+            if (!(error instanceof Error) || c.active) throw error;
+            result = await this.#settleLost(c, retryId);
+          }
+        }
+      }
     }
     settled(result);
     await this.#showsRevision(result.revision);

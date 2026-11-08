@@ -87,6 +87,41 @@ export class Admission {
   statements(): readonly statement.Verified[] {
     return this.#log.slice();
   }
+  /** Verify and adopt a later membership chain obtained by a separate page catch-up. */
+  async advanceFrom(other: Admission): Promise<void> {
+    requireValue(
+      other.space === this.space &&
+        other.page === this.page &&
+        other.epoch === this.epoch &&
+        equal(other.owner, this.owner) &&
+        other.head !== null &&
+        this.head !== null &&
+        other.#raw.length >= this.#raw.length &&
+        this.#raw.every((entry, index) => other.#raw[index] === entry),
+    );
+    const head = other.head;
+    if (other.#raw.length === this.#raw.length) {
+      requireValue(head.revision === this.head.revision && equal(head.hash, this.head.hash));
+      return;
+    }
+    const missing = other.#raw.slice(this.#raw.length);
+    for (let at = 0; at < missing.length; at += 64) {
+      const statements = missing.slice(at, at + 64);
+      const more = at + statements.length < missing.length;
+      await this.membership(
+        at === 0
+          ? {
+              revision: head.revision.toString(),
+              statementHash: encodeBinary(head.hash),
+              ownerKey: encodeBinary(this.owner),
+              statements,
+              more,
+            }
+          : { statements, more },
+        at === 0,
+      );
+    }
+  }
   async restore() {
     if (this.reader) {
       requireValue((await deriveSpaceId(this.owner)) === this.space);

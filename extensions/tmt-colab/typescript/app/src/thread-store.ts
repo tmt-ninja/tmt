@@ -129,8 +129,6 @@ export interface ThreadStoreOptions extends DiscussionScope {
   connection(): Promise<Connection>;
   /** See `AttachmentServiceOptions.settled`. */
   settled?(): Promise<Connection>;
-  /** Refresh verified membership before capturing a write's revision fence. */
-  fresh?(): Promise<Connection>;
   /** See `AttachmentServiceOptions.reopen`. */
   reopen?(from: Connection): Promise<Connection>;
   publish(records: OwnRecord[]): Promise<void>;

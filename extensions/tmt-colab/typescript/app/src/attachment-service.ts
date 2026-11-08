@@ -113,8 +113,6 @@ export interface AttachmentServiceOptions {
    * recorded: the owner of the connection reopens it, once, when it has not. Without it a
    * read can only report that the cut is still unseen. */
   settled?(): Promise<Connection>;
-  /** Refresh verified membership before freezing an upload's page revision. */
-  fresh?(): Promise<Connection>;
   /** A replacement for a connection the serve named as having no object channel, taken through
    * the connection-loss path so pending writes and drafts survive it. Without it such a
    * connection is refused as it is. */
@@ -237,9 +235,8 @@ export class AttachmentService implements AttachmentBinding {
     );
   }
   async #seal(input: AttachmentInput, target: AttachmentTarget, payloadLimit: number) {
-    const c = this.options.fresh ? await this.options.fresh() : await this.#channel(),
+    const c = await this.#channel(),
       a = c.admission;
-    requireValue(c.active);
     requireValue(!a.reader && a.head !== null && a.root !== null);
     a.validatePage(this.options.sharing);
     const device = a.registration.deviceId,

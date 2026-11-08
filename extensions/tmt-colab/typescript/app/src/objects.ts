@@ -185,12 +185,9 @@ export class Objects {
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([, v]) => ({ ...v }));
   }
-  /** Native page::token parity: namespace order, stream order and exact cuts,
-   * including the empty namespace of a shared per-device author chain. */
-  async revision(): Promise<string> {
-    const a = this.admission,
-      head = a.head;
-    requireValue(head !== null);
+  /** The ordered page cuts without the space-wide membership head. */
+  cuts(): string {
+    const a = this.admission;
     const cuts = (['content', 'own'] as const).flatMap((namespace) =>
       [...this.#heads.keys()].sort().map((streamId) => {
         const prefix = this.#prefixes.get(streamId),
@@ -220,6 +217,14 @@ export class Objects {
         };
       }),
     );
+    return JSON.stringify(cuts);
+  }
+  /** Native page::token parity: namespace order, stream order and exact cuts,
+   * including the empty namespace of a shared per-device author chain. */
+  async revision(): Promise<string> {
+    const a = this.admission,
+      head = a.head;
+    requireValue(head !== null);
     const bytes = await digest(
       frame(
         text('tmt-colab-page-revision-v1'),
@@ -228,7 +233,7 @@ export class Objects {
         text(head.revision.toString()),
         head.hash.slice(),
         text(this.epoch),
-        text(JSON.stringify(cuts)),
+        text(this.cuts()),
       ),
     );
     return `v1:${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')}`;

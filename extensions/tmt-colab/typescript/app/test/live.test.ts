@@ -55,6 +55,12 @@ const connectionPlans = vi.hoisted(
 /** Connections the serve upgraded without an object channel; later ones start so too when set. */
 const objectChannel = vi.hoisted(() => ({ missing: new Set<object>(), startMissing: false }));
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
+const retryFixture = vi.hoisted(() => ({
+  revision: 'v1:revision',
+  witnessCuts: 'fixture-cuts',
+  witnessNext: false,
+  pageChanged: false,
+}));
 const saves = vi.hoisted(() => ({
   save: vi.fn(),
   status: vi.fn(),
@@ -90,6 +96,7 @@ vi.mock('../src/live-ask.js', () => ({
 }));
 vi.mock('../src/admission.js', () => ({
   Admission: class {
+    witness = retryFixture.witnessNext;
     head = { revision: 2n, hash: new Uint8Array(32).fill(10) };
     root = {};
     validatePage = vi.fn();
@@ -103,14 +110,24 @@ vi.mock('../src/admission.js', () => ({
       readonly registration: Registration,
     ) {}
     async restore() {}
+    statements() {
+      return this.witness && retryFixture.pageChanged
+        ? [{ payload: { value: { pageId: this.page } } }]
+        : [];
+    }
+    async advanceFrom() {
+      retryFixture.revision = 'v1:fresh';
+    }
   },
 }));
 vi.mock('../src/connection.js', () => ({
   Connection: class {
+    witness = retryFixture.witnessNext;
     objects = {
       ownSigningKey: () => undefined,
       statusWriter: () => false,
-      revision: async () => 'v1:revision',
+      revision: async () => retryFixture.revision,
+      cuts: () => (this.witness ? retryFixture.witnessCuts : 'fixture-cuts'),
       hasUnseenCut: () => unseen.cuts.has(this),
     };
     attachmentSnapshot = async () => {
@@ -136,6 +153,7 @@ vi.mock('../src/connection.js', () => ({
       readonly publish: (value: PageView) => void,
       readonly failed: (error: Error) => void,
     ) {
+      retryFixture.witnessNext = false;
       connections.push(this);
       if (unseen.startUnseen) unseen.cuts.add(this);
       if (objectChannel.startMissing) objectChannel.missing.add(this);
@@ -199,6 +217,10 @@ vi.mock('../src/writer.js', () => ({
 // Snapshot's optional owner metadata is unavailable unless a case supplies it. Never
 // let these connection fixtures wait on DNS/network for the example.test mount.
 beforeEach(() => {
+  retryFixture.revision = 'v1:revision';
+  retryFixture.witnessCuts = 'fixture-cuts';
+  retryFixture.witnessNext = false;
+  retryFixture.pageChanged = false;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -2580,14 +2602,6 @@ it('a create resolves with the page it made, and a refusal after the page was ma
   }
 });
 
-function reconnectWith(view: PageView) {
-  connectionPlans.push({
-    ready: Promise.resolve(view),
-    constructed: () => connections.at(-1)!.publish(view),
-    closed: () => {},
-  });
-}
-
 it('metadata revision capture refuses unseen choices and a lost reply is recovered without resending', async () => {
   saves.metadata.mockReset();
   const live = new Live(
@@ -2612,7 +2626,6 @@ it('metadata revision capture refuses unseen choices and a lost reply is recover
     await expect(live.metadataRevision(shown)).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
     expect(saves.metadata).not.toHaveBeenCalled();
     const latest = await live.snapshot();
-    reconnectWith({ source: 'verified', title: 'Page', questions: [] });
     const revision = await live.metadataRevision(latest);
     saves.metadata.mockImplementationOnce(async (lost) => {
       lost.failed(new Error('Sync disconnected'));
@@ -2713,12 +2726,131 @@ it('page state revision capture compares the shown manual value without changing
     await expect(live.metadataRevision({ pageState: 'todo' }, 'page-state')).rejects.toMatchObject({
       code: 'COLAB_STALE_BASE',
     });
-    reconnectWith({ source: 'verified', title: 'Page', pageState: 'done', state: 'done' });
     expect(await live.metadataRevision({ pageState: 'done' }, 'page-state')).toBe('v1:revision');
   } finally {
     live.close();
   }
 });
+
+it.each([
+  {
+    name: 'membership-only change retries once',
+    witnessCuts: 'fixture-cuts',
+    secondStale: false,
+    calls: 2,
+    succeeds: true,
+  },
+  {
+    name: 'changed page cuts never retry',
+    witnessCuts: 'changed-cuts',
+    secondStale: false,
+    calls: 1,
+    succeeds: false,
+  },
+  {
+    name: 'page-specific membership changes never retry',
+    witnessCuts: 'fixture-cuts',
+    pageChanged: true,
+    secondStale: false,
+    calls: 1,
+    succeeds: false,
+  },
+  {
+    name: 'a second stale refusal never loops',
+    witnessCuts: 'fixture-cuts',
+    secondStale: true,
+    calls: 2,
+    succeeds: false,
+  },
+  {
+    name: 'a lost retry is resolved by its original operation ID',
+    witnessCuts: 'fixture-cuts',
+    secondStale: false,
+    secondLost: true,
+    calls: 2,
+    succeeds: true,
+  },
+])(
+  '$name',
+  async ({
+    witnessCuts,
+    pageChanged = false,
+    secondStale,
+    secondLost = false,
+    calls,
+    succeeds,
+  }) => {
+    saves.metadata.mockReset();
+    saves.status.mockReset();
+    const live = new Live(
+      new URL('https://example.test/colab/'),
+      {
+        space: 'space',
+        revision: '1',
+        owner: new Uint8Array(32),
+        projects: [],
+        projectPins: { names: [], automatic: true },
+        pageIds: [],
+        pages: [],
+      } as Bootstrap,
+      { deviceId: 'device', keys: { sign: {}, signPublic: new Uint8Array(32) } } as Registration,
+      {
+        pageId: '00000000-0000-4000-8000-000000000002',
+        epoch: '1',
+        sharing: 'private',
+      } as PageInfo,
+      undefined,
+      {} as RemoteClient,
+    );
+    try {
+      const shown = await live.snapshot();
+      const active = connections.at(-1)!;
+      const ask = live.ask;
+      const askInstance = asks.instances.at(-1)!;
+      const revision = await live.metadataRevision(shown, 'conversion');
+      retryFixture.witnessCuts = witnessCuts;
+      retryFixture.pageChanged = pageChanged;
+      saves.metadata.mockImplementationOnce(async (_connection, operationId) => {
+        retryFixture.witnessNext = true;
+        return { operationId, state: 'rejected', code: 'COLAB_STALE_BASE', message: 'stale' };
+      });
+      saves.metadata.mockImplementationOnce(async (connection, operationId) => {
+        if (secondLost) {
+          connection.failed(new Error('Sync disconnected'));
+          throw new Error('Reply lost');
+        }
+        return secondStale
+          ? { operationId, state: 'rejected', code: 'COLAB_STALE_BASE', message: 'stale again' }
+          : { operationId, state: 'committed', revision: 'v1:fresh' };
+      });
+      if (secondLost)
+        saves.status.mockImplementationOnce(async (_connection, operationId) => ({
+          operationId,
+          state: 'committed',
+          revision: 'v1:fresh',
+        }));
+      const outcome = live.metadata('page.revert', {}, revision);
+      if (succeeds) await expect(outcome).resolves.toBeUndefined();
+      else await expect(outcome).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
+      expect(saves.metadata).toHaveBeenCalledTimes(calls);
+      if (!secondLost) {
+        expect(active.close).not.toHaveBeenCalled();
+        expect(live.ask).toBe(ask);
+        expect(askInstance.close).not.toHaveBeenCalled();
+      } else {
+        expect(saves.status.mock.calls.at(-1)?.[1]).toBe(saves.metadata.mock.calls[1][1]);
+      }
+      if (calls === 2) {
+        expect(saves.metadata.mock.calls[1][4]).toBe('v1:fresh');
+        expect(saves.metadata.mock.calls[1][1]).not.toBe(saves.metadata.mock.calls[0][1]);
+      }
+    } finally {
+      live.close();
+      saves.metadata.mockReset();
+      saves.status.mockReset();
+    }
+  },
+);
 
 it('conversion revision capture refuses unseen source or block changes', async () => {
   const live = new Live(

@@ -85,7 +85,7 @@ test('revert refuses when the block count changed after confirmation opened', as
   await command(page, 'addExampleBlock');
   await dialog.getByRole('button', { name: 'Switch back', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
-    'Page changed. Read it again before writing.',
+    'The page changed. Open the confirmation again and check the block count.',
   );
   const proof = await command(page, 'proof');
   expect(proof.view.pageType).toBe('blocks');
