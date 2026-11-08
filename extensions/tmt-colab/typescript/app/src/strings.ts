@@ -1294,6 +1294,7 @@ export const text = {
     failed: 'Page conversion failed',
     readFailed: 'Unable to read the current page.',
     changeFailed: 'Unable to change this page.',
+    changed: 'The page changed. Open the confirmation again and check the block count.',
   },
   sourceSave: 'Save',
   sourceEditorLabel: 'Page source',

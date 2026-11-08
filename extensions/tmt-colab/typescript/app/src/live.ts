@@ -163,6 +163,7 @@ export class Live implements PageBinding {
           : undefined,
       connection: () => this.#current,
       settled: () => this.#settled(),
+      fresh: () => this.#settled(true),
       reopen: (from) => this.#reopenForObjects(from),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () =>
@@ -684,9 +685,14 @@ export class Live implements PageBinding {
    * connection as a notice only. When the serve holds a checkpoint this connection has not
    * recorded, reopen once: catch-up admits that checkpoint and verifies it. Nothing retries, and
    * nothing reopens on a timer; the caller decides what a cut still unseen afterwards means. */
-  async #settled(): Promise<Connection> {
+  async #settled(refreshMembership = false): Promise<Connection> {
     const c = await this.#current;
-    if (this.#closed || this.#error || c !== this.#connection || !c.objects.hasUnseenCut())
+    if (
+      this.#closed ||
+      this.#error ||
+      c !== this.#connection ||
+      (!refreshMembership && !c.objects.hasUnseenCut())
+    )
       return c;
     this.#failed(new Error('RESYNC_REQUIRED'));
     return this.#current;
@@ -959,30 +965,37 @@ export class Live implements PageBinding {
       Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
     scope?: 'page-state' | 'conversion',
   ): Promise<string> {
-    const connection = await this.#settled();
+    const conversion = (value: typeof shown) =>
+      canonical({
+        pageType: value.pageType,
+        blocks: value.blocks,
+        convertedAt: value.convertedAt,
+      });
+    const conversionChanged = () =>
+      shown.source !== this.#admitted.source || conversion(shown) !== conversion(this.#admitted);
+    const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
+      canonical(
+        scope === 'page-state'
+          ? { pageState: value.pageState ?? 'todo' }
+          : { creator: value.creator, questions: value.questions },
+      );
+    const changed = () =>
+      scope === 'conversion' ? conversionChanged() : metadata(shown) !== metadata(this.#admitted);
+    // A reconnect must not make an already unseen change appear to be the displayed base.
+    if (changed())
+      throw new SaveRefused(
+        'COLAB_STALE_BASE',
+        'Page metadata changed. Read it again before writing.',
+      );
+    // A page created elsewhere advances the space membership head without an object notice for
+    // this page. Reopen and verify catch-up before taking any metadata write's fence.
+    const connection = await this.#settled(true);
     // Capture through the same serialized owner as Export: a newly admitted revision cannot
     // silently turn an old visible choice into an edit of newer metadata.
     return connection.run(async () => {
       if (!this.canMetadata() || connection !== this.#connection)
         throw new Error('Page metadata editing unavailable');
-      const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
-        canonical(
-          scope === 'page-state'
-            ? { pageState: value.pageState ?? 'todo' }
-            : { creator: value.creator, questions: value.questions },
-        );
-      const conversion = (value: typeof shown) =>
-        canonical({
-          pageType: value.pageType,
-          blocks: value.blocks,
-          convertedAt: value.convertedAt,
-        });
-      if (
-        scope === 'conversion'
-          ? shown.source !== this.#admitted.source ||
-            conversion(shown) !== conversion(this.#admitted)
-          : metadata(shown) !== metadata(this.#admitted)
-      )
+      if (changed())
         throw new SaveRefused(
           'COLAB_STALE_BASE',
           'Page metadata changed. Read it again before writing.',

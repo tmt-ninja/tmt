@@ -154,6 +154,7 @@ export function useBlockEditing(
    * the file uploads, and is never sent. */
   const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
   const [uploads, setUploads] = useState<ReadonlyMap<string, BlockUpload>>(new Map());
+  const [failedFirstText, setFailedFirstText] = useState<string>();
   const batchKey = useRef(0);
   /** The page as the serve shows it: what the focused block's text merges with. */
   const pageTree = useMemo(() => new BlockTree(records), [records]);
@@ -238,6 +239,7 @@ export function useBlockEditing(
   );
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const lastBatch = useRef<Promise<number | void>>(Promise.resolve());
   const out = useCallback(
     (current: BlockTextSync | undefined, ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       const key = ++batchKey.current;
@@ -245,6 +247,7 @@ export function useBlockEditing(
       // This tab's batches commit in the order it made them (a column's rename after its add): each
       // goes once the one before it settles, and is drawn at once meanwhile.
       const sent = queue.current.then(() => sendRef.current(ops, stored));
+      lastBatch.current = sent;
       queue.current = sent.then(
         () => {},
         () => {},
@@ -285,6 +288,13 @@ export function useBlockEditing(
     if (!current || !ops.length) return;
     void out(current, ops);
   }, [out, typedOps]);
+  /** Flush the active editor and wait until its latest batch is admitted or refused. */
+  const settle = useCallback(async () => {
+    do {
+      flush();
+      await lastBatch.current;
+    } while (sync.current?.pending);
+  }, [flush]);
   const show = useCallback(
     (current: BlockTextSync, shown: { text: string; caret: number }) => {
       if (sync.current !== current) return;
@@ -991,27 +1001,32 @@ export function useBlockEditing(
     [flush],
   );
 
-  /** ＋ on the handle: an empty paragraph right after `id` holding "/", with the insert menu. */
-  const insertAfter = useCallback(
-    (id: string) => {
+  /** Insert a paragraph and move the one editor to it while the batch settles. */
+  const insertParagraph = useCallback(
+    (text: string, after?: string) => {
+      if (after === undefined) setFailedFirstText(undefined);
       const newId = crypto.randomUUID();
-      const ops = [
-        insertBlock(treeRef.current, { id: newId, type: 'paragraph', after: id, text: '/' }),
-      ];
+      const ops = [insertBlock(treeRef.current, { id: newId, type: 'paragraph', after, text })];
       flush();
       setSelection(undefined);
       setBlockMenu(undefined);
       arriving.current = newId;
-      const next = new BlockTextSync(newId, '/');
-      open(next, 1);
-      setMenuAt({ id: newId, query: '/' });
+      const next = new BlockTextSync(newId, text);
+      open(next, [...text].length);
+      setMenuAt(text.startsWith('/') ? { id: newId, query: text } : undefined);
       history.current.record(treeRef.current, ops);
-      void out(undefined, ops).catch(() => {
+      const sent = out(undefined, ops);
+      void sent.catch(() => {
+        if (after === undefined)
+          setFailedFirstText(sync.current?.id === newId ? sync.current.text : text);
         if (arriving.current === newId) arriving.current = undefined;
       });
+      return sent;
     },
     [flush, open, out],
   );
+  /** ＋ on the handle opens the same slash paragraph and insert menu. */
+  const insertAfter = useCallback((id: string) => void insertParagraph('/', id), [insertParagraph]);
 
   /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
@@ -1151,6 +1166,7 @@ export function useBlockEditing(
     questionEdit,
     typed,
     flush,
+    settle,
     key,
     menu,
     pick,
@@ -1164,6 +1180,8 @@ export function useBlockEditing(
     move,
     openBlockMenu,
     insertAfter,
+    insertFirst: insertParagraph,
+    failedFirstText,
     closeBlockMenu: () => setBlockMenu(undefined),
     hoverBlockMenu: (action: string) =>
       setBlockMenu((now) => (now ? { ...now, active: action } : now)),

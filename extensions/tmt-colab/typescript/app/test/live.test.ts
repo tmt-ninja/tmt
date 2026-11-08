@@ -2580,6 +2580,14 @@ it('a create resolves with the page it made, and a refusal after the page was ma
   }
 });
 
+function reconnectWith(view: PageView) {
+  connectionPlans.push({
+    ready: Promise.resolve(view),
+    constructed: () => connections.at(-1)!.publish(view),
+    closed: () => {},
+  });
+}
+
 it('metadata revision capture refuses unseen choices and a lost reply is recovered without resending', async () => {
   saves.metadata.mockReset();
   const live = new Live(
@@ -2604,6 +2612,7 @@ it('metadata revision capture refuses unseen choices and a lost reply is recover
     await expect(live.metadataRevision(shown)).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
     expect(saves.metadata).not.toHaveBeenCalled();
     const latest = await live.snapshot();
+    reconnectWith({ source: 'verified', title: 'Page', questions: [] });
     const revision = await live.metadataRevision(latest);
     saves.metadata.mockImplementationOnce(async (lost) => {
       lost.failed(new Error('Sync disconnected'));
@@ -2704,6 +2713,7 @@ it('page state revision capture compares the shown manual value without changing
     await expect(live.metadataRevision({ pageState: 'todo' }, 'page-state')).rejects.toMatchObject({
       code: 'COLAB_STALE_BASE',
     });
+    reconnectWith({ source: 'verified', title: 'Page', pageState: 'done', state: 'done' });
     expect(await live.metadataRevision({ pageState: 'done' }, 'page-state')).toBe('v1:revision');
   } finally {
     live.close();
