@@ -1130,7 +1130,6 @@ export function useBlockEditing(
   const hoverMention = useCallback((entry: string) => {
     setMentionAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
-  const closeMention = useCallback(() => setMentionAt(undefined), []);
   const hover = useCallback((entry: string) => {
     setMenuAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
@@ -1176,6 +1175,5 @@ export function useBlockEditing(
     mention,
     pickMention,
     hoverMention,
-    closeMention,
   };
 }

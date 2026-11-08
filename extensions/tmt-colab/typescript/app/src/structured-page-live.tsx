@@ -124,7 +124,6 @@ export function LiveStructuredPage({
     mention,
     pickMention,
     hoverMention,
-    closeMention,
   } = useBlockEditing(records, send, seq, files, agents);
   return (
     <StructuredPage
@@ -172,7 +171,6 @@ export function LiveStructuredPage({
       mention={mention}
       onPickMention={pickMention}
       onHoverMention={hoverMention}
-      onCloseMention={closeMention}
       readonly={!write}
     />
   );

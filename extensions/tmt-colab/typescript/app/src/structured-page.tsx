@@ -173,11 +173,10 @@ export interface StructuredPageProps {
   onOpenBlockMenu?(id: string): void;
   onInsertAfter?(id: string): void;
   onMove?(id: string, parent: string, index: number): void;
-  /** The @ menu open in the focused block (#6203), and its choice, pointer and close. */
+  /** The @ menu open in the focused block (#6203), and its choice and pointer. */
   mention?: MentionMenu;
   onPickMention?(entry: string): void;
   onHoverMention?(entry: string): void;
-  onCloseMention?(): void;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
   /** The file blocks this tab is adding, drawn as their upload tile. */
@@ -369,7 +368,6 @@ function Blocks({
           mention={rest.mention}
           onPick={rest.onPickMention}
           onHover={rest.onHoverMention}
-          onClose={rest.onCloseMention}
         />
       )}
       {rest.menu?.id === block.id && (
@@ -518,34 +516,23 @@ function InsertPopover({
 }
 
 /** The @ menu under the block the @ was typed in (#6203, spec "@ 一個區塊"): the same floating
- * listbox as the insert menu, focus staying in the editor. A phone gets the bottom sheet. */
+ * listbox as the insert menu, focus staying in the editor, under the text on a phone too. */
 function MentionPopover({
   mention,
   onPick,
   onHover,
-  onClose,
 }: {
   mention: MentionMenu;
   onPick?(entry: string): void;
   onHover?(entry: string): void;
-  onClose?(): void;
 }) {
-  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
   const rowId = (entry: string) => `block-mention-${entry.replace(/[^A-Za-z0-9-]/g, '-')}`;
   return (
-    <div
-      className="tmt-block-insert"
-      data-sheet={sheet ? '' : undefined}
-      onMouseDown={(event) => {
-        if (!sheet || event.target !== event.currentTarget) return;
-        event.preventDefault();
-        onClose?.();
-      }}
-    >
+    <div className="tmt-block-insert">
       <BlockMenu
         kind="insert"
         label={strings.blockMention.label}
-        placement={sheet ? 'sheet' : 'below'}
+        placement="below"
         activeId={mention.active && rowId(mention.active)}
       >
         {mention.entries.map((entry) => (
@@ -566,7 +553,7 @@ function MentionPopover({
         {mention.entries.length === 0 && (
           <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
         )}
-        {!sheet && <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>}
+        <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>
       </BlockMenu>
     </div>
   );

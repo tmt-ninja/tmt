@@ -683,7 +683,6 @@ export function mount(
       mention,
       pickMention,
       hoverMention,
-      closeMention,
     } = useBlockEditing(view.records, send, view.seq, content === 'spec' ? files : undefined, [
       'tmt-gui-lead',
       'gui-2',
@@ -754,7 +753,6 @@ export function mount(
           mention={mention}
           onPickMention={pickMention}
           onHoverMention={hoverMention}
-          onCloseMention={closeMention}
         />
       </section>
     );
