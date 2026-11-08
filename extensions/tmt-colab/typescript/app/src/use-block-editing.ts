@@ -45,6 +45,7 @@ import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
 import { text as strings } from './strings.js';
+import { type MentionEntry, mentionEntries, mentionQuery } from './block-mention.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
 const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
@@ -72,6 +73,14 @@ function drawnText(
 export interface InsertMenu {
   id: string;
   entries: InsertEntry[];
+  /** The active entry's id. */
+  active?: string;
+}
+
+/** The @ menu open in the focused block (#6203): what follows the @ filters it. */
+export interface MentionMenu {
+  id: string;
+  entries: MentionEntry[];
   /** The active entry's id. */
   active?: string;
 }
@@ -137,6 +146,8 @@ export function useBlockEditing(
   seq?: number,
   /** The page's files, when this tab may add them (#6202). */
   files?: BlockFiles,
+  /** The agents an @ can name (#6203). */
+  agents: readonly string[] = [],
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when it settles
    * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
@@ -187,6 +198,27 @@ export function useBlockEditing(
   const [authoring, setAuthoring] = useState<string>();
   const menuRef = useRef(menuAt);
   menuRef.current = menuAt;
+  /** The @ the caret is in (#6203): its scalar offset in the block's text, what follows it, and the
+   * active entry. */
+  /** The insert menu's entries this page offers: "Image or file" only where files can be added. */
+  const insertEntries = useMemo(
+    () => (files ? INSERT_ENTRIES : INSERT_ENTRIES.filter((entry) => entry.id !== 'file')),
+    [files],
+  );
+  const insertRef = useRef(insertEntries);
+  insertRef.current = insertEntries;
+  /** "Image or file" was chosen: the page opens its file picker, and the files go after `after`. */
+  const [choosing, setChoosing] = useState<{ after: string; id: number }>();
+  const [mentionAt, setMentionAt] = useState<{
+    id: string;
+    from: number;
+    query: string;
+    active?: string;
+  }>();
+  const mentionRef = useRef(mentionAt);
+  mentionRef.current = mentionAt;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
 
   const open = useCallback((next: BlockTextSync, at: number) => {
     sync.current = next;
@@ -316,6 +348,18 @@ export function useBlockEditing(
       caret.current = at;
       const menu = menuRef.current;
       if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
+      // An @ at a word's start opens the @ menu in a block that takes marks; what follows filters it.
+      const block = treeRef.current.get(id);
+      const found = block && !current.cell && richType(block.type) ? mentionQuery(text, at) : null;
+      setMentionAt((now) =>
+        found
+          ? {
+              id,
+              ...found,
+              ...(now?.id === id && now.from === found.from && { active: now.active }),
+            }
+          : undefined,
+      );
       clearTimeout(timer.current);
       timer.current = setTimeout(flush, TEXT_FLUSH_MS);
     },
@@ -533,10 +577,12 @@ export function useBlockEditing(
       if (!current || at?.id !== current.id) return;
       setMenuAt(undefined);
       const type = insertType(entry);
-      if (type === 'paragraph') {
+      if (type === 'paragraph' || entry === 'file') {
         current.typed('');
         open(current, 0);
         flush();
+        // The picked files go after the cleared paragraph (#6202).
+        if (entry === 'file') setChoosing((now) => ({ after: current.id, id: (now?.id ?? 0) + 1 }));
         return;
       }
       clearTimeout(timer.current);
@@ -681,6 +727,34 @@ export function useBlockEditing(
     [files, flush, notice, out, selection?.focus],
   );
 
+  /** The @ menu's rows now, for the block it is open in. */
+  const mentionRows = useCallback(
+    (at: NonNullable<typeof mentionAt>) =>
+      mentionEntries(treeRef.current, agentsRef.current, at.query, at.id),
+    [],
+  );
+  /** The @ menu's choice (#6203): the @ and what followed it become the chip text and a space, and
+   * the chip text takes the `agent` or `block` mark, in one batch with the typing. */
+  const pickMention = useCallback(
+    (entryId: string) => {
+      const current = sync.current;
+      const at = mentionRef.current;
+      if (!current || at?.id !== current.id) return;
+      const entry = mentionRows(at).find((row) => row.id === entryId);
+      setMentionAt(undefined);
+      if (!entry) return;
+      const chars = [...current.text];
+      const end = Math.min(chars.length, at.from + 1 + [...at.query].length);
+      const label = [...entry.label];
+      const next = [...chars.slice(0, at.from), ...label, ' ', ...chars.slice(end)].join('');
+      current.typed(next);
+      const to = at.from + label.length;
+      open(current, to + 1);
+      void format(current, { from: at.from, to }, entry.mark, entry.value);
+    },
+    [mentionRows, open, format],
+  );
+
   /** A key in the focused block; true when the block took it. */
   const key = useCallback(
     (id: string, event: KeyboardEvent, text: string, at: number, range: TextRange): boolean => {
@@ -705,9 +779,26 @@ export function useBlockEditing(
       }
       if (!block || !TEXT_TYPES.has(block.type)) return false;
       current.typed(text);
+      const mention = mentionRef.current?.id === id ? mentionRef.current : undefined;
+      if (mention) {
+        const ids = mentionRows(mention).map((entry) => entry.id);
+        if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
+          setMentionAt({ ...mention, active: nextBlockMenuItem(ids, mention.active, event.key) });
+          return true;
+        }
+        if (event.key === 'Escape') {
+          // Closes and keeps what was typed.
+          setMentionAt(undefined);
+          return true;
+        }
+        if ((event.key === 'Enter' || event.key === 'Tab') && ids.length && !event.shiftKey) {
+          pickMention(mention.active && ids.includes(mention.active) ? mention.active : ids[0]!);
+          return true;
+        }
+      }
       const menu = menuRef.current?.id === id ? menuRef.current : undefined;
       if (menu) {
-        const ids = filterInsert(INSERT_ENTRIES, text).map((entry) => entry.id);
+        const ids = filterInsert(insertRef.current, text).map((entry) => entry.id);
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
           setMenuAt({ ...menu, active: nextBlockMenuItem(ids, menu.active, event.key) });
           return true;
@@ -746,7 +837,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush, format, indent],
+    [split, join, pick, flush, format, indent, mentionRows, pickMention],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -1019,14 +1110,27 @@ export function useBlockEditing(
 
   const menu = useMemo((): InsertMenu | undefined => {
     if (!menuAt || editing?.id !== menuAt.id) return undefined;
-    const entries = filterInsert(INSERT_ENTRIES, menuAt.query);
+    const entries = filterInsert(insertEntries, menuAt.query);
     const active =
       menuAt.active && entries.some((entry) => entry.id === menuAt.active)
         ? menuAt.active
         : entries[0]?.id;
     return { id: menuAt.id, entries, ...(active && { active }) };
-  }, [menuAt, editing?.id]);
+  }, [menuAt, editing?.id, insertEntries]);
   const closeMenu = useCallback(() => setMenuAt(undefined), []);
+  const mention = useMemo((): MentionMenu | undefined => {
+    if (!mentionAt || editing?.id !== mentionAt.id) return undefined;
+    const entries = mentionEntries(tree, agents, mentionAt.query, mentionAt.id);
+    const active =
+      mentionAt.active && entries.some((entry) => entry.id === mentionAt.active)
+        ? mentionAt.active
+        : entries[0]?.id;
+    return { id: mentionAt.id, entries, ...(active && { active }) };
+  }, [mentionAt, editing?.id, tree, agents]);
+  const hoverMention = useCallback((entry: string) => {
+    setMentionAt((at) => (at ? { ...at, active: entry } : at));
+  }, []);
+  const closeMention = useCallback(() => setMentionAt(undefined), []);
   const hover = useCallback((entry: string) => {
     setMenuAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
@@ -1068,5 +1172,10 @@ export function useBlockEditing(
     undo,
     attach,
     uploads,
+    choosing,
+    mention,
+    pickMention,
+    hoverMention,
+    closeMention,
   };
 }

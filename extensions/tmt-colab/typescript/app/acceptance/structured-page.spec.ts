@@ -484,7 +484,7 @@ test('a dropped image and a pasted file upload, list and come back on undo', asy
       await add('paste', 'notes.png', notes, 'image/png');
       const card = page.locator('.tmt-block-file');
       await expect(card).toContainText('notes.png', { timeout: 30_000 });
-      await expect(card).toContainText('text/plain');
+      await expect(card.locator('.tmt-block-file-size')).toHaveText('16 B');
 
       // The serve holds both blocks, each naming a file the page lists, with the same bytes.
       await expect
@@ -496,12 +496,24 @@ test('a dropped image and a pasted file upload, list and come back on undo', asy
       const fileCard = files.find((block) => block.props.variant === 'file')!;
       expect(readBack(drawnImage)).toEqual(png);
       expect(readBack(fileCard)).toEqual(notes);
+      // Its bytes, not its name, made it a text file card.
+      expect((fileCard.props.files as { type: string }[])[0]!.type).toBe('text/plain');
       // The paste went after the focused paragraph; the drop after the paragraph it landed on.
       expect(blocks.filter((block) => !block.deleted).map((block) => block.id)).toEqual([
         anchor,
         fileCard.id,
         drawnImage.id,
       ]);
+
+      // Download asks the page's confirmation bar, then saves the file through the authorized read.
+      await card.getByRole('button', { name: 'Download notes.png' }).click();
+      const bar = page.getByRole('dialog', { name: 'Download attachment' });
+      await expect(bar).toContainText('notes.png');
+      const pending = page.waitForEvent('download');
+      await bar.getByRole('button', { name: 'Download' }).click();
+      const saved = await pending;
+      expect(saved.suggestedFilename()).toBe('notes.png');
+      expect(fs.readFileSync((await saved.path())!)).toEqual(notes);
 
       // Delete the card from the block menu, then Undo: the file stayed listed, so it draws again.
       const cardBlock = page.locator(`[data-block-id="${fileCard.id}"]`);

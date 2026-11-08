@@ -12,6 +12,7 @@ import type { MountMockup } from './structured-page.js';
 import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
+import { useAgentDirectory } from './agent-directory.js';
 
 /**
  * A structured page (`pageType` `blocks`, #6005) over its live binding: the fold projection's
@@ -29,6 +30,7 @@ export function LiveStructuredPage({
   questionPage,
   mountMockup,
   imageSource,
+  onDownloadFile,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -45,8 +47,20 @@ export function LiveStructuredPage({
   mountMockup?: MountMockup;
   /** The page's attachment list and authorized read, for image blocks. */
   imageSource?: DocumentImageInput;
+  /** A file card's Download: the page's confirmed download path. */
+  onDownloadFile?(attachmentId: string): void;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
+  // The agents an @ names (#6203): the ones this page can ask, and its creator.
+  const { directory } = useAgentDirectory(questionPage?.ask);
+  const creator = questionPage?.creator?.agent.name;
+  const agents = useMemo(
+    () => [
+      ...(creator ? [creator] : []),
+      ...(directory.state === 'ready' ? directory.agents.map((agent) => agent.agentName) : []),
+    ],
+    [creator, directory],
+  );
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
   const pageFiles = write ? binding?.files : undefined;
   const send = useCallback(
@@ -106,7 +120,12 @@ export function LiveStructuredPage({
     hoverBlockMenu,
     attach,
     uploads,
-  } = useBlockEditing(records, send, seq, files);
+    choosing,
+    mention,
+    pickMention,
+    hoverMention,
+    closeMention,
+  } = useBlockEditing(records, send, seq, files, agents);
   return (
     <StructuredPage
       tree={tree}
@@ -148,6 +167,12 @@ export function LiveStructuredPage({
       onMove={move}
       onAttach={files && ((picked, after) => void attach(picked, after))}
       uploads={uploads}
+      choosing={choosing}
+      onDownloadFile={onDownloadFile}
+      mention={mention}
+      onPickMention={pickMention}
+      onHoverMention={hoverMention}
+      onCloseMention={closeMention}
       readonly={!write}
     />
   );

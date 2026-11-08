@@ -1465,9 +1465,15 @@ for (const width of [1440, 390])
       const card = host.locator('.tmt-block-file');
       await expect(card).toHaveCount(1);
       await expect(card).toContainText('notes.txt');
-      await expect(card).toContainText('text/plain · 16 bytes');
-      // The card never carries the raw reference as a link.
+      // The spec's card: name, its size in the caption style, Download; no media type string.
+      await expect(card.locator('.tmt-block-file-size')).toHaveText('16 B');
+      await expect(card).not.toContainText('text/plain');
+      // The card never carries the raw reference as a link: Download asks the page's confirmed path.
       await expect(card.locator('a')).toHaveCount(0);
+      await card.getByRole('button', { name: 'Download notes.txt' }).click();
+      expect(await page.evaluate(() => window.downloads)).toEqual([
+        await page.evaluate(() => window.listedFiles[1]![0]!),
+      ]);
       const final = await topLevel(host);
       expect(final).toHaveLength(blocks.length + 2);
       expect(final.slice(0, 2)).toEqual(blocks.slice(0, 2));
@@ -1559,4 +1565,123 @@ test('files past the page cap are refused before any upload, with what to do', a
   expect(await topLevel(host)).toEqual(blocks);
   expect(await page.evaluate(() => window.uploaded.length)).toBe(0);
   await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toHaveCount(0);
+});
+
+const QUESTION = '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b';
+
+test('@ in a block offers agents and blocks, by keyboard, and inserts a block mark', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const item = host.locator('[data-block-id="l2"]');
+  await item.getByText('滑過或選取是淡色底。').click();
+  const editor = item.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await editor.press('End');
+  await editor.pressSequentially(' @', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: '@ mention' });
+  // Agents first, then the page's blocks a mark can name, in reading order.
+  await expect(menu.getByRole('option').first()).toHaveText('@tmt-gui-lead');
+  await expect(menu.getByRole('option').nth(1)).toHaveText('@gui-2');
+  await expect(menu.getByRole('option', { name: 'Question: 先做哪個區塊？' })).toBeVisible();
+  await editor.pressSequentially('先做', { delay: 20 });
+  await expect(menu.getByRole('option')).toHaveText(['Question: 先做哪個區塊？']);
+  await expect(menu.getByRole('option', { selected: true })).toHaveText('Question: 先做哪個區塊？');
+  await editor.press('Enter');
+  await expect(menu).toHaveCount(0);
+  // The @ and its query became the chip text and a space; the chip text carries the block mark.
+  const expected = '滑過或選取是淡色底。 Question: 先做哪個區塊？ ';
+  await expect.poll(() => page.evaluate(() => window.serveText('l2'))).toBe(expected);
+  await expect
+    .poll(() => page.evaluate(() => window.serveMarks('l2')))
+    .toEqual([{ from: 11, to: 28, mark: 'block', value: QUESTION }]);
+  // Typing goes on after the chip.
+  await editor.pressSequentially('next', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.serveText('l2'))).toBe(`${expected}next`);
+  // At rest the mark draws as the DS chip, linking to the block.
+  await editor.press('Escape');
+  const chip = item.locator('[data-slot="block-mention"]');
+  await expect(chip).toHaveText('Question: 先做哪個區塊？');
+  await expect(chip).toHaveAttribute('href', `#block-${QUESTION}`);
+});
+
+test('@ picks an agent with the mouse, and Esc closes the menu keeping the text', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const item = host.locator('[data-block-id="l1"]');
+  await item.getByText('區塊之間沒有框線，只有卡片畫框。').click();
+  const editor = item.locator('[contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' @gui', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: '@ mention' });
+  await expect(menu.getByRole('option')).toHaveText(['@tmt-gui-lead', '@gui-2']);
+  // Esc closes and keeps what was typed; an @ in a word never opens it.
+  await editor.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toHaveText('區塊之間沒有框線，只有卡片畫框。 @gui');
+  await editor.pressSequentially(' a@b', { delay: 20 });
+  await expect(menu).toHaveCount(0);
+  for (let i = 0; i < 9; i++) await editor.press('Backspace');
+  await editor.pressSequentially(' @', { delay: 20 });
+  const agent = menu.getByRole('option', { name: '@gui-2' });
+  await agent.hover();
+  await expect(agent).toHaveAttribute('aria-selected', 'true');
+  await agent.click();
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  const expected = '區塊之間沒有框線，只有卡片畫框。 @gui-2 ';
+  await expect.poll(() => page.evaluate(() => window.serveText('l1'))).toBe(expected);
+  await expect
+    .poll(() => page.evaluate(() => window.serveMarks('l1')))
+    .toEqual([{ from: 17, to: 23, mark: 'agent', value: 'gui-2' }]);
+});
+
+test('the insert menu offers Image or file, which opens the file picker and adds the files', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // An empty paragraph after l2, where the slash opens the insert menu.
+  const blank = 'e0000000-0000-4000-8000-000000000001';
+  await page.evaluate(
+    (id) =>
+      window.agentBatch([
+        { op: 'insert', id, type: 'paragraph', parent: 'root', after: 'l2', text: '' },
+      ]),
+    blank,
+  );
+  await host.locator(`[data-block-id="${blank}"]`).click();
+  const empty = host.locator(`[data-block-id="${blank}"] [contenteditable="true"]`);
+  await empty.press('/');
+  await empty.pressSequentially('fi', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: 'Insert a block' });
+  await expect(menu.getByRole('option')).toHaveText([/Image or file/]);
+  // Chosen by keyboard, it opens the device's file picker.
+  const chooser = page.waitForEvent('filechooser');
+  await empty.press('Enter');
+  const picker = await chooser;
+  expect(picker.isMultiple()).toBe(true);
+  await picker.setFiles([
+    { name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Plan\n') },
+  ]);
+  await expect(host.locator('.tmt-block-file')).toContainText('plan.txt');
+  // The slash paragraph was cleared, and the file went after it.
+  const now = await topLevel(host);
+  const at = now.indexOf('l2');
+  expect(now).toHaveLength(blocks.length + 2);
+  expect(now[at + 1]).toBe(blank);
+  expect(await page.evaluate((id) => window.serveText(id), blank)).toBe('');
+  await expect(host.locator(`[data-block-id="${now[at + 2]}"] .tmt-block-file`)).toHaveCount(1);
+});
+
+test('a page without files offers no Image or file entry', async ({ page }) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="e"]').click();
+  const editor = host.locator('[data-block-id="e"] [contenteditable="true"]');
+  await editor.press('/');
+  await editor.pressSequentially('fi', { delay: 20 });
+  await expect(page.getByRole('listbox', { name: 'Insert a block' })).toContainText(
+    'No matching block',
+  );
 });

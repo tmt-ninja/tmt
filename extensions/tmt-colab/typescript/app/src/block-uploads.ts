@@ -2,7 +2,6 @@ import { attachment } from '@tmt/colab-client';
 import { attachmentFilename, RASTER_TYPES, storedMediaType } from './attachment-file.js';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
 import type { BlockType } from './block-model.js';
-import { binarySize } from './strings.js';
 
 /**
  * Files a person adds to a page of blocks (#6202): each is uploaded against the page's attachment
@@ -23,6 +22,13 @@ export type BlockFileRefusal = 'empty' | 'too-large' | 'unreadable';
 export interface BlockFile {
   input: AttachmentInput;
   image: boolean;
+}
+
+/** A file card's size, short: 16 B, 2.4 KB, 8 MB (binary multiples). */
+export function cardSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const [value, unit] = bytes < 1024 * 1024 ? [bytes / 1024, 'KB'] : [bytes / 1024 / 1024, 'MB'];
+  return `${value < 10 ? Number(value.toFixed(1)) : Math.round(value)} ${unit}`;
 }
 
 /** Whether a page that lists `listed` files can take `adding` more (the descriptor cap). */
@@ -66,7 +72,7 @@ export function fileBlock(
       files: [
         {
           name,
-          size: binarySize(file.input.bytes.length),
+          size: cardSize(file.input.bytes.length),
           type: file.input.mediaType,
           ...(stored && { href: reference }),
         },

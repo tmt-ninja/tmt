@@ -74,6 +74,7 @@ import {
   type BlockUpload,
   type DeleteToast,
   type InsertMenu,
+  type MentionMenu,
 } from './use-block-editing.js';
 
 /** The catalog row of each insert entry, for its icon and description. */
@@ -172,10 +173,19 @@ export interface StructuredPageProps {
   onOpenBlockMenu?(id: string): void;
   onInsertAfter?(id: string): void;
   onMove?(id: string, parent: string, index: number): void;
+  /** The @ menu open in the focused block (#6203), and its choice, pointer and close. */
+  mention?: MentionMenu;
+  onPickMention?(entry: string): void;
+  onHoverMention?(entry: string): void;
+  onCloseMention?(): void;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
   /** The file blocks this tab is adding, drawn as their upload tile. */
   uploads?: ReadonlyMap<string, BlockUpload>;
+  /** "Image or file" was chosen in the insert menu: the file picker opens once per `id`. */
+  choosing?: { after: string; id: number };
+  /** Download a file card's file through the page's confirmed download path (#6202). */
+  onDownloadFile?(attachmentId: string): void;
 }
 
 /** The files a drop or paste carries; none when it carries only text. */
@@ -207,6 +217,17 @@ export function StructuredPage(props: StructuredPageProps) {
     [props.onMove],
   );
   const { drag, start, wasDrag } = useBlockDrag(props.tree, () => root.current, drop);
+  // The insert menu's "Image or file" opens the device's file picker while the key or click that
+  // chose it still counts as the person's gesture.
+  const picker = useRef<HTMLInputElement>(null);
+  const choosing = props.choosing;
+  const chosenAfter = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!choosing || !picker.current) return;
+    chosenAfter.current = choosing.after;
+    picker.current.value = '';
+    picker.current.click();
+  }, [choosing]);
   const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag };
   return (
     <>
@@ -247,6 +268,19 @@ export function StructuredPage(props: StructuredPageProps) {
         )}
         {drag && <DragGhost drag={drag} tree={props.tree} root={root.current} />}
       </BlockDocument>
+      {props.onAttach && (
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          aria-label={strings.blockFiles.pick}
+          onChange={(event) => {
+            const files = [...(event.currentTarget.files ?? [])];
+            if (files.length) props.onAttach?.(files, chosenAfter.current);
+          }}
+        />
+      )}
       {props.toast && (
         <div className="tmt-block-toast-place" key={props.toast.id}>
           {props.toast.notice ? (
@@ -328,6 +362,14 @@ function Blocks({
           onAction={rest.onAction}
           onHoverAction={rest.onHoverAction}
           onClose={rest.onCloseBlockMenu}
+        />
+      )}
+      {rest.mention?.id === block.id && (
+        <MentionPopover
+          mention={rest.mention}
+          onPick={rest.onPickMention}
+          onHover={rest.onHoverMention}
+          onClose={rest.onCloseMention}
         />
       )}
       {rest.menu?.id === block.id && (
@@ -469,6 +511,61 @@ function InsertPopover({
           );
         })}
         {menu.entries.length === 0 && <BlockMenuEmpty>{strings.blockInsert.empty}</BlockMenuEmpty>}
+        {!sheet && <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>}
+      </BlockMenu>
+    </div>
+  );
+}
+
+/** The @ menu under the block the @ was typed in (#6203, spec "@ 一個區塊"): the same floating
+ * listbox as the insert menu, focus staying in the editor. A phone gets the bottom sheet. */
+function MentionPopover({
+  mention,
+  onPick,
+  onHover,
+  onClose,
+}: {
+  mention: MentionMenu;
+  onPick?(entry: string): void;
+  onHover?(entry: string): void;
+  onClose?(): void;
+}) {
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  const rowId = (entry: string) => `block-mention-${entry.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  return (
+    <div
+      className="tmt-block-insert"
+      data-sheet={sheet ? '' : undefined}
+      onMouseDown={(event) => {
+        if (!sheet || event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onClose?.();
+      }}
+    >
+      <BlockMenu
+        kind="insert"
+        label={strings.blockMention.label}
+        placement={sheet ? 'sheet' : 'below'}
+        activeId={mention.active && rowId(mention.active)}
+      >
+        {mention.entries.map((entry) => (
+          <BlockMenuItem
+            key={entry.id}
+            id={rowId(entry.id)}
+            active={entry.id === mention.active}
+            onMouseEnter={() => onHover?.(entry.id)}
+            // Choosing never takes focus from the editor.
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onPick?.(entry.id);
+            }}
+          >
+            {entry.label}
+          </BlockMenuItem>
+        ))}
+        {mention.entries.length === 0 && (
+          <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
+        )}
         {!sheet && <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>}
       </BlockMenu>
     </div>
@@ -936,6 +1033,7 @@ function Content({
           block={block}
           source={rest.imageSource}
           upload={rest.uploads?.get(block.id)}
+          onDownload={rest.onDownloadFile}
         />
       );
     default:

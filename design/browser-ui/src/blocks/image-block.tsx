@@ -29,8 +29,12 @@ export interface BlockImage {
 export interface BlockFile {
   name: string;
   size: string;
+  /** The file's media type; the card shows the type icon, not this string. */
   type?: string;
+  /** A plain download link; a host that confirms downloads passes `onDownload` instead. */
   href?: string;
+  /** Download through the host's own path (a confirmation, an authorized read). */
+  onDownload?(): void;
 }
 export interface ImageBlockProps {
   images: readonly BlockImage[];
@@ -282,17 +286,29 @@ export function ImageBlock({
           </>
         )}
         {files.map((file) => (
+          // The spec's card: type icon, name (truncated), size, Download.
           <div className="tmt-block-file" key={file.name}>
             <FileText aria-hidden="true" />
-            <span>{file.name}</span>
-            <span>
-              {file.type ? `${file.type} · ` : ''}
-              {file.size}
+            <span className="tmt-block-file-name" title={file.name}>
+              {file.name}
             </span>
-            {file.href && (
-              <a href={file.href} download={file.name} aria-label={`Download ${file.name}`}>
+            {file.size && <span className="tmt-block-file-size">{file.size}</span>}
+            {file.onDownload ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={`Download ${file.name}`}
+                onClick={file.onDownload}
+              >
                 Download
-              </a>
+              </Button>
+            ) : (
+              file.href && (
+                <a href={file.href} download={file.name} aria-label={`Download ${file.name}`}>
+                  Download
+                </a>
+              )
             )}
           </div>
         ))}

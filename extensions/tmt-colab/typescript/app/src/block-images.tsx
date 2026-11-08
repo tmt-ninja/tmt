@@ -30,7 +30,7 @@ const text = (value: unknown): string | undefined =>
  * for agents) is drawn in its error state, never fetched. */
 export function blockImages(block: BlockRecord): {
   images: BlockImageSpec[];
-  files: BlockFile[];
+  files: (BlockFile & { reference?: string })[];
   variant: 'image' | 'file';
   layout: (typeof LAYOUTS)[number];
   size: (typeof SIZES)[number];
@@ -58,13 +58,21 @@ export function blockImages(block: BlockRecord): {
   // A file card (#6202) names its file; its reference is never handed to the part, which would draw
   // it as a plain link (the page's files are read only through the authorized path).
   const files = (Array.isArray(block.props.files) ? block.props.files.slice(0, 100) : []).flatMap(
-    (item): BlockFile[] => {
+    (item): (BlockFile & { reference?: string })[] => {
       if (!item || typeof item !== 'object') return [];
       const value = item as Record<string, unknown>;
       const name = text(value.name);
       if (!name) return [];
       const type = text(value.type);
-      return [{ name, size: text(value.size) ?? '', ...(type && { type }) }];
+      const reference = text(value.href);
+      return [
+        {
+          name,
+          size: text(value.size) ?? '',
+          ...(type && { type }),
+          ...(reference && { reference }),
+        },
+      ];
     },
   );
   return {
@@ -89,6 +97,16 @@ export function holds(
       token.length === 8 ? d.attachmentId.startsWith(token) : d.attachmentId === token,
     ).length === 1
   );
+}
+
+/** The full ID of the one file of the page's list that `reference` names, as `holds` resolves it. */
+export function attachmentOf(
+  reference: string,
+  descriptors: DocumentImageInput['descriptors'] | undefined,
+): string | undefined {
+  if (!holds(reference, descriptors)) return undefined;
+  const token = reference.slice('colab-attachment:'.length);
+  return descriptors!.find((d) => d.attachmentId.startsWith(token))!.attachmentId;
 }
 
 /**
@@ -186,11 +204,14 @@ export function StructuredImages({
   block,
   source,
   upload,
+  onDownload,
 }: {
   block: BlockRecord;
   source?: DocumentImageInput;
   /** This tab is adding the block's file (#6202): its tile while it uploads, or failed. */
   upload?: BlockUpload;
+  /** Download a file card's file, by its full attachment ID, through the page's confirmed path. */
+  onDownload?(attachmentId: string): void;
 }) {
   const { images, files, variant, layout, size } = useMemo(() => blockImages(block), [block]);
   const { found, retry } = useBlockImages(
@@ -217,7 +238,11 @@ export function StructuredImages({
       images={
         variant === 'file' ? [] : images.map((image) => drawnImage(image, found, source, retry))
       }
-      files={files}
+      files={files.map(({ reference, ...file }) => {
+        // Only a file the page lists can be downloaded, and never through a plain link.
+        const id = reference && attachmentOf(reference, source?.descriptors);
+        return id && onDownload ? { ...file, onDownload: () => onDownload(id) } : file;
+      })}
       variant={variant}
       layout={layout}
       size={size}

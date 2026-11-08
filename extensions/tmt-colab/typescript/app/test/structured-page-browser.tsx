@@ -237,6 +237,8 @@ declare global {
     /** The serve's cells for a table's rows now, in order. */
     serveRows(table: string): { id: string; cells?: Record<string, string> }[];
     serveProps(id: string): Readonly<Record<string, unknown>> | undefined;
+    /** The serve's marks on a block's text now. */
+    serveMarks(id: string): readonly Mark[] | undefined;
     /** The attachments the page's authorized read opened, by ID. */
     imageReads: string[];
     /** While true, the read of `IMAGE_C` fails. */
@@ -271,6 +273,8 @@ declare global {
     refuseFiles: boolean;
     /** How many files the page lists besides its images (the cap counts them). */
     extraFiles: number;
+    /** The attachment IDs a file card asked to download, in order. */
+    downloads: string[];
   }
 }
 
@@ -475,6 +479,7 @@ export function mount(
   window.failUpload = false;
   window.refuseFiles = false;
   window.extraFiles = 0;
+  window.downloads = [];
   let uploadGate: Promise<void> | undefined;
   let releaseUpload = () => {};
   window.holdUploads = () => {
@@ -575,6 +580,7 @@ export function mount(
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
   window.agentBatch = (ops) => void publish(applyOps(blocks, ops));
   window.serveProps = (id) => blocks.find((block) => block.id === id)?.props;
+  window.serveMarks = (id) => blocks.find((block) => block.id === id)?.marks;
   window.serveRows = (table) =>
     new BlockTree(blocks).rows(table).map(({ id, cells }) => ({ id, ...(cells && { cells }) }));
   window.serveColumns = (table) =>
@@ -673,7 +679,15 @@ export function mount(
       hoverBlockMenu,
       attach,
       uploads,
-    } = useBlockEditing(view.records, send, view.seq, content === 'spec' ? files : undefined);
+      choosing,
+      mention,
+      pickMention,
+      hoverMention,
+      closeMention,
+    } = useBlockEditing(view.records, send, view.seq, content === 'spec' ? files : undefined, [
+      'tmt-gui-lead',
+      'gui-2',
+    ]);
     return (
       <section ref={subscribe}>
         <StructuredPage
@@ -699,6 +713,8 @@ export function mount(
             imageSource: pageImages,
             onAttach: (picked: File[], after?: string) => void attach(picked, after),
             uploads,
+            choosing,
+            onDownloadFile: (id: string) => window.downloads.push(id),
             questionPage: {
               title: '區塊編輯器',
               questions: registry,
@@ -735,6 +751,10 @@ export function mount(
           onOpenBlockMenu={openBlockMenu}
           onInsertAfter={insertAfter}
           onMove={move}
+          mention={mention}
+          onPickMention={pickMention}
+          onHoverMention={hoverMention}
+          onCloseMention={closeMention}
         />
       </section>
     );

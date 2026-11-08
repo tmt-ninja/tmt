@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vite-plus/test';
-import { fileBlock, fitsAttachments, readBlockFile } from '../src/block-uploads.js';
+import { cardSize, fileBlock, fitsAttachments, readBlockFile } from '../src/block-uploads.js';
 
 const PNG = Uint8Array.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 2,
@@ -36,15 +36,25 @@ describe('block uploads (#6202)', () => {
     };
     expect(fileBlock(file).props).toEqual({
       variant: 'file',
-      files: [{ name: 'a.txt', size: '2 KiB', type: 'text/plain' }],
+      files: [{ name: 'a.txt', size: '2 KB', type: 'text/plain' }],
     });
     expect(fileBlock(file, stored).props.files).toEqual([
       {
         name: 'a.txt',
-        size: '2 KiB',
+        size: '2 KB',
         type: 'text/plain',
         href: `colab-attachment:${'f'.repeat(32)}`,
       },
+    ]);
+  });
+
+  test('a card size is short: bytes, then binary KB and MB', () => {
+    expect([16, 2048, 2560, 15 * 1024, 8 * 1024 * 1024].map(cardSize)).toEqual([
+      '16 B',
+      '2 KB',
+      '2.5 KB',
+      '15 KB',
+      '8 MB',
     ]);
   });
 
