@@ -11,6 +11,7 @@ use crate::{
 pub mod attach_ipc;
 pub mod ipc;
 pub mod media_type;
+pub(crate) mod prefix;
 pub(crate) mod rekey;
 pub(crate) mod seal;
 pub mod slots;

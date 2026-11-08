@@ -1416,6 +1416,22 @@ fn edited_projection_checked(
         let next = change
             .apply(&current)
             .map_err(|_| DecodeFault::InvalidInput)?;
+        // A set may not make a short reference of the source it saves ambiguous (#6201).
+        let shared = crate::attachments::prefix::newly_shared(&current, &next);
+        if !shared.is_empty() {
+            let named = |token: &str| shared.contains(token);
+            let ambiguous = match checked {
+                Some(report) => report.references.iter().any(|r| named(&r.token)),
+                None => crate::page_check::check(edit.source)
+                    .map_err(|_| DecodeFault::InvalidInput)?
+                    .references
+                    .iter()
+                    .any(|r| named(&r.token)),
+            };
+            if ambiguous {
+                return Err(DecodeFault::InvalidInput);
+            }
+        }
         write_attachment_list(meta, &next)?;
     }
     Ok(expected)

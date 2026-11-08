@@ -3199,7 +3199,11 @@ nothing written, when:
 
 - a reference it adds (live afterwards, not live before) is malformed or names no descriptor of the
   list the batch leaves; or
-- a change removes a descriptor that a live block, after the batch, still names.
+- a change removes a descriptor that a live block, after the batch, still names; or
+- a change adds a descriptor whose first 8 hex digits a live short reference already uses while
+  exactly one descriptor held them, so the reference would name two (`prefix.rs` finds such a
+  prefix; a prefix two descriptors already shared is not judged again, and swapping the one holder
+  for its twin is fine).
 
 The rules are checked when a batch is admitted and not when a state is folded. Two writers can
 leave a dangling reference on a merged page (one removes a descriptor while the other inserts an
@@ -4550,7 +4554,10 @@ native preparation additionally requires each added descriptor to name this spac
 epoch and to be witnessed by its creator's own-stream creation proof, so the browser publishes
 that proof first and waits for its own fold to admit it. A change that violates a check is a
 protocol error (`INVALID`) or a terminal `rejected` result and commits nothing; a change
-that leaves the list as it is publishes nothing. The browser's private `Fold.prepareContent`
+that leaves the list as it is publishes nothing. A change also may not make a short reference
+(`colab-attachment:` and 8 hex digits) of the source it saves ambiguous: when the page held exactly
+one descriptor with that prefix and the list afterwards holds several, the save is refused (the
+same rule as on a [page of blocks](#attachments-on-a-page-of-blocks)). The browser's private `Fold.prepareContent`
 applies the same change and both preparers consume
 [`attachment-change-v1.json`](vectors/attachment-change-v1.json) (oracle
 `attachment-change-reference.py`).
