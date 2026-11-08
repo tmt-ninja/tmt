@@ -166,10 +166,12 @@ export interface TableBlockProps {
   label: string;
   columns?: readonly TableBlockColumn[];
   rows?: readonly (readonly ReactNode[])[];
+  /** A table with no rows shows this as its one row (the editor's "Add a row"). */
+  empty?: ReactNode;
 }
 
 /** A table block: the shared table, collapsing on its own width (a container query), not the viewport's. */
-export function TableBlock({ label, columns = [], rows = [] }: TableBlockProps) {
+export function TableBlock({ label, columns = [], rows = [], empty }: TableBlockProps) {
   const indexes = (pick: (column: TableBlockColumn) => boolean | undefined) =>
     columns.flatMap((column, index) => (pick(column) ? [index] : []));
   return (
@@ -180,6 +182,7 @@ export function TableBlock({ label, columns = [], rows = [] }: TableBlockProps) 
         rows={rows}
         hideNarrow={indexes((column) => column.hideNarrow)}
         nowrap={indexes((column) => column.nowrap)}
+        empty={empty}
       />
     </div>
   );

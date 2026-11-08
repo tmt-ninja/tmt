@@ -88,6 +88,10 @@ export const text = {
   blockActions: {
     label: 'Block actions',
   },
+  blockTable: {
+    addRow: 'Add a row',
+    cell: (column: string, row: number) => `${column}, row ${row}`,
+  },
   blockDelete: {
     deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
     undo: 'Undo',

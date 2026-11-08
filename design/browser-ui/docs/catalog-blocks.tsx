@@ -166,7 +166,7 @@ export const blockComponents: ComponentDoc[] = [
         'Table block',
         'table',
         'TableBlock',
-        'The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block.',
+        'The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block. With no rows, empty is its one row (the editor’s Add a row).',
         "<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />",
         260,
       ],

@@ -6,10 +6,12 @@ import {
   isBlockType,
   TEXT_TYPES,
   type TextMark,
+  tableColumns,
 } from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
 import { BlockHistory } from './block-history.js';
 import {
+  addRow,
   deleteBlocks,
   duplicateBlock,
   insertBlock,
@@ -26,7 +28,7 @@ import {
   selectedIds,
   settleSelection,
 } from './block-selection.js';
-import { BlockTextSync, TEXT_FLUSH_MS } from './block-text-sync.js';
+import { BlockTextSync, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -38,6 +40,23 @@ import { BlockTree } from './block-tree.js';
 const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
   group.items.map(({ id, label, shortcut }) => ({ id, label, shortcut })),
 );
+
+/** The text `current` edits as `tree` draws it: a block's text, or a cell's; none when the tree
+ * does not draw it (deleted, or not on the page yet). */
+function drawnText(
+  tree: BlockTree,
+  { id, cell }: { id: string; cell?: TableCell },
+): string | undefined {
+  if (!cell) {
+    const block = tree.get(id);
+    return block && tree.visible(id) ? (block.text ?? '') : undefined;
+  }
+  const { table, column } = cell;
+  if (!tree.visible(table) || !tableColumns(tree.get(table)!.props).some((c) => c.id === column))
+    return undefined;
+  const row = tree.rows(table).find((r) => r.id === id);
+  return row && (row.cells?.[column] ?? '');
+}
 
 /** The insert menu open on a block: what follows `/` filters it. */
 export interface InsertMenu {
@@ -70,9 +89,12 @@ export interface DeleteToast {
   id: number;
 }
 
-/** What the focused block shows while it is edited. */
+/** What the focused block, or table cell, shows while it is edited. */
 export interface Editing {
+  /** The block, or a cell's row. */
   id: string;
+  /** A cell's column; absent for a block. */
+  column?: string;
   text: string;
   caret: number;
   /** Moves on every text the page sends, so the editor replaces its text even when it is equal to
@@ -145,7 +167,13 @@ export function useBlockEditing(
   const open = useCallback((next: BlockTextSync, at: number) => {
     sync.current = next;
     caret.current = at;
-    setEditing({ id: next.id, text: next.text, caret: at, version: ++version.current });
+    setEditing({
+      id: next.id,
+      column: next.cell?.column,
+      text: next.text,
+      caret: at,
+      version: ++version.current,
+    });
   }, []);
 
   // `flush` and `show` call each other; `flush` reaches `show` through a ref, so both stay stable.
@@ -197,6 +225,7 @@ export function useBlockEditing(
       caret.current = shown.caret;
       setEditing({
         id: current.id,
+        column: current.cell?.column,
         text: shown.text,
         caret: shown.caret,
         version: ++version.current,
@@ -219,8 +248,8 @@ export function useBlockEditing(
     if (!current) return;
     // The serve's page, not the drawn one: the focused text merges with what others wrote, and this
     // tab's own batches settle through `BlockTextSync`.
-    const block = pageTree.get(current.id);
-    if (!block || !pageTree.visible(current.id)) {
+    const text = drawnText(pageTree, current);
+    if (text === undefined) {
       // Not on the page yet: this tab's own insert is on its way.
       if (arriving.current === current.id) return;
       // Deleted or gone under another writer: the editor closes; unsent typing is kept on the op.
@@ -230,14 +259,14 @@ export function useBlockEditing(
       return;
     }
     if (arriving.current === current.id) arriving.current = undefined;
-    show(current, current.remote(block.text ?? '', caret.current, seq));
+    show(current, current.remote(text, caret.current, seq));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageTree]);
 
   const focus = useCallback(
     (id: string) => {
       setSelection(undefined);
-      if (sync.current?.id === id) return;
+      if (sync.current?.id === id && !sync.current.cell) return;
       flush();
       const block = tree.get(id);
       if (!block || block.text === undefined) return;
@@ -257,6 +286,81 @@ export function useBlockEditing(
       timer.current = setTimeout(flush, TEXT_FLUSH_MS);
     },
     [flush],
+  );
+
+  /** The person focused a table cell: its text is edited as a block's is, and goes out as
+   * `set-cell`. */
+  const focusCell = useCallback(
+    (table: string, row: string, column: string) => {
+      setSelection(undefined);
+      const current = sync.current;
+      if (current?.id === row && current.cell?.column === column) return;
+      flush();
+      const text = drawnText(treeRef.current, { id: row, cell: { table, column } });
+      if (text === undefined) return;
+      open(new BlockTextSync(row, text, { table, column }), [...text].length);
+    },
+    [flush, open],
+  );
+  /** A new empty row after `after` (last when absent), its first cell focused: one gesture. */
+  const addRowTo = useCallback(
+    async (table: string, after?: string) => {
+      const first = tableColumns(treeRef.current.get(table)?.props ?? {})[0];
+      if (!first) return;
+      clearTimeout(timer.current);
+      flush();
+      await inflight.current;
+      const row = crypto.randomUUID();
+      const ops = [addRow(table, row, after)];
+      history.current.record(treeRef.current, ops);
+      arriving.current = row;
+      open(new BlockTextSync(row, '', { table, column: first.id }), 0);
+      try {
+        await out(undefined, ops);
+      } catch {
+        // Refused: no row was added, and the editor closes.
+        if (sync.current?.id === row) {
+          arriving.current = undefined;
+          sync.current = undefined;
+          setEditing(undefined);
+        }
+      }
+    },
+    [flush, open, out],
+  );
+  /** A key in the focused cell; true when the cell took it. Tab and Shift+Tab move along the
+   * table's cells, and Tab in the last cell adds a row; Esc selects the table. A cell is plain
+   * text, so the format keys and Enter do nothing. */
+  const cellKey = useCallback(
+    (event: KeyboardEvent, text: string): boolean => {
+      const current = sync.current;
+      if (!current?.cell) return false;
+      const { table, column } = current.cell;
+      const formatKey =
+        (event.metaKey || event.ctrlKey) && !event.altKey && FORMAT_KEYS[event.key.toLowerCase()];
+      if (formatKey || event.key === 'Enter') return true;
+      if (event.altKey || event.metaKey || event.ctrlKey) return false;
+      current.typed(text);
+      if (event.key === 'Escape') {
+        flush();
+        sync.current = undefined;
+        setEditing(undefined);
+        setSelection(selectBlock(table));
+        return true;
+      }
+      if (event.key !== 'Tab') return false;
+      const tree = treeRef.current;
+      const columns = tableColumns(tree.get(table)?.props ?? {}).map((c) => c.id);
+      const rows = tree.rows(table).map((r) => r.id);
+      const at = rows.indexOf(current.id) * columns.length + columns.indexOf(column);
+      const next = at + (event.shiftKey ? -1 : 1);
+      if (next >= rows.length * columns.length) void addRowTo(table, rows.at(-1));
+      else if (next >= 0 && at >= 0)
+        focusCell(table, rows[Math.floor(next / columns.length)]!, columns[next % columns.length]!);
+      // Tab never leaves the table, even at its first cell.
+      return true;
+    },
+    [flush, focusCell, addRowTo],
   );
 
   /** Enter at scalar `at`: the rest of the text starts a new block, focused at its start. */
@@ -694,12 +798,18 @@ export function useBlockEditing(
         }
       }
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
-        focus(selection.focus);
+        // A table is entered at its first cell, or by adding its first row.
+        const table = treeRef.current.get(selection.focus);
+        const first = table?.type === 'table' && tableColumns(table.props)[0];
+        const row = first && treeRef.current.rows(table.id)[0];
+        if (!first) focus(selection.focus);
+        else if (row) focusCell(table.id, row.id, first.id);
+        else void addRowTo(table.id);
         return true;
       }
       return false;
     },
-    [blockMenu, selection, replay, deleteIds, focus, act, openBlockMenu],
+    [blockMenu, selection, replay, deleteIds, focus, focusCell, addRowTo, act, openBlockMenu],
   );
   const selected = useMemo(() => selectedIds(tree, selection), [tree, selection]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
@@ -723,6 +833,9 @@ export function useBlockEditing(
     tree,
     editing,
     focus,
+    focusCell,
+    cellKey,
+    addRowTo,
     pasteUrl,
     check,
     typed,

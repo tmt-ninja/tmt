@@ -490,6 +490,122 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   expect(sheet!.y + sheet!.height - (inner!.y + inner!.height)).toBeGreaterThanOrEqual(8);
 });
 
+test('a table cell edits in place, Tab walks the cells and adds a row, and the table duplicates', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const table = host.locator('[data-block-id="table"]');
+  const editor = table.locator('[contenteditable="true"]');
+  const rows = () => page.evaluate(() => window.serveRows('table'));
+  const height = (await table.boundingBox())!.height;
+  await table.getByText('一般文字').click();
+  await expect(editor).toHaveCount(1);
+  await expect(editor).toHaveText('一般文字');
+  // The cell's editor draws in place: the table keeps its height.
+  expect((await table.boundingBox())!.height).toBe(height);
+  await editor.press('End');
+  await editor.pressSequentially('和清單', { delay: 20 });
+  await expect.poll(async () => (await rows())[1]!.cells!.use).toBe('一般文字和清單');
+  expect(await page.evaluate(() => window.sent.at(-1))).toEqual({
+    op: 'table',
+    id: 'table',
+    action: 'set-cell',
+    row: 'r2',
+    column: 'use',
+    text: '一般文字和清單',
+    base: '一般文字',
+    overlap: 'both',
+  });
+  // An agent edits the same cell while the person types: both edits are kept.
+  await editor.pressSequentially('！', { delay: 20 });
+  await page.evaluate(() =>
+    window.agentBatch([
+      {
+        op: 'table',
+        id: 'table',
+        action: 'set-cell',
+        row: 'r2',
+        column: 'use',
+        text: '常用：一般文字和清單',
+      },
+    ]),
+  );
+  await expect.poll(async () => (await rows())[1]!.cells!.use).toBe('常用：一般文字和清單！');
+  await expect(editor).toHaveText('常用：一般文字和清單！');
+  // Tab and Shift+Tab walk the cells in reading order.
+  await editor.press('Tab');
+  await expect(editor).toHaveText('卡片／區段');
+  await editor.press('Shift+Tab');
+  await expect(editor).toHaveText('常用：一般文字和清單！');
+  await editor.press('Tab');
+  await editor.press('Tab');
+  await expect(editor).toHaveText('唯一能放其他區塊的區塊');
+  // Tab in the last cell adds a row, its first cell focused at once.
+  await editor.press('Tab');
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  await expect(editor).toHaveText('');
+  await editor.pressSequentially('圖片', { delay: 20 });
+  await expect
+    .poll(async () => (await rows()).map((row) => row.cells?.name))
+    .toEqual(['小標題', '段落', '卡片／區段', '圖片']);
+  // Esc selects the table; ⌘Z takes the added row back.
+  await editor.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(table).toHaveAttribute('data-selected', '');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(table.locator('tbody tr')).toHaveCount(3);
+  await expect.poll(async () => (await rows()).length).toBe(3);
+  // ⌘D: a copy right after it, with copies of its rows (new IDs, the same cells).
+  await table.focus();
+  await page.keyboard.press('ControlOrMeta+d');
+  const tables = host.locator('[data-block-id]').filter({ has: page.getByRole('table') });
+  await expect(tables).toHaveCount(2);
+  const copy = tables.nth(1);
+  await expect(copy.locator('tbody tr')).toHaveCount(3);
+  await expect(copy.locator('tbody')).toHaveText((await table.locator('tbody').textContent())!);
+  const copyId = (await copy.getAttribute('data-block-id'))!;
+  const copied = () => page.evaluate((id) => window.serveRows(id), copyId);
+  const cells = (await rows()).map((row) => row.cells);
+  await expect.poll(async () => (await copied()).map((row) => row.cells)).toEqual(cells);
+  expect((await copied()).map((row) => row.id)).not.toContain('r1');
+  // Enter on a selected table goes to its first cell.
+  await copy.click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press('Escape');
+  await copy.focus();
+  await expect(copy).toHaveAttribute('data-selected', '');
+  await page.keyboard.press('Enter');
+  await expect(copy.locator('[contenteditable="true"]')).toHaveText('小標題');
+});
+
+test('an empty table offers Add a row, which adds one and focuses its first cell', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  await page.evaluate(() =>
+    window.agentBatch([
+      {
+        op: 'insert',
+        id: 'empty',
+        type: 'table',
+        parent: 'root',
+        after: 'table',
+        props: { label: '空表格', columns: [{ id: 'x', name: '項目' }] },
+      },
+    ]),
+  );
+  const empty = host.locator('[data-block-id="empty"]');
+  const add = empty.getByRole('button', { name: 'Add a row' });
+  await expect(add).toBeVisible();
+  await add.click();
+  const editor = empty.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await editor.pressSequentially('第一列', { delay: 20 });
+  await expect
+    .poll(() => page.evaluate(() => window.serveRows('empty').map((row) => row.cells)))
+    .toEqual([{ x: '第一列' }]);
+  await expect(add).toHaveCount(0);
+});
+
 for (const [width, theme] of [
   [1440, 'light'],
   [1440, 'dark'],

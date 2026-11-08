@@ -72,10 +72,14 @@ export interface BlockRecord {
   readonly cells?: Readonly<Record<string, string>>;
 }
 
+/** A table column: a stable ID and its header. */
+export interface TableColumn {
+  readonly id: string;
+  readonly name: string;
+}
+
 /** A table's columns from its props (`columns: [{id, name}]`, #6004's table schema). */
-export function tableColumns(
-  props: Readonly<Record<string, unknown>>,
-): { id: string; name: string }[] {
+export function tableColumns(props: Readonly<Record<string, unknown>>): TableColumn[] {
   const columns = props.columns;
   if (!Array.isArray(columns)) return [];
   return columns.flatMap((column: unknown) => {
@@ -86,30 +90,36 @@ export function tableColumns(
   });
 }
 
-/** The marks a block's text may carry. */
 /** The marks a block's text may carry: the fold's own list (`blocks.ts`). */
 export const TEXT_MARKS = MARKS;
 export type TextMark = (typeof MARKS)[number];
 
-/** A table's row and column actions. The action names are #6004's (plan (a)); the field names are
- * provisional until its table schema is posted. Rows and columns keep stable IDs. */
+/** A table's row and column actions, as the serve takes them (`blocks/ops.rs`, colab-v1 `table`).
+ * Rows and columns keep stable IDs; `after` left out means last, `null` first. A cell is plain text:
+ * `set-cell` merges from `base` (the cell's current text when left out) as a text op does. */
 export type TableAction =
-  | { readonly action: 'add-row'; readonly row: string; readonly after: string | null }
+  | {
+      readonly action: 'add-row';
+      readonly row: string;
+      readonly after?: string | null;
+      readonly cells?: Readonly<Record<string, string>>;
+    }
   | { readonly action: 'remove-row'; readonly row: string }
   | {
       readonly action: 'set-cell';
       readonly row: string;
       readonly column: string;
       readonly text: string;
+      readonly base?: string;
+      readonly overlap?: 'both' | 'remote';
     }
   | {
       readonly action: 'add-column';
-      readonly column: string;
-      readonly name: string;
-      readonly after: string | null;
+      readonly column: TableColumn;
+      readonly after?: string | null;
     }
   | { readonly action: 'rename-column'; readonly column: string; readonly name: string }
-  | { readonly action: 'move-column'; readonly column: string; readonly after: string | null }
+  | { readonly action: 'move-column'; readonly column: string; readonly after?: string | null }
   | { readonly action: 'remove-column'; readonly column: string };
 
 /** The serve's refusal of an `after` that does not name a child of `parent`. */

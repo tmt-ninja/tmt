@@ -46,6 +46,7 @@ import { mockupSource, mockupStage, pageViewSpec, workBundleProps } from './bloc
 import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import type { Theme } from './theme.js';
+import { Button } from '@tmt/browser-ui/ui';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -82,8 +83,9 @@ export function blockLabel(block: BlockRecord): string {
 
 export interface StructuredPageProps {
   tree: BlockTree;
-  /** The focused text block's text while it is edited, and where its caret goes on a page change. */
-  editing?: { id: string; text: string; caret: number; version: number };
+  /** The focused text block's (or table cell's, by row and `column`) text while it is edited, and
+   * where its caret goes on a page change. */
+  editing?: { id: string; column?: string; text: string; caret: number; version: number };
   /** The person focused a text block. */
   onFocus?(id: string): void;
   /** Typing in the focused block. */
@@ -91,6 +93,12 @@ export interface StructuredPageProps {
   /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
    * took it. */
   onKey?(id: string, event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
+  /** The person focused a table's cell, by its row and column. */
+  onFocusCell?(table: string, row: string, column: string): void;
+  /** A key in the focused cell (Tab, Shift+Tab, Esc); true when the page took it. */
+  onCellKey?(event: KeyboardEvent, text: string): boolean;
+  /** An empty table's Add a row. */
+  onAddRow?(table: string): void;
   /** A work bundle's page metadata, gated on owner-only content; absent draws it unavailable. */
   workSource?: WorkBundleSource;
   /** A live page view's owner list, gated the same way; absent draws its unavailable state. */
@@ -306,10 +314,8 @@ function ActionsPopover({
   onClose?(): void;
 }) {
   const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
-  const actions = blockActions.filter(
-    (action) =>
-      (BLOCK_MENU_ACTIONS as readonly string[]).includes(action.id) &&
-      !(action.id === 'duplicate' && block.type === 'table'),
+  const actions = blockActions.filter((action) =>
+    (BLOCK_MENU_ACTIONS as readonly string[]).includes(action.id),
   );
   return (
     <div
@@ -466,6 +472,71 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
   );
 }
 
+/**
+ * A table block: its cells are plain text, each edited in place as a block's text is (the one
+ * editor moves to the focused cell), and a table with no rows offers Add a row. A click on a cell
+ * focuses it; the row and column come from the cell's own marker, never from its text.
+ */
+function Table({
+  block,
+  tree,
+  editing,
+  onTyped,
+  readonly,
+  onFocusCell,
+  onCellKey,
+  onAddRow,
+}: StructuredPageProps & { block: BlockRecord }) {
+  const columns = tableColumns(block.props);
+  const rows = tree.rows(block.id);
+  const editable = !readonly && onFocusCell !== undefined;
+  return (
+    <div
+      className="tmt-block-table-cells"
+      onClick={(event) => {
+        if (!editable) return;
+        const marker = (event.target as HTMLElement)
+          .closest('td, th')
+          ?.querySelector<HTMLElement>('[data-cell-row]');
+        const { cellRow, cellColumn } = marker?.dataset ?? {};
+        if (cellRow && cellColumn) onFocusCell(block.id, cellRow, cellColumn);
+      }}
+    >
+      <TableBlock
+        label={typeof block.props.label === 'string' ? block.props.label : 'Table'}
+        columns={columns.map(({ name }) => ({ name }))}
+        rows={rows.map((row, index) =>
+          columns.map((column) => {
+            const value = row.cells?.[column.id] ?? '';
+            return editing?.id === row.id && editing.column === column.id ? (
+              <BlockTextEditor
+                key={column.id}
+                label={strings.blockTable.cell(column.name, index + 1)}
+                text={editing.text}
+                caret={editing.caret}
+                version={editing.version}
+                onTyped={(text, caret) => onTyped?.(row.id, text, caret)}
+                onKey={(event, text) => onCellKey?.(event, text) ?? false}
+              />
+            ) : (
+              <span key={column.id} data-cell-row={row.id} data-cell-column={column.id}>
+                {value}
+              </span>
+            );
+          }),
+        )}
+        empty={
+          editable && columns.length ? (
+            <Button size="sm" variant="ghost" onClick={() => onAddRow?.(block.id)}>
+              {strings.blockTable.addRow}
+            </Button>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
 /** A question block where nothing can be answered: its question and choices only. */
 function ReadOnlyQuestion({ block }: { block: BlockRecord }) {
   const question = blockQuestion(block);
@@ -578,16 +649,8 @@ function Content({
             !rest.pointer.drag.target.lineBefore && <BlockDropLine />}
         </CardBlock>
       );
-    case 'table': {
-      const columns = tableColumns(block.props);
-      return (
-        <TableBlock
-          label={typeof block.props.label === 'string' ? block.props.label : 'Table'}
-          columns={columns.map(({ name }) => ({ name }))}
-          rows={tree.rows(block.id).map((row) => columns.map(({ id }) => row.cells?.[id] ?? ''))}
-        />
-      );
-    }
+    case 'table':
+      return <Table block={block} tree={tree} editing={editing} onTyped={onTyped} {...rest} />;
     case 'callout':
       return (
         <Callout

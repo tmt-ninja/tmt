@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { applyOps } from '../src/block-apply.js';
-import { type BlockOp, type BlockRecord, PAGE_PARENT, type Parent } from '../src/block-model.js';
 import {
+  type BlockOp,
+  type BlockRecord,
+  PAGE_PARENT,
+  type Parent,
+  ROW_TYPE,
+} from '../src/block-model.js';
+import {
+  addRow,
   deleteBlocks,
   duplicateBlock,
   insertBlock,
@@ -196,14 +203,6 @@ describe('gestures to ops, and undo', () => {
     expect(ids(after.children())).toEqual(['one', 'box', 'copy-1', 'two']);
     expect(ids(after.children('copy-1'))).toEqual(['copy-2', 'copy-3']);
     roundTrip(page(), card);
-    // A table waits for the table step: its rows are table ops.
-    expect(
-      duplicateBlock(
-        new BlockTree([block('t', 'V', PAGE_PARENT, { type: 'table', text: undefined })]),
-        't',
-        id,
-      ),
-    ).toEqual([]);
   });
   it('inserts after a block, first in a card, and refuses a parent that cannot hold blocks', () => {
     const tree = new BlockTree(page());
@@ -589,5 +588,107 @@ describe('list numbering and indent (#6005)', () => {
     expect(indentBlock(flat, 'z', -1)).toEqual([
       { op: 'props', id: 'z', set: {}, unset: ['indent'] },
     ]);
+  });
+});
+
+describe('table rows and cells (#6005)', () => {
+  const columns = [
+    { id: 'a', name: 'Ticket' },
+    { id: 'b', name: 'State' },
+  ];
+  const row = (id: string, pos: string, cells: Record<string, string>, table = 't') =>
+    block(id, pos, table, { type: ROW_TYPE, text: undefined, cells });
+  const table = (): BlockRecord[] => [
+    block('one', 'V'),
+    block('t', 'X', PAGE_PARENT, { type: 'table', text: undefined, props: { columns } }),
+    row('r1', 'V', { a: '#1', b: 'open' }),
+    row('r2', 'X', { a: '#2' }),
+  ];
+  const cells = (blocks: readonly BlockRecord[], id = 't') =>
+    new BlockTree(blocks).rows(id).map((entry) => entry.cells);
+
+  it('adds a row after another, first, or last, and refuses one the table does not hold', () => {
+    const after = apply(table(), [addRow('t', 'r3', 'r1')]);
+    expect(new BlockTree(after).rows('t').map((entry) => entry.id)).toEqual(['r1', 'r3', 'r2']);
+    const last = apply(table(), [addRow('t', 'r3')]);
+    expect(new BlockTree(last).rows('t').map((entry) => entry.id)).toEqual(['r1', 'r2', 'r3']);
+    const first = apply(table(), [
+      { op: 'table', id: 't', action: 'add-row', row: 'r3', after: null },
+    ]);
+    expect(new BlockTree(first).rows('t').map((entry) => entry.id)).toEqual(['r3', 'r1', 'r2']);
+    expect(() => apply(table(), [addRow('t', 'r3', 'one')])).toThrow();
+    expect(() => apply(table(), [addRow('one', 'r3')])).toThrow();
+    expect(() =>
+      apply(table(), [{ op: 'table', id: 't', action: 'add-row', row: 'r3', cells: { zzz: 'x' } }]),
+    ).toThrow();
+  });
+  it('merges a cell from its base as text does, and only on a column the table has', () => {
+    // Another writer changed the cell after this tab read "open": both edits are kept.
+    const theirs = apply(table(), [
+      { op: 'table', id: 't', action: 'set-cell', row: 'r1', column: 'b', text: 'open now' },
+    ]);
+    const merged = apply(theirs, [
+      {
+        op: 'table',
+        id: 't',
+        action: 'set-cell',
+        row: 'r1',
+        column: 'b',
+        text: 'Open',
+        base: 'open',
+        overlap: 'both',
+      },
+    ]);
+    expect(cells(merged)[0]!.b).toBe('Open now');
+    expect(() =>
+      apply(table(), [
+        { op: 'table', id: 't', action: 'set-cell', row: 'r1', column: 'zzz', text: 'x' },
+      ]),
+    ).toThrow();
+    expect(() =>
+      apply(table(), [
+        { op: 'table', id: 't', action: 'set-cell', row: 'one', column: 'a', text: 'x' },
+      ]),
+    ).toThrow();
+  });
+  it('undoes an added row, a removed row and a cell edit', () => {
+    roundTrip(table(), [addRow('t', 'r3', 'r2')]);
+    roundTrip(table(), [{ op: 'table', id: 't', action: 'remove-row', row: 'r1' }]);
+    roundTrip(table(), [
+      {
+        op: 'table',
+        id: 't',
+        action: 'set-cell',
+        row: 'r1',
+        column: 'b',
+        text: 'done',
+        base: 'open',
+        overlap: 'both',
+      },
+    ]);
+  });
+  it('duplicates a table with copies of its rows, alone or in a card', () => {
+    let next = 0;
+    const id = () => `copy-${++next}`;
+    const ops = duplicateBlock(new BlockTree(table()), 't', id);
+    const after = apply(table(), ops);
+    const tree = new BlockTree(after);
+    expect(ids(tree.children())).toEqual(['one', 't', 'copy-1']);
+    expect(tree.get('copy-1')!.props).toEqual({ columns });
+    expect(tree.rows('copy-1').map((entry) => entry.id)).toEqual(['copy-2', 'copy-3']);
+    expect(cells(after, 'copy-1')).toEqual(cells(after, 't'));
+    // The copy's rows leave with it on undo: the table goes, and a row is drawn only by its table.
+    expect(inverseOps(new BlockTree(table()), ops)).toEqual([{ op: 'delete', id: 'copy-1' }]);
+    const undone = new BlockTree(apply(after, inverseOps(new BlockTree(table()), ops)));
+    expect(ids(undone.children())).toEqual(['one', 't']);
+    expect(undone.rows('copy-1')).toEqual([]);
+    const boxed = [
+      card('box', 'V'),
+      block('t', 'V', 'box', { type: 'table', text: undefined, props: { columns } }),
+      row('r1', 'V', { a: '#1' }),
+    ];
+    const copied = apply(boxed, duplicateBlock(new BlockTree(boxed), 'box', id));
+    const inner = new BlockTree(copied).children('copy-4')[0]!;
+    expect(cells(copied, inner.id)).toEqual([{ a: '#1' }]);
   });
 });

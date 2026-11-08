@@ -96,11 +96,11 @@ export function nudgeBlock(tree: BlockTree, id: string, direction: 'up' | 'down'
   return moveBlock(tree, id, outer, direction === 'up' ? at : at + 1);
 }
 
-/** ⌘D: a copy of the block right after it; a card's copy holds copies of its blocks. A table is
- * not copied here: its rows are table ops, which come with the table step. */
+/** ⌘D: a copy of the block right after it; a card's copy holds copies of its blocks, and a table's
+ * copy holds copies of its rows (new row IDs, the same columns). */
 export function duplicateBlock(tree: BlockTree, id: string, newId: () => string): BlockOp[] {
   const block = tree.get(id);
-  if (!block || !tree.visible(id) || !isBlockType(block.type) || block.type === 'table') return [];
+  if (!block || !tree.visible(id) || !isBlockType(block.type)) return [];
   const copy = newId();
   const ops: BlockOp[] = [
     insertBlock(tree, {
@@ -110,24 +110,47 @@ export function duplicateBlock(tree: BlockTree, id: string, newId: () => string)
       props: { ...block.props },
       ...(block.text !== undefined && { text: block.text }),
     }),
+    ...rowCopies(tree, id, copy, newId),
   ];
   let after: string | null = null;
   for (const child of tree.children(id)) {
-    if (!isBlockType(child.type) || child.type === 'table') continue;
+    if (!isBlockType(child.type)) continue;
     const childCopy = newId();
-    ops.push({
-      op: 'insert',
-      id: childCopy,
-      type: child.type,
-      parent: copy,
-      after,
-      props: { ...child.props },
-      ...(child.text !== undefined && { text: child.text }),
-    });
+    ops.push(
+      {
+        op: 'insert',
+        id: childCopy,
+        type: child.type,
+        parent: copy,
+        after,
+        props: { ...child.props },
+        ...(child.text !== undefined && { text: child.text }),
+      },
+      ...rowCopies(tree, child.id, childCopy, newId),
+    );
     after = childCopy;
   }
   return ops;
 }
+
+/** A table's rows added to its copy `copy`, in order (each lands last). */
+const rowCopies = (tree: BlockTree, table: string, copy: string, newId: () => string): BlockOp[] =>
+  tree.rows(table).map(({ cells }) => ({
+    op: 'table',
+    id: copy,
+    action: 'add-row',
+    row: newId(),
+    ...(cells && { cells: { ...cells } }),
+  }));
+
+/** Tab in a table's last cell: a new empty row after `after`, or the table's first row. */
+export const addRow = (table: string, row: string, after?: string): BlockOp => ({
+  op: 'table',
+  id: table,
+  action: 'add-row',
+  row,
+  ...(after !== undefined && { after }),
+});
 
 /** Delete: each selected block once; a block under another selected block goes with it. */
 export function deleteBlocks(tree: BlockTree, ids: readonly string[]): BlockOp[] {
@@ -265,7 +288,29 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
           // The editor sends whole text and marks, never these; they come from agents.
           throw new Error('Only whole-text and format edits are undone here.');
         case 'table':
-          throw new Error('Table edits are undone by their table.');
+          switch (op.action) {
+            case 'add-row':
+              // A row of a table the same batch inserts leaves with that table.
+              return ops.some((other) => other.op === 'insert' && other.id === op.id)
+                ? []
+                : { op: 'table', id: op.id, action: 'remove-row', row: op.row };
+            case 'remove-row':
+              return { op: 'restore', id: op.row };
+            case 'set-cell':
+              return {
+                op: 'table',
+                id: op.id,
+                action: 'set-cell',
+                row: op.row,
+                column: op.column,
+                text: op.base ?? before.get(op.row)?.cells?.[op.column] ?? '',
+                base: op.text,
+                overlap: 'both',
+              };
+            default:
+              // The editor never sends column edits.
+              throw new Error('Column edits are not undone here.');
+          }
         case 'move': {
           // Back where it was drawn: after the sibling that was before it, or first.
           const parent = before.parentOf(op.id);
