@@ -203,31 +203,43 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '--json',
     ]);
     const patched = Date.now();
-    for (const [index, tab] of tabs.entries()) {
-      try {
-        await expect
-          .poll(
-            () =>
-              tab
-                .locator('.design-workspace iframe')
-                .first()
-                .contentFrame()
-                .locator('style')
-                .evaluateAll((nodes) =>
-                  nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
-                ),
-            { timeout: 30_000 },
-          )
-          .toBe(true);
-      } catch (error) {
-        // Which tab missed the edit, and which tabs held the list meanwhile.
-        console.log(
-          `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
-        );
-        throw error;
-      }
-      console.log(`tab ${index} drew the CLI edit ${Date.now() - patched} ms after it`);
-    }
+    const drawTimes: number[] = [];
+    await Promise.all(
+      tabs.map(async (tab, index) => {
+        try {
+          await expect
+            .poll(
+              async () => {
+                try {
+                  return await tab
+                    .locator('.design-workspace iframe')
+                    .first()
+                    .contentFrame()
+                    .locator('style')
+                    .evaluateAll((nodes) =>
+                      nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
+                    );
+                } catch (error) {
+                  // A draft refresh replaces the frame; inspect its replacement on the next poll.
+                  if (error instanceof Error && /frame was detached/i.test(error.message))
+                    return false;
+                  throw error;
+                }
+              },
+              { timeout: 30_000, intervals: [50, 100, 200] },
+            )
+            .toBe(true);
+        } catch (error) {
+          // Which tab missed the edit, and which tabs held the list meanwhile.
+          console.log(
+            `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
+          );
+          throw error;
+        }
+        drawTimes[index] = Date.now() - patched;
+        console.log(`tab ${index} drew the CLI edit ${drawTimes[index]} ms after it`);
+      }),
+    );
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);

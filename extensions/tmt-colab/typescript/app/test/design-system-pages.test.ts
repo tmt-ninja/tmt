@@ -751,6 +751,91 @@ describe('live draft (#5967)', () => {
     for (const stop of stops) stop();
   });
 
+  it('a transient watched-root open failure is retried before component edits', async () => {
+    const { pages, make, transport, write, open } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    let rootReads = 0;
+    const transient = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === rootId && ++rootReads === 1) throw new Error('temporarily unavailable');
+        return transport.page(id);
+      },
+    } as PageTransport;
+    const source = pageDesignSystems(transient);
+    let changes = 0;
+    const stop = source.watch(rootId, () => changes++);
+    const first = await source.draft(rootId);
+    await vi.waitFor(() => expect(open.count).toBe(1), { timeout: 2000 });
+    write(button, recolor(pages.get(button)!.source));
+    await vi.waitFor(() => expect(changes).toBeGreaterThan(0), { timeout: 2000 });
+    expect((await source.draft(rootId)).hash).not.toBe(first.hash);
+    stop();
+  });
+
+  it('a first list arriving after an untracked draft invalidates it', async () => {
+    const { pages, make, transport, write } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    let release!: () => void;
+    const delayed = {
+      ...transport,
+      watchPages: (changed: (latest: ReadonlyMap<string, string>) => void) => {
+        let latest: ReadonlyMap<string, string> | undefined;
+        let ready = false;
+        release = () => {
+          ready = true;
+          if (latest) changed(latest);
+        };
+        return transport.watchPages!((next) => {
+          latest = next;
+          if (ready) changed(next);
+        });
+      },
+    } as PageTransport;
+    const source = pageDesignSystems(delayed);
+    let changes = 0;
+    const stop = source.watch(rootId, () => changes++);
+    const first = await source.draft(rootId);
+    write(button, recolor(pages.get(button)!.source));
+    release();
+    await vi.waitFor(() => expect(changes).toBeGreaterThan(0), { timeout: 2000 });
+    expect((await source.draft(rootId)).hash).not.toBe(first.hash);
+    stop();
+  });
+
+  it('a component write while the watched root is still opening invalidates an already drawn draft', async () => {
+    const { pages, make, transport, write } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let rootReads = 0;
+    const delayed = {
+      ...transport,
+      page: async (id: string) => {
+        if (id === rootId && ++rootReads === 1) await gate;
+        return transport.page(id);
+      },
+    } as PageTransport;
+    const source = pageDesignSystems(delayed);
+    let changes = 0;
+    const stop = source.watch(rootId, () => changes++);
+    const first = await source.draft(rootId);
+    write(button, recolor(pages.get(button)!.source));
+    release();
+    await vi.waitFor(() => expect(changes).toBeGreaterThan(0), { timeout: 2000 });
+    expect((await source.draft(rootId)).hash).not.toBe(first.hash);
+    stop();
+  });
+
   it('a component write after the list arrived before the root loaded still changes the draft', async () => {
     const { pages, make, transport, write } = space();
     make('Notes');

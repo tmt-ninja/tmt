@@ -95,22 +95,31 @@ const sha256Hex = async (text: string) =>
     .join('');
 
 export type Snapshot = PageSnapshot & { attachments?: readonly attachment.AttachmentDescriptor[] };
+/** A newly created or temporarily unavailable page gets a bounded chance to become readable. */
+async function openPage(
+  transport: PageTransport,
+  id: string,
+  stopped: () => boolean = () => false,
+): Promise<Snapshot> {
+  let page: Snapshot | undefined;
+  for (let attempt = 0; !page; attempt++) {
+    if (stopped()) throw new Error('Page follow ended');
+    try {
+      page = (await transport.page(id)) as Snapshot;
+    } catch (error) {
+      if (attempt >= 10 || stopped()) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  return page;
+}
 /** Open another page, use it, and always close its binding. */
 export async function withPage<T>(
   transport: PageTransport,
   id: string,
   use: (page: Snapshot) => Promise<T>,
 ): Promise<T> {
-  // A page made a moment ago may not be listed yet: try again briefly before giving up.
-  let page: Snapshot | undefined;
-  for (let attempt = 0; !page; attempt++) {
-    try {
-      page = (await transport.page(id)) as Snapshot;
-    } catch (error) {
-      if (attempt >= 10) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-  }
+  const page = await openPage(transport, id);
   try {
     return await use(page);
   } finally {
@@ -156,6 +165,8 @@ interface Follow {
   components: ReadonlySet<string>;
   /** Each component page's revision when the list last named it. */
   readonly revisions: Map<string, string>;
+  /** The list at draft start; null means compilation started without a list. */
+  draftBaseline?: ReadonlyMap<string, string> | null;
   /** The live list's latest revisions, so components the root names later start from them. */
   latest?: ReadonlyMap<string, string>;
   /** Settles when the live list first names revisions. */
@@ -219,6 +230,7 @@ export function pageDesignSystems(
   };
   const notify = (follow: Follow) => {
     follow.draft = undefined;
+    follow.draftBaseline = undefined;
     clearTimeout(follow.timer);
     follow.timer = setTimeout(() => {
       for (const listener of follow.listeners) listener();
@@ -232,8 +244,11 @@ export function pageDesignSystems(
     );
   // The root stays subscribed: its view names the component pages and is part of the draft.
   const follow = async (state: Follow, rootId: string): Promise<void> => {
-    const page = await transport.page(rootId).catch(() => undefined);
-    if (!page?.binding) return;
+    const page = await openPage(transport, rootId, () => !!state.stopped).catch(() => undefined);
+    if (!page?.binding) {
+      return;
+    }
+
     if (state.stopped) {
       page.binding.close();
       return;
@@ -243,6 +258,13 @@ export function pageDesignSystems(
       if (state.root !== undefined && state.root !== source) notify(state);
       state.root = source;
       state.components = componentsOf(source);
+      if (
+        state.draft &&
+        state.draftBaseline &&
+        state.latest &&
+        [...state.components].some((id) => state.draftBaseline!.get(id) !== state.latest!.get(id))
+      )
+        notify(state);
       if (state.latest) baseline(state, state.latest);
     };
     seen(page.source);
@@ -264,6 +286,7 @@ export function pageDesignSystems(
   };
   // A component page whose revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
+    if (!state.latest && state.draftBaseline === null && state.draft) notify(state);
     state.latest = latest;
     state.heard();
     let moved = false;
@@ -317,7 +340,10 @@ export function pageDesignSystems(
               new Promise<void>((resolve) => setTimeout(resolve, DRAFT_LIST_WAIT_MS)),
             ]);
       const draft: Promise<DesignSystemBundle> = listed
-        .then(() => compileDraft(transport, system, undefined, docs))
+        .then(() => {
+          follow.draftBaseline = follow.latest ? new Map(follow.latest) : null;
+          return compileDraft(transport, system, undefined, docs);
+        })
         .then(
           (bundle) => {
             // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
