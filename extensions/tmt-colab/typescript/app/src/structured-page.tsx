@@ -19,6 +19,8 @@ import {
   BlockMenu,
   BlockMenuEmpty,
   BlockMenuFooter,
+  BlockMenuGroup,
+  BlockMenuSeparator,
   BlockKbd,
   BlockMenuItem,
   BlockToast,
@@ -604,6 +606,27 @@ function MentionPopover({
   onHover?(entry: string): void;
 }) {
   const rowId = (entry: string) => `block-mention-${entry.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  const row = (entry: MentionMenu['entries'][number]) => (
+    <BlockMenuItem
+      key={entry.id}
+      id={rowId(entry.id)}
+      active={entry.id === mention.active}
+      submenu={entry.mark === 'page'}
+      back={entry.mark === 'back'}
+      onMouseEnter={() => onHover?.(entry.id)}
+      // Choosing never takes focus from the editor.
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick?.(entry.id);
+      }}
+    >
+      {entry.label}
+    </BlockMenuItem>
+  );
+  // This page's rows, then the other pages as their own group under a quiet heading (#6208).
+  const here = mention.entries.filter((entry) => entry.mark !== 'page');
+  const pages = mention.entries.filter((entry) => entry.mark === 'page');
+  const active = mention.entries.find((entry) => entry.id === mention.active)?.mark;
   return (
     <div className="tmt-block-insert">
       <BlockMenu
@@ -612,21 +635,16 @@ function MentionPopover({
         placement="below"
         activeId={mention.active && rowId(mention.active)}
       >
-        {mention.entries.map((entry) => (
-          <BlockMenuItem
-            key={entry.id}
-            id={rowId(entry.id)}
-            active={entry.id === mention.active}
-            onMouseEnter={() => onHover?.(entry.id)}
-            // Choosing never takes focus from the editor.
-            onMouseDown={(event) => {
-              event.preventDefault();
-              onPick?.(entry.id);
-            }}
-          >
-            {entry.label}
-          </BlockMenuItem>
-        ))}
+        {here.map(row)}
+        {pages.length > 0 && (
+          <>
+            {here.length > 0 && <BlockMenuSeparator />}
+            <div role="group" aria-label={strings.blockMention.otherPages}>
+              <BlockMenuGroup>{strings.blockMention.otherPages}</BlockMenuGroup>
+              {pages.map(row)}
+            </div>
+          </>
+        )}
         {mention.reading ? (
           <BlockMenuEmpty>{strings.blockMention.reading}</BlockMenuEmpty>
         ) : (
@@ -634,7 +652,7 @@ function MentionPopover({
             <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
           )
         )}
-        <MenuKeys />
+        <MenuKeys action={active === 'page' ? 'open' : active === 'back' ? 'back' : 'insert'} />
       </BlockMenu>
     </div>
   );
@@ -642,8 +660,9 @@ function MentionPopover({
 
 /** The key hints under the insert and @ menus, as the DS block-menu tag draws them: each key a
  * DS kbd chip, then what it does. */
-function MenuKeys() {
-  const { choose, insert, close } = strings.blockInsert.keys;
+function MenuKeys({ action = 'insert' }: { action?: 'insert' | 'open' | 'back' }) {
+  const { choose, close } = strings.blockInsert.keys;
+  const insert = strings.blockInsert.keys[action];
   return (
     <BlockMenuFooter>
       <span>

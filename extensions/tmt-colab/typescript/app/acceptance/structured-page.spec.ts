@@ -576,7 +576,7 @@ test('@ marks a block on another page, and the serve keeps it', async () => {
     await editor.press('End');
     await editor.pressSequentially(' @rel', { delay: 20 });
     const menu = page.getByRole('listbox', { name: '@ mention' });
-    await menu.getByRole('option', { name: 'Release checklist ›' }).click({ timeout: 30_000 });
+    await menu.getByRole('option', { name: 'Release checklist' }).click({ timeout: 30_000 });
     await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible({
       timeout: 30_000,
     });

@@ -1768,19 +1768,24 @@ test('@ opens another page by keyboard and marks its block with the page', async
   const host = await mountFixture(page, 'spec');
   const { item, editor, menu } = await atMenu(page, host);
   // The page list is read once for the menu; no page is opened by typing.
-  await expect(menu.getByRole('option', { name: 'Release checklist ›' })).toBeVisible();
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  // The other pages are their own group, under a quiet heading; Enter opens the active one.
+  const others = menu.getByRole('group', { name: 'Other pages' });
+  await expect(others).toContainText('Other pages');
   await editor.pressSequentially('rel', { delay: 20 });
-  await expect(menu.getByRole('option')).toHaveText(['Release checklist ›']);
+  await expect(menu.getByRole('option')).toHaveText(['Release checklist']);
+  await expect(others.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  await expect(menu.locator('[data-slot="block-menu-footer"]')).toContainText('Enter open');
   expect(await page.evaluate(() => [window.pageListReads, window.pageReads.length])).toEqual([
     1, 0,
   ]);
   // → opens the page: its blocks are read once, behind the way back.
   await editor.press('ArrowRight');
-  await expect(menu.getByRole('option').first()).toHaveText('‹ Release checklist');
+  await expect(menu.getByRole('option').first()).toHaveText('Release checklist');
   for (let i = 0; i < 3; i++) await editor.press('Backspace');
   await editor.pressSequentially('tag', { delay: 20 });
   await expect(menu.getByRole('option')).toHaveText([
-    '‹ Release checklist',
+    'Release checklist',
     'To-do: Tag the release',
   ]);
   await expect(menu.getByRole('option', { selected: true })).toHaveText('To-do: Tag the release');
@@ -1810,7 +1815,7 @@ test('@ opens another page with the mouse, goes back, retries a failed read, and
   const host = await mountFixture(page, 'spec');
   const { editor, menu } = await atMenu(page, host);
   await page.evaluate(() => (window.failPageReads = true));
-  await menu.getByRole('option', { name: 'Release checklist ›' }).click();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
   const retry = menu.getByRole('option', { name: 'Could not read this page. Retry' });
   await expect(retry).toBeVisible();
   await page.evaluate(() => (window.failPageReads = false));
@@ -1818,13 +1823,13 @@ test('@ opens another page with the mouse, goes back, retries a failed read, and
   await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
   // ← and the way-back row both return to the list.
   await editor.press('ArrowLeft');
-  await expect(menu.getByRole('option', { name: 'Release checklist ›' })).toBeVisible();
-  await menu.getByRole('option', { name: 'Release checklist ›' }).click();
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
   await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
-  await menu.getByRole('option', { name: '‹ Release checklist' }).click();
-  await expect(menu.getByRole('option', { name: 'Roadmap ›' })).toBeVisible();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
+  await expect(menu.getByRole('option', { name: 'Roadmap' })).toBeVisible();
   // A page that does not answer shows it is being read; closing the menu ends that read.
-  await menu.getByRole('option', { name: 'Roadmap ›' }).click();
+  await menu.getByRole('option', { name: 'Roadmap' }).click();
   await expect(menu).toContainText('Reading this page…');
   await editor.press('Escape');
   await expect(menu).toHaveCount(0);
@@ -1833,10 +1838,10 @@ test('@ opens another page with the mouse, goes back, retries a failed read, and
     .toEqual(['b2000000-0000-4000-8000-000000000002']);
   // Backspace with nothing after the @ goes back from an opened page instead of deleting the @.
   await editor.pressSequentially(' @', { delay: 20 });
-  await menu.getByRole('option', { name: 'Release checklist ›' }).click();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
   await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
   await editor.press('Backspace');
-  await expect(menu.getByRole('option', { name: 'Release checklist ›' })).toBeVisible();
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
   await expect(editor).toContainText('@');
 });
 
@@ -1849,5 +1854,5 @@ test('@ without the page list authority offers no other page and no hint', async
   await editor.pressSequentially(' @', { delay: 20 });
   const menu = page.getByRole('listbox', { name: '@ mention' });
   await expect(menu.getByRole('option')).toHaveText(['@tmt-gui-lead', '@gui-2']);
-  await expect(menu).not.toContainText('›');
+  await expect(menu.getByRole('group', { name: 'Other pages' })).toHaveCount(0);
 });

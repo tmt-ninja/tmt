@@ -1,4 +1,14 @@
-import { CircleHelp, Code2, Heading2, ImageUp, ListChecks, Table2, Text } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleHelp,
+  Code2,
+  Heading2,
+  ImageUp,
+  ListChecks,
+  Table2,
+  Text,
+} from 'lucide-react';
 import { createContext, useContext, type ComponentProps, type ReactNode } from 'react';
 import './blocks.css';
 
@@ -198,6 +208,11 @@ export interface BlockMenuItemProps extends Omit<ComponentProps<'div'>, 'role'> 
   shortcut?: string;
   active?: boolean;
   danger?: boolean;
+  /** The row opens a further list in the menu: a right-aligned chevron, as a submenu row. */
+  submenu?: boolean;
+  /** The way back from such a list: chevron-left and the list's title, in the heading's style,
+   * still a row the keys reach. */
+  back?: boolean;
 }
 
 export function BlockMenuItem({
@@ -206,10 +221,13 @@ export function BlockMenuItem({
   shortcut,
   active,
   danger,
+  submenu,
+  back,
   children,
   className,
   ...props
 }: BlockMenuItemProps) {
+  if (back) icon = <ChevronLeft />;
   const kind = useContext(MenuKindContext);
   return (
     <div
@@ -218,6 +236,7 @@ export function BlockMenuItem({
       aria-selected={kind === 'insert' ? (active ? 'true' : 'false') : undefined}
       data-active={active ? '' : undefined}
       data-danger={danger ? '' : undefined}
+      data-back={back ? '' : undefined}
       className={['tmt-block-menu-item', className].filter(Boolean).join(' ')}
       {...props}
     >
@@ -233,6 +252,11 @@ export function BlockMenuItem({
         )}
       </span>
       {shortcut !== undefined && <kbd className="tmt-block-kbd">{shortcut}</kbd>}
+      {submenu && (
+        <span className="tmt-block-menu-chevron" aria-hidden="true">
+          <ChevronRight />
+        </span>
+      )}
     </div>
   );
 }

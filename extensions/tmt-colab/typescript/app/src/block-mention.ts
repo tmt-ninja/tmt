@@ -113,7 +113,7 @@ export function mentionEntries(
       id: 'back',
       mark: 'back',
       value: '',
-      label: `‹ ${other.open.title}`,
+      label: other.open.title,
     };
     if (other.state === 'failed')
       return [
@@ -146,7 +146,7 @@ export function mentionEntries(
       id: `page:${page.id}`,
       mark: 'page',
       value: page.id,
-      label: `${page.title} ›`,
+      label: page.title,
     }));
   return [...thisPage(tree, agents, query, self), ...pages];
 }
