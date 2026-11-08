@@ -3398,3 +3398,181 @@ function OpenPage({
                   {endedError && <EndedBody error={endedError} action={endedAction} />}
                 </main>
               </section>
+            ) : (
+              content
+            )}
+          </AgentActivityProvider>
+        </AgentPresentation>
+      </ReplyNotificationContext>
+    </CreatorDefaultProvider>
+  );
+}
+/**
+ * Colab's history inside the TMT web app. Another route's address (`/ops`, Home) is never Colab's
+ * location: the router keeps the last Colab one, so a module kept while another route shows never
+ * loads, unloads or rewrites a page for that address (#5954).
+ */
+function shellHistory() {
+  let last: ReturnType<typeof createBrowserHistory>['location'] | undefined;
+  const history = createBrowserHistory({
+    parseLocation: () => {
+      const own = location.pathname === '/colab' || location.pathname.startsWith('/colab/');
+      if (last && !own) return last;
+      const state = window.history.state;
+      last = {
+        href: location.pathname + location.search + location.hash,
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+        state: { ...state, __TSR_index: state?.__TSR_index ?? 0 },
+      };
+      return last;
+    },
+  });
+  // Router pushes update its in-memory location before the browser URL is flushed. Keep that
+  // location too, so leaving immediately after an in-app navigation cannot restore a stale page.
+  history.subscribe(({ location: next }) => {
+    if (next.pathname === '/colab' || next.pathname.startsWith('/colab/')) last = next;
+  });
+  return history;
+}
+
+/** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */
+let linkSpace: string | undefined;
+/**
+ * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
+ * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
+ * its reading or anchor hint as search keys. The module runs it before anything reads the location
+ * (the paired bootstrap keeps only a canonical fragment).
+ */
+export function shellLocation() {
+  const hash = location.hash.slice(1);
+  const fragment = new URLSearchParams(hash);
+  // An owner link names its space; the router checks it once it knows this space.
+  linkSpace = fragment.get('space') ?? undefined;
+  const short = /^\/colab\/p\/([A-Za-z0-9_-]{4,64})$/.exec(location.pathname)?.[1];
+  let path: string | undefined;
+  let keep = '';
+  if (hash.startsWith('/')) path = hash;
+  else if (fragment.get('path')) path = fragment.get('path')!;
+  else if (short) {
+    // The short link `/p/<id>` lands here; a thread (`#t=`) stays a fragment for the page.
+    path = `/short/${short}`;
+    if (fragment.has('t')) keep = location.hash;
+  }
+  if (!path) return;
+  const keys = new URLSearchParams(location.search);
+  for (const key of ['read', 'anchor', 'open'])
+    if (fragment.has(key)) keys.set(key, fragment.get(key)!);
+  const search = keys.size ? `?${keys}` : '';
+  if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+    history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
+}
+export function createAppRouter(
+  transport: PageTransport,
+  space?: string,
+  pageIds: readonly { pageId: string; deleted: boolean }[] = [],
+) {
+  let knownPages = pageIds;
+  // An owner link to another space opens the blocked view, never a page of this one.
+  if (inShell() && space && linkSpace !== undefined && linkSpace !== space)
+    window.history.replaceState(window.history.state, '', '/colab/blocked');
+  linkSpace = undefined;
+  const history = inShell()
+    ? shellHistory()
+    : space
+      ? createBrowserHistory({
+          parseLocation: () => {
+            const fragment = new URLSearchParams(location.hash.slice(1));
+            const prefix = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+            let path: string;
+            let hint: PageHint | undefined;
+            if (publicEntry()) {
+              try {
+                const target = entryOpenTarget();
+                const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
+                path = !prefix
+                  ? '/'
+                  : matches.length === 1 && !matches[0].deleted
+                    ? `/pages/${matches[0].pageId}`
+                    : `/short/${prefix}`;
+                // A thread names a place inside the page; a reading or shell anchor is a page hint.
+                if (target && !('thread' in target) && path !== '/') hint = target;
+                if (hint && !('read' in hint) && path === '/') hint = undefined;
+              } catch {
+                path = '/blocked';
+              }
+            } else {
+              path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+              hint = ownerPageHint(new URL(location.href), space);
+            }
+            if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+              path = '/blocked';
+            const search = hint
+              ? hintSearch(hint)
+              : path === '/'
+                ? storedListSearch(window.history.state)
+                : '';
+            return {
+              href: path + search,
+              pathname: path,
+              search,
+              hash: '',
+              state: {
+                ...window.history.state,
+                __TSR_index: window.history.state?.__TSR_index ?? 0,
+              },
+            };
+          },
+          createHref: (routerPath) => {
+            // The list's search is never part of the address (see `keepListSearch`).
+            const path = isListPath(routerPath) ? '/' : routerPath;
+            if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
+            const { route, hint } = splitPageHint(path);
+            const id = route.replace(/^\/(?:pages|short)\//, '');
+            if (route === '/' || !validPagePrefix(id)) return '/colab/';
+            const current = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+            const matches = knownPages.filter((row) => row.pageId.startsWith(current));
+            const target = route.startsWith('/pages/')
+              ? validPagePrefix(current) && matches.length === 1 && matches[0].pageId === id
+                ? current
+                : shortPageId(
+                    id,
+                    knownPages.map((row) => row.pageId),
+                  )
+              : id;
+            const tail = hint
+              ? hintFragment(hint)
+              : target === current && location.hash.startsWith('#t=')
+                ? location.hash
+                : '';
+            return `/p/${target}${tail}`;
+          },
+        })
+      : createHashHistory();
+  if (space) keepListSearch(history);
+  const router = createRouter({
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      page,
+      shortPage,
+      colabSettings,
+      blocked,
+      design,
+      designPage,
+    ]),
+    history,
+    // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
+    // this module for Design at /design/ (#5873), where its /design routes match as they are.
+    ...(inShell() ? { basepath: designBase() === '/design' ? '/' : '/colab' } : {}),
+    context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
+  });
+  router.subscribe('onResolved', () => void buildWatch.check());
+  return router;
+}
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: ReturnType<typeof createAppRouter>;
+  }
+}
