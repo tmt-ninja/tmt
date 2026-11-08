@@ -35,7 +35,7 @@ An image or file block keeps an upload only through the page's attachment list. 
 (`tmt colab attachment attach PAGE FILE --json` prints its attachment ID), then insert an image whose
 `src` is `colab-attachment:ID` (or the first 8 hex digits of the ID):
 `block insert PAGE --type image --props '{"images":[{"src":"colab-attachment:ID"}]}'`. A reference the
-page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); an `https:` source needs no attachment. The file
+page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); an `https:` source needs no attachment. So is attaching a file whose first 8 hex digits a live short reference already uses (it would name two files): reference that image by its full ID first. The file
 is kept while a block on the page references it, deleted blocks included until compaction purges
 them (so an undo or a restore keeps the image); a converted page keeps every file while its frozen
 legacy HTML is kept (a revert needs them). The file is swept 30 days after nothing keeps it. `block detach
@@ -72,7 +72,8 @@ card. The contract, `Structured pages` in `colab-v1.md`, has every type's props 
 
 A `question` block registers itself in the page's questions with the batch that adds it, as a
 `<tmt-question>` does (the entry stays if you delete or edit the block); the page's creator receives
-the answers. A `mockup` block's `markup` must pass `tmt colab page check`: a finding refuses the batch
+the answers, unless the page's owner picks another agent on the question editor's recipient line in
+the browser (the registry's `agent`; the serve resolves it, so a browser sends no label). A `mockup` block's `markup` must pass `tmt colab page check`: a finding refuses the batch
 as `COLAB_BLOCK_MARKUP`, so save the markup to a file and check it first.
 
 ## Limits and deleting

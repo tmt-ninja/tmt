@@ -1541,6 +1541,13 @@ a.tmt-block-mention:focus-visible {
   font-size: var(--tmt-ui-caption-size);
 }
 
+.tmt-block-question-eyebrow[data-control] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
 .tmt-block-question .tmt-block-question-heading {
   margin: var(--tmt-ui-space-m) 0 var(--tmt-ui-space-s);
   font: var(--tmt-ui-card-title-weight) var(--tmt-ui-card-title-size) /

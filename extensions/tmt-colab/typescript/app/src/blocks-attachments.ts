@@ -63,6 +63,11 @@ function resolve(
   return list.find((d) => d.attachmentId === value);
 }
 
+/** How many descriptors of `list` an 8-hex token names as a prefix. */
+function holders(list: readonly attachment.AttachmentDescriptor[], value: string): number {
+  return list.filter((d) => d.attachmentId.startsWith(value)).length;
+}
+
 /** Admit `rawChange` to a batch that took `before` to `next`, on a page that holds `current`.
  * Returns the list afterwards when the change alters it, `undefined` when it leaves it as it is.
  * `sourceSha256` is the lowercase hex digest of the page's `html` root. */
@@ -89,6 +94,14 @@ export function admitAttachments(
     if (old.has(reference)) continue;
     const value = token(reference);
     if (value === undefined || resolve(value, list) === undefined) {
+      throw new AttachmentRefusal('attachment');
+    }
+  }
+  // A set may not make a live short reference ambiguous (see `admit` in `blocks/attachments.rs`).
+  for (const reference of now) {
+    if (!old.has(reference)) continue;
+    const value = token(reference);
+    if (value?.length === 8 && holders(current, value) === 1 && holders(list, value) > 1) {
       throw new AttachmentRefusal('attachment');
     }
   }

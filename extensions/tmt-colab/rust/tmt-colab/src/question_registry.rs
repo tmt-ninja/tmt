@@ -162,6 +162,37 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                 entry.as_object_mut().ok_or(Invalid)?.remove("task");
             }
         }
+        "question.agent" => {
+            // A browser's choice of the agent that receives a question's answers (#6197). The
+            // admitted write owner has already resolved the selection to `agent`; the entry must
+            // exist (a browser registers nothing), and without `agent` the question follows the
+            // page's creator again. The open/handled state is never touched.
+            keys(body, &["id"], &["agent"])?;
+            let id = question_id(&body["id"])?;
+            let entry = entries
+                .iter_mut()
+                .find(|entry| entry["id"] == id)
+                .ok_or(Invalid)?;
+            match body.get("agent") {
+                Some(agent) => {
+                    validate_agent(agent)?;
+                    if entry.get("agent") != Some(agent) {
+                        entry["agent"] = agent.clone();
+                        entry["attribution"] = attribution.clone();
+                    }
+                }
+                None => {
+                    if entry
+                        .as_object_mut()
+                        .ok_or(Invalid)?
+                        .remove("agent")
+                        .is_some()
+                    {
+                        entry["attribution"] = attribution.clone();
+                    }
+                }
+            }
+        }
         _ => return Err(Invalid),
     }
     validate(&next)?;
@@ -494,6 +525,93 @@ mod tests {
         }
     }
     #[test]
+    fn question_agent_sets_replaces_and_clears_the_agent_of_a_registered_question_only() {
+        let agent = |n: u8| json!({"id":format!("50000000-0000-1000-8000-00000000000{n}"),"name":format!("agent {n}")});
+        let mut plain = registration();
+        plain.as_object_mut().unwrap().remove("agent");
+        let base = apply(&json!([]), "question.add", &plain, &attribution(1)).unwrap();
+        let handled = apply(
+            &base,
+            "question.handle",
+            &json!({"id":QUESTION}),
+            &attribution(2),
+        )
+        .unwrap();
+        // Set: the agent and the writer's attribution change, the handled state stays.
+        let set = apply(
+            &handled,
+            "question.agent",
+            &json!({"id":QUESTION,"agent":agent(2)}),
+            &attribution(3),
+        )
+        .unwrap();
+        assert_eq!(set[0]["agent"], agent(2));
+        assert_eq!(set[0]["state"], "handled");
+        assert_eq!(set[0]["attribution"], attribution(3));
+        // The same choice again changes nothing, attribution included.
+        let again = apply(
+            &set,
+            "question.agent",
+            &json!({"id":QUESTION,"agent":agent(2)}),
+            &attribution(4),
+        )
+        .unwrap();
+        assert_eq!(again, set);
+        // Another agent replaces it; no agent clears it so the question follows the creator.
+        let other = apply(
+            &set,
+            "question.agent",
+            &json!({"id":QUESTION,"agent":agent(3)}),
+            &attribution(5),
+        )
+        .unwrap();
+        assert_eq!(other[0]["agent"], agent(3));
+        let cleared = apply(
+            &other,
+            "question.agent",
+            &json!({"id":QUESTION}),
+            &attribution(6),
+        )
+        .unwrap();
+        assert!(cleared[0].get("agent").is_none());
+        assert_eq!(cleared[0]["attribution"], attribution(6));
+        // Clearing what is not set changes nothing.
+        assert_eq!(
+            apply(
+                &cleared,
+                "question.agent",
+                &json!({"id":QUESTION}),
+                &attribution(7)
+            )
+            .unwrap(),
+            cleared
+        );
+        // A question nobody registered, an unresolved selector, a label-only agent and extra
+        // fields are refused.
+        for body in [
+            json!({"id":"10000000-0000-4000-8000-0000000000aa","agent":agent(2)}),
+            json!({"id":QUESTION,"selector":"agent 2"}),
+            json!({"id":QUESTION,"agent":{"id":"x","name":"agent"}}),
+            json!({"id":QUESTION,"agent":agent(2),"title":"New"}),
+            json!({"agent":agent(2)}),
+        ] {
+            assert!(
+                apply(&base, "question.agent", &body, &attribution(8)).is_err(),
+                "{body}"
+            );
+        }
+        // On an empty registry the action registers nothing.
+        assert!(
+            apply(
+                &json!([]),
+                "question.agent",
+                &json!({"id":QUESTION,"agent":agent(2)}),
+                &attribution(8)
+            )
+            .is_err()
+        );
+    }
+    #[test]
     fn registration_is_idempotent_and_title_updates_preserve_handled_state() {
         let first = apply(&json!([]), "question.add", &registration(), &attribution(1)).unwrap();
         assert_eq!(
@@ -705,6 +823,66 @@ mod tests {
             question_agent(&assigned[0], Some(&creator)).unwrap()["name"],
             "agent"
         );
+    }
+
+    #[test]
+    fn a_chosen_recipient_receives_the_answer_and_clearing_returns_it_to_the_creator() {
+        let creator_value = |n: u8| json!({"id":format!("50000000-0000-1000-8000-00000000000{n}"),"name":format!("creator {n}")});
+        let mut meta = json!({});
+        meta["creator"] = set_creator(&json!({"agent":creator_value(1)}), &attribution(1)).unwrap();
+        meta["questions"] = apply(
+            &json!([]),
+            "question.add",
+            &json!({"id":QUESTION,"title":"Choose"}),
+            &attribution(2),
+        )
+        .unwrap();
+        let routed = |meta: &Value| {
+            let creator = creator_agent(meta);
+            question_agent(&meta["questions"][0], creator.as_ref())
+                .map(|agent| agent["name"].as_str().unwrap().to_owned())
+        };
+        // Unassigned, the answer goes to the page's creator, whoever that is.
+        assert_eq!(routed(&meta).as_deref(), Some("creator 1"));
+        // A chosen agent receives it, and a later creator change leaves the choice alone.
+        meta["questions"] = apply_to_page(
+            &meta,
+            "question.agent",
+            &json!({"id":QUESTION,"agent":{"id":"50000000-0000-1000-8000-000000000009","name":"chosen"}}),
+            &attribution(3),
+        )
+        .unwrap();
+        assert_eq!(routed(&meta).as_deref(), Some("chosen"));
+        meta["creator"] = set_creator(&json!({"agent":creator_value(2)}), &attribution(4)).unwrap();
+        assert_eq!(routed(&meta).as_deref(), Some("chosen"));
+        // Clearing hands it back to the creator in force now.
+        meta["questions"] = apply_to_page(
+            &meta,
+            "question.agent",
+            &json!({"id":QUESTION}),
+            &attribution(5),
+        )
+        .unwrap();
+        assert_eq!(routed(&meta).as_deref(), Some("creator 2"));
+        // The page check that registers HTML questions agrees: the chosen agent is the one a
+        // `<tmt-question>` must name, and only it.
+        meta["questions"] = apply_to_page(
+            &meta,
+            "question.agent",
+            &json!({"id":QUESTION,"agent":{"id":"50000000-0000-1000-8000-000000000009","name":"chosen"}}),
+            &attribution(6),
+        )
+        .unwrap();
+        let named = |agent: &str| {
+            findings(
+                &crate::page_check::check(&source(agent)).unwrap(),
+                &meta,
+                "page",
+                None,
+            )
+        };
+        assert!(named("chosen").is_empty());
+        assert_eq!(named("creator 2")[0].code, "COLAB_QUESTION_AGENT_MISMATCH");
     }
 
     #[test]

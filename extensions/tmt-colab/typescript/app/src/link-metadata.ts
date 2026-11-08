@@ -8,6 +8,13 @@ export type MetadataInput =
       action: 'question.handle' | 'question.reopen';
       body: { id: string };
       target: Record<string, unknown>;
+    }
+  | {
+      /** The recipient of a question's answers: `selector` is an identity the owner resolves,
+       * none follows the page's creator again. */
+      action: 'question.agent';
+      body: { id: string; selector?: string };
+      target: Record<string, unknown>;
     };
 export type MetadataOutcome = { operationId: string } & (
   | { state: 'applied'; revision: string }

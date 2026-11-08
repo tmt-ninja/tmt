@@ -33,6 +33,44 @@ fn register_question(layout: &Layout, key: &Keyring, question: &str) {
         .unwrap();
 }
 
+/// The registry's own `question.agent` publication, as the serve makes it once the selector is
+/// resolved: the entry gets `agent` (or, with `None`, loses it).
+fn assign_question_agent(layout: &Layout, key: &Keyring, question: &str, agent: Option<Value>) {
+    let before = read(layout, key);
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let body = match agent {
+        Some(agent) => json!({"id":question,"agent":agent}),
+        None => json!({"id":question}),
+    };
+    let prepared = tmt_colab::page::prepare_structured_publication(
+        &store,
+        key,
+        PAGE,
+        tmt_colab::page::StructuredAction {
+            kind: tmt_colab::decoder::StructuredKind::Questions,
+            action: "question.agent",
+            body: &body,
+            expected_revision: Some(&before.revision),
+            display_agent: None,
+            operation_id: None,
+        },
+        &mut decoder,
+        &|| Ok(now()),
+    )
+    .unwrap();
+    store.close().unwrap();
+    let tmt_colab::page::PublicationPreparation::Write(frozen) = prepared else {
+        panic!("the recipient changes")
+    };
+    tmt_colab::page::ipc::publish(layout, key, &frozen)
+        .unwrap()
+        .unwrap();
+}
+
 fn request_result(server: &Running, operation: &str) -> Value {
     server.decision(operation);
     let text: String = server
@@ -709,4 +747,156 @@ fn manual_page_state_uses_owner_metadata_admission_and_denies_share_writers() {
         assert!(frames.iter().all(|frame| frame["type"] != "metadataresult"));
         assert_eq!(read(&layout, &key).state, current.state);
     }
+}
+
+const REVIEWER: &str = "30000000-0000-4000-8000-000000000001";
+
+#[test]
+fn owner_metadata_clears_a_question_recipient_and_refuses_what_a_browser_may_not_send() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>No question markup remains</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let question = "10000000-0000-4000-8000-000000000055";
+    register_question(&layout, &key, question);
+    assign_question_agent(
+        &layout,
+        &key,
+        question,
+        Some(json!({"id":REVIEWER,"name":"reviewer"})),
+    );
+    let assigned = read(&layout, &key);
+    let entry = assigned.questions.as_ref().unwrap()[0].clone();
+    assert_eq!(entry["agent"]["id"], REVIEWER);
+    let change = |peer: &mut _, operation: &str, revision: &Value, body: Value| {
+        send(peer, server.frame("metadata", json!({"operationId":operation,"expectedRevision":revision,"action":"question.agent","body":body})));
+        receive_acked(&server, peer, "metadataresult")
+    };
+    // Clearing follows the page's creator again: the agent leaves the entry and nothing else moves.
+    let cleared = change(
+        &mut peer,
+        WORK_ONE,
+        &assigned.revision.clone().into(),
+        json!({"id":question}),
+    );
+    assert_eq!(cleared["state"], "committed", "{cleared}");
+    let current = read(&layout, &key);
+    let after = &current.questions.as_ref().unwrap()[0];
+    assert!(after.get("agent").is_none(), "{after}");
+    assert_eq!(after["state"], entry["state"]);
+    assert_eq!(after["title"], entry["title"]);
+    assert_eq!(current.source, assigned.source);
+    assert_eq!(current.creator, assigned.creator);
+    // A lost reply is settled by the operation, with the revision it committed.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":WORK_ONE})),
+    );
+    let recovered = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(recovered["state"], "committed");
+    assert_eq!(recovered["revision"], cleared["revision"]);
+    // A stale revision never overwrites the newer entry.
+    let stale = change(
+        &mut peer,
+        WORK_TWO,
+        &assigned.revision.clone().into(),
+        json!({"id":question}),
+    );
+    assert_eq!(stale["code"], "COLAB_STALE_BASE", "{stale}");
+    // A question nobody registered is refused whole; a browser registers nothing.
+    let unregistered = change(
+        &mut peer,
+        WORK_THREE,
+        &cleared["revision"],
+        json!({"id":"10000000-0000-4000-8000-0000000000aa"}),
+    );
+    assert_eq!(unregistered["state"], "rejected", "{unregistered}");
+    assert_eq!(read(&layout, &key).questions, current.questions);
+    // What the closed grammar forbids is a protocol error and writes nothing: a label the browser
+    // chose, a registration field, a malformed selector.
+    let before_invalid = read(&layout, &key).revision;
+    for (n, body) in [
+        json!({"id":question,"agent":{"id":REVIEWER,"name":"A label"}}),
+        json!({"id":question,"selector":REVIEWER,"title":"New"}),
+        json!({"id":question,"selector":""}),
+        json!({"id":question,"selector":" reviewer"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        send(&mut peer, server.frame("metadata", json!({"operationId":request_op(40 + n as u64),"expectedRevision":cleared["revision"],"action":"question.agent","body":body})));
+        assert_eq!(receive_acked(&server, &mut peer, "error")["type"], "error");
+    }
+    assert_eq!(read(&layout, &key).revision, before_invalid);
+}
+
+#[test]
+fn only_the_owner_device_sends_question_agent_frames() {
+    for role in ["viewer", "commenter", "editor"] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let session = server.link_session(role);
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let question = request_op(90);
+        register_question(&layout, &key, &question);
+        let before = read(&layout, &key);
+        let mut peer = server.reader_peer(&session);
+        send(&mut peer, server.reader_frame(&session, "metadata", json!({
+            "operationId":WORK_ONE,"expectedRevision":before.revision,"action":"question.agent",
+            "body":{"id":question,"selector":REVIEWER}
+        })));
+        let (error, frames) = receive_until(&mut peer, "error");
+        assert_eq!(error["type"], "error", "{role}");
+        assert!(frames.iter().all(|frame| frame["type"] != "metadataresult"));
+        assert_eq!(read(&layout, &key).revision, before.revision);
+    }
+}
+
+#[test]
+fn an_editor_link_clears_a_question_recipient_and_a_stale_target_never_applies() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let session = server.link_session("editor");
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let question = request_op(90);
+    register_question(&layout, &key, &question);
+    assign_question_agent(
+        &layout,
+        &key,
+        &question,
+        Some(json!({"id":REVIEWER,"name":"reviewer"})),
+    );
+    let before = read(&layout, &key);
+    let original = before.questions.as_ref().unwrap()[0].clone();
+    assert_eq!(original["agent"]["id"], REVIEWER);
+    let mut peer = server.reader_peer(&session);
+    let mut stream = RequestStream::new();
+    let ask = |stream: &mut RequestStream, peer: &mut _, n: u64, target: Value| {
+        let operation = request_op(n);
+        let record = json!({"version":2,"kind":"edit-request","operationId":operation,"action":"question.agent","body":{"id":question},"target":target});
+        send(
+            peer,
+            stream.record(&server, &session, "intents", &operation, record),
+        );
+        receive_until(peer, "receipt");
+        request_result(&server, &operation)
+    };
+    let cleared = ask(&mut stream, &mut peer, 1, original.clone());
+    assert_eq!(cleared["result"]["state"], "committed", "{cleared}");
+    let current = read(&layout, &key);
+    assert!(
+        current.questions.as_ref().unwrap()[0]
+            .get("agent")
+            .is_none()
+    );
+    assert_eq!(current.source, before.source);
+    assert_eq!(current.creator, before.creator);
+    // The entry changed since `original` was observed: the same request is refused as stale.
+    let stale = ask(&mut stream, &mut peer, 2, original);
+    assert_eq!(stale["result"]["code"], "COLAB_STALE_BASE", "{stale}");
+    assert_eq!(read(&layout, &key).questions, current.questions);
 }

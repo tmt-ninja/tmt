@@ -80,6 +80,11 @@ export const text = {
     },
     handle: 'Mark handled',
     reopen: 'Reopen',
+    recipient: 'Receives answers',
+    recipientFollows: (name?: string) => (name ? `The page creator (${name})` : 'The page creator'),
+    recipientChanged: 'Recipient changed',
+    recipientNoAgents: 'No agents are available to choose from.',
+    recipientOwnerOnly: 'Only the page owner or an editor can choose the recipient.',
   },
   blockText: {
     paragraph: 'Type / for blocks',

@@ -646,6 +646,13 @@ a.tmt-block-mention:focus-visible {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
+/* The recipient line with a control: the words and the control share one wrapping row. */
+.tmt-block-question-eyebrow[data-control] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
 /* The question reads as a card heading (the DS card title), not a document heading, whatever page
    it sits in. */
 .tmt-block-question .tmt-block-question-heading {

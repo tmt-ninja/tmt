@@ -116,7 +116,7 @@ pub fn referenced<'a>(blocks: &Value, source: &str, list: &'a [Descriptor]) -> V
 ///
 /// A reference the batch adds (live in `next`, not in `before`) must be well formed and name one
 /// descriptor of the list afterwards; no live reference in `next` may name a descriptor the change
-/// removes.
+/// removes; and no live short reference that named one descriptor may name two afterwards.
 pub fn admit(
     before: &Value,
     next: &Value,
@@ -141,6 +141,17 @@ pub fn admit(
         if named.is_none() {
             return Err(Refusal::Attachment);
         }
+    }
+    // A set may not make a live short reference ambiguous: a token that named exactly one descriptor
+    // before names several now, and its image would draw the error state. A prefix two descriptors
+    // already shared is not judged again, and a reference that is new in the batch was judged above.
+    let shared = crate::attachments::prefix::newly_shared(current, list);
+    if now
+        .intersection(&old)
+        .filter_map(|reference| token(reference))
+        .any(|token| shared.contains(token))
+    {
+        return Err(Refusal::Attachment);
     }
     if let Some(change) = change {
         for id in change.remove.as_slice() {

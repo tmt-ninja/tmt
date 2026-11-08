@@ -468,6 +468,246 @@
       "root": "intents",
       "key": "60000000-0000-4000-8000-000000000001",
       "requestSha256": "IVddQVqNkYDLdpy7ewC0JfJri-3pD2h3zK21t1MxKw4"
+    },
+    {
+      "name": "question recipient by name",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000060",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "reviewer"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000060",
+      "requestSha256": "LVdXC8x4Ek2z_97IEphBeArtvtuOxfHUF9r07_jRPiU"
+    },
+    {
+      "name": "question recipient by canonical ID",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000061",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "30000000-0000-4000-8000-000000000001"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000061",
+      "requestSha256": "DketPTHbFCYafCckxIuPGklp9uZ-2-PIVlz63cnsc5g"
+    },
+    {
+      "name": "question recipient cleared",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000062",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open",
+          "agent": {
+            "id": "30000000-0000-4000-8000-000000000001",
+            "name": "reviewer"
+          }
+        }
+      },
+      "valid": true,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000062",
+      "requestSha256": "8JdLtFSnVQparFlSJPtGydbstiPI21_dYlajvBfzOw0"
+    },
+    {
+      "name": "recipient with a browser label",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000063",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "agent": {
+            "id": "30000000-0000-4000-8000-000000000001",
+            "name": "reviewer"
+          }
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000063"
+    },
+    {
+      "name": "recipient with a registration field",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000064",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "reviewer",
+          "title": "New"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000064"
+    },
+    {
+      "name": "recipient with an empty selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000065",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": ""
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000065"
+    },
+    {
+      "name": "recipient with a control selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000066",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "a\nb"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000066"
+    },
+    {
+      "name": "recipient with a padded selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000067",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": " reviewer"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000067"
+    },
+    {
+      "name": "recipient with an oversize selector",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000068",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000068"
+    },
+    {
+      "name": "recipient with a wrong target ID",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-000000000069",
+        "action": "question.agent",
+        "body": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "selector": "reviewer"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000056",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-000000000069"
+    },
+    {
+      "name": "recipient without an ID",
+      "record": {
+        "version": 2,
+        "kind": "edit-request",
+        "operationId": "60000000-0000-4000-8000-00000000006a",
+        "action": "question.agent",
+        "body": {
+          "selector": "reviewer"
+        },
+        "target": {
+          "id": "10000000-0000-4000-8000-000000000055",
+          "title": "A question",
+          "state": "open"
+        }
+      },
+      "valid": false,
+      "root": "intents",
+      "key": "60000000-0000-4000-8000-00000000006a"
     }
   ],
   "results": [

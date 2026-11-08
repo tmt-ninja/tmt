@@ -843,6 +843,354 @@
       }
     },
     {
+      "name": "a set whose prefix a live short reference already uses is refused",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
+      "name": "the same set is admitted while the reference is the full ID",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000",
+          "00000001-0000-4000-8000-0000000000ff"
+        ]
+      }
+    },
+    {
+      "name": "and while no live block uses the short form",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000",
+          "00000001-0000-4000-8000-0000000000ff"
+        ]
+      }
+    },
+    {
+      "name": "a prefix two descriptors already shared before the batch is not judged again",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "set": [
+        "00000003-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000",
+          "00000001-0000-4000-8000-0000000000ff",
+          "00000003-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "a set with another prefix leaves the short reference alone",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000",
+          "00000002-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "a set that resolves a dangling short reference is admitted",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [],
+      "set": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-000000000000"
+        ]
+      }
+    },
+    {
+      "name": "swapping the one holder for a twin in one batch keeps the reference unambiguous",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001-0000-4000-8000-0000000000ff"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "set": [
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "remove": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": {
+        "list": [
+          "00000001-0000-4000-8000-0000000000ff"
+        ]
+      }
+    },
+    {
+      "name": "bringing back a block whose short reference is ambiguous is judged like a new one and refused",
+      "source": "",
+      "before": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          },
+          "deleted": 5
+        }
+      },
+      "next": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000001"
+              }
+            ]
+          }
+        }
+      },
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": {
+        "refused": "attachment"
+      }
+    },
+    {
       "name": "a descriptor sealed against another source is refused",
       "source": "",
       "before": {},

@@ -1,0 +1,106 @@
+.question-recipient {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  font: 400 var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-body);
+  color: var(--tmt-ui-color-secondary);
+}
+.question-recipient > p,
+.question-recipient-note p {
+  flex-basis: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.question-recipient-note {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.question-recipient-note p {
+  flex: 0 1 auto;
+}
+.question-recipient-label {
+  flex: none;
+}
+/* The listbox's own block spacing (12px above and below, full width) is for a form field; this one
+   sits inside a line of text. */
+.question-recipient .tmt-listbox {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+.question-recipient-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  /* The pill is a larger target than its line: the negative margin keeps the line's own height. */
+  padding: 2px 8px;
+  margin-block: -2px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.question-recipient-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.question-recipient-trigger > svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+.question-recipient-trigger[data-own] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 13%, transparent);
+  color: var(--tmt-ui-color-text-action);
+  font-weight: 600;
+}
+.question-recipient-trigger:hover:not(:disabled, [aria-disabled]) {
+  background: var(--tmt-ui-surface-hover);
+}
+/* One focus frame: the trigger has its own border, so focus recolours it (and thickens it inside
+   the box, so nothing moves) instead of drawing an outline. */
+.question-recipient-trigger:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  box-shadow: inset 0 0 0 var(--tmt-ui-rule-width) var(--tmt-ui-color-focus);
+  outline: none;
+}
+.question-recipient-trigger:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+.question-recipient-trigger[aria-disabled] {
+  cursor: default;
+}
+.question-recipient[data-pending] .question-recipient-trigger {
+  color: var(--tmt-ui-color-waiting);
+}
+.question-recipient-error {
+  color: var(--tmt-ui-color-blocked);
+}
+/* One line per agent: a long name is cut with an ellipsis, never wrapped. */
+.question-recipient-list .tmt-listbox-option {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The list of agents: the same popover as the recipient menu of a message. */
+.question-recipient-list {
+  padding: 4px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}

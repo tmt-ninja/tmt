@@ -46,12 +46,10 @@ impl Request {
         match r.action.as_str() {
             "creator.set" => {
                 crate::closed::keys(&r.body, &["selector"], &[]).map_err(|_| Invalid)?;
-                if !r.body["selector"].as_str().is_some_and(|s| {
-                    !s.is_empty()
-                        && s.len() <= 256
-                        && s.trim() == s
-                        && !s.chars().any(char::is_control)
-                }) {
+                if !r.body["selector"]
+                    .as_str()
+                    .is_some_and(crate::page::metadata::valid_selector)
+                {
                     return Err(Invalid);
                 }
                 let target = r.target.as_object().ok_or(Invalid)?;
@@ -62,7 +60,7 @@ impl Request {
                     return Err(Invalid);
                 }
             }
-            "question.handle" | "question.reopen" => {
+            "question.handle" | "question.reopen" | "question.agent" => {
                 crate::page::metadata::validate(&r.action, &r.body).map_err(|_| Invalid)?;
                 if !r.target.is_object() || r.target["id"] != r.body["id"] {
                     return Err(Invalid);
@@ -224,6 +222,10 @@ impl std::error::Error for IdentityRefused {}
 
 pub fn resolve_creator(selector: &str) -> crate::Result<Value> {
     resolve_observed(crate::core::identity_lookup(selector))
+}
+/// A selector's lookup as the `{agent:{id,name}}` the registry stores, or the identity refusal.
+pub fn resolve_selection(lookup: crate::core::IdentityLookup) -> crate::Result<Value> {
+    resolve_observed(lookup)
 }
 fn resolve_observed(lookup: crate::core::IdentityLookup) -> crate::Result<Value> {
     match lookup {

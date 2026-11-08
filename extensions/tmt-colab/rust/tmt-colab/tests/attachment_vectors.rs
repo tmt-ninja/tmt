@@ -259,3 +259,87 @@ fn typed_attachment_change_is_prepared_by_the_isolated_decoder() {
         assert!(step(&refused, &mut decoder).is_err());
     }
 }
+
+/// A set may not make a short reference of the source it saves ambiguous (#6201): the source names
+/// `colab-attachment:00000000`, which names the page's one descriptor, so a second descriptor with
+/// that prefix is refused, while the same set is admitted when the source names the full ID.
+#[test]
+fn a_set_that_makes_a_short_reference_of_the_saved_source_ambiguous_is_refused() {
+    use tmt_colab_model::attachment::DocumentChange;
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-change-v1.json"
+    ))
+    .unwrap();
+    let (first, twin) = (
+        "00000000-0000-4000-8000-0000000000a1",
+        "00000000-0000-4000-8000-0000000000b2",
+    );
+    let bound = |id: &str, source: &str| -> serde_json::Value {
+        let mut value = oracle["descriptors"]["a"].clone();
+        value["attachmentId"] = id.into();
+        value["source"]["sourceDigest"] = Sha256::digest(source.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+            .into();
+        value
+    };
+    let change = |id: &str, source: &str| -> DocumentChange {
+        serde_json::from_value(serde_json::json!({"set": [bound(id, source)]})).unwrap()
+    };
+    let short = "<p><img src=\"colab-attachment:00000000\"></p>";
+    let full = format!("<p><img src=\"colab-attachment:{first}\"></p>");
+    let doc = Doc::with_client_id(1856);
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let seed = {
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, short);
+        meta.insert(&mut tx, "title", "Short");
+        tx.encode_state_as_update_v1(&StateVector::default())
+    };
+    let mut decoder = Decoder::new(env!("CARGO_BIN_EXE_tmt-colab").into()).unwrap();
+    let mut log = vec![seed];
+    let mut step = |source: &str, change: &DocumentChange, commit: bool| {
+        let refs: Vec<&[u8]> = log.iter().map(Vec::as_slice).collect();
+        let batch = || UpdateBatch {
+            namespace: Namespace::Content,
+            baseline: &[],
+            updates: &refs,
+        };
+        let current = decoder
+            .decode(batch(), Role::Editor, None)
+            .unwrap()
+            .projection;
+        let prepared = decoder.prepare_content_batch(
+            batch(),
+            &current,
+            ContentEdit {
+                layout: None,
+                source,
+                publisher_agent: None,
+                attachments: Some(change),
+            },
+            None,
+        );
+        if let (true, Ok(prepared)) = (commit, &prepared)
+            && let ContentBatch::Updates(deltas) = &prepared.batch
+        {
+            log.extend(deltas.iter().cloned());
+        }
+        prepared.map(|prepared| prepared.projection)
+    };
+    // The first descriptor lands: the short reference names exactly one.
+    assert!(step(short, &change(first, short), true).is_ok());
+    // A twin with the same prefix would make the saved source's reference name two: refused.
+    assert!(step(short, &change(twin, short), true).is_err());
+    // The same set is admitted when the saved source names the full ID, or no short form at all.
+    let projection = step(&full, &change(twin, &full), true).unwrap();
+    let ids: Vec<&str> = projection["meta"]["attachments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["attachmentId"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [first, twin]);
+}

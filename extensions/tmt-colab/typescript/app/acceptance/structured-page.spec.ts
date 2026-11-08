@@ -466,3 +466,103 @@ test('a question written in the browser is registered and its answer reaches the
     await page.close();
   });
 });
+
+// #6197: the person who owns the page picks, on the block question editor's recipient line, which
+// agent receives the answers. The serve resolves the agent from the real identity store; the answer
+// reaches that agent and not the page's creator, and choosing the creator again takes it back.
+test('the agent picked in the question editor receives the answer, and the creator again after a clear', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const creator = await world.startAgent('question-creator', { gated: true });
+    const chosen = await world.startAgent('question-chosen', { gated: true });
+    const browser = await pairBrowser(world, 'structured-recipient', { talk: true });
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId, path: pagePath } = JSON.parse(
+      run(
+        world,
+        colab,
+        ['page', 'create', '--title', 'Recipients', '--structured', '--json', '--no-open'],
+        '',
+        creator.pane,
+      ),
+    ) as { pageId: string; path: string };
+    const question = crypto.randomUUID();
+    run(
+      world,
+      colab,
+      ['block', 'batch', pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        {
+          op: 'insert',
+          id: question,
+          type: 'question',
+          props: { kind: 'single', choices: ['Keep it', 'Change it'], other: false },
+          text: 'Which heading should we use?',
+        },
+      ]),
+    );
+    const recipient = () =>
+      (
+        JSON.parse(run(world, colab, ['question', 'ls', pageId, '--json'])) as {
+          questions: { id: string; agent?: { id: string; name: string } }[];
+        }
+      ).questions.find((entry) => entry.id === question)?.agent;
+    // Registered with no agent of its own: the page's creator receives the answers.
+    expect(recipient()).toBeUndefined();
+
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${question}"]`);
+    await expect(block).toBeVisible({ timeout: 30_000 });
+    await block.getByRole('button', { name: 'Edit' }).click();
+    const edit = page.getByRole('group', { name: 'Edit question' });
+    await expect(edit).toContainText('Answers go to');
+    const pick = edit.locator('.question-recipient-trigger');
+    // Registered with no agent of its own, the question follows the page's creator.
+    await expect(pick).toHaveText(`The page creator (${creator.name})`);
+    await expect(pick).toBeEnabled({ timeout: 30_000 });
+    await pick.click();
+    const options = page.getByRole('listbox').getByRole('option');
+    // The page's creator first, then the directory's agents (Remote's order).
+    await expect(options.first()).toHaveText(`The page creator (${creator.name})`);
+    await expect(options).toHaveCount(3);
+    expect(await options.allTextContents()).toEqual(
+      expect.arrayContaining([creator.name, chosen.name]),
+    );
+    await options.filter({ hasText: chosen.name }).click();
+    // The serve resolved the identity and registered it; the editor stays open and says who.
+    await expect.poll(() => recipient()?.id, { timeout: 30_000 }).toBe(chosen.id);
+    expect(recipient()?.name).toBe(chosen.name);
+    await expect(pick).toHaveText(chosen.name);
+    await expect(edit).toBeVisible();
+    await edit.getByRole('button', { name: 'Done' }).click();
+    await expect(edit).toHaveCount(0);
+
+    // The answer goes to the chosen agent, not the creator.
+    const card = block.getByRole('group', { name: 'Which heading should we use?' });
+    await card.getByLabel('Keep it', { exact: true }).check();
+    await card.getByRole('button', { name: 'Send' }).click();
+    await until(() => chosen.received().length === 1, 'the answer reached the chosen agent');
+    expect(chosen.received()[0].identityId).toBe(chosen.id);
+    expect(chosen.received()[0].message).toContain(
+      'Answer to “Which heading should we use?”: Keep it',
+    );
+    expect(creator.received()).toHaveLength(0);
+
+    // Choosing the page creator clears the question's own agent: the registry follows the creator.
+    // An answered question is one line; pressing it opens the card again, with its Edit.
+    await block.getByRole('button', { name: /Which heading should we use\?/ }).click();
+    await block.getByRole('button', { name: 'Edit' }).click();
+    await expect(pick).toHaveText(chosen.name);
+    await pick.click();
+    await page
+      .getByRole('listbox')
+      .getByRole('option', { name: `The page creator (${creator.name})`, exact: true })
+      .click();
+    await expect.poll(() => recipient(), { timeout: 30_000 }).toBeUndefined();
+    await expect(pick).toHaveText(`The page creator (${creator.name})`);
+    await page.close();
+  });
+});

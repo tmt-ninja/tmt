@@ -20,7 +20,9 @@ import { applyOps } from '../src/block-apply.js';
 import { BlockTree } from '../src/block-tree.js';
 import { mountRenderer } from '../src/renderer.js';
 import { pageDesignSystems } from '../src/design-system-pages.js';
-import type { PageTransport } from '../src/transport.js';
+import type { PageBinding, PageTransport, PageView } from '../src/transport.js';
+import type { RegisteredQuestion } from '../src/question-registry.js';
+import { destination, id as fixtureId } from './ask-fixtures.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 
@@ -251,12 +253,39 @@ declare global {
     opened: { href: string; newTab: boolean }[];
     /** Hold the serve's commits (true) or let the held ones through (false). */
     holdServe(hold: boolean): void;
+    /** What the owner device asked of the recipient seam, in order: the selector, or `null` when it
+     * asked for the page creator. */
+    recipientChosen: (string | null)[];
+    /** The next recipient choice is refused (once). */
+    refuseRecipient(): void;
   }
 }
 
+/** The agents the owner's directory lists (`mount(..., { recipients: true })`). */
+const RECIPIENT_AGENTS = [
+  ['First reviewer', 6],
+  ['Next builder', 7],
+  ['An agent with a very long name that has to truncate instead of pushing the line wider', 8],
+].map(([agentName, n]) => ({
+  ...destination(),
+  agent: fixtureId(n as number),
+  agentName: agentName as string,
+}));
+const QUESTION_ID = '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b';
+const QUESTION_ATTRIBUTION = { writerId: '30000000-0000-4000-8000-000000000001', timeMs: 1_000 };
+
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
  * serve applies a batch with `applyOps`, the editor's one model of the serve's apply. */
-export function mount(content: 'plan' | 'spec' = 'plan') {
+export function mount(
+  content: 'plan' | 'spec' = 'plan',
+  options: {
+    /** The owner device may choose a question's recipient: it holds the metadata seam and reads
+     * the agent directory. */
+    recipients?: boolean;
+    /** The question starts with no agent of its own. */
+    follows?: boolean;
+  } = {},
+) {
   document.getElementById('root')?.setAttribute('hidden', '');
   const host = document.createElement('main');
   host.id = 'structured-page-fixture';
@@ -276,6 +305,46 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
   window.sent = [];
   window.opened = [];
+  window.recipientChosen = [];
+  let refuseRecipient = false;
+  window.refuseRecipient = () => {
+    refuseRecipient = true;
+  };
+  const questionListeners = new Set<(next: RegisteredQuestion[]) => void>();
+  let questions: RegisteredQuestion[] = [
+    {
+      id: QUESTION_ID,
+      ...(options.follows
+        ? {}
+        : { agent: { id: '50000000-0000-4000-8000-000000000003', name: 'tmt-gui-lead' } }),
+      state: 'open',
+      attribution: QUESTION_ATTRIBUTION,
+    },
+  ];
+  /** The owner device's seam, answered as the serve does: it resolves the selector to a directory
+   * agent (no selector clears the entry) and the registry shows the result. */
+  const ownerBinding = {
+    canMetadata: () => true,
+    metadataRevision: async () => 'revision-1',
+    async metadata(_action: string, body: Record<string, unknown>) {
+      const selector = typeof body.selector === 'string' ? body.selector : null;
+      window.recipientChosen.push(selector);
+      await new Promise((resolve) => setTimeout(resolve, SERVE_MS));
+      if (refuseRecipient) {
+        refuseRecipient = false;
+        throw Object.assign(
+          new Error('That identity was not found. Check the name or ID and try again.'),
+          { code: 'COLAB_IDENTITY_UNKNOWN' },
+        );
+      }
+      const found = RECIPIENT_AGENTS.find((agent) => agent.agent === selector);
+      questions = questions.map(({ agent: _own, ...rest }) =>
+        found ? { ...rest, agent: { id: found.agent, name: found.agentName } } : rest,
+      );
+      for (const listener of questionListeners) listener(questions);
+    },
+    ask: { destinations: async () => RECIPIENT_AGENTS },
+  } as unknown as PageBinding;
   // The page's gated owner sources, as the router's are: while the page is owner-only content
   // they publish, and once revoked they withhold (the unavailable state).
   let owner = true;
@@ -486,6 +555,11 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       threadListeners.add(setPageThreads);
       return () => void threadListeners.delete(setPageThreads);
     }, []);
+    const [registry, setRegistry] = useState(questions);
+    useEffect(() => {
+      questionListeners.add(setRegistry);
+      return () => void questionListeners.delete(setRegistry);
+    }, []);
     const subscribe = useCallback((node: HTMLElement | null) => {
       if (node) listeners.add(setView);
       else listeners.delete(setView);
@@ -548,14 +622,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             imageSource,
             questionPage: {
               title: '區塊編輯器',
-              questions: [
-                {
-                  id: '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b',
-                  agent: { id: '50000000-0000-4000-8000-000000000003', name: 'tmt-gui-lead' },
-                  state: 'open',
-                  attribution: { writerId: '30000000-0000-4000-8000-000000000001', timeMs: 1_000 },
-                },
-              ],
+              questions: registry,
               // A question with no agent of its own goes to the page's creator.
               creator: {
                 agent: { id: '50000000-0000-4000-8000-000000000004', name: 'gui-2' },
@@ -564,6 +631,12 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
               threads: pageThreads,
               discussion,
               blocked: false,
+              ...(options.recipients && {
+                metadata: {
+                  view: { archived: false, pageType: 'blocks', questions: registry } as PageView,
+                  binding: ownerBinding,
+                },
+              }),
             },
           })}
           onLink={(href, newTab) => window.opened.push({ href, newTab })}
