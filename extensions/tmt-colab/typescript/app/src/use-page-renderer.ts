@@ -245,7 +245,6 @@ export function usePageRenderer({
     snapshot.id,
     frameKey,
     remounts,
-    drafts,
     view.layout,
     view.pageType,
     pageView,
@@ -262,6 +261,20 @@ export function usePageRenderer({
     resetPageLinks,
     requestPageLink,
   ]);
+
+  useEffect(() => {
+    if (!drafts) return;
+    const handle = renderer.current;
+    if (!handle) {
+      setRemounts((count) => count + 1);
+      return;
+    }
+    void handle.refreshDesign(latestSource.current).then((result) => {
+      if (renderer.current !== handle || result === 'superseded') return;
+      if (result === 'applied') contentApplied.current();
+      else setRemounts((count) => count + 1);
+    });
+  }, [drafts, renderer]);
 
   // Declared after the mount effect, so in a commit that also remounts, the frame being mounted
   // already holds this source and nothing is sent.

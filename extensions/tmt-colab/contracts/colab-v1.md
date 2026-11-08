@@ -2730,6 +2730,15 @@ update is never worse than a replacement. The answer is an untrusted frame claim
 a forged success can leave at most stale content until the next update. No
 capability, CSP allowance or source path is added.
 
+A followed draft can change its stylesheet without replacing the frame when its
+component script, runtime chunks and host capability tags are unchanged. The
+parent sends `{type:"colab.render.design-style", requestId, style}` over the
+existing port; the renderer accepts a UUID and at most 512 KiB UTF-8 of style,
+replaces only its own design-system stylesheet, remeasures geometry, and answers
+with the same `source-applied` acknowledgement. A missing stylesheet, changed
+script or capabilities, timeout or port error falls back to a fresh frame. A
+newer update supersedes an older one. No page-supplied message grants authority.
+
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
 `source` and `theme` (`"light"` or `"dark"`), and optionally `layout` (`"column"`,
