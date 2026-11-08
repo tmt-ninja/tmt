@@ -65,7 +65,14 @@ fn rich(value: &Value) -> String {
                 "italic" => ("<em>".to_owned(), "</em>"),
                 "code" => ("<code>".to_owned(), "</code>"),
                 "agent" => (format!("<span data-agent=\"{value}\">"), "</span>"),
-                _ => (format!("<span data-block=\"{value}\">"), "</span>"),
+                // A block on another page names its page too (#6208).
+                _ => match value.split_once('/') {
+                    Some((page, block)) => (
+                        format!("<span data-page=\"{page}\" data-block=\"{block}\">"),
+                        "</span>",
+                    ),
+                    None => (format!("<span data-block=\"{value}\">"), "</span>"),
+                },
             };
             open.push_str(&start);
             close.insert_str(0, end);
@@ -481,6 +488,24 @@ mod tests {
         tombstone["deleted"] = json!(1_700_000_000_000u64);
         vec![
             ("an empty page", doc(vec![])),
+            (
+                "a block mark naming a block on another page",
+                doc(vec![(
+                    1,
+                    p(
+                        "V",
+                        rich(
+                            "see it",
+                            json!([{
+                                "from": 4,
+                                "to": 6,
+                                "mark": "block",
+                                "value": format!("50000000-0000-4000-8000-000000000008/{}", id(9)),
+                            }]),
+                        ),
+                    ),
+                )]),
+            ),
             (
                 "marks, escaping, line feeds and astral characters",
                 doc(vec![

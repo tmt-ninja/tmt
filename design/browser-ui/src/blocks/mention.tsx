@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { MouseEventHandler, ReactNode } from 'react';
 import './blocks.css';
 
 export interface BlockMentionProps {
@@ -8,10 +8,12 @@ export interface BlockMentionProps {
   href?: string;
   /** Type and opening text, such as "Table: Ticket status". */
   children?: ReactNode;
+  /** The host opens the link itself (a block on another page goes through its trusted path). */
+  onClick?: MouseEventHandler<HTMLAnchorElement>;
 }
 
 /** An @block chip, in a paragraph or a comment. */
-export function BlockMention({ icon, href, children }: BlockMentionProps) {
+export function BlockMention({ icon, href, children, onClick }: BlockMentionProps) {
   const body = (
     <>
       {icon !== undefined && <span aria-hidden="true">{icon}</span>}
@@ -23,7 +25,7 @@ export function BlockMention({ icon, href, children }: BlockMentionProps) {
       {body}
     </span>
   ) : (
-    <a data-slot="block-mention" className="tmt-block-mention" href={href}>
+    <a data-slot="block-mention" className="tmt-block-mention" href={href} onClick={onClick}>
       {body}
     </a>
   );

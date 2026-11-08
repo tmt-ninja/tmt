@@ -13,6 +13,7 @@ import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
 import { useAgentDirectory } from './agent-directory.js';
+import type { MentionPages } from './mention-pages.js';
 
 /**
  * A structured page (`pageType` `blocks`, #6005) over its live binding: the fold projection's
@@ -32,6 +33,8 @@ export function LiveStructuredPage({
   imageSource,
   onDownloadFile,
   onSettle,
+  mentionPages,
+  blockPageHref,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -52,6 +55,10 @@ export function LiveStructuredPage({
   onDownloadFile?(attachmentId: string): void;
   /** Give page actions the editor's flush-and-admit barrier. */
   onSettle?(settle: (() => Promise<void>) | undefined): void;
+  /** Other pages an @ can name, under the page list's authority (#6208). */
+  mentionPages?: MentionPages;
+  /** Where a block on another page is, for its chip. */
+  blockPageHref?(page: string, block: string): string;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   // The agents an @ names (#6203): the ones this page can ask, and its creator.
@@ -130,7 +137,7 @@ export function LiveStructuredPage({
     mention,
     pickMention,
     hoverMention,
-  } = useBlockEditing(records, send, seq, files, agents);
+  } = useBlockEditing(records, send, seq, files, agents, mentionPages);
   useEffect(() => {
     onSettle?.(settle);
     return () => onSettle?.(undefined);
@@ -180,6 +187,7 @@ export function LiveStructuredPage({
       uploads={uploads}
       choosing={choosing}
       onDownloadFile={onDownloadFile}
+      blockPageHref={blockPageHref}
       mention={mention}
       onPickMention={pickMention}
       onHoverMention={hoverMention}

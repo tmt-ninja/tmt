@@ -494,6 +494,28 @@
       }
     },
     {
+      "name": "a block mark naming a block on another page",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "see it",
+            "marks": [
+              {
+                "from": 4,
+                "to": 6,
+                "mark": "block",
+                "value": "10000000-0000-4000-8000-000000000008/10000000-0000-4000-8000-000000000009"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "two links side by side with different values stay separate",
       "blocks": {
         "10000000-0000-4000-8000-000000000001": {
@@ -3251,6 +3273,116 @@
                 "to": 1,
                 "mark": "block",
                 "value": "x"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a block mark with an empty page",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "block",
+                "value": "/10000000-0000-4000-8000-000000000009"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a block mark with an empty block",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "block",
+                "value": "10000000-0000-4000-8000-000000000008/"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a block mark whose page is not an id",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "block",
+                "value": "x/10000000-0000-4000-8000-000000000009"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a block mark with three parts",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "block",
+                "value": "10000000-0000-4000-8000-000000000007/10000000-0000-4000-8000-000000000008/10000000-0000-4000-8000-000000000009"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a block mark with an upper-case page",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "paragraph",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "block",
+                "value": "ABCDEF00-0000-4000-8000-000000000008/10000000-0000-4000-8000-000000000009"
               }
             ]
           }

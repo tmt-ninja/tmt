@@ -59,7 +59,13 @@ pub fn valid_mark_value(mark: &str, value: &str) -> bool {
                 && value.len() <= 128
                 && !value.chars().any(|c| c.is_control() || c.is_whitespace())
         }
-        "block" => values::generated_id(value).is_ok(),
+        // A block on this page by its ID, or on another page as `<pageId>/<blockId>` (#6208).
+        "block" => match value.split_once('/') {
+            None => values::generated_id(value).is_ok(),
+            Some((page, block)) => {
+                values::generated_id(page).is_ok() && values::generated_id(block).is_ok()
+            }
+        },
         _ => false,
     }
 }

@@ -22,9 +22,11 @@ export function linkHref(value: string | undefined): string | undefined {
     : undefined;
 }
 
-/** A block mark's ID when it is one the page can hold (a generated v4 UUID, as the validator
- * admits); anything else draws as a plain mention with no link. */
-const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/** A block mark's value as the validator admits it: a block ID on this page, or
+ * `<pageId>/<blockId>` for a block on another page (generated v4 UUIDs). Anything else draws as a
+ * plain mention with no link. */
+const ID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const BLOCK_REF = new RegExp(`^(?:(${ID})/)?(${ID})$`);
 
 /**
  * A block's text with its inline marks: bold, italic and code as text styles, a link as a link,
@@ -40,8 +42,9 @@ export function MarkedText({
 }: {
   text: string;
   marks?: readonly TextMarkRun[];
-  /** Where an @block mark points, from the block's ID. */
-  blockHref?(id: string): string;
+  /** Where an @block mark points, from the block's ID and, for a block on another page, its page.
+   * A mark on another page opens through `onLink`, never by the anchor. */
+  blockHref?(id: string, page?: string): string | undefined;
   /** A link was activated: the page opens it (in a new tab when asked); the anchor never does. */
   onLink?(href: string, newTab: boolean): void;
 }): ReactNode {
@@ -90,14 +93,27 @@ export function MarkedText({
     const agent = has('agent');
     const block = has('block');
     if (agent) node = <BlockMention>{node}</BlockMention>;
-    else if (block)
+    else if (block) {
+      const ref = block.value ? BLOCK_REF.exec(block.value) : null;
+      const page = ref?.[1];
+      const target = ref ? blockHref?.(ref[2]!, page) : undefined;
       node = (
         <BlockMention
-          href={block.value && BLOCK_ID.test(block.value) ? blockHref?.(block.value) : undefined}
+          href={target}
+          onClick={
+            page && target
+              ? (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onLink?.(target, event.metaKey || event.ctrlKey || event.shiftKey);
+                }
+              : undefined
+          }
         >
           {node}
         </BlockMention>
       );
+    }
     out.push(<span key={`${from}-${to}`}>{node}</span>);
   }
   return out;

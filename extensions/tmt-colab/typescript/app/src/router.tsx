@@ -14,6 +14,7 @@ import {
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
+import { mentionPages } from './mention-pages.js';
 import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -2179,6 +2180,12 @@ function OpenPage({
       admitted,
     );
   }, [transport, space, routing, view.ownerOnlyContent]);
+  // The @ picker's other pages (#6208): the same gated page list, and one page opened on choice.
+  const atPages = useMemo(() => {
+    if (!pageViewSource) return undefined;
+    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    return mentionPages(pageViewSource, (id, signal) => transport.page(id, signal), admitted);
+  }, [pageViewSource, transport]);
   const workSource = useMemo(() => {
     if (!transport.management || view.ownerOnlyContent !== true) return undefined;
     const admitted = () => binding.current?.ownerOnlyContent?.() === true;
@@ -2870,6 +2877,10 @@ function OpenPage({
                   seq={view.seq}
                   binding={liveError || archived ? undefined : snapshot.binding}
                   workSource={workSource}
+                  mentionPages={atPages}
+                  blockPageHref={(page, block) =>
+                    `${new URL(routing.pageHref(page), window.location.href).href}#block-${block}`
+                  }
                   pageViewSource={pageViewSource}
                   mountMockup={mountMockup}
                   imageSource={blockImageSource}

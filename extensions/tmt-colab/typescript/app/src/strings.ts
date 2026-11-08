@@ -129,6 +129,7 @@ export const text = {
   blockMention: {
     label: '@ mention',
     empty: 'No matching agent or block',
+    reading: 'Reading this page…',
   },
   blockInsert: {
     label: 'Insert a block',

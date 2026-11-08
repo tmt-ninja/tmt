@@ -8,12 +8,14 @@ import { validMarkValue } from './blocks.js';
  * mark over its chip text.
  */
 
-/** One row of the @ menu. */
+/** One row of the @ menu: a mark to insert, or (#6208) another page to open, the way back from
+ * it, or a Retry of its read. */
 export interface MentionEntry {
-  /** `agent:<name>` or `block:<id>`. */
+  /** `agent:<name>`, `block:<id>`, `page:<id>`, `back` or `retry`. */
   id: string;
-  mark: 'agent' | 'block';
-  /** The mark's value: an agent's name or a block's ID. */
+  /** What choosing the row does: insert this mark, open the page, go back or read again. */
+  mark: 'agent' | 'block' | 'page' | 'back' | 'retry';
+  /** An agent's name, a block's ID (`<pageId>/<blockId>` on another page), or a page's ID. */
   value: string;
   /** The chip's text, which the mark covers: `@name`, or a block's type and opening text. */
   label: string;
@@ -84,9 +86,72 @@ function matches(label: string, query: string): boolean {
   return typed.split(/\s+/u).every((part) => words.some((word) => word.startsWith(part)));
 }
 
+/** Another page in the @ menu (#6208): the pages the page list offers, or the one opened. */
+export type MentionPagesState =
+  | { pages: readonly { id: string; title: string }[] }
+  | {
+      open: { id: string; title: string };
+      state: 'loading' | 'failed' | 'ready';
+      blocks?: readonly BlockRecord[];
+    };
+
+/** How many page rows show. */
+const PAGE_ROWS = 5;
+
 /** The @ menu's rows for `query`: the agents first, then the page's blocks in reading order (not
- * the block typed in), at most `MENTION_ROWS`. */
+ * the block typed in), at most `MENTION_ROWS`, then the other pages whose titles match. With a page
+ * opened, the way back and that page's blocks (or its Retry). */
 export function mentionEntries(
+  tree: BlockTree,
+  agents: readonly string[],
+  query: string,
+  self?: string,
+  other?: MentionPagesState,
+): MentionEntry[] {
+  if (other && 'open' in other) {
+    const back: MentionEntry = {
+      id: 'back',
+      mark: 'back',
+      value: '',
+      label: `‹ ${other.open.title}`,
+    };
+    if (other.state === 'failed')
+      return [
+        back,
+        {
+          id: 'retry',
+          mark: 'retry',
+          value: other.open.id,
+          label: 'Could not read this page. Retry',
+        },
+      ];
+    const rows = (other.blocks ?? [])
+      .filter((block) => block.type !== 'row' && validMarkValue('block', block.id))
+      .map((block): MentionEntry => ({
+        id: `block:${other.open.id}/${block.id}`,
+        mark: 'block',
+        value: `${other.open.id}/${block.id}`,
+        label: mentionLabel(block),
+        type: block.type,
+      }))
+      .filter((entry) => matches(entry.label, query));
+    return [back, ...rows.slice(0, MENTION_ROWS)];
+  }
+  const pages = (other?.pages ?? [])
+    .filter(
+      (page) => page.id !== self && validMarkValue('block', page.id) && matches(page.title, query),
+    )
+    .slice(0, PAGE_ROWS)
+    .map((page): MentionEntry => ({
+      id: `page:${page.id}`,
+      mark: 'page',
+      value: page.id,
+      label: `${page.title} ›`,
+    }));
+  return [...thisPage(tree, agents, query, self), ...pages];
+}
+
+function thisPage(
   tree: BlockTree,
   agents: readonly string[],
   query: string,

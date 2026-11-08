@@ -104,6 +104,8 @@ export function fileHref(value: unknown): boolean {
   return attachmentToken(value) !== null || safeUrl(value, LINK_SCHEMES);
 }
 
+/** A generated ID: a lowercase v4 UUID, as the serve's `values::generated_id`. */
+const GENERATED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export function validMarkValue(mark: string, value: unknown): boolean {
   if (typeof value !== 'string') return false;
   if (mark === 'link') return safeUrl(value, LINK_SCHEMES);
@@ -113,8 +115,11 @@ export function validMarkValue(mark: string, value: unknown): boolean {
       byteLength(value) <= 128 &&
       !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value)
     );
-  if (mark === 'block')
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+  if (mark === 'block') {
+    // A block on this page by its ID, or on another page as `<pageId>/<blockId>` (#6208).
+    const ids = value.split('/');
+    return ids.length <= 2 && ids.every((id) => GENERATED_ID.test(id));
+  }
   return false;
 }
 /** Line feeds and tabs are text; every other control character is not. */

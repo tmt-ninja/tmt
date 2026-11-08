@@ -183,6 +183,8 @@ export interface StructuredPageProps {
   mention?: MentionMenu;
   onPickMention?(entry: string): void;
   onHoverMention?(entry: string): void;
+  /** Where a mark naming a block on another page points (#6208); it opens through `onLink`. */
+  blockPageHref?(page: string, block: string): string;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
   /** The file blocks this tab is adding, drawn as their upload tile. */
@@ -625,8 +627,12 @@ function MentionPopover({
             {entry.label}
           </BlockMenuItem>
         ))}
-        {mention.entries.length === 0 && (
-          <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
+        {mention.reading ? (
+          <BlockMenuEmpty>{strings.blockMention.reading}</BlockMenuEmpty>
+        ) : (
+          !mention.entries.some((entry) => entry.mark !== 'back') && (
+            <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
+          )
         )}
         <MenuKeys />
       </BlockMenu>
@@ -973,7 +979,7 @@ function Content({
     <MarkedText
       text={block.text}
       marks={block.marks}
-      blockHref={(id) => `#block-${id}`}
+      blockHref={(id, page) => (page ? rest.blockPageHref?.(page, id) : `#block-${id}`)}
       onLink={rest.onLink}
     />
   ) : (
