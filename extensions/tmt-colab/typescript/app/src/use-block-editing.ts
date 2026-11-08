@@ -382,6 +382,7 @@ export function useBlockEditing(
   const split = useCallback(
     async (current: BlockTextSync, at: number) => {
       clearTimeout(timer.current);
+      const length = [...current.text].length;
       await inflight.current;
       if (sync.current !== current) return;
       const before = treeRef.current;
@@ -394,7 +395,12 @@ export function useBlockEditing(
       const tail = [...text].slice(at).join('');
       history.current.record(before, ops);
       arriving.current = newId;
-      open(new BlockTextSync(newId, tail), 0);
+      // Keys typed while the op before was in flight landed at the split: the caret stays after
+      // them in the new block, so typing goes on in order.
+      open(
+        new BlockTextSync(newId, tail),
+        Math.max(0, Math.min([...tail].length, [...text].length - length)),
+      );
       try {
         await out(undefined, ops);
       } catch {

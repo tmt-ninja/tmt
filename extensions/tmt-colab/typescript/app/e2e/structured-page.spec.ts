@@ -292,6 +292,34 @@ test('＋ on the handle opens the insert menu in a new block after it', async ({
   await expect(host.locator('[data-block-id]').nth(1).locator('[data-slot="todo"]')).toHaveCount(1);
 });
 
+test('keys typed right after Enter, while the text before is in flight, stay in order', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  // The typing goes out and is held at the serve, so Enter waits for it; the next keys arrive
+  // meanwhile, at the split.
+  await page.evaluate(() => window.holdServe(true));
+  await editor.pressSequentially(' Now', { delay: 20 });
+  await expect
+    .poll(() => page.evaluate(() => window.sent.some((op) => op.op === 'text')))
+    .toBe(true);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Th');
+  await page.evaluate(() => window.holdServe(false));
+  // Once the page has the new block (and shows its text again), typing goes on after "Th".
+  const blocks = host.locator('[data-block-id]');
+  await expect(blocks).toHaveCount(5);
+  const third = await blocks.nth(2).getAttribute('data-block-id');
+  await expect.poll(() => page.evaluate((id) => window.serveText(id!), third)).toBe('Th');
+  await page.keyboard.type('ird.');
+  await expect(blocks.nth(1)).toHaveText('Ship the stack. Now');
+  await expect(blocks.nth(2)).toHaveText('Third.');
+  await expect.poll(() => page.evaluate((id) => window.serveText(id!), third)).toBe('Third.');
+});
+
 test('a gesture shows at once, before the serve commits it', async ({ page }) => {
   const host = await mountFixture(page);
   await page.evaluate(() => window.holdServe(true));

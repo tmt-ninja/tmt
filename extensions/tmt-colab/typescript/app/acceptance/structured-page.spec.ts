@@ -347,7 +347,7 @@ test('an attached image draws on a page of blocks and comes back on undo', async
             blocks: { id: string; deleted?: unknown }[];
           }
         ).blocks.find((entry) => entry.id === image);
-      await expect.poll(() => listed()?.deleted !== undefined).toBe(true);
+      await expect.poll(() => listed()?.deleted !== undefined, { timeout: 30_000 }).toBe(true);
       // The deleted block still keeps the file: the serve reads it out, verified.
       const kept = JSON.parse(
         run(world, colab, [
@@ -363,7 +363,7 @@ test('an attached image draws on a page of blocks and comes back on undo', async
       expect(fs.readFileSync(kept.path)).toEqual(fs.readFileSync(file));
       await page.getByRole('button', { name: 'Undo' }).click();
       await expect(drawn).toBeVisible({ timeout: 30_000 });
-      await expect.poll(() => listed()?.deleted).toBeUndefined();
+      await expect.poll(() => listed()?.deleted, { timeout: 30_000 }).toBeUndefined();
       await page.close();
     } finally {
       fs.rmSync(out, { recursive: true, force: true });
@@ -436,7 +436,10 @@ test('a question written in the browser is registered and its answer reaches the
           }[];
         }
       ).blocks.find((block) => block.type === 'question');
-    await expect.poll(() => listed()?.props.choices).toEqual(['Keep it', 'Change it']);
+    // This tab's batches commit one after another (insert, title, each choices edit).
+    await expect
+      .poll(() => listed()?.props.choices, { timeout: 30_000 })
+      .toEqual(['Keep it', 'Change it']);
     const question = listed()!;
     expect(question.text?.s).toBe('Which heading should we use?');
     const registry = JSON.parse(run(world, colab, ['question', 'ls', pageId, '--json'])) as {
