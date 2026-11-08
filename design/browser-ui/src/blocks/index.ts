@@ -51,10 +51,12 @@ export type {
   TodoBlockProps,
 } from './content.js';
 export { BlockMention, BlockToast } from './mention.js';
+export { MarkedText, linkHref } from './marked-text.js';
+export type { TextMarkRun } from './marked-text.js';
 export type { BlockMentionProps, BlockToastProps } from './mention.js';
 // Structured page blocks have their own entry and stylesheet.
-export { QuestionBlock } from './question-block.js';
-export type { QuestionBlockProps } from './question-block.js';
+export { QuestionBlock, QuestionBlockEditor } from './question-block.js';
+export type { QuestionBlockEditorProps, QuestionBlockProps } from './question-block.js';
 export { ImageBlock } from './image-block.js';
 export type { BlockFile, BlockImage, ImageBlockProps } from './image-block.js';
 export { ConnectedWorkBundle, WorkBundle } from './work-bundle.js';
@@ -68,5 +70,6 @@ export { MockupBlock } from './mockup-block.js';
 export type { MockupBlockProps, MockupLabels, MockupUnavailable } from './mockup-block.js';
 export { PageViewToolbar } from './page-view-toolbar.js';
 export type { PageViewColumn, PageViewFilter, PageViewToolbarProps } from './page-view-toolbar.js';
+export { authoredPageViewRows, type PageViewRowFilter } from './page-view-rows.js';
 export { PageView } from './page-view.js';
 export type { PageViewProps } from './page-view.js';

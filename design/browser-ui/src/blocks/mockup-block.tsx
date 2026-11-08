@@ -148,7 +148,7 @@ export function MockupBlock({
                 {system}@{version.split('#')[0]}
               </span>
             )}
-            <div className="tmt-block-mockup-segments" role="group" aria-label="Stage width">
+            <div className="tmt-block-segments" role="group" aria-label="Stage width">
               {[390, 1440].map((size) => (
                 <button
                   key={size}
@@ -177,7 +177,7 @@ export function MockupBlock({
                 }}
               />
             )}
-            <div className="tmt-block-mockup-segments" role="group" aria-label="Theme">
+            <div className="tmt-block-segments" role="group" aria-label="Theme">
               {themes.map((mode) => (
                 <button
                   key={mode}

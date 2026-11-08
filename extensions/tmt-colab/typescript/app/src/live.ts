@@ -18,7 +18,14 @@ import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import { AdmissionRefusedError, ReopenFailedError, type Registration } from './registration.js';
-import type { PageBinding, PageSnapshot, PageView, SaveOutcome, WorkOutcome } from './transport.js';
+import type {
+  BlocksOutcome,
+  PageBinding,
+  PageSnapshot,
+  PageView,
+  SaveOutcome,
+  WorkOutcome,
+} from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
@@ -31,11 +38,13 @@ import {
   SaveTooLarge,
   settled,
   settledAgainst,
+  type BlocksResult,
   type SaveResult,
   type WorkAction,
   type MetadataAction,
   type WorkResult,
 } from './save.js';
+import type { BlockOp } from './block-model.js';
 import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
@@ -92,6 +101,9 @@ export class Live implements PageBinding {
   #discussionVerified = false;
   #processingViews = false;
   #pendingView: { value: PageView; admission: Admission; open: LiveOpen } | null = null;
+  /** The local, per-binding order of the page content this binding received (`PageView.seq`).
+   * It orders views only within this binding and is never sent anywhere. */
+  #contentSeq = 0;
   #admitted: PageView = { source: '', title: '' };
   #connection: Connection | null = null;
   #current: Promise<Connection>;
@@ -412,7 +424,7 @@ export class Live implements PageBinding {
         this.page.sharing,
         (value) => {
           if (!this.#owns(open)) return;
-          this.#admitted = structuredClone(value);
+          this.#admitted = { ...structuredClone(value), seq: ++this.#contentSeq };
           const progressKey = canonical({ work: value.work, state: value.state });
           if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
             this.#progressKey = progressKey;
@@ -911,6 +923,26 @@ export class Live implements PageBinding {
     settled(result);
     await this.#showsRevision(result.revision);
     return result.childPage === undefined ? {} : { childPage: result.childPage };
+  }
+  /** A block batch, settled as `work` is: a lost reply by exactly one status request, never sent
+   * again; it resolves once the page shows the commit. */
+  async blocks(ops: readonly BlockOp[]): Promise<BlocksOutcome> {
+    if (this.#closed || this.#error) throw new Error('Page editing unavailable');
+    const c = await this.#current;
+    const operationId = crypto.randomUUID();
+    let result: BlocksResult;
+    try {
+      result = await c.blocks(operationId, ops);
+    } catch (error) {
+      if (!(error instanceof Error) || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
+    // The objects show the commit once it is admitted; its content may still be folding.
+    await c.applied();
+    // A status reply carries no receipt: the page's text then shows what landed.
+    return { droppedHunks: result.receipt?.droppedHunks ?? [], seq: this.#contentSeq };
   }
   refreshProgress(): void {
     void this.#progressReads.refresh();

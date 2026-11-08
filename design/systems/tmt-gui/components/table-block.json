@@ -15,6 +15,13 @@
     },
     "hide-narrow": {
       "type": "string"
+    },
+    "density": {
+      "enum": [
+        "roomy",
+        "compact"
+      ],
+      "default": "roomy"
     }
   },
   "slots": [

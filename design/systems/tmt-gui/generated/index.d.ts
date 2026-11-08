@@ -184,6 +184,7 @@ export interface TableBlockProps {
   columns?: string;
   rows?: string;
   "hide-narrow"?: string;
+  density?: "roomy" | "compact";
   children?: ReactNode;
 }
 

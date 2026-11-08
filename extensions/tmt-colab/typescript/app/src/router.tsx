@@ -63,6 +63,8 @@ import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
   createContext,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -128,7 +130,7 @@ import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js
 import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
 import '@tmt/browser-ui/ui.css';
-import { getTheme, subscribeTheme } from './theme.js';
+import { getTheme, subscribeTheme, type Theme } from './theme.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import './about-drawer.css';
@@ -1184,6 +1186,12 @@ function ShortPageChoice() {
 // The Design pack is lazy: ordinary Colab pages do not load its catalog or styles. Its pages are
 // Colab pages, so the route hands it the embedded page view.
 const LazyDesign = lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute');
+// Structured pages (#6005) load their block parts and editor only when one opens.
+const LazyStructuredPage = lazy(() =>
+  import('./structured-page-live.js').then(({ LiveStructuredPage }) => ({
+    default: LiveStructuredPage,
+  })),
+);
 function Design() {
   return (
     <EmbeddedPageContext.Provider value={EmbeddedPage}>
@@ -2050,6 +2058,34 @@ function OpenPage({
   const designSystems = useMemo(
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
+  );
+  // An image block reads its attachments as an HTML page's images do: this page's verified list and
+  // its attachment binding (#6005 image step).
+  const imageBinding = snapshot.binding?.files?.attachments;
+  const blockImageSource = useMemo(
+    () => ({ binding: imageBinding, descriptors: view.attachments ?? [] }),
+    [imageBinding, view.attachments],
+  );
+  // A mockup block's markup renders in the same sandboxed frame and runtime admission as an HTML
+  // page (#6005): never in the parent's DOM.
+  const mountMockup = useCallback(
+    (frameHost: HTMLElement, source: string, signal: AbortSignal, theme?: Theme) =>
+      mountRenderer(frameHost, source, {
+        signal,
+        fitContent: true,
+        theme,
+        onState: () => {},
+        onLink: requestPageLink,
+        designSystem: {
+          release: async (system, lock) => designSystems?.release(system, lock),
+          draft: async (system) => {
+            if (!designSystems) throw new Error('No design systems here.');
+            return designSystems.draft(system);
+          },
+          watch: (system, changed) => designSystems?.watch(system, changed) ?? (() => {}),
+        },
+      }),
+    [designSystems, requestPageLink],
   );
   const pageViewSource = useMemo(() => {
     if (!transport.management || view.ownerOnlyContent !== true) return undefined;
@@ -3185,6 +3221,54 @@ function OpenPage({
                       shell={view.shell}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
+                  )}
+                  {endedError && <EndedBody error={endedError} action={endedAction} />}
+                </main>
+              </section>
+            ) : view.pageType === 'blocks' ? (
+              <section className="page">
+                <AppHeader
+                  page
+                  title={view.title || snapshot.title}
+                  remote={{ deviceName: transport.backendName }}
+                />
+                <main className="canvas">
+                  {view.blocks && (
+                    <Suspense fallback={null}>
+                      <LazyStructuredPage
+                        blocks={view.blocks}
+                        seq={view.seq}
+                        binding={liveError || archived ? undefined : snapshot.binding}
+                        workSource={workSource}
+                        pageViewSource={pageViewSource}
+                        mountMockup={mountMockup}
+                        imageSource={blockImageSource}
+                        questionPage={{
+                          title: view.title || snapshot.title,
+                          questions: view.questions,
+                          threads: view.threads,
+                          discussionPending: view.discussionPending,
+                          creator: view.creator,
+                          creationRecipient: view.creationRecipient,
+                          originalAuthor: view.originalAuthor,
+                          asks: view.asks,
+                          discussion: snapshot.binding?.discussion,
+                          ask: snapshot.binding?.ask,
+                          blocked: !!(liveError || archived),
+                        }}
+                        onLink={(href, newTab) =>
+                          requestPageLink(
+                            {
+                              type: 'colab.render.link',
+                              renderId: crypto.randomUUID(),
+                              href,
+                              newTab,
+                            },
+                            true,
+                          )
+                        }
+                      />
+                    </Suspense>
                   )}
                   {endedError && <EndedBody error={endedError} action={endedAction} />}
                 </main>

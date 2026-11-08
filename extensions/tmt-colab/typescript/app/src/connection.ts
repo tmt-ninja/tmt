@@ -43,15 +43,19 @@ import {
   type PageUsage,
 } from './page-usage.js';
 import {
+  BLOCK_BATCH_OPS,
+  blocksResult,
   SAVE_SOURCE_BYTES,
   SaveTooLarge,
   saveResult,
   workResult,
+  type BlocksResult,
   type SaveResult,
   type WorkAction,
   type MetadataAction,
   type WorkResult,
 } from './save.js';
+import type { BlockOp } from './block-model.js';
 import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
 import {
@@ -384,7 +388,15 @@ export class Connection {
         .map(({ writer, update }) => ({ writer, update })),
     };
   }
-  async #apply(stream: string, entry: ReceivedEntry) {
+  /** The latest apply: a commit whose stream position the objects already show may still be
+   * folding, and `applied()` waits for it. */
+  #applying: Promise<void> = Promise.resolve();
+  #apply(stream: string, entry: ReceivedEntry): Promise<void> {
+    const run = this.#applyNow(stream, entry);
+    this.#applying = run.catch(() => {});
+    return run;
+  }
+  async #applyNow(stream: string, entry: ReceivedEntry) {
     const update = await this.objects.admit(stream, entry);
     if (!update) {
       if (!this.#stopped) this.#emit(this.#projection);
@@ -396,6 +408,10 @@ export class Connection {
     } finally {
       update.update.fill(0);
     }
+  }
+  /** Resolves once every entry admitted so far has been folded and published to the binding. */
+  applied(): Promise<void> {
+    return this.#applying;
   }
   async #receive(frame: Record<string, unknown>) {
     if (frame.type === 'error') {
@@ -546,14 +562,17 @@ export class Connection {
     } else if (
       frame.type === 'saveresult' ||
       frame.type === 'workresult' ||
-      frame.type === 'metadataresult'
+      frame.type === 'metadataresult' ||
+      frame.type === 'blocksresult'
     ) {
       const pending = this.#reply;
       requireValue(pending !== null);
       const result =
         frame.type === 'workresult'
           ? workResult(frame, pending.operationId)
-          : saveResult(frame, pending.operationId);
+          : frame.type === 'blocksresult'
+            ? blocksResult(frame, pending.operationId)
+            : saveResult(frame, pending.operationId);
       this.#reply = null;
       clearTimeout(pending.timer);
       pending.resolve(result);
@@ -666,6 +685,14 @@ export class Connection {
     return (await this.#request(operationId, async () =>
       this.send('work', { operationId, action, body }),
     )) as WorkResult;
+  }
+  /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
+   * its receipt. A lost reply settles like a save's, by one `saveStatus`. */
+  async blocks(operationId: string, ops: readonly BlockOp[]): Promise<BlocksResult> {
+    await this.ready;
+    this.admission.validatePage(this.sharing);
+    requireValue(ops.length >= 1 && ops.length <= BLOCK_BATCH_OPS);
+    return this.#request(operationId, async () => this.send('blocks', { operationId, ops }));
   }
   async metadata(
     operationId: string,

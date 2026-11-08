@@ -307,8 +307,6 @@ export function pageDesignSystems(
       if (version) return shownRelease(system, version);
       const follow = follows.get(system);
       if (!follow) return compileDraft(transport, system);
-      // A doc is reused only at the revision it was read at; one read before the list named the
-      // page, or after it moved, is read again.
       // A doc is reused only at the revision it was read at, taken before the read so it is never
       // filed under a later one; a read still running counts, so pages drafting the same system at
       // once read each component once. One read before the list named the page is not kept.

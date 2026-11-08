@@ -284,6 +284,14 @@
     "usage": "import { ListItemBlock } from '@tmt/browser-ui/blocks';\n\n<ListItemBlock indent={1}>A nested item</ListItemBlock>"
    },
    {
+    "slug": "marked-text",
+    "title": "Marked text",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/marked-text\"></tmt-ui-component-docs></div>",
+    "path": "components/marked-text",
+    "description": "A block’s text with its inline marks: bold, italic and inline code, a link, and @agent or @block mentions. Offsets count scalar values. A link draws only for an https, http or mailto URL (linkHref) and opens through the host’s onLink; anything else is plain text.",
+    "usage": "import { MarkedText } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<MarkedText text={text} marks={marks} onLink={openLink} />"
+   },
+   {
     "slug": "mockup-block",
     "title": "Mockup block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/mockup-block\"></tmt-ui-component-docs></div>",
@@ -304,8 +312,8 @@
     "title": "Page view",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/page-view\"></tmt-ui-component-docs></div>",
     "path": "components/page-view",
-    "description": "Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data.",
-    "usage": "import { PageView } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<PageView title=\"Spec pages\" rows={pages} />"
+    "description": "Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data. authoredPageViewRows reads a view’s authored rows as plain values, filtered, sorted and cut at its limit.",
+    "usage": "import { PageView } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<PageView title=\"Spec pages\" rows={pages} />\n<PageView title=\"Snapshot\" rows={authoredPageViewRows(props.rows, { sort: 'title' })} />"
    },
    {
     "slug": "text-block",
@@ -328,7 +336,7 @@
     "title": "Question block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/question-block\"></tmt-ui-component-docs></div>",
     "path": "components/question-block",
-    "description": "A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.",
+    "description": "A presentational question with choices or a short answer; Other provides a text answer. QuestionBlockEditor edits the title, kind and choices in the same box, with Other as the fixed last choice. In Colab, use tmt-question for persistent questions and answers.",
     "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
    },
    {
@@ -398,7 +406,7 @@
     "title": "Table block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/table-block\"></tmt-ui-component-docs></div>",
     "path": "components/table-block",
-    "description": "The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block.",
+    "description": "The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block. With no rows, empty is its one row (the editor’s Add a row). density is roomy (the default) or compact: space-xs cell padding above and below and the 14px command size, for long lists. An editor puts its column menu in each column’s action, after the heading, and its row menu in rowActions, a last column; both stay quiet until the heading or row is hovered or holds focus, and always show on touch.",
     "usage": "import { TableBlock } from '@tmt/browser-ui/blocks';\n\n<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />"
    },
    {
