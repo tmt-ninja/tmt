@@ -286,6 +286,17 @@ it('a block batch reply carries its receipt, and nothing else beyond a save repl
       'o',
     ),
   ).toEqual({ operationId: 'o', state: 'committed', revision: 'v1:a', receipt });
+  // A batch with an attachment change (#6190) lists the IDs it set and removed.
+  const listed = {
+    ...receipt,
+    attachments: { set: ['abf35c90-ff8f-4c23-b838-a63da7c2b63f'], remove: [] },
+  };
+  expect(
+    blocksResult(
+      frame({ type: 'blocksresult', state: 'committed', revision: 'v1:a', receipt: listed }),
+      'o',
+    ).receipt,
+  ).toEqual(listed);
   // A refusal before the batch reached the page has no receipt.
   expect(
     blocksResult(
@@ -295,6 +306,9 @@ it('a block batch reply carries its receipt, and nothing else beyond a save repl
   ).toEqual({ operationId: 'o', state: 'rejected', code: 'COLAB_BLOCK_BAD_AFTER' });
   for (const bad of [
     { ...receipt, extra: 1 },
+    { ...receipt, attachments: { set: [] } },
+    { ...receipt, attachments: { set: [7], remove: [] } },
+    { ...receipt, attachments: { set: [], remove: [], kept: [] } },
     { ops: [{ op: 'text', id: 'b1', pos: 'a' }], droppedHunks: [] },
     { ops: [], droppedHunks: [{ id: 'b1', from: 5, to: 4, text: '' }] },
   ])

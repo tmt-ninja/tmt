@@ -3171,7 +3171,8 @@ writers' batches converge without a fence.
 | `table`             | `{id, action}` with `add-row`, `remove-row`, `set-cell` (`row`, `column`, `text`, optional `base` and `overlap`), `add-column`, `rename-column`, `move-column` or `remove-column`               |
 
 The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from, to, text}`; empty when
-nothing overlapped). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
+nothing overlapped). A batch with an attachment change also lists `attachments` (`{set, remove}`,
+each a list of attachment IDs). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
 `COLAB_BLOCK_BAD_AFTER` (`after` is not a child of `parent`), `COLAB_BLOCK_TEXT_NOT_FOUND` and
 `COLAB_BLOCK_TEXT_AMBIGUOUS` (`replace`), `COLAB_BLOCK_MARKUP` (a mockup's markup has page-check
 findings), `COLAB_BLOCK_ATTACHMENT` ([attachments](#attachments-on-a-page-of-blocks)),
