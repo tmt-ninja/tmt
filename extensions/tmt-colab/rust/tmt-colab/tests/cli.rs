@@ -13817,17 +13817,27 @@ fn a_block_naming_an_attachment_the_page_does_not_hold_is_refused_offline_and_se
             let value: Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(value["error"]["code"], expected, "{args:?}: {value}");
         };
-        for src in [
-            format!("colab-attachment:{attachment}"),
-            "colab-attachment:0000000a".to_owned(),
-            "colab-attachment:nope".to_owned(),
+        // A well-formed reference to an attachment the page does not hold is an attachment
+        // refusal; a malformed token (or any scheme the URL rule does not allow) never reaches
+        // admission, because the block schema refuses it as an invalid prop first.
+        for (src, code) in [
+            (
+                format!("colab-attachment:{attachment}"),
+                "COLAB_BLOCK_ATTACHMENT",
+            ),
+            (
+                "colab-attachment:0000000a".to_owned(),
+                "COLAB_BLOCK_ATTACHMENT",
+            ),
+            ("colab-attachment:nope".to_owned(), "COLAB_INPUT_INVALID"),
+            ("javascript:alert(1)".to_owned(), "COLAB_INPUT_INVALID"),
         ] {
             let props = serde_json::json!({"images": [{"src": src}]}).to_string();
             refused(
                 &[
                     "block", "insert", page, "--type", "image", "--props", &props, "--json",
                 ],
-                "COLAB_BLOCK_ATTACHMENT",
+                code,
             );
         }
         let props = r#"{"images":[{"src":"https://example.com/a.png"}]}"#;

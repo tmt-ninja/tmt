@@ -11,10 +11,7 @@
 use std::collections::BTreeSet;
 
 use serde_json::Value;
-use tmt_colab_model::{
-    attachment::{Descriptor, DocumentChange},
-    values,
-};
+use tmt_colab_model::attachment::{Descriptor, DocumentChange};
 
 use super::ops::Refusal;
 
