@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
+import { until } from './harness/process.js';
 
 test.afterEach(disposeActiveWorlds);
 
@@ -278,7 +279,21 @@ test('an attached image draws on a page of blocks and comes back on undo', async
         '--no-open',
       ]),
     ) as { pageId: string; path: string };
+    run(world, colab, [
+      'block',
+      'insert',
+      pageId,
+      '--type',
+      'paragraph',
+      '--text',
+      'The sketch follows.',
+      '--json',
+    ]);
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'structured-image-'));
+    // The serve reaches the page's object channel once a browser has opened it.
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, `${door.address}/`).href);
+    await expect(page.getByText('The sketch follows.')).toBeVisible({ timeout: 30_000 });
     try {
       // A 2x2 PNG.
       const file = path.join(out, 'sketch.png');
@@ -308,12 +323,12 @@ test('an attached image draws on a page of blocks and comes back on undo', async
         ) as { blockIds: string[] }
       ).blockIds[0]!;
 
-      const page = await browser.context.newPage();
-      await page.goto(new URL(pagePath, `${door.address}/`).href);
       const block = page.locator(`[data-block-id="${image}"]`);
       const drawn = block.getByRole('img', { name: 'Sketch' });
       await expect(drawn).toBeVisible({ timeout: 30_000 });
       await expect(drawn).toHaveAttribute('src', /^data:image\/png;base64,/);
+      // An agent's insert draws the block without selecting it.
+      expect(await block.getAttribute('aria-label')).toBe('image');
       await expect
         .poll(() => drawn.evaluate((node) => (node as HTMLImageElement).naturalWidth))
         .toBe(2);
@@ -353,5 +368,98 @@ test('an attached image draws on a page of blocks and comes back on undo', async
     } finally {
       fs.rmSync(out, { recursive: true, force: true });
     }
+  });
+});
+
+// #6194: a person writes a question in the browser on a page an agent made; the serve registers
+// it, and the person's answer reaches that agent, the page's creator.
+test('a question written in the browser is registered and its answer reaches the page creator', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('answer-agent', { gated: true });
+    const browser = await pairBrowser(world, 'structured-question', { talk: true });
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId, path: pagePath } = JSON.parse(
+      run(
+        world,
+        colab,
+        ['page', 'create', '--title', 'Questions', '--structured', '--json', '--no-open'],
+        '',
+        agent.pane,
+      ),
+    ) as { pageId: string; path: string };
+    const intro = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Before the question.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, `${door.address}/`).href);
+    await page.locator(`[data-block-id="${intro}"]`).click();
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.press('End');
+    await editor.press('Enter');
+    await editor.press('/');
+    await editor.pressSequentially('q', { delay: 20 });
+    await editor.press('Enter');
+    const edit = page.getByRole('group', { name: 'Edit question' });
+    await expect(edit).toContainText('Answers go to answer-agent');
+    await edit.getByLabel('Question').fill('Which heading should we use?');
+    await edit.getByLabel('Question').press('Enter');
+    await page.keyboard.type('Keep it');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Change it');
+    await edit.getByRole('button', { name: 'Done' }).click();
+    await expect(edit).toHaveCount(0);
+
+    // The serve registered the block with the page's question registry.
+    const listed = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', pageId, '--json'])) as {
+          blocks: {
+            id: string;
+            type: string;
+            text?: { s: string };
+            props: Record<string, unknown>;
+          }[];
+        }
+      ).blocks.find((block) => block.type === 'question');
+    await expect.poll(() => listed()?.props.choices).toEqual(['Keep it', 'Change it']);
+    const question = listed()!;
+    expect(question.text?.s).toBe('Which heading should we use?');
+    const registry = JSON.parse(run(world, colab, ['question', 'ls', pageId, '--json'])) as {
+      questions: { id: string; state: string }[];
+    };
+    expect(registry.questions.map((entry) => entry.id)).toEqual([question.id]);
+
+    // The answer goes to the page's creator, the agent.
+    const card = page
+      .locator(`[data-block-id="${question.id}"]`)
+      .getByRole('group', { name: 'Which heading should we use?' });
+    await card.getByLabel('Keep it', { exact: true }).check();
+    await card.getByRole('button', { name: 'Send' }).click();
+    await until(() => agent.received().length === 1, 'the answer reached the agent');
+    const answer = agent.received()[0];
+    expect(answer.identityId).toBe(agent.id);
+    expect(answer.message).toContain('Answer to “Which heading should we use?”: Keep it');
+    const threads = JSON.parse(run(world, colab, ['threads', pageId, '--json'])).threads as {
+      comments: { questionId?: string }[];
+    }[];
+    expect(threads.flatMap((thread) => thread.comments.map((c) => c.questionId))).toContain(
+      question.id,
+    );
+    await page.close();
   });
 });

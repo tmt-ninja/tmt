@@ -126,3 +126,40 @@ it('clears late plaintext and suppresses disclosure after close or admission cha
     expect(bytes.every((byte) => byte === 0)).toBe(true);
   }
 });
+
+it('reads again at the new revision when the page moves before a read is admitted, a few times', async () => {
+  display();
+  const { AttachmentReadError } = await import('../src/attachments.js');
+  const moving = vi
+    .fn<AttachmentBinding['open']>()
+    .mockRejectedValueOnce(new AttachmentReadError('changed'))
+    .mockResolvedValueOnce(PNG.slice());
+  const result: DocumentImage[] = [];
+  await new DocumentImages(
+    { binding: binding(moving), descriptors: [descriptor()] },
+    () => true,
+  ).resolve([`colab-attachment:${id}`], (image) => result.push(image));
+  expect(moving).toHaveBeenCalledTimes(2);
+  expect(result).toEqual([
+    { reference: `colab-attachment:${id}`, url: 'data:image/png;base64,verified' },
+  ]);
+  const always = vi.fn<AttachmentBinding['open']>(async () => {
+    throw new AttachmentReadError('changed');
+  });
+  const failed: DocumentImage[] = [];
+  await new DocumentImages(
+    { binding: binding(always), descriptors: [descriptor()] },
+    () => true,
+  ).resolve([`colab-attachment:${id}`], (image) => failed.push(image));
+  expect(always).toHaveBeenCalledTimes(3);
+  expect(failed).toEqual([{ reference: `colab-attachment:${id}`, reason: 'unavailable' }]);
+  // Any other failure is not read again.
+  const denied = vi.fn<AttachmentBinding['open']>(async () => {
+    throw new AttachmentReadError('denied');
+  });
+  await new DocumentImages(
+    { binding: binding(denied), descriptors: [descriptor()] },
+    () => true,
+  ).resolve([`colab-attachment:${id}`], () => {});
+  expect(denied).toHaveBeenCalledTimes(1);
+});

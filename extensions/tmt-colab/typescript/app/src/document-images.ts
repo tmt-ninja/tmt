@@ -2,9 +2,12 @@ import type { attachment } from '@tmt/colab-client';
 import type { AttachmentBinding } from './attachment-service.js';
 import { RASTER_TYPES } from './attachment-file.js';
 import { rasterDataUrl } from './attachment-raster.js';
+import { readFailure } from './attachments.js';
 
 export const IMAGE_BYTES = 64 * 1024 * 1024;
 export const IMAGE_REFERENCES = 128;
+/** Reads of one image while the page keeps moving under it. */
+const CHANGED_READS = 3;
 export const IMAGE_REFERENCE =
   /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
 export type ImageReason = 'unavailable' | 'unsupported' | 'not-here' | 'limit';
@@ -62,7 +65,17 @@ export class DocumentImages {
             this.bytes += Number(descriptor.plaintextBytes);
             let bytes: Uint8Array | undefined;
             try {
-              bytes = await this.input.binding.open({ kind: 'document' }, descriptor);
+              // A read names the page's revision when it starts; one that moves before the read is
+              // admitted ('changed') is read again at the new revision, a bounded few times.
+              for (let attempt = 1; ; attempt++) {
+                try {
+                  bytes = await this.input.binding.open({ kind: 'document' }, descriptor);
+                  break;
+                } catch (error) {
+                  if (readFailure(error) !== 'changed' || attempt === CHANGED_READS) throw error;
+                  if (!this.current()) return;
+                }
+              }
               if (!this.current()) return;
               result = { url: await rasterDataUrl(descriptor.mediaType, bytes) };
             } catch {
