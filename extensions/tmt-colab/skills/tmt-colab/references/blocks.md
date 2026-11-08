@@ -24,6 +24,11 @@ a revision and none can answer `COLAB_STALE_BASE`. Block IDs are generated; `--i
 Nothing goes in a block's text as HTML: marks are separate (`block text ... --mark bold --from 0 --to 5`;
 `--value` for `link`, `agent` and `block`, `--clear` to remove).
 
+URLs: a link mark and a file's `href` take `https://`, `http://` or `mailto:`, an image's `src` takes
+`https://` only; a file's `href` and an image's `src` also take `colab-attachment:TOKEN` (8 hex
+digits or a full attachment ID). A `javascript:` or `data:` URL, a relative one or one with a space
+refuses the whole batch.
+
 ## Change text
 
 - A small change: `block text PAGE BLOCK --find 'old' --replace 'new'`. `old` must occur exactly once

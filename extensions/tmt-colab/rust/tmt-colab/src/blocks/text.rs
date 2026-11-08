@@ -13,16 +13,47 @@ fn kind(mark: &str) -> Result<usize> {
     MARKS.iter().position(|m| *m == mark).ok_or(Invalid)
 }
 
+/// The schemes a link mark, and a file's `href`, may use.
+pub const LINK_SCHEMES: [&str; 3] = ["https://", "http://", "mailto:"];
+const ATTACHMENT: &str = "colab-attachment:";
+
+/// The one URL rule: at most 2048 bytes, one of `schemes` followed by something, and no control or
+/// whitespace character. A `javascript:` or `data:` URL, a relative one and one with a space are
+/// all refused, whatever block or mark carries them.
+pub fn safe_url(value: &str, schemes: &[&str]) -> bool {
+    value.len() <= 2048
+        && schemes
+            .iter()
+            .any(|scheme| value.len() > scheme.len() && value.starts_with(scheme))
+        && !value.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+/// The token of a `colab-attachment:` reference, the grammar an HTML page uses: 8 lowercase hex
+/// digits (a unique ID prefix) or a full attachment ID. `None` is anything else.
+pub fn attachment_token(value: &str) -> Option<&str> {
+    let token = value.strip_prefix(ATTACHMENT)?;
+    let prefix = token.len() == 8
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    (prefix || values::generated_id(token).is_ok()).then_some(token)
+}
+
+/// An image's `src`: an attachment reference or an `https` URL, nothing else (an image is fetched
+/// when its page opens, so no plain `http`, and no scheme that runs).
+pub fn image_source(value: &str) -> bool {
+    attachment_token(value).is_some() || safe_url(value, &LINK_SCHEMES[..1])
+}
+
+/// A file's `href`: an attachment reference or a link's URL.
+pub fn file_href(value: &str) -> bool {
+    attachment_token(value).is_some() || safe_url(value, &LINK_SCHEMES)
+}
+
 /// The value of a link, agent or block mark; the three flag marks carry none.
 pub fn valid_mark_value(mark: &str, value: &str) -> bool {
     match mark {
-        "link" => {
-            value.len() <= 2048
-                && ["https://", "http://", "mailto:"]
-                    .iter()
-                    .any(|scheme| value.len() > scheme.len() && value.starts_with(scheme))
-                && !value.chars().any(|c| c.is_control() || c.is_whitespace())
-        }
+        "link" => safe_url(value, &LINK_SCHEMES),
         "agent" => {
             !value.is_empty()
                 && value.len() <= 128
@@ -238,4 +269,61 @@ pub fn plain_value(value: &str) -> Value {
 
 pub fn empty_value() -> Value {
     plain_value("")
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::*;
+
+    #[test]
+    fn one_rule_admits_what_a_renderer_may_write_and_nothing_that_runs_or_leaks() {
+        let id = "30000000-0000-4000-8000-00000000000a";
+        let attachment = format!("colab-attachment:{id}");
+        for ok in ["https://a.example/p.png", "colab-attachment:abcdef01"] {
+            assert!(image_source(ok), "{ok}");
+        }
+        assert!(image_source(&attachment));
+        for ok in [
+            "https://a/f",
+            "http://a/f",
+            "mailto:a@b",
+            "colab-attachment:abcdef01",
+        ] {
+            assert!(file_href(ok), "{ok}");
+            assert!(
+                valid_mark_value("link", ok) == (!ok.starts_with("colab")),
+                "{ok}"
+            );
+        }
+        for bad in [
+            "javascript:alert(1)",
+            "data:image/png;base64,AAAA",
+            "http://a/p.png",
+            "mailto:a@b",
+            "/p.png",
+            "p.png",
+            "https://a/a b",
+            "https://a/a\u{a0}b",
+            "https://a/a\n",
+            "https://",
+            "HTTPS://a/p.png",
+            "colab-attachment:ABCDEF01",
+            "colab-attachment:abcdef0",
+            "colab-attachment:",
+            "",
+        ] {
+            assert!(!image_source(bad), "{bad:?}");
+        }
+        assert!(!file_href("javascript:alert(1)") && !file_href("ftp://a/f") && !file_href(""));
+        assert!(!safe_url(
+            &format!("https://{}", "a".repeat(2048)),
+            &LINK_SCHEMES
+        ));
+        assert_eq!(attachment_token(&attachment), Some(id));
+        assert_eq!(
+            attachment_token("colab-attachment:abcdef01"),
+            Some("abcdef01")
+        );
+        assert_eq!(attachment_token("https://a/b"), None);
+    }
 }

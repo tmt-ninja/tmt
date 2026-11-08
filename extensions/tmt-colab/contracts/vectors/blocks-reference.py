@@ -105,6 +105,10 @@ ok("two links side by side with different values stay separate", {
 ok("text with line feeds and tabs", {
     bid(1): block("code", text=rich("a\n\tb")),
 })
+ok("image sources and file links in every allowed scheme", {
+    bid(1): block("image", props={"images": [{"src": "https://example.com/a.png"}, {"src": "colab-attachment:abcdef01"}, {"src": "colab-attachment:30000000-0000-4000-8000-00000000000a"}]}),
+    bid(2): block("image", pos="W", props={"variant": "file", "files": [{"name": "a", "href": "https://example.com/a.pdf"}, {"name": "b", "href": "http://example.com/b.pdf"}, {"name": "c", "href": "mailto:a@example.com"}, {"name": "d", "href": "colab-attachment:abcdef01"}, {"name": "e", "href": "colab-attachment:30000000-0000-4000-8000-00000000000a"}, {"name": "f"}]}),
+})
 ok("image, mockup and page-view props", {
     bid(1): block("image", props={"images": [{"src": "colab-attachment:abcdef01", "alt": "a", "caption": "c", "tag": "t", "filename": "f.png", "status": "loading"}], "files": [{"name": "n.pdf", "size": "1 KB", "type": "pdf", "href": "colab-attachment:abcdef01"}], "layout": "grid", "size": "l", "variant": "file"}),
     bid(2): block("mockup", pos="W", props={"system": "tmt-gui", "lock": "follow", "preset": "custom", "width": 4000, "height": 0, "toolbarLabels": "a,b", "markup": "<p>x</p>\n"}),
@@ -151,6 +155,30 @@ bad("a column without a name", {bid(1): block("table", props={"columns": [{"id":
 bad("a column width outside its values", {bid(1): block("table", props={"columns": [{"id": "a", "name": "A", "width": "wide"}]})})
 bad("too many columns", {bid(1): block("table", props={"columns": [{"id": f"c{i}", "name": "n"} for i in range(33)]})})
 bad("an image without a source", {bid(1): block("image", props={"images": [{"alt": "a"}]})})
+bad("an image source of javascript:", {bid(1): block("image", props={"images": [{"src": "javascript:alert(1)"}]})})
+bad("an image source of data:", {bid(1): block("image", props={"images": [{"src": "data:image/png;base64,AAAA"}]})})
+bad("an image source of plain http", {bid(1): block("image", props={"images": [{"src": "http://example.com/a.png"}]})})
+bad("an image source that is relative", {bid(1): block("image", props={"images": [{"src": "/a.png"}]})})
+bad("an image source that is a bare name", {bid(1): block("image", props={"images": [{"src": "a.png"}]})})
+bad("an image source with a space", {bid(1): block("image", props={"images": [{"src": "https://example.com/a b.png"}]})})
+bad("an image source with a trailing line feed", {bid(1): block("image", props={"images": [{"src": "https://example.com/a.png\n"}]})})
+bad("an image source with a no-break space", {bid(1): block("image", props={"images": [{"src": "https://example.com/a\u00a0.png"}]})})
+bad("an image source with only a scheme", {bid(1): block("image", props={"images": [{"src": "https://"}]})})
+bad("an image source of a mailto link", {bid(1): block("image", props={"images": [{"src": "mailto:a@example.com"}]})})
+bad("an image source of an uppercase https scheme", {bid(1): block("image", props={"images": [{"src": "HTTPS://example.com/a.png"}]})})
+bad("an image source naming an attachment with a malformed token", {bid(1): block("image", props={"images": [{"src": "colab-attachment:ABCDEF01"}]})})
+bad("an image source naming an attachment with a short token", {bid(1): block("image", props={"images": [{"src": "colab-attachment:abcdef0"}]})})
+bad("an image source naming an attachment with no token", {bid(1): block("image", props={"images": [{"src": "colab-attachment:"}]})})
+bad("a file link of javascript:", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "javascript:alert(1)"}]})})
+bad("a file link of data:", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "data:text/html,<p>x</p>"}]})})
+bad("a file link that is relative", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "/a.pdf"}]})})
+bad("a file link that is a bare name", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "a.pdf"}]})})
+bad("a file link with a space", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "https://example.com/a b.pdf"}]})})
+bad("a file link with a tab", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "https://example.com/a\t.pdf"}]})})
+bad("a file link with only a scheme", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "mailto:"}]})})
+bad("a file link of an ftp scheme", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "ftp://example.com/a.pdf"}]})})
+bad("a file link naming an attachment with a malformed token", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": "colab-attachment:xyz"}]})})
+bad("a file link that is empty", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": ""}]})})
 bad("a page-view filter on an unknown field", {bid(1): block("page-view", props={"filters": [{"field": "colour", "value": "x"}]})})
 bad("a page-view limit of zero", {bid(1): block("page-view", props={"limit": 0})})
 bad("props over the type's size", {bid(1): block("page-view", props={"rows": [{"id": f"p{i}", "name": "n" * 200} for i in range(200)]})})

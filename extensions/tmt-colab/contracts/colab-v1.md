@@ -3115,6 +3115,16 @@ Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (
 text (`code`, `question`) carries no marks. Text holds no control character but line feed and tab.
 A table row is a `row` block whose cells are rich text.
 
+One rule covers every URL a block carries (`safe_url` in `blocks/text.rs`, `safeUrl` in `blocks.ts`, the
+link mark's own check): at most 2048 bytes, one of the allowed schemes followed by something, no
+control or whitespace character. A `link` mark and a file's `href` allow `http://`, `https://` and
+`mailto:`; an image's `src` allows `https://` only (an image is fetched when its page opens). Both also
+take `colab-attachment:` and a token, the grammar of an HTML page: 8 lowercase hex digits or a full
+attachment ID. A `javascript:` or `data:` URL, a relative URL, a different case of a scheme and a URL
+with a space are refused with the whole batch, so neither renderer ever writes one into `<img src>` or
+`<a href>`. A work bundle's tickets stay `https://github.com/` links. `blocks-v1.json` holds the
+refusals (`an image source …`, `a file link …`).
+
 #### Limits
 
 | Bound                                               | Value                                           |

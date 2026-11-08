@@ -2,7 +2,10 @@
 //! block's type with its own props schema, its place in the tree, and its text. The decoder, both
 //! folds and the batch validator accept exactly this; the TypeScript fold mirrors it and runs the
 //! same `contracts/vectors/blocks-v1.json`.
-use super::{pos, text::RichText};
+use super::{
+    pos,
+    text::{self, RichText},
+};
 use crate::{
     closed::{
         Invalid, Result, canonical, id, keys, multiline, nonempty, object, plain, require, text,
@@ -216,7 +219,7 @@ fn images(value: &Value) -> Result<()> {
             &["src"],
             &["alt", "caption", "tag", "filename", "status"],
         )?;
-        nonempty(&image["src"], 2048)?;
+        require(text::image_source(nonempty(&image["src"], 2048)?))?;
         for key in ["alt", "caption", "tag", "filename"] {
             image.get(key).map(|v| plain(v, 1024)).transpose()?;
         }
@@ -230,8 +233,11 @@ fn files(value: &Value) -> Result<()> {
     for file in list(value, 100)? {
         keys(file, &["name"], &["size", "type", "href"])?;
         nonempty(&file["name"], 256)?;
-        for (key, max) in [("size", 32), ("type", 128), ("href", 2048)] {
+        for (key, max) in [("size", 32), ("type", 128)] {
             file.get(key).map(|v| plain(v, max)).transpose()?;
+        }
+        if let Some(href) = file.get("href") {
+            require(text::file_href(plain(href, 2048)?))?;
         }
     }
     Ok(())

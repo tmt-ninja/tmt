@@ -71,16 +71,42 @@ export interface BlockEntry {
   deleted?: number;
 }
 
+/** The schemes a link mark, and a file's `href`, may use. */
+const LINK_SCHEMES = ['https://', 'http://', 'mailto:'] as const;
+/** The one URL rule: at most 2048 bytes, one of `schemes` followed by something, and no control or
+ * whitespace character. A `javascript:` or `data:` URL, a relative one and one with a space are
+ * all refused, whatever block or mark carries them. Mirrors `safe_url` in `blocks/text.rs`. */
+export function safeUrl(value: unknown, schemes: readonly string[]): boolean {
+  return (
+    typeof value === 'string' &&
+    byteLength(value) <= 2048 &&
+    schemes.some((scheme) => value.length > scheme.length && value.startsWith(scheme)) &&
+    !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value)
+  );
+}
+const ATTACHMENT = 'colab-attachment:';
+/** The token of a `colab-attachment:` reference, the grammar an HTML page uses: 8 lowercase hex
+ * digits (a unique ID prefix) or a full attachment ID; `null` is anything else. */
+export function attachmentToken(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.startsWith(ATTACHMENT)) return null;
+  const token = value.slice(ATTACHMENT.length);
+  return /^[0-9a-f]{8}$/.test(token) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(token)
+    ? token
+    : null;
+}
+/** An image's `src`: an attachment reference or an `https` URL, nothing else. */
+export function imageSource(value: unknown): boolean {
+  return attachmentToken(value) !== null || safeUrl(value, LINK_SCHEMES.slice(0, 1));
+}
+/** A file's `href`: an attachment reference or a link's URL. */
+export function fileHref(value: unknown): boolean {
+  return attachmentToken(value) !== null || safeUrl(value, LINK_SCHEMES);
+}
+
 export function validMarkValue(mark: string, value: unknown): boolean {
   if (typeof value !== 'string') return false;
-  if (mark === 'link')
-    return (
-      byteLength(value) <= 2048 &&
-      ['https://', 'http://', 'mailto:'].some(
-        (scheme) => value.length > scheme.length && value.startsWith(scheme),
-      ) &&
-      !/[\p{Cc} \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/u.test(value)
-    );
+  if (mark === 'link') return safeUrl(value, LINK_SCHEMES);
   if (mark === 'agent')
     return (
       value !== '' &&
@@ -264,6 +290,7 @@ function images(value: unknown) {
   for (const image of list(value, 100)) {
     const map = keys(image, ['src'], ['alt', 'caption', 'tag', 'filename', 'status']);
     nonempty(map.src, 2048);
+    requireValue(imageSource(map.src));
     for (const key of ['alt', 'caption', 'tag', 'filename'])
       if (Object.hasOwn(map, key)) plain(map[key], 1024);
     if (Object.hasOwn(map, 'status'))
@@ -277,9 +304,12 @@ function files(value: unknown) {
     for (const [key, max] of [
       ['size', 32],
       ['type', 128],
-      ['href', 2048],
     ] as const)
       if (Object.hasOwn(map, key)) plain(map[key], max);
+    if (Object.hasOwn(map, 'href')) {
+      plain(map.href, 2048);
+      requireValue(fileHref(map.href));
+    }
   }
 }
 function tickets(value: unknown) {

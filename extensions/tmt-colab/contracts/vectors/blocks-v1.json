@@ -537,6 +537,62 @@
       }
     },
     {
+      "name": "image sources and file links in every allowed scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a.png"
+              },
+              {
+                "src": "colab-attachment:abcdef01"
+              },
+              {
+                "src": "colab-attachment:30000000-0000-4000-8000-00000000000a"
+              }
+            ]
+          }
+        },
+        "10000000-0000-4000-8000-000000000002": {
+          "type": "image",
+          "parent": "root",
+          "pos": "W",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "a",
+                "href": "https://example.com/a.pdf"
+              },
+              {
+                "name": "b",
+                "href": "http://example.com/b.pdf"
+              },
+              {
+                "name": "c",
+                "href": "mailto:a@example.com"
+              },
+              {
+                "name": "d",
+                "href": "colab-attachment:abcdef01"
+              },
+              {
+                "name": "e",
+                "href": "colab-attachment:30000000-0000-4000-8000-00000000000a"
+              },
+              {
+                "name": "f"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "image, mockup and page-view props",
       "blocks": {
         "10000000-0000-4000-8000-000000000001": {
@@ -1515,6 +1571,434 @@
             "images": [
               {
                 "alt": "a"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source of javascript:",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "javascript:alert(1)"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source of data:",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "data:image/png;base64,AAAA"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source of plain http",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "http://example.com/a.png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source that is relative",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "/a.png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source that is a bare name",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "a.png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source with a space",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a b.png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source with a trailing line feed",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a.png\n"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source with a no-break space",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://example.com/a .png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source with only a scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "https://"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source of a mailto link",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "mailto:a@example.com"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source of an uppercase https scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "HTTPS://example.com/a.png"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source naming an attachment with a malformed token",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:ABCDEF01"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source naming an attachment with a short token",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:abcdef0"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "an image source naming an attachment with no token",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link of javascript:",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "javascript:alert(1)"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link of data:",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "data:text/html,<p>x</p>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link that is relative",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "/a.pdf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link that is a bare name",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "a.pdf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link with a space",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "https://example.com/a b.pdf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link with a tab",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "https://example.com/a\t.pdf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link with only a scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "mailto:"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link of an ftp scheme",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "ftp://example.com/a.pdf"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link naming an attachment with a malformed token",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": "colab-attachment:xyz"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a file link that is empty",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "variant": "file",
+            "files": [
+              {
+                "name": "n",
+                "href": ""
               }
             ]
           }
