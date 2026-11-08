@@ -50,6 +50,8 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       },
     };
     const watch = (tab: number, target: typeof page) => {
+      target.on('frameattached', () => record(tab, 'frame-attached'));
+      target.on('framedetached', () => record(tab, 'frame-detached'));
       const isHeld = (url: string) =>
         /\/api\/pages\/after\/[0-9a-f]{64}$/.test(new URL(url).pathname);
       const isList = (url: string) => new URL(url).pathname.endsWith('/api/pages');
@@ -244,6 +246,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     };
     held.by.clear();
     // A CLI edit to an unopened component page reaches every tab through that one read.
+    patched = Date.now();
     run(world, world.binaries.colab, [
       'page',
       'patch',
@@ -254,7 +257,6 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '.zz-live-6162b{outline:0}',
       '--json',
     ]);
-    patched = Date.now();
     const drawTimes: number[] = [];
     await Promise.all(
       tabs.map(async (tab, index) => {
