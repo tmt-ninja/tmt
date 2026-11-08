@@ -911,11 +911,18 @@ a.tmt-block-mention:focus-visible {
   height: 16px;
   flex: none;
 }
-.tmt-block-file span:first-of-type {
+.tmt-block-file-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tmt-block-file-size {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+  font: 400 var(--tmt-ui-type-caption-size) / var(--tmt-ui-type-caption-line-height)
+    var(--tmt-ui-font-body);
 }
 .tmt-block-image-viewer-canvas {
   display: grid;

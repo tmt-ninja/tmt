@@ -1,4 +1,4 @@
-import { CircleHelp, Code2, Heading2, ListChecks, Table2, Text } from 'lucide-react';
+import { CircleHelp, Code2, Heading2, ImageUp, ListChecks, Table2, Text } from 'lucide-react';
 import { createContext, useContext, type ComponentProps, type ReactNode } from 'react';
 import './blocks.css';
 
@@ -339,6 +339,13 @@ export const insertGroups: readonly {
         description: 'A file or a command',
         shortcut: '```',
         icon: <Code2 />,
+      },
+      {
+        id: 'file',
+        label: 'Image or file',
+        description: 'Upload from this device',
+        shortcut: '/file',
+        icon: <ImageUp />,
       },
     ],
   },

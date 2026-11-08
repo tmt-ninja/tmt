@@ -3232,6 +3232,8 @@ function OpenPage({
                   title={view.title || snapshot.title}
                   remote={{ deviceName: transport.backendName }}
                 />
+                {/* A file card's Download asks here, as an HTML page's file does (#6202). */}
+                {attachmentDownload.bar}
                 <main className="canvas">
                   {view.blocks && (
                     <Suspense fallback={null}>
@@ -3243,6 +3245,7 @@ function OpenPage({
                         pageViewSource={pageViewSource}
                         mountMockup={mountMockup}
                         imageSource={blockImageSource}
+                        onDownloadFile={(id) => attachmentDownload.request(id)}
                         questionPage={{
                           title: view.title || snapshot.title,
                           questions: view.questions,

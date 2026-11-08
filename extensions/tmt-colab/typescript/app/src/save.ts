@@ -1,4 +1,4 @@
-import { exactKeys, requireValue, text as bytes } from '@tmt/colab-client';
+import { attachment, exactKeys, requireValue, text as bytes } from '@tmt/colab-client';
 import { SOURCE_BYTES } from './fold-protocol.js';
 import { OwnAppendRefused } from './own-publication.js';
 import { SAVE_HUNKS, type SaveHunk } from './save-hunks.js';
@@ -43,11 +43,13 @@ export interface SaveResult {
 /** The one reply to a `work` frame: a save's fields. */
 export type WorkResult = SaveResult;
 /** A block batch's reply (contract: Blocks): the save outcome plus, once the batch reached the
- * page, its receipt: the ops it applied, and the typed hunks a whole-text op could not apply. */
+ * page, its receipt: the ops it applied, the typed hunks a whole-text op could not apply, and the
+ * attachment IDs a batch with an attachment change listed and removed (#6190). */
 export interface BlocksResult extends SaveResult {
   receipt?: {
     ops: { op: string; id: string }[];
     droppedHunks: { id: string; from: number; to: number; text: string }[];
+    attachments?: { set: string[]; remove: string[] };
   };
 }
 /** The most ops one block batch carries (`limits::BLOCK_BATCH_OPS`). */
@@ -234,8 +236,21 @@ export function blocksResult(frame: Record<string, unknown>, operationId: string
   const { receipt, ...rest } = frame;
   const result = saveResult(rest, operationId);
   if (receipt === undefined) return result;
-  exactKeys(receipt, ['ops', 'droppedHunks']);
-  const { ops, droppedHunks } = receipt as Record<string, unknown>;
+  exactKeys(receipt, [
+    'ops',
+    'droppedHunks',
+    ...(Object.hasOwn(receipt as object, 'attachments') ? ['attachments'] : []),
+  ]);
+  const { ops, droppedHunks, attachments } = receipt as Record<string, unknown>;
+  if (attachments !== undefined) {
+    exactKeys(attachments, ['set', 'remove']);
+    for (const ids of Object.values(attachments as Record<string, unknown>))
+      requireValue(
+        Array.isArray(ids) &&
+          ids.length <= attachment.DOCUMENT_ATTACHMENTS &&
+          ids.every((id) => typeof id === 'string' && /^[\x21-\x7e]{1,128}$/.test(id)),
+      );
+  }
   requireValue(Array.isArray(ops) && ops.length <= BLOCK_BATCH_OPS);
   requireValue(Array.isArray(droppedHunks) && droppedHunks.length <= BLOCK_BATCH_OPS * SAVE_HUNKS);
   for (const op of ops) {
@@ -258,6 +273,9 @@ export function blocksResult(frame: Record<string, unknown>, operationId: string
     receipt: {
       ops: ops as { op: string; id: string }[],
       droppedHunks: droppedHunks as { id: string; from: number; to: number; text: string }[],
+      ...(attachments !== undefined && {
+        attachments: attachments as { set: string[]; remove: string[] },
+      }),
     },
   };
 }

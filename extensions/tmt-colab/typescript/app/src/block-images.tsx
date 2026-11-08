@@ -1,6 +1,7 @@
-import { type BlockImage, ImageBlock } from '@tmt/browser-ui/blocks';
+import { type BlockFile, type BlockImage, ImageBlock } from '@tmt/browser-ui/blocks';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BlockRecord } from './block-model.js';
+import type { BlockUpload } from './use-block-editing.js';
 import {
   type DocumentImage,
   type DocumentImageInput,
@@ -29,6 +30,8 @@ const text = (value: unknown): string | undefined =>
  * for agents) is drawn in its error state, never fetched. */
 export function blockImages(block: BlockRecord): {
   images: BlockImageSpec[];
+  files: (BlockFile & { reference?: string })[];
+  variant: 'image' | 'file';
   layout: (typeof LAYOUTS)[number];
   size: (typeof SIZES)[number];
 } {
@@ -52,8 +55,30 @@ export function blockImages(block: BlockRecord): {
       },
     ];
   });
+  // A file card (#6202) names its file; its reference is never handed to the part, which would draw
+  // it as a plain link (the page's files are read only through the authorized path).
+  const files = (Array.isArray(block.props.files) ? block.props.files.slice(0, 100) : []).flatMap(
+    (item): (BlockFile & { reference?: string })[] => {
+      if (!item || typeof item !== 'object') return [];
+      const value = item as Record<string, unknown>;
+      const name = text(value.name);
+      if (!name) return [];
+      const type = text(value.type);
+      const reference = text(value.href);
+      return [
+        {
+          name,
+          size: text(value.size) ?? '',
+          ...(type && { type }),
+          ...(reference && { reference }),
+        },
+      ];
+    },
+  );
   return {
     images,
+    files,
+    variant: block.props.variant === 'file' ? 'file' : 'image',
     layout: LAYOUTS.find((value) => value === block.props.layout) ?? 'carousel',
     size: SIZES.find((value) => value === block.props.size) ?? 'm',
   };
@@ -72,6 +97,16 @@ export function holds(
       token.length === 8 ? d.attachmentId.startsWith(token) : d.attachmentId === token,
     ).length === 1
   );
+}
+
+/** The full ID of the one file of the page's list that `reference` names, as `holds` resolves it. */
+export function attachmentOf(
+  reference: string,
+  descriptors: DocumentImageInput['descriptors'] | undefined,
+): string | undefined {
+  if (!holds(reference, descriptors)) return undefined;
+  const token = reference.slice('colab-attachment:'.length);
+  return descriptors!.find((d) => d.attachmentId.startsWith(token))!.attachmentId;
 }
 
 /**
@@ -168,18 +203,47 @@ export function drawnImage(
 export function StructuredImages({
   block,
   source,
+  upload,
+  onDownload,
 }: {
   block: BlockRecord;
   source?: DocumentImageInput;
+  /** This tab is adding the block's file (#6202): its tile while it uploads, or failed. */
+  upload?: BlockUpload;
+  /** Download a file card's file, by its full attachment ID, through the page's confirmed path. */
+  onDownload?(attachmentId: string): void;
 }) {
-  const { images, layout, size } = useMemo(() => blockImages(block), [block]);
+  const { images, files, variant, layout, size } = useMemo(() => blockImages(block), [block]);
   const { found, retry } = useBlockImages(
     source,
-    images.map((image) => image.reference),
+    upload ? [] : images.map((image) => image.reference),
   );
+  if (upload) {
+    // The spec's grey tile while the file uploads, then `× Failed to load` with Retry.
+    const alt = images[0]?.alt ?? files[0]?.name ?? 'File';
+    return (
+      <ImageBlock
+        images={[
+          upload.state === 'loading'
+            ? { src: '', alt, status: 'loading' }
+            : { src: '', alt, status: 'error', onRetry: upload.retry },
+        ]}
+        layout="single"
+        size={size}
+      />
+    );
+  }
   return (
     <ImageBlock
-      images={images.map((image) => drawnImage(image, found, source, retry))}
+      images={
+        variant === 'file' ? [] : images.map((image) => drawnImage(image, found, source, retry))
+      }
+      files={files.map(({ reference, ...file }) => {
+        // Only a file the page lists can be downloaded, and never through a plain link.
+        const id = reference && attachmentOf(reference, source?.descriptors);
+        return id && onDownload ? { ...file, onDownload: () => onDownload(id) } : file;
+      })}
+      variant={variant}
       layout={layout}
       size={size}
     />

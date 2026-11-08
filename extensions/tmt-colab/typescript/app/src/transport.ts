@@ -130,7 +130,7 @@ export interface PageBinding {
   /** One batch of a structured page's block ops (#6004), merged and committed by the serve; it
    * resolves once the page shows the commit, with the typed hunks a whole-text op could not apply.
    * Throws `SaveRefused` with the serve's code (`COLAB_BLOCK_BAD_AFTER`, …). */
-  blocks?(ops: readonly BlockOp[]): Promise<BlocksOutcome>;
+  blocks?(ops: readonly BlockOp[], attachments?: attachment.DocumentChange): Promise<BlocksOutcome>;
   /** Metadata writes belong only to the authenticated owner device, independently of Work. */
   canMetadata?(): boolean;
   /** Invalidate optional owner progress after an already-observed child state changes. */

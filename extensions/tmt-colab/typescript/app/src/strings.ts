@@ -117,10 +117,23 @@ export const text = {
     deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
     undo: 'Undo',
   },
+  blockFiles: {
+    full: (limit: number) =>
+      `A page holds at most ${limit} files, and these would pass that, so nothing was added. Delete files the page no longer uses, or ask an agent to run block detach, then add again.`,
+    empty: (name: string) => `${name} is empty, so it was not added.`,
+    'too-large': (name: string) => `${name} is larger than 8 MiB, so it was not added.`,
+    unreadable: (name: string) => `${name} could not be read, so it was not added.`,
+    noPlace: 'Files cannot go inside that block. Select another block and add again.',
+    pick: 'Choose an image or file',
+  },
+  blockMention: {
+    label: '@ mention',
+    empty: 'No matching agent or block',
+  },
   blockInsert: {
     label: 'Insert a block',
     empty: 'No matching block',
-    keys: '↑↓ choose · Enter insert · Esc close',
+    keys: { choose: 'choose', insert: 'insert', close: 'close' },
   },
   pageLink: {
     close: 'Close',

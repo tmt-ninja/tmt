@@ -1,4 +1,6 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
+import type { BlockFiles } from './block-uploads.js';
 import type { DocumentImageInput } from './document-images.js';
 import type { BlockOp } from './block-model.js';
 import { blockRecords } from './block-projection.js';
@@ -10,6 +12,7 @@ import type { MountMockup } from './structured-page.js';
 import { StructuredPage } from './structured-page.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
+import { useAgentDirectory } from './agent-directory.js';
 
 /**
  * A structured page (`pageType` `blocks`, #6005) over its live binding: the fold projection's
@@ -27,6 +30,7 @@ export function LiveStructuredPage({
   questionPage,
   mountMockup,
   imageSource,
+  onDownloadFile,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -43,15 +47,44 @@ export function LiveStructuredPage({
   mountMockup?: MountMockup;
   /** The page's attachment list and authorized read, for image blocks. */
   imageSource?: DocumentImageInput;
+  /** A file card's Download: the page's confirmed download path. */
+  onDownloadFile?(attachmentId: string): void;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
+  // The agents an @ names (#6203): the ones this page can ask, and its creator.
+  const { directory } = useAgentDirectory(questionPage?.ask);
+  const creator = questionPage?.creator?.agent.name;
+  const agents = useMemo(
+    () => [
+      ...(creator ? [creator] : []),
+      ...(directory.state === 'ready' ? directory.agents.map((agent) => agent.agentName) : []),
+    ],
+    [creator, directory],
+  );
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
+  const pageFiles = write ? binding?.files : undefined;
   const send = useCallback(
-    async (ops: BlockOp[]) => {
+    async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       if (!write) throw new Error('Page editing unavailable');
-      return (await write(ops)).seq;
+      if (!stored?.length) return (await write(ops)).seq;
+      // The files join the page's list in the same batch as the blocks that show them (#6202).
+      if (!pageFiles?.addToBlocks) throw new Error('Files are not available on this page.');
+      return (await pageFiles.addToBlocks(stored, ops)).seq;
     },
-    [write],
+    [write, pageFiles],
+  );
+  const listed = useRef(0);
+  listed.current = imageSource?.descriptors.length ?? 0;
+  const files = useMemo<BlockFiles | undefined>(
+    () =>
+      pageFiles?.addToBlocks
+        ? {
+            count: () => listed.current,
+            upload: (input: AttachmentInput) =>
+              pageFiles.attachments.upload(input, pageFiles.target(), () => {}),
+          }
+        : undefined,
+    [pageFiles],
   );
   const {
     tree,
@@ -85,7 +118,13 @@ export function LiveStructuredPage({
     insertAfter,
     closeBlockMenu,
     hoverBlockMenu,
-  } = useBlockEditing(records, send, seq);
+    attach,
+    uploads,
+    choosing,
+    mention,
+    pickMention,
+    hoverMention,
+  } = useBlockEditing(records, send, seq, files, agents);
   return (
     <StructuredPage
       tree={tree}
@@ -125,6 +164,13 @@ export function LiveStructuredPage({
       onOpenBlockMenu={openBlockMenu}
       onInsertAfter={insertAfter}
       onMove={move}
+      onAttach={files && ((picked, after) => void attach(picked, after))}
+      uploads={uploads}
+      choosing={choosing}
+      onDownloadFile={onDownloadFile}
+      mention={mention}
+      onPickMention={pickMention}
+      onHoverMention={hoverMention}
       readonly={!write}
     />
   );

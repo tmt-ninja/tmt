@@ -4,6 +4,7 @@ import {
   type BlockOp,
   type BlockRecord,
   isBlockType,
+  PAGE_PARENT,
   TEXT_TYPES,
   type TableColumnEdit,
   type TableRowAction,
@@ -40,6 +41,11 @@ import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
 import { richType, validMarkValue } from './blocks.js';
 import { BlockTree } from './block-tree.js';
+import { attachment } from '@tmt/colab-client';
+import type { StoredAttachment } from './attachment-service.js';
+import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
+import { text as strings } from './strings.js';
+import { type MentionEntry, mentionEntries, mentionQuery } from './block-mention.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
 const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
@@ -71,6 +77,14 @@ export interface InsertMenu {
   active?: string;
 }
 
+/** The @ menu open in the focused block (#6203): what follows the @ filters it. */
+export interface MentionMenu {
+  id: string;
+  entries: MentionEntry[];
+  /** The active entry's id. */
+  active?: string;
+}
+
 /** The block menu's actions this editor runs, in the design system's catalog order (Move to…, copy
  * link and @ this block come with their own steps). */
 export const BLOCK_MENU_ACTIONS = ['move-up', 'move-down', 'duplicate', 'delete'] as const;
@@ -86,13 +100,19 @@ const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
   e: 'code',
 };
 
-/** The status line after a delete, with Undo. */
+/** The status line after a delete, with Undo, or a notice about files that were not added. */
 export interface DeleteToast {
   /** How many blocks the delete took. */
   count: number;
-  /** Moves with every delete, so a new one restarts the line. */
+  /** Why files were not added (#6202); no Undo then. */
+  notice?: string;
+  /** Moves with every line, so a new one restarts it. */
   id: number;
 }
+
+/** A file block this tab is adding (#6202): its tile while the file uploads, or once the upload
+ * or its batch failed, with Retry. */
+export type BlockUpload = { state: 'loading' } | { state: 'failed'; retry(): void };
 
 /** What the focused block, or table cell, shows while it is edited. */
 export interface Editing {
@@ -120,13 +140,20 @@ export interface Editing {
  */
 export function useBlockEditing(
   records: readonly BlockRecord[],
-  send: (ops: BlockOp[]) => Promise<number | void>,
+  /** Sends one batch; `stored` files join the page's attachment list in that same batch. */
+  send: (ops: BlockOp[], stored?: readonly StoredAttachment[]) => Promise<number | void>,
   /** The local order of the view `records` came from (`PageView.seq`), when the page gives one. */
   seq?: number,
+  /** The page's files, when this tab may add them (#6202). */
+  files?: BlockFiles,
+  /** The agents an @ can name (#6203). */
+  agents: readonly string[] = [],
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when it settles
-   * (the page then shows it, or it was refused). */
+   * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
+   * the file uploads, and is never sent. */
   const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
+  const [uploads, setUploads] = useState<ReadonlyMap<string, BlockUpload>>(new Map());
   const batchKey = useRef(0);
   /** The page as the serve shows it: what the focused block's text merges with. */
   const pageTree = useMemo(() => new BlockTree(records), [records]);
@@ -171,6 +198,27 @@ export function useBlockEditing(
   const [authoring, setAuthoring] = useState<string>();
   const menuRef = useRef(menuAt);
   menuRef.current = menuAt;
+  /** The @ the caret is in (#6203): its scalar offset in the block's text, what follows it, and the
+   * active entry. */
+  /** The insert menu's entries this page offers: "Image or file" only where files can be added. */
+  const insertEntries = useMemo(
+    () => (files ? INSERT_ENTRIES : INSERT_ENTRIES.filter((entry) => entry.id !== 'file')),
+    [files],
+  );
+  const insertRef = useRef(insertEntries);
+  insertRef.current = insertEntries;
+  /** "Image or file" was chosen: the page opens its file picker, and the files go after `after`. */
+  const [choosing, setChoosing] = useState<{ after: string; id: number }>();
+  const [mentionAt, setMentionAt] = useState<{
+    id: string;
+    from: number;
+    query: string;
+    active?: string;
+  }>();
+  const mentionRef = useRef(mentionAt);
+  mentionRef.current = mentionAt;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
 
   const open = useCallback((next: BlockTextSync, at: number) => {
     sync.current = next;
@@ -190,32 +238,35 @@ export function useBlockEditing(
   );
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
-    const key = ++batchKey.current;
-    setPending((now) => [...now, { key, ops }]);
-    // This tab's batches commit in the order it made them (a column's rename after its add): each
-    // goes once the one before it settles, and is drawn at once meanwhile.
-    const sent = queue.current.then(() => sendRef.current(ops));
-    queue.current = sent.then(
-      () => {},
-      () => {},
-    );
-    const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
-    sent.then(drop, drop);
-    inflight.current = sent.then(
-      (at) => {
-        if (current)
-          showRef.current(
-            current,
-            current.settled(true, caret.current, typeof at === 'number' ? at : undefined),
-          );
-      },
-      () => {
-        if (current) showRef.current(current, current.settled(false, caret.current));
-      },
-    );
-    return sent;
-  }, []);
+  const out = useCallback(
+    (current: BlockTextSync | undefined, ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
+      const key = ++batchKey.current;
+      setPending((now) => [...now, { key, ops }]);
+      // This tab's batches commit in the order it made them (a column's rename after its add): each
+      // goes once the one before it settles, and is drawn at once meanwhile.
+      const sent = queue.current.then(() => sendRef.current(ops, stored));
+      queue.current = sent.then(
+        () => {},
+        () => {},
+      );
+      const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
+      sent.then(drop, drop);
+      inflight.current = sent.then(
+        (at) => {
+          if (current)
+            showRef.current(
+              current,
+              current.settled(true, caret.current, typeof at === 'number' ? at : undefined),
+            );
+        },
+        () => {
+          if (current) showRef.current(current, current.settled(false, caret.current));
+        },
+      );
+      return sent;
+    },
+    [],
+  );
   /** The typing not sent yet, with the marks its new characters take from the text they were
    * typed into (as the editor draws them). */
   const typedOps = useCallback((current: BlockTextSync): BlockOp[] => {
@@ -297,6 +348,18 @@ export function useBlockEditing(
       caret.current = at;
       const menu = menuRef.current;
       if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
+      // An @ at a word's start opens the @ menu in a block that takes marks; what follows filters it.
+      const block = treeRef.current.get(id);
+      const found = block && !current.cell && richType(block.type) ? mentionQuery(text, at) : null;
+      setMentionAt((now) =>
+        found
+          ? {
+              id,
+              ...found,
+              ...(now?.id === id && now.from === found.from && { active: now.active }),
+            }
+          : undefined,
+      );
       clearTimeout(timer.current);
       timer.current = setTimeout(flush, TEXT_FLUSH_MS);
     },
@@ -514,10 +577,12 @@ export function useBlockEditing(
       if (!current || at?.id !== current.id) return;
       setMenuAt(undefined);
       const type = insertType(entry);
-      if (type === 'paragraph') {
+      if (type === 'paragraph' || entry === 'file') {
         current.typed('');
         open(current, 0);
         flush();
+        // The picked files go after the cleared paragraph (#6202).
+        if (entry === 'file') setChoosing((now) => ({ after: current.id, id: (now?.id ?? 0) + 1 }));
         return;
       }
       clearTimeout(timer.current);
@@ -552,6 +617,144 @@ export function useBlockEditing(
     [open, out, flush],
   );
 
+  /** A notice in the status line, in place of a delete's. */
+  const notice = useCallback((message: string) => {
+    clearTimeout(toastTimer.current);
+    setToast((now) => ({ count: 0, notice: message, id: (now?.id ?? 0) + 1 }));
+    toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
+  }, []);
+  /** Files whose uploads are under way: they count against the page's cap until their batch. */
+  const adding = useRef(0);
+  /**
+   * Add files to the page (#6202), after `after` (the focused, else the selected, else the last
+   * block). Each file is one gesture: its tile shows at once while it uploads, then one batch
+   * inserts its block and lists the file. Files the page cannot take are refused before any
+   * upload. A failed upload, or a batch the serve refused, leaves the tile failed with Retry; a
+   * stored file is never uploaded again, and one never listed is left for the sweep.
+   */
+  const attach = useCallback(
+    async (picked: readonly File[], after?: string) => {
+      if (!files || !picked.length) return;
+      if (!fitsAttachments(files.count() + adding.current, picked.length))
+        return notice(strings.blockFiles.full(attachment.DOCUMENT_ATTACHMENTS));
+      // Each file holds its place under the cap until it is refused, its upload fails or its
+      // batch settles (the page's list then counts it, or it was not added).
+      adding.current += picked.length;
+      clearTimeout(timer.current);
+      flush();
+      const current = sync.current;
+      await inflight.current;
+      const top = treeRef.current.children();
+      let anchor = after ?? current?.id ?? selection?.focus ?? top[top.length - 1]?.id;
+      for (const file of picked) {
+        const read = await readBlockFile(file);
+        if (typeof read === 'string') {
+          adding.current--;
+          notice(strings.blockFiles[read](file.name));
+          continue;
+        }
+        const id = crypto.randomUUID();
+        const place = (stored?: StoredAttachment) =>
+          insertBlock(treeRef.current, {
+            id,
+            ...fileBlock(read, stored),
+            ...(anchor ? { after: anchor } : { parent: PAGE_PARENT }),
+          });
+        let placeholder: BlockOp;
+        try {
+          placeholder = place();
+        } catch {
+          // Inside a block that holds no image (a card's row, say): after it at the top level.
+          anchor = top[top.length - 1]?.id;
+          try {
+            placeholder = place();
+          } catch {
+            adding.current--;
+            notice(strings.blockFiles.noPlace);
+            continue;
+          }
+        }
+        const after = anchor;
+        anchor = id;
+        const tile = ++batchKey.current;
+        const draw = (upload?: BlockUpload) => {
+          setUploads((now) => {
+            const next = new Map(now);
+            if (upload) next.set(id, upload);
+            else next.delete(id);
+            return next;
+          });
+          setPending((now) =>
+            upload
+              ? now.some((batch) => batch.key === tile)
+                ? now
+                : [...now, { key: tile, ops: [placeholder] }]
+              : now.filter((batch) => batch.key !== tile),
+          );
+        };
+        const commit = (stored: StoredAttachment) => {
+          anchor = after;
+          const ops = [place(stored)];
+          anchor = id;
+          history.current.record(treeRef.current, ops);
+          // The tile gives way to the batch in one render: the page draws the block either way.
+          draw();
+          void out(undefined, ops, [stored])
+            .catch(() => draw({ state: 'failed', retry: () => commit(stored) }))
+            .finally(release);
+        };
+        let counted = true;
+        function release() {
+          if (!counted) return;
+          counted = false;
+          adding.current--;
+        }
+        const upload = async () => {
+          draw({ state: 'loading' });
+          let stored: StoredAttachment;
+          try {
+            stored = await files.upload(read.input);
+          } catch {
+            release();
+            draw({ state: 'failed', retry: () => void upload() });
+            return;
+          }
+          commit(stored);
+        };
+        await upload();
+      }
+    },
+    [files, flush, notice, out, selection?.focus],
+  );
+
+  /** The @ menu's rows now, for the block it is open in. */
+  const mentionRows = useCallback(
+    (at: NonNullable<typeof mentionAt>) =>
+      mentionEntries(treeRef.current, agentsRef.current, at.query, at.id),
+    [],
+  );
+  /** The @ menu's choice (#6203): the @ and what followed it become the chip text and a space, and
+   * the chip text takes the `agent` or `block` mark, in one batch with the typing. */
+  const pickMention = useCallback(
+    (entryId: string) => {
+      const current = sync.current;
+      const at = mentionRef.current;
+      if (!current || at?.id !== current.id) return;
+      const entry = mentionRows(at).find((row) => row.id === entryId);
+      setMentionAt(undefined);
+      if (!entry) return;
+      const chars = [...current.text];
+      const end = Math.min(chars.length, at.from + 1 + [...at.query].length);
+      const label = [...entry.label];
+      const next = [...chars.slice(0, at.from), ...label, ' ', ...chars.slice(end)].join('');
+      current.typed(next);
+      const to = at.from + label.length;
+      open(current, to + 1);
+      void format(current, { from: at.from, to }, entry.mark, entry.value);
+    },
+    [mentionRows, open, format],
+  );
+
   /** A key in the focused block; true when the block took it. */
   const key = useCallback(
     (id: string, event: KeyboardEvent, text: string, at: number, range: TextRange): boolean => {
@@ -576,9 +779,26 @@ export function useBlockEditing(
       }
       if (!block || !TEXT_TYPES.has(block.type)) return false;
       current.typed(text);
+      const mention = mentionRef.current?.id === id ? mentionRef.current : undefined;
+      if (mention) {
+        const ids = mentionRows(mention).map((entry) => entry.id);
+        if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
+          setMentionAt({ ...mention, active: nextBlockMenuItem(ids, mention.active, event.key) });
+          return true;
+        }
+        if (event.key === 'Escape') {
+          // Closes and keeps what was typed.
+          setMentionAt(undefined);
+          return true;
+        }
+        if ((event.key === 'Enter' || event.key === 'Tab') && ids.length && !event.shiftKey) {
+          pickMention(mention.active && ids.includes(mention.active) ? mention.active : ids[0]!);
+          return true;
+        }
+      }
       const menu = menuRef.current?.id === id ? menuRef.current : undefined;
       if (menu) {
-        const ids = filterInsert(INSERT_ENTRIES, text).map((entry) => entry.id);
+        const ids = filterInsert(insertRef.current, text).map((entry) => entry.id);
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
           setMenuAt({ ...menu, active: nextBlockMenuItem(ids, menu.active, event.key) });
           return true;
@@ -617,7 +837,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush, format, indent],
+    [split, join, pick, flush, format, indent, mentionRows, pickMention],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -890,14 +1110,26 @@ export function useBlockEditing(
 
   const menu = useMemo((): InsertMenu | undefined => {
     if (!menuAt || editing?.id !== menuAt.id) return undefined;
-    const entries = filterInsert(INSERT_ENTRIES, menuAt.query);
+    const entries = filterInsert(insertEntries, menuAt.query);
     const active =
       menuAt.active && entries.some((entry) => entry.id === menuAt.active)
         ? menuAt.active
         : entries[0]?.id;
     return { id: menuAt.id, entries, ...(active && { active }) };
-  }, [menuAt, editing?.id]);
+  }, [menuAt, editing?.id, insertEntries]);
   const closeMenu = useCallback(() => setMenuAt(undefined), []);
+  const mention = useMemo((): MentionMenu | undefined => {
+    if (!mentionAt || editing?.id !== mentionAt.id) return undefined;
+    const entries = mentionEntries(tree, agents, mentionAt.query, mentionAt.id);
+    const active =
+      mentionAt.active && entries.some((entry) => entry.id === mentionAt.active)
+        ? mentionAt.active
+        : entries[0]?.id;
+    return { id: mentionAt.id, entries, ...(active && { active }) };
+  }, [mentionAt, editing?.id, tree, agents]);
+  const hoverMention = useCallback((entry: string) => {
+    setMentionAt((at) => (at ? { ...at, active: entry } : at));
+  }, []);
   const hover = useCallback((entry: string) => {
     setMenuAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
@@ -937,5 +1169,11 @@ export function useBlockEditing(
       setBlockMenu((now) => (now ? { ...now, active: action } : now)),
     toast,
     undo,
+    attach,
+    uploads,
+    choosing,
+    mention,
+    pickMention,
+    hoverMention,
   };
 }

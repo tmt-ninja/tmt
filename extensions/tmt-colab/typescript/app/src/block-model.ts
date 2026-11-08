@@ -45,6 +45,8 @@ export const INSERT_TYPES: Readonly<Record<string, BlockType>> = {
   todo: 'todo',
   question: 'question',
   code: 'code',
+  // An image block, or a file card, of files the person picks (#6202).
+  file: 'image',
 };
 
 /** The page itself as a parent: a block at the top level. */

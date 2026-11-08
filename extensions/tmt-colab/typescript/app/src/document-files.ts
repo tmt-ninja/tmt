@@ -6,6 +6,8 @@ import type {
   StoredAttachment,
 } from './attachment-service.js';
 import type { OwnRecord } from './fold-protocol.js';
+import type { BlockOp } from './block-model.js';
+import type { BlocksOutcome } from './transport.js';
 
 /** The page's own files: uploads bound to the current source, published as an `intents` proof
  * first and then written into the document through Save, so a changed page never attaches. */
@@ -20,6 +22,12 @@ export interface DocumentFiles {
   add(stored: readonly StoredAttachment[]): Promise<void>;
   /** Remove references; the stored bytes go 30 days after no page refers to them. */
   remove(attachmentIds: readonly string[]): Promise<void>;
+  /** A page of blocks (#6202): prove the uploaded files, then add them to the page's list in the
+   * same block batch as `ops` (the blocks that show them). */
+  addToBlocks?(
+    stored: readonly StoredAttachment[],
+    ops: readonly BlockOp[],
+  ): Promise<BlocksOutcome>;
 }
 
 export interface DocumentFilesOptions {
@@ -30,6 +38,8 @@ export interface DocumentFilesOptions {
   source(): string;
   publish(records: OwnRecord[]): Promise<void>;
   edit(source: string, base: string, change: attachment.DocumentChange): Promise<unknown>;
+  /** A block batch with an attachment change, on a page of blocks. */
+  blocks?(ops: readonly BlockOp[], change: attachment.DocumentChange): Promise<BlocksOutcome>;
 }
 
 export class LiveDocumentFiles implements DocumentFiles {
@@ -50,6 +60,13 @@ export class LiveDocumentFiles implements DocumentFiles {
     await this.options.edit(source, source, {
       set: stored.map(({ original }) => original.descriptor),
     });
+  }
+  async addToBlocks(stored: readonly StoredAttachment[], ops: readonly BlockOp[]) {
+    const blocks = this.options.blocks;
+    if (!blocks) throw new Error('This page holds no blocks.');
+    const source = this.options.source();
+    await this.options.publish(await this.options.service.publication(stored, source));
+    return blocks(ops, { set: stored.map(({ original }) => original.descriptor) });
   }
   async remove(attachmentIds: readonly string[]) {
     if (!attachmentIds.length) return;

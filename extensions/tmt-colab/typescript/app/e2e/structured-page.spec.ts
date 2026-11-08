@@ -1381,3 +1381,307 @@ test('deleting an image block and undoing it draws the image again', async ({ pa
     )
     .toEqual([320, 320]);
 });
+
+/** Drops (or pastes) files on a block: a PNG drawn in the page and plain-text files. */
+async function addFiles(
+  page: import('@playwright/test').Page,
+  target: string,
+  files: { name: string; png?: string; text?: string }[],
+  how: 'drop' | 'paste' = 'drop',
+) {
+  await page.evaluate(
+    async ({ target, files, how }) => {
+      const transfer = new DataTransfer();
+      for (const file of files) {
+        let blob: Blob;
+        if (file.png) {
+          const canvas = new OffscreenCanvas(240, 160);
+          const context = canvas.getContext('2d')!;
+          context.fillStyle = file.png;
+          context.fillRect(0, 0, 240, 160);
+          blob = await canvas.convertToBlob({ type: 'image/png' });
+        } else blob = new Blob([file.text ?? ''], { type: 'text/plain' });
+        transfer.items.add(new File([blob], file.name, { type: blob.type }));
+      }
+      const at = document.querySelector(`[data-block-id="${target}"]`)!;
+      const node = how === 'paste' ? (at.querySelector('[contenteditable="true"]') ?? at) : at;
+      node.dispatchEvent(
+        how === 'paste'
+          ? new ClipboardEvent('paste', {
+              clipboardData: transfer,
+              bubbles: true,
+              cancelable: true,
+            })
+          : new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }),
+      );
+    },
+    { target, files, how },
+  );
+}
+
+/** The blocks at the top level, in drawing order. */
+const topLevel = (host: import('@playwright/test').Locator) =>
+  host.evaluate((node) =>
+    [...node.querySelectorAll<HTMLElement>('[data-block-id]')]
+      .filter((block) => !block.parentElement?.closest('[data-block-id]'))
+      .map((block) => block.dataset.blockId),
+  );
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`dropped files upload as an image and a file card after the block, at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const host = await mountFixture(page, 'spec');
+      const blocks = await topLevel(host);
+      const after = blocks[1]!;
+      await page.evaluate(() => window.holdUploads());
+      await addFiles(page, after, [
+        { name: 'board.png', png: '#c8553d' },
+        { name: 'notes.txt', text: 'Ship the stack.\n' },
+      ]);
+      // The file's grey tile shows at once, after the block it was dropped on (the second file
+      // waits for the first upload).
+      await expect.poll(async () => (await topLevel(host)).length).toBe(blocks.length + 1);
+      const now = await topLevel(host);
+      expect(now.slice(0, 2)).toEqual(blocks.slice(0, 2));
+      const tile = host.locator(`[data-block-id="${now[2]}"]`);
+      await expect(tile.locator('.tmt-block-image-placeholder')).toHaveCount(1);
+      await expect(tile.locator('.tmt-block-image-failed')).toHaveCount(0);
+      await tile.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await tile.screenshot({
+        path: capturePath(`structured-upload-${width}-${theme}-loading.png`),
+      });
+      await page.evaluate(() => window.releaseUploads());
+      // The image reads back through the page's authorized read; the text file is a card.
+      const image = host.locator(`[data-block-id="${now[2]}"] img`);
+      await expect(image).toHaveAttribute('alt', 'board.png');
+      await expect
+        .poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth))
+        .toBe(240);
+      const card = host.locator('.tmt-block-file');
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText('notes.txt');
+      // The spec's card: name, its size in the caption style, Download; no media type string.
+      await expect(card.locator('.tmt-block-file-size')).toHaveText('16 B');
+      await expect(card).not.toContainText('text/plain');
+      // The card never carries the raw reference as a link: Download asks the page's confirmed path.
+      await expect(card.locator('a')).toHaveCount(0);
+      await card.getByRole('button', { name: 'Download notes.txt' }).click();
+      expect(await page.evaluate(() => window.downloads)).toEqual([
+        await page.evaluate(() => window.listedFiles[1]![0]!),
+      ]);
+      const final = await topLevel(host);
+      expect(final).toHaveLength(blocks.length + 2);
+      expect(final.slice(0, 2)).toEqual(blocks.slice(0, 2));
+      // Bytes, not names, decided each type; each file was listed in its block's own batch.
+      expect(await page.evaluate(() => window.uploaded)).toEqual([
+        { filename: 'board.png', mediaType: 'image/png', size: expect.any(Number) },
+        { filename: 'notes.txt', mediaType: 'text/plain', size: 16 },
+      ]);
+      await expect
+        .poll(() => page.evaluate(() => window.listedFiles.map((ids) => ids.length)))
+        .toEqual([1, 1]);
+      await host.locator(`[data-block-id="${final[2]}"]`).scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await host
+        .locator(`[data-block-id="${final[3]}"]`)
+        .screenshot({ path: capturePath(`structured-upload-${width}-${theme}-file.png`) });
+    });
+
+test('a pasted image goes after the focused block, and delete and Undo bring it back', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  const at = blocks.indexOf('l2');
+  await host.locator('[data-block-id="l2"]').getByText('滑過或選取是淡色底。').click();
+  await expect(host.locator('[data-block-id="l2"] [contenteditable="true"]')).toBeFocused();
+  await addFiles(page, 'l2', [{ name: 'shot.png', png: '#2d6a8f' }], 'paste');
+  const now = () => topLevel(host);
+  await expect.poll(async () => (await now()).length).toBe(blocks.length + 1);
+  const added = (await now())[at + 1]!;
+  const image = host.locator(`[data-block-id="${added}"] img`);
+  await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(240);
+  // The list item keeps its text: the paste took only the file.
+  expect(await page.evaluate(() => window.serveText('l2'))).toBe('滑過或選取是淡色底。');
+  await page.keyboard.press('Escape');
+  const block = host.locator(`[data-block-id="${added}"]`);
+  await block.hover();
+  await block.getByRole('button', { name: 'Block actions' }).click();
+  await page
+    .getByRole('menu', { name: 'Block actions' })
+    .getByRole('menuitem', { name: /Delete/ })
+    .click();
+  await expect(block).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(240);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(1);
+});
+
+test('a failed upload, or a refused batch, leaves a failed tile whose Retry finishes it', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // The upload fails: Retry uploads again.
+  await page.evaluate(() => (window.failUpload = true));
+  await addFiles(page, blocks[0]!, [{ name: 'a.png', png: '#5b8c51' }]);
+  let failed = host.getByRole('group', { name: 'a.png', exact: true });
+  await expect(failed).toContainText('Failed to load');
+  await page.evaluate(() => (window.failUpload = false));
+  await failed.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('img[alt="a.png"]')).toHaveCount(1);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(2);
+  // The upload succeeds but the serve refuses the batch: Retry repeats the batch, not the upload.
+  await page.evaluate(() => (window.refuseFiles = true));
+  await addFiles(page, blocks[0]!, [{ name: 'b.txt', text: 'b' }]);
+  failed = host.getByRole('group', { name: 'b.txt', exact: true });
+  await expect(failed).toContainText('Failed to load');
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(3);
+  await page.evaluate(() => (window.refuseFiles = false));
+  await failed.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('.tmt-block-file')).toContainText('b.txt');
+  await expect(failed).toHaveCount(0);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(3);
+  expect(await page.evaluate(() => window.listedFiles.length)).toBe(2);
+});
+
+test('files past the page cap are refused before any upload, with what to do', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // The page lists 3 images; 124 more files leave room for one.
+  await page.evaluate(() => (window.extraFiles = 124));
+  await addFiles(page, blocks[0]!, [
+    { name: 'one.txt', text: '1' },
+    { name: 'two.txt', text: '2' },
+  ]);
+  await expect(page.getByRole('status')).toContainText(
+    'A page holds at most 128 files, and these would pass that, so nothing was added. Delete files the page no longer uses, or ask an agent to run block detach, then add again.',
+  );
+  expect(await topLevel(host)).toEqual(blocks);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(0);
+  await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toHaveCount(0);
+});
+
+const QUESTION = '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b';
+
+test('@ in a block offers agents and blocks, by keyboard, and inserts a block mark', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const item = host.locator('[data-block-id="l2"]');
+  await item.getByText('滑過或選取是淡色底。').click();
+  const editor = item.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await editor.press('End');
+  await editor.pressSequentially(' @', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: '@ mention' });
+  // Agents first, then the page's blocks a mark can name, in reading order.
+  await expect(menu.getByRole('option').first()).toHaveText('@tmt-gui-lead');
+  await expect(menu.getByRole('option').nth(1)).toHaveText('@gui-2');
+  await expect(menu.getByRole('option', { name: 'Question: 先做哪個區塊？' })).toBeVisible();
+  await editor.pressSequentially('先做', { delay: 20 });
+  await expect(menu.getByRole('option')).toHaveText(['Question: 先做哪個區塊？']);
+  await expect(menu.getByRole('option', { selected: true })).toHaveText('Question: 先做哪個區塊？');
+  await editor.press('Enter');
+  await expect(menu).toHaveCount(0);
+  // The @ and its query became the chip text and a space; the chip text carries the block mark.
+  const expected = '滑過或選取是淡色底。 Question: 先做哪個區塊？ ';
+  await expect.poll(() => page.evaluate(() => window.serveText('l2'))).toBe(expected);
+  await expect
+    .poll(() => page.evaluate(() => window.serveMarks('l2')))
+    .toEqual([{ from: 11, to: 28, mark: 'block', value: QUESTION }]);
+  // Typing goes on after the chip.
+  await editor.pressSequentially('next', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.serveText('l2'))).toBe(`${expected}next`);
+  // At rest the mark draws as the DS chip, linking to the block.
+  await editor.press('Escape');
+  const chip = item.locator('[data-slot="block-mention"]');
+  await expect(chip).toHaveText('Question: 先做哪個區塊？');
+  await expect(chip).toHaveAttribute('href', `#block-${QUESTION}`);
+});
+
+test('@ picks an agent with the mouse, and Esc closes the menu keeping the text', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const item = host.locator('[data-block-id="l1"]');
+  await item.getByText('區塊之間沒有框線，只有卡片畫框。').click();
+  const editor = item.locator('[contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' @gui', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: '@ mention' });
+  await expect(menu.getByRole('option')).toHaveText(['@tmt-gui-lead', '@gui-2']);
+  // Esc closes and keeps what was typed; an @ in a word never opens it.
+  await editor.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toHaveText('區塊之間沒有框線，只有卡片畫框。 @gui');
+  await editor.pressSequentially(' a@b', { delay: 20 });
+  await expect(menu).toHaveCount(0);
+  for (let i = 0; i < 9; i++) await editor.press('Backspace');
+  await editor.pressSequentially(' @', { delay: 20 });
+  const agent = menu.getByRole('option', { name: '@gui-2' });
+  await agent.hover();
+  await expect(agent).toHaveAttribute('aria-selected', 'true');
+  await agent.click();
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  const expected = '區塊之間沒有框線，只有卡片畫框。 @gui-2 ';
+  await expect.poll(() => page.evaluate(() => window.serveText('l1'))).toBe(expected);
+  await expect
+    .poll(() => page.evaluate(() => window.serveMarks('l1')))
+    .toEqual([{ from: 17, to: 23, mark: 'agent', value: 'gui-2' }]);
+});
+
+test('the insert menu offers Image or file, which opens the file picker and adds the files', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // An empty paragraph after l2, where the slash opens the insert menu.
+  const blank = 'e0000000-0000-4000-8000-000000000001';
+  await page.evaluate(
+    (id) =>
+      window.agentBatch([
+        { op: 'insert', id, type: 'paragraph', parent: 'root', after: 'l2', text: '' },
+      ]),
+    blank,
+  );
+  await host.locator(`[data-block-id="${blank}"]`).click();
+  const empty = host.locator(`[data-block-id="${blank}"] [contenteditable="true"]`);
+  await empty.press('/');
+  await empty.pressSequentially('fi', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: 'Insert a block' });
+  await expect(menu.getByRole('option')).toHaveText([/Image or file/]);
+  // Chosen by keyboard, it opens the device's file picker.
+  const chooser = page.waitForEvent('filechooser');
+  await empty.press('Enter');
+  const picker = await chooser;
+  expect(picker.isMultiple()).toBe(true);
+  await picker.setFiles([
+    { name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Plan\n') },
+  ]);
+  await expect(host.locator('.tmt-block-file')).toContainText('plan.txt');
+  // The slash paragraph was cleared, and the file went after it.
+  const now = await topLevel(host);
+  const at = now.indexOf('l2');
+  expect(now).toHaveLength(blocks.length + 2);
+  expect(now[at + 1]).toBe(blank);
+  expect(await page.evaluate((id) => window.serveText(id), blank)).toBe('');
+  await expect(host.locator(`[data-block-id="${now[at + 2]}"] .tmt-block-file`)).toHaveCount(1);
+});
+
+test('a page without files offers no Image or file entry', async ({ page }) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="e"]').click();
+  const editor = host.locator('[data-block-id="e"] [contenteditable="true"]');
+  await editor.press('/');
+  await editor.pressSequentially('fi', { delay: 20 });
+  await expect(page.getByRole('listbox', { name: 'Insert a block' })).toContainText(
+    'No matching block',
+  );
+});

@@ -220,7 +220,7 @@ export const blockComponents: ComponentDoc[] = [
     name: 'Undo toast',
     description:
       'The status line after a delete or a move, with Undo and its key. The host places it at the bottom centre, times it out and restores the blocks; Cmd/Ctrl+Z does the same.',
-    preview: () => <BlockToast>Deleted 1 block (Table)</BlockToast>,
+    preview: () => <BlockToast onUndo={() => {}}>Deleted 1 block (Table)</BlockToast>,
     usage: `${importLine('BlockToast')}<BlockToast onUndo={restore}>Deleted 1 block (Table)</BlockToast>`,
     variants: frames('toast', 'Undo toast', 200),
   },

@@ -131,10 +131,19 @@ const ownStates: Record<string, [string, ReactNode][]> = {
     ['Block menu (handle, Menu key, Shift+F10, Cmd/Ctrl+/)', actionsMenu],
   ],
   toast: [
-    ['After a delete', <BlockToast key="k4">Deleted 1 block (Table)</BlockToast>],
+    [
+      'After a delete',
+      <BlockToast key="k4" onUndo={() => {}}>
+        Deleted 1 block (Table)
+      </BlockToast>,
+    ],
+    [
+      'A notice, with no Undo',
+      <BlockToast key="k6">A page holds at most 128 files, so nothing was added.</BlockToast>,
+    ],
     [
       'A long message wraps',
-      <BlockToast key="k5">
+      <BlockToast key="k5" onUndo={() => {}}>
         Deleted 3 blocks (List item, List item, To-do) from the card First block set
       </BlockToast>,
     ],
