@@ -106,7 +106,7 @@ pub fn prepare(
     let body = if edit.action == "page.convert" {
         serde_json::json!({"convertedAt": clock()?})
     } else {
-        edit.body.clone()
+        body
     };
     let prepared = super::prepare_structured_publication(
         &source.store,
