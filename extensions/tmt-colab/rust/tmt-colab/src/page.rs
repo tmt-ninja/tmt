@@ -46,6 +46,9 @@ pub enum Fault {
     BlockTextAmbiguous,
     /// A mockup block's markup does not pass the page check.
     BlockMarkup,
+    /// A block names an attachment the page does not hold, or a change would remove one a live
+    /// block still shows.
+    BlockAttachment,
 }
 impl Fault {
     pub fn code(&self) -> &'static str {
@@ -66,6 +69,7 @@ impl Fault {
             Self::BlockTextNotFound => "COLAB_BLOCK_TEXT_NOT_FOUND",
             Self::BlockTextAmbiguous => "COLAB_BLOCK_TEXT_AMBIGUOUS",
             Self::BlockMarkup => "COLAB_BLOCK_MARKUP",
+            Self::BlockAttachment => "COLAB_BLOCK_ATTACHMENT",
         }
     }
 }
@@ -119,6 +123,9 @@ impl std::fmt::Display for Fault {
             }
             Self::BlockMarkup => {
                 "A mockup's markup does not pass the page check. Save it to a file and run `tmt colab page check FILE` to see what to fix. Nothing was written."
+            }
+            Self::BlockAttachment => {
+                "An image or file names an attachment (`colab-attachment:` plus the full ID or 8 hex digits of one) that this page does not hold, or the change removes an attachment a block still shows. Attach the file first (`tmt colab block attach`), or delete the block before detaching. Nothing was written."
             }
         })
     }
@@ -908,6 +915,7 @@ impl From<crate::blocks::ops::Refusal> for Fault {
             Refusal::TextAmbiguous => Self::BlockTextAmbiguous,
             Refusal::Capacity => Self::Capacity,
             Refusal::Markup => Self::BlockMarkup,
+            Refusal::Attachment => Self::BlockAttachment,
         }
     }
 }

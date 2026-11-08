@@ -13,6 +13,7 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE / "blocks-v1.json"
 PAGES = HERE / "blocks-page-v1.json"
+ATTACHMENTS = HERE / "block-attachments-v1.json"
 
 
 def bid(n):
@@ -303,7 +304,118 @@ page_doc = {
 }
 page_text = json.dumps(page_doc, ensure_ascii=False, indent=2) + "\n"
 
-outputs = [(OUT, text, f"{len(valid)} valid, {len(invalid)} invalid"), (PAGES, page_text, f"{len(pages)} cases")]
+# Attachments on a page of blocks (#6190): which references a batch may add and which descriptors it
+# may remove. A case gives the blocks before and after the batch, the descriptors the page holds
+# (`current`, by attachment ID) and the change (`set`, `remove`); descriptors are sealed against the
+# page's `source` (the html root: empty, or the frozen legacy source) unless `setSource` says other.
+def aid(n):
+    return f"{n:08x}-0000-4000-8000-000000000000"
+TWIN = "00000001-0000-4000-8000-0000000000ff"
+LEGACY_SOURCE = "<p>The old page.</p>"
+def image(src, **extra):
+    return block("image", props={"images": [{"src": src}]}, **extra)
+def ref(n):
+    return "colab-attachment:" + aid(n)
+cases = []
+def case(name, before, nxt, expect, current=(), source="", set=(), remove=(), set_source=None):
+    entry = {"name": name, "source": source, "before": before, "next": nxt, "current": list(current)}
+    if set:
+        entry["set"] = list(set)
+    if set_source is not None:
+        entry["setSource"] = set_source
+    if remove:
+        entry["remove"] = list(remove)
+    entry["expect"] = expect
+    cases.append(entry)
+A, B = bid(1), bid(2)
+refused = {"refused": "attachment"}
+invalid_change = {"refused": "invalid"}
+unchanged = {"list": None}
+case("a reference to a descriptor the page does not hold is refused", {}, {A: image(ref(1))}, refused)
+case("the batch that adds the descriptor may add the image that shows it", {}, {A: image(ref(1))}, {"list": [aid(1)]}, set=[aid(1)])
+case("a descriptor the page already holds serves a later batch with no change", {}, {A: image(ref(1))}, unchanged, current=[aid(1)])
+case("the short form names the one descriptor with that prefix", {}, {A: image("colab-attachment:00000001")}, unchanged, current=[aid(1)])
+case("a short form two descriptors share names neither", {}, {A: image("colab-attachment:00000001")}, refused, current=[aid(1), TWIN])
+case("the full ID names one of two descriptors that share a prefix", {}, {A: image(ref(1))}, unchanged, current=[aid(1), TWIN])
+case("a short form no descriptor has is refused", {}, {A: image("colab-attachment:00000003")}, refused, current=[aid(1)])
+for bad_token in ("", "zz", "0000001", "00000001A", "00000001-0000-4000-8000-000000000009"):
+    case(f"a malformed or unknown token {bad_token!r} is refused", {}, {A: image("colab-attachment:" + bad_token)}, refused, current=[aid(1)])
+case("a file's href is a reference too", {}, {A: block("image", props={"files": [{"name": "a", "href": ref(1)}]})}, refused)
+case("a file's href that names a held descriptor is admitted", {}, {A: block("image", props={"files": [{"name": "a", "href": ref(1)}]})}, unchanged, current=[aid(1)])
+case("an https source needs no attachment", {}, {A: image("https://example.com/a.png")}, unchanged)
+case("a source that is no attachment reference is left to the block schema, which refuses a data URL", {}, {A: image("data:image/png;base64,AAAA")}, unchanged)
+case("a reference already dangling in the base is not judged again", {A: image(ref(7))}, {A: image(ref(7)), B: image("https://example.com/b.png")}, unchanged)
+case("bringing back a deleted block with a dangling reference is judged", {A: image(ref(7), deleted=5)}, {A: image(ref(7))}, refused)
+case("a deleted block's reference is not live", {}, {A: image(ref(7), deleted=5)}, unchanged)
+case("a descriptor a live block shows cannot be removed", {A: image(ref(1))}, {A: image(ref(1))}, refused, current=[aid(1), aid(2)], remove=[aid(1)])
+case("nor by its short form", {A: image("colab-attachment:00000001")}, {A: image("colab-attachment:00000001")}, refused, current=[aid(1), aid(2)], remove=[aid(1)])
+case("a descriptor no block shows is removed", {A: image(ref(1))}, {A: image(ref(1))}, {"list": [aid(1)]}, current=[aid(1), aid(2)], remove=[aid(2)])
+case("deleting the block and removing its descriptor in one batch", {A: image(ref(1))}, {A: image(ref(1), deleted=9)}, {"list": [aid(2)]}, current=[aid(1), aid(2)], remove=[aid(1)])
+case("removing a descriptor whose block was deleted earlier", {A: image(ref(1), deleted=9)}, {A: image(ref(1), deleted=9)}, {"list": [aid(2)]}, current=[aid(1), aid(2)], remove=[aid(1)])
+case("swapping a re-sealed descriptor in when the block points at it", {A: image(ref(1))}, {A: image(ref(3))}, {"list": [aid(3)]}, current=[aid(1)], set=[aid(3)], remove=[aid(1)])
+case("swapping it without pointing the block at it is refused", {A: image(ref(1))}, {A: image(ref(1))}, refused, current=[aid(1)], set=[aid(3)], remove=[aid(1)])
+case("a descriptor sealed against another source is refused", {}, {}, invalid_change, set=[aid(1)], set_source="<p>another page</p>")
+case("on a converted page the descriptors are bound to its frozen legacy source", {}, {A: image(ref(1))}, {"list": [aid(1)]}, source=LEGACY_SOURCE, set=[aid(1)])
+case("removing what the page does not hold is refused", {}, {}, invalid_change, remove=[aid(9)])
+case("a change that adds and removes the same ID is refused", {}, {}, invalid_change, current=[aid(1)], set=[aid(1)], remove=[aid(1)])
+case("an empty change is no change", {}, {}, unchanged, current=[aid(1)])
+# Which descriptors the 30-day sweep keeps on a page of blocks: those a block still references,
+# live or deleted and not yet purged. A purged block is simply absent from `blocks`.
+kept = []
+def keeps(name, blocks, current, expect, source=""):
+    kept.append({"name": name, "blocks": blocks, "source": source, "current": list(current), "expect": list(expect)})
+keeps("a descriptor a live block references is kept", {A: image(ref(1))}, [aid(1)], [aid(1)])
+keeps("a descriptor only a deleted block references is kept, so an undo or a restore keeps its image", {A: image(ref(1), deleted=5)}, [aid(1)], [aid(1)])
+keeps("a purged block references nothing, so its descriptor is no longer kept", {}, [aid(1)], [])
+keeps("a descriptor no block references is not kept", {A: image("https://example.com/a.png")}, [aid(1)], [])
+keeps("only the referenced one of two descriptors is kept", {A: image(ref(2))}, [aid(1), aid(2)], [aid(2)])
+keeps("two blocks that name one descriptor keep it once", {A: image(ref(1)), B: image(ref(1), deleted=5)}, [aid(1)], [aid(1)])
+keeps("a file's href keeps its descriptor", {A: block("image", props={"files": [{"name": "a", "href": ref(1)}]})}, [aid(1)], [aid(1)])
+keeps("a short reference keeps the one descriptor with that prefix", {A: image("colab-attachment:00000001")}, [aid(1), aid(2)], [aid(1)])
+keeps("a short reference two descriptors share keeps both: a sweep only ever widens what is kept", {A: image("colab-attachment:00000001")}, [aid(1), TWIN], [aid(1), TWIN])
+keeps("a reference to a descriptor the page does not hold keeps nothing", {A: image(ref(7))}, [aid(1)], [])
+keeps("a malformed reference keeps nothing", {A: image("colab-attachment:zz")}, [aid(1)], [])
+keeps("a page with no descriptors keeps none", {A: image(ref(1))}, [], [])
+# A converted page keeps its old HTML in the `html` root (the frozen legacy source), so a revert can
+# bring it back with its files. That source can name an attachment outside an `<img>` (a
+# design-system component asks for a download with a `colab-attachment:` string), and an HTML page
+# keeps every listed descriptor so as never to parse it: so does a page of blocks with a legacy
+# source, whatever the blocks reference.
+keeps("a converted page keeps every listed descriptor though no block references one", {}, [aid(1), aid(2)], [aid(1), aid(2)], source=LEGACY)
+keeps("a converted page keeps every listed descriptor beside the ones a block references", {A: image(ref(2))}, [aid(1), aid(2), aid(3)], [aid(1), aid(2), aid(3)], source=LEGACY)
+keeps("a converted page whose source names a file in its own markup keeps it", {}, [aid(1)], [aid(1)], source='<button data-download="colab-attachment:' + aid(1) + '">Get</button>')
+keeps("a page with an empty source narrows to the blocks, as a new page of blocks does", {A: image(ref(2))}, [aid(1), aid(2)], [aid(2)], source="")
+descriptor = {
+    "version": 1,
+    "attachmentId": "<attachmentId>",
+    "space": "a" * 32,
+    "page": "20000000-0000-4000-8000-000000000091",
+    "epoch": "1",
+    "namespace": "content",
+    "objectId": "a" * 64,
+    "authorDevice": "20000000-0000-4000-8000-000000000093",
+    "membershipRevision": "1",
+    "source": {"kind": "document", "sourceDigest": "<sha256 of the source the descriptor was sealed against>"},
+    "envelopeHash": "c" * 64,
+    "signature": "<64 bytes of 0x01, base64url without padding>",
+    "payloadSha256": "d" * 64,
+    "payloadBytes": "10",
+    "plaintextBytes": "5",
+    "filename": "a.png",
+    "mediaType": "image/png",
+}
+attach_doc = {
+    "format": "tmt-colab-block-attachments",
+    "version": 1,
+    "description": "Which attachment references a batch on a page of blocks may add and which descriptors it may remove (#6190), written by blocks-reference.py and run by the native `blocks::attachments` and the browser's `admitAttachments` alike. A case lists the blocks before and after the batch, the descriptors the page holds (`current`, by attachment ID) and the typed change (`set`, `remove`); a descriptor is `descriptor` with its `attachmentId` set and its `sourceDigest` the sha256 (lowercase hex) of the case's `source` (the page's html root), or of `setSource` for the added ones. `expect` is the list the page holds afterwards (`list`, by ID; null when the change leaves it as it is) or a refusal: `attachment` (a reference no descriptor names, or a removal of one a live block shows) or `invalid` (a change the shared attachment rules refuse). The rules are checked when a batch is admitted, not when a state is folded: two writers can leave a dangling reference on a merged page, which must still fold.",
+    "descriptor": descriptor,
+    "cases": cases,
+    "kept": kept,
+    "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced` (which takes the `source` too): a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, or while the `html` root holds a frozen legacy source (`source`, empty on a page that was never converted), which keeps every listed descriptor, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept.",
+}
+attach_text = json.dumps(attach_doc, ensure_ascii=False, indent=2) + "\n"
+
+outputs = [(OUT, text, f"{len(valid)} valid, {len(invalid)} invalid"), (PAGES, page_text, f"{len(pages)} cases"), (ATTACHMENTS, attach_text, f"{len(cases)} cases")]
 for path, body, summary in outputs:
     if "--write" in sys.argv:
         path.write_text(body, encoding="utf-8")

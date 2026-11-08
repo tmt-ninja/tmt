@@ -105,10 +105,38 @@ impl Running {
         release: Option<Arc<tmt_colab::serve_release::ServeRelease>>,
         rekey_probe: Option<std::sync::mpsc::Sender<()>>,
     ) -> Self {
-        Self::start_all(tunnels, app, release, rekey_probe, None, Arc::default())
+        Self::start_all(
+            tunnels,
+            app,
+            release,
+            rekey_probe,
+            None,
+            Arc::default(),
+            false,
+        )
+    }
+    /// The page is a page of blocks made by the create transition, as `page create --structured`.
+    fn start_blocks() -> Self {
+        Self::start_all(
+            Tunnels::PRODUCT,
+            None,
+            None,
+            None,
+            None,
+            Arc::default(),
+            true,
+        )
     }
     fn start_with_cloud(tunnels: Tunnels, cloud: tmt_colab::cloud_sync::Config) -> Self {
-        Self::start_all(tunnels, None, None, None, Some(cloud), Arc::default())
+        Self::start_all(
+            tunnels,
+            None,
+            None,
+            None,
+            Some(cloud),
+            Arc::default(),
+            false,
+        )
     }
     fn start_all(
         tunnels: Tunnels,
@@ -117,6 +145,7 @@ impl Running {
         rekey_probe: Option<std::sync::mpsc::Sender<()>>,
         cloud: Option<tmt_colab::cloud_sync::Config>,
         save_gate: SaveGate,
+        blocks: bool,
     ) -> Self {
         // Short absolute root: Unix socket paths are limited to about 100 bytes.
         let root = PathBuf::from(format!(
@@ -130,7 +159,9 @@ impl Running {
         let space = key.space_id.clone();
         let owner = key.owner_public();
         let store = Store::open(&layout).unwrap();
-        store.create_page(PAGE).unwrap();
+        if !blocks {
+            store.create_page(PAGE).unwrap();
+        }
         let gate = Arc::clone(&save_gate);
         let save_gate_skip = Arc::new(AtomicUsize::new(0));
         let skipped = Arc::clone(&save_gate_skip);
@@ -186,6 +217,25 @@ impl Running {
             }
             _ => Ok(now()),
         });
+        if blocks {
+            registration
+                .apply_owner(
+                    tmt_colab::transitions::OwnerRequest {
+                        operation_id: "40000000-0000-4000-8000-0000000000b1",
+                        expected_revision: 0,
+                        action: tmt_colab::transitions::OwnerAction::CreateBlocks {
+                            page: PAGE,
+                            title: "Pictures",
+                            publisher_agent: None,
+                            creation_recipient: None,
+                        },
+                        transport_digest: None,
+                        scope: None,
+                    },
+                    now(),
+                )
+                .unwrap();
+        }
         for id in [DEVICE, OTHER] {
             registration
                 .register(Some(&context(id)), &registration_body(id), now())
@@ -1273,7 +1323,7 @@ fn the_first_object_channel_does_not_wait_for_local_history_maintenance() {
     let (entered, started) = std::sync::mpsc::channel();
     let (release, blocked) = std::sync::mpsc::channel();
     let gate = Arc::new(Mutex::new(Some((entered, blocked))));
-    let server = Running::start_all(Tunnels::PRODUCT, None, None, Some(probe), None, gate);
+    let server = Running::start_all(Tunnels::PRODUCT, None, None, Some(probe), None, gate, false);
     let started = started.recv_timeout(Duration::from_secs(10));
     let channel = started.is_ok().then(|| {
         negotiate(Instant::now() + Duration::from_secs(3), || {
@@ -5125,6 +5175,111 @@ fn work_action(
         ),
     );
     receive_acked(server, peer, "workresult")
+}
+
+/// A page of blocks and a browser peer on it: the `blocks` frame carries ops and, since #6190, an
+/// optional typed attachment change.
+fn blocks_fixture() -> (Running, Layout, Keyring, WebSocket<UnixStream>) {
+    let server = Running::start_blocks();
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let (socket, head) = server.tunnel();
+    assert!(head.starts_with("HTTP/1.1 101"));
+    let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
+    hello(&server, &mut peer, DEVICE);
+    // Each batch prepares natively, which outlasts the fixture's three-second read timeout when the
+    // machine is busy.
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    (server, layout, key, peer)
+}
+fn blocks_action(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    operation: &str,
+    ops: Value,
+    attachments: Option<Value>,
+) -> Value {
+    let mut fields = json!({"operationId": operation, "ops": ops});
+    if let Some(change) = attachments {
+        fields["attachments"] = change;
+    }
+    send(peer, server.frame("blocks", fields));
+    receive_acked(server, peer, "blocksresult")
+}
+fn native_blocks(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Value {
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let blocks = tmt_colab::page::read_blocks(&store, key, PAGE, &mut decoder).unwrap();
+    store.close().unwrap();
+    blocks.blocks
+}
+
+#[test]
+fn a_browser_blocks_frame_carries_an_attachment_change_and_meets_the_same_rules_as_the_command() {
+    let (server, layout, key, mut peer) = blocks_fixture();
+    let op = |n: u32| format!("70000000-0000-4000-8000-{n:012}");
+    let image = |n: u32, src: &str| {
+        json!({"op": "insert", "id": format!("20000000-0000-4000-8000-{n:012}"), "type": "image",
+            "parent": "root", "after": null, "props": {"images": [{"src": src}]}})
+    };
+    // An image that names no attachment commits as an ordinary batch does.
+    let shown = blocks_action(
+        &server,
+        &mut peer,
+        &op(1),
+        json!([image(1, "https://example.com/a.png")]),
+        None,
+    );
+    assert_eq!(shown["state"], "committed", "{shown}");
+    // One that names an attachment the page does not hold is refused, whole batch, and nothing of
+    // it is on the page.
+    let missing = "30000000-0000-4000-8000-00000000000a";
+    let dangling = blocks_action(
+        &server,
+        &mut peer,
+        &op(2),
+        json!([image(2, &format!("colab-attachment:{missing}"))]),
+        None,
+    );
+    assert_eq!(dangling["state"], "rejected", "{dangling}");
+    assert_eq!(dangling["code"], "COLAB_BLOCK_ATTACHMENT", "{dangling}");
+    // A change with no ops detaches what the page holds; this page holds nothing, so the frame
+    // reaches the same input refusal the command gives.
+    let detach = blocks_action(
+        &server,
+        &mut peer,
+        &op(3),
+        json!([]),
+        Some(json!({"remove": [missing]})),
+    );
+    assert_eq!(detach["state"], "rejected", "{detach}");
+    assert_eq!(detach["code"], "COLAB_INPUT_INVALID", "{detach}");
+    // A descriptor the page can not vouch for (nothing was uploaded or proved) never lands.
+    let descriptor = json!({
+        "version": 1, "attachmentId": missing, "space": "a".repeat(32), "page": PAGE, "epoch": "1",
+        "namespace": "content", "objectId": "a".repeat(64),
+        "authorDevice": "20000000-0000-4000-8000-000000000093", "membershipRevision": "1",
+        "source": {"kind": "document", "sourceDigest": "b".repeat(64)},
+        "envelopeHash": "c".repeat(64),
+        "signature": values::encode_binary(&[1u8; 64]),
+        "payloadSha256": "d".repeat(64), "payloadBytes": "10", "plaintextBytes": "5",
+        "filename": "a.png", "mediaType": "image/png"});
+    let forged = blocks_action(
+        &server,
+        &mut peer,
+        &op(4),
+        json!([image(4, &format!("colab-attachment:{missing}"))]),
+        Some(json!({"set": [descriptor]})),
+    );
+    assert_eq!(forged["state"], "rejected", "{forged}");
+    // Only the first batch is on the page: every refusal wrote nothing.
+    let page = native_blocks(&layout, &key);
+    assert_eq!(page.as_object().unwrap().len(), 1, "{page}");
 }
 
 fn native_page(

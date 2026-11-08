@@ -3161,7 +3161,8 @@ The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from,
 nothing overlapped). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
 `COLAB_BLOCK_BAD_AFTER` (`after` is not a child of `parent`), `COLAB_BLOCK_TEXT_NOT_FOUND` and
 `COLAB_BLOCK_TEXT_AMBIGUOUS` (`replace`), `COLAB_BLOCK_MARKUP` (a mockup's markup has page-check
-findings), `COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
+findings), `COLAB_BLOCK_ATTACHMENT` ([attachments](#attachments-on-a-page-of-blocks)),
+`COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
 
 Two blocks have a side effect that the batch carries in the same publication:
 
@@ -3173,6 +3174,59 @@ Two blocks have a side effect that the batch carries in the same publication:
 - A `mockup` block's `markup` passes the page check (`tmt colab page check`) when the batch adds or
   changes it: any finding refuses the batch as `COLAB_BLOCK_MARKUP`. The parent admits it before the
   decoder is asked to prepare the batch, as it does an HTML page's source.
+
+#### Attachments on a page of blocks
+
+A batch may carry a typed change to the page's attachment list: `{ops, attachments?: {set?:
+descriptor[], remove?: attachmentId[]}}`, the same `DocumentChange` and vectors
+(`attachment-change-v1.json`) as an HTML save, applied in the same atomic update as the ops. A batch
+with no ops is allowed when it carries a change (attach or detach alone). The list is
+`meta.attachments`; it authorizes a read, so an image or file can only show if its descriptor is
+there.
+
+A descriptor is bound to the sha256 of the source written with it. A page of blocks has no source
+to write, but its `html` root is stable (empty, or the frozen legacy source of a converted page), so
+every added descriptor must be sealed against exactly that root, and the isolated decoder re-checks
+it. Each added descriptor must also name this space, page and epoch and be witnessed by its
+creator's own-stream creation proof, as for an HTML save.
+
+A reference is a string in an image's `props.images[].src` or a file's `props.files[].href` that
+starts with `colab-attachment:`; its token is the full attachment ID or the first 8 lowercase hex
+digits of exactly one ID on the page (the grammar of an HTML `<img>`). Anything else needs no
+attachment and is not judged here: the block schema's URL rule (above) refuses what may not appear,
+such as a `data:` URI. A batch is refused as `COLAB_BLOCK_ATTACHMENT`, with
+nothing written, when:
+
+- a reference it adds (live afterwards, not live before) is malformed or names no descriptor of the
+  list the batch leaves; or
+- a change removes a descriptor that a live block, after the batch, still names.
+
+The rules are checked when a batch is admitted and not when a state is folded. Two writers can
+leave a dangling reference on a merged page (one removes a descriptor while the other inserts an
+image that names it); that page must still fold, and a reference that was already dangling in the
+base is not judged again. The renderer draws such an image in its error state. A deleted block shows
+nothing, so a reference on one is not live for these rules; restoring it brings its references back
+and they are judged like new ones. The receipt adds `attachments: {set: [id], remove: [id]}`.
+
+**Sweep.** On a page of blocks the [30-day sweep](#unreferenced-attachments-5284) keeps the
+descriptors that a block on the page still references, live or deleted and not yet purged (an undo
+or a restore keeps its image), the way an HTML page keeps what its source references. When no block
+references a descriptor any more (the block was deleted and compaction purged it after seven days,
+or it was never used) its object is swept after the same 30 days, and nobody has to detach it by
+hand. A page converted in place keeps its old HTML in the `html` root so a revert can bring it
+back, and that source can name an attachment in markup of its own (a design-system component asks
+for a download with a `colab-attachment:` string, not only an `<img>`): an HTML page keeps every
+listed descriptor so as never to parse it, and so does a page of blocks while its `html` root is
+non-empty. Only a page with an empty `html` root narrows to the blocks. A short reference two descriptors share keeps both, and a reference that names none keeps
+nothing. `detach` still drops the descriptor from the list, which frees its place in the 128. The
+vectors [`block-attachments-v1.json`](vectors/block-attachments-v1.json) (`kept`) pin the
+referenced-live, referenced-deleted, purged and unreferenced cases and, with a `source`, the
+converted page that keeps every descriptor.
+
+`tmt colab attachment attach PAGE FILE` adds a file to a page of blocks through this batch (it
+publishes the creation proof, then the list change); `tmt colab block detach PAGE ATTACHMENT`
+removes one. The vectors [`block-attachments-v1.json`](vectors/block-attachments-v1.json) run
+through the native `blocks::attachments` and the browser's `admitAttachments`.
 
 #### Tombstones
 
@@ -7088,7 +7142,9 @@ at version 4 (`objects.list` and `objects.remove`); on an older Remote it record
   default `shared` history mode, public pages, archived pages and deleted pages keep every object, and
   a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
   namespace is removed whole by the existing sweep.
-- **Reference set.** Every descriptor in the current page source, every message revision of every
+- **Reference set.** Every descriptor in the current page source (on a page of blocks, the ones a block
+  on the page still references, [live or deleted and not yet purged](#attachments-on-a-page-of-blocks);
+  all of them while the page holds a frozen legacy HTML source), every message revision of every
   readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
   unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
   old-epoch document lists are not references: no reader can address them, so a rekeyed object's old

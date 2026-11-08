@@ -1260,6 +1260,28 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
             let next = crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
                 .map_err(|_| DecodeFault::InvalidInput)?
                 .next;
+            // An attach or detach rides in the same publication, bound to the page's html root
+            // (empty, or the frozen legacy source); the references the batch adds must resolve.
+            let change = crate::blocks::attachments::change(&edit.body)
+                .map_err(|_| DecodeFault::InvalidInput)?;
+            let current = attachment_descriptors(&base["meta"])?;
+            let source = base["html"].as_str().ok_or(DecodeFault::InvalidInput)?;
+            if let Some(list) = crate::blocks::attachments::admit(
+                &base["blocks"],
+                &next,
+                &current,
+                change.as_ref(),
+                &tmt_colab_model::crypto::digest(source.as_bytes()),
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?
+            {
+                write_attachment_list(
+                    expected["meta"]
+                        .as_object_mut()
+                        .ok_or(DecodeFault::InvalidInput)?,
+                    &list,
+                )?;
+            }
             // A question block registers in the same publication that adds it.
             if let Some(questions) = crate::blocks::questions::register(
                 &base["meta"],
@@ -1390,25 +1412,38 @@ fn edited_projection_checked(
         };
     }
     if let Some(change) = edit.attachments.filter(|change| !change.is_empty()) {
-        let current: Vec<tmt_colab_model::attachment::Descriptor> = match meta.get("attachments") {
-            Some(list) => {
-                serde_json::from_value(list.clone()).map_err(|_| DecodeFault::InvalidInput)?
-            }
-            None => Vec::new(),
-        };
+        let current = attachment_descriptors(&Value::Object(meta.clone()))?;
         let next = change
             .apply(&current)
             .map_err(|_| DecodeFault::InvalidInput)?;
-        if next.is_empty() {
-            meta.remove("attachments");
-        } else {
-            meta.insert(
-                "attachments".into(),
-                serde_json::to_value(&next).map_err(|_| DecodeFault::InvalidInput)?,
-            );
-        }
+        write_attachment_list(meta, &next)?;
     }
     Ok(expected)
+}
+/// The descriptors a page's `meta.attachments` holds (none when it has no list).
+fn attachment_descriptors(
+    meta: &Value,
+) -> Result<Vec<tmt_colab_model::attachment::Descriptor>, DecodeFault> {
+    match meta.get("attachments") {
+        Some(list) => serde_json::from_value(list.clone()).map_err(|_| DecodeFault::InvalidInput),
+        None => Ok(Vec::new()),
+    }
+}
+/// Store the list a change produced: an empty list leaves the key absent (the no-attachment
+/// grammar).
+fn write_attachment_list(
+    meta: &mut serde_json::Map<String, Value>,
+    list: &[tmt_colab_model::attachment::Descriptor],
+) -> Result<(), DecodeFault> {
+    if list.is_empty() {
+        meta.remove("attachments");
+    } else {
+        meta.insert(
+            "attachments".into(),
+            serde_json::to_value(list).map_err(|_| DecodeFault::InvalidInput)?,
+        );
+    }
+    Ok(())
 }
 fn admit_prepared_content(
     reply: WirePreparedContent,

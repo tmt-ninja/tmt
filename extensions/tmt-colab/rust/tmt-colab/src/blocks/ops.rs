@@ -29,6 +29,9 @@ pub enum Refusal {
     Capacity,
     /// A mockup's markup has page-check findings.
     Markup,
+    /// An attachment reference no descriptor of the page names, or a descriptor a live block still
+    /// shows is removed (#6190).
+    Attachment,
 }
 impl From<Invalid> for Refusal {
     fn from(_: Invalid) -> Self {
@@ -582,12 +585,15 @@ impl Editing {
     }
 }
 
-/// Apply `body` (`{"ops":[…]}`) to `base`, the page's current `blocks` value. `attribution`
-/// carries the write owner's `timeMs`; nothing in `body` can set it.
+/// Apply `body` (`{"ops":[…]}`, and optionally the typed `attachments` change that
+/// [`super::attachments`] judges) to `base`, the page's current `blocks` value. `attribution`
+/// carries the write owner's `timeMs`; nothing in `body` can set it. A batch with no ops is
+/// allowed only when it carries an attachment change (attach or detach alone).
 pub fn apply(base: &Value, body: &Value, attribution: &Value) -> Result<Applied> {
-    keys(body, &["ops"], &[])?;
+    keys(body, &["ops"], &["attachments"])?;
     let ops = body["ops"].as_array().ok_or(Invalid)?;
-    require(!ops.is_empty() && ops.len() <= limits::BLOCK_BATCH_OPS)
+    let changes_attachments = super::attachments::change(body)?.is_some_and(|c| !c.is_empty());
+    require((!ops.is_empty() || changes_attachments) && ops.len() <= limits::BLOCK_BATCH_OPS)
         .map_err(|_| Refusal::Capacity)?;
     require(canonical(body)?.len() <= limits::BLOCK_BATCH_BYTES).map_err(|_| Refusal::Capacity)?;
     let now = attribution["timeMs"].as_u64().ok_or(Invalid)?;

@@ -210,6 +210,22 @@ pub fn command() -> Command {
         .arg(id_arg()),
     )
     .subcommand(
+        spec(
+            "detach",
+            "Release an attachment the page no longer shows",
+            "Removes the attachment from the page's list (refused while a live image or file block still names it: delete or change the block first). Detaching frees the descriptor's place in the page's list; the file itself is swept 30 days after no block on the page references it, whether or not it is detached. Add one with tmt colab attachment attach, then name it in an image block's src as colab-attachment:<ID>.",
+            example!("tmt colab block detach 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002"),
+        )
+        .arg(page())
+        .arg(
+            Arg::new("attachment")
+                .index(2)
+                .required(true)
+                .value_name("ATTACHMENT")
+                .help("The attachment's full ID, as the page lists it"),
+        ),
+    )
+    .subcommand(
         placement(spec(
             "table",
             "Change a table's rows, cells and columns",
@@ -597,8 +613,9 @@ pub(crate) fn write_blocks(
     root: &Path,
     page_arg: &str,
     ops: &Value,
+    attachments: Option<&tmt_colab_model::attachment::DocumentChange>,
 ) -> Result<(page::Receipt, Value)> {
-    page::blocks::validate(ops)?;
+    page::blocks::validate(ops, attachments)?;
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let lock = crate::write_owner(&layout)?;
     let key = Keyring::read(&layout)?;
@@ -613,7 +630,7 @@ pub(crate) fn write_blocks(
         }
         value
     });
-    let body = page::blocks::body(ops);
+    let body = page::blocks::body(ops, attachments);
     let prepared = page::prepare_blocks_publication(
         &store,
         &key,
@@ -644,7 +661,22 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         "get" => return get(root, args),
         _ => {}
     }
-    let ops = if verb == "batch" {
+    // A detach is a batch of no ops that removes one descriptor (#6190).
+    let detach = (verb == "detach")
+        .then(|| -> Result<tmt_colab_model::attachment::DocumentChange> {
+            let id = text_of(args, "attachment").unwrap_or_default();
+            tmt_colab_model::values::generated_id(id).map_err(|_| {
+                fail(
+                    "COLAB_INPUT_INVALID",
+                    "The attachment must be a full attachment ID, as the page lists it.",
+                )
+            })?;
+            Ok(serde_json::from_value(json!({ "remove": [id] }))?)
+        })
+        .transpose()?;
+    let ops = if detach.is_some() {
+        json!([])
+    } else if verb == "batch" {
         let parsed: Value =
             serde_json::from_str(&read_input(text_of(args, "file").unwrap_or_default())?)
                 .map_err(|_| fail("COLAB_INPUT_INVALID", "The ops file is not JSON."))?;
@@ -669,7 +701,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     } else {
         ops_for(verb, args)?
     };
-    let (receipt, blocks) = write_blocks(root, text_of(args, "page").unwrap_or_default(), &ops)?;
+    let (receipt, blocks) = write_blocks(
+        root,
+        text_of(args, "page").unwrap_or_default(),
+        &ops,
+        detach.as_ref(),
+    )?;
     let inserted: Vec<&str> = blocks["ops"]
         .as_array()
         .into_iter()
@@ -684,6 +721,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         value["ops"] = blocks["ops"].clone();
         value["droppedHunks"] = blocks["droppedHunks"].clone();
         value["blockIds"] = json!(inserted);
+        if blocks.get("attachments").is_some() {
+            value["attachments"] = blocks["attachments"].clone();
+        }
         writeln!(output, "{value}")?;
         return Ok(());
     }
@@ -708,6 +748,11 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     ];
     if !inserted.is_empty() {
         rows.push(("block", inserted.join(" ")));
+    }
+    if let Some(removed) = blocks["attachments"]["remove"].as_array() {
+        for id in removed.iter().filter_map(Value::as_str) {
+            rows.push(("detached", id.to_owned()));
+        }
     }
     for hunk in &dropped {
         rows.push((

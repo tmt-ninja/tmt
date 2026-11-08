@@ -29,6 +29,18 @@ URLs: a link mark and a file's `href` take `https://`, `http://` or `mailto:`, a
 digits or a full attachment ID). A `javascript:` or `data:` URL, a relative one or one with a space
 refuses the whole batch.
 
+## Images and files
+
+An image or file block keeps an upload only through the page's attachment list. Attach the file
+(`tmt colab attachment attach PAGE FILE --json` prints its attachment ID), then insert an image whose
+`src` is `colab-attachment:ID` (or the first 8 hex digits of the ID):
+`block insert PAGE --type image --props '{"images":[{"src":"colab-attachment:ID"}]}'`. A reference the
+page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); an `https:` source needs no attachment. The file
+is kept while a block on the page references it, deleted blocks included until compaction purges
+them (so an undo or a restore keeps the image); a converted page keeps every file while its frozen
+legacy HTML is kept (a revert needs them). The file is swept 30 days after nothing keeps it. `block detach
+PAGE ID` also drops it from the page's list; detaching one a live block still shows is refused.
+
 ## Change text
 
 - A small change: `block text PAGE BLOCK --find 'old' --replace 'new'`. `old` must occur exactly once

@@ -21,6 +21,8 @@ use tmt_colab_model::{
 use tmt_extension_objects::Operation;
 use tmt_extension_objects::{BeginInput, ErrorCode};
 
+#[path = "attach/blocks.rs"]
+mod blocks;
 #[path = "attach/rekey.rs"]
 mod rekey;
 
