@@ -371,7 +371,7 @@ jobs:
           node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
   colab-acceptance:
-    name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/3)
+    name: ${{ matrix.shard == 4 && 'Colab five-tab diagnostic (10 repeats)' || format('Colab real-binary acceptance (Chromium, shard {0}/3)', matrix.shard) }}
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action != 'unlabeled' &&
@@ -390,7 +390,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        # Temporary #6188 diagnostic: remove this fourth shard with the opt-in marks.
+        shard: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 6193 && fromJSON('[1,2,3,4]') || fromJSON('[1,2,3]') }}
     permissions:
       contents: read
     env:
@@ -463,6 +464,7 @@ jobs:
           find extensions/tmt-colab/typescript/app/dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/assets.sha256"
           find extensions/tmt-colab/typescript/app/dist-hosted -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/hosted-assets.sha256"
       - name: Run this shard of the real-binary suite with one worker
+        if: ${{ matrix.shard != 4 }}
         working-directory: typescript
         shell: bash
         run: |
@@ -474,6 +476,11 @@ jobs:
             exit 1
           fi
           node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
+      - name: Repeat the five-tab diagnostic until the first miss
+        if: ${{ matrix.shard == 4 }}
+        working-directory: typescript
+        run: |
+          node scripts/colab-acceptance-run.mjs 2 pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --repeat-each=10 --max-failures=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" acceptance/design-point-and-fix.spec.ts
       # Run once per full event, after the ordinary binaries and their hashes were consumed.
       # Covers Firebase setup, native builds, the browser proof and cleanup.
       - name: Prove the real producer and hosted reader through the emulators
