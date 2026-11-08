@@ -251,3 +251,25 @@ test('without the owner seam the editor names the recipient and offers no choice
   await expect(line).toHaveText('✎ Editing · Answers go to tmt-gui-lead');
   await expect(line.getByRole('button')).toHaveCount(0);
 });
+
+test('a long name truncates on the editor line and the line keeps its height', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  const { edit, line } = await openEditor(page, { recipients: true });
+  const before = (await line.boundingBox())!.height;
+  const pick = line.locator('.question-recipient-trigger');
+  await pick.click();
+  await page.getByRole('option', { name: /very long name/ }).click();
+  await expect(pick).toContainText('An agent with a very long name');
+  const box = (await edit.boundingBox())!;
+  const pill = (await pick.boundingBox())!;
+  expect(pill.x + pill.width).toBeLessThanOrEqual(box.x + box.width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // The word and the pill share one row until the name is long; the pill is never taller than a
+  // normal line plus its own padding.
+  expect((await line.boundingBox())!.height).toBeGreaterThanOrEqual(before);
+  // With a short name the line is exactly as tall as the approved read-only line.
+  await pick.click();
+  await page.getByRole('option', { name: 'First reviewer', exact: true }).click();
+  await expect(pick).toHaveText('First reviewer');
+  expect((await line.boundingBox())!.height).toBe(before);
+});

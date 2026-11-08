@@ -26,13 +26,23 @@
 .question-recipient-label {
   flex: none;
 }
+/* The listbox's own block spacing (12px above and below, full width) is for a form field; this one
+   sits inside a line of text. */
+.question-recipient .tmt-listbox {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
 .question-recipient-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   max-width: 100%;
   min-width: 0;
-  padding: 3px 8px;
+  /* The pill is a larger target than its line: the negative margin keeps the line's own height. */
+  padding: 2px 8px;
+  margin-block: -2px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-pill);
   background: transparent;
