@@ -95,15 +95,11 @@ const sha256Hex = async (text: string) =>
     .join('');
 
 export type Snapshot = PageSnapshot & { attachments?: readonly attachment.AttachmentDescriptor[] };
-// Temporary, opt-in CI timing marks for #6188; the acceptance fixture supplies the hook.
-const traceDraft = (event: string) =>
-  (globalThis as typeof globalThis & { __tmt6188?: (event: string) => void }).__tmt6188?.(event);
 /** A newly created or temporarily unavailable page gets a bounded chance to become readable. */
 async function openPage(
   transport: PageTransport,
   id: string,
   stopped: () => boolean = () => false,
-  onRetry: () => void = () => {},
 ): Promise<Snapshot> {
   let page: Snapshot | undefined;
   for (let attempt = 0; !page; attempt++) {
@@ -111,7 +107,6 @@ async function openPage(
     try {
       page = (await transport.page(id)) as Snapshot;
     } catch (error) {
-      onRetry();
       if (attempt >= 10 || stopped()) throw error;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -203,8 +198,6 @@ export function pageDesignSystems(
   transport: PageTransport,
   shown?: (system: string) => string | undefined,
 ): DesignSystemSource {
-  const trace = traceDraft;
-  trace('source-created');
   const follows = new Map<string, Follow>();
   let cache = readDocs.get(transport);
   if (!cache) readDocs.set(transport, (cache = new Map()));
@@ -236,12 +229,10 @@ export function pageDesignSystems(
     return bundle;
   };
   const notify = (follow: Follow) => {
-    trace('invalidate');
     follow.draft = undefined;
     follow.draftBaseline = undefined;
     clearTimeout(follow.timer);
     follow.timer = setTimeout(() => {
-      trace('listeners-notified');
       for (const listener of follow.listeners) listener();
     }, DRAFT_SETTLE_MS);
   };
@@ -253,18 +244,11 @@ export function pageDesignSystems(
     );
   // The root stays subscribed: its view names the component pages and is part of the draft.
   const follow = async (state: Follow, rootId: string): Promise<void> => {
-    trace('root-open');
-    const page = await openPage(
-      transport,
-      rootId,
-      () => !!state.stopped,
-      () => trace('root-retry'),
-    ).catch(() => undefined);
+    const page = await openPage(transport, rootId, () => !!state.stopped).catch(() => undefined);
     if (!page?.binding) {
-      trace('root-unavailable');
       return;
     }
-    trace('root-ready');
+
     if (state.stopped) {
       page.binding.close();
       return;
@@ -302,7 +286,6 @@ export function pageDesignSystems(
   };
   // A component page whose revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
-    trace(state.latest ? 'list-update' : 'list-first');
     if (!state.latest && state.draftBaseline === null && state.draft) notify(state);
     state.latest = latest;
     state.heard();
@@ -315,12 +298,10 @@ export function pageDesignSystems(
       state.revisions.set(id, revision);
     }
     if (moved) notify(state);
-    if (moved) trace('component-moved');
   };
   return {
     release,
     draft(system) {
-      trace('draft-request');
       const version = shown?.(system);
       if (system === BUILT_IN_SYSTEM) return builtIn();
       if (version) return shownRelease(system, version);
@@ -360,13 +341,11 @@ export function pageDesignSystems(
             ]);
       const draft: Promise<DesignSystemBundle> = listed
         .then(() => {
-          trace('draft-compile');
           follow.draftBaseline = follow.latest ? new Map(follow.latest) : null;
           return compileDraft(transport, system, undefined, docs);
         })
         .then(
           (bundle) => {
-            trace('draft-done');
             // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
             // tells the followers once, so they draw it now rather than at the next edit.
             if (Date.now() - started >= PIN_WAIT_MS && follow.draft === draft && !follow.stopped)
@@ -382,7 +361,6 @@ export function pageDesignSystems(
       return draft;
     },
     watch(system, changed) {
-      trace('watch');
       if (system === BUILT_IN_SYSTEM) return () => {};
       let state = follows.get(system);
       if (!state) {
@@ -405,7 +383,6 @@ export function pageDesignSystems(
       const active = state;
       active.listeners.add(changed);
       return () => {
-        trace('unwatch');
         active.listeners.delete(changed);
         if (active.listeners.size) return;
         clearTimeout(active.timer);

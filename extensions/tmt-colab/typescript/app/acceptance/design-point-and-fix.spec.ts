@@ -19,11 +19,6 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('sample-1');
     const browser = await pairBrowser(world, 'sample-lead', { talk: true });
-    await browser.context.addInitScript(() => {
-      Object.assign(globalThis, {
-        __tmt6188: (event: string) => performance.mark(`tmt-6188:${event}`),
-      });
-    });
     // A serve without `page.new` makes a new system's root under an existing page and detaches it.
     createPage(world, 'sample-lead notes', '<h1>Notes</h1>');
     const page = await browser.context.newPage();
@@ -37,12 +32,6 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     // Held list reads in flight across this browser's tabs (#6162), counted from the first request.
     // A closed tab never reports its last request finished, so each tab counts its own.
     const inFlight = new Map<number, number>();
-    let patched = 0;
-    const timeline: { tab: number; at: number; event: string }[] = [];
-    const responseChecks: Promise<void>[] = [];
-    const record = (tab: number, event: string) => {
-      if (patched && timeline.length < 200) timeline.push({ tab, at: Date.now() - patched, event });
-    };
     const held = {
       by: new Set<number>(),
       get now() {
@@ -50,40 +39,15 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       },
     };
     const watch = (tab: number, target: typeof page) => {
-      target.on('frameattached', () => record(tab, 'frame-attached'));
-      target.on('framedetached', () => record(tab, 'frame-detached'));
       const isHeld = (url: string) =>
         /\/api\/pages\/after\/[0-9a-f]{64}$/.test(new URL(url).pathname);
-      const isList = (url: string) => new URL(url).pathname.endsWith('/api/pages');
       target.on('request', (request) => {
-        if (isHeld(request.url())) record(tab, 'held-start');
-        else if (isList(request.url())) record(tab, 'list-start');
         if (!isHeld(request.url())) return;
         inFlight.set(tab, (inFlight.get(tab) ?? 0) + 1);
         held.by.add(tab);
       });
-      target.on('response', (response) => {
-        if (!patched || !isHeld(response.url())) return;
-        const requested = new URL(response.url()).pathname.split('/').pop();
-        const check = response
-          .json()
-          .then((body: { listToken?: unknown; unchanged?: unknown }) => {
-            const token =
-              typeof body.listToken !== 'string'
-                ? 'invalid'
-                : body.listToken === requested
-                  ? 'same'
-                  : 'changed';
-            record(tab, `held-reply-${token}-${body.unchanged === true ? 'unchanged' : 'full'}`);
-          })
-          .catch(() => record(tab, 'held-reply-unreadable'));
-        responseChecks.push(check);
-      });
       const done = (request: { url(): string }) => {
-        if (isHeld(request.url())) {
-          record(tab, 'held-end');
-          inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
-        } else if (isList(request.url())) record(tab, 'list-end');
+        if (isHeld(request.url())) inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
       };
       target.on('requestfinished', done);
       target.on('requestfailed', done);
@@ -226,27 +190,8 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     }
     // Settled: one held read in flight for the five tabs.
     await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
-    const reportDrafts = async () => {
-      await Promise.all(responseChecks);
-      for (const [tab, target] of tabs.entries()) {
-        const marks = await target.evaluate(
-          (after) =>
-            performance
-              .getEntriesByType('mark')
-              .filter((entry) => entry.name.startsWith('tmt-6188:'))
-              .map((entry) => ({
-                event: entry.name.slice('tmt-6188:'.length),
-                at: Math.round(performance.timeOrigin + entry.startTime - after),
-              }))
-              .slice(-100),
-          patched,
-        );
-        console.log(`tab ${tab} draft timeline ${JSON.stringify(marks)}`);
-      }
-    };
     held.by.clear();
     // A CLI edit to an unopened component page reaches every tab through that one read.
-    patched = Date.now();
     run(world, world.binaries.colab, [
       'page',
       'patch',
@@ -257,6 +202,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '.zz-live-6162b{outline:0}',
       '--json',
     ]);
+    const patched = Date.now();
     const drawTimes: number[] = [];
     await Promise.all(
       tabs.map(async (tab, index) => {
@@ -288,17 +234,12 @@ test('an @agent comment on a design-system example becomes a live patch of that 
           console.log(
             `tab ${index} of ${tabs.length} did not draw the CLI edit; held reads by tab: ${[...held.by].join(',')}; in flight: ${JSON.stringify([...inFlight])}`,
           );
-          await reportDrafts();
-          console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
           throw error;
         }
         drawTimes[index] = Date.now() - patched;
         console.log(`tab ${index} drew the CLI edit ${drawTimes[index]} ms after it`);
-        record(index, 'drawn');
       }),
     );
-    await reportDrafts();
-    console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);
