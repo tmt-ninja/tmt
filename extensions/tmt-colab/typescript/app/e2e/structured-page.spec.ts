@@ -1381,3 +1381,182 @@ test('deleting an image block and undoing it draws the image again', async ({ pa
     )
     .toEqual([320, 320]);
 });
+
+/** Drops (or pastes) files on a block: a PNG drawn in the page and plain-text files. */
+async function addFiles(
+  page: import('@playwright/test').Page,
+  target: string,
+  files: { name: string; png?: string; text?: string }[],
+  how: 'drop' | 'paste' = 'drop',
+) {
+  await page.evaluate(
+    async ({ target, files, how }) => {
+      const transfer = new DataTransfer();
+      for (const file of files) {
+        let blob: Blob;
+        if (file.png) {
+          const canvas = new OffscreenCanvas(240, 160);
+          const context = canvas.getContext('2d')!;
+          context.fillStyle = file.png;
+          context.fillRect(0, 0, 240, 160);
+          blob = await canvas.convertToBlob({ type: 'image/png' });
+        } else blob = new Blob([file.text ?? ''], { type: 'text/plain' });
+        transfer.items.add(new File([blob], file.name, { type: blob.type }));
+      }
+      const at = document.querySelector(`[data-block-id="${target}"]`)!;
+      const node = how === 'paste' ? (at.querySelector('[contenteditable="true"]') ?? at) : at;
+      node.dispatchEvent(
+        how === 'paste'
+          ? new ClipboardEvent('paste', {
+              clipboardData: transfer,
+              bubbles: true,
+              cancelable: true,
+            })
+          : new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }),
+      );
+    },
+    { target, files, how },
+  );
+}
+
+/** The blocks at the top level, in drawing order. */
+const topLevel = (host: import('@playwright/test').Locator) =>
+  host.evaluate((node) =>
+    [...node.querySelectorAll<HTMLElement>('[data-block-id]')]
+      .filter((block) => !block.parentElement?.closest('[data-block-id]'))
+      .map((block) => block.dataset.blockId),
+  );
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`dropped files upload as an image and a file card after the block, at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const host = await mountFixture(page, 'spec');
+      const blocks = await topLevel(host);
+      const after = blocks[1]!;
+      await page.evaluate(() => window.holdUploads());
+      await addFiles(page, after, [
+        { name: 'board.png', png: '#c8553d' },
+        { name: 'notes.txt', text: 'Ship the stack.\n' },
+      ]);
+      // The file's grey tile shows at once, after the block it was dropped on (the second file
+      // waits for the first upload).
+      await expect.poll(async () => (await topLevel(host)).length).toBe(blocks.length + 1);
+      const now = await topLevel(host);
+      expect(now.slice(0, 2)).toEqual(blocks.slice(0, 2));
+      const tile = host.locator(`[data-block-id="${now[2]}"]`);
+      await expect(tile.locator('.tmt-block-image-placeholder')).toHaveCount(1);
+      await expect(tile.locator('.tmt-block-image-failed')).toHaveCount(0);
+      await tile.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await tile.screenshot({
+        path: capturePath(`structured-upload-${width}-${theme}-loading.png`),
+      });
+      await page.evaluate(() => window.releaseUploads());
+      // The image reads back through the page's authorized read; the text file is a card.
+      const image = host.locator(`[data-block-id="${now[2]}"] img`);
+      await expect(image).toHaveAttribute('alt', 'board.png');
+      await expect
+        .poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth))
+        .toBe(240);
+      const card = host.locator('.tmt-block-file');
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText('notes.txt');
+      await expect(card).toContainText('text/plain · 16 bytes');
+      // The card never carries the raw reference as a link.
+      await expect(card.locator('a')).toHaveCount(0);
+      const final = await topLevel(host);
+      expect(final).toHaveLength(blocks.length + 2);
+      expect(final.slice(0, 2)).toEqual(blocks.slice(0, 2));
+      // Bytes, not names, decided each type; each file was listed in its block's own batch.
+      expect(await page.evaluate(() => window.uploaded)).toEqual([
+        { filename: 'board.png', mediaType: 'image/png', size: expect.any(Number) },
+        { filename: 'notes.txt', mediaType: 'text/plain', size: 16 },
+      ]);
+      await expect
+        .poll(() => page.evaluate(() => window.listedFiles.map((ids) => ids.length)))
+        .toEqual([1, 1]);
+      await host.locator(`[data-block-id="${final[2]}"]`).scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await host
+        .locator(`[data-block-id="${final[3]}"]`)
+        .screenshot({ path: capturePath(`structured-upload-${width}-${theme}-file.png`) });
+    });
+
+test('a pasted image goes after the focused block, and delete and Undo bring it back', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  const at = blocks.indexOf('l2');
+  await host.locator('[data-block-id="l2"]').getByText('滑過或選取是淡色底。').click();
+  await expect(host.locator('[data-block-id="l2"] [contenteditable="true"]')).toBeFocused();
+  await addFiles(page, 'l2', [{ name: 'shot.png', png: '#2d6a8f' }], 'paste');
+  const now = () => topLevel(host);
+  await expect.poll(async () => (await now()).length).toBe(blocks.length + 1);
+  const added = (await now())[at + 1]!;
+  const image = host.locator(`[data-block-id="${added}"] img`);
+  await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(240);
+  // The list item keeps its text: the paste took only the file.
+  expect(await page.evaluate(() => window.serveText('l2'))).toBe('滑過或選取是淡色底。');
+  await page.keyboard.press('Escape');
+  const block = host.locator(`[data-block-id="${added}"]`);
+  await block.hover();
+  await block.getByRole('button', { name: 'Block actions' }).click();
+  await page
+    .getByRole('menu', { name: 'Block actions' })
+    .getByRole('menuitem', { name: /Delete/ })
+    .click();
+  await expect(block).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(240);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(1);
+});
+
+test('a failed upload, or a refused batch, leaves a failed tile whose Retry finishes it', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // The upload fails: Retry uploads again.
+  await page.evaluate(() => (window.failUpload = true));
+  await addFiles(page, blocks[0]!, [{ name: 'a.png', png: '#5b8c51' }]);
+  let failed = host.getByRole('group', { name: 'a.png', exact: true });
+  await expect(failed).toContainText('Failed to load');
+  await page.evaluate(() => (window.failUpload = false));
+  await failed.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('img[alt="a.png"]')).toHaveCount(1);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(2);
+  // The upload succeeds but the serve refuses the batch: Retry repeats the batch, not the upload.
+  await page.evaluate(() => (window.refuseFiles = true));
+  await addFiles(page, blocks[0]!, [{ name: 'b.txt', text: 'b' }]);
+  failed = host.getByRole('group', { name: 'b.txt', exact: true });
+  await expect(failed).toContainText('Failed to load');
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(3);
+  await page.evaluate(() => (window.refuseFiles = false));
+  await failed.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('.tmt-block-file')).toContainText('b.txt');
+  await expect(failed).toHaveCount(0);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(3);
+  expect(await page.evaluate(() => window.listedFiles.length)).toBe(2);
+});
+
+test('files past the page cap are refused before any upload, with what to do', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  // The page lists 3 images; 124 more files leave room for one.
+  await page.evaluate(() => (window.extraFiles = 124));
+  await addFiles(page, blocks[0]!, [
+    { name: 'one.txt', text: '1' },
+    { name: 'two.txt', text: '2' },
+  ]);
+  await expect(page.getByRole('status')).toContainText(
+    'A page holds at most 128 files, and these would pass that, so nothing was added. Delete files the page no longer uses, or ask an agent to run block detach, then add again.',
+  );
+  expect(await topLevel(host)).toEqual(blocks);
+  expect(await page.evaluate(() => window.uploaded.length)).toBe(0);
+  await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toHaveCount(0);
+});

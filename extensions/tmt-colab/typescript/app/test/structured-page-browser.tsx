@@ -3,7 +3,7 @@ import type { attachment } from '@tmt/colab-client';
 import type { AttachmentBinding } from '../src/attachment-service.js';
 import type { DocumentImageInput } from '../src/document-images.js';
 import '../src/style.css';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   type BlockOp,
@@ -25,6 +25,8 @@ import type { RegisteredQuestion } from '../src/question-registry.js';
 import { destination, id as fixtureId } from './ask-fixtures.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
+import type { AttachmentInput, StoredAttachment } from '../src/attachment-service.js';
+import type { BlockFiles } from '../src/block-uploads.js';
 
 /** How long the fixture's serve takes to commit an op and show it on the page. */
 const SERVE_MS = 120;
@@ -258,6 +260,17 @@ declare global {
     recipientChosen: (string | null)[];
     /** The next recipient choice is refused (once). */
     refuseRecipient(): void;
+    /** Files the page uploaded (#6202), in order, and the attachment IDs each batch listed. */
+    uploaded: { filename: string; mediaType: string; size: number }[];
+    listedFiles: string[][];
+    /** While set, uploads wait for `releaseUploads`. */
+    holdUploads(): void;
+    releaseUploads(): void;
+    /** While true, an upload fails; while true, a batch that lists files is refused. */
+    failUpload: boolean;
+    refuseFiles: boolean;
+    /** How many files the page lists besides its images (the cap counts them). */
+    extraFiles: number;
   }
 }
 
@@ -449,12 +462,55 @@ export function mount(
     gate = undefined;
     release();
   };
+  // The page's files: the three images, then any this page adds (#6202), with their bytes.
+  const added = new Map<string, Uint8Array>();
+  let descriptors = [IMAGE_A, IMAGE_B, IMAGE_C].map((attachmentId) => ({
+    attachmentId,
+    mediaType: 'image/png',
+    plaintextBytes: '4000',
+  })) as unknown as attachment.AttachmentDescriptor[];
+  const descriptorListeners = new Set<(next: attachment.AttachmentDescriptor[]) => void>();
+  window.uploaded = [];
+  window.listedFiles = [];
+  window.failUpload = false;
+  window.refuseFiles = false;
+  window.extraFiles = 0;
+  let uploadGate: Promise<void> | undefined;
+  let releaseUpload = () => {};
+  window.holdUploads = () => {
+    uploadGate = new Promise((resolve) => (releaseUpload = resolve));
+  };
+  window.releaseUploads = () => {
+    uploadGate = undefined;
+    releaseUpload();
+  };
+  const files: BlockFiles = {
+    count: () => descriptors.length + window.extraFiles,
+    upload: async (input: AttachmentInput) => {
+      window.uploaded.push({
+        filename: input.filename,
+        mediaType: input.mediaType,
+        size: input.bytes.length,
+      });
+      await uploadGate;
+      if (window.failUpload) throw new Error('The upload failed.');
+      const attachmentId = crypto.randomUUID();
+      added.set(attachmentId, input.bytes);
+      return {
+        original: {
+          descriptor: {
+            attachmentId,
+            mediaType: input.mediaType,
+            plaintextBytes: String(input.bytes.length),
+          },
+        },
+      } as unknown as StoredAttachment;
+    },
+  };
   const imageSource: DocumentImageInput = {
-    descriptors: [IMAGE_A, IMAGE_B, IMAGE_C].map((attachmentId) => ({
-      attachmentId,
-      mediaType: 'image/png',
-      plaintextBytes: '4000',
-    })) as unknown as attachment.AttachmentDescriptor[],
+    get descriptors() {
+      return descriptors;
+    },
     binding: {
       scope: () => 'fixture',
       open: async (_target: unknown, descriptor: attachment.AttachmentDescriptor) => {
@@ -462,6 +518,9 @@ export function mount(
         await gate;
         if (descriptor.attachmentId === IMAGE_C && window.failImage)
           throw new Error('The read failed.');
+        const bytes = added.get(descriptor.attachmentId);
+        // A fresh copy per read, as a real read decrypts one: the reader may take the buffer.
+        if (bytes) return bytes.slice();
         return samplePng(
           descriptor.attachmentId === IMAGE_A
             ? '#c8553d'
@@ -531,8 +590,18 @@ export function mount(
     holding = hold;
     if (!hold) for (const commit of held.splice(0)) commit();
   };
-  const send = (ops: BlockOp[]) =>
-    new Promise<number>((resolve) => {
+  const send = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
+    new Promise<number>((resolve, reject) => {
+      if (stored?.length) {
+        // The serve refuses the whole batch, or lists the files with the blocks in one change.
+        if (window.refuseFiles) {
+          setTimeout(() => reject(new Error('Refused.')), SERVE_MS);
+          return;
+        }
+        window.listedFiles.push(stored.map(({ original }) => original.descriptor.attachmentId));
+        descriptors = [...descriptors, ...stored.map(({ original }) => original.descriptor)];
+        for (const listener of descriptorListeners) listener(descriptors);
+      }
       window.sent.push(...ops);
       const later = (commit: () => void) =>
         setTimeout(() => (holding ? held.push(commit) : commit()), SERVE_MS);
@@ -551,6 +620,12 @@ export function mount(
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
     const [pageThreads, setPageThreads] = useState(threads);
+    const [listed, setListed] = useState(descriptors);
+    useEffect(() => {
+      descriptorListeners.add(setListed);
+      return () => void descriptorListeners.delete(setListed);
+    }, []);
+    const pageImages = useMemo(() => ({ ...imageSource, descriptors: listed }), [listed]);
     useEffect(() => {
       threadListeners.add(setPageThreads);
       return () => void threadListeners.delete(setPageThreads);
@@ -596,7 +671,9 @@ export function mount(
       insertAfter,
       closeBlockMenu,
       hoverBlockMenu,
-    } = useBlockEditing(view.records, send, view.seq);
+      attach,
+      uploads,
+    } = useBlockEditing(view.records, send, view.seq, content === 'spec' ? files : undefined);
     return (
       <section ref={subscribe}>
         <StructuredPage
@@ -619,7 +696,9 @@ export function mount(
             mountMockup,
             workSource,
             pageViewSource,
-            imageSource,
+            imageSource: pageImages,
+            onAttach: (picked: File[], after?: string) => void attach(picked, after),
+            uploads,
             questionPage: {
               title: '區塊編輯器',
               questions: registry,

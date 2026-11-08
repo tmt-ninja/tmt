@@ -38,7 +38,8 @@ export interface BlockToastProps {
   shortcut?: string;
 }
 
-/** The status line after a delete or move, with Undo. The host places it and times it out. */
+/** The status line after a delete or move, with Undo; without `onUndo`, a notice with no action.
+ * The host places it and times it out. */
 export function BlockToast({
   children,
   onUndo,
@@ -48,10 +49,12 @@ export function BlockToast({
   return (
     <div data-slot="block-toast" role="status" className="tmt-block-toast">
       <span className="tmt-block-toast-message">{children}</span>
-      <button type="button" className="tmt-block-toast-undo" onClick={onUndo}>
-        {undoLabel}
-      </button>
-      {shortcut && (
+      {onUndo && (
+        <button type="button" className="tmt-block-toast-undo" onClick={onUndo}>
+          {undoLabel}
+        </button>
+      )}
+      {onUndo && shortcut && (
         <kbd className="tmt-block-kbd" aria-hidden="true">
           {shortcut}
         </kbd>

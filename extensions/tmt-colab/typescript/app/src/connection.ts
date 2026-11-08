@@ -687,12 +687,22 @@ export class Connection {
     )) as WorkResult;
   }
   /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
-   * its receipt. A lost reply settles like a save's, by one `saveStatus`. */
-  async blocks(operationId: string, ops: readonly BlockOp[]): Promise<BlocksResult> {
+   * its receipt. A lost reply settles like a save's, by one `saveStatus`. `attachments` is a typed
+   * change to the page's attachment list judged with the ops (#6190); a batch has no ops only when
+   * it carries one. */
+  async blocks(
+    operationId: string,
+    ops: readonly BlockOp[],
+    attachments?: attachment.DocumentChange,
+  ): Promise<BlocksResult> {
     await this.ready;
     this.admission.validatePage(this.sharing);
-    requireValue(ops.length >= 1 && ops.length <= BLOCK_BATCH_OPS);
-    return this.#request(operationId, async () => this.send('blocks', { operationId, ops }));
+    const change = attachments === undefined ? undefined : attachment.documentChange(attachments);
+    const changes = !!change && !attachment.emptyDocumentChange(change);
+    requireValue(ops.length <= BLOCK_BATCH_OPS && (ops.length >= 1 || changes));
+    return this.#request(operationId, async () =>
+      this.send('blocks', { operationId, ops, ...(changes ? { attachments: change } : {}) }),
+    );
   }
   async metadata(
     operationId: string,

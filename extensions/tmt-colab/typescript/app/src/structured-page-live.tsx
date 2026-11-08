@@ -1,4 +1,6 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
+import type { BlockFiles } from './block-uploads.js';
 import type { DocumentImageInput } from './document-images.js';
 import type { BlockOp } from './block-model.js';
 import { blockRecords } from './block-projection.js';
@@ -46,12 +48,29 @@ export function LiveStructuredPage({
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
+  const pageFiles = write ? binding?.files : undefined;
   const send = useCallback(
-    async (ops: BlockOp[]) => {
+    async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       if (!write) throw new Error('Page editing unavailable');
-      return (await write(ops)).seq;
+      if (!stored?.length) return (await write(ops)).seq;
+      // The files join the page's list in the same batch as the blocks that show them (#6202).
+      if (!pageFiles?.addToBlocks) throw new Error('Files are not available on this page.');
+      return (await pageFiles.addToBlocks(stored, ops)).seq;
     },
-    [write],
+    [write, pageFiles],
+  );
+  const listed = useRef(0);
+  listed.current = imageSource?.descriptors.length ?? 0;
+  const files = useMemo<BlockFiles | undefined>(
+    () =>
+      pageFiles?.addToBlocks
+        ? {
+            count: () => listed.current,
+            upload: (input: AttachmentInput) =>
+              pageFiles.attachments.upload(input, pageFiles.target(), () => {}),
+          }
+        : undefined,
+    [pageFiles],
   );
   const {
     tree,
@@ -85,7 +104,9 @@ export function LiveStructuredPage({
     insertAfter,
     closeBlockMenu,
     hoverBlockMenu,
-  } = useBlockEditing(records, send, seq);
+    attach,
+    uploads,
+  } = useBlockEditing(records, send, seq, files);
   return (
     <StructuredPage
       tree={tree}
@@ -125,6 +146,8 @@ export function LiveStructuredPage({
       onOpenBlockMenu={openBlockMenu}
       onInsertAfter={insertAfter}
       onMove={move}
+      onAttach={files && ((picked, after) => void attach(picked, after))}
+      uploads={uploads}
       readonly={!write}
     />
   );

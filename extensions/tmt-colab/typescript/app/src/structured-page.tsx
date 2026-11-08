@@ -71,6 +71,7 @@ import { type Drag, useBlockDrag } from './use-block-drag.js';
 import {
   BLOCK_MENU_ACTIONS,
   type BlockMenuAction,
+  type BlockUpload,
   type DeleteToast,
   type InsertMenu,
 } from './use-block-editing.js';
@@ -171,7 +172,19 @@ export interface StructuredPageProps {
   onOpenBlockMenu?(id: string): void;
   onInsertAfter?(id: string): void;
   onMove?(id: string, parent: string, index: number): void;
+  /** Files dropped or pasted on the page, after the block they landed on (#6202). */
+  onAttach?(files: File[], after?: string): void;
+  /** The file blocks this tab is adding, drawn as their upload tile. */
+  uploads?: ReadonlyMap<string, BlockUpload>;
 }
+
+/** The files a drop or paste carries; none when it carries only text. */
+const carried = (data: DataTransfer | null): File[] => (data ? [...data.files] : []);
+/** The innermost block an event landed on. */
+const landedOn = (target: EventTarget | null) =>
+  target instanceof Element
+    ? target.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
+    : undefined;
 
 /** The page's pointer state that the blocks draw: the hovered block and a drag in progress. */
 interface Pointer {
@@ -208,6 +221,25 @@ export function StructuredPage(props: StructuredPageProps) {
           setHovered(block?.dataset.blockId);
         }}
         onPointerLeave={() => setHovered(undefined)}
+        // Dropping files, or pasting them, inserts them after the block they landed on (spec 圖片:
+        // 拖檔案或貼上圖片＝插入). Text and a block's own drag are not files and pass through.
+        onDragOver={(event) => {
+          if (props.onAttach && !props.readonly && event.dataTransfer.types.includes('Files'))
+            event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const files = carried(event.dataTransfer);
+          if (!props.onAttach || props.readonly || !files.length) return;
+          event.preventDefault();
+          props.onAttach(files, landedOn(event.target));
+        }}
+        onPasteCapture={(event) => {
+          const files = carried(event.clipboardData);
+          if (!props.onAttach || props.readonly || !files.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+          props.onAttach(files, landedOn(event.target));
+        }}
       >
         <Blocks {...props} parent={PAGE_PARENT} pointer={pointer} />
         {drag?.target && drag.target.parent === PAGE_PARENT && !drag.target.lineBefore && (
@@ -217,9 +249,13 @@ export function StructuredPage(props: StructuredPageProps) {
       </BlockDocument>
       {props.toast && (
         <div className="tmt-block-toast-place" key={props.toast.id}>
-          <BlockToast onUndo={props.onUndo} undoLabel={strings.blockDelete.undo}>
-            {strings.blockDelete.deleted(props.toast.count)}
-          </BlockToast>
+          {props.toast.notice ? (
+            <BlockToast>{props.toast.notice}</BlockToast>
+          ) : (
+            <BlockToast onUndo={props.onUndo} undoLabel={strings.blockDelete.undo}>
+              {strings.blockDelete.deleted(props.toast.count)}
+            </BlockToast>
+          )}
         </div>
       )}
     </>
@@ -895,7 +931,13 @@ function Content({
     case 'mockup':
       return <MockupFrame block={block} mount={rest.mountMockup} />;
     case 'image':
-      return <StructuredImages block={block} source={rest.imageSource} />;
+      return (
+        <StructuredImages
+          block={block}
+          source={rest.imageSource}
+          upload={rest.uploads?.get(block.id)}
+        />
+      );
     default:
       // A type this editor does not draw (a newer one): its name, muted.
       return <TextBlock tone="muted">{block.type}</TextBlock>;

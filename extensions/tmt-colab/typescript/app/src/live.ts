@@ -175,6 +175,7 @@ export class Live implements PageBinding {
       source: () => this.#admitted.source,
       publish: (records) => this.#writer.submitOwnRecords(records),
       edit: (source, base, change) => this.edit(source, base, change),
+      blocks: (ops, change) => this.blocks(ops, change),
     });
     this.status = new ThreadStatusCoordinator({
       binding: this.discussion,
@@ -926,13 +927,16 @@ export class Live implements PageBinding {
   }
   /** A block batch, settled as `work` is: a lost reply by exactly one status request, never sent
    * again; it resolves once the page shows the commit. */
-  async blocks(ops: readonly BlockOp[]): Promise<BlocksOutcome> {
+  async blocks(
+    ops: readonly BlockOp[],
+    attachments?: attachment.DocumentChange,
+  ): Promise<BlocksOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const c = await this.#current;
     const operationId = crypto.randomUUID();
     let result: BlocksResult;
     try {
-      result = await c.blocks(operationId, ops);
+      result = await c.blocks(operationId, ops, attachments);
     } catch (error) {
       if (!(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);

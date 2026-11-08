@@ -4,6 +4,7 @@ import {
   type BlockOp,
   type BlockRecord,
   isBlockType,
+  PAGE_PARENT,
   TEXT_TYPES,
   type TableColumnEdit,
   type TableRowAction,
@@ -40,6 +41,10 @@ import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
 import { richType, validMarkValue } from './blocks.js';
 import { BlockTree } from './block-tree.js';
+import { attachment } from '@tmt/colab-client';
+import type { StoredAttachment } from './attachment-service.js';
+import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
+import { text as strings } from './strings.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
 const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
@@ -86,13 +91,19 @@ const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
   e: 'code',
 };
 
-/** The status line after a delete, with Undo. */
+/** The status line after a delete, with Undo, or a notice about files that were not added. */
 export interface DeleteToast {
   /** How many blocks the delete took. */
   count: number;
-  /** Moves with every delete, so a new one restarts the line. */
+  /** Why files were not added (#6202); no Undo then. */
+  notice?: string;
+  /** Moves with every line, so a new one restarts it. */
   id: number;
 }
+
+/** A file block this tab is adding (#6202): its tile while the file uploads, or once the upload
+ * or its batch failed, with Retry. */
+export type BlockUpload = { state: 'loading' } | { state: 'failed'; retry(): void };
 
 /** What the focused block, or table cell, shows while it is edited. */
 export interface Editing {
@@ -120,13 +131,18 @@ export interface Editing {
  */
 export function useBlockEditing(
   records: readonly BlockRecord[],
-  send: (ops: BlockOp[]) => Promise<number | void>,
+  /** Sends one batch; `stored` files join the page's attachment list in that same batch. */
+  send: (ops: BlockOp[], stored?: readonly StoredAttachment[]) => Promise<number | void>,
   /** The local order of the view `records` came from (`PageView.seq`), when the page gives one. */
   seq?: number,
+  /** The page's files, when this tab may add them (#6202). */
+  files?: BlockFiles,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when it settles
-   * (the page then shows it, or it was refused). */
+   * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
+   * the file uploads, and is never sent. */
   const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
+  const [uploads, setUploads] = useState<ReadonlyMap<string, BlockUpload>>(new Map());
   const batchKey = useRef(0);
   /** The page as the serve shows it: what the focused block's text merges with. */
   const pageTree = useMemo(() => new BlockTree(records), [records]);
@@ -190,32 +206,35 @@ export function useBlockEditing(
   );
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const out = useCallback((current: BlockTextSync | undefined, ops: BlockOp[]) => {
-    const key = ++batchKey.current;
-    setPending((now) => [...now, { key, ops }]);
-    // This tab's batches commit in the order it made them (a column's rename after its add): each
-    // goes once the one before it settles, and is drawn at once meanwhile.
-    const sent = queue.current.then(() => sendRef.current(ops));
-    queue.current = sent.then(
-      () => {},
-      () => {},
-    );
-    const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
-    sent.then(drop, drop);
-    inflight.current = sent.then(
-      (at) => {
-        if (current)
-          showRef.current(
-            current,
-            current.settled(true, caret.current, typeof at === 'number' ? at : undefined),
-          );
-      },
-      () => {
-        if (current) showRef.current(current, current.settled(false, caret.current));
-      },
-    );
-    return sent;
-  }, []);
+  const out = useCallback(
+    (current: BlockTextSync | undefined, ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
+      const key = ++batchKey.current;
+      setPending((now) => [...now, { key, ops }]);
+      // This tab's batches commit in the order it made them (a column's rename after its add): each
+      // goes once the one before it settles, and is drawn at once meanwhile.
+      const sent = queue.current.then(() => sendRef.current(ops, stored));
+      queue.current = sent.then(
+        () => {},
+        () => {},
+      );
+      const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
+      sent.then(drop, drop);
+      inflight.current = sent.then(
+        (at) => {
+          if (current)
+            showRef.current(
+              current,
+              current.settled(true, caret.current, typeof at === 'number' ? at : undefined),
+            );
+        },
+        () => {
+          if (current) showRef.current(current, current.settled(false, caret.current));
+        },
+      );
+      return sent;
+    },
+    [],
+  );
   /** The typing not sent yet, with the marks its new characters take from the text they were
    * typed into (as the editor draws them). */
   const typedOps = useCallback((current: BlockTextSync): BlockOp[] => {
@@ -550,6 +569,116 @@ export function useBlockEditing(
       });
     },
     [open, out, flush],
+  );
+
+  /** A notice in the status line, in place of a delete's. */
+  const notice = useCallback((message: string) => {
+    clearTimeout(toastTimer.current);
+    setToast((now) => ({ count: 0, notice: message, id: (now?.id ?? 0) + 1 }));
+    toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
+  }, []);
+  /** Files whose uploads are under way: they count against the page's cap until their batch. */
+  const adding = useRef(0);
+  /**
+   * Add files to the page (#6202), after `after` (the focused, else the selected, else the last
+   * block). Each file is one gesture: its tile shows at once while it uploads, then one batch
+   * inserts its block and lists the file. Files the page cannot take are refused before any
+   * upload. A failed upload, or a batch the serve refused, leaves the tile failed with Retry; a
+   * stored file is never uploaded again, and one never listed is left for the sweep.
+   */
+  const attach = useCallback(
+    async (picked: readonly File[], after?: string) => {
+      if (!files || !picked.length) return;
+      if (!fitsAttachments(files.count() + adding.current, picked.length))
+        return notice(strings.blockFiles.full(attachment.DOCUMENT_ATTACHMENTS));
+      // Each file holds its place under the cap until it is refused, its upload fails or its
+      // batch settles (the page's list then counts it, or it was not added).
+      adding.current += picked.length;
+      clearTimeout(timer.current);
+      flush();
+      const current = sync.current;
+      await inflight.current;
+      const top = treeRef.current.children();
+      let anchor = after ?? current?.id ?? selection?.focus ?? top[top.length - 1]?.id;
+      for (const file of picked) {
+        const read = await readBlockFile(file);
+        if (typeof read === 'string') {
+          adding.current--;
+          notice(strings.blockFiles[read](file.name));
+          continue;
+        }
+        const id = crypto.randomUUID();
+        const place = (stored?: StoredAttachment) =>
+          insertBlock(treeRef.current, {
+            id,
+            ...fileBlock(read, stored),
+            ...(anchor ? { after: anchor } : { parent: PAGE_PARENT }),
+          });
+        let placeholder: BlockOp;
+        try {
+          placeholder = place();
+        } catch {
+          // Inside a block that holds no image (a card's row, say): after it at the top level.
+          anchor = top[top.length - 1]?.id;
+          try {
+            placeholder = place();
+          } catch {
+            adding.current--;
+            notice(strings.blockFiles.noPlace);
+            continue;
+          }
+        }
+        const after = anchor;
+        anchor = id;
+        const tile = ++batchKey.current;
+        const draw = (upload?: BlockUpload) => {
+          setUploads((now) => {
+            const next = new Map(now);
+            if (upload) next.set(id, upload);
+            else next.delete(id);
+            return next;
+          });
+          setPending((now) =>
+            upload
+              ? now.some((batch) => batch.key === tile)
+                ? now
+                : [...now, { key: tile, ops: [placeholder] }]
+              : now.filter((batch) => batch.key !== tile),
+          );
+        };
+        const commit = (stored: StoredAttachment) => {
+          anchor = after;
+          const ops = [place(stored)];
+          anchor = id;
+          history.current.record(treeRef.current, ops);
+          // The tile gives way to the batch in one render: the page draws the block either way.
+          draw();
+          void out(undefined, ops, [stored])
+            .catch(() => draw({ state: 'failed', retry: () => commit(stored) }))
+            .finally(release);
+        };
+        let counted = true;
+        function release() {
+          if (!counted) return;
+          counted = false;
+          adding.current--;
+        }
+        const upload = async () => {
+          draw({ state: 'loading' });
+          let stored: StoredAttachment;
+          try {
+            stored = await files.upload(read.input);
+          } catch {
+            release();
+            draw({ state: 'failed', retry: () => void upload() });
+            return;
+          }
+          commit(stored);
+        };
+        await upload();
+      }
+    },
+    [files, flush, notice, out, selection?.focus],
   );
 
   /** A key in the focused block; true when the block took it. */
@@ -937,5 +1066,7 @@ export function useBlockEditing(
       setBlockMenu((now) => (now ? { ...now, active: action } : now)),
     toast,
     undo,
+    attach,
+    uploads,
   };
 }
