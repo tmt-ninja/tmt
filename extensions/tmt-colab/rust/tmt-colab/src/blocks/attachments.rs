@@ -65,14 +65,10 @@ fn references(blocks: &Value, tombstoned: bool) -> BTreeSet<String> {
 }
 
 /// The token of a reference the renderer resolves: 8 lowercase hex digits (a unique ID prefix) or
-/// a full attachment ID, the HTML grammar. `None` is a malformed reference.
+/// a full attachment ID, the HTML grammar (`text::attachment_token`, the one owner, which the
+/// block schema applies to every image `src` and file `href`). `None` is a malformed reference.
 fn token(reference: &str) -> Option<&str> {
-    let token = reference.strip_prefix(REFERENCE)?;
-    let prefix = token.len() == 8
-        && token
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    (prefix || values::generated_id(token).is_ok()).then_some(token)
+    super::text::attachment_token(reference)
 }
 
 /// The one descriptor a token names in `list`: the full ID, or the only ID with that prefix.

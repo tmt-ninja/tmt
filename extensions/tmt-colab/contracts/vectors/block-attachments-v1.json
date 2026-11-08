@@ -379,7 +379,7 @@
       }
     },
     {
-      "name": "an https source is not judged",
+      "name": "an https source needs no attachment",
       "source": "",
       "before": {},
       "next": {
@@ -402,7 +402,7 @@
       }
     },
     {
-      "name": "a data source is not judged",
+      "name": "a source that is no attachment reference is left to the block schema, which refuses a data URL",
       "source": "",
       "before": {},
       "next": {

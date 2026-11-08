@@ -3192,8 +3192,9 @@ creator's own-stream creation proof, as for an HTML save.
 
 A reference is a string in an image's `props.images[].src` or a file's `props.files[].href` that
 starts with `colab-attachment:`; its token is the full attachment ID or the first 8 lowercase hex
-digits of exactly one ID on the page (the grammar of an HTML `<img>`). Anything else (an `https:`
-URL, a `data:` URI) is not judged here. A batch is refused as `COLAB_BLOCK_ATTACHMENT`, with
+digits of exactly one ID on the page (the grammar of an HTML `<img>`). Anything else needs no
+attachment and is not judged here: the block schema's URL rule (above) refuses what may not appear,
+such as a `data:` URI. A batch is refused as `COLAB_BLOCK_ATTACHMENT`, with
 nothing written, when:
 
 - a reference it adds (live afterwards, not live before) is malformed or names no descriptor of the

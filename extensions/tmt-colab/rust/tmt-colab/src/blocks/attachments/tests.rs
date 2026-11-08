@@ -124,7 +124,8 @@ fn only_a_well_formed_reference_that_names_exactly_one_descriptor_resolves() {
     );
     let full = blocks(&[(A, image(&reference(1)))]);
     assert!(admit(&empty, &full, &twins, None, &source).is_ok());
-    // Anything that is not a colab-attachment reference is not judged here.
+    // Anything that is not a colab-attachment reference is not judged here; the block schema's URL
+    // rule decides what else a source may be.
     let others = blocks(&[
         (A, image("https://example.com/a.png")),
         (B, image("data:image/png;base64,AAAA")),
