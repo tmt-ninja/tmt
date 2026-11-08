@@ -1242,7 +1242,6 @@
   width: 100%;
 }
 .tmt-block-table [data-nowrap] {
-  width: 1px;
   white-space: nowrap;
 }
 

@@ -515,8 +515,8 @@ function Table({
   const columns = tableColumns(block.props);
   const rows = tree.rows(block.id);
   const editable = !readonly && onFocusCell !== undefined;
-  // A column of short labels takes its content's width and the long columns share the rest, so a
-  // label never breaks while there is room.
+  // A column of short labels never breaks; the table shares the rest of its width as the
+  // reference table does.
   const short = (column: TableColumn) =>
     [column.name, ...rows.map((row) => row.cells?.[column.id] ?? '')].every(
       (value) => [...value].length <= SHORT_CELL,
