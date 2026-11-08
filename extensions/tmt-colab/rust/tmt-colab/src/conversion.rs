@@ -24,8 +24,14 @@ pub(crate) fn project(base: &Value, body: &Value) -> Result<Value, DecodeFault> 
     let meta = next["meta"]
         .as_object_mut()
         .ok_or(DecodeFault::InvalidInput)?;
-    meta.remove("layout");
-    meta.remove("layoutReason");
+    if let Some(layout) = meta.remove("layout") {
+        let mut legacy = serde_json::Map::new();
+        legacy.insert("layout".into(), layout);
+        if let Some(reason) = meta.remove("layoutReason") {
+            legacy.insert("layoutReason".into(), reason);
+        }
+        meta.insert("legacyLayout".into(), Value::Object(legacy));
+    }
     meta.insert("pageType".into(), json!("blocks"));
     meta.insert("convertedAt".into(), json!(at));
     Ok(next)
@@ -49,6 +55,17 @@ pub(crate) fn revert(base: &Value, body: &Value) -> Result<Value, DecodeFault> {
         .ok_or(DecodeFault::InvalidInput)?;
     meta.remove("pageType");
     meta.remove("convertedAt");
+    if let Some(legacy) = meta
+        .remove("legacyLayout")
+        .and_then(|v| v.as_object().cloned())
+    {
+        if let Some(layout) = legacy.get("layout") {
+            meta.insert("layout".into(), layout.clone());
+        }
+        if let Some(reason) = legacy.get("layoutReason") {
+            meta.insert("layoutReason".into(), reason.clone());
+        }
+    }
     Ok(next)
 }
 
@@ -67,7 +84,15 @@ mod tests {
             assert_eq!(next["meta"]["convertedAt"], 123);
             assert!(next["meta"].get("layout").is_none());
             assert!(next["meta"].get("layoutReason").is_none());
+            assert_eq!(
+                next["meta"]["legacyLayout"],
+                json!({"layout":"canvas","layoutReason":"chart"})
+            );
             assert_eq!(next["blocks"], json!({}));
+            let restored = revert(&next, &json!({})).unwrap();
+            assert_eq!(restored["meta"]["layout"], "canvas");
+            assert_eq!(restored["meta"]["layoutReason"], "chart");
+            assert!(restored["meta"].get("legacyLayout").is_none());
         }
     }
 

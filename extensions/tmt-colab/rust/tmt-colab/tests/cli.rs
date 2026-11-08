@@ -14586,7 +14586,9 @@ fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
         "--title",
         "Legacy",
         "--layout",
-        "column",
+        "canvas",
+        "--reason",
+        "A custom frame",
         "--file",
         file.to_str().unwrap(),
         "--no-open",
@@ -14673,8 +14675,13 @@ fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
             .len(),
         2
     );
+    // A new epoch must retain the original layout before reverting.
+    call(&["page", "compact", page, "--json"]);
     call(&["page", "convert", page, "--revert", "--yes", "--json"]);
     assert_eq!(call(&["page", "read", page, "--json"])["source"], source);
+    let restored = call(&["show", page, "--json"]);
+    assert_eq!(restored["page"]["layout"], "canvas");
+    assert_eq!(restored["page"]["layoutReason"], "A custom frame");
 
     fs::write(&file, "").unwrap();
     let empty = call(&[

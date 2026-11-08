@@ -9,12 +9,21 @@ use yrs::{
 
 // The only Yjs mutation for conversion lives inside the isolated decoder child.
 mod conversion_doc {
-    use super::{DecodeFault, Doc, Map, Transact};
+    use super::{Any, DecodeFault, Doc, Map, Out, Transact};
 
     pub(super) fn apply(doc: &Doc, converted_at: u64) -> Result<Vec<u8>, DecodeFault> {
         tmt_colab_model::values::time(converted_at).map_err(|_| DecodeFault::InvalidInput)?;
         let meta = doc.get_or_insert_map("meta");
         let mut txn = doc.transact_mut();
+        if let Some(Out::Any(Any::String(layout))) = meta.get(&txn, "layout") {
+            let mut legacy = serde_json::json!({"layout": layout.as_ref()});
+            if let Some(Out::Any(Any::String(reason))) = meta.get(&txn, "layoutReason") {
+                legacy["layoutReason"] = serde_json::json!(reason.as_ref());
+            }
+            let value =
+                Any::from_json(&legacy.to_string()).map_err(|_| DecodeFault::InvalidInput)?;
+            meta.insert(&mut txn, "legacyLayout", value);
+        }
         meta.remove(&mut txn, "layout");
         meta.remove(&mut txn, "layoutReason");
         meta.insert(&mut txn, "pageType", "blocks");
@@ -32,6 +41,14 @@ mod conversion_doc {
         }
         meta.remove(&mut txn, "pageType");
         meta.remove(&mut txn, "convertedAt");
+        if let Some(Out::Any(Any::Map(legacy))) = meta.get(&txn, "legacyLayout") {
+            for key in ["layout", "layoutReason"] {
+                if let Some(Any::String(value)) = legacy.get(key) {
+                    meta.insert(&mut txn, key, value.as_ref());
+                }
+            }
+        }
+        meta.remove(&mut txn, "legacyLayout");
         txn.encode_update_v1()
     }
 }
@@ -71,6 +88,16 @@ mod conversion_tests {
                 .unwrap();
         }
         assert_eq!(project(&replica, Namespace::Content).unwrap(), expected);
+        let revert = conversion_doc::revert(&doc);
+        let restored = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(restored["meta"]["layout"], "canvas");
+        assert_eq!(restored["meta"]["layoutReason"], "A custom frame");
+        assert!(restored["meta"].get("legacyLayout").is_none());
+        replica
+            .transact_mut()
+            .apply_update(Update::decode_v1(&revert).unwrap())
+            .unwrap();
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), restored);
     }
 
     #[test]
@@ -1711,6 +1738,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 work: wire.work.as_ref(),
                 page_state: wire.page_state.as_ref(),
                 converted_at: wire.converted_at.as_ref(),
+                legacy_layout: wire.legacy_layout.as_ref(),
             };
             if creation.layout.is_some_and(|layout| !layout.valid()) {
                 return Err(DecodeFault::InvalidInput);
@@ -1831,6 +1859,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("convertedAt") != wire.converted_at.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing && projection["meta"].get("legacyLayout") != wire.legacy_layout.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
@@ -1959,6 +1990,7 @@ struct BaselineMeta<'a> {
     work: Option<&'a Value>,
     page_state: Option<&'a Value>,
     converted_at: Option<&'a Value>,
+    legacy_layout: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
@@ -1969,6 +2001,7 @@ impl BaselineMeta<'_> {
             ("fromTemplate", self.from_template),
             ("pageState", self.page_state),
             ("convertedAt", self.converted_at),
+            ("legacyLayout", self.legacy_layout),
         ] {
             if let Some(value) = value {
                 meta.insert(
@@ -2060,6 +2093,7 @@ mod baseline_tests {
                 &BaselineMeta {
                     page_state: None,
                     converted_at: None,
+                    legacy_layout: None,
                     creator: None,
                     questions: None,
                     template: None,

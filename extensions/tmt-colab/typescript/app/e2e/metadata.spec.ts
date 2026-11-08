@@ -58,7 +58,7 @@ for (const width of [1440, 390])
       await command(page, 'addExampleBlock');
       await (await pageAction(page, 'Switch back to HTML…')).click();
       const dialog = page.getByRole('dialog', { name: 'Switch back to HTML?' });
-      await expect(dialog).toContainText('The page shows its old HTML again.');
+      await expect(dialog).toContainText('The page shows its old HTML and layout again.');
       await expect(dialog).toContainText(
         'Switching back removes the 1 block written since conversion.',
       );

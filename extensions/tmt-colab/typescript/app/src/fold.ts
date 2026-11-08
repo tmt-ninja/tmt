@@ -119,6 +119,7 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'template') ? ['template'] : []),
             ...(Object.hasOwn(value.projection, 'fromTemplate') ? ['fromTemplate'] : []),
             ...(Object.hasOwn(value.projection, 'convertedAt') ? ['convertedAt'] : []),
+            ...(Object.hasOwn(value.projection, 'legacyLayout') ? ['legacyLayout'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
             ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
             ...(Object.hasOwn(value.projection, 'pageState') ? ['pageState'] : []),
@@ -164,6 +165,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'template') ? ['template'] : []),
           ...(Object.hasOwn(event.data as object, 'fromTemplate') ? ['fromTemplate'] : []),
           ...(Object.hasOwn(event.data as object, 'convertedAt') ? ['convertedAt'] : []),
+          ...(Object.hasOwn(event.data as object, 'legacyLayout') ? ['legacyLayout'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -191,6 +193,7 @@ export class Fold {
             template: value.template,
             fromTemplate: value.fromTemplate,
             convertedAt: value.convertedAt,
+            legacyLayout: value.legacyLayout,
             attachments: value.attachments,
             pageType: value.pageType,
             shell: value.shell,
@@ -228,6 +231,7 @@ export class Fold {
           ...(Object.hasOwn(value, 'template') ? { template: value.template } : {}),
           ...(Object.hasOwn(value, 'fromTemplate') ? { fromTemplate: value.fromTemplate } : {}),
           ...(Object.hasOwn(value, 'convertedAt') ? { convertedAt: value.convertedAt } : {}),
+          ...(Object.hasOwn(value, 'legacyLayout') ? { legacyLayout: value.legacyLayout } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -265,6 +269,7 @@ export class Fold {
       ...(Object.hasOwn(base, 'template') ? ['template'] : []),
       ...(Object.hasOwn(base, 'fromTemplate') ? ['fromTemplate'] : []),
       ...(Object.hasOwn(base, 'convertedAt') ? ['convertedAt'] : []),
+      ...(Object.hasOwn(base, 'legacyLayout') ? ['legacyLayout'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
       ...(Object.hasOwn(base, 'work') ? ['work'] : []),
       ...(Object.hasOwn(base, 'pageState') ? ['pageState'] : []),

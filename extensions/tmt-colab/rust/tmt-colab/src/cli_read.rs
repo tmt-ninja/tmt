@@ -96,7 +96,7 @@ const CONVERT: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::HumanAndJson,
-    details: "Conversion retains the old HTML as legacy source and removes the page layout. Reverting restores the old HTML and removes all blocks; --yes is required when blocks exist. An expected revision refuses a changed page.",
+    details: "Conversion retains the old HTML as legacy source and removes the page layout. Reverting restores the old HTML and layout, removes all blocks, and keeps question registry entries; --yes is required when blocks exist. An expected revision refuses a changed page.",
 };
 
 pub fn convert_command() -> Command {
@@ -142,7 +142,7 @@ pub fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     if !args.get_flag("yes") && (!revert || count > 0) {
         let message = if revert {
             format!(
-                "Switching back removes the {count} {} written since conversion. Pass --yes to continue.",
+                "Switching back restores the old HTML and layout, removes the {count} {} written since conversion, and keeps question registry entries. Pass --yes to continue.",
                 if count == 1 { "block" } else { "blocks" }
             )
         } else {
@@ -153,7 +153,7 @@ pub fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     if revert {
         writeln!(
             tmt_cli_style::stream::stderr(),
-            "Switching back removes the {count} {} written since conversion.",
+            "Switching back restores the old HTML and layout, removes the {count} {} written since conversion, and keeps question registry entries.",
             if count == 1 { "block" } else { "blocks" }
         )?;
     }

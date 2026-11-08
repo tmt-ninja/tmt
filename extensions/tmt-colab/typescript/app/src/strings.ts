@@ -1289,7 +1289,7 @@ export const text = {
     convert: 'Convert page',
     revertTitle: 'Switch back to HTML?',
     revertBody: (count: number) =>
-      `The page shows its old HTML again. Switching back removes the ${count} ${count === 1 ? 'block' : 'blocks'} written since conversion.`,
+      `The page shows its old HTML and layout again. Switching back removes the ${count} ${count === 1 ? 'block' : 'blocks'} written since conversion. Question entries remain in the registry.`,
     revert: 'Switch back',
     failed: 'Page conversion failed',
     readFailed: 'Unable to read the current page.',

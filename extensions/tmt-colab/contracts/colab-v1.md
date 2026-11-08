@@ -3091,7 +3091,12 @@ and the creation fields. It never has `meta.template` (it cannot be a template) 
 and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedAt`, the
 time in milliseconds it was converted in place from HTML (set with the conversion, removed with a
 revert). Its presence marks retained legacy source even when the source is empty; new blocks pages
-do not have it, and every other page is refused one. A new epoch baseline keeps all of them. The vectors
+do not have it, and every other page is refused one. A new epoch baseline keeps all of them.
+When conversion removes a chosen layout, `meta.legacyLayout` retains exactly `{layout,
+layoutReason?}` under the same validation as the original layout. It is allowed only with
+`convertedAt` on a page of blocks; a new epoch retains it and revert restores the two original
+fields and removes `legacyLayout`. A page whose original layout was freeform has no such field.
+Question registry entries created by blocks remain in the registry after revert. The vectors
 [`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule, the legacy `html` included,
 and run through the isolated decoder and the browser fold's Worker alike.
 

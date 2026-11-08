@@ -231,6 +231,7 @@ impl Engine {
                 let input = BaselineInput {
                     page_state: None,
                     converted_at: None,
+                    legacy_layout: None,
                     creator: creator.as_ref(),
                     questions: questions.as_ref(),
                     template: None,

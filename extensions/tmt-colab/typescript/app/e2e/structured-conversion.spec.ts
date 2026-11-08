@@ -20,7 +20,7 @@ for (const width of [390, 1440])
       await page.getByRole('menuitem', { name: 'Switch back to HTML…' }).click();
       const revert = page.getByRole('dialog', { name: 'Switch back to HTML?' });
       await expect(revert).toContainText(
-        'The page shows its old HTML again. Switching back removes the 12 blocks written since conversion.',
+        'The page shows its old HTML and layout again. Switching back removes the 12 blocks written since conversion. Question entries remain in the registry.',
       );
       if (process.env.COLAB_CONVERSION_CAPTURE_DIR) {
         mkdirSync(process.env.COLAB_CONVERSION_CAPTURE_DIR, { recursive: true });

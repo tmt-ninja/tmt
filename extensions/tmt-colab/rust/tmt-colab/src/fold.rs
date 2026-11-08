@@ -1271,6 +1271,7 @@ impl Snapshot {
             let view = BaselineInput {
                 page_state: None,
                 converted_at: None,
+                legacy_layout: None,
                 creator: None,
                 questions: None,
                 template: None,
