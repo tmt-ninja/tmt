@@ -98,7 +98,6 @@ export type Snapshot = PageSnapshot & { attachments?: readonly attachment.Attach
 // Temporary, opt-in CI timing marks for #6188; the acceptance fixture supplies the hook.
 const traceDraft = (event: string) =>
   (globalThis as typeof globalThis & { __tmt6188?: (event: string) => void }).__tmt6188?.(event);
-let traceSequence = 0;
 /** A newly created or temporarily unavailable page gets a bounded chance to become readable. */
 async function openPage(
   transport: PageTransport,
@@ -204,8 +203,7 @@ export function pageDesignSystems(
   transport: PageTransport,
   shown?: (system: string) => string | undefined,
 ): DesignSystemSource {
-  const traceId = ++traceSequence;
-  const trace = (event: string) => traceDraft(`${traceId}:${event}`);
+  const trace = traceDraft;
   trace('source-created');
   const follows = new Map<string, Follow>();
   let cache = readDocs.get(transport);
