@@ -6,6 +6,8 @@ import {
   PAGE_PARENT,
   type Parent,
   ROW_TYPE,
+  type TableColumnEdit,
+  tableColumns,
 } from '../src/block-model.js';
 import {
   addRow,
@@ -690,5 +692,79 @@ describe('table rows and cells (#6005)', () => {
     const copied = apply(boxed, duplicateBlock(new BlockTree(boxed), 'box', id));
     const inner = new BlockTree(copied).children('copy-4')[0]!;
     expect(cells(copied, inner.id)).toEqual([{ a: '#1' }]);
+  });
+
+  describe('columns', () => {
+    const three = (): BlockRecord[] =>
+      table().map((entry) =>
+        entry.id === 't'
+          ? {
+              ...entry,
+              props: {
+                columns: [...columns, { id: 'c', name: 'Note', width: 'narrow', hideNarrow: true }],
+              },
+            }
+          : entry,
+      );
+    const names = (blocks: readonly BlockRecord[]) =>
+      tableColumns(blocks.find((entry) => entry.id === 't')!.props).map((c) => c.id);
+    const edit = (value: TableColumnEdit): BlockOp => ({ op: 'table', id: 't', ...value });
+
+    it('adds, renames, moves and removes a column as the serve does', () => {
+      const column = { id: 'n', name: 'Owner' };
+      expect(names(apply(three(), [edit({ action: 'add-column', column, after: 'a' })]))).toEqual([
+        'a',
+        'n',
+        'b',
+        'c',
+      ]);
+      expect(names(apply(three(), [edit({ action: 'add-column', column })]))).toEqual([
+        'a',
+        'b',
+        'c',
+        'n',
+      ]);
+      expect(names(apply(three(), [edit({ action: 'add-column', column, after: null })]))).toEqual([
+        'n',
+        'a',
+        'b',
+        'c',
+      ]);
+      expect(
+        names(apply(three(), [edit({ action: 'move-column', column: 'c', after: null })])),
+      ).toEqual(['c', 'a', 'b']);
+      expect(
+        names(apply(three(), [edit({ action: 'move-column', column: 'a', after: 'b' })])),
+      ).toEqual(['b', 'a', 'c']);
+      expect(names(apply(three(), [edit({ action: 'remove-column', column: 'b' })]))).toEqual([
+        'a',
+        'c',
+      ]);
+      const renamed = apply(three(), [edit({ action: 'rename-column', column: 'b', name: 'Now' })]);
+      expect(tableColumns(renamed.find((entry) => entry.id === 't')!.props)[1]).toEqual({
+        id: 'b',
+        name: 'Now',
+      });
+      // A removed column's cells stay on the rows, so undo brings them back.
+      expect(cells(apply(three(), [edit({ action: 'remove-column', column: 'b' })]))).toEqual(
+        cells(three()),
+      );
+      expect(() => apply(three(), [edit({ action: 'remove-column', column: 'zzz' })])).toThrow();
+      expect(() => apply(three(), [edit({ action: 'add-column', column: columns[0]! })])).toThrow();
+      expect(() =>
+        apply(three(), [edit({ action: 'move-column', column: 'a', after: 'zzz' })]),
+      ).toThrow();
+    });
+
+    it('undoes each column edit, keeping the column where it was and as it was', () => {
+      roundTrip(three(), [edit({ action: 'add-column', column: { id: 'n', name: 'Owner' } })]);
+      roundTrip(three(), [edit({ action: 'rename-column', column: 'b', name: 'Now' })]);
+      roundTrip(three(), [edit({ action: 'move-column', column: 'c', after: null })]);
+      roundTrip(three(), [edit({ action: 'move-column', column: 'a', after: 'c' })]);
+      // The removed column comes back with its width and phone rule, between the same neighbours.
+      roundTrip(three(), [edit({ action: 'remove-column', column: 'b' })]);
+      roundTrip(three(), [edit({ action: 'remove-column', column: 'c' })]);
+      roundTrip(three(), [edit({ action: 'remove-column', column: 'a' })]);
+    });
   });
 });

@@ -2,7 +2,12 @@ import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { BlockOp, BlockRecord } from '../src/block-model.js';
+import {
+  type BlockOp,
+  type BlockRecord,
+  type TableColumn,
+  tableColumns,
+} from '../src/block-model.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { Mark } from '../src/blocks.js';
 import type { ThreadBinding } from '../src/thread-store.js';
@@ -199,6 +204,7 @@ declare global {
     agentBatch(ops: BlockOp[]): void;
     /** The serve's cells for a table's rows now, in order. */
     serveRows(table: string): { id: string; cells?: Record<string, string> }[];
+    serveColumns(table: string): TableColumn[];
     /** Ops the page sent, in order. */
     sent: BlockOp[];
     /** The answer comments this page recorded, in order. */
@@ -371,6 +377,8 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   window.agentBatch = (ops) => void publish(applyOps(blocks, ops));
   window.serveRows = (table) =>
     new BlockTree(blocks).rows(table).map(({ id, cells }) => ({ id, ...(cells && { cells }) }));
+  window.serveColumns = (table) =>
+    tableColumns(blocks.find((block) => block.id === table)?.props ?? {});
   window.agentReplace = (id, find, replacement) => {
     const text = window.serveText(id)!;
     if (!text.includes(find)) throw new Error(`${find} is not in ${id}`);
@@ -417,6 +425,8 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       focusCell,
       cellKey,
       addRowTo,
+      rowAction,
+      columnAction,
       typed,
       key,
       pasteUrl,
@@ -449,6 +459,8 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onFocusCell={focusCell}
           onCellKey={cellKey}
           onAddRow={(table) => void addRowTo(table)}
+          onRowAction={rowAction}
+          onColumnAction={columnAction}
           onPasteUrl={pasteUrl}
           onChecked={check}
           {...(content === 'spec' && {

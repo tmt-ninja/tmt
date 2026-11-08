@@ -568,13 +568,109 @@ test('a table cell edits in place, Tab walks the cells and adds a row, and the t
   const cells = (await rows()).map((row) => row.cells);
   await expect.poll(async () => (await copied()).map((row) => row.cells)).toEqual(cells);
   expect((await copied()).map((row) => row.id)).not.toContain('r1');
-  // Enter on a selected table goes to its first cell.
-  await copy.click({ position: { x: 4, y: 4 } });
-  await page.keyboard.press('Escape');
-  await copy.focus();
+  // The copy is selected; Enter on a selected table goes to its first cell.
   await expect(copy).toHaveAttribute('data-selected', '');
+  await expect(table).not.toHaveAttribute('data-selected', '');
   await page.keyboard.press('Enter');
   await expect(copy.locator('[contenteditable="true"]')).toHaveText('小標題');
+});
+
+test('the row and column menus add and remove rows, and add, rename, move and remove columns', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const table = host.locator('[data-block-id="table"]');
+  const ids = async () => (await page.evaluate(() => window.serveRows('table'))).map((r) => r.id);
+  const names = async () =>
+    (await page.evaluate(() => window.serveColumns('table'))).map((c) => c.name);
+  const item = (name: string) => page.getByRole('menuitem', { name, exact: true });
+  const headings = table.locator('thead .tmt-block-table-heading > span:first-child');
+  // A row's ⋯ is quiet until the row is hovered.
+  const rowMenu = table.getByRole('button', { name: 'Row 2 actions' });
+  await expect(
+    rowMenu.locator('xpath=ancestor::span[contains(@class, "tmt-block-table-action")]'),
+  ).toHaveCSS('opacity', '0');
+  await table.locator('tbody tr').nth(1).hover();
+  await expect(
+    rowMenu.locator('xpath=ancestor::span[contains(@class, "tmt-block-table-action")]'),
+  ).toHaveCSS('opacity', '1');
+  // Insert a row above row 2: its first cell opens at once.
+  await rowMenu.click();
+  await item('Insert a row above').click();
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  const editor = table.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await editor.pressSequentially('清單', { delay: 20 });
+  await expect.poll(ids).toHaveLength(4);
+  const added = (await ids())[1]!;
+  expect((await ids()).filter((id) => id !== added)).toEqual(['r1', 'r2', 'r3']);
+  await expect
+    .poll(async () => (await page.evaluate(() => window.serveRows('table')))[1]!.cells)
+    .toEqual({ name: '清單' });
+  // Remove it from its own menu; the open cell closes with it.
+  await table.locator('tbody tr').nth(1).hover();
+  await table.getByRole('button', { name: 'Row 2 actions' }).click();
+  await item('Remove the row').click();
+  await expect(table.locator('tbody tr')).toHaveCount(3);
+  await expect(editor).toHaveCount(0);
+  await expect.poll(ids).toEqual(['r1', 'r2', 'r3']);
+  // Insert below the last row.
+  await table.locator('tbody tr').nth(2).hover();
+  await table.getByRole('button', { name: 'Row 3 actions' }).click();
+  await item('Insert a row below').click();
+  await expect.poll(async () => (await ids()).length).toBe(4);
+  expect((await ids()).slice(0, 3)).toEqual(['r1', 'r2', 'r3']);
+  await editor.press('Escape');
+
+  // Columns: the first cannot move left; a table keeps one column.
+  const columnMenu = (name: string) =>
+    table.getByRole('button', { name: `Column actions: ${name}` });
+  await columnMenu('區塊').click();
+  await expect(item('Move left')).toBeDisabled();
+  await expect(item('Move right')).toBeEnabled();
+  await page.keyboard.press('Escape');
+  // Add a column after 用途: its name field opens with the new name selected.
+  await columnMenu('用途').click();
+  await item('Add a column after').click();
+  const field = table.getByRole('textbox', { name: 'Column name' });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('Column 3');
+  await field.fill('備註');
+  await field.press('Enter');
+  await expect(field).toHaveCount(0);
+  await expect.poll(names).toEqual(['區塊', '用途', '備註']);
+  await expect(headings).toHaveText(['區塊', '用途', '備註']);
+  // Move it left, then rename it; Esc in the name field keeps the old name.
+  await columnMenu('備註').click();
+  await item('Move left').click();
+  await expect.poll(names).toEqual(['區塊', '備註', '用途']);
+  await columnMenu('備註').click();
+  await item('Rename').click();
+  await field.fill('不要');
+  await field.press('Escape');
+  await expect(field).toHaveCount(0);
+  await columnMenu('備註').click();
+  await item('Rename').click();
+  await field.fill('說明');
+  await field.press('Enter');
+  await expect.poll(names).toEqual(['區塊', '說明', '用途']);
+  // A cell under the new column edits like any other; a click anywhere in the empty cell opens it.
+  await table.locator('tbody tr').first().locator('td').first().click();
+  await editor.pressSequentially('常用', { delay: 20 });
+  const column = (await page.evaluate(() => window.serveColumns('table')))[1]!.id;
+  await expect
+    .poll(async () => (await page.evaluate(() => window.serveRows('table')))[0]!.cells?.[column])
+    .toBe('常用');
+  await editor.press('Escape');
+  // Remove it; ⌘Z brings it back between the same columns, with its cells.
+  await columnMenu('說明').click();
+  await item('Remove the column').click();
+  await expect.poll(names).toEqual(['區塊', '用途']);
+  await expect(headings).toHaveText(['區塊', '用途']);
+  await table.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(names).toEqual(['區塊', '說明', '用途']);
+  await expect(table.locator('tbody tr').first()).toContainText('常用');
 });
 
 test('an empty table offers Add a row, which adds one and focuses its first cell', async ({
@@ -647,6 +743,73 @@ for (const [width, theme] of [
     await expect(host.locator('[contenteditable="true"]')).toHaveCount(0);
     expect(await page.evaluate(() => window.sent)).toEqual([]);
   });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a filled table and its row and column menus at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const host = await mountFixture(page, 'spec');
+      const table = host.locator('[data-block-id="table"]');
+      // Filled: a third column the phone folds away, and long cells that wrap.
+      await page.evaluate(() =>
+        window.agentBatch([
+          {
+            op: 'table',
+            id: 'table',
+            action: 'add-column',
+            column: { id: 'note', name: '備註', hideNarrow: true },
+          },
+          ...(
+            [
+              ['r1', '只有兩層'],
+              ['r2', '行內只有粗體、斜體、行內程式碼、連結、@agent 和 @區塊'],
+              ['r3', '只有一層，卡片裡不能再放卡片'],
+            ] as const
+          ).map(([row, text]) => ({
+            op: 'table' as const,
+            id: 'table',
+            action: 'set-cell' as const,
+            row,
+            column: 'note',
+            text,
+          })),
+        ]),
+      );
+      await expect(table.locator('thead th')).toHaveCount(4);
+      await table.scrollIntoViewIfNeeded();
+      const shot = async (name: string, below = 0) => {
+        const box = (await table.boundingBox())!;
+        await page.screenshot({
+          path: capturePath(`structured-table-${width}-${theme}-${name}.png`),
+          clip: {
+            x: 0,
+            y: Math.max(0, box.y - 16),
+            width,
+            height: box.height + 32 + below,
+          },
+        });
+      };
+      await page.mouse.move(0, 0);
+      await shot('filled');
+      // The phone folds the 備註 column; its cells stay in the DOM.
+      const note = table.locator('thead th').nth(2);
+      if (width === 390) await expect(note).toBeHidden();
+      else await expect(note).toBeVisible();
+      await table.locator('tbody tr').nth(1).hover();
+      await table.getByRole('button', { name: 'Row 2 actions' }).click();
+      await expect(page.getByRole('menuitem', { name: 'Insert a row above' })).toBeVisible();
+      await shot('row-menu', 200);
+      await page.keyboard.press('Escape');
+      await table.getByRole('button', { name: 'Column actions: 用途' }).click();
+      await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      await shot('column-menu', 260);
+      await page.keyboard.press('Escape');
+      await table.getByRole('button', { name: 'Column actions: 用途' }).click();
+      await page.getByRole('menuitem', { name: 'Rename' }).click();
+      await expect(table.getByRole('textbox', { name: 'Column name' })).toBeFocused();
+      await shot('rename');
+    });
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)

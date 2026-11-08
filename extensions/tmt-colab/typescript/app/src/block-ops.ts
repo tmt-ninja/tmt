@@ -8,6 +8,7 @@ import {
   isBlockType,
   PAGE_PARENT,
   type Parent,
+  tableColumns,
   TEXT_TYPES,
 } from './block-model.js';
 import type { BlockTree } from './block-tree.js';
@@ -143,8 +144,8 @@ const rowCopies = (tree: BlockTree, table: string, copy: string, newId: () => st
     ...(cells && { cells: { ...cells } }),
   }));
 
-/** Tab in a table's last cell: a new empty row after `after`, or the table's first row. */
-export const addRow = (table: string, row: string, after?: string): BlockOp => ({
+/** A new empty row after `after`: last when absent, first when `null`. */
+export const addRow = (table: string, row: string, after?: string | null): BlockOp => ({
   op: 'table',
   id: table,
   action: 'add-row',
@@ -307,9 +308,43 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
                 base: op.text,
                 overlap: 'both',
               };
-            default:
-              // The editor never sends column edits.
-              throw new Error('Column edits are not undone here.');
+            default: {
+              // A column goes back where it was: after the column that was before it, or first.
+              const was = tableColumns(before.get(op.id)?.props ?? {});
+              const index = was.findIndex(
+                (c) => c.id === (op.action === 'add-column' ? op.column.id : op.column),
+              );
+              const after = index > 0 ? was[index - 1]!.id : null;
+              switch (op.action) {
+                case 'add-column':
+                  return { op: 'table', id: op.id, action: 'remove-column', column: op.column.id };
+                case 'rename-column':
+                  return {
+                    op: 'table',
+                    id: op.id,
+                    action: 'rename-column',
+                    column: op.column,
+                    name: was[index]?.name ?? '',
+                  };
+                case 'move-column':
+                  return {
+                    op: 'table',
+                    id: op.id,
+                    action: 'move-column',
+                    column: op.column,
+                    after,
+                  };
+                case 'remove-column':
+                  if (index < 0) throw new Error(`${op.column} is not a column of ${op.id}`);
+                  return {
+                    op: 'table',
+                    id: op.id,
+                    action: 'add-column',
+                    column: was[index]!,
+                    after,
+                  };
+              }
+            }
           }
         case 'move': {
           // Back where it was drawn: after the sibling that was before it, or first.

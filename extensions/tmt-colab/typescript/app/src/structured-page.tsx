@@ -40,13 +40,22 @@ import {
   type BlockKind,
   type CalloutTone,
 } from '@tmt/browser-ui/blocks';
-import { type BlockRecord, PAGE_PARENT, tableColumns, TEXT_TYPES } from './block-model.js';
+import {
+  type BlockRecord,
+  PAGE_PARENT,
+  type TableColumn,
+  type TableColumnEdit,
+  type TableRowAction,
+  tableColumns,
+  TEXT_TYPES,
+} from './block-model.js';
+import { PageMenu } from './page-menu.js';
 import { indentOf, listNumber } from './block-ops.js';
 import { mockupSource, mockupStage, pageViewSpec, workBundleProps } from './block-parts.js';
 import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import type { Theme } from './theme.js';
-import { Button } from '@tmt/browser-ui/ui';
+import { Button, Input } from '@tmt/browser-ui/ui';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -99,6 +108,10 @@ export interface StructuredPageProps {
   onCellKey?(event: KeyboardEvent, text: string): boolean;
   /** An empty table's Add a row. */
   onAddRow?(table: string): void;
+  /** A row menu's choice: a new row above or below, or the row removed. */
+  onRowAction?(table: string, row: string, action: TableRowAction): void;
+  /** A column menu's choice: a column added, renamed, moved or removed. */
+  onColumnAction?(table: string, edit: TableColumnEdit): void;
   /** A work bundle's page metadata, gated on owner-only content; absent draws it unavailable. */
   workSource?: WorkBundleSource;
   /** A live page view's owner list, gated the same way; absent draws its unavailable state. */
@@ -219,10 +232,11 @@ function Blocks({
         drag?.target?.into === block.id
       }
       state={drag?.id === block.id ? 'dragging' : undefined}
-      // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page.
+      // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page; focus
+      // already inside it (a table's menu or column name field) stays where it is.
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
-        if (node && rest.selectionFocus === block.id && document.activeElement !== node)
+        if (node && rest.selectionFocus === block.id && !node.contains(document.activeElement))
           node.focus();
       }}
       readonly={rest.readonly}
@@ -477,6 +491,12 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
  * editor moves to the focused cell), and a table with no rows offers Add a row. A click on a cell
  * focuses it; the row and column come from the cell's own marker, never from its text.
  */
+const COLUMN_MENU = ['rename', 'move-left', 'move-right', 'add', 'remove'] as const;
+type ColumnMenuKey = (typeof COLUMN_MENU)[number];
+const ROW_MENU: readonly TableRowAction[] = ['above', 'below', 'remove'];
+
+/** A table block: each cell edits in place, and the column and row menus (the design system's
+ * menu) add, rename, move and remove columns and add or remove rows. */
 function Table({
   block,
   tree,
@@ -486,10 +506,92 @@ function Table({
   onFocusCell,
   onCellKey,
   onAddRow,
+  onRowAction,
+  onColumnAction,
 }: StructuredPageProps & { block: BlockRecord }) {
   const columns = tableColumns(block.props);
   const rows = tree.rows(block.id);
   const editable = !readonly && onFocusCell !== undefined;
+  // The column whose name is being typed, after Rename or a new column.
+  const [renaming, setRenaming] = useState<string>();
+  const columnChoice = (column: TableColumn, index: number, key: ColumnMenuKey) => {
+    const edit = (value: TableColumnEdit) => onColumnAction?.(block.id, value);
+    switch (key) {
+      case 'rename':
+        return setRenaming(column.id);
+      case 'move-left':
+        // After the column two to the left, or first.
+        return edit({
+          action: 'move-column',
+          column: column.id,
+          after: index > 1 ? columns[index - 2]!.id : null,
+        });
+      case 'move-right':
+        return edit({ action: 'move-column', column: column.id, after: columns[index + 1]!.id });
+      case 'add': {
+        const id = crypto.randomUUID();
+        edit({
+          action: 'add-column',
+          column: { id, name: strings.blockTable.newColumn(columns.length + 1) },
+          after: column.id,
+        });
+        return setRenaming(id);
+      }
+      case 'remove':
+        return edit({ action: 'remove-column', column: column.id });
+    }
+  };
+  const columnMenu = (column: TableColumn, index: number) => (
+    <PageMenu<ColumnMenuKey>
+      label={strings.blockTable.columnActions(column.name)}
+      items={COLUMN_MENU.map((key) => {
+        const t = strings.blockTable;
+        switch (key) {
+          case 'rename':
+            return { key, label: t.rename };
+          case 'move-left':
+            return index === 0
+              ? { key, label: t.moveLeft, disabled: true, disabledReason: t.firstColumn }
+              : { key, label: t.moveLeft };
+          case 'move-right':
+            return index === columns.length - 1
+              ? { key, label: t.moveRight, disabled: true, disabledReason: t.lastColumn }
+              : { key, label: t.moveRight };
+          case 'add':
+            return { key, label: t.addColumn, separated: true };
+          case 'remove':
+            return columns.length === 1
+              ? { key, label: t.removeColumn, disabled: true, disabledReason: t.lastOne }
+              : { key, label: t.removeColumn };
+        }
+      })}
+      onSelect={(key) => columnChoice(column, index, key)}
+    />
+  );
+  const heading = (column: TableColumn) => {
+    if (renaming !== column.id) return column.name;
+    const done = (name?: string) => {
+      setRenaming(undefined);
+      const value = name?.trim();
+      if (value && value !== column.name)
+        onColumnAction?.(block.id, { action: 'rename-column', column: column.id, name: value });
+    };
+    return (
+      <Input
+        aria-label={strings.blockTable.columnName}
+        defaultValue={column.name}
+        autoFocus
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={(event) => done(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          // The name field's keys are its own, never the page's block keys.
+          event.stopPropagation();
+          if (event.key === 'Enter') done(event.currentTarget.value);
+          if (event.key === 'Escape') done();
+        }}
+      />
+    );
+  };
   return (
     <div
       className="tmt-block-table-cells"
@@ -504,7 +606,39 @@ function Table({
     >
       <TableBlock
         label={typeof block.props.label === 'string' ? block.props.label : 'Table'}
-        columns={columns.map(({ name }) => ({ name }))}
+        columns={columns.map((column, index) => ({
+          key: column.id,
+          name: column.name,
+          ...(column.hideNarrow && { hideNarrow: true }),
+          ...(column.width === 'narrow' && { nowrap: true }),
+          ...(editable &&
+            onColumnAction && {
+              name: heading(column),
+              action: renaming === column.id ? undefined : columnMenu(column, index),
+            }),
+        }))}
+        rowKeys={rows.map((row) => row.id)}
+        {...(editable &&
+          onRowAction && {
+            rowActionsLabel: strings.blockTable.rowActionsHeading,
+            rowActions: rows.map((row, index) => (
+              <PageMenu<TableRowAction>
+                key={row.id}
+                label={strings.blockTable.rowActions(index + 1)}
+                items={ROW_MENU.map((key) => ({
+                  key,
+                  label:
+                    key === 'above'
+                      ? strings.blockTable.insertAbove
+                      : key === 'below'
+                        ? strings.blockTable.insertBelow
+                        : strings.blockTable.removeRow,
+                  ...(key === 'remove' && { separated: true }),
+                }))}
+                onSelect={(key) => onRowAction(block.id, row.id, key)}
+              />
+            )),
+          })}
         rows={rows.map((row, index) =>
           columns.map((column) => {
             const value = row.cells?.[column.id] ?? '';

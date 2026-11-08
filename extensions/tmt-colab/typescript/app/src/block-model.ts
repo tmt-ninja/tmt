@@ -76,17 +76,33 @@ export interface BlockRecord {
 export interface TableColumn {
   readonly id: string;
   readonly name: string;
+  /** `narrow` keeps the column as narrow as its content; absent is `auto`. */
+  readonly width?: 'auto' | 'narrow';
+  /** The column folds away on a narrow container (a phone). */
+  readonly hideNarrow?: boolean;
 }
 
-/** A table's columns from its props (`columns: [{id, name}]`, #6004's table schema). */
+/** A table's columns from its props (`columns: [{id, name, width?, hideNarrow?}]`, #6004's table
+ * schema). A field that is not one of the schema's values is left out. */
 export function tableColumns(props: Readonly<Record<string, unknown>>): TableColumn[] {
   const columns = props.columns;
   if (!Array.isArray(columns)) return [];
   return columns.flatMap((column: unknown) => {
-    const value = column as { id?: unknown; name?: unknown } | null;
-    return value && typeof value.id === 'string' && typeof value.name === 'string'
-      ? [{ id: value.id, name: value.name }]
-      : [];
+    const value = column as {
+      id?: unknown;
+      name?: unknown;
+      width?: unknown;
+      hideNarrow?: unknown;
+    } | null;
+    if (!value || typeof value.id !== 'string' || typeof value.name !== 'string') return [];
+    return [
+      {
+        id: value.id,
+        name: value.name,
+        ...(value.width === 'auto' || value.width === 'narrow' ? { width: value.width } : {}),
+        ...(typeof value.hideNarrow === 'boolean' ? { hideNarrow: value.hideNarrow } : {}),
+      },
+    ];
   });
 }
 
@@ -121,6 +137,15 @@ export type TableAction =
   | { readonly action: 'rename-column'; readonly column: string; readonly name: string }
   | { readonly action: 'move-column'; readonly column: string; readonly after?: string | null }
   | { readonly action: 'remove-column'; readonly column: string };
+
+/** A column edit, as the table's column menu sends it. */
+export type TableColumnEdit = Extract<
+  TableAction,
+  { action: 'add-column' | 'rename-column' | 'move-column' | 'remove-column' }
+>;
+
+/** The table's row menu: a new row above or below, or this row removed. */
+export type TableRowAction = 'above' | 'below' | 'remove';
 
 /** The serve's refusal of an `after` that does not name a child of `parent`. */
 export const BAD_AFTER = 'COLAB_BLOCK_BAD_AFTER';

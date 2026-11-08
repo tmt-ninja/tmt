@@ -346,6 +346,33 @@
 .tmt-block-table [data-nowrap] {
   white-space: nowrap;
 }
+/* An editor's column and row controls: quiet until the heading or row is hovered or holds focus,
+   always shown where there is no hover. */
+.tmt-block-table-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+}
+.tmt-block-table [data-row-actions] {
+  width: 1px;
+  padding-right: 0;
+  white-space: nowrap;
+}
+.tmt-block-table-action {
+  display: inline-flex;
+  margin-block: calc(var(--tmt-ui-space-s) * -1);
+}
+@media (hover: hover) {
+  .tmt-block-table-action {
+    opacity: 0;
+  }
+  .tmt-block-table th:hover .tmt-block-table-action,
+  .tmt-block-table tr:hover > [data-row-actions] .tmt-block-table-action,
+  .tmt-block-table-action:focus-within,
+  .tmt-block-table-action:has([aria-expanded='true']) {
+    opacity: 1;
+  }
+}
 .tmt-block-card {
   margin: 0;
   padding: 16px;

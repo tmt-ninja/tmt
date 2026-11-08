@@ -156,22 +156,41 @@ export function TodoBlock({
 }
 
 export interface TableBlockColumn {
-  name: string;
+  /** The heading: text, or an editor's name field while the column is renamed. */
+  name: ReactNode;
+  /** A stable key (the column's ID); the name otherwise. */
+  key?: string;
   /** Leave the column out while the block is narrower than 480px; its cells stay in the DOM. */
   hideNarrow?: boolean;
   nowrap?: boolean;
+  /** A control after the heading: an editor's column menu. */
+  action?: ReactNode;
 }
 
 export interface TableBlockProps {
   label: string;
   columns?: readonly TableBlockColumn[];
   rows?: readonly (readonly ReactNode[])[];
+  /** Stable row keys (the rows' IDs); indexes otherwise. */
+  rowKeys?: readonly string[];
+  /** A control at the end of each row (an editor's row menu), under a heading named
+   * `rowActionsLabel`. */
+  rowActions?: readonly ReactNode[];
+  rowActionsLabel?: string;
   /** A table with no rows shows this as its one row (the editor's "Add a row"). */
   empty?: ReactNode;
 }
 
 /** A table block: the shared table, collapsing on its own width (a container query), not the viewport's. */
-export function TableBlock({ label, columns = [], rows = [], empty }: TableBlockProps) {
+export function TableBlock({
+  label,
+  columns = [],
+  rows = [],
+  rowKeys,
+  rowActions,
+  rowActionsLabel,
+  empty,
+}: TableBlockProps) {
   const indexes = (pick: (column: TableBlockColumn) => boolean | undefined) =>
     columns.flatMap((column, index) => (pick(column) ? [index] : []));
   return (
@@ -179,7 +198,16 @@ export function TableBlock({ label, columns = [], rows = [], empty }: TableBlock
       <BrowserTable
         label={label}
         columns={columns.map((column) => column.name)}
+        columnKeys={columns.map((column, index) => column.key ?? String(index))}
+        columnActions={
+          columns.some((column) => column.action !== undefined)
+            ? columns.map((column) => column.action)
+            : undefined
+        }
         rows={rows}
+        rowKeys={rowKeys}
+        rowActions={rowActions}
+        rowActionsLabel={rowActionsLabel}
         hideNarrow={indexes((column) => column.hideNarrow)}
         nowrap={indexes((column) => column.nowrap)}
         empty={empty}

@@ -136,8 +136,35 @@ function tableOp(
       map.set(op.row, { ...current, cells: { ...current.cells, [op.column]: text } });
       break;
     }
-    default:
-      // This tab never sends column edits; they come from agents and arrive on the page.
-      throw new Error('Column edits are applied by the serve.');
+    default: {
+      // A column edit rewrites the table's `columns` prop, as the serve does.
+      const next = [...columns];
+      const at = (id: string) => {
+        const index = next.findIndex((c) => c.id === id);
+        if (index < 0) throw new Error(`${id} is not a column of ${op.id}`);
+        return index;
+      };
+      const place = (after: string | null | undefined) =>
+        after === undefined ? next.length : after === null ? 0 : at(after) + 1;
+      switch (op.action) {
+        case 'add-column':
+          if (next.some((c) => c.id === op.column.id))
+            throw new Error(`${op.column.id} is already a column of ${op.id}`);
+          next.splice(place(op.after), 0, op.column);
+          break;
+        case 'rename-column':
+          next[at(op.column)] = { ...next[at(op.column)]!, name: op.name };
+          break;
+        case 'move-column': {
+          const [moved] = next.splice(at(op.column), 1);
+          next.splice(place(op.after), 0, moved!);
+          break;
+        }
+        case 'remove-column':
+          next.splice(at(op.column), 1);
+          break;
+      }
+      map.set(op.id, { ...table, props: { ...table.props, columns: next } });
+    }
   }
 }

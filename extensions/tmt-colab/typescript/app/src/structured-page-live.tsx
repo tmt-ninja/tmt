@@ -56,6 +56,8 @@ export function LiveStructuredPage({
     focusCell,
     cellKey,
     addRowTo,
+    rowAction,
+    columnAction,
     pasteUrl,
     check,
     typed,
@@ -87,6 +89,8 @@ export function LiveStructuredPage({
       onFocusCell={focusCell}
       onCellKey={cellKey}
       onAddRow={(table) => void addRowTo(table)}
+      onRowAction={rowAction}
+      onColumnAction={columnAction}
       onPasteUrl={pasteUrl}
       onChecked={check}
       onLink={onLink}

@@ -5,6 +5,8 @@ import {
   type BlockRecord,
   isBlockType,
   TEXT_TYPES,
+  type TableColumnEdit,
+  type TableRowAction,
   type TextMark,
   tableColumns,
 } from './block-model.js';
@@ -304,7 +306,7 @@ export function useBlockEditing(
   );
   /** A new empty row after `after` (last when absent), its first cell focused: one gesture. */
   const addRowTo = useCallback(
-    async (table: string, after?: string) => {
+    async (table: string, after?: string | null) => {
       const first = tableColumns(treeRef.current.get(table)?.props ?? {})[0];
       if (!first) return;
       clearTimeout(timer.current);
@@ -633,6 +635,41 @@ export function useBlockEditing(
     [gesture],
   );
 
+  /** The row menu: a new row above or below `row` (its first cell focused), or `row` removed. */
+  const rowAction = useCallback(
+    (table: string, row: string, action: TableRowAction) => {
+      if (action !== 'remove') {
+        const rows = treeRef.current.rows(table).map((r) => r.id);
+        const index = rows.indexOf(row);
+        if (index < 0) return;
+        void addRowTo(table, action === 'below' ? row : index > 0 ? rows[index - 1]! : null);
+        return;
+      }
+      // A cell open in the removed row closes with it; its typing is sent first.
+      if (sync.current?.cell?.table === table && sync.current.id === row) {
+        clearTimeout(timer.current);
+        flush();
+        sync.current = undefined;
+        setEditing(undefined);
+      }
+      gesture([{ op: 'table', id: table, action: 'remove-row', row }]);
+    },
+    [addRowTo, flush, gesture],
+  );
+  /** The column menu: add, rename, move or remove a column, one gesture each. */
+  const columnAction = useCallback(
+    (table: string, edit: TableColumnEdit) => {
+      const open = sync.current?.cell;
+      if (edit.action === 'remove-column' && open?.table === table && open.column === edit.column) {
+        clearTimeout(timer.current);
+        flush();
+        sync.current = undefined;
+        setEditing(undefined);
+      }
+      gesture([{ op: 'table', id: table, ...edit }]);
+    },
+    [flush, gesture],
+  );
   /** Delete these blocks: they go at once, and the status line offers Undo. */
   const deleteIds = useCallback(
     (chosen: readonly string[]) => {
@@ -836,6 +873,8 @@ export function useBlockEditing(
     focusCell,
     cellKey,
     addRowTo,
+    rowAction,
+    columnAction,
     pasteUrl,
     check,
     typed,
