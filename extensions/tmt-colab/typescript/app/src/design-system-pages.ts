@@ -156,8 +156,8 @@ interface Follow {
   components: ReadonlySet<string>;
   /** Each component page's revision when the list last named it. */
   readonly revisions: Map<string, string>;
-  /** Pages that moved after a list arrived while the followed root was still opening. */
-  readonly openingChanges: Set<string>;
+  /** The list at draft start; null means compilation started without a list. */
+  draftBaseline?: ReadonlyMap<string, string> | null;
   /** The live list's latest revisions, so components the root names later start from them. */
   latest?: ReadonlyMap<string, string>;
   /** Settles when the live list first names revisions. */
@@ -221,6 +221,7 @@ export function pageDesignSystems(
   };
   const notify = (follow: Follow) => {
     follow.draft = undefined;
+    follow.draftBaseline = undefined;
     clearTimeout(follow.timer);
     follow.timer = setTimeout(() => {
       for (const listener of follow.listeners) listener();
@@ -245,9 +246,13 @@ export function pageDesignSystems(
       if (state.root !== undefined && state.root !== source) notify(state);
       state.root = source;
       state.components = componentsOf(source);
-      if (state.draft && [...state.openingChanges].some((id) => state.components.has(id)))
+      if (
+        state.draft &&
+        state.draftBaseline &&
+        state.latest &&
+        [...state.components].some((id) => state.draftBaseline!.get(id) !== state.latest!.get(id))
+      )
         notify(state);
-      state.openingChanges.clear();
       if (state.latest) baseline(state, state.latest);
     };
     seen(page.source);
@@ -269,11 +274,7 @@ export function pageDesignSystems(
   };
   // A component page whose revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
-    if (state.root === undefined && state.latest)
-      for (const [id, revision] of latest) {
-        const before = state.latest.get(id);
-        if (before !== undefined && before !== revision) state.openingChanges.add(id);
-      }
+    if (!state.latest && state.draftBaseline === null && state.draft) notify(state);
     state.latest = latest;
     state.heard();
     let moved = false;
@@ -327,7 +328,10 @@ export function pageDesignSystems(
               new Promise<void>((resolve) => setTimeout(resolve, DRAFT_LIST_WAIT_MS)),
             ]);
       const draft: Promise<DesignSystemBundle> = listed
-        .then(() => compileDraft(transport, system, undefined, docs))
+        .then(() => {
+          follow.draftBaseline = follow.latest ? new Map(follow.latest) : null;
+          return compileDraft(transport, system, undefined, docs);
+        })
         .then(
           (bundle) => {
             // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
@@ -355,7 +359,6 @@ export function pageDesignSystems(
           stops: [],
           components: new Set(),
           revisions: new Map(),
-          openingChanges: new Set(),
           listed,
           heard,
         };

@@ -5593,7 +5593,10 @@ system's size: component changes come from the [live page list](#live-page-list)
 component page is opened only for the compile itself. A compile reuses each component's block read
 at the revision the live list still names, kept for the session across every page that follows the
 system, so the next open page reads only the pages that moved; a follow's first compile waits up to
-1 s for the list's first revisions so its reads can be kept. Where no live list exists (hosted, readers)
+1 s for the list's first revisions so its reads can be kept. If the first list arrives only after an
+untracked compile starts, that draft is invalidated and recompiled against the list. A component
+change while the watched root opens is compared with the draft's list baseline once the root names
+its components. Where no live list exists (hosted, readers)
 a component edit shows on the next open or root change. A draft that does not compile shows the page's design-system notice, never a blank page.
 A page waits 4 s for its design system, then draws the notice; a followed draft that finishes later
 redraws its followers once with it.

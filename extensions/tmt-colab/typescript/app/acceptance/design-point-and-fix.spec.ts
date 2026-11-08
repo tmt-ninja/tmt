@@ -214,6 +214,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '--json',
     ]);
     patched = Date.now();
+    const drawTimes: number[] = [];
     await Promise.all(
       tabs.map(async (tab, index) => {
         try {
@@ -228,7 +229,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
                   .evaluateAll((nodes) =>
                     nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
                   ),
-              { timeout: 30_000 },
+              { timeout: 30_000, intervals: [50, 100, 200] },
             )
             .toBe(true);
         } catch (error) {
@@ -239,11 +240,15 @@ test('an @agent comment on a design-system example becomes a live patch of that 
           console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
           throw error;
         }
-        console.log(`tab ${index} drew the CLI edit ${Date.now() - patched} ms after it`);
+        drawTimes[index] = Date.now() - patched;
+        console.log(`tab ${index} drew the CLI edit ${drawTimes[index]} ms after it`);
         record(index, 'drawn');
       }),
     );
     console.log(`five-tab timeline ${JSON.stringify(timeline)}`);
+    expect(Math.max(...drawTimes), `per-tab draw times: ${drawTimes.join(', ')} ms`).toBeLessThan(
+      3000,
+    );
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);

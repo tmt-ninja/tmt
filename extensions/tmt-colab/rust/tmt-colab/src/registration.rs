@@ -1730,6 +1730,76 @@ mod describe_tests {
     use super::*;
     use crate::summary::{Summary, SummaryProjection};
 
+    #[test]
+    fn cached_page_list_token_observes_own_and_other_connection_commits() {
+        use serde_json::json;
+        let root =
+            std::env::temp_dir().join(format!("colab-token-generation-{}", std::process::id()));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let mut service = Registration::new(store, key, "/unused-decoder".into()).unwrap();
+        service.genesis().unwrap();
+        let context = json!({"deviceId":"00000000-0000-4000-8000-000000000009","kind":"browser",
+            "origin":"http://127.0.0.1:1","name":"Laptop",
+            "publicKey":values::encode_binary(&service.keyring.owner_public()),
+            "owner":true,"grantRevision":1})
+        .to_string();
+        let token = || service.page_list_token(Some(&context)).unwrap();
+        let initial = token();
+        assert_eq!(token(), initial);
+        service
+            .store
+            .create_page("10000000-0000-4000-8000-000000000001")
+            .unwrap();
+        let own = token();
+        assert_ne!(own, initial);
+        assert_eq!(token(), own);
+
+        // A pre-commit read must not cache a token past another connection's later commit.
+        let other = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+        other.execute_batch("BEGIN IMMEDIATE").unwrap();
+        other
+            .execute(
+                "INSERT INTO pages(page,epoch) VALUES (?1,'1')",
+                ["10000000-0000-4000-8000-000000000002"],
+            )
+            .unwrap();
+        assert_eq!(token(), own);
+        other.execute_batch("COMMIT").unwrap();
+        let committed = token();
+        assert_ne!(committed, own);
+        assert_eq!(token(), committed);
+        drop(other);
+        // A content stream append to an existing page, as a CLI patch publishes, also moves it.
+        let mut writer = Store::open(&layout).unwrap();
+        writer
+            .append(&crate::store::Envelope {
+                scope: crate::store::StreamScope {
+                    page: "10000000-0000-4000-8000-000000000001",
+                    epoch: 1,
+                    stream: "20000000-0000-4000-8000-000000000001",
+                },
+                namespace: crate::store::Namespace::Content,
+                seq: 1,
+                hash: [1; 32],
+                previous: [0; 32],
+                bytes: b"test content update",
+            })
+            .unwrap();
+        let changed_content = token();
+        assert_ne!(changed_content, committed);
+        assert_eq!(token(), changed_content);
+        writer.close().unwrap();
+    }
+
     /// A page's work row and parent are resolved across the pages the cache holds fresh.
     #[test]
     fn the_owner_list_resolves_work_and_parent_across_fresh_pages_only() {
