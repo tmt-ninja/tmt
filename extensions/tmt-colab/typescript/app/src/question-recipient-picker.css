@@ -57,15 +57,21 @@
   color: var(--tmt-ui-color-text-action);
   font-weight: 600;
 }
-.question-recipient-trigger:hover:not(:disabled) {
+.question-recipient-trigger:hover:not(:disabled, [aria-disabled]) {
   background: var(--tmt-ui-surface-hover);
 }
+/* One focus frame: the trigger has its own border, so focus recolours it (and thickens it inside
+   the box, so nothing moves) instead of drawing an outline. */
 .question-recipient-trigger:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  border-color: var(--tmt-ui-color-focus);
+  box-shadow: inset 0 0 0 var(--tmt-ui-rule-width) var(--tmt-ui-color-focus);
+  outline: none;
 }
 .question-recipient-trigger:disabled {
   color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+.question-recipient-trigger[aria-disabled] {
   cursor: default;
 }
 .question-recipient[data-pending] .question-recipient-trigger {

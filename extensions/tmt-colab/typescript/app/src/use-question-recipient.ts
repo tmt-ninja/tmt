@@ -17,19 +17,19 @@ import type { PageBinding, PageView } from './transport.js';
  * neither, so `enabled` is false and nothing is offered. One choice at a time: the next waits for
  * the first to settle, and a refusal keeps the question's current recipient and says why. */
 export function useQuestionRecipient(
-  view: PageView,
+  view?: PageView,
   binding?: PageBinding,
   reader?: ReaderMetadata,
 ) {
   const latest = useRef(view);
   latest.current = view;
-  const open = !view.archived && view.pageType !== 'shell';
+  const open = view !== undefined && !view.archived && view.pageType !== 'shell';
   const owner = open && binding?.canMetadata?.() === true;
   const link = open && !owner && reader !== undefined;
   const sender: RecipientSender = owner
     ? {
         owner: async (body) => {
-          const version = await binding!.metadataRevision!(latest.current);
+          const version = await binding!.metadataRevision!(latest.current!);
           await binding!.metadata!('question.agent', body, version);
         },
       }

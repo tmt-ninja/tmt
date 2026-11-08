@@ -24,6 +24,7 @@ export function QuestionRecipientPicker({
   retry,
   pending,
   error,
+  bare,
   onChoose,
 }: {
   question: RegisteredQuestion;
@@ -35,6 +36,8 @@ export function QuestionRecipientPicker({
   retry(): void;
   pending: boolean;
   error?: string;
+  /** Without its own "Receives answers" word: the line it sits on says it. */
+  bare?: boolean;
   /** An agent ID, or `null` to follow the page's creator. */
   onChoose(agent: string | null): void;
 }) {
@@ -53,7 +56,7 @@ export function QuestionRecipientPicker({
   const ready = hasDirectory && directory.state === 'ready';
   return (
     <div className="question-recipient" data-pending={pending || undefined}>
-      <span className="question-recipient-label">{t.recipient}</span>
+      {!bare && <span className="question-recipient-label">{t.recipient}</span>}
       <Listbox
         label={t.recipient}
         options={options}
@@ -76,9 +79,13 @@ export function QuestionRecipientPicker({
               className="question-recipient-trigger"
               aria-label={`${t.recipient}: ${name}`}
               data-own={own !== null || undefined}
-              disabled={pending || !ready}
+              // Busy, not disabled: a disabled button drops focus, and the editor this sits in closes
+              // when focus leaves it.
+              disabled={!ready}
+              aria-disabled={pending || undefined}
+              aria-busy={pending || undefined}
               onClick={(event) => {
-                if (event.isTrusted) setOpen(!open);
+                if (event.isTrusted && !pending) setOpen(!open);
               }}
             >
               <span>{name}</span>

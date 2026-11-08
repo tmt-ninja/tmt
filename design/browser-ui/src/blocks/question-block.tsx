@@ -7,6 +7,7 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { Button, Textarea, UiTheme } from '../ui/index.js';
 
@@ -281,6 +282,10 @@ export interface QuestionBlockEditorProps {
   choices?: readonly string[];
   /** Who receives the answers. Without one, `error` says why no one can be asked. */
   recipient?: string;
+  /** A control that picks the recipient, drawn on the recipient line in place of its name. The host
+   * owns it. The editor closes when focus leaves it, so the control keeps focus on its own trigger
+   * while its menu is used (a disabled trigger drops focus). */
+  recipientControl?: ReactNode;
   error?: string;
   /** The most choices a question holds. */
   maxChoices?: number;
@@ -313,6 +318,7 @@ export function QuestionBlockEditor({
   kind = 'single',
   choices = [],
   recipient,
+  recipientControl,
   error,
   maxChoices = 20,
   autoFocus = true,
@@ -415,9 +421,16 @@ export function QuestionBlockEditor({
           ?
         </div>
         <div className="tmt-block-question-content">
-          <div className="tmt-block-question-eyebrow">
-            {recipient ? `✎ Editing · Answers go to ${recipient}` : '✎ Editing'}
-          </div>
+          {recipientControl ? (
+            <div className="tmt-block-question-eyebrow" data-control="">
+              <span>✎ Editing · Answers go to</span>
+              {recipientControl}
+            </div>
+          ) : (
+            <div className="tmt-block-question-eyebrow">
+              {recipient ? `✎ Editing · Answers go to ${recipient}` : '✎ Editing'}
+            </div>
+          )}
           <h3 className="tmt-block-question-heading">
             <textarea
               ref={titleField}

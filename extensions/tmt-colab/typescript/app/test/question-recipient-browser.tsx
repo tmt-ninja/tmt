@@ -1,6 +1,6 @@
 /** Controlled fixture for the recipient picker. The directory, the owner's answer and the seam are
  * injected by the URL, not native proof: `?directory=ready|loading|failed|empty|none`,
- * `&own=1` (the question already has its own agent) and `&answer=applied|refused|refused-once|slow`. */
+ * `&own=1` (the question already has its own agent) and `&answer=applied|refused|refused-once|held`; `held` waits for `recipientFixture.release()`. */
 import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
@@ -34,7 +34,14 @@ const directory: AgentDirectory =
       : { state: 'ready', agents: mode === 'empty' ? [] : agents };
 const chosen: (string | null)[] = [];
 let retries = 0;
-Object.assign(window, { recipientFixture: { chosen, retries: () => retries } });
+const held: (() => void)[] = [];
+Object.assign(window, {
+  recipientFixture: {
+    chosen,
+    retries: () => retries,
+    release: () => held.splice(0).forEach((release) => release()),
+  },
+});
 
 function Fixture() {
   const [question, setQuestion] = useState<RegisteredQuestion>({
@@ -64,23 +71,20 @@ function Fixture() {
           chosen.push(agent);
           setError(undefined);
           setPending(true);
-          window.setTimeout(
-            () => {
-              setPending(false);
-              if (answer === 'refused' || (answer === 'refused-once' && chosen.length === 1)) {
-                setError('That identity was not found. Check the name or ID and try again.');
-                return;
-              }
-              setQuestion((current) => {
-                const { agent: _own, ...rest } = current;
-                const found = agents.find((candidate) => candidate.agent === agent);
-                return found
-                  ? { ...rest, agent: { id: found.agent, name: found.agentName } }
-                  : rest;
-              });
-            },
-            answer === 'slow' ? 800 : 0,
-          );
+          const settle = (apply: () => void) =>
+            answer === 'held' ? held.push(apply) : window.setTimeout(apply, 0);
+          settle(() => {
+            setPending(false);
+            if (answer === 'refused' || (answer === 'refused-once' && chosen.length === 1)) {
+              setError('That identity was not found. Check the name or ID and try again.');
+              return;
+            }
+            setQuestion((current) => {
+              const { agent: _own, ...rest } = current;
+              const found = agents.find((candidate) => candidate.agent === agent);
+              return found ? { ...rest, agent: { id: found.agent, name: found.agentName } } : rest;
+            });
+          });
         }}
       />
     </main>

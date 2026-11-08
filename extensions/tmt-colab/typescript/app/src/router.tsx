@@ -3255,6 +3255,10 @@ function OpenPage({
                           discussion: snapshot.binding?.discussion,
                           ask: snapshot.binding?.ask,
                           blocked: !!(liveError || archived),
+                          metadata:
+                            snapshot.binding && !liveError && !archived
+                              ? { view, binding: snapshot.binding }
+                              : undefined,
                         }}
                         onLink={(href, newTab) =>
                           requestPageLink(

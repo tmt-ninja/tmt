@@ -1,6 +1,9 @@
 import { QuestionBlock, QuestionBlockEditor } from '@tmt/browser-ui/blocks';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AskBinding, PageAsk } from './ask-panel.js';
+import { QuestionRecipientPicker } from './question-recipient-picker.js';
+import { useQuestionRecipient } from './use-question-recipient.js';
+import type { PageBinding, PageView } from './transport.js';
 import type { BlockRecord } from './block-model.js';
 import { QUESTION_CHOICES, QUESTION_KINDS, type QuestionEdit } from './block-ops.js';
 import {
@@ -30,6 +33,9 @@ export interface QuestionPage {
   ask?: AskBinding;
   /** No answer can be sent now (the page is not live, or this device may not write). */
   blocked: boolean;
+  /** What a question's recipient is chosen through (the owner device's metadata frame): the page's
+   * view and its live binding. Absent, the editor shows the recipient and offers no choice. */
+  metadata?: { view: PageView; binding: PageBinding };
 }
 
 /** A question block's question, read from its untrusted props as plain values. */
@@ -185,7 +191,8 @@ export function StructuredQuestion({
 /**
  * A question block's editor (#6194), open for a page writer: title, kind and choices, each change
  * one gesture through the same ops and serve validator as the CLI. The answers go where the answer
- * card sends them: the registry's agent, else the page's creator, shown read-only.
+ * card sends them: the registry's agent, else the page's creator. The owner device picks that agent
+ * on the recipient line (#6197); every other writer sees it as text.
  */
 export function QuestionEditor({
   block,
@@ -200,13 +207,31 @@ export function QuestionEditor({
 }) {
   const question = blockQuestion(block);
   const entry = page?.questions?.find((value) => value.id === question.id);
-  const recipient = (entry?.agent ?? (page && questionCreator(page, text.unknownAuthor)))?.name;
+  const creator = page && questionCreator(page, text.unknownAuthor);
+  const recipient = (entry?.agent ?? creator)?.name;
+  const recipients = useQuestionRecipient(page?.metadata?.view, page?.metadata?.binding);
   return (
     <QuestionBlockEditor
       title={question.title}
       kind={question.kind === 'long' ? 'short' : question.kind}
       choices={question.choices.map(({ label }) => label)}
       recipient={recipient}
+      recipientControl={
+        entry && recipients.enabled ? (
+          <QuestionRecipientPicker
+            bare
+            question={entry}
+            creatorName={creator?.name}
+            agents={recipients.agents}
+            directory={recipients.directory}
+            hasDirectory={recipients.hasDirectory}
+            retry={recipients.retry}
+            pending={recipients.pending === entry.id}
+            error={recipients.error(entry.id)}
+            onChoose={(agent) => void recipients.choose(entry, agent)}
+          />
+        ) : undefined
+      }
       error={recipient === undefined ? text.questionNoRecipient : undefined}
       maxChoices={QUESTION_CHOICES}
       onTitle={(title) => onEdit({ title })}
