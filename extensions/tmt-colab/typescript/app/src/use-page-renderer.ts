@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ImageDownload } from './image-download.js';
 import { followedSystem, type DesignSystemSource } from './design-system.js';
-import { mountRenderer, sourceFrameKey } from './renderer.js';
+import { mountRenderer, sourceFrameKey, traceDraftFrame } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
 import { toolbarInset } from './toolbar-inset.js';
@@ -171,6 +171,7 @@ export function usePageRenderer({
       return () => controller.abort();
     }
     setState('loading');
+    traceDraftFrame('mount');
     resetPageLinks();
     // Source revisions replace only author content. Parent selection and composer
     // state keep the original quote and rectangle even if that quote is now stale.
@@ -233,6 +234,7 @@ export function usePageRenderer({
         }
       });
     return () => {
+      traceDraftFrame('cleanup');
       // Retire messages before replacing the frame, retaining its layout and the
       // parent's frozen selection. Unmount removes the host itself.
       renderer.current?.release();
@@ -266,6 +268,7 @@ export function usePageRenderer({
     if (!drafts) return;
     const handle = renderer.current;
     if (!handle) {
+      traceDraftFrame('refresh-no-handle');
       setRemounts((count) => count + 1);
       return;
     }

@@ -192,6 +192,9 @@ export function sourceFrameKey(source: string): string {
 /** What an in-place update came to: the frame applied it, the page needs a fresh frame, or a newer
  * update or the end of the render replaced it. */
 export type SourceUpdate = 'applied' | 'remount' | 'superseded';
+// Temporary, opt-in acceptance marks; no page content or identifiers are recorded.
+export const traceDraftFrame = (event: string) =>
+  (globalThis as typeof globalThis & { __tmt6200?: (event: string) => void }).__tmt6200?.(event);
 
 /** Short hosted routes share the root build-owned renderer; mounted routes stay mount-relative. */
 export function rendererUrl(baseUri: string): string {
@@ -1764,23 +1767,35 @@ export async function mountRenderer(
   };
   const refreshDesign = async (source: string): Promise<SourceUpdate> => {
     if (stopped) return 'superseded';
-    if (!ready || !frameDesign) return 'remount';
+    if (!ready || !frameDesign) {
+      traceDraftFrame('refresh-not-ready');
+      return 'remount';
+    }
     const turn = ++updates;
     pendingUpdate?.settle('superseded');
     const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
     if (stopped || turn !== updates) return 'superseded';
+    if (!next) {
+      traceDraftFrame('refresh-unavailable');
+      return 'remount';
+    }
+    if (next.script !== frameDesign.script) {
+      traceDraftFrame('refresh-script-changed');
+      return 'remount';
+    }
     if (
-      !next ||
-      next.script !== frameDesign.script ||
       JSON.stringify(next.runtimeChunks) !== JSON.stringify(frameDesign.runtimeChunks) ||
       JSON.stringify(next.pageViewTags) !== JSON.stringify(frameDesign.pageViewTags) ||
       JSON.stringify(next.pageDataTags) !== JSON.stringify(frameDesign.pageDataTags)
-    )
+    ) {
+      traceDraftFrame('refresh-capabilities-changed');
       return 'remount';
+    }
     const requestId = crypto.randomUUID();
     return new Promise<SourceUpdate>((resolve) => {
       const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
       const settle = (result: SourceUpdate) => {
+        traceDraftFrame(`refresh-${result}`);
         clearTimeout(timer);
         if (pendingUpdate?.requestId === requestId) pendingUpdate = undefined;
         if (result === 'applied') frameDesign = next;
