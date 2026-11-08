@@ -244,6 +244,8 @@ pub(crate) struct View {
     pub creation_recipient: Option<crate::decoder::CreationRecipient>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
+    /// A structured page's `blocks` value (`meta.pageType` is `blocks`); `None` on every other page.
+    pub blocks: Option<serde_json::Value>,
     pub memory_limit: crate::decoder::MemoryLimit,
     /// The counts and raw state size; the gzipped size only when read through
     /// [`Snapshot::materialize_measured`], because compressing the state costs as much as reading
@@ -989,7 +991,12 @@ impl Snapshot {
             (None, None) => return Err(crate::page::Fault::Invalid.into()),
         };
         if base_meta.get("pageType").is_some() {
-            return Err(crate::page::Fault::Invalid.into());
+            return Err(if base_meta["pageType"] == "blocks" {
+                crate::page::Fault::StructuredPage
+            } else {
+                crate::page::Fault::Invalid
+            }
+            .into());
         }
         // A caller that edited from a source it saw refuses to overwrite a different one.
         if base_sha256.is_some_and(|d| *d != crypto::digest(base_source.as_bytes())) {
@@ -1069,9 +1076,33 @@ impl Snapshot {
             self.materialization_input(key, page, decoder, &BTreeMap::new(), None, Opening::Fresh)?;
         let base = input.materialize(page, decoder, None)?;
         let shell = base.meta["pageType"].as_str() == Some("shell");
+        let ordinary = base.meta.get("pageType").is_none();
         // Validate the action before crossing the child boundary so callers retain the typed
         // input refusal, rather than an opaque decoder failure.
+        let mut receipt = None;
+        if edit.kind == StructuredKind::Blocks {
+            if base.meta["pageType"] != "blocks" {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let empty = crate::blocks::schema::empty();
+            let before = base.blocks.as_ref().unwrap_or(&empty);
+            let applied = crate::blocks::ops::apply(before, &edit.body, &edit.attribution)
+                .map_err(crate::page::Fault::from)?;
+            // The mockups it adds or changes must pass the page check.
+            crate::blocks::mockups::check(before, &applied.next)
+                .map_err(crate::page::Fault::from)?;
+            // A question block registers in the same publication, within the registry's bound.
+            crate::blocks::questions::register(
+                &base.meta,
+                before,
+                &applied.next,
+                &edit.attribution,
+            )
+            .map_err(crate::page::Fault::from)?;
+            receipt = Some(applied.receipt);
+        }
         match edit.kind {
+            StructuredKind::Blocks => Ok(()),
             StructuredKind::Shell if shell => crate::shell::apply(
                 &base.meta["shell"],
                 &edit.action,
@@ -1099,15 +1130,18 @@ impl Snapshot {
             StructuredKind::PageState if !shell => {
                 crate::page_state::validate_action(&edit.action, &edit.body)
             }
-            StructuredKind::Template if !shell => {
+            StructuredKind::Template if ordinary => {
                 crate::template_marks::apply(&edit.action, &edit.body).map(drop)
             }
             _ => Err(crate::closed::Invalid),
         }
         .map_err(|_| crate::page::Fault::Invalid)?;
-        let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        let mut expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        if let Some(blocks) = &base.blocks {
+            expected_base["blocks"] = blocks.clone();
+        }
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let prepared = decoder.prepare_structured_batch(
+        let mut prepared = decoder.prepare_structured_batch(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &input.baseline,
@@ -1117,6 +1151,7 @@ impl Snapshot {
             edit,
             None,
         )?;
+        prepared.receipt = receipt;
         if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {
             input.admit_deltas(
                 page,
@@ -1182,6 +1217,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
                 page_state: None,
+                converted_at: None,
                 creator: None,
                 questions: None,
                 template: None,
@@ -1506,6 +1542,7 @@ impl MaterializationInput {
                 .collect(),
             signing_keys: signing_keys.clone(),
             meta: folded.projection["meta"].clone(),
+            blocks: folded.projection.get("blocks").cloned(),
             source: folded.projection["html"]
                 .as_str()
                 .ok_or(OwnerFault::Invalid)?

@@ -42,6 +42,48 @@ it('exports a shell as canonical shell.json with its type, without a fabricated 
   expect(() => bundle.blob('page.html')).toThrow();
 });
 
+it('exports a page of blocks as blocks.json and a rendering derived from it', async () => {
+  const id = '10000000-0000-4000-8000-000000000001';
+  const blocks = {
+    [id]: {
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'V',
+      props: {},
+      text: { s: 'Ship <it> & go', marks: [] },
+    },
+  };
+  const bundle = await prepareExport({
+    ...input(),
+    source: '',
+    pageType: 'blocks' as const,
+    blocks,
+    attachmentEntries: [],
+  });
+  expect(bundle.files.map(({ name }) => name)).toEqual([
+    'blocks.json',
+    'page.html',
+    'conversations.json',
+    'conversations.md',
+    'manifest.json',
+  ]);
+  const json = await bytes(bundle.blob('blocks.json'));
+  expect(JSON.parse(new TextDecoder().decode(json))).toEqual(blocks);
+  const html = await bytes(bundle.blob('page.html'));
+  expect(new TextDecoder().decode(html)).toBe(
+    '<style>@layer tmt-starter{section{margin:0 0 16px}section>:last-child{margin-bottom:0}li.todo{list-style-type:"\\2610  "}li.done{list-style-type:"\\2611  "}}</style>\n<p>Ship &lt;it&gt; &amp; go</p>\n',
+  );
+  const manifest = JSON.parse(new TextDecoder().decode(await bytes(bundle.blob('manifest.json'))));
+  expect(manifest.pageType).toBe('blocks');
+  expect(manifest.files[1]).toEqual({
+    name: 'page.html',
+    sizeBytes: html.length,
+    sha256: sha(html),
+    derivedFrom: 'blocks.json',
+  });
+  expect(manifest.files[0].derivedFrom).toBeUndefined();
+});
+
 it('exports a page with work as work.json right after its HTML, byte for byte like native', async () => {
   const bundle = await prepareExport({ ...input(), work: structuredClone(fixture.work) });
   expect(bundle.files.map(({ name }) => name).slice(0, 4)).toEqual([

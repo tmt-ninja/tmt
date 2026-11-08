@@ -1058,10 +1058,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                                                                                                                                                         | Fold and authority                                                                   |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                                                                                                                                                                                                                                                               | Fold and authority                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)), `pageType` (`shell` or `blocks`); `blocks` Y.Map, only on a [page of blocks](#structured-pages-6004) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                                                                                                                                                  | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -3040,6 +3040,189 @@ Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
 
+### Structured pages (#6004)
+
+A structured page keeps its content as blocks, not authored HTML. Each addition to this section
+lands with the code that implements it; nothing below describes behavior that is not shipped.
+
+#### Roots and creation
+
+A page of blocks has `meta.pageType = "blocks"`, an `html` text and the content root `blocks`, a
+`Y.Map` from block ID to block. A new page's `html` is empty. A page converted in place keeps its
+old HTML there as a frozen legacy source: it is never rendered, `page write` and `page patch`
+refuse the page, structured edits leave it byte for byte, and a new epoch baseline carries it
+over unchanged; it counts toward the page limits as it did before. The root exists only on a page
+of blocks, which holds none until its first block (an absent root reads as `{}`); a `blocks` root
+on any other page is refused by every fold, with one exception: a page reverted to HTML has no
+`pageType` and keeps the root a revert can only empty, never drop (a Yjs root type persists), and
+it is admitted while it holds no block and is not part of the projection (a new epoch baseline
+leaves it out). A dashboard has no HTML and no such root. Ordinary pages and
+dashboards keep `{html, meta}`.
+
+A page of blocks keeps the metadata of an ordinary page under the same schemas: `meta.title`,
+`creator`, `questions`, `pageState`, `work` ([Work](#work-4050)), `attachments`, `fromTemplate`,
+and the creation fields. It never has `meta.template` (it cannot be a template) or `meta.layout`
+and `meta.layoutReason` (the app draws its blocks). It alone may have `meta.convertedAt`, the
+time in milliseconds it was converted in place from HTML (set with the conversion, removed with a
+revert); every other page is refused one. A new epoch baseline keeps all of them. The vectors
+[`blocks-page-v1.json`](vectors/blocks-page-v1.json) pin each rule, the legacy `html` included,
+and run through the isolated decoder and the browser fold's Worker alike.
+
+`tmt colab page create --structured` creates an empty page of blocks (it conflicts with `--file`,
+`--layout`, `--reason`, `--template` and `--creator`). Making it the default for new pages and
+converting existing pages are not part of this contract.
+
+`page write` and `page patch` on a page of blocks, and `tmt colab block` on any other page, are
+refused with the typed codes `COLAB_STRUCTURED_PAGE` and `COLAB_NOT_STRUCTURED`.
+
+#### Blocks
+
+A block is a nested `Y.Map` under its ID (a generated page ID the caller picks) with exactly the keys
+below; any other key, type or shape is refused.
+
+| Key       | Value                                                                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`    | One of the thirteen types below, or the internal `row`; never changes                                                                                            |
+| `parent`  | `root` or the ID of a `card`; a card never holds a card; a `row`'s parent is its table                                                                           |
+| `pos`     | Fractional sort key: 1 to 64 characters of `0-9A-Za-z`, never ending in `0`; siblings order by `(pos, id)`, so two writers that pick one key keep a stable order |
+| `props`   | Nested `Y.Map` of plain values; only the keys of the type's schema                                                                                               |
+| `text`    | `Y.Text` on the types that have text; marks are `Y.Text` attributes (below)                                                                                      |
+| `cells`   | On a `row` only: `Y.Map` from column ID to a `Y.Text`                                                                                                            |
+| `deleted` | Tombstone: the integer UTC milliseconds of the delete; absent while the block is live                                                                            |
+
+A deleted block, with everything under it, is hidden; its descendants keep their own state and come
+back with it on `restore`.
+
+| Type          | Text  | Props (all optional unless noted)                                                                                                                            |
+| ------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                      |
+| `heading`     | rich  | `level` 2 or 3                                                                                                                                               |
+| `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                       |
+| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `indent` 0-2                                                                                        |
+| `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                            |
+| `card`        | none  | `variant` `card\|section`, `title`, `meta`, `collapsible`, `collapsed`                                                                                       |
+| `question`    | plain | `kind` `single\|multiple\|short`, `agent`, `choices` (at most 20), `other`, `otherMax`, `state` `waiting\|answered\|dismissed`, `answer`                     |
+| `callout`     | rich  | `tone` `working\|waiting\|review\|blocked`, `label`, `heading`                                                                                               |
+| `code`        | plain | `language`, `filename`                                                                                                                                       |
+| `image`       | none  | `images` (at most 100 of `{src, alt?, caption?, tag?, filename?, status?}`), `files`, `layout` `carousel\|grid\|single`, `size` `s\|m\|l`, `variant`         |
+| `mockup`      | none  | `markup` (required, 64 KiB), `system`, `lock`, `preset` `390\|1440\|custom`, `width`, `height`, `toolbarLabels`                                              |
+| `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                            |
+| `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable` |
+
+Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
+`https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most
+128 bytes without whitespace) and `block` (a block ID), as `Y.Text` attributes and nothing else. Plain
+text (`code`, `question`) carries no marks. Text holds no control character but line feed and tab.
+A table row is a `row` block whose cells are rich text.
+
+One rule covers every URL a block carries (`safe_url` in `blocks/text.rs`, `safeUrl` in `blocks.ts`, the
+link mark's own check): at most 2048 bytes, one of the allowed schemes followed by something, no
+control or whitespace character. A `link` mark and a file's `href` allow `http://`, `https://` and
+`mailto:`; an image's `src` allows `https://` only (an image is fetched when its page opens). Both also
+take `colab-attachment:` and a token, the grammar of an HTML page: 8 lowercase hex digits or a full
+attachment ID. A `javascript:` or `data:` URL, a relative URL, a different case of a scheme and a URL
+with a space are refused with the whole batch, so neither renderer ever writes one into `<img src>` or
+`<a href>`. A work bundle's tickets stay `https://github.com/` links. `blocks-v1.json` holds the
+refusals (`an image source …`, `a file link …`).
+
+#### Limits
+
+| Bound                                               | Value                                           |
+| --------------------------------------------------- | ----------------------------------------------- |
+| Blocks, tombstones included                         | 2048                                            |
+| `props` of a block                                  | 8 KiB (`mockup` 72, `image` and `page-view` 32) |
+| Text of a block / of a table cell                   | 64 KiB / 4 KiB                                  |
+| Cells of a row, rows of a table, columns of a table | 64, 512, 32                                     |
+| The whole `blocks` value, canonical                 | 4 MiB                                           |
+| A batch                                             | 256 ops and 1 MiB                               |
+
+An op that would pass a bound is refused as `COLAB_CAPACITY`.
+
+#### One batch entry
+
+Every change to a page of blocks is one all-or-nothing batch `{ops:[...]}`, action `blocks.batch`
+of the structured publisher. The browser save path (the `blocks` sync frame) and
+`tmt colab block` build it through the same function, validate it with the same
+`blocks::ops::apply`, and write the same receipt and history entry. The isolated decoder replays the
+normalized steps as granular Yjs edits and refuses a projection that differs from the validator's.
+A batch carries no revision: ops address blocks by ID and merge into the current page, so two
+writers' batches converge without a fence.
+
+| Op                  | Shape                                                                                                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `insert`            | `{id, type, parent?, after?, props?, text?}`; `parent` defaults to `root`; `after` absent = last, `null` = first, else a child of `parent`; `row` is never insertable                           |
+| `move`              | `{id, parent, after?}`: the subtree moves; the last move wins                                                                                                                                   |
+| `props`             | `{id, set?: {key: value}, unset?: [key]}`: per key, checked against the type's schema                                                                                                           |
+| `text`              | `{id, cell?}` with one of `replace: {find, with}` (`find` must occur exactly once), `set` with `base` and optional `overlap` ([merge](#block-text-merge)), or `format: {from, to, mark, value}` |
+| `delete`, `restore` | `{id}`; both are idempotent                                                                                                                                                                     |
+| `table`             | `{id, action}` with `add-row`, `remove-row`, `set-cell` (`row`, `column`, `text`, optional `base` and `overlap`), `add-column`, `rename-column`, `move-column` or `remove-column`               |
+
+The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from, to, text}`; empty when
+nothing overlapped). Refusals are typed: `COLAB_BLOCK_NOT_FOUND` (an unknown or purged ID),
+`COLAB_BLOCK_BAD_AFTER` (`after` is not a child of `parent`), `COLAB_BLOCK_TEXT_NOT_FOUND` and
+`COLAB_BLOCK_TEXT_AMBIGUOUS` (`replace`), `COLAB_BLOCK_MARKUP` (a mockup's markup has page-check
+findings), `COLAB_CAPACITY`, and `COLAB_INPUT_INVALID` for anything else.
+
+Two blocks have a side effect that the batch carries in the same publication:
+
+- A `question` block is registered as a `<tmt-question>` is: the batch that adds it also adds its
+  entry to `meta.questions` (`{id: <block id>, state: "open", attribution}`, no `agent`, so it follows
+  the page's creator). More than 50 registered questions on a page is `COLAB_CAPACITY`. Editing the
+  block leaves the entry, and deleting it does too, as removing a `<tmt-question>` from HTML does.
+  Answers, state and routing are the existing [question metadata](#question-metadata-5052).
+- A `mockup` block's `markup` passes the page check (`tmt colab page check`) when the batch adds or
+  changes it: any finding refuses the batch as `COLAB_BLOCK_MARKUP`. The parent admits it before the
+  decoder is asked to prepare the batch, as it does an HTML page's source.
+
+#### Tombstones
+
+A deleted block stays so that history, comments and `restore` keep working. When compaction builds a
+new epoch baseline it purges: a tombstone older than seven days goes with its subtree, and while the
+page holds more than 1536 blocks the oldest remaining tombstones go with theirs. A purged ID is gone
+for good: `restore` and every other op that names it is refused as `COLAB_BLOCK_NOT_FOUND`.
+
+The purge happens only while a baseline is built, and the baseline replaces the updates of the
+earlier epoch, so a `restore` meets it in one of two ways: it lands before the baseline and the
+block (with its subtree) is in the baseline, or it finds the page without the block and the whole
+batch is refused. Nothing of a purged subtree is ever left behind, and a refused batch writes
+nothing. The decoder test `a_restore_after_the_purge_is_not_found_and_resurrects_nothing` builds
+such a baseline and checks the validator, the isolated decoder and the base that follows, and the CLI
+test `a_new_epoch_of_a_page_of_blocks_purges_old_tombstones_and_keeps_its_metadata` advances a page's
+epoch through the owner path (the oldest tombstones go, a refused restore writes nothing, a kept
+tombstone still restores, and the question registry and state come across).
+
+#### Block text merge
+
+`merge(base, remote, local)` applies an agent's whole-text replacement of one block to the text the
+page holds now. `base` is the text the agent read (`block get` returns it with the block), `local`
+is the text the agent wrote and `remote` is the stored text. The base only locates the agent's
+hunks; it never refuses a write. Both implementations, `blocks::merge` in the native crate and
+`textMerge.merge` in `@tmt/colab-client` (the only TypeScript copy; the browser editor imports it),
+run [`block-text-merge-v1.json`](vectors/block-text-merge-v1.json).
+
+- Units are Unicode scalar values. Hunk and report offsets count them, never bytes or UTF-16 units.
+- A hunk is a replacement of `base[from..to]` by `text`; an insertion has `from == to`. The hunks of
+  `a → b` keep the common prefix and suffix, diff the middle with Myers' O(ND) algorithm and make
+  each maximal run of changes between kept characters one hunk. A tie between a deletion and an
+  insertion takes the deletion. When the distance of the middle exceeds 1024, the whole middle is
+  one hunk.
+- The page's hunks (`base → remote`) always apply. An agent hunk (`base → local`) applies unless it
+  overlaps one of them: their deleted ranges intersect, or it inserts strictly inside what the
+  other deletes. Insertions at one point, and an insertion at the edge of a deletion, do not
+  overlap; the page's insertion comes first. A hunk equal to one of the page's applies once.
+- An overlapping agent hunk is dropped by default (`overlap: "remote"`), because the text the page
+  already holds wins. The receipt lists it as `droppedHunks` (`{from, to, text}` in base offsets)
+  so the agent can run `block get` again and reapply it.
+- With `overlap: "both"`, which the browser editor sends so a person's typing is never lost, the
+  overlapping hunk's new text is kept right after the text the page holds where they overlapped
+  (several hunks keep their order), and only its deletion is dropped and reported with `text: ""`.
+  A hunk that only deletes is dropped whole. Both implementations take the mode as a fourth
+  argument and run the second set, `mergesBoth`, of the same vector file; a generated set,
+  [`block-text-merge-generated-v1.json`](vectors/block-text-merge-generated-v1.json), holds 500
+  seeded triples merged under both modes. The native test regenerates it and fails when the file
+  differs (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab merge_generated` rewrites it); the
+  TypeScript test must match it.
+
 ### Dashboards (#3648)
 
 A dashboard is an ordinary page with structured content, not authored HTML. It is the
@@ -3167,10 +3350,12 @@ Page progress is derived at read time and never stored in the page or used to ch
 
 ### Work (#4050)
 
-An ordinary HTML page may carry work: its direct sub-pages in order and a two-line summary, in the
-content document's `meta.work` beside its HTML. A page with sub-pages is just a page; there is no
+An ordinary HTML page or a [page of blocks](#structured-pages-6004) may carry work: its direct
+sub-pages in order and a two-line summary, in the content document's `meta.work` beside its HTML or
+blocks. A page with sub-pages is just a page; there is no
 task, assignee or other tracker concept. A dashboard never carries work (it keeps its own
-summary), and a page with `meta.work` has no `pageType`. The isolated native decoder and the
+summary), and a page with `meta.work` is not a dashboard (`pageType` is absent or `blocks`). The
+isolated native decoder and the
 browser fold validate the value on every incoming state and prepared action, so raw Yjs cannot
 bypass the schema. Writing a page's HTML source and rotating its epoch keep the value exactly. A
 page that has had no work carries no `meta.work`; its first action starts from the empty value,
@@ -7175,7 +7360,16 @@ claim of globally current membership.
 
 For a [dashboard](#dashboards-3648), `shell.json` replaces `page.html` and
 contains the canonical shell value, including summary attribution. The manifest
-also carries `pageType:"shell"`; ordinary HTML exports omit it. An ordinary page
+also carries `pageType:"shell"`; ordinary HTML exports omit it. A [page of
+blocks](#structured-pages-6004) exports `blocks.json`, its canonical `blocks` value, first and then
+`page.html`, a deterministic rendering of its live blocks (deleted blocks left out, siblings in
+`(pos, id)` order, adjacent list items nested, every authored string escaped, a mockup's markup as
+stored); the manifest row of `page.html` carries `derivedFrom:"blocks.json"` and the manifest
+`pageType:"blocks"`. The native `blocks::html` and the browser's `renderBlocks` produce the same
+bytes and run [`blocks-html-v1.json`](vectors/blocks-html-v1.json); the rendering passes the page
+check. A rendering starts with a `tmt-starter` layer `<style>` (the same marker a page's starter
+carries, so Colab applies its editorial layer), uses the documented `tmt-ui-*` classes and writes a
+question without `data-agent` (the registry routes it). No standalone copy is made for it. An ordinary page
 that has [work](#work-4050) also exports `work.json` right after `page.html`: the
 canonical `meta.work` value (sorted ASCII keys, compact separators, raw UTF-8), so
 a copy never loses its sub-pages or summary; a page without work has no such file.
@@ -7183,26 +7377,26 @@ All other snapshot, privacy, file-publication and failure rules are unchanged.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                                                                                                                                                                  |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                                                                                                                                                                          |
-| `version`           | JSON integer `1`                                                                                                                                                                                                                                                 |
-| `spaceId`           | Pinned space ID                                                                                                                                                                                                                                                  |
-| `pageId`            | Exported page UUID                                                                                                                                                                                                                                               |
-| `title`             | Exact admitted title                                                                                                                                                                                                                                             |
-| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                                                                                                                    |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                              |
-| `creator`           | Optional editor-owned creator value from the captured view                                                                                                                                                                                                       |
-| `questions`         | Optional editor-owned raw registry from the captured view; answered state remains derived from conversations                                                                                                                                                     |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                 |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                    |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                                                                                                             |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                                                                                                        |
-| `plaintext`         | `true`                                                                                                                                                                                                                                                           |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                                                                                                            |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                                                                                                                |
-| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `page.standalone.html` when it was made, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}` (plus `derivedFrom` on the standalone copy); bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                                                                                                                                                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                                                                                                                                                                                                                              |
+| `version`           | JSON integer `1`                                                                                                                                                                                                                                                                                                                                     |
+| `spaceId`           | Pinned space ID                                                                                                                                                                                                                                                                                                                                      |
+| `pageId`            | Exported page UUID                                                                                                                                                                                                                                                                                                                                   |
+| `title`             | Exact admitted title                                                                                                                                                                                                                                                                                                                                 |
+| `pageType`          | `"shell"` for a shell export, `"blocks"` for a page of blocks; omitted for ordinary HTML pages                                                                                                                                                                                                                                                       |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                                                                                                                  |
+| `creator`           | Optional editor-owned creator value from the captured view                                                                                                                                                                                                                                                                                           |
+| `questions`         | Optional editor-owned raw registry from the captured view; answered state remains derived from conversations                                                                                                                                                                                                                                         |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                                                                                                    |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                                                                                                     |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                                                                                                        |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                                                                                                                                                                                                 |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                                                                                                                                                                                            |
+| `plaintext`         | `true`                                                                                                                                                                                                                                                                                                                                               |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                                                                                                                                                                                                |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                                                                                                                                                                                                    |
+| `files`             | `page.html` (or `shell.json`; a page of blocks has `blocks.json` then `page.html`), `work.json` when the page has work, `page.standalone.html` when it was made, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}` (plus `derivedFrom` on the standalone copy and on the rendering of blocks); bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.

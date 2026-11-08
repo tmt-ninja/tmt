@@ -100,6 +100,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
     }});
     let view = || BaselineInput {
         page_state: None,
+        converted_at: None,
         creator: None,
         questions: None,
         template: None,
@@ -153,6 +154,7 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
         page_state: None,
+        converted_at: None,
         creator: None,
         questions: None,
         template: None,
@@ -250,6 +252,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_page(
             BaselineInput {
                 page_state: None,
+                converted_at: None,
                 creator: Some(&creator),
                 questions: Some(&questions),
                 ..work_view(source, None)
@@ -313,6 +316,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_at: None,
                 creator: rewritten.projection["meta"].get("creator"),
                 questions: rewritten.projection["meta"].get("questions"),
                 ..work_view(b"<p>changed</p>", None)
@@ -512,6 +516,7 @@ fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
         page_state: None,
+        converted_at: None,
         creator: None,
         questions: None,
         template: None,
@@ -1560,6 +1565,7 @@ fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
         page_state: None,
+        converted_at: None,
         creator: None,
         questions: None,
         template: None,
@@ -1638,6 +1644,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             .produce_baseline(
                 BaselineInput {
                     page_state: None,
+                    converted_at: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -1715,6 +1722,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
         page_state: None,
+        converted_at: None,
         creator: None,
         questions: None,
         template: None,
@@ -1931,6 +1939,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_at: None,
                 creator: None,
                 questions: None,
                 template: None,
@@ -2051,6 +2060,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
         .produce_page(
             BaselineInput {
                 page_state: None,
+                converted_at: None,
                 work: None,
                 layout: None,
                 original_author: Some("original-author"),
@@ -2170,6 +2180,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    converted_at: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2654,6 +2665,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    converted_at: None,
                     creator: None,
                     questions: None,
                     template: None,
@@ -2751,6 +2763,7 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                converted_at: None,
                 work: None,
                 template: None,
                 from_template: None,
@@ -3086,6 +3099,7 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
         .produce_baseline(
             BaselineInput {
                 page_state: after.projection["meta"].get("pageState"),
+                converted_at: None,
                 ..work_view(source, None)
             },
             None,
@@ -3111,6 +3125,524 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
                 &edit(serde_json::json!("blocked")),
                 None
             )
+            .is_err()
+    );
+}
+
+/// A restore that meets the purge (#6004): the epoch baseline drops the tombstones the page no
+/// longer keeps, with their subtrees, and from then on the id is simply not on the page. A restore
+/// of it, alone or inside a batch, is refused as not found by the validator and by the isolated
+/// decoder, and never leaves part of the block, its children or the rest of the batch behind.
+#[test]
+fn a_restore_after_the_purge_is_not_found_and_resurrects_nothing() {
+    use serde_json::json;
+    use tmt_colab::blocks::{
+        ops::{Refusal, apply},
+        purge::purge,
+        schema,
+    };
+    use tmt_colab::decoder::{ContentBatch, StructuredEdit, StructuredKind};
+    const DAY: u64 = 86_400_000;
+    let (t0, now) = (1_700_000_000_000u64, 1_700_000_000_000u64 + 8 * DAY);
+    let id = |n: u32| format!("20000000-0000-4000-8000-{n:012}");
+    let (paragraph, card, todo, young) = (id(1), id(2), id(3), id(4));
+    let text = |s: &str| json!({"s": s, "marks": []});
+    let blocks = json!({
+        paragraph.clone(): {"type": "paragraph", "parent": "root", "pos": "V", "props": {}, "text": text("keep")},
+        card.clone(): {"type": "card", "parent": "root", "pos": "W", "props": {}, "deleted": t0},
+        todo.clone(): {"type": "todo", "parent": card, "pos": "V", "props": {}, "text": text("inside")},
+        young.clone(): {"type": "paragraph", "parent": "root", "pos": "X", "props": {},
+                         "text": text("recent"), "deleted": now - DAY},
+    });
+    schema::validate(&blocks).unwrap();
+    let attribution = json!({"writerId": WRITER, "timeMs": now});
+    let restore = |target: &str| json!({"ops": [{"op": "restore", "id": target}]});
+    // Before the baseline the same restore is admitted: the outcome depends only on which side of
+    // the baseline the op lands.
+    assert!(apply(&blocks, &restore(&card), &attribution).is_ok());
+
+    let kept = purge(&blocks, now);
+    let present = |value: &serde_json::Value, key: &str| value.get(key).is_some();
+    assert!(
+        !present(&kept, &card) && !present(&kept, &todo),
+        "the subtree goes with it"
+    );
+    assert!(present(&kept, &paragraph) && present(&kept, &young));
+    assert_eq!(
+        apply(&kept, &restore(&card), &attribution).unwrap_err(),
+        Refusal::NotFound
+    );
+    let mixed = json!({"ops": [
+        {"op": "props", "id": paragraph, "set": {"tone": "muted"}},
+        {"op": "restore", "id": card},
+    ]});
+    assert_eq!(
+        apply(&kept, &mixed, &attribution).unwrap_err(),
+        Refusal::NotFound
+    );
+
+    let view = || BaselineInput {
+        page_state: None,
+        converted_at: None,
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: None,
+        work: None,
+        layout: None,
+        original_author: None,
+        attachments: None,
+        source: b"",
+        title: "Blocks",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+    };
+    let mut decoder = owner();
+    let baseline = decoder.produce_blocks(view(), &kept, false, None).unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(before.projection["blocks"], kept);
+    let edit = |body: serde_json::Value| StructuredEdit {
+        kind: StructuredKind::Blocks,
+        action: "blocks.batch".into(),
+        body,
+        attribution: attribution.clone(),
+    };
+    for body in [restore(&card), restore(&todo), mixed.clone()] {
+        assert!(
+            decoder
+                .prepare_structured_batch(batch(), &before.projection, &edit(body), None)
+                .is_err()
+        );
+    }
+    // Nothing was written: the base decodes to the same page.
+    let again = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(again.projection, before.projection);
+
+    // A tombstone the purge kept still restores, and replays to the projection the validator derives.
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &edit(restore(&young)), None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected an update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert!(after.projection["blocks"][&young].get("deleted").is_none());
+}
+
+/// Which metadata a page of blocks may carry (#6004): the shared page vectors, run through the
+/// actual isolated decoder. A page of blocks keeps work, attachments, fromTemplate, a state and
+/// convertedAt, never a template or a layout.
+#[test]
+fn a_page_of_blocks_carries_the_metadata_the_page_vectors_allow() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/blocks-page-v1.json"
+    ))
+    .unwrap();
+    let mut decoder = owner();
+    for case in corpus["cases"].as_array().unwrap() {
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        // A reverted page keeps a `blocks` root a revert could only empty, never drop. The root is
+        // made before any transaction: making it takes the document's own.
+        let root = case
+            .get("blocksRoot")
+            .map(|_| doc.get_or_insert_map("blocks"));
+        if let Some(root) = &root {
+            let mut tx = doc.transact_mut();
+            root.insert(
+                &mut tx,
+                "10000000-0000-4000-8000-000000000001",
+                yrs::MapPrelim::default(),
+            );
+            drop(tx);
+            if case["blocksRoot"] == "emptied" {
+                let mut tx = doc.transact_mut();
+                root.remove(&mut tx, "10000000-0000-4000-8000-000000000001");
+            }
+        }
+        let mut tx = doc.transact_mut();
+        // A converted page keeps its old source here, frozen; a case without `html` has none.
+        if let Some(legacy) = case.get("html").and_then(|value| value.as_str()) {
+            html.insert(&mut tx, 0, legacy);
+        }
+        meta.insert(&mut tx, "title", "Page");
+        for (key, value) in case["meta"].as_object().unwrap() {
+            meta.insert(
+                &mut tx,
+                key.as_str(),
+                yrs::Any::from_json(&value.to_string()).unwrap(),
+            );
+        }
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        let result = decoder.decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &bytes,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        );
+        assert_eq!(
+            result.is_ok(),
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if let Ok(decoded) = result {
+            for (key, value) in case["meta"].as_object().unwrap() {
+                assert_eq!(&decoded.projection["meta"][key], value, "{}", case["name"]);
+            }
+            assert_eq!(
+                decoded.projection["html"],
+                case.get("html").cloned().unwrap_or_else(|| "".into()),
+                "{}",
+                case["name"]
+            );
+            gone(decoded.child_pid);
+        }
+    }
+}
+
+/// A converted page keeps its old HTML on the page of blocks (#6004): frozen, never rewritten. The
+/// blocks are edited and replayed around it, a source write is refused, and a new epoch's baseline
+/// carries it over unchanged.
+#[test]
+fn a_page_of_blocks_keeps_its_legacy_source_frozen_through_edits_and_a_new_baseline() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
+    let legacy = b"<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n";
+    let legacy_text = std::str::from_utf8(legacy).unwrap();
+    let blocks = serde_json::json!({
+        "20000000-0000-4000-8000-000000000001": {
+            "type": "paragraph", "parent": "root", "pos": "V", "props": {},
+            "text": {"s": "new", "marks": []}
+        }
+    });
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_blocks(work_view(legacy, None), &blocks, false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(before.projection["html"], legacy_text);
+    assert_eq!(before.projection["blocks"], blocks);
+    // A block edit leaves the legacy source as it was, and replays.
+    let edit = StructuredEdit {
+        kind: StructuredKind::Blocks,
+        action: "blocks.batch".into(),
+        body: serde_json::json!({"ops": [
+            {"op": "insert", "id": "20000000-0000-4000-8000-000000000002", "type": "paragraph",
+             "parent": "root", "after": null, "text": "second"}
+        ]}),
+        attribution: serde_json::json!({"writerId": WRITER, "timeMs": 1000}),
+    };
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &edit, None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert_eq!(after.projection["html"], legacy_text);
+    assert_eq!(after.projection["blocks"].as_object().unwrap().len(), 2);
+    // A source write never reaches it: the page has no HTML to replace.
+    assert!(
+        decoder
+            .prepare_content_batch(
+                batch(),
+                &before.projection,
+                ContentEdit {
+                    layout: None,
+                    source: "<p>rewritten</p>",
+                    publisher_agent: None,
+                    attachments: None,
+                },
+                None,
+            )
+            .is_err()
+    );
+    // A new epoch's baseline keeps the legacy source and the blocks it was built from.
+    let kept = after.projection["blocks"].clone();
+    let next = decoder
+        .produce_blocks(work_view(legacy, None), &kept, false, None)
+        .unwrap();
+    gone(next.child_pid);
+    let rotated = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &next.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(rotated.projection["html"], legacy_text);
+    assert_eq!(rotated.projection["blocks"], kept);
+    // A dashboard still has no HTML.
+    assert!(
+        decoder
+            .produce_shell(
+                work_view(legacy, None),
+                &tmt_colab::shell::empty(),
+                false,
+                None
+            )
+            .is_err()
+    );
+}
+
+/// A page of blocks takes work actions (#6004): the decoder re-derives a sub-page attach and a
+/// summary against it, the blocks and the rest of the page stay as they were, and the update replays.
+/// A dashboard still refuses them.
+#[test]
+fn a_page_of_blocks_takes_work_actions_and_keeps_its_blocks() {
+    use tmt_colab::decoder::{ContentBatch, StructuredKind};
+    let mut decoder = owner();
+    let blocks = serde_json::json!({
+        "20000000-0000-4000-8000-000000000001": {
+            "type": "paragraph", "parent": "root", "pos": "V", "props": {},
+            "text": {"s": "keep", "marks": []}
+        }
+    });
+    let baseline = decoder
+        .produce_blocks(work_view(b"", None), &blocks, false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert!(before.projection["meta"].get("work").is_none());
+    let child = "20000000-0000-4000-8000-00000000000a";
+    let add = work_edit("subpage.attach", serde_json::json!({"pageId": child}));
+    assert_eq!(add.kind, StructuredKind::Work);
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &add, None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert_eq!(after.projection["blocks"], blocks);
+    assert_eq!(after.projection["meta"]["pageType"], "blocks");
+    assert_eq!(
+        after.projection["meta"]["work"],
+        serde_json::json!({"version": 2, "order": [child]})
+    );
+    // A summary joins it and the sub-page stays.
+    let summary = work_edit(
+        "summary.set",
+        serde_json::json!({"line1": "Start", "line2": "Next"}),
+    );
+    let more = decoder
+        .prepare_structured_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &after.projection,
+            &summary,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        more.projection["meta"]["work"]["order"],
+        serde_json::json!([child])
+    );
+    assert!(more.projection["meta"]["work"].get("summary").is_some());
+    // A dashboard still has no work.
+    let shell_page = decoder
+        .produce_shell(
+            work_view(b"", None),
+            &tmt_colab::shell::empty(),
+            false,
+            None,
+        )
+        .unwrap();
+    let shell_before = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: shell_page.update.as_slice(),
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert!(
+        decoder
+            .prepare_structured_batch(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: shell_page.update.as_slice(),
+                    updates: &[],
+                },
+                &shell_before.projection,
+                &add,
+                None,
+            )
+            .is_err()
+    );
+}
+
+/// A new epoch keeps what a page of blocks carries beside its blocks (#6004): work, attachments,
+/// fromTemplate, a state, questions and convertedAt survive the baseline the decoder produces.
+#[test]
+fn a_baseline_of_a_page_of_blocks_keeps_its_metadata() {
+    let work = serde_json::json!({"version": 2, "order": []});
+    let from = serde_json::json!({"name": "report"});
+    let state = serde_json::json!("done");
+    let converted = serde_json::json!(1_794_000_000_000u64);
+    let attachments = tmt_colab_model::attachment::DocumentAttachments::default();
+    let plain = || BaselineInput {
+        page_state: Some(&state),
+        creator: None,
+        questions: None,
+        template: None,
+        from_template: Some(&from),
+        work: Some(&work),
+        layout: None,
+        original_author: None,
+        attachments: Some(&attachments),
+        source: b"",
+        title: "Blocks",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+        converted_at: None,
+    };
+    fn view<'a>(
+        mut input: BaselineInput<'a>,
+        converted: Option<&'a serde_json::Value>,
+    ) -> BaselineInput<'a> {
+        input.converted_at = converted;
+        input
+    }
+    let mut decoder = owner();
+    let blocks = serde_json::json!({});
+    let baseline = decoder
+        .produce_blocks(view(plain(), Some(&converted)), &blocks, false, None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let decoded = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    let meta = &decoded.projection["meta"];
+    assert_eq!(meta["pageType"], "blocks");
+    assert_eq!(meta["work"], work);
+    assert_eq!(meta["fromTemplate"], from);
+    assert_eq!(meta["pageState"], state);
+    assert_eq!(meta["convertedAt"], converted);
+    assert!(meta.get("attachments").is_some());
+    let verified = decoder
+        .verify_baseline(
+            view(plain(), Some(&converted)),
+            &baseline.update,
+            baseline.commitment,
+            None,
+        )
+        .unwrap();
+    gone(verified.child_pid);
+    // convertedAt is a time in ms of a page of blocks, nothing else.
+    for bad in [
+        serde_json::json!("archive"),
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(9_007_199_254_740_992u64),
+    ] {
+        assert!(
+            decoder
+                .produce_blocks(view(plain(), Some(&bad)), &blocks, false, None)
+                .is_err(),
+            "{bad}"
+        );
+    }
+    assert!(
+        decoder
+            .produce_shell(
+                view(plain(), Some(&converted)),
+                &tmt_colab::shell::empty(),
+                false,
+                None
+            )
+            .is_err()
+    );
+    assert!(
+        decoder
+            .produce_baseline(view(plain(), Some(&converted)), None)
+            .is_err()
+    );
+    // A template mark and a layout still refuse.
+    let template = serde_json::json!({"name": "weekly", "description": ""});
+    let mut with_template = view(plain(), None);
+    with_template.template = Some(&template);
+    assert!(
+        decoder
+            .produce_blocks(with_template, &blocks, false, None)
             .is_err()
     );
 }

@@ -126,6 +126,7 @@ editing reference; never delete the original to clear a limit.
 ## Page type and look
 
 Dashboards: [dashboard](references/dashboard.md) (`tmt colab skill dashboard`). Edit data only; the app owns the look.
+Structured pages made of blocks (`page create --structured`): [blocks](references/blocks.md) (`tmt colab skill blocks`).
 HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
 [components](references/components.md) (`tmt colab skill components`) and
 [page-style](references/page-style.md) (`tmt colab skill page-style`).

@@ -219,9 +219,10 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             action,
             body: &body,
             display_agent,
-            expected_revision: args
-                .get_one::<String>("expected-revision")
-                .expect("required revision"),
+            expected_revision: Some(
+                args.get_one::<String>("expected-revision")
+                    .expect("required revision"),
+            ),
             operation_id: None,
         },
         &mut decoder,

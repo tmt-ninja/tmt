@@ -3,6 +3,7 @@ import { metadataRequest } from '@tmt/colab-client';
 import { validateNeedsYouAcknowledgement } from './needs-you-acknowledgement.js';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
+import { validateBlocks, type BlockEntry } from './blocks.js';
 import { canonical } from './closed.js';
 import { validateWork, type StoredWork } from './work.js';
 import {
@@ -86,12 +87,17 @@ export interface Projection {
   template?: TemplateMark;
   fromTemplate?: TemplateSource;
   /** Structured content retains an empty wire text container; never render it as HTML. */
-  pageType?: 'shell';
+  pageType?: 'shell' | 'blocks';
   shell?: Shell;
+  /** A page of blocks (`pageType` `blocks`): its `blocks` root, validated by `validateBlocks`. */
+  blocks?: Record<string, BlockEntry>;
   /** An ordinary page's sub-pages and summary (`meta.work`); never on a dashboard. */
   work?: StoredWork;
   pageState?: 'todo' | 'in-progress' | 'done';
   attachments?: attachment.AttachmentDescriptor[];
+  /** The time (ms) a page was converted in place to blocks (`meta.convertedAt`); a page of blocks
+   * alone has it. */
+  convertedAt?: number;
   creationRecipient?: CreationRecipient;
   source: string;
   title: string;
@@ -238,12 +244,23 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  if (
-    ['creator', 'questions', 'template', 'fromTemplate', 'pageState'].some((key) =>
-      Object.hasOwn(value, key),
-    )
-  )
+  const blocksPage = (value as Projection).pageType === 'blocks';
+  // A dashboard has none of these; a page of blocks has a creator, questions and a state, and what
+  // it was made from, but no template; an ordinary page has them all.
+  if (['creator', 'questions', 'pageState'].some((key) => Object.hasOwn(value, key)))
+    requireValue(
+      !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
+    );
+  if (Object.hasOwn(value, 'template'))
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'fromTemplate'))
+    requireValue(
+      !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
+    );
+  if (Object.hasOwn(value, 'convertedAt')) {
+    const at = (value as Projection).convertedAt;
+    requireValue(blocksPage && Number.isSafeInteger(at) && (at as number) >= 0);
+  }
   if (Object.hasOwn(value, 'pageState'))
     requireValue(
       ['todo', 'in-progress', 'done'].includes((value as Projection).pageState as string),
@@ -255,7 +272,15 @@ export function validateProjection(value: unknown): asserts value is Projection 
   if (Object.hasOwn(value, 'questions')) validateQuestionRegistry((value as Projection).questions);
   const { source, title, publisherAgent, originalAuthor, creationRecipient, layout, layoutReason } =
     value as Projection;
-  if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
+  // The `blocks` root belongs to a page of blocks and to nothing else.
+  requireValue(Object.hasOwn(value, 'blocks') === blocksPage);
+  if (blocksPage) {
+    // No dashboard value; `source` is empty, or the frozen legacy source of a converted page, which
+    // is never rendered or written. Work, attachments and what it was made from are checked below
+    // as an ordinary page's are, and a template or a layout is refused above and below.
+    requireValue(!Object.hasOwn(value, 'shell'));
+    validateBlocks((value as Projection).blocks);
+  } else if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
     const structured = value as Projection;
     requireValue(
       structured.pageType === 'shell' &&
@@ -266,7 +291,7 @@ export function validateProjection(value: unknown): asserts value is Projection 
     validateShell(structured.shell);
   }
   if (Object.hasOwn(value, 'work')) {
-    requireValue(!Object.hasOwn(value, 'pageType'));
+    requireValue(!Object.hasOwn(value, 'pageType') || blocksPage);
     validateWork((value as Projection).work);
   }
   if (Object.hasOwn(value, 'attachments'))
@@ -344,6 +369,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     canonical(a.template) === canonical(b.template) &&
     Object.hasOwn(a, 'fromTemplate') === Object.hasOwn(b, 'fromTemplate') &&
     canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
+    Object.hasOwn(a, 'convertedAt') === Object.hasOwn(b, 'convertedAt') &&
+    a.convertedAt === b.convertedAt &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
@@ -351,6 +378,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.creationRecipient?.agentId === b.creationRecipient?.agentId &&
     Object.hasOwn(a, 'work') === Object.hasOwn(b, 'work') &&
     canonical(a.work) === canonical(b.work) &&
+    Object.hasOwn(a, 'blocks') === Object.hasOwn(b, 'blocks') &&
+    canonical(a.blocks) === canonical(b.blocks) &&
     Object.hasOwn(a, 'attachments') === Object.hasOwn(b, 'attachments') &&
     JSON.stringify(a.attachments?.map(attachment.attachmentDescriptor)) ===
       JSON.stringify(b.attachments?.map(attachment.attachmentDescriptor)) &&

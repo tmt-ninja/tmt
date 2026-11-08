@@ -246,6 +246,10 @@ pub struct SaveResult {
     /// landed (a rejected or absent result names it so nothing made is lost).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_page: Option<String>,
+    /// A block batch only: its receipt (`ops`, and the `droppedHunks` a whole-text replacement
+    /// could not apply because the page's own edit overlapped them), on the reply to the batch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<serde_json::Value>,
 }
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
@@ -261,7 +265,12 @@ impl SaveResult {
             source_sha256: None,
             conflicts: None,
             child_page: None,
+            receipt: None,
         }
+    }
+    /// The receipt of a block batch, on every outcome the batch reached.
+    pub fn with_receipt(self, receipt: Option<serde_json::Value>) -> Self {
+        Self { receipt, ..self }
     }
     /// The page a create operation made, when it made one.
     pub fn with_child(self, child_page: Option<String>) -> Self {

@@ -2,6 +2,7 @@ import { advancesEditLock } from './edit-locks.js';
 import * as Y from 'yjs';
 import { attachment, digest, equal, frame, text } from '@tmt/colab-client';
 import { sortedJson } from './sorted-json.js';
+import { ROW, richFromRuns, type BlockEntry, type Run } from './blocks.js';
 import {
   BASELINE_UPDATE_BYTES,
   CONTENT_CHUNK_BYTES,
@@ -144,11 +145,70 @@ function declare(doc: Y.Doc) {
   doc.getMap('meta');
 }
 declare(committed);
+/** One `Y.Text` of a block as its canonical `{s, marks}`; embeds and unknown marks are rejected. */
+function richOf(text: unknown) {
+  if (!(text instanceof Y.Text)) throw new Error('Rejected block text');
+  return richFromRuns(text.toDelta() as Run[]);
+}
+/** The `blocks` root of a page of blocks, as the projection `validateBlocks` takes. The root is
+ * absent from the document until the first block exists. */
+function projectBlocks(doc: Y.Doc): Record<string, BlockEntry> {
+  if (!doc.share.has('blocks')) return {};
+  const root = doc.getMap('blocks');
+  if (root._start !== null) throw new Error('Rejected blocks root');
+  const out: Record<string, BlockEntry> = {};
+  for (const [key, entry] of root.entries()) {
+    if (!(entry instanceof Y.Map)) throw new Error('Rejected block');
+    const type = entry.get('type');
+    const block: Record<string, unknown> = {};
+    for (const [field, value] of entry.entries()) {
+      if (field === 'type' || field === 'parent' || field === 'pos') {
+        if (typeof value !== 'string') throw new Error('Rejected block field');
+        block[field] = value;
+      } else if (field === 'deleted') {
+        if (typeof value !== 'number') throw new Error('Rejected block field');
+        block[field] = value;
+      } else if (field === 'props') {
+        if (!(value instanceof Y.Map)) throw new Error('Rejected block props');
+        const props: Record<string, unknown> = {};
+        for (const [name, prop] of value.entries()) {
+          if (prop instanceof Y.AbstractType) throw new Error('Rejected block prop');
+          props[name] = prop;
+        }
+        block[field] = props;
+      } else if (field === 'text') {
+        block[field] = richOf(value);
+      } else if (field === 'cells' && type === ROW) {
+        if (!(value instanceof Y.Map)) throw new Error('Rejected block cells');
+        block[field] = Object.fromEntries(
+          [...value.entries()].map(([name, cell]) => [name, richOf(cell)]),
+        );
+      } else throw new Error('Rejected block field');
+    }
+    // Every field was read under its own type above; `validateProjection` (run on the whole
+    // projection) refuses a block that lacks one the type needs.
+    out[key] = block as unknown as BlockEntry;
+  }
+  return out;
+}
 function project(doc: Y.Doc, complete = true) {
   const html = doc.getText('html'),
     meta = doc.getMap('meta');
+  const blocksPage = meta.get('pageType') === 'blocks';
+  // A page reverted from blocks to HTML keeps an emptied `blocks` root: a Yjs root type cannot be
+  // dropped, only emptied. It is admitted on a page with no `pageType` while it holds nothing, and
+  // is not part of the projection; the next epoch baseline leaves it out.
+  const emptiedBlocks = !blocksPage && !meta.has('pageType') && doc.share.has('blocks');
+  if (emptiedBlocks) {
+    const stray = doc.getMap('blocks');
+    if (stray._start !== null || stray.size !== 0)
+      throw new Error('Rejected content roots or unresolved dependencies');
+  }
   if (
-    [...doc.share.keys()].some((key) => key !== 'html' && key !== 'meta') ||
+    [...doc.share.keys()].some(
+      (key) =>
+        key !== 'html' && key !== 'meta' && !(key === 'blocks' && (blocksPage || emptiedBlocks)),
+    ) ||
     html._map.size !== 0 ||
     meta._start !== null ||
     (complete && (doc.store.pendingStructs !== null || doc.store.pendingDs !== null)) ||
@@ -174,7 +234,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'shell' &&
         key !== 'work' &&
         key !== 'pageState' &&
-        key !== 'attachments',
+        key !== 'attachments' &&
+        key !== 'convertedAt',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -193,9 +254,11 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('fromTemplate') ? { fromTemplate: meta.get('fromTemplate') } : {}),
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
     ...(meta.has('pageType') ? { pageType: meta.get('pageType') } : {}),
+    ...(blocksPage ? { blocks: projectBlocks(doc) } : {}),
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
     ...(meta.has('work') ? { work: meta.get('work') } : {}),
     ...(meta.has('pageState') ? { pageState: meta.get('pageState') } : {}),
+    ...(meta.has('convertedAt') ? { convertedAt: meta.get('convertedAt') } : {}),
   };
   validateProjection(projection);
   return projection;
@@ -320,8 +383,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
     } else if (command.type === 'prepare-content') {
       validateProjection({ source: command.source, title: '' });
       validateProjection(command.base);
-      if (command.base.pageType === 'shell')
-        throw new Error('HTML source operations cannot replace a dashboard');
+      if (command.base.pageType !== undefined)
+        throw new Error('HTML source operations cannot replace a dashboard or a page of blocks');
       validateOwn(command.base.own);
       const admittedOwn = Object.fromEntries(
         [...own].map(([writer, doc]) => [writer, projectOwn(doc, true)]),

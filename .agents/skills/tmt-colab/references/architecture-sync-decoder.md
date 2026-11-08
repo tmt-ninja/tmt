@@ -145,7 +145,25 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   The [Dashboards contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#dashboards-3648)
   owns roots, action grammar, attribution and shared validation vectors.
 
-- `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
+- `blocks.rs` (the `blocks/` modules) owns a page of blocks (#6004), whose content is the `blocks`
+  root instead of HTML: `schema.rs` the closed value and every type's props, `text.rs` rich text
+  and its marks, `pos.rs` the fractional sort keys, `ops.rs` the one batch validator (`apply`: the
+  next value, the receipt and the normalized `Step`s), `merge.rs` the three-way text merge
+  (`textMerge` in `@tmt/colab-client` is its one TypeScript copy) and `purge.rs` the tombstone rule
+  that `transitions/epoch.rs` applies when it builds a baseline. `page/blocks.rs` is the one entry
+  the CLI (`cli_block.rs`) and the browser's `blocks` sync frame both publish through, as
+  `StructuredKind::Blocks`; the isolated decoder re-derives the projection with the same
+  `apply`, replays the steps as granular Yjs edits (`decoder/blocks_doc.rs`) and refuses a
+  mismatch. Browser `blocks.ts` and the fold Worker mirror the schema; both run the shared
+  `blocks-v1.json` and the merge vectors. `page create --structured` makes a page of blocks, and
+  `page write`/`page patch` refuse one. `questions.rs` registers a new question block in
+  `meta.questions` and `mockups.rs` checks a mockup's markup, both in the same publication; `html.rs`
+  renders the page for export (with `blocks.json`; the browser's `blocks-html.ts` matches it). All
+  Yjs reading and replay of the `blocks` root sits in the child module `decoder/child.rs`. The
+  [Structured pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#structured-pages-6004)
+  owns roots, types, limits, ops, receipt and the purge rule.
+
+- `work.rs` and browser `work.ts` own the closed work value an ordinary page or a page of blocks carries in
   `meta.work` (its direct sub-pages in order and a two-line summary), its detached trial actions,
   and the read-only projection of the task-era version 1 value (#5825); `closed.rs`/`closed.ts` and
   `summary_lines.rs`/`summary-lines.ts` hold the checks the dashboard and work values share
