@@ -1,4 +1,7 @@
 import '@tmt/browser-ui/static.css';
+import type { attachment } from '@tmt/colab-client';
+import type { AttachmentBinding } from '../src/attachment-service.js';
+import type { DocumentImageInput } from '../src/document-images.js';
 import '../src/style.css';
 import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -66,6 +69,21 @@ const start: BlockRecord[] = [
 /** The 838644c2 spec-page mockup ("整頁：spec 頁") as blocks, with a long paragraph added so the
  * trial captures show filled states: a card holding a paragraph, headings, a table with rows, a list
  * and two callouts. */
+const IMAGE_A = 'a1b2c3d4-0000-4000-8000-000000000001';
+const IMAGE_B = 'b2c3d4e5-0000-4000-8000-000000000002';
+/** An attachment whose read fails until `window.failImage` is cleared (Retry then reads it). */
+const IMAGE_C = 'c3d4e5f6-0000-4000-8000-000000000003';
+/** A PNG drawn here, as a page's attachment would read: a tinted sheet with a mark. */
+async function samplePng(tint: string): Promise<Uint8Array> {
+  const canvas = new OffscreenCanvas(320, 180);
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = tint;
+  context.fillRect(0, 0, 320, 180);
+  context.fillStyle = '#ffffff';
+  context.fillRect(24, 24, 272, 30);
+  context.fillRect(24, 70, 160, 80);
+  return new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+}
 const SPEC_PAGE: BlockRecord[] = (() => {
   let at = 0;
   const pos = () => String.fromCharCode(66 + at++);
@@ -182,6 +200,16 @@ const SPEC_PAGE: BlockRecord[] = (() => {
       markup:
         '<main><h1>手機上的區塊選單</h1><p>插入、移動和刪除都在同一張表單裡。</p><tmt-ui-button>新增區塊</tmt-ui-button><script>parent.postMessage("escaped","*")</script></main>',
     }),
+    // Two of the page's attachments (a short and a full reference) and an outside URL the serve
+    // admits for agents, which the editor never loads.
+    block('pics', 'image', undefined, {
+      layout: 'grid',
+      images: [
+        { src: 'colab-attachment:a1b2c3d4', alt: '插入選單的草圖', caption: '插入選單' },
+        { src: `colab-attachment:${IMAGE_B}`, caption: '手機上的把手' },
+        { src: 'https://example.com/outside.png', alt: '外部圖片', caption: '外部網址' },
+      ],
+    }),
     block('order', 'callout', '#5980 DsScope → #5981 元件 → 區塊資料和 agent 指令 → 編輯器。', {
       tone: 'working',
       label: '做的順序',
@@ -205,6 +233,13 @@ declare global {
     /** The serve's cells for a table's rows now, in order. */
     serveRows(table: string): { id: string; cells?: Record<string, string> }[];
     serveProps(id: string): Readonly<Record<string, unknown>> | undefined;
+    /** The attachments the page's authorized read opened, by ID. */
+    imageReads: string[];
+    /** While true, the read of `IMAGE_C` fails. */
+    failImage: boolean;
+    /** While set, every read waits for `releaseImages`. */
+    holdImages(): void;
+    releaseImages(): void;
     serveColumns(table: string): TableColumn[];
     /** Ops the page sent, in order. */
     sent: BlockOp[];
@@ -333,6 +368,41 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   // The real sandboxed renderer, as the router's mount uses it; one function for the page's life.
   // The built-in tmt GUI system ships with the app, so it needs no page behind it.
   const designSystem = pageDesignSystems({} as PageTransport);
+  // The page's attachment list and its authorized read: two PNG attachments, read by descriptor.
+  window.imageReads = [];
+  window.failImage = true;
+  let gate: Promise<void> | undefined;
+  let release = () => {};
+  window.holdImages = () => {
+    gate = new Promise((resolve) => (release = resolve));
+  };
+  window.releaseImages = () => {
+    gate = undefined;
+    release();
+  };
+  const imageSource: DocumentImageInput = {
+    descriptors: [IMAGE_A, IMAGE_B, IMAGE_C].map((attachmentId) => ({
+      attachmentId,
+      mediaType: 'image/png',
+      plaintextBytes: '4000',
+    })) as unknown as attachment.AttachmentDescriptor[],
+    binding: {
+      scope: () => 'fixture',
+      open: async (_target: unknown, descriptor: attachment.AttachmentDescriptor) => {
+        window.imageReads.push(descriptor.attachmentId);
+        await gate;
+        if (descriptor.attachmentId === IMAGE_C && window.failImage)
+          throw new Error('The read failed.');
+        return samplePng(
+          descriptor.attachmentId === IMAGE_A
+            ? '#c8553d'
+            : descriptor.attachmentId === IMAGE_B
+              ? '#2d6a8f'
+              : '#5b8c51',
+        );
+      },
+    } as unknown as AttachmentBinding,
+  };
   const mountMockup = (
     frameHost: HTMLElement,
     source: string,
@@ -475,6 +545,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
             mountMockup,
             workSource,
             pageViewSource,
+            imageSource,
             questionPage: {
               title: '區塊編輯器',
               questions: [

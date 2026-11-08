@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import type { DocumentImageInput } from './document-images.js';
 import type { BlockOp } from './block-model.js';
 import { blockRecords } from './block-projection.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
@@ -25,6 +26,7 @@ export function LiveStructuredPage({
   pageViewSource,
   questionPage,
   mountMockup,
+  imageSource,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -39,6 +41,8 @@ export function LiveStructuredPage({
   questionPage?: QuestionPage;
   /** The router's sandboxed renderer for mockup blocks. */
   mountMockup?: MountMockup;
+  /** The page's attachment list and authorized read, for image blocks. */
+  imageSource?: DocumentImageInput;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
@@ -103,6 +107,7 @@ export function LiveStructuredPage({
       workSource={workSource}
       pageViewSource={pageViewSource}
       questionPage={questionPage}
+      imageSource={imageSource}
       mountMockup={mountMockup}
       menu={menu}
       onPick={(entry) => void pick(entry)}

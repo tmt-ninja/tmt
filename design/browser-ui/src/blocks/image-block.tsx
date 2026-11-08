@@ -15,7 +15,11 @@ export interface BlockImage {
   alt: string;
   caption?: string;
   tag?: string;
-  status?: 'loading' | 'ready' | 'error';
+  /** `loading` is the grey tile; `error` a read that failed (with Retry when `onRetry` is given);
+   * `not-found` a file the host does not show, with `notice` as its honest copy and no Retry. */
+  status?: 'loading' | 'ready' | 'error' | 'not-found';
+  /** The `not-found` tile's text (default "File not found"). */
+  notice?: string;
   filename?: string;
   /** The host swaps this source in place (an attachment it resolves), so a load error before the
    * swap is not a failure. */
@@ -182,14 +186,29 @@ export function ImageBlock({
                 >
                   {!image.alt?.trim() ? (
                     <div role="alert">Image needs alt text.</div>
+                  ) : image.status === 'not-found' ? (
+                    // A failed tile keeps its slot, named by the image's alt text.
+                    <div
+                      className="tmt-block-image-placeholder tmt-block-image-failed"
+                      role="group"
+                      aria-label={image.alt}
+                      data-state="not-found"
+                    >
+                      <span>{image.notice || 'File not found'}</span>
+                    </div>
                   ) : image.status === 'error' || failed.has(image.src) ? (
-                    <div role="alert">
-                      ✗ Image failed to load{' '}
+                    <div
+                      className="tmt-block-image-placeholder tmt-block-image-failed"
+                      role="group"
+                      aria-label={image.alt}
+                      data-state="error"
+                    >
+                      <span>× Failed to load</span>
                       {image.onRetry && (
                         <Button
                           type="button"
                           variant="outline"
-                          size="xs"
+                          size="sm"
                           onClick={() => {
                             setFailed((old) => {
                               const next = new Set(old);
@@ -297,11 +316,27 @@ export function ImageBlock({
                   onTouchMove={touchMove}
                   onTouchEnd={end}
                 >
-                  <img
-                    src={current.src}
-                    alt={current.alt}
-                    style={{ transform: `scale(${zoom})` }}
-                  />
+                  {current.status === 'error' ||
+                  current.status === 'not-found' ||
+                  failed.has(current.src) ? (
+                    <div
+                      className="tmt-block-image-placeholder tmt-block-image-failed"
+                      role="group"
+                      aria-label={current.alt}
+                    >
+                      <span>
+                        {current.status === 'not-found'
+                          ? current.notice || 'File not found'
+                          : '× Failed to load'}
+                      </span>
+                    </div>
+                  ) : (
+                    <img
+                      src={current.src}
+                      alt={current.alt}
+                      style={{ transform: `scale(${zoom})` }}
+                    />
+                  )}
                 </div>
               )}
               <div className="tmt-block-image-viewer-controls">

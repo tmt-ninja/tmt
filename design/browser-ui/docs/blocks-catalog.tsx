@@ -132,6 +132,24 @@ export const blockComponents: ComponentDoc[] = [
     variants: [
       ['Grid', () => <ImageBlock images={images} layout="grid" />],
       [
+        'Loading, failed and not found',
+        () => (
+          <ImageBlock
+            images={[
+              { src: '', alt: 'Loading', status: 'loading', caption: 'Loading' },
+              {
+                src: '',
+                alt: 'A read that failed',
+                status: 'error',
+                caption: 'Failed to load',
+                onRetry: () => {},
+              },
+              { src: '', alt: 'Missing file', status: 'not-found', caption: 'File not found' },
+            ]}
+          />
+        ),
+      ],
+      [
         'File',
         () => (
           <ImageBlock

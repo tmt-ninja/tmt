@@ -2059,6 +2059,13 @@ function OpenPage({
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
   );
+  // An image block reads its attachments as an HTML page's images do: this page's verified list and
+  // its attachment binding (#6005 image step).
+  const imageBinding = snapshot.binding?.files?.attachments;
+  const blockImageSource = useMemo(
+    () => ({ binding: imageBinding, descriptors: view.attachments ?? [] }),
+    [imageBinding, view.attachments],
+  );
   // A mockup block's markup renders in the same sandboxed frame and runtime admission as an HTML
   // page (#6005): never in the parent's DOM.
   const mountMockup = useCallback(
@@ -3235,6 +3242,7 @@ function OpenPage({
                         workSource={workSource}
                         pageViewSource={pageViewSource}
                         mountMockup={mountMockup}
+                        imageSource={blockImageSource}
                         questionPage={{
                           title: view.title || snapshot.title,
                           questions: view.questions,

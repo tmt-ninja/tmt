@@ -114,7 +114,8 @@ it('hostile props and text reach the markup only as escaped text', () => {
   for (const { name, value } of attributes) {
     // No handler, and no attribute named by a writer.
     expect(name, name).not.toMatch(/^on/i);
-    expect(name, name).not.toMatch(/evil|alert|script/i);
+    // `script` only as a word's start: `aria-roledescription` (the DS carousel) is not a writer's.
+    expect(name, name).not.toMatch(/evil|alert|\bscript/i);
     // A text attribute (an accessible name, a title) holds a writer's text escaped; nothing a
     // writer chose reaches a URL, a style or a class.
     if (URL_ATTRIBUTES.has(name))

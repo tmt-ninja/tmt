@@ -888,7 +888,7 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme });
       await servePageRuntime(page);
       const host = await mountFixture(page, 'spec');
-      await expect(host.locator('[data-block-id]')).toHaveCount(23);
+      await expect(host.locator('[data-block-id]')).toHaveCount(24);
       await expect(host.getByRole('table')).toContainText('唯一能放其他區塊的區塊');
       // The mockup's frame has drawn its page.
       await expect(
@@ -1192,3 +1192,159 @@ for (const width of [1440, 390])
       await expect(open.getByRole('button', { name: 'Add a choice' })).toHaveCount(0);
       await shot('full-editing');
     });
+
+const IMAGE_C = 'c3d4e5f6-0000-4000-8000-000000000003';
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`an image block draws only the page's attachments, in the spec's states, at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const outside: string[] = [];
+      await page.route('https://example.com/**', (route) => {
+        outside.push(route.request().url());
+        return route.abort();
+      });
+      // Loading: the reads wait, so each held image is its grey tile.
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/structured-page-browser.tsx';
+        (await import(path)).mount('spec');
+        window.holdImages();
+      });
+      const host = page.locator('#structured-page-fixture');
+      const pics = host.locator('[data-block-id="pics"]');
+      await pics.scrollIntoViewIfNeeded();
+      const shot = async (name: string) => {
+        await page.mouse.move(0, 0);
+        await pics.screenshot({
+          path: capturePath(`structured-image-${width}-${theme}-${name}.png`),
+        });
+      };
+      const tile = (alt: string) => pics.getByRole('group', { name: alt, exact: true });
+      const slot = (locator: import('@playwright/test').Locator) =>
+        locator.evaluate((node) => Math.round(node.getBoundingClientRect().height));
+      await expect(pics.locator('.tmt-block-image-placeholder')).toHaveCount(3);
+      await shot('loading');
+      await page.evaluate(() => window.releaseImages());
+      // Ready: the two attachments draw from the read; the outside URL is a not-found tile.
+      const drawn = pics.locator('img');
+      await expect(drawn).toHaveCount(2);
+      await expect
+        .poll(() =>
+          drawn.evaluateAll((nodes) => nodes.map((n) => (n as HTMLImageElement).naturalWidth)),
+        )
+        .toEqual([320, 320]);
+      await expect(drawn.first()).toHaveAttribute('alt', '插入選單的草圖');
+      // No alt text: the caption stands in.
+      await expect(drawn.nth(1)).toHaveAttribute('alt', '手機上的把手');
+      await expect(drawn.first()).toHaveAttribute('src', /^data:image\/png;base64,/);
+      // Any other source: never fetched, an honest not-found tile in the image's slot, no Retry.
+      await expect(tile('外部圖片')).toHaveText('Image not shown on this page');
+      await expect(tile('外部圖片').getByRole('button')).toHaveCount(0);
+      expect(await slot(tile('外部圖片'))).toBe(await slot(drawn.first()));
+      expect((await page.evaluate(() => window.imageReads)).sort()).toEqual([
+        'a1b2c3d4-0000-4000-8000-000000000001',
+        'b2c3d4e5-0000-4000-8000-000000000002',
+      ]);
+      // Captions and a failed tile's copy are the small secondary caption.
+      const caption = await pics
+        .locator('figcaption')
+        .first()
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--tmt-ui-color-secondary)';
+          node.append(probe);
+          const secondary = getComputedStyle(probe).color;
+          probe.remove();
+          return {
+            size: style.fontSize,
+            weight: style.fontWeight,
+            secondary: style.color === secondary,
+          };
+        });
+      expect(caption).toEqual({ size: '12px', weight: '400', secondary: true });
+      expect(
+        await tile('外部圖片').evaluate((node) => [
+          getComputedStyle(node).fontSize,
+          getComputedStyle(node).fontWeight,
+        ]),
+      ).toEqual(['12px', '400']);
+      await shot('grid');
+      // A carousel with a failed read in the middle, and a file the page does not hold.
+      await page.evaluate(
+        ({ failing }) =>
+          window.agentBatch([
+            {
+              op: 'props',
+              id: 'pics',
+              set: {
+                layout: 'carousel',
+                images: [
+                  { src: 'colab-attachment:a1b2c3d4', alt: '插入選單的草圖', caption: '插入選單' },
+                  { src: `colab-attachment:${failing}`, alt: '讀不到的圖', caption: '讀取失敗' },
+                  { src: 'colab-attachment:ffffffff', alt: '不在這頁', caption: '不在這頁的檔案' },
+                  {
+                    src: 'colab-attachment:b2c3d4e5',
+                    alt: '手機上的把手',
+                    caption: '手機上的把手',
+                  },
+                ],
+              },
+              unset: [],
+            },
+          ]),
+        { failing: IMAGE_C },
+      );
+      await expect(tile('讀不到的圖')).toContainText('× Failed to load');
+      await expect(tile('不在這頁')).toHaveText('File not found');
+      await expect(tile('不在這頁').getByRole('button')).toHaveCount(0);
+      // Each failed tile keeps the slot of the images beside it.
+      await expect(pics.locator('img')).toHaveCount(2);
+      const height = await slot(pics.locator('img').first());
+      expect(await slot(tile('讀不到的圖'))).toBe(height);
+      expect(await slot(tile('不在這頁'))).toBe(height);
+      // Retry is the DS button at its small size, under the copy.
+      const retry = tile('讀不到的圖').getByRole('button', { name: 'Retry' });
+      await expect(retry).toHaveAttribute('data-slot', 'button');
+      await expect(retry).toHaveAttribute('data-size', 'sm');
+      // The image opener's reset never reaches it: it keeps the button's border.
+      expect(await retry.evaluate((node) => getComputedStyle(node).borderTopStyle)).toBe('solid');
+      expect(
+        await retry.evaluate(
+          (node) => getComputedStyle(node).borderTopColor !== 'rgba(0, 0, 0, 0)',
+        ),
+      ).toBe(true);
+      await shot('carousel-failed');
+      // Retry (the failed read only) reads it again.
+      await page.evaluate(() => (window.failImage = false));
+      await tile('讀不到的圖').getByRole('button', { name: 'Retry' }).click();
+      await expect(pics.locator('img')).toHaveCount(3);
+      await expect(pics.getByRole('img', { name: '讀不到的圖' })).toBeVisible();
+      expect(outside).toEqual([]);
+    });
+
+test('deleting an image block and undoing it draws the image again', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const pics = host.locator('[data-block-id="pics"]');
+  await pics.scrollIntoViewIfNeeded();
+  await expect(pics.locator('img')).toHaveCount(2);
+  await pics.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  await page
+    .getByRole('menu', { name: 'Block actions' })
+    .getByRole('menuitem', { name: /Delete/ })
+    .click();
+  await expect(pics).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(pics.locator('img')).toHaveCount(2);
+  await expect
+    .poll(() =>
+      pics
+        .locator('img')
+        .evaluateAll((nodes) => nodes.map((n) => (n as HTMLImageElement).naturalWidth)),
+    )
+    .toEqual([320, 320]);
+});

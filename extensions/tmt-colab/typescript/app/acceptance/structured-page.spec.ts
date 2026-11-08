@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { freePort, run } from './harness/ask.js';
@@ -252,5 +255,103 @@ test('a person writes, rearranges and edits a table while an agent edits the sam
       'Third step.',
       /Task.*State.*Owner.*Model.*done.*Menus.*open.*Review/,
     ]);
+  });
+});
+
+// #6005 image step: an agent attaches a file and inserts an image naming it; the browser draws it
+// through the page's authorized read; a delete keeps the file, so undo draws it again.
+test('an attached image draws on a page of blocks and comes back on undo', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-image');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId, path: pagePath } = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Images',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'structured-image-'));
+    try {
+      // A 2x2 PNG.
+      const file = path.join(out, 'sketch.png');
+      fs.writeFileSync(
+        file,
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwnwEJMOAQBACsjQf5o4qoqgAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      );
+      const attached = JSON.parse(
+        run(world, colab, ['attachment', 'attach', pageId, file, '--json']),
+      ) as { attachment: { attachmentId: string } };
+      const reference = `colab-attachment:${attached.attachment.attachmentId}`;
+      const image = (
+        JSON.parse(
+          run(world, colab, [
+            'block',
+            'insert',
+            pageId,
+            '--type',
+            'image',
+            '--props',
+            JSON.stringify({ images: [{ src: reference, alt: 'Sketch' }], layout: 'single' }),
+            '--json',
+          ]),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+
+      const page = await browser.context.newPage();
+      await page.goto(new URL(pagePath, `${door.address}/`).href);
+      const block = page.locator(`[data-block-id="${image}"]`);
+      const drawn = block.getByRole('img', { name: 'Sketch' });
+      await expect(drawn).toBeVisible({ timeout: 30_000 });
+      await expect(drawn).toHaveAttribute('src', /^data:image\/png;base64,/);
+      await expect
+        .poll(() => drawn.evaluate((node) => (node as HTMLImageElement).naturalWidth))
+        .toBe(2);
+
+      // Delete from the block menu, then Undo: the file stayed on the page, so it draws again.
+      await block.hover();
+      await page.getByRole('button', { name: 'Block actions' }).click();
+      await page
+        .getByRole('menu', { name: 'Block actions' })
+        .getByRole('menuitem', { name: /Delete/ })
+        .click();
+      await expect(block).toHaveCount(0);
+      const listed = () =>
+        (
+          JSON.parse(run(world, colab, ['block', 'ls', pageId, '--all', '--json'])) as {
+            blocks: { id: string; deleted?: unknown }[];
+          }
+        ).blocks.find((entry) => entry.id === image);
+      await expect.poll(() => listed()?.deleted !== undefined).toBe(true);
+      // The deleted block still keeps the file: the serve reads it out, verified.
+      const kept = JSON.parse(
+        run(world, colab, [
+          'attachment',
+          'read',
+          pageId,
+          attached.attachment.attachmentId,
+          '--output',
+          out,
+          '--json',
+        ]),
+      ) as { path: string };
+      expect(fs.readFileSync(kept.path)).toEqual(fs.readFileSync(file));
+      await page.getByRole('button', { name: 'Undo' }).click();
+      await expect(drawn).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => listed()?.deleted).toBeUndefined();
+      await page.close();
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
   });
 });

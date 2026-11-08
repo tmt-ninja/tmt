@@ -60,6 +60,8 @@ import {
   StructuredQuestion,
 } from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
+import { StructuredImages } from './block-images.js';
+import type { DocumentImageInput } from './document-images.js';
 import type { Theme } from './theme.js';
 import { Button, Input } from '@tmt/browser-ui/ui';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
@@ -127,6 +129,9 @@ export interface StructuredPageProps {
   mountMockup?: MountMockup;
   /** The page's question registry and discussion, for question blocks to answer through. */
   questionPage?: QuestionPage;
+  /** The page's attachment list and authorized read, for image blocks; absent draws each image in
+   * its error state. */
+  imageSource?: DocumentImageInput;
   /** A to-do's checkbox was ticked or cleared. */
   onChecked?(id: string, checked: boolean): void;
   /** The question block whose editor is open (#6194). */
@@ -889,8 +894,10 @@ function Content({
       );
     case 'mockup':
       return <MockupFrame block={block} mount={rest.mountMockup} />;
+    case 'image':
+      return <StructuredImages block={block} source={rest.imageSource} />;
     default:
-      // Drawn by a later step (image).
+      // A type this editor does not draw (a newer one): its name, muted.
       return <TextBlock tone="muted">{block.type}</TextBlock>;
   }
 }
