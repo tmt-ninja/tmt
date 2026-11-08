@@ -314,7 +314,8 @@ fn the_sweep_keeps_what_a_block_on_the_page_references() {
                 serde_json::from_value(value).unwrap()
             })
             .collect();
-        let got: Vec<String> = super::referenced(&case["blocks"], &list)
+        let source = case["source"].as_str().unwrap();
+        let got: Vec<String> = super::referenced(&case["blocks"], source, &list)
             .iter()
             .map(|d| d.attachment_id.clone())
             .collect();
@@ -333,16 +334,50 @@ fn a_purged_tombstone_stops_keeping_its_descriptor() {
     shown["deleted"] = json!(deleted_at);
     let blocks = blocks(&[(A, shown)]);
     assert_eq!(
-        super::referenced(&blocks, &list).len(),
+        super::referenced(&blocks, "", &list).len(),
         1,
         "before the purge"
     );
     let purged = crate::blocks::purge::purge(&blocks, now);
     assert!(
-        super::referenced(&purged, &list).is_empty(),
+        super::referenced(&purged, "", &list).is_empty(),
         "after the purge"
     );
     // A tombstone younger than seven days survives it and keeps the descriptor.
     let recent = crate::blocks::purge::purge(&blocks, deleted_at + DAY);
-    assert_eq!(super::referenced(&recent, &list).len(), 1);
+    assert_eq!(super::referenced(&recent, "", &list).len(), 1);
+}
+
+/// The sweep's reference set for a converted page: the legacy source's image keeps its file until a
+/// revert brings the old HTML back, with no block referencing it, and a page whose source never
+/// held one keeps nothing (#6190).
+#[test]
+fn the_sweep_keeps_a_converted_pages_legacy_images() {
+    use crate::attachments::unreferenced::kept_objects;
+    let list = json!([descriptor(1, SOURCE), descriptor(2, SOURCE)]);
+    let legacy = format!("<h1>Old</h1><img src=\"{}\">", reference(1));
+    let (none, kept) = (blocks(&[]), |source: &str, blocks: &Value| {
+        let mut into = std::collections::BTreeSet::new();
+        kept_objects(source, Some(&list), Some(blocks), &mut into);
+        into
+    });
+    let object = |n: u32| {
+        list[(n - 1) as usize]["objectId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(kept(&legacy, &none), [object(1)].into());
+    assert!(kept("", &none).is_empty(), "a page never converted");
+    assert!(
+        kept("<h1>Old</h1>", &none).is_empty(),
+        "no image in the source"
+    );
+    // A block that references the other one adds to it.
+    let shown = blocks(&[(A, image(&reference(2)))]);
+    assert_eq!(kept(&legacy, &shown), [object(1), object(2)].into());
+    // An HTML page (no blocks value) still keeps every listed descriptor.
+    let mut all = std::collections::BTreeSet::new();
+    kept_objects(&legacy, Some(&list), None, &mut all);
+    assert_eq!(all, [object(1), object(2)].into());
 }

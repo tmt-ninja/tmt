@@ -945,6 +945,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -969,6 +970,7 @@
           "deleted": 5
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -979,6 +981,7 @@
     {
       "name": "a purged block references nothing, so its descriptor is no longer kept",
       "blocks": {},
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1000,6 +1003,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1021,6 +1025,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000",
         "00000002-0000-4000-8000-000000000000"
@@ -1058,6 +1063,7 @@
           "deleted": 5
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1082,6 +1088,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1105,6 +1112,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000",
         "00000002-0000-4000-8000-000000000000"
@@ -1129,6 +1137,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000",
         "00000001-0000-4000-8000-0000000000ff"
@@ -1154,6 +1163,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1175,6 +1185,7 @@
           }
         }
       },
+      "source": "",
       "current": [
         "00000001-0000-4000-8000-000000000000"
       ],
@@ -1196,9 +1207,121 @@
           }
         }
       },
+      "source": "",
       "current": [],
+      "expect": []
+    },
+    {
+      "name": "a descriptor only the legacy source references is kept",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000001-0000-4000-8000-000000000000\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "the short form in the legacy source keeps the one descriptor with that prefix",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000001\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a short form in the legacy source that two descriptors share keeps both",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000001\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000001-0000-4000-8000-0000000000ff"
+      ]
+    },
+    {
+      "name": "the legacy source and the blocks each keep their own descriptor",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "image",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "images": [
+              {
+                "src": "colab-attachment:00000002-0000-4000-8000-000000000000"
+              }
+            ]
+          }
+        }
+      },
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000001-0000-4000-8000-000000000000\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000",
+        "00000003-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a descriptor the legacy source does not reference is not kept",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000002-0000-4000-8000-000000000000\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000",
+        "00000002-0000-4000-8000-000000000000"
+      ],
+      "expect": [
+        "00000002-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "name": "a legacy reference to a descriptor the page does not hold keeps nothing",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:00000007-0000-4000-8000-000000000000\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "a malformed legacy reference keeps nothing",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p><img src=\"colab-attachment:zz\"></p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "text that merely mentions a reference is not an image, so it keeps nothing",
+      "blocks": {},
+      "source": "<p>colab-attachment:00000001-0000-4000-8000-000000000000</p>",
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
+      "expect": []
+    },
+    {
+      "name": "a legacy source with no references keeps nothing",
+      "blocks": {},
+      "source": "<h1>Old page</h1>\n<p>Kept exactly as it was.</p>\n",
+      "current": [
+        "00000001-0000-4000-8000-000000000000"
+      ],
       "expect": []
     }
   ],
-  "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced`: a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept."
+  "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced` (which takes the `source` too): a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, or while the frozen legacy source in the `html` root (`source`, empty on a page that was never converted) references it as an `<img src>`, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept."
 }

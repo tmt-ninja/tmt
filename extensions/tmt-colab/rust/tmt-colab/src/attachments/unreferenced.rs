@@ -6,7 +6,8 @@
 //! charge Remote reports drops when its release commits, before that answer.
 //!
 //! The reference set is every descriptor in the current page source (on a page of blocks, those its
-//! blocks still reference, live or deleted and not yet purged) and every message revision
+//! blocks still reference, live or deleted and not yet purged, and its frozen legacy HTML's) and
+//! every message revision
 //! of every readable epoch (deleted messages included, since their earlier revisions stay
 //! readable), plus the objects of unfinished native attaches. Snapshot manifests join it when
 //! they exist (#2299). Old-epoch document lists are not part of it: no reader can address them,
@@ -54,17 +55,32 @@ fn descriptor_objects(list: Option<&Value>, into: &mut BTreeSet<String>) {
     }
 }
 
-/// The objects the current list keeps. A page of blocks keeps the descriptors its blocks still
-/// reference, live or deleted and not yet purged (#6190); a list that cannot be read exactly keeps
-/// everything it names.
+/// The objects the current list keeps: see [`kept_objects`].
 fn current_objects(materialized: &crate::fold::View, into: &mut BTreeSet<String>) {
-    let list = materialized.meta.get("attachments");
-    let (Some(blocks), Some(raw)) = (&materialized.blocks, list) else {
+    kept_objects(
+        &materialized.source,
+        materialized.meta.get("attachments"),
+        materialized.blocks.as_ref(),
+        into,
+    );
+}
+
+/// The objects a page's current descriptor `list` keeps. An HTML page keeps every descriptor it
+/// lists. A page of blocks keeps the descriptors its blocks still reference, live or deleted and
+/// not yet purged, and those its frozen legacy `source` references (#6190); a list that cannot be
+/// read exactly keeps everything it names.
+pub(crate) fn kept_objects(
+    source: &str,
+    list: Option<&Value>,
+    blocks: Option<&Value>,
+    into: &mut BTreeSet<String>,
+) {
+    let (Some(blocks), Some(raw)) = (blocks, list) else {
         return descriptor_objects(list, into);
     };
     match serde_json::from_value::<Vec<tmt_colab_model::attachment::Descriptor>>(raw.clone()) {
         Ok(descriptors) => into.extend(
-            crate::blocks::attachments::referenced(blocks, &descriptors)
+            crate::blocks::attachments::referenced(blocks, source, &descriptors)
                 .into_iter()
                 .map(|d| d.object_id.to_ascii_lowercase()),
         ),

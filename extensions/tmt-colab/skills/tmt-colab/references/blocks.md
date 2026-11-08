@@ -37,7 +37,8 @@ An image or file block keeps an upload only through the page's attachment list. 
 `block insert PAGE --type image --props '{"images":[{"src":"colab-attachment:ID"}]}'`. A reference the
 page does not hold is refused (`COLAB_BLOCK_ATTACHMENT`); an `https:` source needs no attachment. The file
 is kept while a block on the page references it, deleted blocks included until compaction purges
-them (so an undo or a restore keeps the image), and swept 30 days after none does. `block detach
+them (so an undo or a restore keeps the image), and a converted page's frozen legacy HTML keeps the
+images it shows (a revert needs them); the file is swept 30 days after nothing does. `block detach
 PAGE ID` also drops it from the page's list; detaching one a live block still shows is refused.
 
 ## Change text
