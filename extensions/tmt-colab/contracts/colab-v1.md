@@ -5590,7 +5590,8 @@ compiles them; a page that follows it redraws when one of those pages changes (e
 500 ms, so a burst is one recompile, and a newer recompile replaces an older one's frame). While a
 page follows, only the root stays subscribed, so a follow holds one page connection whatever the
 system's size: component changes come from the [live page list](#live-page-list)'s revisions, and a
-component page is opened only for the compile itself. A compile reuses each component's block read
+component page is opened only for the compile itself. A temporarily unavailable root is retried
+with the same bounded page-open policy used by the compiler. A compile reuses each component's block read
 at the revision the live list still names, kept for the session across every page that follows the
 system, so the next open page reads only the pages that moved; a follow's first compile waits up to
 1 s for the list's first revisions so its reads can be kept. If the first list arrives only after an
