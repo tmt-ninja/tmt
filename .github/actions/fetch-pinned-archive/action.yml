@@ -1,0 +1,58 @@
+name: Fetch a pinned archive
+description: >-
+  Puts one release archive at a path after checking its exact sha256. A cache entry keyed on that
+  digest replaces the download; a miss downloads with bounded retries. The digest check runs on
+  every path, before anything is cached or used, and the cache is written only on main (#6212).
+inputs:
+  name:
+    description: Tool, version and platform; the cache key is this name plus the sha256.
+    required: true
+  url:
+    description: Release asset URL, fetched only on a cache miss.
+    required: true
+  sha256:
+    description: Exact lowercase hex digest of the archive.
+    required: true
+  path:
+    description: File the archive is written to; its directory is created.
+    required: true
+runs:
+  using: composite
+  steps:
+    # A throttled Actions cache restore (#5708) becomes a miss after 2 minutes, not the toolkit's 10.
+    # Set here because a reusable workflow does not inherit the caller's env.
+    - name: Restore the pinned archive
+      id: cache
+      uses: actions/cache/restore@v4
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
+      with:
+        path: ${{ inputs.path }}
+        key: pinned-archive-${{ inputs.name }}-${{ inputs.sha256 }}
+    # Release-asset downloads have timed out for hours while githubstatus stayed green (#6212).
+    # Each attempt is cut at 60 s and no new attempt starts after 150 s, so a failing step ends
+    # within about 190 s (three attempts plus two 5 s delays).
+    - name: Download the pinned archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.path }}
+        URL: ${{ inputs.url }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "$ARCHIVE")"
+        curl --fail --location --silent --show-error --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors --retry-delay 5 --retry-max-time 150 "$URL" --output "$ARCHIVE"
+    - name: Check the pinned digest
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.path }}
+        SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        printf '%s  %s\n' "$SHA256" "$ARCHIVE" | sha256sum --check
+    - name: Save the pinned archive on main only
+      if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

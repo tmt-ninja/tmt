@@ -412,7 +412,9 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   const setup = read('.github/actions/setup-nextest/action.yml');
   expect(setup).toContain(`cargo-nextest-${NEXTEST_VERSION}`);
   expect(setup).toContain('223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc');
-  expect(setup).toContain('sha256sum --check');
+  // The pinned-archive action owns the download, the cache and the digest check (pinned-archive.test.ts).
+  expect(setup).toContain('uses: ./.github/actions/fetch-pinned-archive');
+  expect(setup).not.toContain('curl');
 });
 
 it('keeps recovery and bounded failure evidence token-free and gives only the collector the read token', () => {

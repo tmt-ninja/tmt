@@ -241,6 +241,12 @@ restore (#5708). Docker E2E and its seed retain the pinned primary download; on
 failure they first require an available local `docker buildx` and omit the fallback
 version input, so fallback reuses that plugin without a GitHub Releases download.
 A missing local plugin fails closed before the fallback action (#6129).
+Pinned release archives (nextest, wasm-bindgen) come from one
+[fetch-pinned-archive](../../../../.github/actions/fetch-pinned-archive/action.yml) action. It
+restores an `actions/cache` entry keyed on the archive's sha256 (a stalled restore is a miss
+after two minutes), downloads only on a miss with `curl --retry 3 --retry-all-errors` (60 s per
+attempt, no new attempt after 150 s), and checks the pinned digest on every path before the
+main ref saves the entry or a caller extracts it. Callers keep only the URL and digest (#6212).
 Artifact downloads in CI jobs and the release manifest step retry once after 45
 seconds within a bounded step; a second failure fails the job (#5743).
 CI disables dev debug info/incremental compilation; release profiles follow manifests.
