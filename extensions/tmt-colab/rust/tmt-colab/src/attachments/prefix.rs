@@ -62,7 +62,7 @@ mod tests {
         };
         // A twin joins the one holder: its prefix is newly shared.
         assert_eq!(
-            shared(&[one.clone()], &[one.clone(), twin.clone()]),
+            shared(std::slice::from_ref(&one), &[one.clone(), twin.clone()]),
             ["00000001"]
         );
         // A prefix two descriptors already shared, one nobody held, and an unrelated set are not.
@@ -74,7 +74,7 @@ mod tests {
             .is_empty()
         );
         assert!(shared(&[], &[one.clone(), twin.clone()]).is_empty());
-        assert!(shared(&[one.clone()], &[one.clone(), other.clone()]).is_empty());
+        assert!(shared(std::slice::from_ref(&one), &[one.clone(), other.clone()]).is_empty());
         // Swapping the holder for its twin keeps the prefix unambiguous.
         assert!(shared(&[one], &[twin]).is_empty());
     }

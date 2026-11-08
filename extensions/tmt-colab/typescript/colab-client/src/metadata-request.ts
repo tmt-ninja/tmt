@@ -11,7 +11,21 @@ export type MetadataRequest = {
 } & (
   | { action: 'creator.set'; body: { selector: string } }
   | { action: 'question.handle' | 'question.reopen'; body: { id: string } }
+  /** `selector` names the recipient (an identity ID or name the owner resolves, never a label);
+   * none follows the page's creator again. */
+  | { action: 'question.agent'; body: { id: string; selector?: string } }
 );
+/** A name or canonical ID a browser selects an identity by: at most 256 bytes, no control
+ * character, no surrounding whitespace (`valid_selector` in `page/metadata.rs`). */
+export function validSelector(selector: unknown): selector is string {
+  return (
+    typeof selector === 'string' &&
+    selector.length > 0 &&
+    text(selector).length <= 256 &&
+    selector.trim() === selector &&
+    !/[\p{Cc}]/u.test(selector)
+  );
+}
 /** Observed metadata is JSON with browser-safe integral times, as on the native side. */
 function targetValue(value: unknown, depth = 0): void {
   requireValue(depth <= 128);
@@ -46,18 +60,20 @@ export function metadataRequest(value: unknown, root = 'intents', key?: string):
   requireValue(text(canonical(v)).length <= 8192);
   if (v.action === 'creator.set') {
     exactKeys(v.body, ['selector']);
-    const selector = v.body.selector;
-    requireValue(
-      typeof selector === 'string' &&
-        selector.length > 0 &&
-        text(selector).length <= 256 &&
-        selector.trim() === selector &&
-        !/[\p{Cc}]/u.test(selector),
-    );
+    requireValue(validSelector(v.body.selector));
     exactKeys(v.target, ['creator', 'creationRecipient']);
   } else {
-    requireValue(v.action === 'question.handle' || v.action === 'question.reopen');
-    exactKeys(v.body, ['id']);
+    requireValue(
+      v.action === 'question.handle' ||
+        v.action === 'question.reopen' ||
+        v.action === 'question.agent',
+    );
+    if (v.action === 'question.agent') {
+      // Optional selector: absent follows the creator. A browser never sends a label.
+      const withSelector = v.body !== null && typeof v.body === 'object' && 'selector' in v.body;
+      exactKeys(v.body, withSelector ? ['id', 'selector'] : ['id']);
+      if (withSelector) requireValue(validSelector((v.body as { selector?: unknown }).selector));
+    } else exactKeys(v.body, ['id']);
     generatedId(v.body.id);
     requireValue(
       v.target !== null &&

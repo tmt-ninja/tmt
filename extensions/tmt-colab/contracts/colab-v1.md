@@ -1341,11 +1341,12 @@ repeated `n` times.
 The same immutable `intents[operationId]` and automatic owner consumer also admit
 `version:2`, `kind:"edit-request"`, `operationId`, `action`, `body` and `target`, with no
 other fields and at most 8192 UTF-8 JSON bytes. `action` is only `creator.set`,
-`question.handle` or `question.reopen`. Creator uses exactly `body:{selector}`: a nonempty
+`question.handle`, `question.reopen` or `question.agent`. Creator uses exactly `body:{selector}`: a nonempty
 name or canonical ID, at most 256 UTF-8 bytes, no control characters or surrounding whitespace.
 Its `target` is exactly `{creator,creationRecipient}`, using the complete observed values
-or explicit `null`. Question actions use exactly `body:{id}` (the registered UUIDv4) and
-`target` is the complete observed registry entry with that ID. The target is an inert,
+or explicit `null`. `question.handle` and `question.reopen` use exactly `body:{id}` (the registered
+UUIDv4); `question.agent` (#6197) uses `body:{id}` plus an optional `selector` of the same grammar as
+the creator's. Each question action's `target` is the complete observed registry entry with that ID. The target is an inert,
 bounded before-image, not proposed metadata. Its field keys are nonnumeric ASCII names and its numbers are nonnegative browser-safe integers, as in the metadata projection. The owner compares it with its verified content
 projection; arbitrary or stale values cannot grant a write. The question precondition covers
 the registered entry, including its open/handled state; answers remain a derived own-stream
@@ -1363,6 +1364,18 @@ refuses `COLAB_IDENTITY_UNVERIFIED`. No guessed/stored fallback binding or direc
 to the link. Only the resolved ID and observed label enter creator metadata; the publisher
 supplies attribution. Source, question registration, assignment, answers, Ask and work are
 unchanged. No approval queue or owner confirmation is involved.
+
+`question.agent` chooses the agent that receives a registered question's answers. A `selector` is
+resolved exactly as the creator's is, on the owner's machine (`COLAB_IDENTITY_UNKNOWN` and
+`COLAB_IDENTITY_UNVERIFIED` as above), and only the resolved `{id, name}` becomes the entry's
+`agent`, with the writer's attribution; the browser never supplies a label, and a body with an
+`agent` object or any other field is refused. With no `selector` the entry's `agent` is removed, so
+its answers go to the page's creator again, as an entry registered without one does. The entry must
+already exist: this action registers nothing, titles nothing and groups nothing, and the entry's
+open or handled state is untouched. An unchanged choice commits nothing. The owner device's
+`metadata` frame carries the same action and body, under the authority of `question.handle` and
+`question.reopen` and no other: a viewer, a commenter or an editor link cannot send the frame
+(an editor uses the request above), and an archived page or a shell refuses it.
 
 Metadata requests reuse the existing save result and operation journal. The internal operation
 is a UUIDv4-shaped SHA-256 derivation of the compact JSON array
@@ -4411,29 +4424,29 @@ is read or sent, and reloading the tab loads the current app.
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type             | Additional fields / behavior                                                                                                                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                              |
-| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                       |
-| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                            |
-| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                  |
-| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                    |
-| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                     |
-| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                      |
-| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                           |
-| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                             |
-| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), committed through the conditional content publisher |
-| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                  |
-| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                 |
-| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                          |
-| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                           |
-| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                         |
-| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                             |
-| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                    |
-| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                       |
-| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                          |
-| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                           |
-| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                     |
+| Type             | Additional fields / behavior                                                                                                                                                                                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                                                                                                     |
+| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                                                                                              |
+| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                                                                                                   |
+| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                                                                                         |
+| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                                                                                           |
+| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                                                                                            |
+| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                                                                                             |
+| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                                                                                                  |
+| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                                                                                    |
+| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), `question.agent` (`{id, selector?}`, the serve resolves the selector), committed through the conditional content publisher |
+| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                                                                                         |
+| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                                                                                        |
+| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                                                                                                 |
+| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                                                                                                  |
+| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                                                                                                |
+| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                                                                                                    |
+| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                                                                                           |
+| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                                                                                              |
+| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                                                                                                 |
+| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                                                                                                  |
+| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                                                                                            |
 
 ### Implemented stream subset (#1156, #1166)
 
