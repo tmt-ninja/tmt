@@ -639,8 +639,12 @@ a.tmt-block-mention:focus-visible {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.tmt-block-question h3 {
-  margin: 0 0 var(--tmt-ui-space-s);
+/* The question reads as a card heading (the DS card title), not a document heading, whatever page
+   it sits in. */
+.tmt-block-question .tmt-block-question-heading {
+  margin: var(--tmt-ui-space-m) 0 var(--tmt-ui-space-s);
+  font: var(--tmt-ui-card-title-weight) var(--tmt-ui-card-title-size) /
+    var(--tmt-ui-card-title-line-height) var(--tmt-ui-font-body);
 }
 .tmt-block-question fieldset {
   border: 0;
@@ -684,14 +688,17 @@ a.tmt-block-mention:focus-visible {
 .tmt-block-question-choice-edit input::placeholder {
   color: var(--tmt-ui-color-secondary);
 }
-/* A choice row's type, as the answer card's choice (`.tmt-ui-choice`). */
+/* A choice row's type and quiet colour, as the answer card's choice (`.tmt-ui-choice`), until it
+   is being typed in. */
 .tmt-block-question-choice-edit {
   min-width: 0;
   max-width: 100%;
+  color: var(--tmt-ui-color-secondary);
   font: 400 var(--tmt-ui-command-size) / 1.4 var(--tmt-ui-font-body);
 }
 .tmt-block-question-choice-edit:focus-within {
   border-color: var(--tmt-ui-color-focus);
+  color: var(--tmt-ui-color-text);
 }
 .tmt-block-question-choice-edit input {
   min-width: 1ch;
@@ -710,12 +717,12 @@ a.tmt-block-mention:focus-visible {
   margin-inline-end: calc(-1 * var(--tmt-ui-space-xs));
   color: var(--tmt-ui-color-secondary);
 }
-.tmt-block-question-edit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--tmt-ui-space-s);
+.tmt-block-question-title:focus-visible {
+  outline-offset: var(--tmt-ui-focus-width);
+}
+/* The kind on its own row, then Done where the card's Send sits. */
+.tmt-block-question-kind {
+  margin-block: var(--tmt-ui-space-s);
 }
 .tmt-block-question-choices kbd {
   color: var(--tmt-ui-color-secondary);

@@ -156,7 +156,8 @@ code {
   font-weight: 650;
   letter-spacing: -0.01em;
 }
-.docs-article h3 {
+/* The docs' own headings; a part's heading inside a preview keeps the part's own type. */
+.docs-article h3:not(.docs-canvas *) {
   margin: var(--tmt-ui-ref-space-5) 0 var(--tmt-ui-ref-space-2);
   font-size: var(--tmt-ui-ref-size-4);
   font-weight: 600;
@@ -164,7 +165,7 @@ code {
 /* The docs' own line height and code size, stated here rather than inherited from the page: a
    host page with its own type ramp (Colab's editorial frame in Design) must not restyle them. */
 .docs-article h2,
-.docs-article h3 {
+.docs-article h3:not(.docs-canvas *) {
   line-height: 1.6;
 }
 .docs-article pre code {

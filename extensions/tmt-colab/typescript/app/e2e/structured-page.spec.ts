@@ -1087,12 +1087,49 @@ for (const width of [1440, 390])
         section: await box('.tmt-block-question'),
         title: await box('h3'),
       };
+      // An unfocused choice reads as the card's choice; Done is below the kind, at the left.
+      const chip = (selector: string) =>
+        block
+          .locator(selector)
+          .first()
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return { weight: style.fontWeight, size: style.fontSize, color: style.color };
+          });
+      const editingChip = await chip('.tmt-block-question-choice-edit');
+      const kind = (await edit.getByRole('group', { name: 'Answer type' }).boundingBox())!;
+      const doneBox = (await edit.getByRole('button', { name: 'Done' }).boundingBox())!;
+      expect(doneBox.y).toBeGreaterThanOrEqual(kind.y + kind.height);
       await edit.getByRole('button', { name: 'Done' }).click();
       await expect(block.getByRole('group', { name: '先做哪個區塊？' })).toBeVisible();
       await shot('rest');
       expect({ section: await box('.tmt-block-question'), title: await box('h3') }).toEqual(
         editing,
       );
+      expect(await chip('.tmt-block-question-choices label')).toEqual(editingChip);
+      // The title is the DS card title, a space-m step under the meta line.
+      const heading = await block.locator('h3').evaluate((node) => {
+        const style = getComputedStyle(node);
+        const token = (name: string) => {
+          const probe = document.createElement('div');
+          probe.style.width = `var(${name})`;
+          node.append(probe);
+          const value = getComputedStyle(probe).width;
+          probe.remove();
+          return value;
+        };
+        return {
+          size: style.fontSize === token('--tmt-ui-card-title-size'),
+          gap: style.marginTop === token('--tmt-ui-space-m'),
+          weight: style.fontWeight === style.getPropertyValue('--tmt-ui-card-title-weight').trim(),
+        };
+      });
+      expect(heading).toEqual({ size: true, gap: true, weight: true });
+      const sendBox = (await block.getByRole('button', { name: 'Send' }).boundingBox())!;
+      expect(sendBox.x).toBe(doneBox.x);
+      expect(sendBox.height).toBe(doneBox.height);
+      const editBox = (await block.getByRole('button', { name: 'Edit' }).boundingBox())!;
+      expect(editBox.height).toBe(sendBox.height);
       // 20 choices and a long title, from an agent once this tab's edits have committed.
       await expect
         .poll(() => page.evaluate((id) => window.serveProps(id)?.choices, id))

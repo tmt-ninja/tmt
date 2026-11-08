@@ -164,7 +164,7 @@ export function QuestionBlock({
           <div className="tmt-block-question-eyebrow">
             {state === 'answered' ? '✓ Answered' : '◆ Waiting for your answer'} · {agent}
           </div>
-          <h3>{title}</h3>
+          <h3 className="tmt-block-question-heading">{title}</h3>
           {kind !== 'short' && (
             <fieldset className="tmt-ui-choices" data-layout="inline">
               <legend className="tmt-ui-choices-legend">Choices</legend>
@@ -260,7 +260,7 @@ export function QuestionBlock({
             Send
           </Button>
           {onEdit && (
-            <Button type="button" variant="ghost" onClick={onEdit}>
+            <Button type="button" variant="outline" onClick={onEdit}>
               Edit
             </Button>
           )}
@@ -418,7 +418,7 @@ export function QuestionBlockEditor({
           <div className="tmt-block-question-eyebrow">
             {recipient ? `✎ Editing · Answers go to ${recipient}` : '✎ Editing'}
           </div>
-          <h3>
+          <h3 className="tmt-block-question-heading">
             <textarea
               ref={titleField}
               className="tmt-block-question-title"
@@ -503,7 +503,7 @@ export function QuestionBlockEditor({
             </div>
           )}
           {error && <div role="alert">{error}</div>}
-          <div className="tmt-block-question-edit-actions">
+          <div className="tmt-block-question-kind">
             <div className="tmt-block-segments" role="group" aria-label="Answer type">
               {KIND_LABELS.map(([value, label]) => (
                 <button
@@ -517,10 +517,10 @@ export function QuestionBlockEditor({
                 </button>
               ))}
             </div>
-            <Button type="button" onMouseDown={keepFocus} onClick={done}>
-              Done
-            </Button>
           </div>
+          <Button type="button" onMouseDown={keepFocus} onClick={done}>
+            Done
+          </Button>
         </div>
       </section>
     </UiTheme>
