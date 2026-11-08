@@ -631,6 +631,7 @@ function Table({
     >
       <TableBlock
         label={typeof block.props.label === 'string' ? block.props.label : 'Table'}
+        density={block.props.density === 'compact' ? 'compact' : 'roomy'}
         columns={columns.map((column, index) => ({
           key: column.id,
           name: column.name,

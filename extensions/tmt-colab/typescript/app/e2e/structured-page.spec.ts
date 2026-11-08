@@ -848,6 +848,37 @@ for (const width of [1440, 390])
       // The field takes the heading's own box: no column moves or grows.
       expect(await boxes()).toEqual(resting);
       await shot('rename');
+      await page.keyboard.press('Escape');
+      // Density (#6196): roomy is the default and today's look; compact is the token step down.
+      const cell = () =>
+        table
+          .locator('tbody td')
+          .first()
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              padding: style.padding,
+              size: style.fontSize,
+              line: style.lineHeight,
+              row: Math.round(node.closest('tr')!.getBoundingClientRect().height),
+            };
+          });
+      const slot = table.locator('[data-slot="table-block"]');
+      await expect(slot).toHaveAttribute('data-density', 'roomy');
+      const roomy = await cell();
+      expect(roomy).toMatchObject({ padding: '8px 12px 8px 0px', size: '15px', line: '24px' });
+      if (width === 1440) expect(roomy.row).toBe(41);
+      await page.evaluate(() =>
+        window.agentBatch([{ op: 'props', id: 'table', set: { density: 'compact' }, unset: [] }]),
+      );
+      await expect(slot).toHaveAttribute('data-density', 'compact');
+      const compact = await cell();
+      expect(compact).toMatchObject({ padding: '4px 12px 4px 0px', size: '14px', line: '19.6px' });
+      // 19.6px text plus 8px padding is 29px; a writer's row menu button (24px, in its padded cell)
+      // holds the row at 32px.
+      if (width === 1440) expect(compact.row).toBe(32);
+      await page.mouse.move(0, 0);
+      await shot('compact');
     });
 
 for (const width of [1440, 390])

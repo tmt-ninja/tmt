@@ -346,6 +346,13 @@
 .tmt-block-table [data-nowrap] {
   white-space: nowrap;
 }
+/* Compact density (#6196): rows a space-xs step from their rules, in the command size, against
+   roomy's space-s and body size. */
+.tmt-block-table[data-density='compact'] :is(th, td) {
+  padding-block: var(--tmt-ui-space-xs);
+  font-size: var(--tmt-ui-command-size);
+  line-height: 1.4;
+}
 /* An editor's rename field lies over the heading's box: the hidden name keeps the width. */
 .tmt-block-table-rename {
   position: relative;

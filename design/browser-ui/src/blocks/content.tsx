@@ -169,6 +169,8 @@ export interface TableBlockColumn {
 
 export interface TableBlockProps {
   label: string;
+  /** Roomy (the default) is the document table; compact is tighter rows for long lists. */
+  density?: 'roomy' | 'compact';
   columns?: readonly TableBlockColumn[];
   rows?: readonly (readonly ReactNode[])[];
   /** Stable row keys (the rows' IDs); indexes otherwise. */
@@ -184,6 +186,7 @@ export interface TableBlockProps {
 /** A table block: the shared table, collapsing on its own width (a container query), not the viewport's. */
 export function TableBlock({
   label,
+  density = 'roomy',
   columns = [],
   rows = [],
   rowKeys,
@@ -194,7 +197,7 @@ export function TableBlock({
   const indexes = (pick: (column: TableBlockColumn) => boolean | undefined) =>
     columns.flatMap((column, index) => (pick(column) ? [index] : []));
   return (
-    <div data-slot="table-block" className="tmt-block-table">
+    <div data-slot="table-block" className="tmt-block-table" data-density={density}>
       <BrowserTable
         label={label}
         columns={columns.map((column) => column.name)}

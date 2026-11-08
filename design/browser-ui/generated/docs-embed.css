@@ -1245,6 +1245,12 @@
   white-space: nowrap;
 }
 
+.tmt-block-table[data-density='compact'] :is(th, td) {
+  padding-block: var(--tmt-ui-space-xs);
+  font-size: var(--tmt-ui-command-size);
+  line-height: 1.4;
+}
+
 .tmt-block-table-rename {
   position: relative;
   display: inline-block;

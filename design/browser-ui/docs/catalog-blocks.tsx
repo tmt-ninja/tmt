@@ -166,7 +166,7 @@ export const blockComponents: ComponentDoc[] = [
         'Table block',
         'table',
         'TableBlock',
-        'The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block. With no rows, empty is its one row (the editor’s Add a row). An editor puts its column menu in each column’s action, after the heading, and its row menu in rowActions, a last column; both stay quiet until the heading or row is hovered or holds focus, and always show on touch.',
+        'The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block. With no rows, empty is its one row (the editor’s Add a row). density is roomy (the default) or compact: space-xs cell padding above and below and the 14px command size, for long lists. An editor puts its column menu in each column’s action, after the heading, and its row menu in rowActions, a last column; both stay quiet until the heading or row is hovered or holds focus, and always show on touch.',
         "<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />",
         260,
       ],
