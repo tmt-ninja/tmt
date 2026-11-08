@@ -133,7 +133,7 @@ export const text = {
   blockInsert: {
     label: 'Insert a block',
     empty: 'No matching block',
-    keys: '↑↓ choose · Enter insert · Esc close',
+    keys: { choose: 'choose', insert: 'insert', close: 'close' },
   },
   pageLink: {
     close: 'Close',

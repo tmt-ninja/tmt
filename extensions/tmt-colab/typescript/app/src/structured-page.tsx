@@ -18,6 +18,7 @@ import {
   BlockMenu,
   BlockMenuEmpty,
   BlockMenuFooter,
+  BlockKbd,
   BlockMenuItem,
   BlockToast,
   insertGroups,
@@ -509,7 +510,7 @@ function InsertPopover({
           );
         })}
         {menu.entries.length === 0 && <BlockMenuEmpty>{strings.blockInsert.empty}</BlockMenuEmpty>}
-        {!sheet && <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>}
+        {!sheet && <MenuKeys />}
       </BlockMenu>
     </div>
   );
@@ -553,9 +554,28 @@ function MentionPopover({
         {mention.entries.length === 0 && (
           <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
         )}
-        <BlockMenuFooter>{strings.blockInsert.keys}</BlockMenuFooter>
+        <MenuKeys />
       </BlockMenu>
     </div>
+  );
+}
+
+/** The key hints under the insert and @ menus, as the DS block-menu tag draws them: each key a
+ * DS kbd chip, then what it does. */
+function MenuKeys() {
+  const { choose, insert, close } = strings.blockInsert.keys;
+  return (
+    <BlockMenuFooter>
+      <span>
+        <BlockKbd>↑↓</BlockKbd> {choose}
+      </span>
+      <span>
+        <BlockKbd>Enter</BlockKbd> {insert}
+      </span>
+      <span>
+        <BlockKbd>Esc</BlockKbd> {close}
+      </span>
+    </BlockMenuFooter>
   );
 }
 
