@@ -118,6 +118,7 @@ test('/ in an empty paragraph opens the insert menu, which filters and inserts',
     /Heading/,
     /Table/,
     /To-do/,
+    /Question/,
     /Code/,
   ]);
   await editor.pressSequentially('to', { delay: 20 });
@@ -959,4 +960,167 @@ for (const width of [1440, 390])
         await page.mouse.up();
         await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);
       }
+    });
+
+/** A new question block from the insert menu after the spec page's first paragraph, its editor
+ * open. */
+async function insertQuestion(page: import('@playwright/test').Page) {
+  const host = await mountFixture(page, 'spec');
+  // Enter at the end of a paragraph, then / in the new empty one.
+  await host.locator('[data-block-id="first"]').click();
+  const editor = host.locator('[contenteditable="true"]');
+  await editor.press('End');
+  await editor.press('Enter');
+  await expect(editor).toHaveText('');
+  await editor.press('/');
+  await editor.pressSequentially('q', { delay: 20 });
+  await expect(
+    page.getByRole('listbox', { name: 'Insert a block' }).getByRole('option'),
+  ).toHaveText([/Question/]);
+  await editor.press('Enter');
+  const edit = host.getByRole('group', { name: 'Edit question' });
+  await expect(edit.getByLabel('Question')).toBeFocused();
+  const id = await edit.evaluate((node) =>
+    node.closest('[data-block-id]')!.getAttribute('data-block-id')!,
+  );
+  return { host, edit, id, block: host.locator(`[data-block-id="${id}"]`) };
+}
+
+test('a person inserts, edits, answers and deletes a question block (#6194)', async ({ page }) => {
+  const { host, edit, id, block } = await insertQuestion(page);
+  const sent = () => page.evaluate(() => window.sent);
+  await expect.poll(sent).toContainEqual(
+    expect.objectContaining({
+      op: 'insert',
+      id,
+      type: 'question',
+      props: { kind: 'single', choices: [], other: true },
+    }),
+  );
+  // The recipient is named, read-only: the page's creator.
+  await expect(edit).toContainText('Answers go to gui-2');
+  // Enter on the title goes to a first choice; Enter on a choice adds the next.
+  await edit.getByLabel('Question').fill('先做哪一種？');
+  await edit.getByLabel('Question').press('Enter');
+  await expect(edit.getByLabel('Choice 1', { exact: true })).toBeFocused();
+  await page.keyboard.type('表格');
+  await page.keyboard.press('Enter');
+  await expect(edit.getByLabel('Choice 2', { exact: true })).toBeFocused();
+  await page.keyboard.type('圖片');
+  await page.keyboard.press('Enter');
+  // Backspace in the new empty choice removes it and returns to the one before.
+  await page.keyboard.press('Backspace');
+  await expect(edit.getByLabel('Choice 3', { exact: true })).toHaveCount(0);
+  await expect(edit.getByLabel('Choice 2', { exact: true })).toBeFocused();
+  await expect(edit.getByText('Other…')).toBeVisible();
+  await edit.getByRole('button', { name: 'Several' }).click();
+  await expect(edit.getByRole('button', { name: 'Several' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await edit.getByRole('button', { name: 'Done' }).click();
+  await expect(edit).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate((id) => window.serveProps(id), id))
+    .toEqual({ kind: 'multiple', choices: ['表格', '圖片'], other: true });
+  expect(await page.evaluate((id) => window.serveText(id), id)).toBe('先做哪一種？');
+  // At rest a writer's card offers Edit, which opens the editor again; Esc closes it.
+  await block.getByRole('button', { name: 'Edit' }).click();
+  await expect(
+    host.getByRole('group', { name: 'Edit question' }).getByLabel('Question'),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(host.getByRole('group', { name: 'Edit question' })).toHaveCount(0);
+  // The answer card sends to the creator through the discussion.
+  const card = block.getByRole('group', { name: '先做哪一種？' });
+  await card.getByLabel('圖片', { exact: true }).check();
+  await card.getByRole('button', { name: /Send/ }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.answers()))
+    .toContainEqual(expect.objectContaining({ questionId: id }));
+  // The block menu deletes it, with its Undo line.
+  await block.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  await page
+    .getByRole('menu', { name: 'Block actions' })
+    .getByRole('menuitem', { name: /Delete/ })
+    .click();
+  await expect(block).toHaveCount(0);
+  await expect.poll(sent).toContainEqual({ op: 'delete', id });
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a question's editor keeps the waiting card's box at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const { edit, id, block } = await insertQuestion(page);
+      const shot = async (name: string) => {
+        await page.mouse.move(0, 0);
+        await block.scrollIntoViewIfNeeded();
+        await block.screenshot({
+          path: capturePath(`structured-question-${width}-${theme}-${name}.png`),
+        });
+      };
+      await shot('editor-empty');
+      await edit.getByLabel('Question').fill('先做哪個區塊？');
+      await edit.getByLabel('Question').press('Enter');
+      for (const choice of ['表格', '圖片', '提示框']) {
+        await page.keyboard.type(choice);
+        await page.keyboard.press('Enter');
+      }
+      await page.keyboard.press('Backspace');
+      await shot('editing');
+      // The same question at rest: the box is as wide, with the same padding and type.
+      const box = async (selector: string) =>
+        block
+          .locator(selector)
+          .first()
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return { width: rect.width, padding: style.padding, font: style.font };
+          });
+      const editing = {
+        section: await box('.tmt-block-question'),
+        title: await box('h3'),
+      };
+      await edit.getByRole('button', { name: 'Done' }).click();
+      await expect(block.getByRole('group', { name: '先做哪個區塊？' })).toBeVisible();
+      await shot('rest');
+      expect({ section: await box('.tmt-block-question'), title: await box('h3') }).toEqual(
+        editing,
+      );
+      // 20 choices and a long title, from an agent once this tab's edits have committed.
+      await expect
+        .poll(() => page.evaluate((id) => window.serveProps(id)?.choices, id))
+        .toEqual(['表格', '圖片', '提示框']);
+      await page.evaluate(
+        (id) =>
+          window.agentBatch([
+            {
+              op: 'text',
+              id,
+              set: '這一題的題目很長：先做哪一個區塊，才能讓 agent 和人在同一頁上一起編輯、拖曳和回答，又不會讓版面跑掉？',
+              base: '先做哪個區塊？',
+            },
+            {
+              op: 'props',
+              id,
+              set: { choices: Array.from({ length: 20 }, (_, n) => `選項 ${n + 1}`) },
+              unset: [],
+            },
+          ]),
+        id,
+      );
+      await expect(block.getByLabel('選項 20', { exact: true })).toBeVisible();
+      await shot('full-rest');
+      await block.getByRole('button', { name: 'Edit' }).click();
+      const open = block.getByRole('group', { name: 'Edit question' });
+      await expect(open.getByLabel('Choice 20', { exact: true })).toHaveValue('選項 20');
+      // At the limit there is no Add a choice.
+      await expect(open.getByRole('button', { name: 'Add a choice' })).toHaveCount(0);
+      await shot('full-editing');
     });

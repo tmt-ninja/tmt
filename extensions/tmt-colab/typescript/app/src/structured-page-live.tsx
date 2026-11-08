@@ -60,6 +60,9 @@ export function LiveStructuredPage({
     columnAction,
     pasteUrl,
     check,
+    authoring,
+    author,
+    questionEdit,
     typed,
     key,
     menu,
@@ -93,6 +96,9 @@ export function LiveStructuredPage({
       onColumnAction={columnAction}
       onPasteUrl={pasteUrl}
       onChecked={check}
+      authoring={authoring}
+      onAuthor={author}
+      onQuestionEdit={questionEdit}
       onLink={onLink}
       workSource={workSource}
       pageViewSource={pageViewSource}

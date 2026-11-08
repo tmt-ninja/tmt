@@ -204,6 +204,7 @@ declare global {
     agentBatch(ops: BlockOp[]): void;
     /** The serve's cells for a table's rows now, in order. */
     serveRows(table: string): { id: string; cells?: Record<string, string> }[];
+    serveProps(id: string): Readonly<Record<string, unknown>> | undefined;
     serveColumns(table: string): TableColumn[];
     /** Ops the page sent, in order. */
     sent: BlockOp[];
@@ -375,6 +376,7 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
   };
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
   window.agentBatch = (ops) => void publish(applyOps(blocks, ops));
+  window.serveProps = (id) => blocks.find((block) => block.id === id)?.props;
   window.serveRows = (table) =>
     new BlockTree(blocks).rows(table).map(({ id, cells }) => ({ id, ...(cells && { cells }) }));
   window.serveColumns = (table) =>
@@ -431,6 +433,9 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
       key,
       pasteUrl,
       check,
+      authoring,
+      author,
+      questionEdit,
       menu,
       pick,
       hover,
@@ -463,6 +468,9 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
           onColumnAction={columnAction}
           onPasteUrl={pasteUrl}
           onChecked={check}
+          authoring={authoring}
+          onAuthor={author}
+          onQuestionEdit={questionEdit}
           {...(content === 'spec' && {
             mountMockup,
             workSource,
@@ -477,6 +485,11 @@ export function mount(content: 'plan' | 'spec' = 'plan') {
                   attribution: { writerId: '30000000-0000-4000-8000-000000000001', timeMs: 1_000 },
                 },
               ],
+              // A question with no agent of its own goes to the page's creator.
+              creator: {
+                agent: { id: '50000000-0000-4000-8000-000000000004', name: 'gui-2' },
+                attribution: { writerId: '30000000-0000-4000-8000-000000000001', timeMs: 1_000 },
+              },
               threads: pageThreads,
               discussion,
               blocked: false,

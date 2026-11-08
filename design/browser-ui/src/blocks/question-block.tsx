@@ -1,4 +1,13 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { Plus, X } from 'lucide-react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from 'react';
 import { Button, Textarea, UiTheme } from '../ui/index.js';
 
 export interface QuestionBlockProps {
@@ -15,6 +24,8 @@ export interface QuestionBlockProps {
   error?: string;
   onSend?(answer: { choices: string[]; other?: string; text?: string }): void;
   onRetry?(): void;
+  /** A page writer opens the question's editor (an Edit button beside Send). */
+  onEdit?(): void;
   onUndo?(): void;
   onFollowUp?(): void;
 }
@@ -33,6 +44,7 @@ export function QuestionBlock({
   error,
   onSend,
   onRetry,
+  onEdit,
   onUndo,
   onFollowUp,
 }: QuestionBlockProps) {
@@ -247,11 +259,268 @@ export function QuestionBlock({
           >
             Send
           </Button>
+          {onEdit && (
+            <Button type="button" variant="ghost" onClick={onEdit}>
+              Edit
+            </Button>
+          )}
           {state === 'answered' && onFollowUp && (
             <button type="button" onClick={onFollowUp}>
               Follow up
             </button>
           )}
+        </div>
+      </section>
+    </UiTheme>
+  );
+}
+
+export interface QuestionBlockEditorProps {
+  title: string;
+  kind?: 'single' | 'multiple' | 'short';
+  choices?: readonly string[];
+  /** Who receives the answers. Without one, `error` says why no one can be asked. */
+  recipient?: string;
+  error?: string;
+  /** The most choices a question holds. */
+  maxChoices?: number;
+  /** Focus the title when the editor opens (the default). */
+  autoFocus?: boolean;
+  onTitle(title: string): void;
+  onKind(kind: 'single' | 'multiple' | 'short'): void;
+  onChoices(choices: string[]): void;
+  /** The editor closes: Done, Esc, or focus leaving it. Pending text is committed first. */
+  onDone(): void;
+}
+
+/** A press on the editor's own buttons keeps the field focused, so focus never leaves the editor
+ * in between (Safari does not focus a pressed button). */
+const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
+
+const KIND_LABELS = [
+  ['single', 'One choice'],
+  ['multiple', 'Several'],
+  ['short', 'Short answer'],
+] as const;
+
+/**
+ * A question block's editor: the waiting card's own box, type and rows, with the title and the
+ * choices as fields, the answer kind in place of Send, and "Other…" kept as the fixed last choice.
+ * The host commits each change; this part holds only the text being typed.
+ */
+export function QuestionBlockEditor({
+  title,
+  kind = 'single',
+  choices = [],
+  recipient,
+  error,
+  maxChoices = 20,
+  autoFocus = true,
+  onTitle,
+  onKind,
+  onChoices,
+  onDone,
+}: QuestionBlockEditorProps) {
+  const section = useRef<HTMLElement>(null);
+  const titleField = useRef<HTMLTextAreaElement>(null);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const [draft, setDraft] = useState<string[]>([...choices]);
+  /** The choice field to focus next; -1 is the title. */
+  const [focusAt, setFocusAt] = useState<number>();
+  // The page's choices come in while no choice is being typed.
+  const shown = JSON.stringify(choices);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement && active.dataset.choiceField !== undefined))
+      setDraft(JSON.parse(shown) as string[]);
+  }, [shown]);
+  useEffect(() => {
+    if (document.activeElement !== titleField.current) setTitleDraft(title);
+  }, [title]);
+  useEffect(() => {
+    if (autoFocus) titleField.current?.focus();
+    // Only when the editor opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    if (focusAt === undefined) return;
+    const fields = section.current?.querySelectorAll<HTMLInputElement>('[data-choice-field]');
+    (fields?.[focusAt] ?? titleField.current)?.focus();
+    setFocusAt(undefined);
+  }, [focusAt]);
+  const commitChoices = (next: string[] = draft) => {
+    onChoices(next.map((choice) => choice.trim()).filter(Boolean));
+  };
+  const commitTitle = () => {
+    if (titleDraft !== title) onTitle(titleDraft);
+  };
+  const done = () => {
+    commitTitle();
+    commitChoices();
+    onDone();
+  };
+  const leave = (event: FocusEvent<HTMLElement>) => {
+    if (!section.current?.contains(event.relatedTarget as Node | null)) done();
+  };
+  const keys = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    // Keys typed here stay out of the page's own shortcuts.
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      done();
+    }
+  };
+  const choiceKeys = (event: KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (!draft[index]?.trim()) return;
+      if (draft.length < maxChoices) {
+        setDraft([...draft.slice(0, index + 1), '', ...draft.slice(index + 1)]);
+        setFocusAt(index + 1);
+      }
+      commitChoices(draft);
+    } else if (event.key === 'Backspace' && !draft[index] && draft.length > 0) {
+      event.preventDefault();
+      const next = draft.filter((_, at) => at !== index);
+      setDraft(next);
+      commitChoices(next);
+      setFocusAt(index - 1);
+    }
+  };
+  const remove = (index: number) => {
+    const next = draft.filter((_, at) => at !== index);
+    setDraft(next);
+    commitChoices(next);
+    setFocusAt(next.length ? Math.min(index, next.length - 1) : -1);
+  };
+  const add = () => {
+    setDraft((previous) => [...previous, '']);
+    setFocusAt(draft.length);
+  };
+  const marker = kind === 'multiple' ? 'tmt-ui-checkbox' : 'tmt-ui-radio';
+  return (
+    <UiTheme>
+      <section
+        ref={section}
+        className="tmt-block-question"
+        data-editing=""
+        role="group"
+        aria-label="Edit question"
+        onKeyDown={keys}
+        onBlur={leave}
+      >
+        <div className="tmt-block-question-mark" aria-hidden="true">
+          ?
+        </div>
+        <div className="tmt-block-question-content">
+          <div className="tmt-block-question-eyebrow">
+            {recipient ? `✎ Editing · Answers go to ${recipient}` : '✎ Editing'}
+          </div>
+          <h3>
+            <textarea
+              ref={titleField}
+              className="tmt-block-question-title"
+              aria-label="Question"
+              placeholder="Write the question"
+              rows={1}
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value.replace(/\n/g, ' '))}
+              onBlur={commitTitle}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                commitTitle();
+                if (kind === 'short') return;
+                if (!draft.length) add();
+                else setFocusAt(0);
+              }}
+            />
+          </h3>
+          {kind !== 'short' ? (
+            <fieldset className="tmt-ui-choices" data-layout="inline">
+              <legend className="tmt-ui-choices-legend">Choices</legend>
+              <div className="tmt-block-question-choices">
+                {draft.map((choice, index) => (
+                  <div className="tmt-block-question-choice-edit" key={index}>
+                    <span className={marker} aria-hidden="true" />
+                    <input
+                      data-choice-field=""
+                      aria-label={`Choice ${index + 1}`}
+                      placeholder="Choice"
+                      value={choice}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDraft((previous) =>
+                          previous.map((item, at) => (at === index ? value : item)),
+                        );
+                      }}
+                      onBlur={(event) => {
+                        if (section.current?.contains(event.relatedTarget as Node | null))
+                          commitChoices();
+                      }}
+                      onKeyDown={(event) => choiceKeys(event, index)}
+                    />
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      onMouseDown={keepFocus}
+                      aria-label={`Remove choice ${index + 1}`}
+                      onClick={() => remove(index)}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </div>
+                ))}
+                <div className="tmt-block-question-choice-edit" data-fixed="">
+                  <span className={marker} aria-hidden="true" />
+                  <span className="tmt-ui-choice-text">Other…</span>
+                </div>
+                {draft.length < maxChoices && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onMouseDown={keepFocus}
+                    onClick={add}
+                  >
+                    <Plus aria-hidden="true" />
+                    Add a choice
+                  </Button>
+                )}
+              </div>
+            </fieldset>
+          ) : (
+            <div className="tmt-block-question-input">
+              <Textarea
+                aria-label="Answer field"
+                placeholder="Write your answer"
+                rows={1}
+                disabled
+              />
+            </div>
+          )}
+          {error && <div role="alert">{error}</div>}
+          <div className="tmt-block-question-edit-actions">
+            <div className="tmt-block-segments" role="group" aria-label="Answer type">
+              {KIND_LABELS.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={kind === value}
+                  onMouseDown={keepFocus}
+                  onClick={() => kind !== value && onKind(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Button type="button" onMouseDown={keepFocus} onClick={done}>
+              Done
+            </Button>
+          </div>
         </div>
       </section>
     </UiTheme>

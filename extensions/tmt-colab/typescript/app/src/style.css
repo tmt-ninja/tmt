@@ -49,7 +49,7 @@ a:not(
 /* DS block parts draw their own pressed state (the mockup toolbar's segments). */
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
-  ):not(.tmt-block-mockup-segments > button)[aria-pressed='true'] {
+  ):not(.tmt-block-segments > button)[aria-pressed='true'] {
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }

@@ -51,9 +51,14 @@ import {
   TEXT_TYPES,
 } from './block-model.js';
 import { PageMenu } from './page-menu.js';
-import { indentOf, listNumber } from './block-ops.js';
+import { indentOf, listNumber, type QuestionEdit } from './block-ops.js';
 import { mockupSource, mockupStage, pageViewSpec, workBundleProps } from './block-parts.js';
-import { blockQuestion, type QuestionPage, StructuredQuestion } from './structured-question.js';
+import {
+  blockQuestion,
+  QuestionEditor,
+  type QuestionPage,
+  StructuredQuestion,
+} from './structured-question.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import type { Theme } from './theme.js';
 import { Button, Input } from '@tmt/browser-ui/ui';
@@ -124,6 +129,12 @@ export interface StructuredPageProps {
   questionPage?: QuestionPage;
   /** A to-do's checkbox was ticked or cleared. */
   onChecked?(id: string, checked: boolean): void;
+  /** The question block whose editor is open (#6194). */
+  authoring?: string;
+  /** An edit in the open question editor. */
+  onQuestionEdit?(id: string, edit: QuestionEdit): void;
+  /** A question's editor opens, or closes (`undefined`). */
+  onAuthor?(id: string | undefined): void;
   /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
    * open path decides, as for any page link. */
   onLink?(href: string, newTab: boolean): void;
@@ -853,9 +864,25 @@ function Content({
       return <ParentPageView spec={spec} source={rest.pageViewSource} />;
     }
     case 'question':
-      // Answers go through the page's answer path; without one (a reader) it only shows.
+      // A writer edits it in place; answers go through the page's answer path; without one (a
+      // reader) it only shows.
+      if (!rest.readonly && rest.onQuestionEdit && rest.authoring === block.id)
+        return (
+          <QuestionEditor
+            block={block}
+            page={rest.questionPage}
+            onEdit={(edit) => rest.onQuestionEdit?.(block.id, edit)}
+            onDone={() => rest.onAuthor?.(undefined)}
+          />
+        );
       return rest.questionPage ? (
-        <StructuredQuestion block={block} page={rest.questionPage} />
+        <StructuredQuestion
+          block={block}
+          page={rest.questionPage}
+          onEdit={
+            !rest.readonly && rest.onQuestionEdit ? () => rest.onAuthor?.(block.id) : undefined
+          }
+        />
       ) : (
         <ReadOnlyQuestion block={block} />
       );

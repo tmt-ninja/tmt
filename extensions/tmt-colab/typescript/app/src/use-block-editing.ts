@@ -16,11 +16,14 @@ import {
   addRow,
   deleteBlocks,
   duplicateBlock,
+  editQuestion,
   insertBlock,
   joinBlock,
   joinTarget,
   moveBlock,
+  newQuestionProps,
   nudgeBlock,
+  type QuestionEdit,
   splitBlock,
 } from './block-ops.js';
 import {
@@ -163,6 +166,9 @@ export function useBlockEditing(
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The block the insert menu is open on, and its active entry. */
   const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
+  /** The question block whose editor is open (#6194): a new question from the insert menu, or
+   * Enter on a selected one. */
+  const [authoring, setAuthoring] = useState<string>();
   const menuRef = useRef(menuAt);
   menuRef.current = menuAt;
 
@@ -513,12 +519,14 @@ export function useBlockEditing(
       if (sync.current !== current) return;
       const newId = crypto.randomUUID();
       const text = TEXT_TYPES.has(type);
+      const question = type === 'question';
       const ops: BlockOp[] = [
         insertBlock(treeRef.current, {
           id: newId,
           type,
           after: current.id,
           ...(text && { text: '' }),
+          ...(question && { props: newQuestionProps() }),
         }),
         { op: 'delete', id: current.id },
       ];
@@ -529,6 +537,7 @@ export function useBlockEditing(
       } else {
         sync.current = undefined;
         setEditing(undefined);
+        if (question) setAuthoring(newId);
       }
       await out(undefined, ops).catch(() => {
         if (arriving.current === newId) arriving.current = undefined;
@@ -639,6 +648,15 @@ export function useBlockEditing(
           ? [{ op: 'props', id, set: { checked: true }, unset: [] }]
           : [{ op: 'props', id, set: {}, unset: ['checked'] }],
       ),
+    [gesture],
+  );
+
+  /** One edit in the question editor: one gesture, recorded for ⌘Z. */
+  const questionEdit = useCallback(
+    (id: string, edit: QuestionEdit) => {
+      const block = treeRef.current.get(id);
+      if (block) gesture(editQuestion(block, edit));
+    },
     [gesture],
   );
 
@@ -842,6 +860,12 @@ export function useBlockEditing(
         }
       }
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
+        // A question opens its editor.
+        if (treeRef.current.get(selection.focus)?.type === 'question') {
+          setAuthoring(selection.focus);
+          setSelection(undefined);
+          return true;
+        }
         // A table is entered at its first cell, or by adding its first row.
         const table = treeRef.current.get(selection.focus);
         const first = table?.type === 'table' && tableColumns(table.props)[0];
@@ -884,6 +908,9 @@ export function useBlockEditing(
     columnAction,
     pasteUrl,
     check,
+    authoring,
+    author: setAuthoring,
+    questionEdit,
     typed,
     flush,
     key,

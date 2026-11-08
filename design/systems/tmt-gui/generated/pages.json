@@ -336,7 +336,7 @@
     "title": "Question block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/question-block\"></tmt-ui-component-docs></div>",
     "path": "components/question-block",
-    "description": "A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.",
+    "description": "A presentational question with choices or a short answer; Other provides a text answer. QuestionBlockEditor edits the title, kind and choices in the same box, with Other as the fixed last choice. In Colab, use tmt-question for persistent questions and answers.",
     "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
    },
    {

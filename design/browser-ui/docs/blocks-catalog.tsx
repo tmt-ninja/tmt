@@ -6,6 +6,7 @@ import {
   MockupBlock,
   PageView,
   QuestionBlock,
+  QuestionBlockEditor,
   WorkBundle,
 } from '../src/blocks/index.js';
 import '../src/blocks/blocks.css';
@@ -23,6 +24,24 @@ function QuestionDemo() {
       state={answer ? 'answered' : 'waiting'}
       answer={answer}
       onSend={(result) => setAnswer(result.other || result.choices.join(', '))}
+    />
+  );
+}
+function QuestionEditorDemo() {
+  const [title, setTitle] = useState('Which screen should we build first?');
+  const [kind, setKind] = useState<'single' | 'multiple' | 'short'>('single');
+  const [choices, setChoices] = useState(['Insert menu', 'Block handle']);
+  return (
+    <QuestionBlockEditor
+      title={title}
+      kind={kind}
+      choices={choices}
+      recipient="tmt-gui-lead"
+      autoFocus={false}
+      onTitle={setTitle}
+      onKind={setKind}
+      onChoices={setChoices}
+      onDone={() => {}}
     />
   );
 }
@@ -75,7 +94,7 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'question-block',
     name: 'Question block',
     description:
-      'A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.',
+      'A presentational question with choices or a short answer; Other provides a text answer. QuestionBlockEditor edits the title, kind and choices in the same box, with Other as the fixed last choice. In Colab, use tmt-question for persistent questions and answers.',
     preview: () => <QuestionDemo />,
     usage: `${entry('QuestionBlock')}<QuestionBlock title="Which screen first?" agent="gui-lead" choices={['Insert', 'Handle']} onSend={sendAnswer} />`,
     variants: [
@@ -101,6 +120,7 @@ export const blockComponents: ComponentDoc[] = [
           />
         ),
       ],
+      ['Editing (QuestionBlockEditor)', () => <QuestionEditorDemo />],
     ],
   },
   {

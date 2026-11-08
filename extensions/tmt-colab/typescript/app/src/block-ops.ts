@@ -415,3 +415,59 @@ export function indentBlock(tree: BlockTree, id: string, by: 1 | -1): BlockOp[] 
       : { op: 'props', id, set: { indent: next }, unset: [] },
   ];
 }
+
+/** A question's kinds, as the validator takes them. */
+export const QUESTION_KINDS = ['single', 'multiple', 'short'] as const;
+export type QuestionKind = (typeof QUESTION_KINDS)[number];
+/** The validator's bounds on a question's choices: how many, and UTF-8 bytes in each. */
+export const QUESTION_CHOICES = 20;
+export const QUESTION_CHOICE_BYTES = 256;
+
+/** A new question's props (#6194): a single choice, with "Other" always on, as the spec has every
+ * choice question. Its title is the block's text. */
+export const newQuestionProps = (): Record<string, unknown> => ({
+  kind: 'single',
+  choices: [],
+  other: true,
+});
+
+/** What the question editor changes: its title, its kind or its choices. */
+export type QuestionEdit =
+  | { readonly title: string }
+  | { readonly kind: QuestionKind }
+  | { readonly choices: readonly string[] };
+
+/** One choice as the validator keeps it: trimmed, without control characters, at most
+ * `QUESTION_CHOICE_BYTES` UTF-8 bytes, cut on a character. */
+export function questionChoice(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  let choice = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim();
+  const encoder = new TextEncoder();
+  while (encoder.encode(choice).length > QUESTION_CHOICE_BYTES)
+    choice = Array.from(choice).slice(0, -1).join('').trimEnd();
+  return choice;
+}
+
+/** The ops one question edit sends. Empty choices are left out and at most `QUESTION_CHOICES` are
+ * kept; a choice kind keeps "Other" on. No op when nothing changes. */
+export function editQuestion(block: BlockRecord, edit: QuestionEdit): BlockOp[] {
+  if (block.type !== 'question') return [];
+  const id = block.id;
+  if ('title' in edit) {
+    const base = block.text ?? '';
+    // A title is one line of plain text.
+    const title = edit.title.replace(/\s*\n\s*/g, ' ');
+    return title === base ? [] : [{ op: 'text', id, set: title, base, overlap: 'both' }];
+  }
+  if ('kind' in edit) {
+    const other = edit.kind !== 'short' && block.props.other !== true;
+    if (block.props.kind === edit.kind && !other) return [];
+    return [
+      { op: 'props', id, set: { kind: edit.kind, ...(other && { other: true }) }, unset: [] },
+    ];
+  }
+  const choices = edit.choices.map(questionChoice).filter(Boolean).slice(0, QUESTION_CHOICES);
+  const now = Array.isArray(block.props.choices) ? block.props.choices : [];
+  if (choices.length === now.length && choices.every((choice, at) => choice === now[at])) return [];
+  return [{ op: 'props', id, set: { choices }, unset: [] }];
+}

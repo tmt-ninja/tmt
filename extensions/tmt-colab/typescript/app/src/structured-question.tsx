@@ -1,7 +1,8 @@
-import { QuestionBlock } from '@tmt/browser-ui/blocks';
+import { QuestionBlock, QuestionBlockEditor } from '@tmt/browser-ui/blocks';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { BlockRecord } from './block-model.js';
+import { QUESTION_CHOICES, QUESTION_KINDS, type QuestionEdit } from './block-ops.js';
 import {
   questionCreator,
   type RegisteredQuestion,
@@ -31,11 +32,9 @@ export interface QuestionPage {
   blocked: boolean;
 }
 
-const KINDS = ['single', 'multiple', 'short'] as const;
-
 /** A question block's question, read from its untrusted props as plain values. */
 export function blockQuestion(block: BlockRecord): Question {
-  const kind = KINDS.find((value) => value === block.props.kind) ?? 'single';
+  const kind = QUESTION_KINDS.find((value) => value === block.props.kind) ?? 'single';
   const choices = Array.isArray(block.props.choices)
     ? block.props.choices.filter((choice): choice is string => typeof choice === 'string')
     : [];
@@ -58,7 +57,16 @@ export function blockQuestion(block: BlockRecord): Question {
  * the page's creator, is the default recipient, and the answer is an ordinary discussion record
  * bound to the question.
  */
-export function StructuredQuestion({ block, page }: { block: BlockRecord; page: QuestionPage }) {
+export function StructuredQuestion({
+  block,
+  page,
+  onEdit,
+}: {
+  block: BlockRecord;
+  page: QuestionPage;
+  /** A writer opens the question's editor. */
+  onEdit?(): void;
+}) {
   const question = useMemo(() => blockQuestion(block), [block]);
   const group = useMemo<QuestionGroup>(
     () => ({ id: question.id, title: null, questions: [question.id] }),
@@ -160,6 +168,7 @@ export function StructuredQuestion({ block, page }: { block: BlockRecord; page: 
             }
       }
       onRetry={row.draft.failed ? () => void send() : undefined}
+      onEdit={onEdit}
       onFollowUp={
         answered !== undefined
           ? () =>
@@ -169,6 +178,41 @@ export function StructuredQuestion({ block, page }: { block: BlockRecord; page: 
               }))
           : undefined
       }
+    />
+  );
+}
+
+/**
+ * A question block's editor (#6194), open for a page writer: title, kind and choices, each change
+ * one gesture through the same ops and serve validator as the CLI. The answers go where the answer
+ * card sends them: the registry's agent, else the page's creator, shown read-only.
+ */
+export function QuestionEditor({
+  block,
+  page,
+  onEdit,
+  onDone,
+}: {
+  block: BlockRecord;
+  page?: QuestionPage;
+  onEdit(edit: QuestionEdit): void;
+  onDone(): void;
+}) {
+  const question = blockQuestion(block);
+  const entry = page?.questions?.find((value) => value.id === question.id);
+  const recipient = (entry?.agent ?? (page && questionCreator(page, text.unknownAuthor)))?.name;
+  return (
+    <QuestionBlockEditor
+      title={question.title}
+      kind={question.kind === 'long' ? 'short' : question.kind}
+      choices={question.choices.map(({ label }) => label)}
+      recipient={recipient}
+      error={recipient === undefined ? text.questionNoRecipient : undefined}
+      maxChoices={QUESTION_CHOICES}
+      onTitle={(title) => onEdit({ title })}
+      onKind={(kind) => onEdit({ kind })}
+      onChoices={(choices) => onEdit({ choices })}
+      onDone={onDone}
     />
   );
 }

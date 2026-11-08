@@ -15,13 +15,18 @@ import {
   addRow,
   deleteBlocks,
   duplicateBlock,
+  editQuestion,
   insertBlock,
   indentBlock,
   inverseOps,
   joinBlock,
   listNumber,
   moveBlock,
+  newQuestionProps,
   nudgeBlock,
+  QUESTION_CHOICE_BYTES,
+  QUESTION_CHOICES,
+  questionChoice,
   splitBlock,
 } from '../src/block-ops.js';
 import { dropTarget } from '../src/block-drop.js';
@@ -410,10 +415,10 @@ describe('the insert menu', () => {
   ];
   const shown = (query: string) => filterInsert(catalog, query).map((entry) => entry.id);
   it('filters as the person types, label starts first, and leaves out what it cannot make', () => {
-    expect(shown('')).toEqual(['text', 'heading', 'table', 'todo', 'code']);
+    expect(shown('')).toEqual(['text', 'heading', 'table', 'todo', 'question', 'code']);
     expect(shown('/ta')).toEqual(['table']);
     expect(shown('do')).toEqual(['todo']);
-    expect(shown('q')).toEqual([]);
+    expect(shown('q')).toEqual(['question']);
     expect(shown('text')).toEqual(['text']);
     expect(shown('PARA')).toEqual(['text']);
     expect(shown('new')).toEqual([]);
@@ -426,6 +431,53 @@ describe('the insert menu', () => {
     expect(opensInsert('/', { type: 'paragraph', text: 'a' })).toBe(false);
     expect(opensInsert('/', { type: 'heading', text: '' })).toBe(false);
     expect(opensInsert('a', { type: 'paragraph', text: '' })).toBe(false);
+  });
+});
+
+describe('question authoring (#6194)', () => {
+  const question = (props: Record<string, unknown>, text = 'Ship it?') =>
+    block('q', 'V', PAGE_PARENT, { type: 'question', props, text });
+  it('inserts a single choice with Other on, and its kind keeps Other on', () => {
+    expect(insertType('question')).toBe('question');
+    expect(newQuestionProps()).toEqual({ kind: 'single', choices: [], other: true });
+    expect(editQuestion(question({ kind: 'single', other: true }), { kind: 'multiple' })).toEqual([
+      { op: 'props', id: 'q', set: { kind: 'multiple' }, unset: [] },
+    ]);
+    expect(editQuestion(question({ kind: 'short' }), { kind: 'single' })).toEqual([
+      { op: 'props', id: 'q', set: { kind: 'single', other: true }, unset: [] },
+    ]);
+    expect(editQuestion(question({ kind: 'single', other: true }), { kind: 'single' })).toEqual([]);
+  });
+  it('sends a title as one line merged on its base, and nothing when it is unchanged', () => {
+    expect(editQuestion(question({}), { title: 'Ship\n it today?' })).toEqual([
+      { op: 'text', id: 'q', set: 'Ship it today?', base: 'Ship it?', overlap: 'both' },
+    ]);
+    expect(editQuestion(question({}), { title: 'Ship it?' })).toEqual([]);
+    expect(editQuestion(block('p', 'V'), { title: 'x' })).toEqual([]);
+  });
+  it('keeps choices within the validator: non-empty, inert, bounded', () => {
+    const now = question({ choices: ['Yes'] });
+    expect(editQuestion(now, { choices: [' Yes ', '', 'No\u0007'] })).toEqual([
+      { op: 'props', id: 'q', set: { choices: ['Yes', 'No'] }, unset: [] },
+    ]);
+    expect(editQuestion(now, { choices: ['Yes', '  '] })).toEqual([]);
+    const many = Array.from({ length: 25 }, (_, n) => `c${n}`);
+    const [op] = editQuestion(now, { choices: many });
+    expect(op?.op === 'props' && op.set.choices).toHaveLength(QUESTION_CHOICES);
+    const long = questionChoice('界'.repeat(200));
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(QUESTION_CHOICE_BYTES);
+    expect(long).toBe('界'.repeat(85));
+  });
+  it('undoes an edit back to the props and title it had', () => {
+    const was = question({ kind: 'single', other: true, choices: ['A'] });
+    const before = new BlockTree([was]);
+    for (const edit of [{ kind: 'short' as const }, { choices: ['A', 'B'] }, { title: 'New' }]) {
+      const ops = editQuestion(was, edit);
+      expect(ops).toHaveLength(1);
+      const back = applyOps(applyOps([was], ops), inverseOps(before, ops))[0]!;
+      expect(back.props).toEqual(was.props);
+      expect(back.text).toBe(was.text);
+    }
   });
 });
 
