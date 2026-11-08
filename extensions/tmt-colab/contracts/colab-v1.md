@@ -3214,13 +3214,14 @@ or a restore keeps its image), the way an HTML page keeps what its source refere
 references a descriptor any more (the block was deleted and compaction purged it after seven days,
 or it was never used) its object is swept after the same 30 days, and nobody has to detach it by
 hand. A page converted in place keeps its old HTML in the `html` root so a revert can bring it
-back, so the `<img src="colab-attachment:…">` references the HTML page check finds in that frozen
-legacy source keep their descriptors too, whether or not a block references them; a source too
-large to check keeps every descriptor. A short reference two descriptors share keeps both, and a reference that names none keeps
+back, and that source can name an attachment in markup of its own (a design-system component asks
+for a download with a `colab-attachment:` string, not only an `<img>`): an HTML page keeps every
+listed descriptor so as never to parse it, and so does a page of blocks while its `html` root is
+non-empty. Only a page with an empty `html` root narrows to the blocks. A short reference two descriptors share keeps both, and a reference that names none keeps
 nothing. `detach` still drops the descriptor from the list, which frees its place in the 128. The
 vectors [`block-attachments-v1.json`](vectors/block-attachments-v1.json) (`kept`) pin the
 referenced-live, referenced-deleted, purged and unreferenced cases and, with a `source`, the
-converted page whose only reference is the legacy HTML.
+converted page that keeps every descriptor.
 
 `tmt colab attachment attach PAGE FILE` adds a file to a page of blocks through this batch (it
 publishes the creation proof, then the list change); `tmt colab block detach PAGE ATTACHMENT`
@@ -7142,8 +7143,8 @@ at version 4 (`objects.list` and `objects.remove`); on an older Remote it record
   a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
   namespace is removed whole by the existing sweep.
 - **Reference set.** Every descriptor in the current page source (on a page of blocks, the ones a block
-  on the page still references, [live or deleted and not yet purged](#attachments-on-a-page-of-blocks),
-  and the ones its frozen legacy HTML source references), every message revision of every
+  on the page still references, [live or deleted and not yet purged](#attachments-on-a-page-of-blocks);
+  all of them while the page holds a frozen legacy HTML source), every message revision of every
   readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
   unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
   old-epoch document lists are not references: no reader can address them, so a rekeyed object's old

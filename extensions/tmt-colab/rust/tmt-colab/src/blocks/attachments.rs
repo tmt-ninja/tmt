@@ -78,27 +78,24 @@ fn resolve<'a>(token: &str, list: &'a [Descriptor]) -> Option<&'a Descriptor> {
     list.iter().find(|d| d.attachment_id == token)
 }
 
-/// The descriptors of `list` that a page of blocks keeps for the 30-day sweep: those the blocks on
-/// the page still reference, live or deleted and not yet purged (an undo or a restore keeps its
-/// image), and those its frozen legacy source references. A page converted in place keeps its old
-/// HTML in the `html` root so a revert can bring it back, and that source's
-/// `<img src="colab-attachment:…">` files must outlive the conversion: they are found by the HTML
-/// page check, the rule an HTML page's own references follow, and a source too large to check keeps
-/// every descriptor. A descriptor no block and no legacy source references is swept on the same
-/// schedule as a file whose reference left an HTML page's source, without anyone running a detach.
+/// The descriptors of `list` that a page of blocks keeps for the 30-day sweep. With an empty `html`
+/// root, those the blocks on the page still reference, live or deleted and not yet purged (an undo
+/// or a restore keeps its image); a descriptor no block references is swept on the same schedule
+/// as a file whose reference left an HTML page's source, without anyone running a detach. A page
+/// converted in place keeps its old HTML in the `html` root so a revert can bring it back, and
+/// that source can name an attachment in markup of its own (a design-system component asks for a
+/// download with a `colab-attachment:` string, not only an `<img>`): an HTML page keeps every
+/// listed descriptor so as never to parse it, and so does a page of blocks with a legacy source.
 /// This only ever widens what is kept: a short token that names several descriptors keeps them all,
 /// and a token that names none keeps nothing.
 pub fn referenced<'a>(blocks: &Value, source: &str, list: &'a [Descriptor]) -> Vec<&'a Descriptor> {
-    let mut tokens: BTreeSet<String> = references(blocks, true)
+    if !source.is_empty() {
+        return list.iter().collect();
+    }
+    let tokens: BTreeSet<String> = references(blocks, true)
         .iter()
         .filter_map(|reference| token(reference).map(str::to_owned))
         .collect();
-    if !source.is_empty() {
-        match crate::page_check::check(source) {
-            Ok(report) => tokens.extend(report.references.into_iter().map(|r| r.token)),
-            Err(_) => return list.iter().collect(),
-        }
-    }
     list.iter()
         .filter(|descriptor| {
             tokens.iter().any(|token| {

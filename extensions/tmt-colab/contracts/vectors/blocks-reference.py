@@ -377,18 +377,14 @@ keeps("a reference to a descriptor the page does not hold keeps nothing", {A: im
 keeps("a malformed reference keeps nothing", {A: image("colab-attachment:zz")}, [aid(1)], [])
 keeps("a page with no descriptors keeps none", {A: image(ref(1))}, [], [])
 # A converted page keeps its old HTML in the `html` root (the frozen legacy source), so a revert can
-# bring it back with its images: the `<img src="colab-attachment:...">` references the HTML page
-# check finds in it keep their descriptors, whether or not a block references them.
-LEGACY_IMG = lambda token: '<h1>Old page</h1>\n<p><img src="colab-attachment:' + token + '"></p>\n'
-keeps("a descriptor only the legacy source references is kept", {}, [aid(1)], [aid(1)], source=LEGACY_IMG(aid(1)))
-keeps("the short form in the legacy source keeps the one descriptor with that prefix", {}, [aid(1), aid(2)], [aid(1)], source=LEGACY_IMG("00000001"))
-keeps("a short form in the legacy source that two descriptors share keeps both", {}, [aid(1), TWIN], [aid(1), TWIN], source=LEGACY_IMG("00000001"))
-keeps("the legacy source and the blocks each keep their own descriptor", {A: image(ref(2))}, [aid(1), aid(2), aid(3)], [aid(1), aid(2)], source=LEGACY_IMG(aid(1)))
-keeps("a descriptor the legacy source does not reference is not kept", {}, [aid(1), aid(2)], [aid(2)], source=LEGACY_IMG(aid(2)))
-keeps("a legacy reference to a descriptor the page does not hold keeps nothing", {}, [aid(1)], [], source=LEGACY_IMG(aid(7)))
-keeps("a malformed legacy reference keeps nothing", {}, [aid(1)], [], source=LEGACY_IMG("zz"))
-keeps("text that merely mentions a reference is not an image, so it keeps nothing", {}, [aid(1)], [], source="<p>colab-attachment:" + aid(1) + "</p>")
-keeps("a legacy source with no references keeps nothing", {}, [aid(1)], [], source=LEGACY)
+# bring it back with its files. That source can name an attachment outside an `<img>` (a
+# design-system component asks for a download with a `colab-attachment:` string), and an HTML page
+# keeps every listed descriptor so as never to parse it: so does a page of blocks with a legacy
+# source, whatever the blocks reference.
+keeps("a converted page keeps every listed descriptor though no block references one", {}, [aid(1), aid(2)], [aid(1), aid(2)], source=LEGACY)
+keeps("a converted page keeps every listed descriptor beside the ones a block references", {A: image(ref(2))}, [aid(1), aid(2), aid(3)], [aid(1), aid(2), aid(3)], source=LEGACY)
+keeps("a converted page whose source names a file in its own markup keeps it", {}, [aid(1)], [aid(1)], source='<button data-download="colab-attachment:' + aid(1) + '">Get</button>')
+keeps("a page with an empty source narrows to the blocks, as a new page of blocks does", {A: image(ref(2))}, [aid(1), aid(2)], [aid(2)], source="")
 descriptor = {
     "version": 1,
     "attachmentId": "<attachmentId>",
@@ -415,7 +411,7 @@ attach_doc = {
     "descriptor": descriptor,
     "cases": cases,
     "kept": kept,
-    "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced` (which takes the `source` too): a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, or while the frozen legacy source in the `html` root (`source`, empty on a page that was never converted) references it as an `<img src>`, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept.",
+    "keptDescription": "Which descriptors the 30-day sweep keeps on a page of blocks (#6190), run by the native `blocks::attachments::referenced` (which takes the `source` too): a descriptor stays while any block that is on the page, live or deleted and not yet purged, references it, or while the `html` root holds a frozen legacy source (`source`, empty on a page that was never converted), which keeps every listed descriptor, and is swept on the same schedule as a file whose reference left an HTML page's source once none does. `current` is the page's descriptor list (by ID); `expect` the IDs kept.",
 }
 attach_text = json.dumps(attach_doc, ensure_ascii=False, indent=2) + "\n"
 

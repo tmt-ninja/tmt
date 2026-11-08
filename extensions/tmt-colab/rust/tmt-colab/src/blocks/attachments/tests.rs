@@ -348,36 +348,36 @@ fn a_purged_tombstone_stops_keeping_its_descriptor() {
     assert_eq!(super::referenced(&recent, "", &list).len(), 1);
 }
 
-/// The sweep's reference set for a converted page: the legacy source's image keeps its file until a
-/// revert brings the old HTML back, with no block referencing it, and a page whose source never
-/// held one keeps nothing (#6190).
+/// The sweep's reference set for a converted page: while the `html` root holds the frozen legacy
+/// source, every listed descriptor is kept (a revert needs its files, wherever its markup names
+/// them), and a page whose root is empty narrows to its blocks (#6190).
 #[test]
-fn the_sweep_keeps_a_converted_pages_legacy_images() {
+fn the_sweep_keeps_every_descriptor_of_a_converted_page() {
     use crate::attachments::unreferenced::kept_objects;
     let list = json!([descriptor(1, SOURCE), descriptor(2, SOURCE)]);
-    let legacy = format!("<h1>Old</h1><img src=\"{}\">", reference(1));
-    let (none, kept) = (blocks(&[]), |source: &str, blocks: &Value| {
+    let legacy = "<h1>Old</h1><button data-download=\"colab-attachment:x\">Get</button>";
+    let kept = |source: &str, blocks: Option<&Value>| {
         let mut into = std::collections::BTreeSet::new();
-        kept_objects(source, Some(&list), Some(blocks), &mut into);
+        kept_objects(source, Some(&list), blocks, &mut into);
         into
-    });
+    };
     let object = |n: u32| {
         list[(n - 1) as usize]["objectId"]
             .as_str()
             .unwrap()
             .to_owned()
     };
-    assert_eq!(kept(&legacy, &none), [object(1)].into());
-    assert!(kept("", &none).is_empty(), "a page never converted");
-    assert!(
-        kept("<h1>Old</h1>", &none).is_empty(),
-        "no image in the source"
-    );
-    // A block that references the other one adds to it.
+    let both = std::collections::BTreeSet::from([object(1), object(2)]);
+    let none = blocks(&[]);
+    assert_eq!(kept(legacy, Some(&none)), both, "no block references one");
     let shown = blocks(&[(A, image(&reference(2)))]);
-    assert_eq!(kept(&legacy, &shown), [object(1), object(2)].into());
-    // An HTML page (no blocks value) still keeps every listed descriptor.
-    let mut all = std::collections::BTreeSet::new();
-    kept_objects(&legacy, Some(&list), None, &mut all);
-    assert_eq!(all, [object(1), object(2)].into());
+    assert_eq!(kept(legacy, Some(&shown)), both, "beside a block's own");
+    assert!(kept("", Some(&none)).is_empty(), "a page never converted");
+    assert_eq!(
+        kept("", Some(&shown)),
+        [object(2)].into(),
+        "narrows to blocks"
+    );
+    // An HTML page (no blocks value) keeps every listed descriptor.
+    assert_eq!(kept(legacy, None), both);
 }
