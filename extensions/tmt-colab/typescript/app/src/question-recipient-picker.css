@@ -90,6 +90,12 @@
 .question-recipient-error {
   color: var(--tmt-ui-color-blocked);
 }
+/* One line per agent: a long name is cut with an ellipsis, never wrapped. */
+.question-recipient-list .tmt-listbox-option {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The list of agents: the same popover as the recipient menu of a message. */
 .question-recipient-list {
   padding: 4px;

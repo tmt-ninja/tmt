@@ -51,6 +51,32 @@ test('a long name truncates on the trigger instead of widening the line', async 
   await noOverflow(page);
 });
 
+test('a long name is one line with an ellipsis in the menu and keeps its whole name', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto(fixture());
+  await trigger(page).click();
+  const full =
+    'An agent with a very long name that has to truncate instead of pushing the line wider';
+  const long = page.getByRole('option', { name: new RegExp(full) });
+  await expect(long).toBeVisible();
+  // The accessible name and the title carry the whole name; the drawing is cut.
+  await expect(long.locator('span')).toHaveAttribute('title', full);
+  await expect(long).toHaveText(full);
+  const cut = await long.evaluate((node) => ({
+    overflows: node.scrollWidth > node.clientWidth,
+    ellipsis: getComputedStyle(node).textOverflow,
+    nowrap: getComputedStyle(node).whiteSpace,
+  }));
+  expect(cut).toEqual({ overflows: true, ellipsis: 'ellipsis', nowrap: 'nowrap' });
+  // Every option is the height of the others (the last has no rule under it): one line.
+  const heights = await page
+    .getByRole('option')
+    .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
+});
+
 test('choosing an agent sends its ID once and the line shows who receives answers', async ({
   page,
 }) => {

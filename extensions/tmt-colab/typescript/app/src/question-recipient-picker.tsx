@@ -67,6 +67,9 @@ export function QuestionRecipientPicker({
           onChoose(value === FOLLOWS ? null : value);
         }}
         popup={{ width: 280, align: 'start', className: 'question-recipient-list' }}
+        // One line each, cut with an ellipsis; the whole name stays in the option's text (its
+        // accessible name) and in its title.
+        renderOption={(option) => <span title={option.label}>{option.label}</span>}
         inputTrigger={{
           open,
           onOpenChange: setOpen,
