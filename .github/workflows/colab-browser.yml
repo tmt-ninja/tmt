@@ -390,8 +390,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Temporary #6188 diagnostic: remove this fourth shard with the opt-in marks.
-        shard: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 6193 && fromJSON('[1,2,3,4]') || fromJSON('[1,2,3]') }}
+        shard: [1, 2, 3]
+        # Temporary #6188 diagnostic: remove this inclusion with the opt-in marks.
+        include: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 6193 && fromJSON('[{"shard":4}]') || fromJSON('[]') }}
     permissions:
       contents: read
     env:

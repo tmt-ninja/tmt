@@ -261,15 +261,23 @@ test('an @agent comment on a design-system example becomes a live patch of that 
         try {
           await expect
             .poll(
-              () =>
-                tab
-                  .locator('.design-workspace iframe')
-                  .first()
-                  .contentFrame()
-                  .locator('style')
-                  .evaluateAll((nodes) =>
-                    nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
-                  ),
+              async () => {
+                try {
+                  return await tab
+                    .locator('.design-workspace iframe')
+                    .first()
+                    .contentFrame()
+                    .locator('style')
+                    .evaluateAll((nodes) =>
+                      nodes.some((node) => node.textContent?.includes('.zz-live-6162b')),
+                    );
+                } catch (error) {
+                  // A draft refresh replaces the frame; inspect its replacement on the next poll.
+                  if (error instanceof Error && /frame was detached/i.test(error.message))
+                    return false;
+                  throw error;
+                }
+              },
               { timeout: 30_000, intervals: [50, 100, 200] },
             )
             .toBe(true);
