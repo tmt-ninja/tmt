@@ -867,7 +867,9 @@ for (const width of [1440, 390])
       await expect(slot).toHaveAttribute('data-density', 'roomy');
       const roomy = await cell();
       expect(roomy).toMatchObject({ padding: '8px 12px 8px 0px', size: '15px', line: '24px' });
-      if (width === 1440) expect(roomy.row).toBe(41);
+      // Row heights are whole-pixel rounding of the computed box above (Linux CI draws 42px where
+      // macOS draws 41px), so they hold within a pixel; the computed values are exact.
+      if (width === 1440) expect(Math.abs(roomy.row - 41)).toBeLessThanOrEqual(1);
       await page.evaluate(() =>
         window.agentBatch([{ op: 'props', id: 'table', set: { density: 'compact' }, unset: [] }]),
       );
@@ -876,7 +878,10 @@ for (const width of [1440, 390])
       expect(compact).toMatchObject({ padding: '4px 12px 4px 0px', size: '14px', line: '19.6px' });
       // 19.6px text plus 8px padding is 29px; a writer's row menu button (24px, in its padded cell)
       // holds the row at 32px.
-      if (width === 1440) expect(compact.row).toBe(32);
+      if (width === 1440) {
+        expect(Math.abs(compact.row - 32)).toBeLessThanOrEqual(1);
+        expect(compact.row).toBeLessThan(roomy.row);
+      }
       await page.mouse.move(0, 0);
       await shot('compact');
     });
