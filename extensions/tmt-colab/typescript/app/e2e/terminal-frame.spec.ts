@@ -31,7 +31,7 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
         },
       ],
       css: '',
-      code: `return ({React,ui}) => () => React.createElement(ui.TerminalFrame, {component:'section-rule',width:40,height:1,title:'Saved · 1d',note:'0.9% of input',note_role:'muted',focused:false});`,
+      code: `return ({React,ui}) => () => React.createElement('div', {id:'stacked-frames'}, ...[0,1].map(() => React.createElement(ui.TerminalFrame, {component:'section-rule',width:40,height:1,title:'Saved · 1d',note:'0.9% of input',note_role:'muted',focused:false})));`,
     },
   ];
   const hash = `sha256-${createHash('sha256').update(JSON.stringify(body)).digest('hex')}`;
@@ -82,7 +82,7 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
     .split('\n')[0]!;
   const [expectedText, runs] = section.split(' | ');
   const actual = await live
-    .locator(`${body.prefix}-terminal-preview > span > span`)
+    .locator(`${body.prefix}-terminal-preview #stacked-frames > span:first-child > span`)
     .evaluateAll((cells) =>
       cells.map((cell) => ({ text: cell.textContent, color: getComputedStyle(cell).color })),
     );
@@ -98,6 +98,14 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
     }
   }
   expect(covered).toBe(40);
+  const edges = await live.locator('#stacked-frames > span').evaluateAll((frames) =>
+    frames.map((frame) => {
+      const { top, bottom } = frame.getBoundingClientRect();
+      return { top, bottom };
+    }),
+  );
+  expect(edges).toHaveLength(2);
+  expect(edges[0]!.bottom).toBeCloseTo(edges[1]!.top, 3);
   const capture = process.env.COLAB_TERMINAL_CAPTURE;
   const liveImage = capture
     ? await page.screenshot({ path: join(capture, 'terminal-live.png') })

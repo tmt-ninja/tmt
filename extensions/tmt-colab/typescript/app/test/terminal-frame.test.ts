@@ -43,3 +43,57 @@ test('unknown components visibly fail closed', () => {
   );
   expect(html).toContain('Part unavailable');
 });
+
+test('v2 heat cells follow the native neutral ramp and preserve glyphs without color', async () => {
+  const glyphs = ['▁', '▂', '▃', '▄', '▆', '█'];
+  const cells = glyphs.map((glyph, heat_level) => ({
+    glyph,
+    heat_level,
+    fg: 'text',
+    bg: null,
+    underlay: null,
+    bold: false,
+    chip_surface: null,
+    continuation: false,
+  }));
+  vi.resetModules();
+  vi.doMock('../terminal-frame-assets/tmt_tui_wasm.js', () => ({
+    initSync: () => {},
+    registry: () => JSON.stringify({ version: 1 }),
+    render: () => JSON.stringify({ version: 2, width: 6, height: 1, cells, hits: [] }),
+  }));
+  try {
+    const { TerminalFrame: Frame } = await import('../src/runtime/terminal-frame.js');
+    const draw = (look: 'tmt' | 'tmt-light' | 'terminal' | 'NO_COLOR') =>
+      renderToStaticMarkup(
+        React.createElement(Frame, {
+          component: 'activity-cells',
+          width: 6,
+          height: 1,
+          look,
+        }),
+      );
+    for (const [look, values] of [
+      ['tmt', [56, 88, 120, 152, 184, 216]],
+      ['tmt-light', [224, 183, 143, 103, 63, 23]],
+    ] as const) {
+      const html = draw(look);
+      for (const value of values)
+        expect(html).toContain(`background-color:rgb(${value}, ${value}, ${value})`);
+      for (const glyph of glyphs) expect(html).not.toContain(glyph);
+      expect(html).toContain('display:grid');
+      expect(html).toContain('width:max-content');
+    }
+    const plain = draw('NO_COLOR');
+    for (const glyph of glyphs) expect(plain).toContain(glyph);
+    expect(plain).not.toContain('background-color:rgb(');
+    const terminal = draw('terminal');
+    expect(terminal).toContain('background-color:#000000');
+    expect(terminal).toContain('background-color:#666666');
+    expect(terminal).toContain('background-color:#e5e5e5');
+    expect(terminal).toContain('background-color:#ffffff');
+  } finally {
+    vi.doUnmock('../terminal-frame-assets/tmt_tui_wasm.js');
+    vi.resetModules();
+  }
+});
