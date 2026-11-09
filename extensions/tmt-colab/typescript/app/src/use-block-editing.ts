@@ -34,7 +34,7 @@ import {
   selectedIds,
   settleSelection,
 } from './block-selection.js';
-import { BlockTextSync, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
+import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -142,6 +142,9 @@ export interface Editing {
   /** Moves on every text the page sends, so the editor replaces its text even when it is equal to
    * the last one sent. */
   version: number;
+  /** The text the editor showed when `text` was made; absent when the editor opens on `text`. Keys
+   * it takes before it draws `text` merge onto it from here (#6221). */
+  from?: string;
 }
 
 /** A batch the serve refused for good: what the status line says, and whether it may be sent
@@ -176,6 +179,25 @@ function refusalOf(key: number, ops: BlockOp[], error: unknown): Refusal {
  * a timed notice (a delete's Undo) is shown over it while that lasts. */
 function shownRefusal(refusal: Refusal | undefined, retry: () => void): DeleteToast | undefined {
   return refusal && { count: 0, notice: refusal.message, retry, id: -refusal.key };
+}
+
+/** What a block's editor typed past the split at scalar `at` of `before`, now showing `after`: the
+ * inserted text and its offset in the new block, or none when it is not a plain insertion there. */
+function carried(before: string, after: string, at: number): { at: number; text: string } | null {
+  const a = [...before];
+  const b = [...after];
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  )
+    tail++;
+  if (a.length - head - tail !== 0 || head < at) return null;
+  const text = b.slice(head, b.length - tail).join('');
+  return text ? { at: head - at, text } : null;
 }
 
 /**
@@ -341,7 +363,11 @@ export function useBlockEditing(
     setMentionAt((at) => (at ? { ...at, active: undefined } : at));
   }, []);
 
+  /** The block an Enter just left, while its editor is still drawn and can take a key before the
+   * new block's editor is (#6229): its text as split, and where the split cut it. */
+  const handoff = useRef<{ from: string; text: string; at: number; to: BlockTextSync }>(undefined);
   const open = useCallback((next: BlockTextSync, at: number) => {
+    handoff.current = undefined;
     sync.current = next;
     caret.current = at;
     setEditing({
@@ -354,9 +380,7 @@ export function useBlockEditing(
   }, []);
 
   // `flush` and `show` call each other; `flush` reaches `show` through a ref, so both stay stable.
-  const showRef = useRef<(current: BlockTextSync, shown: { text: string; caret: number }) => void>(
-    () => {},
-  );
+  const showRef = useRef<(current: BlockTextSync, shown: Shown) => void>(() => {});
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. Resolves
    * `true` once the page shows the batch and `false` when the serve refused it for good; it never
    * rejects. A refusal goes to the status line with Retry (#6220), unless `report` is off: typing
@@ -443,7 +467,7 @@ export function useBlockEditing(
     } while (sync.current?.pending);
   }, [flush]);
   const show = useCallback(
-    (current: BlockTextSync, shown: { text: string; caret: number }) => {
+    (current: BlockTextSync, shown: Shown) => {
       if (sync.current !== current) return;
       caret.current = shown.caret;
       setEditing({
@@ -452,6 +476,7 @@ export function useBlockEditing(
         text: shown.text,
         caret: shown.caret,
         version: ++version.current,
+        from: shown.from,
       });
       // Typing that waited for the op in flight goes out now.
       if (current.pending && !current.sending) timer.current = setTimeout(flush, TEXT_FLUSH_MS);
@@ -500,7 +525,29 @@ export function useBlockEditing(
   const typed = useCallback(
     (id: string, text: string, at: number) => {
       const current = sync.current;
-      if (current?.id !== id) return;
+      if (current?.id !== id) {
+        // The block an Enter left took a key before the new block's editor was drawn: the key
+        // belongs to the new block, where the split moved the text after it.
+        const left = handoff.current;
+        if (current && left?.from === id && left.to === current) {
+          const typed = carried(left.text, text, left.at);
+          left.text = text;
+          if (typed) {
+            const shown = current.text;
+            const scalars = [...shown];
+            const place = Math.min(typed.at, scalars.length);
+            const next = [...scalars.slice(0, place), typed.text, ...scalars.slice(place)].join('');
+            current.typed(next);
+            showRef.current(current, {
+              text: next,
+              caret: place + [...typed.text].length,
+              dropped: false,
+              from: shown,
+            });
+          }
+        }
+        return;
+      }
       current.typed(text);
       caret.current = at;
       const menu = menuRef.current;
@@ -615,10 +662,9 @@ export function useBlockEditing(
       arriving.current = newId;
       // Keys typed while the op before was in flight landed at the split: the caret stays after
       // them in the new block, so typing goes on in order.
-      open(
-        new BlockTextSync(newId, tail),
-        Math.max(0, Math.min([...tail].length, [...text].length - length)),
-      );
+      const into = new BlockTextSync(newId, tail);
+      open(into, Math.max(0, Math.min([...tail].length, [...text].length - length)));
+      handoff.current = { from: current.id, text, at, to: into };
       if (!(await out(undefined, ops))) {
         // Refused: nothing changed on the page. The person's text goes back where it was.
         if (sync.current?.id === newId) {
@@ -1355,6 +1401,7 @@ export function useBlockEditing(
     closeMenu,
     selected,
     selectionFocus: selection?.focus,
+    selectionRequest: selection,
     pageKey,
     blockMenu,
     act,

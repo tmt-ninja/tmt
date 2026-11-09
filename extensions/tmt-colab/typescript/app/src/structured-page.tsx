@@ -108,7 +108,14 @@ export interface StructuredPageProps {
   tree: BlockTree;
   /** The focused text block's (or table cell's, by row and `column`) text while it is edited, and
    * where its caret goes on a page change. */
-  editing?: { id: string; column?: string; text: string; caret: number; version: number };
+  editing?: {
+    id: string;
+    column?: string;
+    text: string;
+    caret: number;
+    version: number;
+    from?: string;
+  };
   /** The person focused a text block. */
   onFocus?(id: string): void;
   /** Typing in the focused block. */
@@ -163,6 +170,9 @@ export interface StructuredPageProps {
   /** The selected blocks, and the one keyboard focus sits on. */
   selected?: readonly string[];
   selectionFocus?: string;
+  /** Changes only when something selects a block on purpose (a menu action, a key, a click), not
+   * on a render the page's other changes cause. */
+  selectionRequest?: object;
   /** A key on the page outside a block's editor (Delete, arrows, ⌘Z); true when taken. */
   onPageKey?(event: KeyboardEvent): boolean;
   /** The status line after a delete, and its Undo. */
@@ -226,6 +236,18 @@ export function StructuredPage(props: StructuredPageProps) {
     [props.onMove],
   );
   const { drag, start, wasDrag } = useBlockDrag(props.tree, () => root.current, drop);
+  // A block selected on purpose from its own handle (the ⋯ menu's items keep focus on the handle)
+  // takes keyboard focus. Only a new request does: a handle a person tabbed to keeps focus while
+  // the page redraws (#6221).
+  useEffect(() => {
+    const id = props.selectionFocus;
+    if (!props.selectionRequest || !id) return;
+    const node = root.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`);
+    const active = document.activeElement;
+    if (node && active && node.contains(active) && active.closest('[data-slot="block-handle"]'))
+      node.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.selectionRequest]);
   // The insert menu's "Image or file" opens the device's file picker while the key or click that
   // chose it still counts as the person's gesture.
   const picker = useRef<HTMLInputElement>(null);
@@ -385,7 +407,10 @@ function Blocks({
   ...rest
 }: StructuredPageProps & { parent: string; pointer: Pointer }): ReactNode {
   const drag = pointer.drag;
-  return tree.children(parent).map((block) => [
+  // One flat list keyed by block: nested arrays are keyed by their index, so a block inserted above
+  // would move every later block to another array and remount its text editor, losing the keys it
+  // took (#6221).
+  return tree.children(parent).flatMap((block) => [
     drag?.target?.lineBefore === block.id && <BlockDropLine key={`drop-${block.id}`} />,
     <Block
       key={block.id}
@@ -923,6 +948,7 @@ function Table({
                 text={editing.text}
                 caret={editing.caret}
                 version={editing.version}
+                from={editing.from}
                 onTyped={(text, caret) => onTyped?.(row.id, text, caret)}
                 onKey={(event, text) => onCellKey?.(event, text) ?? false}
               />
@@ -991,6 +1017,7 @@ function Content({
       marks={block.text === editing.text ? block.marks : undefined}
       caret={editing.caret}
       version={editing.version}
+      from={editing.from}
       placeholder={placeholder}
       onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
       onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}

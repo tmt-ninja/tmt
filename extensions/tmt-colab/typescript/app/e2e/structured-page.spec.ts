@@ -160,6 +160,158 @@ test('Enter splits a block at the caret and Backspace at its start joins it back
   expect(sent.filter((op) => op === 'delete')).toHaveLength(1);
 });
 
+test('a key the editor takes while a batch settles is never redrawn away (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  // The batch reaches the serve and is held there.
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  // Every text the editor shows from here on: a key, once shown, never leaves it.
+  const shown = await page.evaluate(async () => {
+    const root = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    const texts: string[] = [];
+    const observer = new MutationObserver(() => texts.push(root.textContent ?? ''));
+    observer.observe(root, { subtree: true, childList: true, characterData: true });
+    // The batch settles, and the editor takes a key before its redraw runs.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    document.execCommand('insertText', false, 'Y');
+    // Watch until the serve holds the key too, at most 5 s.
+    for (let wait = 0; wait < 100 && !window.serveText('p')?.endsWith('XY'); wait++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    observer.disconnect();
+    return texts;
+  });
+  const typed = shown.findIndex((text) => text.endsWith('XY'));
+  expect(typed).toBeGreaterThanOrEqual(0);
+  expect(shown.slice(typed).filter((text) => !text.endsWith('XY'))).toEqual([]);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/XY$/);
+});
+
+test('a key the editor takes while a batch settles merges with an agent edit the redraw brings (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  // The batch reaches the serve and is held there; an agent changes the block's start meanwhile.
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  await page.evaluate(() => window.agentReplace('p', 'Ship', 'SHIP'));
+  // Every text the editor shows from here on: a key, once shown, never leaves it.
+  const shown = await page.evaluate(async () => {
+    const root = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    const texts: string[] = [];
+    const observer = new MutationObserver(() => texts.push(root.textContent ?? ''));
+    observer.observe(root, { subtree: true, childList: true, characterData: true });
+    // The batch settles, and the editor takes a key before its redraw runs.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    document.execCommand('insertText', false, 'Y');
+    // Watch until the serve holds the key too, at most 5 s.
+    for (let wait = 0; wait < 100 && !window.serveText('p')?.endsWith('XY'); wait++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    observer.disconnect();
+    return texts;
+  });
+  const typed = shown.findIndex((text) => text.endsWith('XY'));
+  expect(typed).toBeGreaterThanOrEqual(0);
+  expect(shown.slice(typed).filter((text) => !text.endsWith('XY'))).toEqual([]);
+  // Both writers' changes stay, in the editor and on the serve.
+  await expect(editor).toHaveText(/^SHIP.*XY$/);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/^SHIP.*XY$/);
+});
+
+test('a block inserted above the one being typed in keeps its editor and its keys (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' X', { delay: 20 });
+  // The editor element itself: a remount would draw a new, empty one.
+  await editor.evaluate((node) => ((window as unknown as { typedIn?: Element }).typedIn = node));
+  // An agent inserts a block above the one being typed in, before the typing is sent.
+  await page.evaluate(() =>
+    window.agentBatch([
+      { op: 'insert', id: 'n', type: 'paragraph', parent: 'root', after: 'h', text: 'Agent note.' },
+    ]),
+  );
+  await expect(host.locator('[data-block-id="n"]')).toHaveText('Agent note.');
+  expect(
+    await editor.evaluate((node) => (window as unknown as { typedIn?: Element }).typedIn === node),
+  ).toBe(true);
+  await editor.pressSequentially('Y', { delay: 20 });
+  await expect(editor).toHaveText(/ XY$/);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/ XY$/);
+});
+
+test("focus on a selected block's handle stays there while an agent edit redraws the page (#6221)", async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  // Esc selects the block, which shows its handle.
+  await page.keyboard.press('Escape');
+  await expect(host.locator('[data-block-id="p"]')).toBeFocused();
+  // The handle is out of the tab order (tabindex -1); focus reaches it from a pointer or a script.
+  const handle = host.locator('[data-block-id="p"]').getByRole('button', { name: 'Block actions' });
+  await handle.focus();
+  await expect(handle).toBeFocused();
+  // An agent edit elsewhere redraws the page: the handle keeps focus.
+  await page.evaluate(() => window.agentReplace('h', 'Plan', 'PLAN'));
+  await expect(host.locator('[data-block-id="h"]')).toContainText('PLAN');
+  await expect(handle).toBeFocused();
+});
+
+test("a key typed after Enter, before the new block's editor takes focus, reaches the new block (#6229)", async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially(' X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  // Enter waits for the batch in flight before it splits.
+  await editor.press('Enter');
+  await page.evaluate(async () => {
+    const old = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    // The batch settles and the split opens the new block; the old editor still has focus and
+    // takes a key before the new one is drawn.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    old.focus();
+    document.execCommand('insertText', false, 'Y');
+  });
+  const blocks = host.locator('[data-block-id]');
+  await expect(blocks.nth(1)).toHaveText(/ X$/);
+  await expect(blocks.nth(2)).toHaveText('Y');
+  await expect(blocks.nth(2).locator('[contenteditable="true"]')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/ X$/);
+});
+
 test('/ in an empty paragraph opens the insert menu, which filters and inserts', async ({
   page,
 }) => {

@@ -14,6 +14,9 @@ export interface Shown {
   readonly caret: number;
   /** Part of the local typing overlapped another writer's change there and was not kept. */
   readonly dropped: boolean;
+  /** The text the editor showed when this was made. Keys it takes before it draws `text` merge onto
+   * `text` from here, as typing merges onto the page's text (#6221). */
+  readonly from: string;
 }
 
 /**
@@ -101,10 +104,11 @@ export class BlockTextSync {
    * absent when the page gives none, and then taken as current). A view older than the last
    * applied op is dropped; while an op is in flight the text is held. */
   remote(remote: string, caret: number, seq?: number): Shown {
-    if (seq !== undefined && seq < this.#after) return { text: this.#local, caret, dropped: false };
+    const from = this.#local;
+    if (seq !== undefined && seq < this.#after) return { text: from, caret, dropped: false, from };
     if (this.#inflight) {
       this.#held = { text: remote, seq };
-      return { text: this.#local, caret, dropped: false };
+      return { text: from, caret, dropped: false, from };
     }
     return this.#merge(this.#base, remote, caret);
   }
@@ -114,7 +118,7 @@ export class BlockTextSync {
    * held text from a view before the commit is dropped. */
   settled(applied: boolean, caret: number, seq?: number): Shown {
     const sent = this.#inflight;
-    if (!sent) return { text: this.#local, caret, dropped: false };
+    if (!sent) return { text: this.#local, caret, dropped: false, from: this.#local };
     this.#inflight = undefined;
     const from = applied ? sent.set : sent.base;
     if (applied && seq !== undefined) this.#after = Math.max(this.#after, seq);
@@ -122,16 +126,17 @@ export class BlockTextSync {
     this.#held = undefined;
     if (held === undefined || (held.seq !== undefined && held.seq < this.#after)) {
       this.#base = from;
-      return { text: this.#local, caret, dropped: false };
+      return { text: this.#local, caret, dropped: false, from: this.#local };
     }
     return this.#merge(from, held.text, caret);
   }
 
   // The serve merges the browser's ops with `overlap: 'both'`, so the editor shows the same merge.
   #merge(from: string, remote: string, caret: number): Shown {
+    const shown = this.#local;
     if (remote === from) {
       this.#base = from;
-      return { text: this.#local, caret, dropped: false };
+      return { text: shown, caret, dropped: false, from: shown };
     }
     const merged =
       this.#local === from
@@ -140,7 +145,7 @@ export class BlockTextSync {
     const moved = caretThrough(this.#local, merged.text, caret);
     this.#base = remote;
     this.#local = merged.text;
-    return { text: merged.text, caret: moved, dropped: merged.dropped.length > 0 };
+    return { text: merged.text, caret: moved, dropped: merged.dropped.length > 0, from: shown };
   }
 }
 
