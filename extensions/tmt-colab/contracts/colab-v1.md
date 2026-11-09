@@ -2804,9 +2804,11 @@ executes. A trusted primary, keyboard, modified or middle activation of `a[href]
 frame's default navigation. A literal same-page `#id` scrolls locally through the existing bounded
 anchor path without setting location. Other links post exactly
 `{type:"colab.render.link",renderId,href,newTab}` to the parent; `href` is at most 8 KiB UTF-8 and
-`newTab` is boolean. The parent requires the current ready frame's `event.source`, exact
-fields/types/bounds and render ID. Invalid, stale or disposed requests do nothing. A render ID and
-a bootstrap claim never authenticate a gesture or author content.
+`newTab` is boolean. The parent requires the current frame's `event.source`, exact fields/types/bounds
+and render ID. Before the frame is bound, it holds at most one valid link request; a newer request
+replaces it, and stopping the frame discards it. Once bound, it delivers that request only if the
+frame is still current. Invalid, stale or disposed requests do nothing. A render ID and a bootstrap
+claim never authenticate a gesture or author content.
 
 The trusted URL classifier uses the app's base, never an authored `base` element. Only a same-origin
 `/p/SHORT` with a valid page prefix, or an exact same-space owner link, can select app navigation.
@@ -2817,7 +2819,7 @@ Outside URLs allow HTTPS or HTTP on literal `localhost`, `127.0.0.1` or `[::1]`;
 refused with a trusted notice, without echoing their payload.
 
 A same-space request navigates directly only when the parent observes
-`navigator.userActivation.isActive` at receipt. Activation proves recent interaction, not which
+`navigator.userActivation.isActive` at receipt and, for a held early request, at delivery. Activation proves recent interaction, not which
 link the person used. Without activation, even a forged current-render request requires the same
 trusted Open/Cancel confirmation. At most one in-place navigation is allowed per render lifetime.
 Modified/middle intent opens a new app tab without consuming that guard; plain intent uses the
