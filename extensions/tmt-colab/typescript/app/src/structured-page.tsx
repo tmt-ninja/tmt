@@ -392,7 +392,10 @@ function Blocks({
   ...rest
 }: StructuredPageProps & { parent: string; pointer: Pointer }): ReactNode {
   const drag = pointer.drag;
-  return tree.children(parent).map((block) => [
+  // One flat list keyed by block: nested arrays are keyed by their index, so a block inserted above
+  // would move every later block to another array and remount its text editor, losing the keys it
+  // took (#6221).
+  return tree.children(parent).flatMap((block) => [
     drag?.target?.lineBefore === block.id && <BlockDropLine key={`drop-${block.id}`} />,
     <Block
       key={block.id}
@@ -412,8 +415,10 @@ function Blocks({
       // already inside it (a table's menu or column name field) stays where it is.
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
-        if (node && rest.selectionFocus === block.id && !node.contains(document.activeElement))
-          node.focus();
+        if (!node || rest.selectionFocus !== block.id) return;
+        // The block's own handle (its ⋯ menu acted on the block) hands focus to the block.
+        const active = document.activeElement;
+        if (!node.contains(active) || active?.closest('[data-slot="block-handle"]')) node.focus();
       }}
       readonly={rest.readonly}
       onClick={(event) => {

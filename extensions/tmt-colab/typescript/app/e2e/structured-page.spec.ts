@@ -237,6 +237,31 @@ test('a key the editor takes while a batch settles merges with an agent edit the
   await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/^SHIP.*XY$/);
 });
 
+test('a block inserted above the one being typed in keeps its editor and its keys (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' X', { delay: 20 });
+  // The editor element itself: a remount would draw a new, empty one.
+  await editor.evaluate((node) => ((window as unknown as { typedIn?: Element }).typedIn = node));
+  // An agent inserts a block above the one being typed in, before the typing is sent.
+  await page.evaluate(() =>
+    window.agentBatch([
+      { op: 'insert', id: 'n', type: 'paragraph', parent: 'root', after: 'h', text: 'Agent note.' },
+    ]),
+  );
+  await expect(host.locator('[data-block-id="n"]')).toHaveText('Agent note.');
+  expect(
+    await editor.evaluate((node) => (window as unknown as { typedIn?: Element }).typedIn === node),
+  ).toBe(true);
+  await editor.pressSequentially('Y', { delay: 20 });
+  await expect(editor).toHaveText(/ XY$/);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/ XY$/);
+});
+
 test('/ in an empty paragraph opens the insert menu, which filters and inserts', async ({
   page,
 }) => {
