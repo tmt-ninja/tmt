@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
+import { recordBlocksResults } from './harness/blocks-results.js';
 import { freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
@@ -188,6 +189,7 @@ test('a person writes, rearranges and edits a table while an agent edits the sam
     };
 
     const page = await browser.context.newPage();
+    recordBlocksResults(page);
     await page.goto(new URL(path, `${door.address}/`).href);
     const second = page.locator(`[data-block-id="${id.second}"]`);
     await expect(second).toHaveText('Second step.');
@@ -256,6 +258,8 @@ test('a person writes, rearranges and edits a table while an agent edits the sam
       'Third step.',
       /Task.*State.*Owner.*Model.*done.*Menus.*open.*Review/,
     ]);
+    // A batch of the person's that the page could not get through (#6220) shows its notice.
+    await expect(page.getByRole('status').filter({ hasText: 'not saved' })).toHaveCount(0);
   });
 });
 
@@ -644,7 +648,9 @@ test('a question written in the browser is registered and its answer reaches the
     await editor.pressSequentially('q', { delay: 20 });
     await editor.press('Enter');
     const edit = page.getByRole('group', { name: 'Edit question' });
-    await expect(edit).toContainText('Answers go to answer-agent');
+    // The line names the creator, as words or, for the owner device, on the recipient picker.
+    await expect(edit).toContainText('Answers go to');
+    await expect(edit).toContainText('answer-agent');
     await edit.getByLabel('Question').fill('Which heading should we use?');
     await edit.getByLabel('Question').press('Enter');
     await page.keyboard.type('Keep it');

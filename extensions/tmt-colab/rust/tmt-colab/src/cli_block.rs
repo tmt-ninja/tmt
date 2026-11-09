@@ -16,6 +16,7 @@ use tmt_colab::{
     Result,
     decoder::Decoder,
     keyring::{Keyring, Layout},
+    limits,
     page::{self, Fault},
     store::Store,
 };
@@ -100,7 +101,7 @@ pub fn command() -> Command {
     spec(
         "block",
         "Read and change the blocks of a structured page",
-        "A structured page (tmt colab page create --structured) is made of blocks, not HTML. Every command is a granular edit that merges with what others change at the same time, so none needs a revision. A whole-text replacement carries the text block get returned (--base-file) and keeps what others typed meanwhile; when your change overlaps theirs, theirs stays and the receipt lists your hunk under droppedHunks: run block get again and reapply it. Types: paragraph, heading, list, todo, table, card, question, callout, code, image, mockup, work-bundle, page-view. Read tmt colab skill blocks first.",
+        "A structured page (tmt colab page create --structured) is made of blocks, not HTML. Every command is a granular edit that merges with what others change at the same time, so none needs a revision; a batch refused because the page moved before its commit is prepared again, up to 3 more times. A whole-text replacement carries the text block get returned (--base-file) and keeps what others typed meanwhile; when your change overlaps theirs, theirs stays and the receipt lists your hunk under droppedHunks: run block get again and reapply it. Types: paragraph, heading, list, todo, table, card, question, callout, code, image, mockup, work-bundle, page-view. Read tmt colab skill blocks first.",
         example!("tmt colab block ls 10000000-0000-4000-8000-000000000001 --json"),
     )
     .subcommand_required(true)
@@ -608,7 +609,12 @@ fn get(root: &Path, args: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-/// One batch of ops through the shared entry point, as the owner device.
+/// One batch of ops through the shared entry point, as the owner device. The batch carries no
+/// revision and its ops address blocks by ID, so a page that moved between the snapshot and the
+/// commit (the commit then refuses `COLAB_STALE_BASE`, writing nothing) is no reason to fail: the
+/// batch is prepared again from a fresh snapshot, at most `SAVE_EVALUATIONS` more times, as
+/// `page patch` does. Only that confirmed refusal is retried; an outcome in doubt and every other
+/// refusal end the command (#6220).
 pub(crate) fn write_blocks(
     root: &Path,
     page_arg: &str,
@@ -616,6 +622,32 @@ pub(crate) fn write_blocks(
     attachments: Option<&tmt_colab_model::attachment::DocumentChange>,
 ) -> Result<(page::Receipt, Value)> {
     page::blocks::validate(ops, attachments)?;
+    retry_stale(|| write_blocks_once(root, page_arg, ops, attachments))
+}
+
+/// `attempt` again after a confirmed `COLAB_STALE_BASE`, at most `SAVE_EVALUATIONS` more times.
+fn retry_stale<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
+    let mut retries = 0;
+    loop {
+        match attempt() {
+            Err(error)
+                if retries < limits::SAVE_EVALUATIONS
+                    && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
+            {
+                retries += 1;
+            }
+            done => return done,
+        }
+    }
+}
+
+/// One preparation from a fresh snapshot and its commit.
+fn write_blocks_once(
+    root: &Path,
+    page_arg: &str,
+    ops: &Value,
+    attachments: Option<&tmt_colab_model::attachment::DocumentChange>,
+) -> Result<(page::Receipt, Value)> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let lock = crate::write_owner(&layout)?;
     let key = Keyring::read(&layout)?;
@@ -777,4 +809,83 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         &rows,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_stale;
+    use tmt_colab::{
+        Result,
+        page::{Fault, OutcomeUnknown},
+    };
+
+    /// An attempt that refuses as `fault` for its first `refusals` calls and then succeeds.
+    fn attempts(fault: impl Fn() -> Fault, refusals: usize) -> (usize, Result<usize>) {
+        let mut calls = 0;
+        let done = retry_stale(|| {
+            calls += 1;
+            if calls <= refusals {
+                Err(fault().into())
+            } else {
+                Ok(calls)
+            }
+        });
+        (calls, done)
+    }
+
+    #[test]
+    fn a_batch_the_page_moved_under_is_prepared_again_and_then_succeeds() {
+        // A competing commit between the snapshot and the commit refuses once; the next
+        // preparation sees the page as it is now.
+        let (calls, done) = attempts(|| Fault::StaleBase, 1);
+        assert_eq!(calls, 2);
+        assert_eq!(done.unwrap(), 2);
+        // The last of the three retries still counts.
+        let (calls, done) = attempts(|| Fault::StaleBase, 3);
+        assert_eq!(calls, 4);
+        assert_eq!(done.unwrap(), 4);
+    }
+
+    #[test]
+    fn four_stale_refusals_in_a_row_end_with_the_stale_base() {
+        let (calls, done) = attempts(|| Fault::StaleBase, usize::MAX);
+        assert_eq!(calls, 4, "one attempt and three more");
+        let error = done.unwrap_err();
+        assert_eq!(crate::error_code(error.as_ref()), Fault::StaleBase.code());
+    }
+
+    #[test]
+    fn no_other_refusal_is_prepared_again() {
+        for fault in [
+            Fault::Invalid,
+            Fault::Capacity,
+            Fault::Denied,
+            Fault::Unavailable,
+        ] {
+            let mut calls = 0;
+            let done: Result<()> = retry_stale(|| {
+                calls += 1;
+                Err(fault.into())
+            });
+            assert_eq!(calls, 1, "{}", fault.code());
+            assert_eq!(crate::error_code(done.unwrap_err().as_ref()), fault.code());
+        }
+    }
+
+    #[test]
+    fn an_outcome_in_doubt_is_never_prepared_again() {
+        let mut calls = 0;
+        let done: Result<()> = retry_stale(|| {
+            calls += 1;
+            Err(OutcomeUnknown {
+                operation_id: "10000000-0000-4000-8000-000000000001".into(),
+            }
+            .into())
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(
+            crate::error_code(done.unwrap_err().as_ref()),
+            "COLAB_OUTCOME_UNKNOWN"
+        );
+    }
 }

@@ -24,6 +24,7 @@ import type { PageBinding, PageTransport, PageView } from '../src/transport.js';
 import type { RegisteredQuestion } from '../src/question-registry.js';
 import { destination, id as fixtureId } from './ask-fixtures.js';
 import { StructuredPage } from '../src/structured-page.js';
+import { resendStale, SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 import type { AttachmentInput, StoredAttachment } from '../src/attachment-service.js';
 import type { BlockFiles } from '../src/block-uploads.js';
@@ -250,6 +251,11 @@ declare global {
     serveColumns(table: string): TableColumn[];
     /** Ops the page sent, in order. */
     sent: BlockOp[];
+    /** Every attempt to send a batch, refused ones included, in order. */
+    attempts: BlockOp[][];
+    /** The serve refuses the next `times` attempts: as stale (nothing written), as a block that is
+     * gone, or with its outcome in doubt. */
+    refuseBatch(kind: 'stale' | 'missing' | 'unknown', times?: number): void;
     /** The answer comments this page recorded, in order. */
     answers(): { body: string; questionId?: string }[];
     /** The owner-only gate closes: the owner sources withhold from now on. */
@@ -329,6 +335,18 @@ export function mount(
   const write = (id: string, text: string) =>
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
   window.sent = [];
+  window.attempts = [];
+  const refusals: (() => Error)[] = [];
+  window.refuseBatch = (kind, times = 1) => {
+    for (let i = 0; i < times; i++)
+      refusals.push(() =>
+        kind === 'stale'
+          ? new SaveRefused('COLAB_STALE_BASE', 'Page changed since the editing base.')
+          : kind === 'missing'
+            ? new SaveRefused('COLAB_BLOCK_NOT_FOUND', 'That block no longer exists.')
+            : new SaveOutcomeUnknown(crypto.randomUUID()),
+      );
+  };
   window.opened = [];
   window.recipientChosen = [];
   let refuseRecipient = false;
@@ -678,6 +696,12 @@ export function mount(
         descriptors = [...descriptors, ...stored.map(({ original }) => original.descriptor)];
         for (const listener of descriptorListeners) listener(descriptors);
       }
+      window.attempts.push(ops);
+      const refusal = stored?.length ? undefined : refusals.shift();
+      if (refusal) {
+        setTimeout(() => reject(refusal()), SERVE_MS);
+        return;
+      }
       window.sent.push(...ops);
       const later = (commit: () => void) =>
         setTimeout(() => (holding ? held.push(commit) : commit()), SERVE_MS);
@@ -698,6 +722,9 @@ export function mount(
         resolve(publish(next));
       });
     });
+  // As the page's own sender: a batch the serve refused as stale is sent again as a new one.
+  const sendStale = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
+    stored?.length ? send(ops, stored) : resendStale(() => send(ops));
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
     const [pageThreads, setPageThreads] = useState(threads);
@@ -762,7 +789,7 @@ export function mount(
       hoverMention,
     } = useBlockEditing(
       view.records,
-      send,
+      sendStale,
       view.seq,
       content === 'spec' ? files : undefined,
       ['tmt-gui-lead', 'gui-2'],

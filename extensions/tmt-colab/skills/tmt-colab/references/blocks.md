@@ -25,7 +25,8 @@ tmt colab block batch PAGE --file ops.json --json                      # many op
 ```
 
 Every command is a granular edit that merges with what others change at the same time, so none needs
-a revision and none can answer `COLAB_STALE_BASE`. Block IDs are generated; `--id` picks one.
+a revision. A batch refused because the page moved before its commit is prepared again, up to 3 more
+times; `COLAB_STALE_BASE` after the last attempt means the page kept moving, so run it again. Block IDs are generated; `--id` picks one.
 Nothing goes in a block's text as HTML: marks are separate (`block text ... --mark bold --from 0 --to 5`;
 `--value` for `link`, `agent` and `block`, `--clear` to remove). A `block` value is a block ID on
 this page, or `PAGE/ID` for a block on another page.

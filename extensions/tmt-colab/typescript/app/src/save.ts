@@ -54,6 +54,29 @@ export interface BlocksResult extends SaveResult {
 }
 /** The most ops one block batch carries (`limits::BLOCK_BATCH_OPS`). */
 export const BLOCK_BATCH_OPS = 256;
+/** A block batch refused as stale is sent again this many more times (`limits::SAVE_EVALUATIONS`). */
+export const BLOCK_STALE_RETRIES = 3;
+/**
+ * `send` again, as a new operation, after the serve refused it as `COLAB_STALE_BASE`: the page
+ * moved between the serve's preparation and its commit, so nothing was written, and the batch
+ * (which carries no revision and names blocks by ID) is prepared on the page as it is now. Only
+ * that refusal is sent again; an outcome in doubt, a timeout and every other refusal reach the
+ * caller as they are, and so does the last stale refusal (#6220).
+ */
+export async function resendStale<T>(send: () => Promise<T>): Promise<T> {
+  for (let resent = 0; ; resent++) {
+    try {
+      return await send();
+    } catch (error) {
+      if (
+        !(error instanceof SaveRefused) ||
+        error.code !== 'COLAB_STALE_BASE' ||
+        resent >= BLOCK_STALE_RETRIES
+      )
+        throw error;
+    }
+  }
+}
 /** The closed work actions a browser sends (contract: Work); the serve refuses any other. */
 export type WorkAction =
   | 'summary.set'

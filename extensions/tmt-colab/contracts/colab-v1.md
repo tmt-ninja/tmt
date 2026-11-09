@@ -3188,7 +3188,15 @@ of the structured publisher. The browser save path (the `blocks` sync frame) and
 `blocks::ops::apply`, and write the same receipt and history entry. The isolated decoder replays the
 normalized steps as granular Yjs edits and refuses a projection that differs from the validator's.
 A batch carries no revision: ops address blocks by ID and merge into the current page, so two
-writers' batches converge without a fence.
+writers' batches converge without a fence the caller supplies. The commit still rechecks the base
+its preparation froze: a page that moved between the two refuses `COLAB_STALE_BASE` and writes
+nothing. `tmt colab block` then prepares the same ops again from a fresh snapshot, at most 3 more
+times, as `page patch` does, and only after that confirmed refusal. An outcome in doubt is never
+retried, and the refusal of the last attempt is the command's. The browser sends a batch refused
+that way again as a new batch, the same number of times and inside its turn: a later batch of the
+same tab waits until it settles, so a retry never lands behind a newer one. A batch that adds files
+keeps its own recovery. After the last refusal the page says the change was not saved and offers
+Retry; a batch whose outcome is in doubt is said to be, with no Retry.
 
 | Op                  | Shape                                                                                                                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
