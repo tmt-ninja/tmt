@@ -177,7 +177,7 @@ export interface StructuredPageProps {
   onOpenBlockMenu?(id: string): void;
   onInsertAfter?(id: string): void;
   /** The first typed text or insert gesture creates the first paragraph. */
-  onInsertFirst?(text: string): Promise<number | void>;
+  onInsertFirst?(text: string): Promise<boolean>;
   /** Text from a refused first insert, kept so it can be retried. */
   failedFirstText?: string;
   onMove?(id: string, parent: string, index: number): void;
@@ -300,7 +300,10 @@ export function StructuredPage(props: StructuredPageProps) {
       {props.toast && (
         <div className="tmt-block-toast-place" key={props.toast.id}>
           {props.toast.notice ? (
-            <BlockToast>{props.toast.notice}</BlockToast>
+            // A refused batch offers Retry in the toast's action place, without the Undo shortcut.
+            <BlockToast onUndo={props.toast.retry} undoLabel={strings.blockEdit.retry} shortcut="">
+              {props.toast.notice}
+            </BlockToast>
           ) : (
             <BlockToast onUndo={props.onUndo} undoLabel={strings.blockDelete.undo}>
               {strings.blockDelete.deleted(props.toast.count)}
@@ -318,7 +321,7 @@ function EmptyDocument({
   failedText,
 }: {
   readonly?: boolean;
-  onInsert?(text: string): Promise<number | void>;
+  onInsert?(text: string): Promise<boolean>;
   failedText?: string;
 }) {
   const [editing, setEditing] = useState(failedText !== undefined);
@@ -327,7 +330,8 @@ function EmptyDocument({
   const insert = (text: string) => {
     if (!text || started.current) return;
     started.current = true;
-    void onInsert?.(text).catch(() => {
+    void onInsert?.(text).then((sent) => {
+      if (sent) return;
       started.current = false;
       setEditing(true);
     });

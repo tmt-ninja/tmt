@@ -1,11 +1,14 @@
 import { expect, it } from 'vite-plus/test';
 import {
+  BLOCK_STALE_RETRIES,
   blocksResult,
   conflictAt,
+  resendStale,
   saveMessage,
   saveResult,
   SaveConflict,
   SaveNotApplied,
+  SaveOutcomeUnknown,
   SaveRefused,
   settledAgainst,
   workResult,
@@ -318,4 +321,50 @@ it('a block batch reply carries its receipt, and nothing else beyond a save repl
         'o',
       ),
     ).toThrow();
+});
+
+// #6220: a block batch the page moved under (the serve's stale refusal, nothing written) is sent
+// again; nothing else is.
+const stale = () => new SaveRefused('COLAB_STALE_BASE', 'Page changed since the editing base.');
+/** A send that fails as `fail()` for its first `failures` calls and then resolves with the call count. */
+function sends(fail: () => Error, failures: number) {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    send: async () => {
+      calls++;
+      if (calls <= failures) throw fail();
+      return calls;
+    },
+  };
+}
+
+it('sends a batch again after a stale refusal, up to three more times', async () => {
+  const once = sends(stale, 1);
+  expect(await resendStale(once.send)).toBe(2);
+  expect(once.calls).toBe(2);
+  const last = sends(stale, BLOCK_STALE_RETRIES);
+  expect(await resendStale(last.send)).toBe(BLOCK_STALE_RETRIES + 1);
+});
+
+it('gives the stale refusal of the last attempt to the caller', async () => {
+  const always = sends(stale, Infinity);
+  await expect(resendStale(always.send)).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
+  expect(always.calls).toBe(BLOCK_STALE_RETRIES + 1);
+});
+
+it('never sends again after an outcome in doubt, a timeout or another refusal', async () => {
+  for (const fail of [
+    () => new SaveOutcomeUnknown('o'),
+    () => new SaveNotApplied('o'),
+    () => new SaveRefused('COLAB_BLOCK_NOT_FOUND', 'That block no longer exists.'),
+    () => new SaveRefused('COLAB_CAPACITY', 'The page is full.'),
+    () => new Error('Timed out'),
+  ]) {
+    const refused = sends(fail, Infinity);
+    await expect(resendStale(refused.send)).rejects.toBeInstanceOf(Error);
+    expect(refused.calls).toBe(1);
+  }
 });

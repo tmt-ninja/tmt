@@ -44,6 +44,7 @@ import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
+import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused } from './save.js';
 import { text as strings } from './strings.js';
 import {
   type MentionEntry,
@@ -118,8 +119,10 @@ const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
 export interface DeleteToast {
   /** How many blocks the delete took. */
   count: number;
-  /** Why files were not added (#6202); no Undo then. */
+  /** Why files were not added (#6202), or that a batch was refused (#6220); no Undo then. */
   notice?: string;
+  /** Sends a refused batch again; the notice then has Retry and stays until it is sent. */
+  retry?: () => void;
   /** Moves with every line, so a new one restarts it. */
   id: number;
 }
@@ -139,6 +142,40 @@ export interface Editing {
   /** Moves on every text the page sends, so the editor replaces its text even when it is equal to
    * the last one sent. */
   version: number;
+}
+
+/** A batch the serve refused for good: what the status line says, and whether it may be sent
+ * again (not when its outcome is in doubt: it may have landed). */
+interface Refusal {
+  key: number;
+  ops: BlockOp[];
+  message: string;
+  retryable: boolean;
+}
+function refusalOf(key: number, ops: BlockOp[], error: unknown): Refusal {
+  if (error instanceof SaveRefused)
+    return {
+      key,
+      ops,
+      retryable: true,
+      message:
+        error.code === 'COLAB_STALE_BASE'
+          ? strings.blockEdit.stale
+          : error.message
+            ? strings.blockEdit.refused(error.message)
+            : strings.blockEdit.failed,
+    };
+  if (error instanceof SaveNotApplied)
+    return { key, ops, retryable: true, message: strings.blockEdit.notApplied };
+  if (error instanceof SaveOutcomeUnknown)
+    return { key, ops, retryable: false, message: strings.blockEdit.unknown };
+  return { key, ops, retryable: false, message: strings.blockEdit.failed };
+}
+
+/** The status line for the oldest refused batch: it stays until Retry sends the batch again, and
+ * a timed notice (a delete's Undo) is shown over it while that lasts. */
+function shownRefusal(refusal: Refusal | undefined, retry: () => void): DeleteToast | undefined {
+  return refusal && { count: 0, notice: refusal.message, retry, id: -refusal.key };
 }
 
 /**
@@ -169,6 +206,9 @@ export function useBlockEditing(
    * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
    * the file uploads, and is never sent. */
   const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
+  /** The batches the serve refused for good, oldest first (#6220): the page no longer draws them,
+   * and the status line says so and sends the oldest again on Retry. */
+  const [refusals, setRefusals] = useState<readonly Refusal[]>([]);
   const [uploads, setUploads] = useState<ReadonlyMap<string, BlockUpload>>(new Map());
   const [failedFirstText, setFailedFirstText] = useState<string>();
   const batchKey = useRef(0);
@@ -317,17 +357,28 @@ export function useBlockEditing(
   const showRef = useRef<(current: BlockTextSync, shown: { text: string; caret: number }) => void>(
     () => {},
   );
-  /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. */
+  /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. Resolves
+   * `true` once the page shows the batch and `false` when the serve refused it for good; it never
+   * rejects. A refusal goes to the status line with Retry (#6220), unless `report` is off: typing
+   * stays in the editor and goes out again with the next op, and a file's tile has its own Retry. */
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const lastBatch = useRef<Promise<number | void>>(Promise.resolve());
+  /** The latest batch of this tab, settled: `true` once admitted, `false` when refused. */
+  const lastBatch = useRef<Promise<boolean>>(Promise.resolve(true));
+  /** `notice`, which is defined after the sends that report to it. */
+  const noticeRef = useRef<(message: string) => void>(() => {});
   const out = useCallback(
-    (current: BlockTextSync | undefined, ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
+    (
+      current: BlockTextSync | undefined,
+      ops: BlockOp[],
+      stored?: readonly StoredAttachment[],
+      report = stored === undefined,
+    ): Promise<boolean> => {
       const key = ++batchKey.current;
       setPending((now) => [...now, { key, ops }]);
       // This tab's batches commit in the order it made them (a column's rename after its add): each
-      // goes once the one before it settles, and is drawn at once meanwhile.
+      // goes once the one before it settles, and is drawn at once meanwhile. A stale batch is sent
+      // again inside its own turn (`resendStale`), so a later batch never lands before it.
       const sent = queue.current.then(() => sendRef.current(ops, stored));
-      lastBatch.current = sent;
       queue.current = sent.then(
         () => {},
         () => {},
@@ -346,7 +397,23 @@ export function useBlockEditing(
           if (current) showRef.current(current, current.settled(false, caret.current));
         },
       );
-      return sent;
+      const settled = sent.then(
+        () => true,
+        (error: unknown) => {
+          if (report) {
+            const refusal = refusalOf(key, ops, error);
+            if (refusal.retryable) {
+              // A timed line (a delete's Undo) no longer tells the truth: the batch did not land.
+              clearTimeout(toastTimer.current);
+              setToast(undefined);
+              setRefusals((now) => [...now, refusal]);
+            } else noticeRef.current(refusal.message);
+          }
+          return false;
+        },
+      );
+      lastBatch.current = settled;
+      return settled;
     },
     [],
   );
@@ -366,7 +433,7 @@ export function useBlockEditing(
     const current = sync.current;
     const ops = current ? typedOps(current) : [];
     if (!current || !ops.length) return;
-    void out(current, ops);
+    void out(current, ops, undefined, false);
   }, [out, typedOps]);
   /** Flush the active editor and wait until its latest batch is admitted or refused. */
   const settle = useCallback(async () => {
@@ -483,9 +550,7 @@ export function useBlockEditing(
       history.current.record(treeRef.current, ops);
       arriving.current = row;
       open(new BlockTextSync(row, '', { table, column: first.id }), 0);
-      try {
-        await out(undefined, ops);
-      } catch {
+      if (!(await out(undefined, ops))) {
         // Refused: no row was added, and the editor closes.
         if (sync.current?.id === row) {
           arriving.current = undefined;
@@ -554,9 +619,7 @@ export function useBlockEditing(
         new BlockTextSync(newId, tail),
         Math.max(0, Math.min([...tail].length, [...text].length - length)),
       );
-      try {
-        await out(undefined, ops);
-      } catch {
+      if (!(await out(undefined, ops))) {
         // Refused: nothing changed on the page. The person's text goes back where it was.
         if (sync.current?.id === newId) {
           arriving.current = undefined;
@@ -587,7 +650,7 @@ export function useBlockEditing(
       // The join's text op is the one `into` has on its way.
       into.flush();
       open(into, [...previous.text!].length);
-      await out(into, ops).catch(() => {});
+      await out(into, ops);
     },
     [open, out],
   );
@@ -610,7 +673,7 @@ export function useBlockEditing(
       }
       // The page moved under the typing: the range no longer names what the person selected.
       if (local.text !== current.text) {
-        if (ops.length) void out(current, ops);
+        if (ops.length) void out(current, ops, undefined, false);
         return;
       }
       const on = marked(
@@ -627,7 +690,7 @@ export function useBlockEditing(
         format: { ...range, mark, value: on ? (valued ? null : false) : value },
       };
       history.current.record(new BlockTree([local]), [op]);
-      await out(current, [...ops, op]).catch(() => {});
+      await out(current, [...ops, op]);
     },
     [out, typedOps],
   );
@@ -640,7 +703,7 @@ export function useBlockEditing(
       const ops = indentBlock(treeRef.current, current.id, by);
       if (!ops.length) return;
       history.current.record(treeRef.current, ops);
-      await out(current, [...typedOps(current), ...ops]).catch(() => {});
+      await out(current, [...typedOps(current), ...ops]);
     },
     [out, typedOps],
   );
@@ -700,9 +763,7 @@ export function useBlockEditing(
         setEditing(undefined);
         if (question) setAuthoring(newId);
       }
-      await out(undefined, ops).catch(() => {
-        if (arriving.current === newId) arriving.current = undefined;
-      });
+      if (!(await out(undefined, ops)) && arriving.current === newId) arriving.current = undefined;
     },
     [open, out, flush],
   );
@@ -713,6 +774,16 @@ export function useBlockEditing(
     setToast((now) => ({ count: 0, notice: message, id: (now?.id ?? 0) + 1 }));
     toastTimer.current = setTimeout(() => setToast(undefined), TOAST_MS);
   }, []);
+  noticeRef.current = notice;
+  const refusalsRef = useRef(refusals);
+  refusalsRef.current = refusals;
+  /** Sends the oldest refused batch again, as a new turn of this tab's queue. */
+  const retryRefused = useCallback(() => {
+    const [first] = refusalsRef.current;
+    if (!first) return;
+    setRefusals((now) => now.filter((refusal) => refusal.key !== first.key));
+    void out(undefined, first.ops);
+  }, [out]);
   /** Files whose uploads are under way: they count against the page's cap until their batch. */
   const adding = useRef(0);
   /**
@@ -790,7 +861,9 @@ export function useBlockEditing(
           // The tile gives way to the batch in one render: the page draws the block either way.
           draw();
           void out(undefined, ops, [stored])
-            .catch(() => draw({ state: 'failed', retry: () => commit(stored) }))
+            .then((sent) => {
+              if (!sent) draw({ state: 'failed', retry: () => commit(stored) });
+            })
             .finally(release);
         };
         let counted = true;
@@ -968,7 +1041,7 @@ export function useBlockEditing(
       const restored = ops.filter((op) => op.op === 'restore').map((op) => op.id);
       if (restored.length)
         setSelection({ anchor: restored[0]!, focus: restored[restored.length - 1]! });
-      void out(undefined, ops).catch(() => {});
+      void out(undefined, ops);
     },
     [out],
   );
@@ -979,7 +1052,7 @@ export function useBlockEditing(
     (ops: BlockOp[]) => {
       if (!ops.length) return;
       history.current.record(treeRef.current, ops);
-      void out(undefined, ops).catch(() => {});
+      void out(undefined, ops);
     },
     [out],
   );
@@ -1122,8 +1195,11 @@ export function useBlockEditing(
       open(next, [...text].length);
       setMenuAt(text.startsWith('/') ? { id: newId, query: text } : undefined);
       history.current.record(treeRef.current, ops);
-      const sent = out(undefined, ops);
-      void sent.catch(() => {
+      // The first block of an empty page keeps its own alert and Retry (#6187); `out` reports any
+      // other refusal in the status line.
+      const sent = out(undefined, ops, undefined, after !== undefined);
+      void sent.then((ok) => {
+        if (ok) return;
         if (after === undefined)
           setFailedFirstText(sync.current?.id === newId ? sync.current.text : text);
         if (arriving.current === newId) arriving.current = undefined;
@@ -1290,7 +1366,7 @@ export function useBlockEditing(
     closeBlockMenu: () => setBlockMenu(undefined),
     hoverBlockMenu: (action: string) =>
       setBlockMenu((now) => (now ? { ...now, active: action } : now)),
-    toast,
+    toast: toast ?? shownRefusal(refusals[0], retryRefused),
     undo,
     attach,
     uploads,

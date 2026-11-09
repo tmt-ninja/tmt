@@ -10,6 +10,7 @@ import type { ParentPageViewSource } from './parent-page-view.js';
 import type { QuestionPage } from './structured-question.js';
 import type { MountMockup } from './structured-page.js';
 import { StructuredPage } from './structured-page.js';
+import { resendStale } from './save.js';
 import type { PageBinding } from './transport.js';
 import { useBlockEditing } from './use-block-editing.js';
 import { useAgentDirectory } from './agent-directory.js';
@@ -76,7 +77,9 @@ export function LiveStructuredPage({
   const send = useCallback(
     async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       if (!write) throw new Error('Page editing unavailable');
-      if (!stored?.length) return (await write(ops)).seq;
+      // A batch the page moved under is sent again as a new one (#6220); a batch that adds files
+      // keeps its own recovery.
+      if (!stored?.length) return (await resendStale(() => write(ops))).seq;
       // The files join the page's list in the same batch as the blocks that show them (#6202).
       if (!pageFiles?.addToBlocks) throw new Error('Files are not available on this page.');
       return (await pageFiles.addToBlocks(stored, ops)).seq;

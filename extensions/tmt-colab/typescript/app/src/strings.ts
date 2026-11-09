@@ -117,6 +117,16 @@ export const text = {
     deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
     undo: 'Undo',
   },
+  /** A batch of this tab the serve refused for good (#6220): said in the status line. */
+  blockEdit: {
+    retry: 'Retry',
+    stale: 'The page kept changing, so your last change was not saved.',
+    refused: (reason: string) => `Your last change was not saved: ${reason}`,
+    notApplied: 'Your last change was not applied.',
+    unknown:
+      'Your last change may not have been saved. Reload the page to check before you make it again.',
+    failed: 'Your last change was not saved.',
+  },
   blockFiles: {
     full: (limit: number) =>
       `A page holds at most ${limit} files, and these would pass that, so nothing was added. Delete files the page no longer uses, or ask an agent to run block detach, then add again.`,
