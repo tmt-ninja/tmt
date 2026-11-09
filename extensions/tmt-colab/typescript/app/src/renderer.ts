@@ -346,6 +346,7 @@ export async function mountRenderer(
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
   let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
+  let pendingLink: { request: PageLinkRequest; active: boolean } | undefined;
   const readyWaiters: (() => void)[] = [];
   let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let pendingDesign: { requestId: string; settle(result: SourceUpdate): void } | undefined;
@@ -537,6 +538,7 @@ export async function mountRenderer(
   };
   const release = () => {
     if (stopped) return;
+    pendingLink = undefined;
     pendingReveal?.settle(undefined);
     pendingUpdate?.settle('superseded');
     pendingDesign?.settle('superseded');
@@ -621,8 +623,10 @@ export async function mountRenderer(
       if (image) options.onImageDownload?.(image);
       return;
     }
-    if (ready && pageLinkRequest(value, snapshot.renderId)) {
-      options.onLink?.(value, navigator.userActivation?.isActive === true);
+    if (pageLinkRequest(value, snapshot.renderId)) {
+      const active = navigator.userActivation?.isActive === true;
+      if (ready) options.onLink?.(value, active);
+      else pendingLink = { request: value, active };
       return;
     }
     if (ready && value.renderId === snapshot.renderId && Object.keys(value).length === 3) {
@@ -904,6 +908,10 @@ export async function mountRenderer(
       }
     }
     options.onState('ready');
+    const link = pendingLink;
+    pendingLink = undefined;
+    if (!stopped && link)
+      options.onLink?.(link.request, link.active && navigator.userActivation?.isActive === true);
   };
   // A message the port cannot deliver may have been the answer to an update: mount afresh.
   channel.port1.onmessageerror = () => {

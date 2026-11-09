@@ -341,3 +341,81 @@ for (const width of [1440, 390])
       if (directory) await page.screenshot({ path: `${directory}/refused-${width}-${theme}.png` });
     });
   }
+
+for (const scenario of ['one', 'latest', 'expired', 'released'] as const) {
+  test(`an early frame link is bounded and respects activation: ${scenario}`, async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const state = {
+        held: [] as MessageEvent[],
+        seen: 0,
+        links: [] as { href: string; active: boolean }[],
+        release: false,
+        handle: undefined as any,
+      };
+      Object.assign(window, { earlyLinkTest: state });
+      addEventListener(
+        'message',
+        (event) => {
+          if (event.data?.type === 'colab.render.link') state.seen++;
+          if (event.data?.type === 'colab.render.bound' && !state.release) {
+            event.stopImmediatePropagation();
+            state.held.push(event);
+          }
+        },
+        true,
+      );
+      const { mountRenderer } = await import('/src/renderer.ts' as string);
+      const host = document.createElement('div');
+      host.id = 'early-link-probe';
+      document.body.prepend(host);
+      state.handle = await mountRenderer(
+        host,
+        '<a href="/p/12345678">First</a><a href="/p/87654321">Second</a>',
+        {
+          signal: new AbortController().signal,
+          onState: (value: string) => {
+            host.dataset.state = value;
+          },
+          onLink: (request: { href: string }, active: boolean) => {
+            state.links.push({ href: request.href, active });
+          },
+        },
+      );
+    });
+    await expect.poll(() => page.evaluate(() => (window as any).earlyLinkTest.held.length)).toBe(1);
+    const probe = page.frameLocator('#early-link-probe iframe');
+    await probe.getByRole('link', { name: 'First' }).click();
+    if (scenario === 'latest') await probe.getByRole('link', { name: 'Second' }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).earlyLinkTest.seen))
+      .toBe(scenario === 'latest' ? 2 : 1);
+    await page.evaluate((which) => {
+      const state = (window as any).earlyLinkTest;
+      if (which === 'released') state.handle.destroy();
+      if (which === 'expired')
+        Object.defineProperty(navigator, 'userActivation', {
+          configurable: true,
+          value: { isActive: false },
+        });
+      const event = state.held[0] as MessageEvent;
+      state.release = true;
+      dispatchEvent(
+        new MessageEvent('message', {
+          data: event.data,
+          source: event.source,
+          origin: event.origin,
+        }),
+      );
+    }, scenario);
+    if (scenario === 'released') {
+      expect(await page.evaluate(() => (window as any).earlyLinkTest.links)).toEqual([]);
+    } else {
+      const links = await page.evaluate(() => (window as any).earlyLinkTest.links);
+      expect(links).toHaveLength(1);
+      expect(links[0].href).toBe(scenario === 'latest' ? '/p/87654321' : '/p/12345678');
+      if (scenario === 'expired') expect(links[0].active).toBe(false);
+      else expect(links[0].active).toBe(true);
+    }
+  });
+}
