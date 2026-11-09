@@ -7,6 +7,134 @@ use yrs::{
     TransactionMut, Update, updates::decoder::Decode,
 };
 
+// The only Yjs mutation for conversion lives inside the isolated decoder child.
+mod conversion_doc {
+    use super::{Any, DecodeFault, Doc, Map, Out, Transact};
+
+    pub(super) fn apply(doc: &Doc, converted_at: u64) -> Result<Vec<u8>, DecodeFault> {
+        tmt_colab_model::values::time(converted_at).map_err(|_| DecodeFault::InvalidInput)?;
+        let meta = doc.get_or_insert_map("meta");
+        let mut txn = doc.transact_mut();
+        if let Some(Out::Any(Any::String(layout))) = meta.get(&txn, "layout") {
+            let mut legacy = serde_json::json!({"layout": layout.as_ref()});
+            if let Some(Out::Any(Any::String(reason))) = meta.get(&txn, "layoutReason") {
+                legacy["layoutReason"] = serde_json::json!(reason.as_ref());
+            }
+            let value =
+                Any::from_json(&legacy.to_string()).map_err(|_| DecodeFault::InvalidInput)?;
+            meta.insert(&mut txn, "legacyLayout", value);
+        }
+        meta.remove(&mut txn, "layout");
+        meta.remove(&mut txn, "layoutReason");
+        meta.insert(&mut txn, "pageType", "blocks");
+        meta.insert(&mut txn, "convertedAt", converted_at as f64);
+        Ok(txn.encode_update_v1())
+    }
+
+    pub(super) fn revert(doc: &Doc) -> Vec<u8> {
+        let meta = doc.get_or_insert_map("meta");
+        let blocks = doc.get_or_insert_map("blocks");
+        let mut txn = doc.transact_mut();
+        let keys: Vec<String> = blocks.keys(&txn).map(str::to_owned).collect();
+        for key in keys {
+            blocks.remove(&mut txn, &key);
+        }
+        meta.remove(&mut txn, "pageType");
+        meta.remove(&mut txn, "convertedAt");
+        if let Some(Out::Any(Any::Map(legacy))) = meta.get(&txn, "legacyLayout") {
+            for key in ["layout", "layoutReason"] {
+                if let Some(Any::String(value)) = legacy.get(key) {
+                    meta.insert(&mut txn, key, value.as_ref());
+                }
+            }
+        }
+        meta.remove(&mut txn, "legacyLayout");
+        txn.encode_update_v1()
+    }
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    #[test]
+    fn conversion_is_one_replayable_transaction_preserving_metadata() {
+        let converted_at = 123;
+        let doc = Doc::with_client_id(923);
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        {
+            let mut txn = doc.transact_mut();
+            html.insert(&mut txn, 0, "<p>café 🐈</p>\r\n");
+            meta.insert(&mut txn, "title", "Planning");
+            meta.insert(&mut txn, "layout", "canvas");
+            meta.insert(&mut txn, "layoutReason", "A custom frame");
+        }
+        let before = project(&doc, Namespace::Content).unwrap();
+        let initial = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let update = conversion_doc::apply(&doc, converted_at).unwrap();
+        let expected =
+            crate::conversion::project(&before, &serde_json::json!({"convertedAt":converted_at}))
+                .unwrap();
+        assert_eq!(project(&doc, Namespace::Content).unwrap(), expected);
+        let replica = Doc::new();
+        {
+            let mut txn = replica.transact_mut();
+            txn.apply_update(Update::decode_v1(&initial).unwrap())
+                .unwrap();
+            txn.apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+        }
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), expected);
+        let revert = conversion_doc::revert(&doc);
+        let restored = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(restored["meta"]["layout"], "canvas");
+        assert_eq!(restored["meta"]["layoutReason"], "A custom frame");
+        assert!(restored["meta"].get("legacyLayout").is_none());
+        replica
+            .transact_mut()
+            .apply_update(Update::decode_v1(&revert).unwrap())
+            .unwrap();
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), restored);
+    }
+
+    #[test]
+    fn revert_clears_live_blocks_and_preserves_exact_legacy_html() {
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let blocks = doc.get_or_insert_map("blocks");
+        {
+            let mut txn = doc.transact_mut();
+            html.insert(&mut txn, 0, "<p>café 🐈</p>\r\n");
+            meta.insert(&mut txn, "title", "Planning");
+            meta.insert(&mut txn, "pageType", "blocks");
+            meta.insert(&mut txn, "convertedAt", 123.0_f64);
+            blocks.insert(&mut txn, "one", "discarded");
+            blocks.insert(&mut txn, "two", "discarded");
+        }
+        let initial = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let update = conversion_doc::revert(&doc);
+        let expected = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(expected["html"], "<p>café 🐈</p>\r\n");
+        assert!(expected.get("blocks").is_none());
+        assert!(expected["meta"].get("convertedAt").is_none());
+        let replica = Doc::new();
+        {
+            let mut txn = replica.transact_mut();
+            txn.apply_update(Update::decode_v1(&initial).unwrap())
+                .unwrap();
+            txn.apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+        }
+        assert_eq!(project(&replica, Namespace::Content).unwrap(), expected);
+    }
+}
+
 pub(super) fn run() -> std::process::ExitCode {
     if !initialize() {
         return std::process::ExitCode::FAILURE;
@@ -457,6 +585,19 @@ fn prepare_content(
     let mut updates = Vec::new();
     if expected != before {
         if let Some(structured) = wire
+            .structured
+            .as_ref()
+            .filter(|s| s.kind == StructuredKind::Conversion)
+        {
+            if structured.action == "page.revert" {
+                updates.push(conversion_doc::revert(&doc));
+            } else {
+                let converted_at = structured.body["convertedAt"]
+                    .as_u64()
+                    .ok_or(DecodeFault::InvalidInput)?;
+                updates.push(conversion_doc::apply(&doc, converted_at)?);
+            }
+        } else if let Some(structured) = wire
             .structured
             .as_ref()
             .filter(|s| s.kind == StructuredKind::Blocks)
@@ -1597,6 +1738,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 work: wire.work.as_ref(),
                 page_state: wire.page_state.as_ref(),
                 converted_at: wire.converted_at.as_ref(),
+                legacy_layout: wire.legacy_layout.as_ref(),
             };
             if creation.layout.is_some_and(|layout| !layout.valid()) {
                 return Err(DecodeFault::InvalidInput);
@@ -1717,6 +1859,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("convertedAt") != wire.converted_at.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing && projection["meta"].get("legacyLayout") != wire.legacy_layout.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
@@ -1845,6 +1990,7 @@ struct BaselineMeta<'a> {
     work: Option<&'a Value>,
     page_state: Option<&'a Value>,
     converted_at: Option<&'a Value>,
+    legacy_layout: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
@@ -1855,6 +2001,7 @@ impl BaselineMeta<'_> {
             ("fromTemplate", self.from_template),
             ("pageState", self.page_state),
             ("convertedAt", self.converted_at),
+            ("legacyLayout", self.legacy_layout),
         ] {
             if let Some(value) = value {
                 meta.insert(
@@ -1946,6 +2093,7 @@ mod baseline_tests {
                 &BaselineMeta {
                     page_state: None,
                     converted_at: None,
+                    legacy_layout: None,
                     creator: None,
                     questions: None,
                     template: None,

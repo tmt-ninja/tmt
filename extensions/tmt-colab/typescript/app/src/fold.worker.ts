@@ -235,7 +235,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'work' &&
         key !== 'pageState' &&
         key !== 'attachments' &&
-        key !== 'convertedAt',
+        key !== 'convertedAt' &&
+        key !== 'legacyLayout',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
@@ -259,6 +260,7 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('work') ? { work: meta.get('work') } : {}),
     ...(meta.has('pageState') ? { pageState: meta.get('pageState') } : {}),
     ...(meta.has('convertedAt') ? { convertedAt: meta.get('convertedAt') } : {}),
+    ...(meta.has('legacyLayout') ? { legacyLayout: meta.get('legacyLayout') } : {}),
   };
   validateProjection(projection);
   return projection;

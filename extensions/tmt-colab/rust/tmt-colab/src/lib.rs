@@ -8,6 +8,7 @@ mod browser_policy;
 mod chrome;
 pub mod closed;
 pub mod control;
+pub mod conversion;
 pub mod core;
 pub mod decoder;
 pub mod deploy_declaration;

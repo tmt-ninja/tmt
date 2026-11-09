@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
 const fixture = '/test/metadata-browser.html';
 async function command(page: Page, method: string, value?: unknown) {
@@ -23,6 +24,73 @@ async function ready(page: Page, suffix = '') {
     page.frameLocator('iframe').getByRole('heading', { name: 'Metadata page' }),
   ).toBeVisible();
 }
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`conversion keeps legacy HTML hidden and revert confirms the block count ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await ready(page);
+      if (process.env.COLAB_CONVERSION_CAPTURE_DIR) {
+        mkdirSync(process.env.COLAB_CONVERSION_CAPTURE_DIR, { recursive: true });
+        await command(page, 'showArchiveReference');
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await page.screenshot({
+          path: `${process.env.COLAB_CONVERSION_CAPTURE_DIR}/reference-${width}-${theme}.png`,
+        });
+        await command(page, 'hideArchiveReference');
+      }
+      await (await pageAction(page, 'Convert to structured page…')).click();
+      if (process.env.COLAB_CONVERSION_CAPTURE_DIR) {
+        mkdirSync(process.env.COLAB_CONVERSION_CAPTURE_DIR, { recursive: true });
+        await page.screenshot({
+          path: `${process.env.COLAB_CONVERSION_CAPTURE_DIR}/page-convert-${width}-${theme}.png`,
+        });
+      }
+      await page
+        .getByRole('dialog', { name: 'Convert to a structured page?' })
+        .getByRole('button', { name: 'Convert page' })
+        .click();
+      await expect(
+        page.frameLocator('iframe').getByRole('heading', { name: 'Metadata page' }),
+      ).toHaveCount(0);
+      await command(page, 'addExampleBlock');
+      await (await pageAction(page, 'Switch back to HTML…')).click();
+      const dialog = page.getByRole('dialog', { name: 'Switch back to HTML?' });
+      await expect(dialog).toContainText('The page shows its old HTML and layout again.');
+      await expect(dialog).toContainText(
+        'Switching back removes the 1 block written since conversion.',
+      );
+      if (process.env.COLAB_CONVERSION_CAPTURE_DIR) {
+        await page.screenshot({
+          path: `${process.env.COLAB_CONVERSION_CAPTURE_DIR}/page-revert-${width}-${theme}.png`,
+        });
+      }
+      await dialog.getByRole('button', { name: 'Switch back', exact: true }).click();
+      await expect(
+        page.frameLocator('iframe').getByRole('heading', { name: 'Metadata page' }),
+      ).toBeVisible();
+    });
+test('revert refuses when the block count changed after confirmation opened', async ({ page }) => {
+  await ready(page);
+  await (await pageAction(page, 'Convert to structured page…')).click();
+  await page
+    .getByRole('dialog', { name: 'Convert to a structured page?' })
+    .getByRole('button', { name: 'Convert page' })
+    .click();
+  await (await pageAction(page, 'Switch back to HTML…')).click();
+  const dialog = page.getByRole('dialog', { name: 'Switch back to HTML?' });
+  await expect(dialog).toContainText('removes the 0 blocks');
+  await command(page, 'addExampleBlock');
+  await dialog.getByRole('button', { name: 'Switch back', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    'The page changed. Open the confirmation again and check the block count.',
+  );
+  const proof = await command(page, 'proof');
+  expect(proof.view.pageType).toBe('blocks');
+  expect(Object.keys(proof.view.blocks)).toHaveLength(1);
+});
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`metadata menu, registry and About at ${width} ${theme}`, async ({ page }) => {

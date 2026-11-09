@@ -84,6 +84,29 @@ it('exports a page of blocks as blocks.json and a rendering derived from it', as
   expect(manifest.files[0].derivedFrom).toBeUndefined();
 });
 
+it('exports retained legacy HTML byte for byte, including an empty source', async () => {
+  for (const source of ['', '<p>café 🐈</p>\r\n']) {
+    const bundle = await prepareExport({
+      ...input(),
+      source,
+      pageType: 'blocks',
+      blocks: {},
+      convertedAt: 123,
+      attachmentEntries: [],
+    });
+    expect(await bytes(bundle.blob('legacy.html'))).toEqual(utf8(source));
+    const manifest = JSON.parse(
+      new TextDecoder().decode(await bytes(bundle.blob('manifest.json'))),
+    );
+    expect(
+      manifest.files.find((file: { name: string }) => file.name === 'legacy.html'),
+    ).toMatchObject({
+      sizeBytes: utf8(source).length,
+      sha256: sha(utf8(source)),
+    });
+  }
+});
+
 it('exports a page with work as work.json right after its HTML, byte for byte like native', async () => {
   const bundle = await prepareExport({ ...input(), work: structuredClone(fixture.work) });
   expect(bundle.files.map(({ name }) => name).slice(0, 4)).toEqual([

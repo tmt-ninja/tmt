@@ -75,6 +75,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
         [
           'page',
           'create',
+          '--html',
           '--title',
           'Hosted notes',
           '--layout',

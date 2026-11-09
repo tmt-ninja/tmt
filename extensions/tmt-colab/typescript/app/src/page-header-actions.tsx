@@ -68,6 +68,9 @@ export function PageHeaderActions({
   canProjects,
   canArchive = false,
   canMove = false,
+  onConvert,
+  onRevert,
+  showSource = true,
   pin,
   creatorLabel,
   access,
@@ -81,6 +84,9 @@ export function PageHeaderActions({
   canProjects: boolean;
   canArchive?: boolean;
   canMove?: boolean;
+  onConvert?(): void;
+  onRevert?(): void;
+  showSource?: boolean;
   pin?: PagePinState;
   creatorLabel?: string;
   readOnly?: boolean;
@@ -118,7 +124,9 @@ export function PageHeaderActions({
     ...(files > 0 || canFiles
       ? [{ key: 'files', label: `${text.files} (${files})`, disabled: !canFiles }]
       : []),
-    { key: 'source', label: text.source },
+    ...(showSource ? [{ key: 'source', label: text.source }] : []),
+    ...(onConvert ? [{ key: 'convert', label: text.convertStructured }] : []),
+    ...(onRevert ? [{ key: 'revert', label: text.revertStructured }] : []),
     ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
     { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
     ...(canArchive ? [{ key: 'archive', label: text.pageList.archiveItem, separated: true }] : []),
@@ -172,7 +180,13 @@ export function PageHeaderActions({
               },
             ]
           : []),
-        { key: 'source', label: text.source, leadingIcon: <Code2 /> },
+        ...(showSource ? [{ key: 'source', label: text.source, leadingIcon: <Code2 /> }] : []),
+        ...(onConvert
+          ? [{ key: 'convert', label: text.convertStructured, leadingIcon: <Code2 /> }]
+          : []),
+        ...(onRevert
+          ? [{ key: 'revert', label: text.revertStructured, leadingIcon: <Code2 /> }]
+          : []),
         ...(!readOnly
           ? [{ key: 'export', label: text.export, leadingIcon: <Download />, disabled: !canExport }]
           : []),
@@ -206,6 +220,8 @@ export function PageHeaderActions({
     items: sharedBar ? groupedItems : legacyItems,
     onSelect: (key: string) => {
       if (key === 'share') onSelect('manage');
+      else if (key === 'convert') onConvert?.();
+      else if (key === 'revert') onRevert?.();
       else if (key === 'projects') onSelect('projects');
       else if (key === 'pin') onSelect('pin');
       else if (

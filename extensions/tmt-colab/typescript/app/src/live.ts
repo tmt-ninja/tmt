@@ -83,6 +83,8 @@ export function sameDescriptors(
 }
 
 export class Live implements PageBinding {
+  /** The exact page cuts associated with recent displayed metadata fences. */
+  #metadataCuts = new Map<string, string>();
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
@@ -955,28 +957,100 @@ export class Live implements PageBinding {
     return this.canWork();
   }
   async metadataRevision(
-    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'>,
-    scope?: 'page-state',
+    shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
+      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
+    scope?: 'page-state' | 'conversion',
   ): Promise<string> {
+    const conversion = (value: typeof shown) =>
+      canonical({
+        pageType: value.pageType,
+        blocks: value.blocks,
+        convertedAt: value.convertedAt,
+      });
+    const conversionChanged = () =>
+      shown.source !== this.#admitted.source || conversion(shown) !== conversion(this.#admitted);
+    const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
+      canonical(
+        scope === 'page-state'
+          ? { pageState: value.pageState ?? 'todo' }
+          : { creator: value.creator, questions: value.questions },
+      );
+    const changed = () =>
+      scope === 'conversion' ? conversionChanged() : metadata(shown) !== metadata(this.#admitted);
+    // A reconnect must not make an already unseen change appear to be the displayed base.
+    if (changed())
+      throw new SaveRefused(
+        'COLAB_STALE_BASE',
+        'Page metadata changed. Read it again before writing.',
+      );
+    // Freeze the displayed page's current admitted base before sending a metadata write.
     const connection = await this.#settled();
     // Capture through the same serialized owner as Export: a newly admitted revision cannot
     // silently turn an old visible choice into an edit of newer metadata.
     return connection.run(async () => {
       if (!this.canMetadata() || connection !== this.#connection)
         throw new Error('Page metadata editing unavailable');
-      const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
-        canonical(
-          scope === 'page-state'
-            ? { pageState: value.pageState ?? 'todo' }
-            : { creator: value.creator, questions: value.questions },
-        );
-      if (metadata(shown) !== metadata(this.#admitted))
+      if (changed())
         throw new SaveRefused(
           'COLAB_STALE_BASE',
           'Page metadata changed. Read it again before writing.',
         );
-      return connection.objects.revision();
+      const revision = await connection.objects.revision();
+      this.#metadataCuts.set(revision, connection.objects.cuts());
+      if (this.#metadataCuts.size > 32)
+        this.#metadataCuts.delete(this.#metadataCuts.keys().next().value!);
+      return revision;
     });
+  }
+  /** Verify a fresh head without retiring the page connection; retry only if its cuts agree. */
+  async #membershipOnlyRevision(connection: Connection, cuts: string): Promise<string | undefined> {
+    const registration = this.registration;
+    const admission = new Admission(
+      this.bootstrap.space,
+      this.page.pageId,
+      this.page.epoch,
+      this.bootstrap.owner,
+      registration,
+    );
+    await admission.restore();
+    if (this.#closed || this.#error || connection !== this.#connection) return undefined;
+    const witness = new Connection(
+      admission,
+      this.mount,
+      this.page.sharing,
+      () => {},
+      () => {},
+      ['colab-sync-v2'],
+      true,
+    );
+    try {
+      await witness.ready;
+      return await connection.run(async () => {
+        if (
+          this.#closed ||
+          this.#error ||
+          connection !== this.#connection ||
+          !connection.active ||
+          this.registration !== registration ||
+          connection.objects.cuts() !== cuts ||
+          witness.objects.cuts() !== cuts ||
+          admission
+            .statements()
+            .slice(connection.admission.statements().length)
+            .some(
+              ({ payload }) =>
+                'pageId' in payload.value && payload.value.pageId === this.page.pageId,
+            )
+        )
+          return undefined;
+        await connection.admission.advanceFrom(admission);
+        connection.admission.validatePage(this.page.sharing);
+        if (!connection.admission.ownerDevice(registration.deviceId)) return undefined;
+        return connection.objects.revision();
+      });
+    } finally {
+      witness.close();
+    }
   }
   async metadata(
     action: MetadataAction,
@@ -992,6 +1066,21 @@ export class Live implements PageBinding {
     } catch (error) {
       if (!(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
+    }
+    if (result.state === 'rejected' && result.code === 'COLAB_STALE_BASE') {
+      const cuts = this.#metadataCuts.get(expectedRevision);
+      if (cuts !== undefined) {
+        const revision = await this.#membershipOnlyRevision(c, cuts).catch(() => undefined);
+        if (revision && revision !== expectedRevision) {
+          const retryId = crypto.randomUUID();
+          try {
+            result = await c.metadata(retryId, action, body, revision);
+          } catch (error) {
+            if (!(error instanceof Error) || c.active) throw error;
+            result = await this.#settleLost(c, retryId);
+          }
+        }
+      }
     }
     settled(result);
     await this.#showsRevision(result.revision);

@@ -136,7 +136,7 @@ fn grammar() -> Command {
                 note: "Run the space; stop it with tmt colab stop",
             },
             Example {
-                command: "tmt colab page create --title Notes --layout column --file page.html",
+                command: "tmt colab page create --html --title Notes --layout column --file page.html",
                 note: "Create a page and print its link",
             },
             Example {
@@ -264,7 +264,7 @@ fn grammar() -> Command {
         summary: "Create, read and write local pages",
         examples: &[
             Example {
-                command: "tmt colab page create --title Notes --layout column --file page.html",
+                command: "tmt colab page create --html --title Notes --layout column --file page.html",
                 note: "Create a private page and print its link",
             },
             Example {
@@ -279,11 +279,11 @@ fn grammar() -> Command {
         name: "create",
         summary: "Create a private local page",
         examples: &[Example {
-            command: "tmt colab page create --title Notes --layout column --file page.html --json",
+            command: "tmt colab page create --title Notes --json",
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the page opens in the owner's browser even without a terminal or with --json, unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback; without a door the relative path and the reason are printed. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is created.",
+        details: "Creates an empty structured page by default; edit it with tmt colab block. Use --html for an HTML page, with --file, --layout or --template as needed. Use --file - for bounded UTF-8 stdin. Initializes a fresh local space when needed and commits through the owner service. While a Remote door runs, the page opens in the owner's browser unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback. HTML source findings print as warnings; --strict refuses before creation.",
     };
     const WRITE: CommandSpec = CommandSpec {
         name: "write",
@@ -293,7 +293,7 @@ fn grammar() -> Command {
             note: "Refused: use page patch for existing pages",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Refuses existing pages without reading a source file or stdin. Use page patch for anchored edits and page create --file for a new page. Repeat --find/--replace pairs to make several changes in one revision.",
+        details: "Refuses existing pages without reading a source file or stdin. Use page patch for anchored edits and page create --html --file for a new page. Repeat --find/--replace pairs to make several changes in one revision.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -407,6 +407,9 @@ fn grammar() -> Command {
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf)))
+                                    .arg(Arg::new("html").long("html").action(ArgAction::SetTrue)
+                                        .conflicts_with("structured")
+                                        .help("Create a legacy HTML page instead of a structured page"))
                                     .arg(Arg::new("structured").long("structured").action(ArgAction::SetTrue)
                                         .conflicts_with_all(["file", "layout", "reason", "template", "creator"])
                                         .help("Create a page of blocks, edited with tmt colab block (no HTML source)")),
@@ -417,6 +420,7 @@ fn grammar() -> Command {
                     .subcommand(cli_compact::command())
                     .subcommand(cli_storage::page_command())
                     .subcommand(cli_read::command())
+                    .subcommand(cli_read::convert_command())
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
                             .arg(cli_grammar::page())
@@ -956,7 +960,19 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     if command == "creator" || command == "state" {
         return cli_metadata::run(root, command, args);
     }
-    if command == "create" && args.get_flag("structured") {
+    if command == "create" && !args.get_flag("html") {
+        if args.get_one::<std::path::PathBuf>("file").is_some()
+            || args.get_one::<String>("layout").is_some()
+            || args.get_one::<String>("reason").is_some()
+            || args.get_one::<String>("template").is_some()
+            || args.get_one::<String>("creator").is_some()
+            || args.get_flag("strict")
+        {
+            return Err(cli_management::fail(
+                "COLAB_INPUT_INVALID",
+                "HTML source, layout, template, creator and --strict require --html. Structured pages are created empty; use tmt colab block to add content.",
+            ));
+        }
         return cli_management::create_blocks_page(root, args);
     }
     if command == "create" {
@@ -1013,6 +1029,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     if command == "read" {
         return cli_read::run(root, args);
     }
+    if command == "convert" {
+        return cli_read::convert(root, args);
+    }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
@@ -1027,7 +1046,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         store.close()?;
         return Err(cli_management::fail(
             "COLAB_INPUT_INVALID",
-            "Existing pages must use `tmt colab page patch`. Read `tmt colab skill editing` for anchored edits; create a new page with `page create --file`. Nothing was written.",
+            "Existing pages must use `tmt colab page patch`. Read `tmt colab skill editing` for anchored edits; create a new page with `page create --html --file`. Nothing was written.",
         ));
     }
     let mut decoder = Decoder::new(std::env::current_exe()?)?;

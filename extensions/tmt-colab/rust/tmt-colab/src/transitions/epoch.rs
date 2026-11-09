@@ -40,6 +40,7 @@ impl Prepared {
         let baseline_input = BaselineInput {
             page_state: view.meta.get("pageState"),
             converted_at: view.meta.get("convertedAt"),
+            legacy_layout: view.meta.get("legacyLayout"),
             creator: view.meta.get("creator"),
             questions: view.meta.get("questions"),
             template: view.meta.get("template"),

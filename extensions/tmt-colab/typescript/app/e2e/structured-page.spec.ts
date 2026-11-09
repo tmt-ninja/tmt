@@ -11,6 +11,68 @@ async function mountFixture(page: import('@playwright/test').Page, content = 'pl
   return page.locator('#structured-page-fixture');
 }
 
+async function captureEmptyState(page: import('@playwright/test').Page, name: string) {
+  const directory = process.env.COLAB_CONVERSION_CAPTURE_DIR;
+  if (!directory) return;
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({
+        path: `${directory}/${name}-${width}-${theme}.png`,
+        animations: 'disabled',
+      });
+    }
+}
+
+test('an empty writer starts the first paragraph with one insert; a reader sees the empty state', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'empty');
+  await captureEmptyState(page, 'empty-writer-fixture');
+  const slot = host.getByRole('button', { name: 'Type / for blocks' });
+  await slot.focus();
+  await expect(slot).toBeFocused();
+  await slot.press('Enter');
+  expect(await page.evaluate(() => window.sent)).toHaveLength(0);
+  await host.getByRole('textbox', { name: 'Empty paragraph' }).pressSequentially('A');
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(1);
+  expect((await page.evaluate(() => window.sent))[0]).toMatchObject({
+    op: 'insert',
+    type: 'paragraph',
+    text: 'A',
+  });
+  await expect(host.locator('[data-block-id]')).toHaveCount(1);
+  await page.reload();
+  const reader = await mountFixture(page, 'empty-reader');
+  await expect(reader.getByText('This page is empty.')).toBeVisible();
+  await captureEmptyState(page, 'empty-reader-fixture');
+  await expect(reader.getByRole('button', { name: 'Type / for blocks' })).toHaveCount(0);
+});
+
+test('the empty page insert control opens the normal block menu', async ({ page }) => {
+  const host = await mountFixture(page, 'empty');
+  await host.getByRole('button', { name: 'Insert block' }).click();
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(1);
+  expect((await page.evaluate(() => window.sent))[0]).toMatchObject({
+    op: 'insert',
+    type: 'paragraph',
+    text: '/',
+  });
+  await expect(host.getByRole('listbox')).toBeVisible();
+});
+
+test('a refused first insert keeps the text for retry', async ({ page }) => {
+  const host = await mountFixture(page, 'empty-failure');
+  await host.getByRole('button', { name: 'Type / for blocks' }).click();
+  await host.getByRole('textbox', { name: 'Empty paragraph' }).pressSequentially('A');
+  await expect(host.getByRole('alert')).toContainText('could not be saved');
+  await expect(host.getByRole('textbox', { name: 'Empty paragraph' })).toHaveText('A');
+  await host.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('[data-block-id]')).toHaveCount(1);
+  await expect(host.locator('[data-block-id]')).toHaveText('A');
+});
+
 test('a structured page draws its blocks and edits only the focused one', async ({ page }) => {
   const host = await mountFixture(page);
   await expect(host.getByRole('heading', { name: 'Plan' })).toBeVisible();

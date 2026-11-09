@@ -7,6 +7,10 @@ import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
 import { pageLocation, parentRefusal } from './work-tree.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
+import {
+  StructuredConversionDialog,
+  StructuredRevertDialog,
+} from './structured-conversion-dialog.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
@@ -1603,6 +1607,24 @@ function OpenPage({
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
   const [metadataDialog, setMetadataDialog] = useState<'creator' | 'questions' | null>(null);
+  const [conversion, setConversion] = useState<{
+    kind: 'convert' | 'revert';
+    revision: string;
+    count: number;
+  } | null>(null);
+  const [conversionError, setConversionError] = useState<string>();
+  const [conversionBusy, setConversionBusy] = useState(false);
+  const conversionLock = useRef(false);
+  const conversionPage = useRef(snapshot.id);
+  const settleBlocks = useRef<(() => Promise<void>) | undefined>(undefined);
+  const setBlockSettler = useCallback((settle: (() => Promise<void>) | undefined) => {
+    settleBlocks.current = settle;
+  }, []);
+  conversionPage.current = snapshot.id;
+  useEffect(() => {
+    setConversion(null);
+    setConversionError(undefined);
+  }, [snapshot.id]);
   const [pin, setPin] = useState<PagePinState>();
   const [pinRequest, setPinRequest] = useState<PagePinRequest>();
   const requestPin = (action: PagePinRequest['action']) =>
@@ -1610,6 +1632,8 @@ function OpenPage({
   const [view, setView] = useState<PageView>({
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
+    blocks: snapshot.blocks,
+    convertedAt: snapshot.convertedAt,
     shell: snapshot.shell,
     work: snapshot.work,
     archived: snapshot.archived,
@@ -1627,6 +1651,63 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  async function openConversion(kind: 'convert' | 'revert') {
+    const binding = snapshot.binding;
+    if (conversionLock.current || !binding?.metadataRevision || !binding.metadata) return;
+    const pageId = snapshot.id;
+    conversionLock.current = true;
+    setConversionError(undefined);
+    try {
+      if (kind === 'revert') {
+        if (!settleBlocks.current) throw new Error('The block editor is still opening.');
+        await settleBlocks.current();
+      }
+      const shown = latest.current;
+      const revision = await binding.metadataRevision(shown, 'conversion');
+      if (conversionPage.current === pageId)
+        setConversion({ kind, revision, count: Object.keys(shown.blocks ?? {}).length });
+    } catch (error) {
+      if (conversionPage.current === pageId)
+        setConversionError(
+          error instanceof Error && 'code' in error && error.code === 'COLAB_STALE_BASE'
+            ? text.conversion.changed
+            : error instanceof Error
+              ? error.message
+              : text.conversion.readFailed,
+        );
+    } finally {
+      conversionLock.current = false;
+    }
+  }
+  async function submitConversion() {
+    if (conversionLock.current || !conversion || !snapshot.binding?.metadata) return;
+    const pageId = snapshot.id;
+    conversionLock.current = true;
+    setConversionBusy(true);
+    setConversionError(undefined);
+    try {
+      await snapshot.binding.metadata(
+        conversion.kind === 'convert' ? 'page.convert' : 'page.revert',
+        {},
+        conversion.revision,
+      );
+      if (conversionPage.current === pageId) setConversion(null);
+    } catch (error) {
+      if (conversionPage.current === pageId) {
+        setConversion(null);
+        setConversionError(
+          error instanceof Error && 'code' in error && error.code === 'COLAB_STALE_BASE'
+            ? text.conversion.changed
+            : error instanceof Error
+              ? error.message
+              : text.conversion.changeFailed,
+        );
+      }
+    } finally {
+      conversionLock.current = false;
+      setConversionBusy(false);
+    }
+  }
   const attachmentDownload = usePageAttachmentDownload(
     snapshot.binding?.files?.attachments,
     view.attachments ?? [],
@@ -1698,6 +1779,8 @@ function OpenPage({
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
+      blocks: snapshot.blocks,
+      convertedAt: snapshot.convertedAt,
       shell: snapshot.shell,
       work: snapshot.work,
       archived: snapshot.archived,
@@ -2502,6 +2585,27 @@ function OpenPage({
               }
               pin={pin}
               creatorLabel={creatorName(view)}
+              showSource={view.pageType !== 'blocks'}
+              onConvert={
+                snapshot.binding?.canMetadata?.() &&
+                state === 'ready' &&
+                !archived &&
+                !liveError &&
+                !view.pageType &&
+                !view.template
+                  ? () => void openConversion('convert')
+                  : undefined
+              }
+              onRevert={
+                snapshot.binding?.canMetadata?.() &&
+                state === 'ready' &&
+                !archived &&
+                !liveError &&
+                view.pageType === 'blocks' &&
+                view.convertedAt !== undefined
+                  ? () => void openConversion('revert')
+                  : undefined
+              }
               onSelect={(action) => {
                 if (action === 'put-under') {
                   setChoosingParent(true);
@@ -2525,6 +2629,32 @@ function OpenPage({
         binding={snapshot.binding}
         onDismiss={() => setMetadataDialog(null)}
       />
+      {conversion &&
+        (conversion.kind === 'convert' ? (
+          <StructuredConversionDialog
+            busy={conversionBusy}
+            onCancel={() => setConversion(null)}
+            onConfirm={() => void submitConversion()}
+          />
+        ) : (
+          <StructuredRevertDialog
+            blockCount={conversion.count}
+            busy={conversionBusy}
+            onCancel={() => setConversion(null)}
+            onConfirm={() => void submitConversion()}
+          />
+        ))}
+      {conversionError && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="blocked"
+            announcement="alert"
+            stateLabel={text.conversion.failed}
+            mark={<X aria-hidden="true" />}
+            body={conversionError}
+          />
+        </div>
+      )}
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       {choosingParent && (
         <AddSubpageDialog
@@ -2686,7 +2816,10 @@ function OpenPage({
             openPage={(id) => routing.open(`/pages/${id}`)}
           />
         )}
-        <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
+        <div
+          className={view.pageType === 'blocks' ? 'canvas canvas-structured' : 'canvas'}
+          data-layout={framedLayout(view.layout) ? view.layout : undefined}
+        >
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
               {text.anchorMissing}
@@ -2727,7 +2860,47 @@ function OpenPage({
               ))}
             </ul>
           )}
-          <div className="frame-host" ref={host} />
+          <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
+          {view.pageType === 'blocks' && view.blocks && (
+            <div className="structured-page-stage">
+              <Suspense fallback={null}>
+                <LazyStructuredPage
+                  onSettle={setBlockSettler}
+                  blocks={view.blocks}
+                  seq={view.seq}
+                  binding={liveError || archived ? undefined : snapshot.binding}
+                  workSource={workSource}
+                  pageViewSource={pageViewSource}
+                  mountMockup={mountMockup}
+                  imageSource={blockImageSource}
+                  onDownloadFile={(id) => attachmentDownload.request(id)}
+                  questionPage={{
+                    title: view.title || snapshot.title,
+                    questions: view.questions,
+                    threads: view.threads,
+                    discussionPending: view.discussionPending,
+                    creator: view.creator,
+                    creationRecipient: view.creationRecipient,
+                    originalAuthor: view.originalAuthor,
+                    asks: view.asks,
+                    discussion: snapshot.binding?.discussion,
+                    ask: snapshot.binding?.ask,
+                    blocked: !!(liveError || archived),
+                    metadata:
+                      snapshot.binding && !liveError && !archived
+                        ? { view, binding: snapshot.binding }
+                        : undefined,
+                  }}
+                  onLink={(href, newTab) =>
+                    requestPageLink(
+                      { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
+                      true,
+                    )
+                  }
+                />
+              </Suspense>
+            </div>
+          )}
           {editLockLayer.layer}
           {!discussionPending && (
             <>
@@ -2905,7 +3078,11 @@ function OpenPage({
       </div>
       {(canSelect || (state === 'ready' && !liveError)) && (
         <PageFloatingActions
-          host={host.current}
+          host={
+            view.pageType === 'blocks'
+              ? ((host.current?.parentElement as HTMLDivElement | null | undefined) ?? null)
+              : host.current
+          }
           slots={inlineSlots.positions}
           enabled={selectionMode}
           discussionOpen={!!annotation}
@@ -3221,61 +3398,6 @@ function OpenPage({
                       shell={view.shell}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
-                  )}
-                  {endedError && <EndedBody error={endedError} action={endedAction} />}
-                </main>
-              </section>
-            ) : view.pageType === 'blocks' ? (
-              <section className="page">
-                <AppHeader
-                  page
-                  title={view.title || snapshot.title}
-                  remote={{ deviceName: transport.backendName }}
-                />
-                {/* A file card's Download asks here, as an HTML page's file does (#6202). */}
-                {attachmentDownload.bar}
-                <main className="canvas">
-                  {view.blocks && (
-                    <Suspense fallback={null}>
-                      <LazyStructuredPage
-                        blocks={view.blocks}
-                        seq={view.seq}
-                        binding={liveError || archived ? undefined : snapshot.binding}
-                        workSource={workSource}
-                        pageViewSource={pageViewSource}
-                        mountMockup={mountMockup}
-                        imageSource={blockImageSource}
-                        onDownloadFile={(id) => attachmentDownload.request(id)}
-                        questionPage={{
-                          title: view.title || snapshot.title,
-                          questions: view.questions,
-                          threads: view.threads,
-                          discussionPending: view.discussionPending,
-                          creator: view.creator,
-                          creationRecipient: view.creationRecipient,
-                          originalAuthor: view.originalAuthor,
-                          asks: view.asks,
-                          discussion: snapshot.binding?.discussion,
-                          ask: snapshot.binding?.ask,
-                          blocked: !!(liveError || archived),
-                          metadata:
-                            snapshot.binding && !liveError && !archived
-                              ? { view, binding: snapshot.binding }
-                              : undefined,
-                        }}
-                        onLink={(href, newTab) =>
-                          requestPageLink(
-                            {
-                              type: 'colab.render.link',
-                              renderId: crypto.randomUUID(),
-                              href,
-                              newTab,
-                            },
-                            true,
-                          )
-                        }
-                      />
-                    </Suspense>
                   )}
                   {endedError && <EndedBody error={endedError} action={endedAction} />}
                 </main>

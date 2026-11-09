@@ -12,7 +12,7 @@ fn refused(pilot: &Pilot, args: &[&str], code: &str) -> Value {
 }
 fn new_page(pilot: &Pilot) -> String {
     pilot.call(&[
-        "page", "create", "--title", "Metadata", "--layout", "column", "--json",
+        "page", "create", "--html", "--title", "Metadata", "--layout", "column", "--json",
     ])["pageId"]
         .as_str()
         .unwrap()
@@ -135,6 +135,26 @@ fn metadata_registry_lifecycle_is_conditional_and_preserves_source_and_original_
             ],
             "COLAB_STALE_BASE",
         );
+        let registry = pilot.call(&["question", "ls", &page, "--json"])["questions"].clone();
+        pilot.call(&["page", "convert", &page, "--yes", "--json"]);
+        assert_eq!(
+            pilot.call(&["page", "read", &page, "--legacy", "--json"])["source"],
+            source
+        );
+        assert_eq!(
+            pilot.call(&["question", "ls", &page, "--json"])["questions"],
+            registry
+        );
+        let reverted = pilot
+            .command()
+            .args(["page", "convert", &page, "--revert", "--json"])
+            .output()
+            .unwrap();
+        assert!(reverted.status.success(), "{reverted:?}");
+        let restored = pilot.call(&["page", "read", &page, "--json"]);
+        assert_eq!(restored["source"], source);
+        assert_eq!(restored["questions"], changed["questions"]);
+        assert_eq!(restored["creator"], changed["creator"]);
     }
 }
 #[test]
@@ -150,6 +170,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "Authored",
             "--layout",
@@ -173,6 +194,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "Strict authored",
             "--layout",
@@ -251,7 +273,7 @@ fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on
     ] {
         let pilot = Pilot::new(None);
         fs::remove_file(pilot.root.join("publisher")).unwrap();
-        let mut args = vec!["page", "create", "--title", "Anonymous", "--json"];
+        let mut args = vec!["page", "create", "--html", "--title", "Anonymous", "--json"];
         if let Some(template) = template {
             args.extend(["--template", template]);
         } else {
@@ -345,6 +367,7 @@ fn an_explicit_unavailable_creator_name_offers_repairs_before_local_initializati
         &[
             "page",
             "create",
+            "--html",
             "--title",
             "No identity",
             "--layout",
@@ -361,6 +384,7 @@ fn an_explicit_unavailable_creator_name_offers_repairs_before_local_initializati
     let created = pilot.call(&[
         "page",
         "create",
+        "--html",
         "--title",
         "Explicit ID",
         "--layout",
@@ -386,6 +410,7 @@ fn compiled_templates_create_their_questions_and_creator_in_one_commit() {
         let created = pilot.call(&[
             "page",
             "create",
+            "--html",
             "--title",
             "First party",
             "--template",

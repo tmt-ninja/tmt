@@ -42,6 +42,7 @@ export interface ExportView {
   shell?: Projection['shell'];
   /** A page of blocks: exported as `blocks.json`, with a rendering as `page.html`. */
   blocks?: Projection['blocks'];
+  convertedAt?: Projection['convertedAt'];
   /** An ordinary page's work; exported as `work.json` beside its HTML. */
   work?: Projection['work'];
   creationRecipient?: CreationRecipient;
@@ -139,6 +140,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   );
   // A page of blocks also exports a rendering of its blocks, derived from `blocks.json`.
   const rendered = blocksPage ? text(renderBlocks(view.blocks)) : undefined;
+  const legacy = blocksPage && view.convertedAt !== undefined ? text(view.source) : undefined;
   const work = view.work === undefined ? undefined : text(canonical(view.work));
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
@@ -155,6 +157,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     ...(rendered === undefined
       ? []
       : [Object.freeze({ ...(await describe('page.html', rendered)), derivedFrom: contentName })]),
+    ...(legacy === undefined ? [] : [await describe('legacy.html', legacy)]),
     ...(work === undefined ? [] : [await describe('work.json', work)]),
     ...(standalone === undefined
       ? []
@@ -205,6 +208,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     new Map<ExportFile, Uint8Array>([
       [contentName, content],
       ...(rendered === undefined ? [] : [['page.html', rendered] as [ExportFile, Uint8Array]]),
+      ...(legacy === undefined ? [] : [['legacy.html', legacy] as [ExportFile, Uint8Array]]),
       ...(work === undefined ? [] : [['work.json', work] as [ExportFile, Uint8Array]]),
       ...(standalone === undefined
         ? []

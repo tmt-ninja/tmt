@@ -98,6 +98,7 @@ export interface Projection {
   /** The time (ms) a page was converted in place to blocks (`meta.convertedAt`); a page of blocks
    * alone has it. */
   convertedAt?: number;
+  legacyLayout?: { layout: 'column' | 'full' | 'canvas'; layoutReason?: string };
   creationRecipient?: CreationRecipient;
   source: string;
   title: string;
@@ -261,6 +262,21 @@ export function validateProjection(value: unknown): asserts value is Projection 
     const at = (value as Projection).convertedAt;
     requireValue(blocksPage && Number.isSafeInteger(at) && (at as number) >= 0);
   }
+  if (Object.hasOwn(value, 'legacyLayout')) {
+    const legacy = (value as Projection).legacyLayout;
+    requireValue(blocksPage && Object.hasOwn(value, 'convertedAt'));
+    requireValue(!!legacy && typeof legacy === 'object' && !Array.isArray(legacy));
+    exactKeys(legacy, [
+      'layout',
+      ...(Object.hasOwn(legacy!, 'layoutReason') ? ['layoutReason'] : []),
+    ]);
+    requireValue(
+      (legacy!.layout === 'column' || legacy!.layout === 'full' || legacy!.layout === 'canvas') &&
+        (legacy!.layout === 'canvas'
+          ? typeof legacy!.layoutReason === 'string' && validLayoutReason(legacy!.layoutReason)
+          : legacy!.layoutReason === undefined),
+    );
+  }
   if (Object.hasOwn(value, 'pageState'))
     requireValue(
       ['todo', 'in-progress', 'done'].includes((value as Projection).pageState as string),
@@ -371,6 +387,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
     Object.hasOwn(a, 'convertedAt') === Object.hasOwn(b, 'convertedAt') &&
     a.convertedAt === b.convertedAt &&
+    Object.hasOwn(a, 'legacyLayout') === Object.hasOwn(b, 'legacyLayout') &&
+    canonical(a.legacyLayout) === canonical(b.legacyLayout) &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&

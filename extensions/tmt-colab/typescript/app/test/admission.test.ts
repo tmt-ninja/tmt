@@ -41,6 +41,18 @@ function admission() {
     issuer: c.statement.Envelope.fromJson(c.text(JSON.stringify(v.statement))),
   } as Registration);
 }
+
+it('advances only along a separately verified membership chain for the same page', async () => {
+  records.clear();
+  const current = admission();
+  await current.membership(head(), true);
+  const fresh = admission();
+  await fresh.membership(await secondHead(), true);
+  await current.advanceFrom(fresh);
+  expect(current.head?.revision).toBe(2n);
+  expect(current.head?.hash).toEqual(fresh.head?.hash);
+  await expect(current.advanceFrom(admission())).rejects.toThrow();
+});
 function head() {
   return {
     revision: '1',

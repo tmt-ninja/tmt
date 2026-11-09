@@ -117,6 +117,31 @@ pub fn valid_layout_reason(value: &str) -> bool {
         && value.len() <= crate::limits::LAYOUT_REASON_BYTES
         && !value.chars().any(char::is_control)
 }
+/// Layout retained only while a converted page holds its frozen HTML.
+fn valid_legacy_layout(value: &Value) -> bool {
+    let Some(map) = value.as_object() else {
+        return false;
+    };
+    if map
+        .keys()
+        .any(|key| key != "layout" && key != "layoutReason")
+    {
+        return false;
+    }
+    let Some(kind) = map
+        .get("layout")
+        .and_then(Value::as_str)
+        .and_then(LayoutKind::parse)
+    else {
+        return false;
+    };
+    let reason = match map.get("layoutReason") {
+        Some(Value::String(reason)) => Some(reason.clone()),
+        Some(_) => return false,
+        None => None,
+    };
+    PageLayout { kind, reason }.valid()
+}
 /// The layout a validated content projection's metadata records; none is a `freeform` page.
 pub fn layout_of_meta(meta: &Value) -> Option<PageLayout> {
     Some(PageLayout {
@@ -154,6 +179,8 @@ pub enum StructuredKind {
     PageState,
     /// The page's `blocks` root (a structured page), edited by one validated batch of ops.
     Blocks,
+    /// One revision-fenced conversion from HTML to an empty blocks page.
+    Conversion,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -166,6 +193,7 @@ impl StructuredKind {
             Self::Template => "template",
             Self::PageState => "pageState",
             Self::Blocks => "blocks",
+            Self::Conversion => "convertedAt",
         }
     }
 }
@@ -244,6 +272,7 @@ pub struct BaselineInput<'a> {
     /// `meta.convertedAt`, the time (ms) a page was converted in place to blocks; only a page of
     /// blocks has it, and a new epoch keeps it.
     pub converted_at: Option<&'a Value>,
+    pub legacy_layout: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -909,6 +938,8 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         if view.converted_at.is_some_and(|v| !valid_time_ms(v))
+            || view.legacy_layout.is_some_and(|v| !valid_legacy_layout(v))
+            || (view.legacy_layout.is_some() && view.converted_at.is_none())
             || (view.converted_at.is_some()
                 && matches!(&action, BaselineAction::Produce { blocks: None, .. }))
         {
@@ -962,6 +993,7 @@ impl Decoder {
             work: view.work.cloned(),
             page_state: view.page_state.cloned(),
             converted_at: view.converted_at.cloned(),
+            legacy_layout: view.legacy_layout.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1256,6 +1288,12 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
     let ordinary = base["meta"].get("pageType").is_none();
     let mut expected = base.clone();
     match edit.kind {
+        StructuredKind::Conversion if edit.action == "page.convert" => {
+            expected = crate::conversion::project(base, &edit.body)?;
+        }
+        StructuredKind::Conversion if edit.action == "page.revert" => {
+            expected = crate::conversion::revert(base, &edit.body)?;
+        }
         StructuredKind::Blocks if base["meta"]["pageType"].as_str() == Some("blocks") => {
             let next = crate::blocks::ops::apply(&base["blocks"], &edit.body, &edit.attribution)
                 .map_err(|_| DecodeFault::InvalidInput)?
@@ -1537,6 +1575,8 @@ struct WireBaseline {
     page_state: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     converted_at: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_layout: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1654,6 +1694,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
                 "pageType" => !matches!(v.as_str(), Some("shell" | "blocks")),
                 "convertedAt" => !valid_time_ms(v),
+                "legacyLayout" => !valid_legacy_layout(v),
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
@@ -1685,12 +1726,13 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 // A page of blocks keeps no template and no layout; it may keep work, attachments
                 // and what it was made from, as an ordinary page does, and the HTML it was
                 // converted from as a frozen legacy source (never rendered or written); it alone
-                // says which archived copy it was converted from.
+                // carries the conversion timestamp.
                 || (blocks
                     && ["template", "layout", "layoutReason"]
                         .iter()
                         .any(|key| meta.contains_key(*key)))
                 || (!blocks && meta.contains_key("convertedAt"))
+                || (meta.contains_key("legacyLayout") && (!blocks || !meta.contains_key("convertedAt")))
                 || (shell && roots["html"].as_str() != Some(""))
                 || (shell && meta.contains_key("attachments"))
             {

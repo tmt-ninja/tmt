@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { Plus } from 'lucide-react';
 import {
   Block,
   blockActions,
@@ -173,6 +174,10 @@ export interface StructuredPageProps {
   /** The handle: ⋯ opens the block menu, ＋ the insert menu after the block, and the grip drags. */
   onOpenBlockMenu?(id: string): void;
   onInsertAfter?(id: string): void;
+  /** The first typed text or insert gesture creates the first paragraph. */
+  onInsertFirst?(text: string): Promise<number | void>;
+  /** Text from a refused first insert, kept so it can be retried. */
+  failedFirstText?: string;
   onMove?(id: string, parent: string, index: number): void;
   /** The @ menu open in the focused block (#6203), and its choice and pointer. */
   mention?: MentionMenu;
@@ -262,6 +267,13 @@ export function StructuredPage(props: StructuredPageProps) {
           props.onAttach(files, landedOn(event.target));
         }}
       >
+        {props.tree.children(PAGE_PARENT).length === 0 && (
+          <EmptyDocument
+            readonly={props.readonly}
+            onInsert={props.onInsertFirst}
+            failedText={props.failedFirstText}
+          />
+        )}
         <Blocks {...props} parent={PAGE_PARENT} pointer={pointer} />
         {drag?.target && drag.target.parent === PAGE_PARENT && !drag.target.lineBefore && (
           <BlockDropLine />
@@ -293,6 +305,68 @@ export function StructuredPage(props: StructuredPageProps) {
         </div>
       )}
     </>
+  );
+}
+
+function EmptyDocument({
+  readonly,
+  onInsert,
+  failedText,
+}: {
+  readonly?: boolean;
+  onInsert?(text: string): Promise<number | void>;
+  failedText?: string;
+}) {
+  const [editing, setEditing] = useState(failedText !== undefined);
+  const [draft, setDraft] = useState(failedText ?? '');
+  const started = useRef(false);
+  const insert = (text: string) => {
+    if (!text || started.current) return;
+    started.current = true;
+    void onInsert?.(text).catch(() => {
+      started.current = false;
+      setEditing(true);
+    });
+  };
+  if (readonly) return <p className="tmt-block-empty-reader">This page is empty.</p>;
+  return (
+    <Block className="tmt-block-empty" label="Empty paragraph" kind="text">
+      <div data-slot="block-handle" className="tmt-block-handle">
+        <button
+          type="button"
+          className="tmt-block-handle-button"
+          aria-label="Insert block"
+          onClick={() => insert('/')}
+        >
+          <Plus aria-hidden="true" />
+        </button>
+      </div>
+      {editing ? (
+        <BlockTextEditor
+          label="Empty paragraph"
+          text={draft}
+          caret={[...draft].length}
+          version={0}
+          placeholder={strings.blockText.paragraph}
+          onTyped={(text) => {
+            setDraft(text);
+            if (failedText === undefined) insert(text);
+          }}
+        />
+      ) : (
+        <button type="button" className="tmt-block-empty-start" onClick={() => setEditing(true)}>
+          {strings.blockText.paragraph}
+        </button>
+      )}
+      {failedText !== undefined && (
+        <p role="alert">
+          The first block could not be saved.{' '}
+          <button type="button" onClick={() => insert(draft)}>
+            Retry
+          </button>
+        </p>
+      )}
+    </Block>
   );
 }
 

@@ -1,7 +1,7 @@
 {
   "format": "tmt-colab-blocks-page",
   "version": 1,
-  "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block.",
+  "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block. A converted blocks page may also retain legacyLayout, a validated original layout restored on revert.",
   "cases": [
     {
       "name": "an ordinary page",
@@ -312,6 +312,92 @@
       "meta": {
         "pageType": "blocks",
         "convertedFrom": "10000000-0000-4000-8000-000000000007"
+      },
+      "valid": false
+    },
+    {
+      "name": "converted canvas retains its layout and reason",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": {
+          "layout": "canvas",
+          "layoutReason": "A custom frame"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "converted column retains its layout",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": {
+          "layout": "column"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "legacy layout without conversion marker",
+      "meta": {
+        "pageType": "blocks",
+        "legacyLayout": {
+          "layout": "full"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy layout on ordinary page",
+      "meta": {
+        "legacyLayout": {
+          "layout": "full"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy canvas without reason",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": {
+          "layout": "canvas"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy noncanvas with reason",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": {
+          "layout": "column",
+          "layoutReason": "extra"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy layout with unknown field",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": {
+          "layout": "full",
+          "extra": true
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy layout has invalid type",
+      "meta": {
+        "pageType": "blocks",
+        "convertedAt": 1,
+        "legacyLayout": "canvas"
       },
       "valid": false
     }

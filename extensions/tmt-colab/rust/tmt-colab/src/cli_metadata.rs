@@ -197,7 +197,7 @@ pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<Crea
         let title = option("title", args.get_one::<String>("title").expect("title"));
         // These commands bind the identity before a create. The original source/layout options
         // remain on the command the caller retries; no source is silently dropped.
-        let prefix = format!("tmt colab page create {title}");
+        let prefix = format!("tmt colab page create --html {title}");
         let mut suffix = String::new();
         if let Some(template) = template {
             suffix.push_str(&format!(" {}", option("template", template)));
@@ -266,7 +266,7 @@ pub(crate) fn admit_create_file(
         .as_ref()
         .and_then(|selected| selected.agent["id"].as_str());
     let mut create = format!(
-        "tmt colab page create {}",
+        "tmt colab page create --html {}",
         option("title", args.get_one::<String>("title").expect("title")),
     );
     if let Some(creator) = selected {

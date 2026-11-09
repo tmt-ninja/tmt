@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
 import type { BlockFiles } from './block-uploads.js';
 import type { DocumentImageInput } from './document-images.js';
@@ -31,6 +31,7 @@ export function LiveStructuredPage({
   mountMockup,
   imageSource,
   onDownloadFile,
+  onSettle,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -49,6 +50,8 @@ export function LiveStructuredPage({
   imageSource?: DocumentImageInput;
   /** A file card's Download: the page's confirmed download path. */
   onDownloadFile?(attachmentId: string): void;
+  /** Give page actions the editor's flush-and-admit barrier. */
+  onSettle?(settle: (() => Promise<void>) | undefined): void;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   // The agents an @ names (#6203): the ones this page can ask, and its creator.
@@ -101,6 +104,7 @@ export function LiveStructuredPage({
     author,
     questionEdit,
     typed,
+    settle,
     key,
     menu,
     pick,
@@ -116,6 +120,8 @@ export function LiveStructuredPage({
     move,
     openBlockMenu,
     insertAfter,
+    insertFirst,
+    failedFirstText,
     closeBlockMenu,
     hoverBlockMenu,
     attach,
@@ -125,6 +131,10 @@ export function LiveStructuredPage({
     pickMention,
     hoverMention,
   } = useBlockEditing(records, send, seq, files, agents);
+  useEffect(() => {
+    onSettle?.(settle);
+    return () => onSettle?.(undefined);
+  }, [onSettle, settle]);
   return (
     <StructuredPage
       tree={tree}
@@ -163,6 +173,8 @@ export function LiveStructuredPage({
       onCloseBlockMenu={closeBlockMenu}
       onOpenBlockMenu={openBlockMenu}
       onInsertAfter={insertAfter}
+      onInsertFirst={insertFirst}
+      failedFirstText={failedFirstText}
       onMove={move}
       onAttach={files && ((picked, after) => void attach(picked, after))}
       uploads={uploads}

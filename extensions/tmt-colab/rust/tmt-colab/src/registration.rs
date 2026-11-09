@@ -781,6 +781,7 @@ impl Registration {
         operation_id: &str,
         title: &str,
         source: &str,
+        blocks: bool,
         now: u64,
     ) -> crate::Result<()> {
         let space = self.keyring.space_id.clone();
@@ -789,13 +790,15 @@ impl Registration {
             .owner_head(&space, &self.keyring.owner_public())?
             .map_or(0, |head| head.revision)
             .to_string();
-        let payload = serde_json::json!({
-            "pageId": page, "title": title, "source": source,
-            "layout": crate::decoder::PageLayout {
+        let mut payload = serde_json::json!({"pageId": page, "title": title, "source": source});
+        if blocks {
+            payload["pageType"] = serde_json::json!("blocks");
+        } else {
+            payload["layout"] = serde_json::json!(crate::decoder::PageLayout {
                 kind: crate::decoder::LayoutKind::Column,
                 reason: None,
-            },
-        });
+            });
+        }
         let body = serde_json::to_vec(&serde_json::json!({
             "space": space, "page": page, "expectedRevision": revision,
             "operationId": crate::subpage_create::create_operation_id(&space, operation_id),
@@ -1373,12 +1376,13 @@ impl crate::sync::Admission for OwnerAdmission {
         operation_id: &str,
         title: &str,
         source: &str,
+        blocks: bool,
         now: u64,
     ) -> crate::Result<()> {
         self.0
             .lock()
             .map_err(|_| crate::page::Fault::Unavailable)?
-            .create_child(page, operation_id, title, source, now)
+            .create_child(page, operation_id, title, source, blocks, now)
     }
     fn usage(&mut self, page: &str) -> crate::Result<crate::page::PageUsage> {
         self.0

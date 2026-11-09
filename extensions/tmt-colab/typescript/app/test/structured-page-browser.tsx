@@ -294,7 +294,7 @@ const QUESTION_ATTRIBUTION = { writerId: '30000000-0000-4000-8000-000000000001',
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
  * serve applies a batch with `applyOps`, the editor's one model of the serve's apply. */
 export function mount(
-  content: 'plan' | 'spec' = 'plan',
+  content: 'plan' | 'spec' | 'empty' | 'empty-reader' | 'empty-failure' = 'plan',
   options: {
     /** The owner device may choose a question's recipient: it holds the metadata seam and reads
      * the agent directory. */
@@ -308,7 +308,7 @@ export function mount(
   host.id = 'structured-page-fixture';
   host.style.cssText = 'max-width:720px;margin:24px auto;padding:12px';
   document.body.append(host);
-  let blocks = content === 'spec' ? SPEC_PAGE : start;
+  let blocks = content === 'spec' ? SPEC_PAGE : content.startsWith('empty') ? [] : start;
   // Each change is a new view with the next local order, as `PageView.seq` gives it.
   let seq = 1;
   const listeners = new Set<(next: { records: BlockRecord[]; seq: number }) => void>();
@@ -596,6 +596,7 @@ export function mount(
     holding = hold;
     if (!hold) for (const commit of held.splice(0)) commit();
   };
+  let refuseFirst = content === 'empty-failure';
   const send = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
     new Promise<number>((resolve, reject) => {
       if (stored?.length) {
@@ -612,6 +613,11 @@ export function mount(
       const later = (commit: () => void) =>
         setTimeout(() => (holding ? held.push(commit) : commit()), SERVE_MS);
       later(() => {
+        if (refuseFirst) {
+          refuseFirst = false;
+          reject(new Error('First insert refused'));
+          return;
+        }
         // One batch commits as one change, as the serve's does; one it would refuse changes
         // nothing.
         let next = blocks;
@@ -675,6 +681,8 @@ export function mount(
       move,
       openBlockMenu,
       insertAfter,
+      insertFirst,
+      failedFirstText,
       closeBlockMenu,
       hoverBlockMenu,
       attach,
@@ -749,6 +757,9 @@ export function mount(
           onCloseBlockMenu={closeBlockMenu}
           onOpenBlockMenu={openBlockMenu}
           onInsertAfter={insertAfter}
+          onInsertFirst={insertFirst}
+          failedFirstText={failedFirstText}
+          readonly={content === 'empty-reader'}
           onMove={move}
           mention={mention}
           onPickMention={pickMention}
