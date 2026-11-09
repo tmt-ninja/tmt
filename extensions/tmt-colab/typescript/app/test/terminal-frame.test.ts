@@ -56,11 +56,12 @@ test('v2 heat cells follow the native neutral ramp and preserve glyphs without c
     chip_surface: null,
     continuation: false,
   }));
+  let version = 2;
   vi.resetModules();
   vi.doMock('../terminal-frame-assets/tmt_tui_wasm.js', () => ({
     initSync: () => {},
     registry: () => JSON.stringify({ version: 1 }),
-    render: () => JSON.stringify({ version: 2, width: 6, height: 1, cells, hits: [] }),
+    render: () => JSON.stringify({ version, width: 6, height: 1, cells, hits: [] }),
   }));
   try {
     const { TerminalFrame: Frame } = await import('../src/runtime/terminal-frame.js');
@@ -92,8 +93,25 @@ test('v2 heat cells follow the native neutral ramp and preserve glyphs without c
     expect(terminal).toContain('background-color:#666666');
     expect(terminal).toContain('background-color:#e5e5e5');
     expect(terminal).toContain('background-color:#ffffff');
+    version = 1;
+    expect(draw('tmt')).toContain('Part unavailable');
   } finally {
     vi.doUnmock('../terminal-frame-assets/tmt_tui_wasm.js');
     vi.resetModules();
   }
+});
+
+test('the checked-in v2 wasm preserves activity glyphs without color', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TerminalFrame, {
+      component: 'activity-cells',
+      width: 8,
+      height: 1,
+      look: 'NO_COLOR',
+      values: [null, '0', '1', '2', '3', '4', '5', '6'],
+      selected: false,
+    }),
+  );
+  for (const glyph of ['▁', '▂', '▃', '▄', '▆', '█']) expect(html).toContain(glyph);
+  expect(html).not.toContain('Part unavailable');
 });

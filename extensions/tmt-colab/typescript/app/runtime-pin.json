@@ -20,7 +20,7 @@
       "path": "assets/colab-runtime-ui-a99c571dbd663970.js",
       "sha256": "a99c571dbd6639708e8914e54bff673e744b9d2c79083dec8d9ebf8e466a23cb",
       "length": 253559,
-      "gzip": 72803
+      "gzip": 72832
     },
     {
       "name": "browser",
@@ -53,10 +53,10 @@
     {
       "name": "terminal-frame",
       "kind": "wasm",
-      "path": "assets/colab-runtime-terminal-f5c391e2f5ea7c09.wasm",
-      "sha256": "f5c391e2f5ea7c0972f8326cff913e458e2f4ed645c123ad2dde5c5da6e47c27",
-      "length": 439561,
-      "gzip": 136274,
+      "path": "assets/colab-runtime-terminal-d692f4ca9a6af578.wasm",
+      "sha256": "d692f4ca9a6af5784573b3db43958e3bcb83f8161ceb44c2abfb6d809cb73e30",
+      "length": 485314,
+      "gzip": 144225,
       "glue": {
         "sha256": "51bdfaaed1b6a47565545e9ff2ef2897ee21acfa0e08c8bf165262aeb9be7044",
         "length": 9454,
