@@ -169,7 +169,7 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
     if (state !== 'ready') throw new Error('renderer unavailable');
     grid = JSON.parse(render(component, JSON.stringify(props), width, height)) as Grid;
     if (
-      (grid.version !== 1 && grid.version !== 2) ||
+      grid.version !== 2 ||
       grid.cells.some(
         (cell) =>
           cell.heat_level !== undefined &&
