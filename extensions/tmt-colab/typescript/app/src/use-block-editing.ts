@@ -34,7 +34,7 @@ import {
   selectedIds,
   settleSelection,
 } from './block-selection.js';
-import { BlockTextSync, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
+import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -142,6 +142,9 @@ export interface Editing {
   /** Moves on every text the page sends, so the editor replaces its text even when it is equal to
    * the last one sent. */
   version: number;
+  /** The text the editor showed when `text` was made; absent when the editor opens on `text`. Keys
+   * it takes before it draws `text` merge onto it from here (#6221). */
+  from?: string;
 }
 
 /** A batch the serve refused for good: what the status line says, and whether it may be sent
@@ -354,9 +357,7 @@ export function useBlockEditing(
   }, []);
 
   // `flush` and `show` call each other; `flush` reaches `show` through a ref, so both stay stable.
-  const showRef = useRef<(current: BlockTextSync, shown: { text: string; caret: number }) => void>(
-    () => {},
-  );
+  const showRef = useRef<(current: BlockTextSync, shown: Shown) => void>(() => {});
   /** Send `ops`, with `current`'s text op among them, and show its settle in the editor. Resolves
    * `true` once the page shows the batch and `false` when the serve refused it for good; it never
    * rejects. A refusal goes to the status line with Retry (#6220), unless `report` is off: typing
@@ -443,7 +444,7 @@ export function useBlockEditing(
     } while (sync.current?.pending);
   }, [flush]);
   const show = useCallback(
-    (current: BlockTextSync, shown: { text: string; caret: number }) => {
+    (current: BlockTextSync, shown: Shown) => {
       if (sync.current !== current) return;
       caret.current = shown.caret;
       setEditing({
@@ -452,6 +453,7 @@ export function useBlockEditing(
         text: shown.text,
         caret: shown.caret,
         version: ++version.current,
+        from: shown.from,
       });
       // Typing that waited for the op in flight goes out now.
       if (current.pending && !current.sending) timer.current = setTimeout(flush, TEXT_FLUSH_MS);

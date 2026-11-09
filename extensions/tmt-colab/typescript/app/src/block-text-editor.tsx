@@ -15,9 +15,12 @@ import {
   $setSelection,
   defineExtension,
   HISTORY_MERGE_TAG,
+  type LexicalEditor,
   type TextNode,
 } from 'lexical';
+import { textMerge } from '@tmt/colab-client';
 import { linkHref } from '@tmt/browser-ui/blocks';
+import { caretThrough } from './block-text-sync.js';
 import type { Mark } from './blocks.js';
 
 /** The editor's update tag for text the page sent, so the change is not reported back as typing. */
@@ -196,6 +199,9 @@ export interface BlockTextEditorProps {
   caret: number;
   /** Moves with every text the page sends; the editor then shows `text` at `caret`. */
   version: number;
+  /** The text the editor showed when `text` was made; keys taken since merge onto `text`. Absent
+   * when the editor opens on `text`. */
+  from?: string;
   /** The person typed: the editor's text and caret now. */
   onTyped(text: string, caret: number): void;
   /** Keys the block handles (Enter, Backspace at the start, Escape, the format keys); return true
@@ -228,6 +234,7 @@ function Editor({
   marks,
   caret,
   version,
+  from,
   onTyped,
   onKey,
   onPasteUrl,
@@ -239,12 +246,17 @@ function Editor({
   typed.current = onTyped;
   /** The text the last redraw from the page set. */
   const pageText = useRef<string | undefined>(undefined);
+  /** The texts this editor instance has shown since its last redraw from the page: keys it took
+   * after `from` are late only if it showed `from` (a new instance starts empty, which is not
+   * typing). */
+  const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
   useEffect(
     () =>
       editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves, editorState }) => {
         if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
         editorState.read(() => {
           const now = $text();
+          if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
           // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
           // alone would hide that typing, so only the exact text the page set is not reported.
           if (tags.has(PAGE_TAG) && now === pageText.current) return;
@@ -254,9 +266,24 @@ function Editor({
     [editor],
   );
   useEffect(() => {
-    if (editor.getEditorState().read($text) === text) return;
+    const [now, at] = editor.getEditorState().read(() => [$text(), $caret()]);
+    // Keys the editor took after `text` was made (a batch settles between two keys, and this redraw
+    // runs after the second) are not the page's to replace: they merge onto `text` from the text
+    // they were typed into, as typing merges onto the page's text, and go out as typing (#6221).
+    const seen =
+      shownTexts.current.editor === editor ? shownTexts.current.texts : new Set<string>();
+    const late = from !== undefined && now !== from && seen.has(from);
+    const shown = late ? textMerge.merge(from, text, now, 'both').text : text;
+    shownTexts.current = { editor, texts: new Set([shown, now]) };
+    if (now === shown) return;
     pageText.current = text;
-    editor.update(() => $replace(text, marks, caret), { tag: [PAGE_TAG, HISTORY_MERGE_TAG] });
+    editor.update(
+      () =>
+        late
+          ? $replace(shown, undefined, caretThrough(now, shown, at))
+          : $replace(text, marks, caret),
+      { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
+    );
     // Only a new text from the page moves the caret; the caret alone never does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, version]);

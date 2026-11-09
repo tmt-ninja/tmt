@@ -160,6 +160,83 @@ test('Enter splits a block at the caret and Backspace at its start joins it back
   expect(sent.filter((op) => op === 'delete')).toHaveLength(1);
 });
 
+test('a key the editor takes while a batch settles is never redrawn away (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  // The batch reaches the serve and is held there.
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  // Every text the editor shows from here on: a key, once shown, never leaves it.
+  const shown = await page.evaluate(async () => {
+    const root = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    const texts: string[] = [];
+    const observer = new MutationObserver(() => texts.push(root.textContent ?? ''));
+    observer.observe(root, { subtree: true, childList: true, characterData: true });
+    // The batch settles, and the editor takes a key before its redraw runs.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    document.execCommand('insertText', false, 'Y');
+    // Watch until the serve holds the key too, at most 5 s.
+    for (let wait = 0; wait < 100 && !window.serveText('p')?.endsWith('XY'); wait++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    observer.disconnect();
+    return texts;
+  });
+  const typed = shown.findIndex((text) => text.endsWith('XY'));
+  expect(typed).toBeGreaterThanOrEqual(0);
+  expect(shown.slice(typed).filter((text) => !text.endsWith('XY'))).toEqual([]);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/XY$/);
+});
+
+test('a key the editor takes while a batch settles merges with an agent edit the redraw brings (#6221)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  // The batch reaches the serve and is held there; an agent changes the block's start meanwhile.
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  await page.evaluate(() => window.agentReplace('p', 'Ship', 'SHIP'));
+  // Every text the editor shows from here on: a key, once shown, never leaves it.
+  const shown = await page.evaluate(async () => {
+    const root = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    const texts: string[] = [];
+    const observer = new MutationObserver(() => texts.push(root.textContent ?? ''));
+    observer.observe(root, { subtree: true, childList: true, characterData: true });
+    // The batch settles, and the editor takes a key before its redraw runs.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    document.execCommand('insertText', false, 'Y');
+    // Watch until the serve holds the key too, at most 5 s.
+    for (let wait = 0; wait < 100 && !window.serveText('p')?.endsWith('XY'); wait++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    observer.disconnect();
+    return texts;
+  });
+  const typed = shown.findIndex((text) => text.endsWith('XY'));
+  expect(typed).toBeGreaterThanOrEqual(0);
+  expect(shown.slice(typed).filter((text) => !text.endsWith('XY'))).toEqual([]);
+  // Both writers' changes stay, in the editor and on the serve.
+  await expect(editor).toHaveText(/^SHIP.*XY$/);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/^SHIP.*XY$/);
+});
+
 test('/ in an empty paragraph opens the insert menu, which filters and inserts', async ({
   page,
 }) => {

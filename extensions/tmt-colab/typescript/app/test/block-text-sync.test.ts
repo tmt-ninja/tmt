@@ -38,7 +38,12 @@ describe('a focused block while the page changes', () => {
     sync.typed('one two three four');
     // An agent changed "one" to "ONE" before the typing was sent; the caret is at the end.
     const shown = sync.remote('ONE two three', 18);
-    expect(shown).toEqual({ text: 'ONE two three four', caret: 18, dropped: false });
+    expect(shown).toEqual({
+      text: 'ONE two three four',
+      caret: 18,
+      dropped: false,
+      from: 'one two three four',
+    });
     expect(sync.flush()).toEqual({
       op: 'text',
       id: 'b',
@@ -56,10 +61,16 @@ describe('a focused block while the page changes', () => {
       text: 'hello world',
       caret: 11,
       dropped: false,
+      from: 'hello world',
     });
     sync.typed('hello world, again');
     const settled = sync.settled(true, 18);
-    expect(settled).toEqual({ text: 'Hello world, again', caret: 18, dropped: false });
+    expect(settled).toEqual({
+      text: 'Hello world, again',
+      caret: 18,
+      dropped: false,
+      from: 'hello world, again',
+    });
     expect(sync.flush()).toEqual({
       op: 'text',
       id: 'b',
@@ -72,7 +83,12 @@ describe('a focused block while the page changes', () => {
     const sync = new BlockTextSync('b', 'draft');
     sync.typed('draft one');
     sync.flush();
-    expect(sync.settled(false, 9)).toEqual({ text: 'draft one', caret: 9, dropped: false });
+    expect(sync.settled(false, 9)).toEqual({
+      text: 'draft one',
+      caret: 9,
+      dropped: false,
+      from: 'draft one',
+    });
     expect(sync.flush()).toEqual({
       op: 'text',
       id: 'b',
@@ -99,7 +115,12 @@ describe('a focused block while the page changes', () => {
     // While the op is out, a view made before the commit (order 4) still shows the old text.
     expect(sync.remote('Ship', 7, 4).text).toBe('Ship it');
     // The commit shows from order 5 on: the held view predates it and is not merged as a revert.
-    expect(sync.settled(true, 7, 5)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    expect(sync.settled(true, 7, 5)).toEqual({
+      text: 'Ship it',
+      caret: 7,
+      dropped: false,
+      from: 'Ship it',
+    });
     expect(sync.pending).toBe(false);
   });
   it('drops any number of views older than the commit that arrive after it settled', () => {
@@ -108,8 +129,18 @@ describe('a focused block while the page changes', () => {
     sync.flush();
     sync.settled(true, 7, 9);
     // Two late views from before the commit: neither moves the text or the caret.
-    expect(sync.remote('Ship', 7, 7)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
-    expect(sync.remote('Sh', 7, 8)).toEqual({ text: 'Ship it', caret: 7, dropped: false });
+    expect(sync.remote('Ship', 7, 7)).toEqual({
+      text: 'Ship it',
+      caret: 7,
+      dropped: false,
+      from: 'Ship it',
+    });
+    expect(sync.remote('Sh', 7, 8)).toEqual({
+      text: 'Ship it',
+      caret: 7,
+      dropped: false,
+      from: 'Ship it',
+    });
     expect(sync.pending).toBe(false);
     // A view from the commit on merges as usual.
     expect(sync.remote('Ship it now', 7, 10).text).toBe('Ship it now');
@@ -126,7 +157,7 @@ describe('a focused block while the page changes', () => {
     const sync = new BlockTextSync('b', 'a');
     // Text inserted at the caret goes before it, as the merge keeps the page's insertion first at
     // one point (vector "insertions at one point keep the page's first").
-    expect(sync.remote('ab', 1)).toEqual({ text: 'ab', caret: 2, dropped: false });
+    expect(sync.remote('ab', 1)).toEqual({ text: 'ab', caret: 2, dropped: false, from: 'a' });
     expect(sync.pending).toBe(false);
   });
 });

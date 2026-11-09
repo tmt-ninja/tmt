@@ -264,6 +264,8 @@ declare global {
     opened: { href: string; newTab: boolean }[];
     /** Hold the serve's commits (true) or let the held ones through (false). */
     holdServe(hold: boolean): void;
+    /** How many commits the serve holds now. */
+    heldCommits(): number;
     /** What the owner device asked of the recipient seam, in order: the selector, or `null` when it
      * asked for the page creator. */
     recipientChosen: (string | null)[];
@@ -683,6 +685,7 @@ export function mount(
     holding = hold;
     if (!hold) for (const commit of held.splice(0)) commit();
   };
+  window.heldCommits = () => held.length;
   let refuseFirst = content === 'empty-failure';
   const send = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
     new Promise<number>((resolve, reject) => {

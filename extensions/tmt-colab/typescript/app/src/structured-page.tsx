@@ -108,7 +108,14 @@ export interface StructuredPageProps {
   tree: BlockTree;
   /** The focused text block's (or table cell's, by row and `column`) text while it is edited, and
    * where its caret goes on a page change. */
-  editing?: { id: string; column?: string; text: string; caret: number; version: number };
+  editing?: {
+    id: string;
+    column?: string;
+    text: string;
+    caret: number;
+    version: number;
+    from?: string;
+  };
   /** The person focused a text block. */
   onFocus?(id: string): void;
   /** Typing in the focused block. */
@@ -923,6 +930,7 @@ function Table({
                 text={editing.text}
                 caret={editing.caret}
                 version={editing.version}
+                from={editing.from}
                 onTyped={(text, caret) => onTyped?.(row.id, text, caret)}
                 onKey={(event, text) => onCellKey?.(event, text) ?? false}
               />
@@ -991,6 +999,7 @@ function Content({
       marks={block.text === editing.text ? block.marks : undefined}
       caret={editing.caret}
       version={editing.version}
+      from={editing.from}
       placeholder={placeholder}
       onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
       onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}
