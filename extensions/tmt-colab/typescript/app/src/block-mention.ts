@@ -95,7 +95,7 @@ export type MentionPagesState =
       blocks?: readonly BlockRecord[];
     };
 
-/** How many page rows show. */
+/** How many other pages' rows the menu shows. */
 const PAGE_ROWS = 5;
 
 /** The @ menu's rows for `query`: the agents first, then the page's blocks in reading order (not

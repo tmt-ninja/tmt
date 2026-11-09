@@ -21,8 +21,6 @@ export interface MentionPages {
 export const PAGE_READ_MS = 10_000;
 /** How many of a page's blocks the menu reads. */
 export const PAGE_BLOCKS = 500;
-/** How many page rows the menu shows. */
-export const PAGE_ROWS = 5;
 
 const aborted = (signal: AbortSignal) =>
   new Promise<never>((_, reject) => {
@@ -42,12 +40,20 @@ export function mentionPages(
       return Promise.race([
         aborted(signal),
         new Promise<readonly { id: string; title: string }[]>((resolve, reject) => {
-          let stop = () => {};
+          // The source's stop runs once: after the first result (deferred, as the source may
+          // settle before `pages` returns its stop) or on abort, whichever comes first.
+          let stop: (() => void) | undefined;
+          let stopped = false;
+          const close = () => {
+            if (stopped || !stop) return;
+            stopped = true;
+            stop();
+          };
           let done = false;
           const settle = (rows?: readonly { id: string; name: string }[]) => {
             if (done) return;
             done = true;
-            queueMicrotask(() => stop());
+            queueMicrotask(close);
             if (rows) resolve(rows.map(({ id, name }) => ({ id, title: name })));
             else reject(new Error('The page list is not available here.'));
           };
@@ -55,8 +61,7 @@ export function mentionPages(
             (rows) => settle(rows),
             () => settle(),
           );
-          if (done) stop();
-          signal.addEventListener('abort', () => stop(), { once: true });
+          signal.addEventListener('abort', close, { once: true });
         }),
       ]);
     },
