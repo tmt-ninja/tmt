@@ -122,6 +122,7 @@ export function LiveStructuredPage({
     closeMenu,
     selected,
     selectionFocus,
+    selectionRequest,
     pageKey,
     toast,
     undo,
@@ -174,6 +175,7 @@ export function LiveStructuredPage({
       onCloseMenu={closeMenu}
       selected={selected}
       selectionFocus={selectionFocus}
+      selectionRequest={selectionRequest}
       onPageKey={pageKey}
       toast={toast}
       onUndo={undo}

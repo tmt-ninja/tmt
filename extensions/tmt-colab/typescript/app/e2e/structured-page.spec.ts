@@ -262,6 +262,56 @@ test('a block inserted above the one being typed in keeps its editor and its key
   await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/ XY$/);
 });
 
+test("focus on a selected block's handle stays there while an agent edit redraws the page (#6221)", async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  // Esc selects the block, which shows its handle.
+  await page.keyboard.press('Escape');
+  await expect(host.locator('[data-block-id="p"]')).toBeFocused();
+  // The handle is out of the tab order (tabindex -1); focus reaches it from a pointer or a script.
+  const handle = host.locator('[data-block-id="p"]').getByRole('button', { name: 'Block actions' });
+  await handle.focus();
+  await expect(handle).toBeFocused();
+  // An agent edit elsewhere redraws the page: the handle keeps focus.
+  await page.evaluate(() => window.agentReplace('h', 'Plan', 'PLAN'));
+  await expect(host.locator('[data-block-id="h"]')).toContainText('PLAN');
+  await expect(handle).toBeFocused();
+});
+
+test("a key typed after Enter, before the new block's editor takes focus, reaches the new block (#6229)", async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  const before = await page.evaluate(() => window.sent.length);
+  await editor.pressSequentially(' X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(before + 1);
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  // Enter waits for the batch in flight before it splits.
+  await editor.press('Enter');
+  await page.evaluate(async () => {
+    const old = document.querySelector<HTMLElement>(
+      '#structured-page-fixture [data-block-id="p"] [contenteditable="true"]',
+    )!;
+    // The batch settles and the split opens the new block; the old editor still has focus and
+    // takes a key before the new one is drawn.
+    window.holdServe(false);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    old.focus();
+    document.execCommand('insertText', false, 'Y');
+  });
+  const blocks = host.locator('[data-block-id]');
+  await expect(blocks.nth(1)).toHaveText(/ X$/);
+  await expect(blocks.nth(2)).toHaveText('Y');
+  await expect(blocks.nth(2).locator('[contenteditable="true"]')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/ X$/);
+});
+
 test('/ in an empty paragraph opens the insert menu, which filters and inserts', async ({
   page,
 }) => {

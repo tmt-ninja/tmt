@@ -170,6 +170,9 @@ export interface StructuredPageProps {
   /** The selected blocks, and the one keyboard focus sits on. */
   selected?: readonly string[];
   selectionFocus?: string;
+  /** Changes only when something selects a block on purpose (a menu action, a key, a click), not
+   * on a render the page's other changes cause. */
+  selectionRequest?: object;
   /** A key on the page outside a block's editor (Delete, arrows, ⌘Z); true when taken. */
   onPageKey?(event: KeyboardEvent): boolean;
   /** The status line after a delete, and its Undo. */
@@ -233,6 +236,18 @@ export function StructuredPage(props: StructuredPageProps) {
     [props.onMove],
   );
   const { drag, start, wasDrag } = useBlockDrag(props.tree, () => root.current, drop);
+  // A block selected on purpose from its own handle (the ⋯ menu's items keep focus on the handle)
+  // takes keyboard focus. Only a new request does: a handle a person tabbed to keeps focus while
+  // the page redraws (#6221).
+  useEffect(() => {
+    const id = props.selectionFocus;
+    if (!props.selectionRequest || !id) return;
+    const node = root.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`);
+    const active = document.activeElement;
+    if (node && active && node.contains(active) && active.closest('[data-slot="block-handle"]'))
+      node.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.selectionRequest]);
   // The insert menu's "Image or file" opens the device's file picker while the key or click that
   // chose it still counts as the person's gesture.
   const picker = useRef<HTMLInputElement>(null);
@@ -415,10 +430,8 @@ function Blocks({
       // already inside it (a table's menu or column name field) stays where it is.
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
-        if (!node || rest.selectionFocus !== block.id) return;
-        // The block's own handle (its ⋯ menu acted on the block) hands focus to the block.
-        const active = document.activeElement;
-        if (!node.contains(active) || active?.closest('[data-slot="block-handle"]')) node.focus();
+        if (node && rest.selectionFocus === block.id && !node.contains(document.activeElement))
+          node.focus();
       }}
       readonly={rest.readonly}
       onClick={(event) => {
