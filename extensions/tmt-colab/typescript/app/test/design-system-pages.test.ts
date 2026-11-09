@@ -251,10 +251,12 @@ describe('template, publish and the renderer source', () => {
       return snapshot;
     };
     const progress: string[] = [];
+    const created: number[] = [];
     const rootId = await designSystemCreation(transport, { name: 'Acme', prefix: 'acme' }).run(
       (state) => {
         writing = state.phase === 'pages';
         publishing = state.phase === 'publishing';
+        if (state.phase === 'creating') created.push(state.done);
         progress.push(state.phase === 'pages' ? `${state.done}/${state.total}` : state.phase);
       },
     );
@@ -262,7 +264,10 @@ describe('template, publish and the renderer source', () => {
     const sections = templateSections as { title: string; pages: { title: string }[] }[];
     const total =
       sections.length + sections.reduce((sum, section) => sum + section.pages.length, 0);
-    expect(progress[0]).toBe(`0/${total}`);
+    expect(progress[0]).toBe('creating');
+    expect(created[0]).toBe(0);
+    expect(created.at(-1)).toBe(total);
+    expect(progress).toContain(`0/${total}`);
     expect(progress.at(-2)).toBe(`${total}/${total}`);
     expect(progress.at(-1)).toBe('publishing');
     // The first version compiles from what was just written: publishing opens only the root, and

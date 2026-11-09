@@ -3677,6 +3677,11 @@ operation ID is recorded with the commit, so `savestatus` on it answers a lost r
 already has a recorded outcome never answers `unchanged` for another action. Like any frame, a reply
 is acknowledged by the browser's `ack`.
 
+The browser's 30 s work-request budget includes waiting for its connection to become ready. If it
+expires before the action is sent, the action was not applied and may be tried again. A lost reply
+after sending is checked by operation ID; an outcome that cannot be confirmed is never resent as a
+new operation.
+
 ### Answer blocks
 
 An answer block is authored page HTML. Register its ID first through [question metadata](#question-metadata-5052); answers remain ordinary discussion records:

@@ -717,6 +717,7 @@ function templatePageSource(
 
 /** How far a new system is: `done` of `total` pages written, then publishing. */
 export type CreationProgress =
+  | { phase: 'creating'; done: number; total: number }
   | { phase: 'pages'; done: number; total: number }
   | { phase: 'publishing' };
 
@@ -745,12 +746,14 @@ export function designSystemCreation(
   let configured = false;
   let published = false;
   let running: Promise<string> | undefined;
+  let reportCreated = () => {};
   const create = async (parent: Snapshot, key: string, title: string) => {
     const existing = made.get(key);
     if (existing) return existing;
     const child = await parent.binding!.work!('subpage.create', { title, format: 'html' });
     if (!child.childPage) throw new Error(`The ${title} page was not made.`);
     made.set(key, child.childPage);
+    reportCreated();
     return child.childPage;
   };
   const write = (id: string, source: string) =>
@@ -767,6 +770,12 @@ export function designSystemCreation(
       components: (ComponentDoc & { notes?: string })[];
     };
     const live = new Map(components.map((doc) => [doc.tag, doc]));
+    const totalCreated = (sections as DocSection[]).reduce(
+      (total, section) => total + 1 + section.pages.length,
+      0,
+    );
+    reportCreated = () => progress({ phase: 'creating', done: made.size, total: totalCreated });
+    reportCreated();
     rootId ??= await newRoot(transport, name);
     const root = rootId;
     const entries: DesignSystemConfig['components'] = [];

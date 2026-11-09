@@ -88,7 +88,7 @@ const FRAME_BYTES = 64 * 1024;
 /** What the frame envelope (version, type, space, page, epoch) takes, with room to spare. */
 const ENVELOPE_BYTES = 1024;
 /** The whole reply budget for one save: upload window, native preparation and commit. */
-const SAVE_REPLY_MS = 30_000;
+export const SAVE_REPLY_MS = 30_000;
 /** The reply budget for a usage or compact request: a combine decodes the page several times. */
 const PAGE_REPLY_MS = 20_000;
 /** Bytes the socket may hold unsent before the next chunk waits; keeps a 2 MiB save paced. */
@@ -679,11 +679,16 @@ export class Connection {
     operationId: string,
     action: WorkAction,
     body: Record<string, unknown>,
+    timeoutMs = SAVE_REPLY_MS,
   ): Promise<WorkResult> {
-    await this.ready;
-    this.admission.validatePage(this.sharing);
-    return (await this.#request(operationId, async () =>
-      this.send('work', { operationId, action, body }),
+    return (await this.#request(
+      operationId,
+      async () => {
+        await this.ready;
+        this.admission.validatePage(this.sharing);
+        this.send('work', { operationId, action, body });
+      },
+      timeoutMs,
     )) as WorkResult;
   }
   /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
@@ -721,10 +726,14 @@ export class Connection {
     await this.ready;
     return this.#request(operationId, async () => this.send('savestatus', { operationId }));
   }
-  #request(operationId: string, send: () => Promise<void>): Promise<SaveResult> {
+  #request(
+    operationId: string,
+    send: () => Promise<void>,
+    timeoutMs = SAVE_REPLY_MS,
+  ): Promise<SaveResult> {
     requireValue(!this.#stopped && this.#reply === null);
     return new Promise<SaveResult>((resolve, reject) => {
-      const timer = setTimeout(() => this.close(new Error('Save reply timed out')), SAVE_REPLY_MS);
+      const timer = setTimeout(() => this.close(new Error('Save reply timed out')), timeoutMs);
       this.#reply = { operationId, resolve, reject, timer };
       send().catch((error) =>
         this.close(error instanceof Error ? error : new Error('Save unavailable')),

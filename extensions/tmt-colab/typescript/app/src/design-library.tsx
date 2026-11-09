@@ -464,10 +464,10 @@ export function DesignLibrary({
         <DesignSystemDialog
           transport={transport}
           onDismiss={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false);
+          onCreated={(id, open) => {
+            if (open) setCreating(false);
             void refresh().then((ok) => {
-              if (ok) go(`${base}/systems/${encodeURIComponent(id)}`);
+              if (ok && open) go(`${base}/systems/${encodeURIComponent(id)}`);
             });
           }}
         />

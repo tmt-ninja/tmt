@@ -121,6 +121,7 @@ vi.mock('../src/admission.js', () => ({
   },
 }));
 vi.mock('../src/connection.js', () => ({
+  SAVE_REPLY_MS: 30_000,
   Connection: class {
     witness = retryFixture.witnessNext;
     objects = {
@@ -2523,6 +2524,55 @@ const worked = (operationId: string, fields: Partial<SaveResult> = {}): SaveResu
   state: 'committed',
   revision: 'v1:revision',
   ...fields,
+});
+
+it('bounds a work action waiting for a connection without sending it', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    const old = connections.at(-1)!;
+    connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+    old.failed(new Error('RESYNC_REQUIRED'));
+    await h.created;
+    vi.useFakeTimers();
+    const result = h.live
+      .work('subpage.create', { title: 'A page' })
+      .catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toMatchObject({
+      message: 'Page connection timed out before the action was sent; nothing was applied.',
+    });
+    expect(saves.work).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    h.release({ source: 'verified', title: 'Page' });
+    h.live.close();
+  }
+});
+
+it('does not replay a sent work action when reconnection never settles its outcome', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+    saves.work.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    vi.useFakeTimers();
+    const result = h.live
+      .work('subpage.create', { title: 'A page' })
+      .catch((error: Error) => error);
+    await h.created;
+    await vi.advanceTimersByTimeAsync(20_100);
+    expect(await result).toBeInstanceOf(SaveOutcomeUnknown);
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    h.release({ source: 'verified', title: 'Page' });
+    h.live.close();
+  }
 });
 
 it('a work action is sent once with its closed body and resolves when the owner commits it', async () => {

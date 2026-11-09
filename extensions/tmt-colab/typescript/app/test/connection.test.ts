@@ -96,6 +96,31 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+it('bounds a work request even when connection readiness never arrives', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', Socket);
+  const admission = {
+    ...scope,
+    root: new Uint8Array(32),
+    closeKeys() {},
+    validatePage: vi.fn(),
+    registration: { deviceId: author, syncUrl: 'wss://example.test/colab/sync' },
+  } as unknown as Admission;
+  const connection = new Connection(
+    admission,
+    new URL('https://example.test/colab/'),
+    'private',
+    vi.fn(),
+    vi.fn(),
+  );
+  const work = connection
+    .work('operation', 'subpage.create', { title: 'Page' }, 10)
+    .catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await work).toMatchObject({ message: 'Save reply timed out' });
+  expect(Socket.current.send).not.toHaveBeenCalled();
+  expect(Socket.current.close).toHaveBeenCalledOnce();
+});
 it('fails closed for an epoch baseline without prior-writer proof', async () => {
   provenance.baseline = true;
   const { connection, publish } = await open();

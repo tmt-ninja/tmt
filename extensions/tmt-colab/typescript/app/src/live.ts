@@ -29,7 +29,7 @@ import type {
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
-import { Connection } from './connection.js';
+import { Connection, SAVE_REPLY_MS } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
@@ -52,6 +52,26 @@ import { standaloneRequest } from './export-runtime.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
+
+class ConnectionReadyTimeout extends Error {}
+
+/** Bound a pending connection without cancelling or replaying an operation. */
+async function connectionBefore<T>(connection: Promise<T>, deadline: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      connection,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ConnectionReadyTimeout('Page connection timed out')),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface LiveSession {
   registration: Registration;
@@ -925,11 +945,18 @@ export class Live implements PageBinding {
    * a lost reply is settled by exactly one status request, and the action is never sent again. */
   async work(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
-    const c = await this.#current;
+    const deadline = Date.now() + SAVE_REPLY_MS;
+    const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
+      if (error instanceof ConnectionReadyTimeout)
+        throw new Error(
+          'Page connection timed out before the action was sent; nothing was applied.',
+        );
+      throw error;
+    });
     const operationId = crypto.randomUUID();
     let result: WorkResult;
     try {
-      result = await c.work(operationId, action, body);
+      result = await c.work(operationId, action, body, Math.max(0, deadline - Date.now()));
     } catch (error) {
       if (!(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
@@ -1163,7 +1190,7 @@ export class Live implements PageBinding {
   async #reopened(lost: Connection): Promise<Connection> {
     const deadline = Date.now() + SAVE_REOPEN_MS;
     while (!this.#closed && !this.#error && Date.now() < deadline) {
-      const next = await this.#current.catch(() => null);
+      const next = await connectionBefore(this.#current, deadline).catch(() => null);
       if (next && next !== lost && next.active) return next;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

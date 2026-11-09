@@ -888,3 +888,73 @@ test('a component edit shows at once on the draft, and the header can show a rel
   await page.getByRole('menuitemradio', { name: 'Draft', exact: true }).click();
   await expect.poll(outline).toBe(marked);
 });
+
+for (const stage of ['progress', 'stalled'] as const) {
+  test(`a ${stage} design-system create can close without cancelling`, async ({ page }) => {
+    await open(page);
+    const before = page.url();
+    await page.evaluate(() => {
+      const fixture = (window as any).designFixture;
+      fixture.controls.holdCreate = true;
+      const original = window.setTimeout;
+      window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) =>
+        original(callback, delay === 60_000 ? 1_000 : delay, ...args)) as typeof window.setTimeout;
+    });
+    await page.getByRole('button', { name: 'New design system', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+    await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Brio');
+    await dialog.getByRole('textbox', { name: 'Tag prefix', exact: true }).fill('brio');
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(dialog.getByRole('status')).toHaveText('Creating pages: 0 of 109');
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('textbox', { name: 'Tag prefix', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Creating…', exact: true })).toBeDisabled();
+    if (stage === 'stalled')
+      await expect(dialog.getByRole('status')).toHaveText(
+        'Still creating (0/109). This can take a while.',
+      );
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.evaluate(() => (window as any).designFixture.controls.releaseCreate());
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            [...(window as any).designFixture.pages.values()].some(
+              (entry: any) =>
+                entry.title === 'Brio' &&
+                entry.source.includes('"releases"') &&
+                entry.attachments.length > 0,
+            ),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    await expect(page).toHaveURL(before);
+  });
+}
+
+test('a refused create offers retry; an unknown outcome stops without replay', async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    (window as any).designFixture.controls.refuseCreate = true;
+  });
+  await page.getByRole('button', { name: 'New design system', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Fixture creation refused');
+  await expect(dialog.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).designFixture.controls.unknownCreate = true;
+  });
+  await page.getByRole('button', { name: 'New design system', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Could not confirm some pages. Check the page list before starting again.',
+  );
+  await expect(dialog.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeEnabled();
+});
