@@ -348,7 +348,9 @@ export async function mountRenderer(
   let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
   const readyWaiters: (() => void)[] = [];
   let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
+  let pendingDesign: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let updates = 0;
+  let designUpdates = 0;
   let updateHeightPending = false;
   let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
@@ -537,6 +539,7 @@ export async function mountRenderer(
     if (stopped) return;
     pendingReveal?.settle(undefined);
     pendingUpdate?.settle('superseded');
+    pendingDesign?.settle('superseded');
     pendingScroll = undefined;
     readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
@@ -903,7 +906,10 @@ export async function mountRenderer(
     options.onState('ready');
   };
   // A message the port cannot deliver may have been the answer to an update: mount afresh.
-  channel.port1.onmessageerror = () => pendingUpdate?.settle('remount');
+  channel.port1.onmessageerror = () => {
+    pendingUpdate?.settle('remount');
+    pendingDesign?.settle('remount');
+  };
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
@@ -946,7 +952,9 @@ export async function mountRenderer(
     if (value?.type === 'colab.render.source-applied') {
       // Untrusted like every frame claim: a forged success leaves at most stale content, which the
       // next update or remount replaces.
-      const pending = pendingUpdate;
+      const pending = [pendingUpdate, pendingDesign].find(
+        (entry) => entry?.requestId === value.requestId,
+      );
       if (
         pending &&
         value.requestId === pending.requestId &&
@@ -1765,10 +1773,10 @@ export async function mountRenderer(
   const refreshDesign = async (source: string): Promise<SourceUpdate> => {
     if (stopped) return 'superseded';
     if (!ready || !frameDesign) return 'remount';
-    const turn = ++updates;
-    pendingUpdate?.settle('superseded');
+    const turn = ++designUpdates;
+    pendingDesign?.settle('superseded');
     const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
-    if (stopped || turn !== updates) return 'superseded';
+    if (stopped || turn !== designUpdates) return 'superseded';
     if (
       !next ||
       next.script !== frameDesign.script ||
@@ -1782,11 +1790,11 @@ export async function mountRenderer(
       const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
       const settle = (result: SourceUpdate) => {
         clearTimeout(timer);
-        if (pendingUpdate?.requestId === requestId) pendingUpdate = undefined;
+        if (pendingDesign?.requestId === requestId) pendingDesign = undefined;
         if (result === 'applied') frameDesign = next;
         resolve(result);
       };
-      pendingUpdate = { requestId, settle };
+      pendingDesign = { requestId, settle };
       try {
         channel.port1.postMessage({
           type: 'colab.render.design-style',

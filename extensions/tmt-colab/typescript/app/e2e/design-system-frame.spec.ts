@@ -778,6 +778,25 @@ test('a CSS-only draft refresh keeps the frame and falls back when component cod
   });
   expect(raced).toEqual(['superseded', 'applied']);
   await expect(content).toHaveCSS('color', 'rgb(7, 8, 9)');
+  for (const order of ['source-first', 'style-first'] as const) {
+    const result = await page.evaluate(async (which) => {
+      const state = (window as any).draftProbe;
+      const source = `<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">${which}</p>`;
+      state.bundle = { ...state.bundle, tokensCss: '.refresh-test{color:rgb(10,11,12)}' };
+      const update = () => state.handle.update(source);
+      const refresh = () => state.handle.refreshDesign(source);
+      return which === 'source-first'
+        ? Promise.all([update(), refresh()])
+        : Promise.all([refresh(), update()]);
+    }, order);
+    // Pinned pages require a remount for a source change; a style refresh must not hide it.
+    expect(result).toEqual(
+      order === 'source-first' ? ['remount', 'applied'] : ['applied', 'remount'],
+    );
+    await expect(content).toHaveText('Hello');
+    await expect(content).toHaveCSS('color', 'rgb(10, 11, 12)');
+    await expect(iframe).toHaveAttribute('data-render-id', before!);
+  }
   expect(
     await page.evaluate(async () => {
       const state = (window as any).draftProbe;
@@ -792,6 +811,40 @@ test('a CSS-only draft refresh keeps the frame and falls back when component cod
       );
     }),
   ).toBe('remount');
+});
+
+test('source and design updates both settle in either order on an updatable page', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'concurrent-probe';
+    document.body.prepend(host);
+    const handle = await mountRenderer(host, '<tmt-ui-button>Go</tmt-ui-button><p>Initial</p>', {
+      signal: new AbortController().signal,
+      onState: (state: string) => {
+        host.dataset.state = state;
+      },
+    });
+    Object.assign(window, { concurrentProbe: handle });
+  });
+  await expect(page.locator('#concurrent-probe')).toHaveAttribute('data-state', 'ready');
+  for (const order of ['source-first', 'style-first'] as const) {
+    const result = await page.evaluate(async (which) => {
+      const handle = (window as any).concurrentProbe;
+      const source = `<tmt-ui-button>Go</tmt-ui-button><p>${which}</p>`;
+      const update = () => handle.update(source);
+      const refresh = () => handle.refreshDesign(source);
+      return which === 'source-first'
+        ? Promise.all([update(), refresh()])
+        : Promise.all([refresh(), update()]);
+    }, order);
+    expect(result).toEqual(['applied', 'applied']);
+    await expect(page.frameLocator('#concurrent-probe iframe').locator('p')).toHaveText(order);
+  }
 });
 
 test('an unreadable release and a malformed pin both say so', async ({ page }) => {
