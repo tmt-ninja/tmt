@@ -4,6 +4,7 @@ import {
   bundleHash,
   checkPageElements,
   DesignDraftError,
+  frameDesignSystem,
   noticeFrame,
   PIN_WAIT_MS,
 } from '../src/design-system.js';
@@ -641,6 +642,20 @@ describe('live draft (#5967)', () => {
     const block = readBlock<{ css: string }>(source, 'component')!;
     return writeBlock(source, 'component', { ...block, css: `${block.css}.acme-draft-mark{}` });
   };
+
+  it('compiles a component CSS-only edit to the same frame script', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const before = frameDesignSystem(await compileDraft(transport, rootId));
+    pages.get(button)!.source = recolor(pages.get(button)!.source);
+    const after = frameDesignSystem(await compileDraft(transport, rootId));
+    expect(after.script).toBe(before.script);
+    expect(after.style).not.toBe(before.style);
+    expect(after.style).toContain('acme-draft-mark');
+  });
   it('compiles the draft as publish does, and locked pages keep their release', async () => {
     const { pages, make, transport } = space();
     make('Notes');

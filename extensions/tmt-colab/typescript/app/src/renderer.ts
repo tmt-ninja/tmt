@@ -7,6 +7,7 @@ import {
   noticeFrame,
   writesDesignSystemTags,
   type DesignSystemSource,
+  type FrameDesignSystem,
 } from './design-system.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { admitImageDownload, type ImageDownload } from './image-download.js';
@@ -297,6 +298,8 @@ export async function mountRenderer(
   /** Apply a new source to the open frame (#5022). On `remount` the caller mounts a fresh frame,
    * exactly as for a source change before in-place updates. */
   update(source: string): Promise<SourceUpdate>;
+  /** Refresh a followed design-system stylesheet, or request a remount for changed code. */
+  refreshDesign(source: string): Promise<SourceUpdate>;
   /** Stop the old channel while its frame preserves layout until replacement. */
   release(): void;
   destroy(): void;
@@ -338,13 +341,16 @@ export async function mountRenderer(
   let admittedTags:
     | { pageViewTags?: readonly string[]; pageDataTags?: readonly string[] }
     | undefined;
+  let frameDesign: FrameDesignSystem | undefined;
   const channel = new MessageChannel();
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
   let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
   const readyWaiters: (() => void)[] = [];
   let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
+  let pendingDesign: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let updates = 0;
+  let designUpdates = 0;
   let updateHeightPending = false;
   let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
@@ -533,6 +539,7 @@ export async function mountRenderer(
     if (stopped) return;
     pendingReveal?.settle(undefined);
     pendingUpdate?.settle('superseded');
+    pendingDesign?.settle('superseded');
     pendingScroll = undefined;
     readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
@@ -899,7 +906,10 @@ export async function mountRenderer(
     options.onState('ready');
   };
   // A message the port cannot deliver may have been the answer to an update: mount afresh.
-  channel.port1.onmessageerror = () => pendingUpdate?.settle('remount');
+  channel.port1.onmessageerror = () => {
+    pendingUpdate?.settle('remount');
+    pendingDesign?.settle('remount');
+  };
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
@@ -942,7 +952,9 @@ export async function mountRenderer(
     if (value?.type === 'colab.render.source-applied') {
       // Untrusted like every frame claim: a forged success leaves at most stale content, which the
       // next update or remount replaces.
-      const pending = pendingUpdate;
+      const pending = [pendingUpdate, pendingDesign].find(
+        (entry) => entry?.requestId === value.requestId,
+      );
       if (
         pending &&
         value.requestId === pending.requestId &&
@@ -1646,6 +1658,7 @@ export async function mountRenderer(
     const ds = await designSystem;
     if (stopped) return;
     admittedTags = ds;
+    frameDesign = ds;
     if (runtime) {
       try {
         bundle = await runtime;
@@ -1726,6 +1739,7 @@ export async function mountRenderer(
     if (stopped) return 'superseded';
     if (!ready) return 'remount';
     const turn = ++updates;
+    pendingUpdate?.settle('superseded');
     let sourceDigest: string;
     try {
       sourceDigest = await digestSource(source);
@@ -1733,7 +1747,6 @@ export async function mountRenderer(
       return 'remount';
     }
     if (stopped || turn !== updates) return 'superseded';
-    pendingUpdate?.settle('superseded');
     const requestId = crypto.randomUUID();
     return new Promise<SourceUpdate>((resolve) => {
       const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
@@ -1751,6 +1764,42 @@ export async function mountRenderer(
           requestId,
           sourceDigest,
           source,
+        });
+      } catch {
+        settle('remount');
+      }
+    });
+  };
+  const refreshDesign = async (source: string): Promise<SourceUpdate> => {
+    if (stopped) return 'superseded';
+    if (!ready || !frameDesign) return 'remount';
+    const turn = ++designUpdates;
+    pendingDesign?.settle('superseded');
+    const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
+    if (stopped || turn !== designUpdates) return 'superseded';
+    if (
+      !next ||
+      next.script !== frameDesign.script ||
+      JSON.stringify(next.runtimeChunks) !== JSON.stringify(frameDesign.runtimeChunks) ||
+      JSON.stringify(next.pageViewTags) !== JSON.stringify(frameDesign.pageViewTags) ||
+      JSON.stringify(next.pageDataTags) !== JSON.stringify(frameDesign.pageDataTags)
+    )
+      return 'remount';
+    const requestId = crypto.randomUUID();
+    return new Promise<SourceUpdate>((resolve) => {
+      const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
+      const settle = (result: SourceUpdate) => {
+        clearTimeout(timer);
+        if (pendingDesign?.requestId === requestId) pendingDesign = undefined;
+        if (result === 'applied') frameDesign = next;
+        resolve(result);
+      };
+      pendingDesign = { requestId, settle };
+      try {
+        channel.port1.postMessage({
+          type: 'colab.render.design-style',
+          requestId,
+          style: next.style,
         });
       } catch {
         settle('remount');
@@ -1776,6 +1825,7 @@ export async function mountRenderer(
     },
     snapshot,
     update,
+    refreshDesign,
     editLocks,
     highlight,
     slots,

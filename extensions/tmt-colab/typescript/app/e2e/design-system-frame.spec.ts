@@ -709,6 +709,144 @@ test('a page that names the system without a lock draws its draft (#5967)', asyn
   await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
 });
 
+test('a CSS-only draft refresh keeps the frame and falls back when component code changes', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (initial) => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'probe';
+    document.body.prepend(host);
+    const state = {
+      bundle: initial,
+      handle: undefined as Awaited<ReturnType<typeof mountRenderer>> | undefined,
+    };
+    Object.assign(window, { draftProbe: state });
+    state.handle = await mountRenderer(
+      host,
+      '<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">Hello</p>',
+      {
+        signal: new AbortController().signal,
+        onState: (value: string) => {
+          host.dataset.state = value;
+        },
+        designSystem: {
+          release: async () => undefined,
+          draft: async () => state.bundle,
+          watch: () => () => {},
+        },
+      },
+    );
+  }, bundle);
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const iframe = page.locator('#probe iframe');
+  const before = await iframe.getAttribute('data-render-id');
+  const content = iframe.contentFrame().locator('.refresh-test');
+  await content.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.setAttribute('data-test-retained', 'yes');
+  });
+  const result = await page.evaluate(async () => {
+    const state = (window as any).draftProbe;
+    state.bundle = {
+      ...state.bundle,
+      tokensCss: `${state.bundle.tokensCss}\n.refresh-test{color:rgb(1,2,3)}`,
+    };
+    return state.handle.refreshDesign(
+      '<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">Hello</p>',
+    );
+  });
+  expect(result).toBe('applied');
+  await expect(content).toHaveCSS('color', 'rgb(1, 2, 3)');
+  await expect(content).toHaveAttribute('data-test-retained', 'yes');
+  expect(await content.evaluate(() => window.getSelection()?.toString())).toBe('Hello');
+  await expect(iframe).toHaveAttribute('data-render-id', before!);
+  const raced = await page.evaluate(async () => {
+    const state = (window as any).draftProbe;
+    const source = '<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">Hello</p>';
+    state.bundle = { ...state.bundle, tokensCss: '.refresh-test{color:rgb(4,5,6)}' };
+    const first = state.handle.refreshDesign(source);
+    state.bundle = { ...state.bundle, tokensCss: '.refresh-test{color:rgb(7,8,9)}' };
+    const second = state.handle.refreshDesign(source);
+    return Promise.all([first, second]);
+  });
+  expect(raced).toEqual(['superseded', 'applied']);
+  await expect(content).toHaveCSS('color', 'rgb(7, 8, 9)');
+  for (const order of ['source-first', 'style-first'] as const) {
+    const result = await page.evaluate(async (which) => {
+      const state = (window as any).draftProbe;
+      const source = `<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">${which}</p>`;
+      state.bundle = { ...state.bundle, tokensCss: '.refresh-test{color:rgb(10,11,12)}' };
+      const update = () => state.handle.update(source);
+      const refresh = () => state.handle.refreshDesign(source);
+      return which === 'source-first'
+        ? Promise.all([update(), refresh()])
+        : Promise.all([refresh(), update()]);
+    }, order);
+    // Pinned pages require a remount for a source change; a style refresh must not hide it.
+    expect(result).toEqual(
+      order === 'source-first' ? ['remount', 'applied'] : ['applied', 'remount'],
+    );
+    await expect(content).toHaveText('Hello');
+    await expect(content).toHaveCSS('color', 'rgb(10, 11, 12)');
+    await expect(iframe).toHaveAttribute('data-render-id', before!);
+  }
+  expect(
+    await page.evaluate(async () => {
+      const state = (window as any).draftProbe;
+      state.bundle = {
+        ...state.bundle,
+        components: state.bundle.components.map((component: any, index: number) =>
+          index ? component : { ...component, code: `${component.code}\n// changed` },
+        ),
+      };
+      return state.handle.refreshDesign(
+        '<meta name="tmt-ds" content="tmt-gui"><p class="refresh-test">Hello</p>',
+      );
+    }),
+  ).toBe('remount');
+});
+
+test('source and design updates both settle in either order on an updatable page', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'concurrent-probe';
+    document.body.prepend(host);
+    const handle = await mountRenderer(host, '<tmt-ui-button>Go</tmt-ui-button><p>Initial</p>', {
+      signal: new AbortController().signal,
+      onState: (state: string) => {
+        host.dataset.state = state;
+      },
+    });
+    Object.assign(window, { concurrentProbe: handle });
+  });
+  await expect(page.locator('#concurrent-probe')).toHaveAttribute('data-state', 'ready');
+  for (const order of ['source-first', 'style-first'] as const) {
+    const result = await page.evaluate(async (which) => {
+      const handle = (window as any).concurrentProbe;
+      const source = `<tmt-ui-button>Go</tmt-ui-button><p>${which}</p>`;
+      const update = () => handle.update(source);
+      const refresh = () => handle.refreshDesign(source);
+      return which === 'source-first'
+        ? Promise.all([update(), refresh()])
+        : Promise.all([refresh(), update()]);
+    }, order);
+    expect(result).toEqual(['applied', 'applied']);
+    await expect(page.frameLocator('#concurrent-probe iframe').locator('p')).toHaveText(order);
+  }
+});
+
 test('an unreadable release and a malformed pin both say so', async ({ page }) => {
   let frame = await mount(
     page,

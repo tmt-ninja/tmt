@@ -32,6 +32,8 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     // Held list reads in flight across this browser's tabs (#6162), counted from the first request.
     // A closed tab never reports its last request finished, so each tab counts its own.
     const inFlight = new Map<number, number>();
+    const detached = new Map<number, number>();
+    let measuringEdit = false;
     const held = {
       by: new Set<number>(),
       get now() {
@@ -39,6 +41,9 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       },
     };
     const watch = (tab: number, target: typeof page) => {
+      target.on('framedetached', () => {
+        if (measuringEdit) detached.set(tab, (detached.get(tab) ?? 0) + 1);
+      });
       const isHeld = (url: string) =>
         /\/api\/pages\/after\/[0-9a-f]{64}$/.test(new URL(url).pathname);
       target.on('request', (request) => {
@@ -192,6 +197,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
     held.by.clear();
     // A CLI edit to an unopened component page reaches every tab through that one read.
+    measuringEdit = true;
     run(world, world.binaries.colab, [
       'page',
       'patch',
@@ -240,12 +246,21 @@ test('an @agent comment on a design-system example becomes a live patch of that 
         console.log(`tab ${index} drew the CLI edit ${drawTimes[index]} ms after it`);
       }),
     );
+    measuringEdit = false;
+    console.log(
+      `frame detach count per tab: ${tabs.map((_, tab) => detached.get(tab) ?? 0).join(' / ')}`,
+    );
     // One tab issued every held read meanwhile (a request's finished event can trail the next
     // request, so the in-flight count is read only when settled).
     expect(held.by.size).toBe(1);
     await expect.poll(() => held.now, { timeout: 30_000 }).toBe(1);
-    // The holding tab closes: another tab takes the read over.
     const holder = [...held.by][0]!;
+    // The holder may still be catching up on an earlier code change, which requires a remount;
+    // peers must apply this CSS-only edit without replacing their frames.
+    expect(tabs.flatMap((_, tab) => (tab === holder ? [] : [detached.get(tab) ?? 0]))).toEqual([
+      0, 0, 0, 0,
+    ]);
+    // The holding tab closes: another tab takes the read over.
     await tabs[holder]!.close();
     inFlight.delete(holder);
     held.by.clear();

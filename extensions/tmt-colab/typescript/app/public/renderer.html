@@ -2549,6 +2549,34 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.design-style' &&
+              Object.keys(v).length === 3 &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              typeof v.style === 'string' &&
+              utf8.encode(v.style).byteLength <= 512 * 1024
+            ) {
+              const style = document.head.querySelector('style[data-colab-design-style]');
+              if (stopped) return;
+              if (style) {
+                style.textContent = v.style;
+                resolve();
+                measureScheme();
+                scheduleUpdateGeometry();
+              }
+              port.postMessage(
+                style
+                  ? { type: 'colab.render.source-applied', requestId: v.requestId, ok: true }
+                  : {
+                      type: 'colab.render.source-applied',
+                      requestId: v.requestId,
+                      ok: false,
+                      reason: 'remount',
+                    },
+              );
+              return;
+            }
+            if (
               v?.type === 'colab.render.parent-page-views' &&
               Object.keys(v).length === 3 &&
               v.renderId === renderId &&
@@ -3418,7 +3446,7 @@
               ? dsProse
               : '';
           const ds = value.ds
-            ? `<style>${prose}${value.ds.style}</style><script>${value.ds.script}<\/script>`
+            ? `<style>${prose}</style><style data-colab-design-style>${value.ds.style}</style><script>${value.ds.script}<\/script>`
             : '';
           // A page that uses the design system (#5057) gets the root attribute that the lowest layer's
           // paper and ink rule keys on; any other page keeps the white canvas. A plain text test of the
