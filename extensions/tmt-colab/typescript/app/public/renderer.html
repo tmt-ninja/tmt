@@ -3344,14 +3344,23 @@
           const keys = Object.keys(value);
           if (
             keys.length !== 2 + (Object.hasOwn(value, 'wasm') ? 1 : 0) ||
-            !keys.includes('scripts') || !keys.includes('style')
-          ) return false;
+            !keys.includes('scripts') ||
+            !keys.includes('style')
+          )
+            return false;
           if (Object.hasOwn(value, 'wasm')) {
             const wasm = value.wasm;
-            if (!wasm || typeof wasm !== 'object' || Array.isArray(wasm) ||
-                Object.keys(wasm).length !== 2 || wasm.mime !== 'application/wasm' ||
-                !(wasm.bytes instanceof ArrayBuffer) ||
-                wasm.bytes.byteLength < 1 || wasm.bytes.byteLength > 614400) return false;
+            if (
+              !wasm ||
+              typeof wasm !== 'object' ||
+              Array.isArray(wasm) ||
+              Object.keys(wasm).length !== 2 ||
+              wasm.mime !== 'application/wasm' ||
+              !(wasm.bytes instanceof ArrayBuffer) ||
+              wasm.bytes.byteLength < 1 ||
+              wasm.bytes.byteLength > 614400
+            )
+              return false;
           }
           const { scripts, style } = value;
           const size = (text) =>
@@ -3445,7 +3454,8 @@
           );
           const seal =
             '<script>window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;' +
-            (value.runtime?.wasm ? 'delete window.__colabTakeTerminalBytes;' : '') + '<\/script>';
+            (value.runtime?.wasm ? 'delete window.__colabTakeTerminalBytes;' : '') +
+            '<\/script>';
           const runtime = value.runtime
             ? `<style type="text/tailwindcss">${value.runtime.style}</style>${chunks.join('')}${seal}`
             : '';

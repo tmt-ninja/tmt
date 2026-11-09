@@ -254,7 +254,7 @@ fn canonical_generated_pipeline_rejects_drift_and_app_declarations() {
         "releaseScript":"scripts/build-native-artifact.sh", "reason":"Canonical pipeline"
     }, {
         "includeSite":format!("{crate_dir}/src/hosting.rs"), "expression":"concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\")",
-        "generator":format!("{crate_dir}/build/hosting.rs"), "generatorBlob":"9d1553e40d0c73bdd2a40504f9363841e68216a6", "buildScript":format!("{crate_dir}/build.rs"),
+        "generator":format!("{crate_dir}/build/hosting.rs"), "generatorBlob":"acab2593599318de6351b8ae3e7e5e3fb6e8a236", "buildScript":format!("{crate_dir}/build.rs"),
         "variable":"TMT_COLAB_HOSTING_DIR", "inputDirectory":format!("{app}/dist-hosted"), "packageRoot":app,
         "releaseScript":"scripts/build-native-artifact.sh", "reason":"Canonical hosted release pipeline"
     }]);

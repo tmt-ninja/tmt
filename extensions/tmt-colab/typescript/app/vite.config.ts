@@ -38,6 +38,7 @@ const runtimeChunks = runtimeBuildOptions(new URL('./', import.meta.url));
 export default defineConfig(({ mode }) => ({
   lint: lintConfig,
   fmt: {
+    ignorePatterns: ['terminal-frame-assets/**'],
     singleQuote: true,
     trailingComma: 'all',
     printWidth: 100,
