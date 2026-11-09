@@ -204,12 +204,18 @@
       "after": [
         "base"
       ],
-      "ui": [
-        "TerminalFrame"
-      ],
+      "ui": [],
       "parts": [],
       "gzipCap": 524288,
       "kind": "wasm"
+    },
+    {
+      "name": "terminal-frame-ui",
+      "entry": "src/runtime/chunks/terminal-frame-ui.ts",
+      "after": ["base", "terminal-frame"],
+      "ui": ["TerminalFrame"],
+      "parts": [],
+      "gzipCap": 16384
     }
   ]
 }

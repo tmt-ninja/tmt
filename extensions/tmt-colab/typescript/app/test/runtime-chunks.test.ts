@@ -73,6 +73,7 @@ test('only verified components using TerminalFrame select its wasm', () => {
   expect(runtimeChunkNames(demands, 'acme', new Set(['acme-frame']))).toEqual([
     'base',
     'terminal-frame',
+    'terminal-frame-ui',
   ]);
 });
 

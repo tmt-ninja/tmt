@@ -10,45 +10,52 @@
   "chunks": [
     {
       "name": "base",
-      "path": "assets/colab-runtime-base-c09aaef625bf074b.js",
-      "sha256": "c09aaef625bf074bd390814559e2933a84bc5f671c8cf7f8405f904dce1ace7a",
-      "length": 535719,
-      "gzip": 154848
+      "path": "assets/colab-runtime-base-4ccc87838eebd8ad.js",
+      "sha256": "4ccc87838eebd8addfc4b83e6642b41aed8a30798ca75611abe87d5c8a4a4059",
+      "length": 530077,
+      "gzip": 152440
     },
     {
       "name": "ui",
-      "path": "assets/colab-runtime-ui-200a8a0f16b87097.js",
-      "sha256": "200a8a0f16b870971edc7b0f70173ae7313567eb35c03536940dc49981214deb",
+      "path": "assets/colab-runtime-ui-69813e8c8d3cd5f2.js",
+      "sha256": "69813e8c8d3cd5f27516dc7d5543e50e28130f94dec1c40660238be64bee5231",
       "length": 247236,
       "gzip": 69908
     },
     {
       "name": "browser",
-      "path": "assets/colab-runtime-browser-436b1bc8e48cdece.js",
-      "sha256": "436b1bc8e48cdece8b524709ebaed6eed354568ae59d23a3617853184904c01d",
+      "path": "assets/colab-runtime-browser-2333f547000569d9.js",
+      "sha256": "2333f547000569d929468ba412bc7063a284ea4a09811b6f7f82044219d16b28",
       "length": 109581,
       "gzip": 33123
     },
     {
       "name": "blocks",
-      "path": "assets/colab-runtime-blocks-5df7cebf9c360af5.js",
-      "sha256": "5df7cebf9c360af530606323f86f8fc5929406bc1c3f44e4bfe8f7e9573a446a",
+      "path": "assets/colab-runtime-blocks-e595afce518b5ad5.js",
+      "sha256": "e595afce518b5ad5944f0465d7ba8a9ac3a5220d410c69edb13329423e8440d3",
       "length": 55390,
       "gzip": 15647
     },
     {
       "name": "rich-input",
-      "path": "assets/colab-runtime-rich-input-339b079ac60e17a1.js",
-      "sha256": "339b079ac60e17a10b4efa2b4f44c822788dd0961406af247aa0b9e028f0e58c",
+      "path": "assets/colab-runtime-rich-input-93c00f3ef8534cb5.js",
+      "sha256": "93c00f3ef8534cb5b51a63e1f79c2c3e53ee81c532848b2aeff3913b97eb024e",
       "length": 223672,
-      "gzip": 70567
+      "gzip": 70565
     },
     {
       "name": "docs",
-      "path": "assets/colab-runtime-docs-026123c58dfd75fa.js",
-      "sha256": "026123c58dfd75fac7c4f179666bf4c75da43c10e0a61039e688b0986bed1ac8",
+      "path": "assets/colab-runtime-docs-3747c650a2fb6c87.js",
+      "sha256": "3747c650a2fb6c8782978eeacd118c0f317052a695637fcf0e15bd93c63eabb2",
       "length": 172940,
       "gzip": 50323
+    },
+    {
+      "name": "terminal-frame-ui",
+      "path": "assets/colab-runtime-terminal-frame-ui-bbc1d7dd68f67ebc.js",
+      "sha256": "bbc1d7dd68f67ebcdbb7380c99a5059b3ba7007bfe3871ccf840b22b0962bd63",
+      "length": 5775,
+      "gzip": 2670
     },
     {
       "name": "terminal-frame",

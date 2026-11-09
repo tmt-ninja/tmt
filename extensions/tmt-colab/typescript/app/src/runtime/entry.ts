@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
-import { TerminalFrame } from './terminal-frame.js';
 import type { ChunkParts } from './register.js';
 
 type WorkPage = {
@@ -54,7 +53,7 @@ registerBlockData?.((value) => {
  */
 // Filled by the chunks the parent chose for this page (#6085), then sealed before any author or
 // design-system script runs.
-const ui: Record<string, unknown> = { TerminalFrame };
+const ui: Record<string, unknown> = {};
 const sharedParts: Record<string, unknown> = {};
 const runtime = Object.freeze({
   React,
