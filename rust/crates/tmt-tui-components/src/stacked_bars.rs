@@ -15,7 +15,7 @@ pub struct StackedBarsProps {
     pub missing_role: Token,
 }
 
-/// Two rows of used and saved values.
+/// Two rows of used values, with saved as the bottom portion of each bar.
 ///
 /// `▁▄█·`
 ///
@@ -48,7 +48,10 @@ impl Component for StackedBars {
         let maximum = props
             .points
             .iter()
-            .filter_map(|item| item.used?.checked_add(item.saved.unwrap_or(0)))
+            .filter_map(|item| match (item.used, item.saved) {
+                (Some(used), Some(saved)) if saved <= used => Some(used),
+                _ => None,
+            })
             .max()
             .unwrap_or(1)
             .max(1);
@@ -67,11 +70,14 @@ impl Component for StackedBars {
                     grid.text(rect, "·", props.missing_role.0, None);
                     continue;
                 };
+                if saved > used {
+                    grid.text(rect, "·", props.missing_role.0, None);
+                    continue;
+                }
                 let base = u128::from(1 - y) * 8;
-                let height = ((u128::from(used.saturating_add(saved)) * 16)
-                    .div_ceil(u128::from(maximum)))
-                .saturating_sub(base)
-                .min(8) as usize;
+                let height = ((u128::from(used) * 16).div_ceil(u128::from(maximum)))
+                    .saturating_sub(base)
+                    .min(8) as usize;
                 let saved_height = (u128::from(saved) * 16 / u128::from(maximum))
                     .saturating_sub(base)
                     .min(8) as usize;

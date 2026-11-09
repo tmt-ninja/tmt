@@ -4,6 +4,91 @@ use ratatui::buffer::Buffer;
 use std::fmt::Write;
 use tmt_cli_style::{Depth, Theme, theme::Base};
 
+#[test]
+fn activity_ramp_matches_the_native_six_levels_and_no_color_glyphs() {
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let theme = Theme::new(base);
+        let mut grid = CellGrid::new(Size {
+            width: 6,
+            height: 1,
+        });
+        ActivityCells::render(
+            &ActivityCellsProps {
+                values: (1..=6).map(Some).collect(),
+                selected: false,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 6,
+                height: 1,
+            },
+            &mut grid,
+        );
+        let area = NativeRect::new(0, 0, 6, 1);
+        let mut buffer = Buffer::empty(area);
+        paint(&grid, area, &mut buffer, &theme, depth);
+        for level in 0..6u16 {
+            let expected = screen::neutral_ramp(&theme, depth, level as u8);
+            let mut expected_cell = ratatui::buffer::Cell::default();
+            expected_cell.set_style(expected);
+            assert_eq!(buffer[(level, 0)].style(), expected_cell.style());
+            assert_eq!(
+                buffer[(level, 0)].symbol(),
+                if expected.bg.is_some() {
+                    " "
+                } else {
+                    ["▁", "▂", "▃", "▄", "▆", "█"][usize::from(level)]
+                }
+            );
+        }
+        let mut grid = CellGrid::new(Size {
+            width: 2,
+            height: 1,
+        });
+        ActivityCells::render(
+            &ActivityCellsProps {
+                values: vec![None, Some(0)],
+                selected: true,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 1,
+            },
+            &mut grid,
+        );
+        let mut buffer = Buffer::empty(NativeRect::new(0, 0, 2, 1));
+        paint(
+            &grid,
+            NativeRect::new(0, 0, 2, 1),
+            &mut buffer,
+            &theme,
+            depth,
+        );
+        let mut selection = screen::style(&theme, Role::Text, depth).patch(screen::style(
+            &theme,
+            Role::Selection,
+            depth,
+        ));
+        if selection.bg.is_none() {
+            selection = selection.add_modifier(ratatui::style::Modifier::REVERSED);
+        }
+        let mut expected_cell = ratatui::buffer::Cell::default();
+        expected_cell.set_style(selection);
+        assert_eq!(buffer[(0, 0)].style(), expected_cell.style());
+        assert_eq!(buffer[(1, 0)].style(), expected_cell.style());
+        assert_eq!(buffer[(0, 0)].symbol(), "·");
+        assert_eq!(buffer[(1, 0)].symbol(), " ");
+    }
+}
+
 fn record<C: Component>(
     out: &mut String,
     name: &str,
@@ -12,7 +97,13 @@ fn record<C: Component>(
     theme: &Theme,
     depth: Depth,
 ) {
-    let height = if name.starts_with("frame-") { 6 } else { 2 };
+    let height = if name.starts_with("frame-") {
+        6
+    } else if name == "totals-table" {
+        3
+    } else {
+        2
+    };
     let mut grid = CellGrid::new(Size { width, height });
     let hits = C::render(
         props,
@@ -80,6 +171,86 @@ fn component_cell_grids_match_all_looks_and_widths() {
         let theme = Theme::new(base);
         for width in [40, 60, 80, 120, 160] {
             writeln!(&mut out, "\n=== {name} {width} ===").unwrap();
+            for selected in [false, true] {
+                record::<ActivityCells>(
+                    &mut out,
+                    if selected {
+                        "activity-selected"
+                    } else {
+                        "activity"
+                    },
+                    &ActivityCellsProps {
+                        values: vec![
+                            None,
+                            Some(0),
+                            Some(1),
+                            Some(2),
+                            Some(3),
+                            Some(4),
+                            Some(5),
+                            Some(6),
+                        ],
+                        selected,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
+            record::<TotalsTable>(
+                &mut out,
+                "totals-table",
+                &TotalsTableProps {
+                    columns: vec![
+                        TotalsColumn {
+                            header: "TOK".into(),
+                            width: 8,
+                            role: Token(Role::Text),
+                            right_aligned: true,
+                        },
+                        TotalsColumn {
+                            header: "saved".into(),
+                            width: 8,
+                            role: Token(Role::Accent),
+                            right_aligned: true,
+                        },
+                    ],
+                    rows: vec![
+                        TotalsRow {
+                            values: vec!["840M".into(), "7.8M".into()],
+                            selected: true,
+                            id: Some(7),
+                        },
+                        TotalsRow {
+                            values: vec!["0".into(), "—".into()],
+                            selected: false,
+                            id: None,
+                        },
+                    ],
+                },
+                width,
+                &theme,
+                depth,
+            );
+            record::<Text>(
+                &mut out,
+                "styled-text",
+                &TextProps {
+                    spans: vec![
+                        TextSpan {
+                            text: "used ".into(),
+                            role: Token(Role::Text),
+                        },
+                        TextSpan {
+                            text: "840M".into(),
+                            role: Token(Role::Accent),
+                        },
+                    ],
+                },
+                width,
+                &theme,
+                depth,
+            );
             for focused in [false, true] {
                 record::<PaneFrame>(
                     &mut out,
@@ -272,6 +443,32 @@ fn component_cell_grids_match_all_looks_and_widths() {
                         StackedPoint {
                             used: Some(0),
                             saved: Some(0),
+                        },
+                    ],
+                    used_role: Token(Role::Text),
+                    saved_role: Token(Role::Accent),
+                    missing_role: Token(Role::Dim),
+                },
+                width,
+                &theme,
+                depth,
+            );
+            record::<StackedBars>(
+                &mut out,
+                "stacked-partial-and-inconsistent",
+                &StackedBarsProps {
+                    points: vec![
+                        StackedPoint {
+                            used: Some(8),
+                            saved: None,
+                        },
+                        StackedPoint {
+                            used: Some(2),
+                            saved: Some(3),
+                        },
+                        StackedPoint {
+                            used: Some(8),
+                            saved: Some(4),
                         },
                     ],
                     used_role: Token(Role::Text),

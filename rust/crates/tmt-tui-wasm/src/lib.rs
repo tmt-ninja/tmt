@@ -21,6 +21,9 @@ enum Kind {
     StackedBars,
     Mark,
     MoreHint,
+    ActivityCells,
+    TotalsTable,
+    Text,
 }
 const COMPONENTS: &[(&str, Kind)] = &[
     ("section-rule", Kind::SectionRule),
@@ -32,6 +35,9 @@ const COMPONENTS: &[(&str, Kind)] = &[
     ("stacked-bars", Kind::StackedBars),
     ("mark", Kind::Mark),
     ("more-hint", Kind::MoreHint),
+    ("activity-cells", Kind::ActivityCells),
+    ("totals-table", Kind::TotalsTable),
+    ("text", Kind::Text),
 ];
 
 #[derive(Debug, Serialize)]
@@ -257,6 +263,60 @@ pub fn render_json(name: &str, props: &str, width: u32, height: u32) -> Result<S
             }
             decode_draw::<StackedBars>(value, area)?
         }
+        Kind::ActivityCells => {
+            fields(&value, &["values", "selected"], &[])?;
+            let values = value["values"]
+                .as_array_mut()
+                .ok_or_else(|| error("props"))?;
+            if values.len() > 4096 {
+                return Err(error("collection_size"));
+            }
+            for item in values {
+                if !item.is_null() {
+                    decimal(item)?;
+                }
+            }
+            decode_draw::<ActivityCells>(value, area)?
+        }
+        Kind::TotalsTable => {
+            fields(&value, &["columns", "rows"], &[])?;
+            let columns = value["columns"].as_array().ok_or_else(|| error("props"))?;
+            if columns.len() > 256 {
+                return Err(error("collection_size"));
+            }
+            for column in columns {
+                fields(column, &["header", "width", "role", "right_aligned"], &[])?;
+            }
+            let column_count = columns.len();
+            let rows = value["rows"].as_array_mut().ok_or_else(|| error("props"))?;
+            if rows.len() > 256 {
+                return Err(error("collection_size"));
+            }
+            for row in rows {
+                fields(row, &["values", "selected", "id"], &[])?;
+                if row["values"]
+                    .as_array()
+                    .is_none_or(|values| values.len() > column_count)
+                {
+                    return Err(error("props"));
+                }
+                if !row["id"].is_null() {
+                    decimal(&mut row["id"])?;
+                }
+            }
+            decode_draw::<TotalsTable>(value, area)?
+        }
+        Kind::Text => {
+            fields(&value, &["spans"], &[])?;
+            let spans = value["spans"].as_array().ok_or_else(|| error("props"))?;
+            if spans.len() > 256 {
+                return Err(error("collection_size"));
+            }
+            for span in spans {
+                fields(span, &["text", "role"], &[])?;
+            }
+            decode_draw::<Text>(value, area)?
+        }
         Kind::Mark => draw::<Mark>(&mut value, &["state", "label", "emphasis"], &[], area)?,
         Kind::MoreHint => {
             fields(&value, &["count", "ascii"], &["direction"])?;
@@ -273,7 +333,7 @@ pub fn render_json(name: &str, props: &str, width: u32, height: u32) -> Result<S
         .map(|(rect, id)| json!({"rect":rect,"id":id.to_string()}))
         .collect();
     let output =
-        json!({"version":1,"width":width,"height":height,"cells":cells,"hits":hits}).to_string();
+        json!({"version":2,"width":width,"height":height,"cells":cells,"hits":hits}).to_string();
     if output.len() > MAX_OUTPUT {
         return Err(error("output_size"));
     }

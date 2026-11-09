@@ -2,7 +2,6 @@
 use super::metrics;
 use crate::board::{
     app::{App, Hit, HitTarget},
-    exchange_matrix,
     view::fit,
     workspace::OpsTreeRow,
 };
@@ -14,7 +13,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use std::rc::Rc;
-use tmt_cli_style::{Role, theme::screen};
+use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,30 +110,37 @@ pub(super) fn painted_width(app: &App) -> Option<u16> {
         .map(|inside| inside.width)
 }
 pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<Span<'static>> {
-    let max = values.iter().flatten().copied().max().unwrap_or(0);
-    values
-        .iter()
-        .map(|value| {
-            let empty_style = if selected {
-                app.look().selection()
-            } else {
-                app.look().role(Role::Dim)
-            };
-            let (text, style) = match value {
-                None => ("·", empty_style),
-                Some(0) => (" ", empty_style),
-                Some(n) => {
-                    let level = exchange_matrix::level(*n, max).unwrap_or(0);
-                    let style = screen::neutral_ramp(&app.look().theme, app.look().depth, level);
-                    let text = if style.bg.is_some() {
-                        " "
-                    } else {
-                        ["▁", "▂", "▃", "▄", "▆", "█"][usize::from(level)]
-                    };
-                    (text, style)
-                }
-            };
-            Span::styled(text, style)
+    use ds::Component;
+    use tmt_tui::components::{design_system as ds, design_system_ratatui};
+    let width = values.len().min(u16::MAX as usize) as u16;
+    let area = ds::Rect {
+        x: 0,
+        y: 0,
+        width,
+        height: 1,
+    };
+    let mut grid = ds::CellGrid::new(ds::Size { width, height: 1 });
+    ds::ActivityCells::render(
+        &ds::ActivityCellsProps {
+            values: values.to_vec(),
+            selected,
+        },
+        area,
+        &mut grid,
+    );
+    let native = Rect::new(0, 0, width, 1);
+    let mut buffer = ratatui::buffer::Buffer::empty(native);
+    design_system_ratatui::paint(
+        &grid,
+        native,
+        &mut buffer,
+        &app.look().theme,
+        app.look().depth,
+    );
+    (0..width)
+        .map(|x| {
+            let cell = &buffer[(x, 0)];
+            Span::styled(cell.symbol().to_owned(), cell.style())
         })
         .collect()
 }

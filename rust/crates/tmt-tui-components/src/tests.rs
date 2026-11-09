@@ -117,6 +117,181 @@ fn stacked_mixed_cell_keeps_fraction_and_role_background() {
 }
 
 #[test]
+fn stacked_saved_is_part_of_used_not_added_to_its_height() {
+    let props = StackedBarsProps {
+        points: vec![
+            StackedPoint {
+                used: Some(8),
+                saved: Some(8),
+            },
+            StackedPoint {
+                used: Some(8),
+                saved: Some(0),
+            },
+        ],
+        used_role: Token(Role::Text),
+        saved_role: Token(Role::Accent),
+        missing_role: Token(Role::Dim),
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 2,
+        height: 2,
+    });
+    StackedBars::render(&props, area(2, 2), &mut grid);
+    assert_eq!(grid.get(0, 0).unwrap().glyph, "█");
+    assert_eq!(grid.get(1, 0).unwrap().glyph, "█");
+    assert_eq!(grid.get(0, 0).unwrap().fg, Some(Role::Accent));
+    assert_eq!(grid.get(1, 0).unwrap().fg, Some(Role::Text));
+}
+
+#[test]
+fn stacked_missing_saved_is_not_invented_as_zero() {
+    let props = StackedBarsProps {
+        points: vec![StackedPoint {
+            used: Some(8),
+            saved: None,
+        }],
+        used_role: Token(Role::Text),
+        saved_role: Token(Role::Accent),
+        missing_role: Token(Role::Dim),
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 1,
+        height: 2,
+    });
+    StackedBars::render(&props, area(1, 2), &mut grid);
+    assert_eq!(grid.get(0, 0).unwrap().glyph, "·");
+    assert_eq!(grid.get(0, 1).unwrap().glyph, "·");
+}
+
+#[test]
+fn stacked_saved_larger_than_used_is_unknown() {
+    let props = StackedBarsProps {
+        points: vec![StackedPoint {
+            used: Some(2),
+            saved: Some(3),
+        }],
+        used_role: Token(Role::Text),
+        saved_role: Token(Role::Accent),
+        missing_role: Token(Role::Dim),
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 1,
+        height: 2,
+    });
+    StackedBars::render(&props, area(1, 2), &mut grid);
+    assert_eq!(grid.get(0, 0).unwrap().glyph, "·");
+    assert_eq!(grid.get(0, 1).unwrap().glyph, "·");
+}
+
+#[test]
+fn activity_keeps_missing_zero_and_all_six_semantic_levels() {
+    let props = ActivityCellsProps {
+        values: vec![
+            None,
+            Some(0),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+        ],
+        selected: false,
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 8,
+        height: 1,
+    });
+    ActivityCells::render(&props, area(8, 1), &mut grid);
+    assert_eq!(grid.get(0, 0).unwrap().glyph, "·");
+    assert_eq!(grid.get(1, 0).unwrap().glyph, " ");
+    for level in 0..6 {
+        assert_eq!(
+            grid.get(level + 2, 0).unwrap().heat_level.map(u8::from),
+            Some(level as u8)
+        );
+    }
+}
+
+#[test]
+fn totals_keep_values_whole_and_publish_only_visible_rows() {
+    let props = TotalsTableProps {
+        columns: vec![
+            TotalsColumn {
+                header: "TOK".into(),
+                width: 4,
+                role: Token(Role::Text),
+                right_aligned: true,
+            },
+            TotalsColumn {
+                header: "saved".into(),
+                width: 5,
+                role: Token(Role::Accent),
+                right_aligned: true,
+            },
+        ],
+        rows: vec![
+            TotalsRow {
+                values: vec!["840M".into(), "7.8M".into()],
+                selected: true,
+                id: Some(7),
+            },
+            TotalsRow {
+                values: vec!["9".into(), "too-long".into()],
+                selected: false,
+                id: Some(8),
+            },
+        ],
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 10,
+        height: 2,
+    });
+    let hits = TotalsTable::render(&props, area(10, 2), &mut grid);
+    assert_eq!(lines(&grid)[0], " TOK      ");
+    assert_eq!(lines(&grid)[1], "840M      ");
+    assert_eq!(
+        hits,
+        vec![(
+            Rect {
+                x: 0,
+                y: 1,
+                width: 10,
+                height: 1
+            },
+            7
+        )]
+    );
+    assert_eq!(grid.get(0, 1).unwrap().underlay, Some(Role::Selection));
+}
+
+#[test]
+fn styled_text_strips_terminal_controls_and_preserves_span_roles() {
+    let props = TextProps {
+        spans: vec![
+            TextSpan {
+                text: "A\u{1b}[31m".into(),
+                role: Token(Role::Text),
+            },
+            TextSpan {
+                text: "世".into(),
+                role: Token(Role::Accent),
+            },
+        ],
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 3,
+        height: 1,
+    });
+    Text::render(&props, area(3, 1), &mut grid);
+    assert_eq!(grid.get(0, 0).unwrap().glyph, "A");
+    assert_eq!(grid.get(1, 0).unwrap().glyph, "世");
+    assert_eq!(grid.get(1, 0).unwrap().fg, Some(Role::Accent));
+    assert!(grid.get(2, 0).unwrap().continuation);
+}
+
+#[test]
 fn layout_allocates_bounded_tracks_without_gaps() {
     let rects = split(
         area(10, 1),
@@ -236,6 +411,7 @@ fn portable_cell_serializes_bold_and_semantic_chip_surface() {
         bg: None,
         bold: true,
         chip_surface: Some(ChipSurface::Hot),
+        heat_level: None,
         continuation: false,
     };
     let serialized = serde_json::to_string(&cell).unwrap();
