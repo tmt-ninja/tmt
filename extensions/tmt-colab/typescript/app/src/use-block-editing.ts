@@ -44,7 +44,7 @@ import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
-import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused } from './save.js';
+import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused, canSendAgain } from './save.js';
 import { text as strings } from './strings.js';
 import {
   type MentionEntry,
@@ -147,8 +147,9 @@ export interface Editing {
   from?: string;
 }
 
-/** A batch the serve refused for good: what the status line says, and whether it may be sent
- * again (not when its outcome is in doubt: it may have landed). */
+/** A batch the serve refused: what the status line says, and whether it may be sent again. It may
+ * not when its outcome is in doubt (it may have landed) or when the serve refuses it the same way
+ * each time (#6227): that one is told for a while, with its reason, and not drawn. */
 interface Refusal {
   key: number;
   ops: BlockOp[];
@@ -160,7 +161,7 @@ function refusalOf(key: number, ops: BlockOp[], error: unknown): Refusal {
     return {
       key,
       ops,
-      retryable: true,
+      retryable: canSendAgain(error),
       message:
         error.code === 'COLAB_STALE_BASE'
           ? strings.blockEdit.stale

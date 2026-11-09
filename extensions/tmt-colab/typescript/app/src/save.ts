@@ -77,6 +77,15 @@ export async function resendStale<T>(send: () => Promise<T>): Promise<T> {
     }
   }
 }
+/** The codes of a refusal that sending the batch again can get past: the page moved on
+ * (`COLAB_STALE_BASE`), this device's stream did (`COLAB_STREAM_GAP`), or the serve could not take
+ * the batch (`COLAB_UNAVAILABLE`, which is also the code of a refusal that carries none). Any other
+ * code names a batch that is refused the same way each time. */
+const REFUSED_FOR_NOW = new Set(['COLAB_STALE_BASE', 'COLAB_STREAM_GAP', 'COLAB_UNAVAILABLE']);
+/** Whether the page may offer to send a refused batch again (#6227). */
+export function canSendAgain(error: SaveRefused): boolean {
+  return REFUSED_FOR_NOW.has(error.code);
+}
 /** The closed work actions a browser sends (contract: Work); the serve refuses any other. */
 export type WorkAction =
   | 'summary.set'

@@ -255,7 +255,7 @@ declare global {
     attempts: BlockOp[][];
     /** The serve refuses the next `times` attempts: as stale (nothing written), as a block that is
      * gone, or with its outcome in doubt. */
-    refuseBatch(kind: 'stale' | 'missing' | 'unknown', times?: number): void;
+    refuseBatch(kind: 'stale' | 'unavailable' | 'missing' | 'unknown', times?: number): void;
     /** The answer comments this page recorded, in order. */
     answers(): { body: string; questionId?: string }[];
     /** The owner-only gate closes: the owner sources withhold from now on. */
@@ -344,9 +344,11 @@ export function mount(
       refusals.push(() =>
         kind === 'stale'
           ? new SaveRefused('COLAB_STALE_BASE', 'Page changed since the editing base.')
-          : kind === 'missing'
-            ? new SaveRefused('COLAB_BLOCK_NOT_FOUND', 'That block no longer exists.')
-            : new SaveOutcomeUnknown(crypto.randomUUID()),
+          : kind === 'unavailable'
+            ? new SaveRefused('COLAB_UNAVAILABLE', 'Colab could not take the change.')
+            : kind === 'missing'
+              ? new SaveRefused('COLAB_BLOCK_NOT_FOUND', 'That block no longer exists.')
+              : new SaveOutcomeUnknown(crypto.randomUUID()),
       );
   };
   window.opened = [];
