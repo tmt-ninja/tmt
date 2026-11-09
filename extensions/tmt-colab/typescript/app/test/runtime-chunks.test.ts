@@ -16,7 +16,9 @@ test('the chunks provide exactly the runtime 4 UI parts and runtime 3 shared par
 });
 
 test("each chunk's entry registers exactly the names the vector gives it", () => {
-  for (const chunk of built.filter((entry) => entry.name !== 'base')) {
+  for (const chunk of built.filter(
+    (entry) => entry.name !== 'base' && !('kind' in entry && entry.kind === 'wasm'),
+  )) {
     const source = readFileSync(new URL(`../${chunk.entry}`, import.meta.url), 'utf8');
     const call = /registerChunk\('([^']+)', \{\s*ui: \{([^}]*)\},(?:\s*parts: \{([^}]*)\},)?/.exec(
       source,
@@ -61,6 +63,17 @@ test('the parent picks a page’s chunks from the verified components it writes'
     'blocks',
     'rich-input',
     'docs',
+  ]);
+});
+
+test('only verified components using TerminalFrame select its wasm', () => {
+  const demands: ChunkDemand[] = [{ tag: 'acme-frame', uiParts: ['TerminalFrame'] }];
+  expect(runtimeChunkNames(demands, 'acme', new Set())).toEqual(['base']);
+  expect(runtimeChunkNames([], 'acme', new Set(['acme-frame']))).toEqual(['base']);
+  expect(runtimeChunkNames(demands, 'acme', new Set(['acme-frame']))).toEqual([
+    'base',
+    'ui',
+    'terminal-frame',
   ]);
 });
 

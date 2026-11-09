@@ -212,7 +212,11 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
     const sheet = document.createElement('link'); sheet.rel = 'stylesheet'; sheet.href = '${origin}/style'; document.head.append(sheet);
     const script = document.createElement('script'); script.src = '${origin}/script'; document.head.append(script);
     parent.postMessage({type:'dispatch', operation:'forged'}, '*');
-    fetch('${origin}/fetch').then(() => { result.network=false; }, () => { result.network=true; }).finally(() => { document.getElementById('proof').textContent=JSON.stringify(result); });
+    const module = new Uint8Array([0,97,115,109,1,0,0,0,1,4,1,96,0,0,2,13,1,3,101,110,118,5,102,101,116,99,104,0,0,3,2,1,0,7,7,1,3,114,117,110,0,1,10,6,1,4,0,16,0,11]);
+    const publish = () => { document.getElementById('proof').textContent=JSON.stringify(result); };
+    WebAssembly.instantiate(module, {env:{fetch:() => {
+      fetch('${origin}/fetch').then(() => { result.network=false; }, () => { result.network=true; }).finally(publish);
+    }}}).then(({instance}) => { result.wasm=true; instance.exports.run(); }, () => { result.wasm=false; result.network=false; publish(); });
   </script>`,
   );
   const proof = page.frameLocator('#probe iframe').locator('#proof');
@@ -226,6 +230,7 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
     bridge: true,
     popup: true,
     top: true,
+    wasm: true,
     network: true,
   });
   expect(requests).toEqual(['/positive-control']);

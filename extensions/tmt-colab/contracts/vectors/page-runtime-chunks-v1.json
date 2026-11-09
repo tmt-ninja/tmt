@@ -84,7 +84,8 @@
         "Skeleton",
         "Surface",
         "Switch",
-        "Textarea"
+        "Textarea",
+        "TerminalFrame"
       ],
       "parts": [],
       "gzipCap": 196608
@@ -201,13 +202,13 @@
     },
     {
       "name": "terminal-frame",
-      "reserved": true,
       "after": [
         "base"
       ],
       "ui": [],
       "parts": [],
-      "gzipCap": 2097152
+      "gzipCap": 524288,
+      "kind": "wasm"
     }
   ]
 }

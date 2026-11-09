@@ -296,6 +296,18 @@ pub(crate) fn runtime_marker(source: &str) -> Result<Option<String>, TooDeep> {
         .map(|id| tree.attr(id, "content").unwrap_or_default().to_owned()))
 }
 
+/// Whether the document contains the design-system pin element, with scripting disabled.
+pub(crate) fn named_design(source: &str) -> Result<bool, TooDeep> {
+    if !source.contains("tmt-ds") {
+        return Ok(false);
+    }
+    let tree = tree::Tree::parse(source).map_err(|_| TooDeep)?;
+    Ok(tree
+        .elements()
+        .into_iter()
+        .any(|id| tree.name(id) == "meta" && tree.attr(id, "name") == Some("tmt-ds")))
+}
+
 /// One static source parse for the owner summary's markup and normal quote associations.
 pub(crate) fn summary(
     source: &str,

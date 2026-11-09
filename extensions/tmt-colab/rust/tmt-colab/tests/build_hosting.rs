@@ -1,4 +1,6 @@
 //! Plain hosted-tree metadata, pinned SDK integrity and declaration JSON boundaries.
+#[path = "../src/app_inventory.rs"]
+mod app_inventory;
 #[path = "../src/browser_policy.rs"]
 mod browser_policy;
 #[path = "../build/hosting.rs"]
@@ -120,6 +122,39 @@ fn digest(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+#[test]
+fn hosted_terminal_renderer_requires_pinned_bytes_and_has_wasm_type() {
+    let build = Build::new();
+    let pin: Value =
+        serde_json::from_str(include_str!("../../../typescript/app/runtime-pin.json")).unwrap();
+    let wasm = pin["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|chunk| chunk["kind"] == "wasm")
+        .unwrap();
+    let path = wasm["path"].as_str().unwrap();
+    let bytes =
+        include_bytes!("../../../typescript/app/terminal-frame-assets/tmt_tui_wasm_bg.wasm");
+    fs::write(build.app.join(path), bytes).unwrap();
+    build.generate().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    let route = format!("/{path}");
+    let entry = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["path"] == route)
+        .unwrap();
+    assert_eq!(entry["contentType"], "application/wasm");
+    assert_eq!(entry["immutable"], true);
+    fs::write(build.app.join(path), b"tampered").unwrap();
+    assert!(build.generate().is_err());
 }
 
 #[test]

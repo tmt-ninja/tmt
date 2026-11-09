@@ -10,6 +10,7 @@ import vector from '../../../contracts/vectors/page-runtime-chunks-v1.json' with
 // so a spec that renders a runtime page never depends on a leftover `dist/`. The app takes the
 // chunks' names and hashes from runtime-pin.json, so a stale pin fails here as it would in the app.
 let built: Map<string, string> | undefined;
+let terminal: { name: string; bytes: Buffer } | undefined;
 /** Every built runtime file (the theme and each chunk, #6085), by its file name under assets/. */
 export function pageRuntimeFiles() {
   if (built) return built;
@@ -19,9 +20,15 @@ export function pageRuntimeFiles() {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     stdio: 'pipe',
   });
+  const files = readdirSync(join(output, 'assets'));
+  const terminalName = files.find((name) =>
+    /^colab-runtime-terminal-[0-9a-f]{16}\.wasm$/.test(name),
+  );
+  if (terminalName)
+    terminal = { name: terminalName, bytes: readFileSync(join(output, 'assets', terminalName)) };
   built = new Map(
-    readdirSync(join(output, 'assets'))
-      .filter((name) => name.startsWith('colab-runtime'))
+    files
+      .filter((name) => name.startsWith('colab-runtime') && !name.endsWith('.wasm'))
       .map((name) => [name, readFileSync(join(output, 'assets', name), 'utf8')]),
   );
   return built;
@@ -41,7 +48,10 @@ export function pageRuntimeChunk(name: string) {
  */
 export function sealedRuntimeScript(files: ReadonlyMap<string, string> = pageRuntimeFiles()) {
   const texts = vector.chunks
-    .filter((chunk) => !('reserved' in chunk && chunk.reserved))
+    .filter(
+      (chunk) =>
+        !('reserved' in chunk && chunk.reserved) && !('kind' in chunk && chunk.kind === 'wasm'),
+    )
     .map((chunk) => {
       const found = [...files].filter(([file]) => chunkName(file) === chunk.name);
       if (found.length !== 1) throw new Error(`No single built ${chunk.name} chunk`);
@@ -63,11 +73,15 @@ export async function servePageRuntime(page: Page, { fail }: { fail?: string } =
   await page.route('**/assets/colab-runtime*', (route) => {
     const name = new URL(route.request().url()).pathname.replace(/^.*\//, '');
     fetched.push(chunkName(name));
-    const body = files.get(name);
+    const body = name === terminal?.name ? terminal.bytes : files.get(name);
     if (body === undefined) return route.fulfill({ status: 404 });
     if (chunkName(name) === fail) return route.fulfill({ status: 500 });
     return route.fulfill({
-      contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript',
+      contentType: name.endsWith('.wasm')
+        ? 'application/wasm'
+        : name.endsWith('.css')
+          ? 'text/css'
+          : 'text/javascript',
       body,
     });
   });

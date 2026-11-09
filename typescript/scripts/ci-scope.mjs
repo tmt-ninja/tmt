@@ -652,11 +652,15 @@ export function selectRendererProof(paths) {
         'rust/Cargo.toml',
         'rust/Cargo.lock',
         'rust/rust-toolchain.toml',
+        'extensions/tmt-colab/scripts/terminal-frame-regen.sh',
+        'extensions/tmt-colab/contracts/vectors/page-runtime-chunks-v1.json',
+        'extensions/tmt-colab/typescript/app/runtime-pin.json',
       ].includes(path) ||
       [
         'rust/crates/tmt-tui-wasm',
         'rust/crates/tmt-tui-components',
         'rust/crates/tmt-cli-style',
+        'extensions/tmt-colab/typescript/app/terminal-frame-assets',
       ].some((root) => within(root, path))
   );
 }

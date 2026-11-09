@@ -221,8 +221,7 @@ fn embedded_and_disk_admission_validate_renderer_entries_and_duplicates() {
     assert!(App::from_embedded(files).is_err());
 }
 
-/// A runtime chunk (#6085) is named by its vector name and a 16-hex content hash; nothing else
-/// under the runtime prefix matches, and a reserved chunk ships no bytes.
+/// JavaScript chunks use vector names; the renderer binary admits only its exact pinned path.
 #[test]
 fn runtime_chunks_match_their_vector_names_and_content_hash_only() {
     assert_eq!(
@@ -234,6 +233,17 @@ fn runtime_chunks_match_their_vector_names_and_content_hash_only() {
         assert!(is_runtime_chunk(&path), "{path}");
         assert_eq!(anonymous_file(&path), Some(path.as_str()));
     }
+    let pin: serde_json::Value =
+        serde_json::from_str(include_str!("../../../typescript/app/runtime-pin.json")).unwrap();
+    let terminal = pin["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|chunk| chunk["kind"] == "wasm")
+        .unwrap();
+    let path = format!("/{}", terminal["path"].as_str().unwrap());
+    assert!(is_runtime_chunk(&path));
+    assert_eq!(anonymous_file(&path), Some(path.as_str()));
     for path in [
         "/assets/colab-runtime-terminal-frame-0123456789abcdef.js",
         "/assets/colab-runtime-other-0123456789abcdef.js",

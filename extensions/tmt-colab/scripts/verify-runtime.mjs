@@ -15,17 +15,23 @@ if (!directory) throw new Error('usage: verify-runtime.mjs <dist directory> [--u
 
 const read = (path) => readFileSync(path, 'utf8');
 const manifest = JSON.parse(read(join(app, 'package.json')));
-const installed = (name) => JSON.parse(read(join(app, 'node_modules', name, 'package.json'))).version;
+const installed = (name) =>
+  JSON.parse(read(join(app, 'node_modules', name, 'package.json'))).version;
 const packages = Object.fromEntries(
-  ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [name, installed(name)]),
+  ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [
+    name,
+    installed(name),
+  ]),
 );
-const { builtChunks, chunkVector, gzipLength } = await import('./runtime-chunks.mjs');
+const { builtChunks, wasmChunk, chunkVector, gzipLength } = await import('./runtime-chunks.mjs');
 const assets = readdirSync(join(directory, 'assets'));
 const themeBytes = readFileSync(join(directory, 'assets/colab-runtime.css'));
 const hash = (content) => createHash('sha256').update(content).digest('hex');
 // One file per built chunk, in vector order: the parent loads a page's chunks in this order.
 const chunks = builtChunks.map(({ name }) => {
-  const found = assets.filter((file) => new RegExp(`^colab-runtime-${name}-[0-9a-f]{16}\\.js$`).test(file));
+  const found = assets.filter((file) =>
+    new RegExp(`^colab-runtime-${name}-[0-9a-f]{16}\\.js$`).test(file),
+  );
   if (found.length !== 1) throw new Error(`expected one ${name} chunk, found ${found.length}`);
   const bytes = readFileSync(join(directory, 'assets', found[0]));
   return {
@@ -36,6 +42,21 @@ const chunks = builtChunks.map(({ name }) => {
     gzip: gzipLength(bytes),
     bytes,
   };
+});
+const wasmFiles = assets.filter((file) => /^colab-runtime-terminal-[0-9a-f]{16}\.wasm$/.test(file));
+if (wasmFiles.length !== 1)
+  throw new Error(`expected one terminal renderer, found ${wasmFiles.length}`);
+const wasmBytes = readFileSync(join(directory, 'assets', wasmFiles[0]));
+const glueBytes = readFileSync(join(app, 'terminal-frame-assets/tmt_tui_wasm.js'));
+chunks.push({
+  name: wasmChunk.name,
+  kind: 'wasm',
+  path: `assets/${wasmFiles[0]}`,
+  sha256: hash(wasmBytes),
+  length: wasmBytes.length,
+  gzip: gzipLength(wasmBytes),
+  glue: { sha256: hash(glueBytes), length: glueBytes.length, gzip: gzipLength(glueBytes) },
+  bytes: wasmBytes,
 });
 const built = {
   version: 2,
@@ -57,19 +78,50 @@ const pin = JSON.parse(read(pinPath));
 for (const [name, version] of Object.entries(packages)) {
   const declared = manifest.dependencies[name];
   expect(declared === version, `${name}: package.json says ${declared}, installed ${version}`);
-  expect(pin.packages[name] === version, `${name}: pin says ${pin.packages[name]}, installed ${version}`);
+  expect(
+    pin.packages[name] === version,
+    `${name}: pin says ${pin.packages[name]}, installed ${version}`,
+  );
 }
-expect(JSON.stringify(pin.chunks) === JSON.stringify(built.chunks), 'runtime chunks differ from runtime-pin.json');
-expect(JSON.stringify(pin.theme) === JSON.stringify(built.theme), 'runtime theme differs from runtime-pin.json');
-const stray = assets.filter((file) => /^(colab-runtime[-.].*\.js|entry-.*\.js)$/.test(file) && !chunks.some((chunk) => chunk.path === `assets/${file}`));
+expect(
+  JSON.stringify(pin.chunks) === JSON.stringify(built.chunks),
+  'runtime chunks differ from runtime-pin.json',
+);
+expect(
+  JSON.stringify(pin.theme) === JSON.stringify(built.theme),
+  'runtime theme differs from runtime-pin.json',
+);
+const stray = assets.filter(
+  (file) =>
+    /^(colab-runtime[-.].*\.js|entry-.*\.js)$/.test(file) &&
+    !chunks.some((chunk) => chunk.path === `assets/${file}`),
+);
 expect(stray.length === 0, `unpinned runtime scripts: ${stray.join(', ')}`);
 // The budget is gzip -9 of every chunk together; each chunk also has its own vector cap.
 const total = chunks.reduce((sum, chunk) => sum + chunk.gzip, 0);
-expect(total <= chunkVector.gzipBudget, `runtime is ${total} gzip bytes, over ${chunkVector.gzipBudget}`);
+expect(
+  total <= chunkVector.gzipBudget,
+  `runtime is ${total} gzip bytes, over ${chunkVector.gzipBudget}`,
+);
 for (const chunk of chunks) {
   const cap = chunkVector.chunks.find((entry) => entry.name === chunk.name).gzipCap;
   expect(chunk.gzip <= cap, `${chunk.name} is ${chunk.gzip} gzip bytes, over its ${cap}`);
-  expect(chunk.length <= MAX_CHUNK_BYTES, `${chunk.name} is ${chunk.length} bytes, over ${MAX_CHUNK_BYTES}`);
+  expect(
+    chunk.length <= MAX_CHUNK_BYTES,
+    `${chunk.name} is ${chunk.length} bytes, over ${MAX_CHUNK_BYTES}`,
+  );
+  if (chunk.kind === 'wasm') {
+    expect(chunk.length <= 614400, 'terminal wasm exceeds its 600 KiB cap');
+    expect(
+      chunk.length + glueBytes.length <= MAX_CHUNK_BYTES,
+      'terminal wasm and glue exceed their raw cap',
+    );
+    expect(
+      chunk.gzip + gzipLength(glueBytes) <= 524288,
+      'terminal wasm and glue exceed their gzip cap',
+    );
+    continue;
+  }
   const text = chunk.bytes.toString('utf8');
   // The frame injects each chunk as an inline script: it must not close its own tag, must not need
   // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
@@ -77,12 +129,18 @@ for (const chunk of chunks) {
   expect(!text.includes('<' + '!--'), `${chunk.name}: contains an HTML comment opener`);
   expect(!text.includes('process.env'), `${chunk.name}: reads process.env`);
   expect(!text.includes('sourceMappingURL'), `${chunk.name}: references a source map`);
-  expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), `${chunk.name}: uses eval or new Function`);
+  expect(
+    !/\beval\s*\(/.test(text) && !text.includes('new Function('),
+    `${chunk.name}: uses eval or new Function`,
+  );
 }
 // The theme goes into a `<style type="text/tailwindcss">` block: an `@import` there makes the
 // browser build skip its own default import of Tailwind, and `</style` would end the block.
 const theme = themeBytes.toString('utf8');
-expect(themeBytes.length <= MAX_THEME_BYTES, `theme is ${themeBytes.length} bytes, over ${MAX_THEME_BYTES}`);
+expect(
+  themeBytes.length <= MAX_THEME_BYTES,
+  `theme is ${themeBytes.length} bytes, over ${MAX_THEME_BYTES}`,
+);
 expect(!theme.includes('@import'), 'theme contains @import');
 expect(!theme.toLowerCase().includes('</style'), 'theme contains a style end tag');
 expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
@@ -104,7 +162,10 @@ for (const [name, text, end] of [
 }
 const notices = read(join(directory, 'THIRD-PARTY-NOTICES.txt'));
 for (const name of Object.keys(packages))
-  expect(notices.includes(`\n## ${name} - ${packages[name]} (`), `notices lack ${name} ${packages[name]}`);
+  expect(
+    notices.includes(`\n## ${name} - ${packages[name]} (`),
+    `notices lack ${name} ${packages[name]}`,
+  );
 
 if (failures.length) {
   console.error(`Page runtime check failed:\n- ${failures.join('\n- ')}`);

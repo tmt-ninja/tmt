@@ -22,6 +22,7 @@ export function wantsRuntime(source: string): boolean {
 export interface PageRuntime {
   readonly scripts: readonly string[];
   readonly style: string;
+  readonly wasm?: { readonly mime: 'application/wasm'; readonly bytes: ArrayBuffer };
 }
 
 /** Hosted routes share the root build-owned asset; mounted routes stay mount-relative. */
@@ -37,7 +38,7 @@ interface PinnedFile {
   readonly length: number;
 }
 const runtimePin = pin as unknown as {
-  chunks: readonly (PinnedFile & { name: string })[];
+  chunks: readonly (PinnedFile & { name: string; kind?: 'wasm' })[];
   theme: PinnedFile;
 };
 
@@ -59,6 +60,50 @@ async function readPinned(baseUri: string, file: PinnedFile): Promise<string> {
   )
     throw new Error('Page runtime file does not match its pin');
   return new TextDecoder().decode(bytes);
+}
+
+/** Fetch the optional renderer with a streaming bound before allocating the final buffer. */
+async function readPinnedWasm(baseUri: string, file: PinnedFile): Promise<ArrayBuffer> {
+  const limit = 614_400;
+  if (file.length < 1 || file.length > limit) throw new Error('Renderer exceeds its bound');
+  const response = await fetch(runtimeUrl(baseUri, file.path), { credentials: 'same-origin' });
+  if (!response.ok || !response.body) throw new Error('Renderer unavailable');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > file.length || length > limit) throw new Error('Renderer exceeds its bound');
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  if (length !== file.length || hex(await crypto.subtle.digest('SHA-256', bytes)) !== file.sha256)
+    throw new Error('Renderer does not match its pin');
+  return bytes.buffer;
+}
+
+const verifiedWasm = new Map<string, Promise<ArrayBuffer>>();
+function pinnedWasm(baseUri: string, file: PinnedFile): Promise<ArrayBuffer> {
+  const key = runtimeUrl(baseUri, file.path);
+  let bytes = verifiedWasm.get(key);
+  if (!bytes) {
+    bytes = readPinnedWasm(baseUri, file);
+    bytes.catch(() => verifiedWasm.delete(key));
+    verifiedWasm.set(key, bytes);
+  }
+  return bytes;
 }
 
 const verified = new Map<string, Promise<string>>();
@@ -87,22 +132,29 @@ export async function loadRuntime(
   const wanted = runtimePin.chunks.filter(
     (chunk) => chunk.name === 'base' || names.includes(chunk.name),
   );
-  const [style, ...scripts] = await Promise.all([
-    pinnedText(baseUri, runtimePin.theme),
-    ...wanted.map((chunk) =>
-      chunk.name === 'base'
-        ? pinnedText(baseUri, chunk)
-        : pinnedText(baseUri, chunk).catch(() => undefined),
-    ),
+  const wasmFile = wanted.find((chunk) => chunk.kind === 'wasm');
+  const textChunks = wanted.filter((chunk) => chunk.kind !== 'wasm');
+  const [wasm, [style, ...scripts]] = await Promise.all([
+    wasmFile ? pinnedWasm(baseUri, wasmFile).catch(() => undefined) : undefined,
+    Promise.all([
+      pinnedText(baseUri, runtimePin.theme),
+      ...textChunks.map((chunk) =>
+        chunk.name === 'base'
+          ? pinnedText(baseUri, chunk)
+          : pinnedText(baseUri, chunk).catch(() => undefined),
+      ),
+    ]),
   ]);
   return Object.freeze({
     style: style!,
+    ...(wasm ? { wasm: { mime: 'application/wasm' as const, bytes: wasm } } : {}),
     scripts: Object.freeze(scripts.filter((script): script is string => script !== undefined)),
   });
 }
 
 /** Every chunk's text in load order, for a standalone export, which has no parent to ask. */
-export const allRuntimeChunks = () => runtimePin.chunks.map((chunk) => chunk.name);
+export const allRuntimeChunks = () =>
+  runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm').map((chunk) => chunk.name);
 
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
  * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and

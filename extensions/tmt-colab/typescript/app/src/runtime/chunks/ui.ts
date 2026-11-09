@@ -1,5 +1,6 @@
 /** The `ui` page-runtime chunk: the shadcn parts on Radix (#6085). */
 import { registerChunk } from '../register.js';
+import { TerminalFrame } from '../terminal-frame.js';
 import {
   Button,
   Badge,
@@ -71,6 +72,7 @@ import {
 } from '@tmt/browser-ui/ui';
 registerChunk('ui', {
   ui: {
+    TerminalFrame,
     Button,
     Badge,
     Card,
