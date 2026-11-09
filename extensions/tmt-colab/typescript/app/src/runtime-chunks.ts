@@ -50,6 +50,8 @@ export function runtimeChunkNames(
     for (const name of component.uiParts ?? []) {
       const chunk = providerOf.get(`ui:${name}`);
       if (chunk) wanted.add(chunk);
+      // Only a component admitted from the verified bundle may request the renderer bytes.
+      if (name === 'TerminalFrame') wanted.add('terminal-frame');
     }
     for (const name of component.parts ?? []) {
       const chunk = providerOf.get(`part:${name}`);
