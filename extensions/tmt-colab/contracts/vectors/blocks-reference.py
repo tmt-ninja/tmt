@@ -97,6 +97,11 @@ ok("marks in scalar values, sorted and merged", {
         {"from": 6, "to": 8, "mark": "block", "value": bid(9)},
     ])),
 })
+ok("a block mark naming a block on another page", {
+    bid(1): block("paragraph", text=rich("see it", [
+        {"from": 4, "to": 6, "mark": "block", "value": f"{bid(8)}/{bid(9)}"},
+    ])),
+})
 ok("two links side by side with different values stay separate", {
     bid(1): block("paragraph", text=rich("abcd", [
         {"from": 0, "to": 2, "mark": "link", "value": "https://a.example/"},
@@ -204,6 +209,11 @@ bad("a link with a file scheme", {bid(1): block("paragraph", text=rich("abc", [{
 bad("a link with a space", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "link", "value": "https://a b/"}]))})
 bad("an agent mark with a space", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "agent", "value": "a b"}]))})
 bad("a block mark that is not an id", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": "x"}]))})
+bad("a block mark with an empty page", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": "/" + bid(9)}]))})
+bad("a block mark with an empty block", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": bid(8) + "/"}]))})
+bad("a block mark whose page is not an id", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": "x/" + bid(9)}]))})
+bad("a block mark with three parts", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": bid(7) + "/" + bid(8) + "/" + bid(9)}]))})
+bad("a block mark with an upper-case page", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "block", "value": "ABCDEF00-0000-4000-8000-000000000008/" + bid(9)}]))})
 bad("overlapping runs of one mark", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 2, "mark": "bold"}, {"from": 1, "to": 3, "mark": "bold"}]))})
 bad("adjacent runs of one mark and value that are not merged", {bid(1): block("paragraph", text=rich("abc", [{"from": 0, "to": 1, "mark": "bold"}, {"from": 1, "to": 2, "mark": "bold"}]))})
 bad("marks out of order", {bid(1): block("paragraph", text=rich("abc", [{"from": 1, "to": 2, "mark": "bold"}, {"from": 0, "to": 1, "mark": "italic"}]))})

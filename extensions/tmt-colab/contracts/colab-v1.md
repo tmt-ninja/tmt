@@ -3141,7 +3141,8 @@ back with it on `restore`.
 
 Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
 `https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most
-128 bytes without whitespace) and `block` (a block ID), as `Y.Text` attributes and nothing else. Plain
+128 bytes without whitespace) and `block` (a block ID on this page, or `<pageId>/<blockId>` for a block on
+another page, both generated IDs), as `Y.Text` attributes and nothing else. Plain
 text (`code`, `question`) carries no marks. Text holds no control character but line feed and tab.
 A table row is a `row` block whose cells are rich text.
 

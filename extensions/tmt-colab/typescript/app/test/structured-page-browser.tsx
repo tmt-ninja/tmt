@@ -27,6 +27,7 @@ import { StructuredPage } from '../src/structured-page.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
 import type { AttachmentInput, StoredAttachment } from '../src/attachment-service.js';
 import type { BlockFiles } from '../src/block-uploads.js';
+import type { MentionPages } from '../src/mention-pages.js';
 
 /** How long the fixture's serve takes to commit an op and show it on the page. */
 const SERVE_MS = 120;
@@ -275,6 +276,13 @@ declare global {
     extraFiles: number;
     /** The attachment IDs a file card asked to download, in order. */
     downloads: string[];
+    /** Other pages the @ picker read (#6208): the list reads, each page read, and those ended
+     * before they settled. */
+    pageListReads: number;
+    pageReads: string[];
+    pageAborts: string[];
+    /** While true, a page read fails. */
+    failPageReads: boolean;
   }
 }
 
@@ -480,6 +488,67 @@ export function mount(
   window.refuseFiles = false;
   window.extraFiles = 0;
   window.downloads = [];
+  window.pageListReads = 0;
+  window.pageReads = [];
+  window.pageAborts = [];
+  window.failPageReads = false;
+  // Other pages for the @ picker: a page of blocks, a page that never answers (its read only ends by
+  // its signal), and the page itself, which the list leaves out of the menu.
+  const RELEASE = 'b1000000-0000-4000-8000-000000000001';
+  const SLOW = 'b2000000-0000-4000-8000-000000000002';
+  const releaseBlocks: BlockRecord[] = [
+    {
+      id: 'c1000000-0000-4000-8000-000000000001',
+      type: 'heading',
+      parent: 'root',
+      pos: 'a',
+      props: { level: 2 },
+      text: 'Ship list',
+      deleted: false,
+    },
+    {
+      id: 'c1000000-0000-4000-8000-000000000002',
+      type: 'todo',
+      parent: 'root',
+      pos: 'b',
+      props: { checked: false },
+      text: 'Tag the release',
+      deleted: false,
+    },
+  ];
+  const pages: MentionPages = {
+    async list(signal) {
+      window.pageListReads++;
+      signal.throwIfAborted();
+      return [
+        { id: RELEASE, title: 'Release checklist' },
+        { id: SLOW, title: 'Roadmap' },
+      ];
+    },
+    blocks(pageId, signal) {
+      window.pageReads.push(pageId);
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        signal.addEventListener(
+          'abort',
+          () => {
+            if (settled) return;
+            settled = true;
+            window.pageAborts.push(pageId);
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+        if (pageId === SLOW) return;
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          if (window.failPageReads) reject(new Error('The read failed.'));
+          else resolve(releaseBlocks);
+        }, SERVE_MS);
+      });
+    },
+  };
   let uploadGate: Promise<void> | undefined;
   let releaseUpload = () => {};
   window.holdUploads = () => {
@@ -691,10 +760,14 @@ export function mount(
       mention,
       pickMention,
       hoverMention,
-    } = useBlockEditing(view.records, send, view.seq, content === 'spec' ? files : undefined, [
-      'tmt-gui-lead',
-      'gui-2',
-    ]);
+    } = useBlockEditing(
+      view.records,
+      send,
+      view.seq,
+      content === 'spec' ? files : undefined,
+      ['tmt-gui-lead', 'gui-2'],
+      content === 'spec' ? pages : undefined,
+    );
     return (
       <section ref={subscribe}>
         <StructuredPage
@@ -722,6 +795,8 @@ export function mount(
             uploads,
             choosing,
             onDownloadFile: (id: string) => window.downloads.push(id),
+            blockPageHref: (page: string, block: string) =>
+              `https://colab.example/pages/${page}#block-${block}`,
             questionPage: {
               title: '區塊編輯器',
               questions: registry,

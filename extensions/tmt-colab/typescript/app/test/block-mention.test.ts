@@ -45,3 +45,30 @@ describe('the @ picker (#6203)', () => {
     expect(mentionEntries(tree, [], 'first b')[0]).toMatchObject({ mark: 'block', value: id(3) });
   });
 });
+
+describe('other pages in the @ picker (#6208)', () => {
+  const pages = [
+    { id: 'b1000000-0000-4000-8000-000000000001', title: 'Release checklist' },
+    { id: id(9), title: 'This page' },
+  ];
+  it('lists the matching pages after this page, never this page itself', () => {
+    expect(mentionEntries(tree, [], 'rel', id(9), { pages }).map((entry) => entry.id)).toEqual([
+      'page:b1000000-0000-4000-8000-000000000001',
+    ]);
+  });
+  it('an opened page offers the way back and its blocks, marked with the page', () => {
+    const open = { id: pages[0]!.id, title: 'Release checklist' };
+    const rows = mentionEntries(tree, ['tmt-gui-lead'], 'tick', id(2), {
+      open,
+      state: 'ready',
+      blocks: [block(1, 'table', undefined, { label: 'Ticket status' })],
+    });
+    expect(rows.map((entry) => [entry.mark, entry.value])).toEqual([
+      ['back', ''],
+      ['block', `${open.id}/${id(1)}`],
+    ]);
+    expect(
+      mentionEntries(tree, [], '', undefined, { open, state: 'failed' }).map((entry) => entry.mark),
+    ).toEqual(['back', 'retry']);
+  });
+});

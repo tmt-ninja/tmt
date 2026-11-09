@@ -170,7 +170,7 @@ pub fn command() -> Command {
         .arg(option("mark", "MARK", "Set an inline mark on a range").value_parser(MARKS).requires_all(["from", "to"]))
         .arg(option("from", "N", "Range start, in characters").value_parser(clap::value_parser!(u64)))
         .arg(option("to", "N", "Range end, in characters").value_parser(clap::value_parser!(u64)))
-        .arg(option("value", "VALUE", "The mark's value (link, agent and block marks)"))
+        .arg(option("value", "VALUE", "The mark's value: a link's URL, an agent's name, or a block's ID (PAGE/ID for a block on another page)"))
         .arg(flag("clear", "Remove the mark instead"))
         .group(
             clap::ArgGroup::new("change")

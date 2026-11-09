@@ -1747,3 +1747,112 @@ test('a page without files offers no Image or file entry', async ({ page }) => {
     'No matching block',
   );
 });
+
+const RELEASE = 'b1000000-0000-4000-8000-000000000001';
+const TAG = 'c1000000-0000-4000-8000-000000000002';
+
+/** Opens the @ menu at the end of list item l2 of the spec fixture. */
+async function atMenu(
+  page: import('@playwright/test').Page,
+  host: import('@playwright/test').Locator,
+) {
+  const item = host.locator('[data-block-id="l2"]');
+  await item.getByText('滑過或選取是淡色底。').click();
+  const editor = item.locator('[contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' @', { delay: 20 });
+  return { item, editor, menu: page.getByRole('listbox', { name: '@ mention' }) };
+}
+
+test('@ opens another page by keyboard and marks its block with the page', async ({ page }) => {
+  const host = await mountFixture(page, 'spec');
+  const { item, editor, menu } = await atMenu(page, host);
+  // The page list is read once for the menu; no page is opened by typing.
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  // The other pages are their own group, under a quiet heading; Enter opens the active one.
+  const others = menu.getByRole('group', { name: 'Other pages' });
+  await expect(others).toContainText('Other pages');
+  await editor.pressSequentially('rel', { delay: 20 });
+  await expect(menu.getByRole('option')).toHaveText(['Release checklist']);
+  await expect(others.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  await expect(menu.locator('[data-slot="block-menu-footer"]')).toContainText('Enter open');
+  expect(await page.evaluate(() => [window.pageListReads, window.pageReads.length])).toEqual([
+    1, 0,
+  ]);
+  // → opens the page: its blocks are read once, behind the way back.
+  await editor.press('ArrowRight');
+  await expect(menu.getByRole('option').first()).toHaveText('Release checklist');
+  for (let i = 0; i < 3; i++) await editor.press('Backspace');
+  await editor.pressSequentially('tag', { delay: 20 });
+  await expect(menu.getByRole('option')).toHaveText([
+    'Release checklist',
+    'To-do: Tag the release',
+  ]);
+  await expect(menu.getByRole('option', { selected: true })).toHaveText('To-do: Tag the release');
+  expect(await page.evaluate(() => window.pageReads)).toEqual([RELEASE]);
+  await editor.press('Enter');
+  await expect(menu).toHaveCount(0);
+  const expected = '滑過或選取是淡色底。 To-do: Tag the release ';
+  await expect.poll(() => page.evaluate(() => window.serveText('l2'))).toBe(expected);
+  await expect
+    .poll(() => page.evaluate(() => window.serveMarks('l2')))
+    .toEqual([{ from: 11, to: 33, mark: 'block', value: `${RELEASE}/${TAG}` }]);
+  // At rest the chip shows the stored text, never reads that page, and opens it through the
+  // page's trusted link path.
+  await editor.press('Escape');
+  const chip = item.locator('[data-slot="block-mention"]');
+  const href = `https://colab.example/pages/${RELEASE}#block-${TAG}`;
+  await expect(chip).toHaveText('To-do: Tag the release');
+  await expect(chip).toHaveAttribute('href', href);
+  await chip.click();
+  expect(await page.evaluate(() => window.opened)).toEqual([{ href, newTab: false }]);
+  expect(await page.evaluate(() => window.pageReads)).toEqual([RELEASE]);
+});
+
+test('@ opens another page with the mouse, goes back, retries a failed read, and ends reads on close', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const { editor, menu } = await atMenu(page, host);
+  await page.evaluate(() => (window.failPageReads = true));
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
+  const retry = menu.getByRole('option', { name: 'Could not read this page. Retry' });
+  await expect(retry).toBeVisible();
+  await page.evaluate(() => (window.failPageReads = false));
+  await retry.click();
+  await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
+  // ← and the way-back row both return to the list.
+  await editor.press('ArrowLeft');
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
+  await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
+  await expect(menu.getByRole('option', { name: 'Roadmap' })).toBeVisible();
+  // A page that does not answer shows it is being read; closing the menu ends that read.
+  await menu.getByRole('option', { name: 'Roadmap' }).click();
+  await expect(menu).toContainText('Reading this page…');
+  await editor.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.pageAborts))
+    .toEqual(['b2000000-0000-4000-8000-000000000002']);
+  // Backspace with nothing after the @ goes back from an opened page instead of deleting the @.
+  await editor.pressSequentially(' @', { delay: 20 });
+  await menu.getByRole('option', { name: 'Release checklist' }).click();
+  await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible();
+  await editor.press('Backspace');
+  await expect(menu.getByRole('option', { name: 'Release checklist' })).toBeVisible();
+  await expect(editor).toContainText('@');
+});
+
+test('@ without the page list authority offers no other page and no hint', async ({ page }) => {
+  const host = await mountFixture(page);
+  const item = host.locator('[data-block-id="p"]');
+  await item.click();
+  const editor = item.locator('[contenteditable="true"]');
+  await editor.press('End');
+  await editor.pressSequentially(' @', { delay: 20 });
+  const menu = page.getByRole('listbox', { name: '@ mention' });
+  await expect(menu.getByRole('option')).toHaveText(['@tmt-gui-lead', '@gui-2']);
+  await expect(menu.getByRole('group', { name: 'Other pages' })).toHaveCount(0);
+});

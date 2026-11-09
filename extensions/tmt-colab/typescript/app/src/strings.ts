@@ -129,11 +129,13 @@ export const text = {
   blockMention: {
     label: '@ mention',
     empty: 'No matching agent or block',
+    reading: 'Reading this page…',
+    otherPages: 'Other pages',
   },
   blockInsert: {
     label: 'Insert a block',
     empty: 'No matching block',
-    keys: { choose: 'choose', insert: 'insert', close: 'close' },
+    keys: { choose: 'choose', insert: 'insert', open: 'open', back: 'back', close: 'close' },
   },
   pageLink: {
     close: 'Close',

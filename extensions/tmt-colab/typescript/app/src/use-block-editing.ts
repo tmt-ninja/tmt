@@ -45,7 +45,13 @@ import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
 import { text as strings } from './strings.js';
-import { type MentionEntry, mentionEntries, mentionQuery } from './block-mention.js';
+import {
+  type MentionEntry,
+  mentionEntries,
+  type MentionPagesState,
+  mentionQuery,
+} from './block-mention.js';
+import { type MentionPages, PAGE_READ_MS } from './mention-pages.js';
 
 /** The insert menu's entries: the design system's catalog, the one the menu draws. */
 const INSERT_ENTRIES: readonly InsertEntry[] = insertGroups.flatMap((group) =>
@@ -83,6 +89,14 @@ export interface MentionMenu {
   entries: MentionEntry[];
   /** The active entry's id. */
   active?: string;
+  /** Another page's blocks are being read (#6208). */
+  reading?: boolean;
+}
+
+/** The active row: the one the keys or pointer chose, else the first that is not the way back. */
+function activeMention(entries: readonly MentionEntry[], active?: string): string | undefined {
+  if (active && entries.some((entry) => entry.id === active)) return active;
+  return (entries.find((entry) => entry.mark !== 'back') ?? entries[0])?.id;
 }
 
 /** The block menu's actions this editor runs, in the design system's catalog order (Move to…, copy
@@ -148,6 +162,8 @@ export function useBlockEditing(
   files?: BlockFiles,
   /** The agents an @ can name (#6203). */
   agents: readonly string[] = [],
+  /** Other pages an @ can name, under the page list's authority (#6208); absent without it. */
+  pages?: MentionPages,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when it settles
    * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
@@ -220,6 +236,70 @@ export function useBlockEditing(
   mentionRef.current = mentionAt;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  /** The other pages in the @ menu (#6208): the list, or the page opened in it. Every read takes the
+   * menu's signal, so closing the menu ends it; the list is read once per menu. */
+  const [other, setOther] = useState<MentionPagesState>();
+  const otherRef = useRef(other);
+  otherRef.current = other;
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const menuReads = useRef<AbortController | undefined>(undefined);
+  const pageRead = useRef<AbortController | undefined>(undefined);
+  const pageList = useRef<readonly { id: string; title: string }[]>([]);
+  const mentionOpen = !!mentionAt;
+  useEffect(() => {
+    if (!mentionOpen) {
+      menuReads.current?.abort();
+      menuReads.current = undefined;
+      pageRead.current = undefined;
+      pageList.current = [];
+      setOther(undefined);
+      return;
+    }
+    const source = pagesRef.current;
+    if (!source || menuReads.current) return;
+    const reads = new AbortController();
+    menuReads.current = reads;
+    // A reader without the page list's authority gets no rows and no hint: the menu is #6203's.
+    source.list(reads.signal).then(
+      (list) => {
+        if (reads.signal.aborted) return;
+        pageList.current = list;
+        setOther((now) => now ?? { pages: list });
+      },
+      () => {},
+    );
+  }, [mentionOpen]);
+  useEffect(() => () => menuReads.current?.abort(), []);
+  /** Open another page in the @ menu: its blocks are read once, bounded by `PAGE_READ_MS`. */
+  const openPage = useCallback((page: { id: string; title: string }) => {
+    const source = pagesRef.current;
+    const reads = menuReads.current;
+    if (!source || !reads) return;
+    pageRead.current?.abort();
+    const read = new AbortController();
+    pageRead.current = read;
+    const signal = AbortSignal.any([reads.signal, read.signal, AbortSignal.timeout(PAGE_READ_MS)]);
+    setOther({ open: page, state: 'loading' });
+    setMentionAt((at) => (at ? { ...at, active: undefined } : at));
+    source.blocks(page.id, signal).then(
+      (blocks) => {
+        if (pageRead.current === read && !reads.signal.aborted)
+          setOther({ open: page, state: 'ready', blocks });
+      },
+      () => {
+        if (pageRead.current === read && !reads.signal.aborted)
+          setOther({ open: page, state: 'failed' });
+      },
+    );
+  }, []);
+  /** Back from an opened page to the list. */
+  const closePage = useCallback(() => {
+    pageRead.current?.abort();
+    pageRead.current = undefined;
+    setOther({ pages: pageList.current });
+    setMentionAt((at) => (at ? { ...at, active: undefined } : at));
+  }, []);
 
   const open = useCallback((next: BlockTextSync, at: number) => {
     sync.current = next;
@@ -740,7 +820,7 @@ export function useBlockEditing(
   /** The @ menu's rows now, for the block it is open in. */
   const mentionRows = useCallback(
     (at: NonNullable<typeof mentionAt>) =>
-      mentionEntries(treeRef.current, agentsRef.current, at.query, at.id),
+      mentionEntries(treeRef.current, agentsRef.current, at.query, at.id, otherRef.current),
     [],
   );
   /** The @ menu's choice (#6203): the @ and what followed it become the chip text and a space, and
@@ -751,8 +831,20 @@ export function useBlockEditing(
       const at = mentionRef.current;
       if (!current || at?.id !== current.id) return;
       const entry = mentionRows(at).find((row) => row.id === entryId);
-      setMentionAt(undefined);
       if (!entry) return;
+      // Another page opens in the menu, or the menu goes back to the list (#6208).
+      if (entry.mark === 'page' || entry.mark === 'retry') {
+        const page = pageList.current.find((item) => item.id === entry.value);
+        const opened =
+          otherRef.current && 'open' in otherRef.current ? otherRef.current.open : page;
+        if (opened) openPage(entry.mark === 'page' && page ? page : opened);
+        return;
+      }
+      if (entry.mark === 'back') {
+        closePage();
+        return;
+      }
+      setMentionAt(undefined);
       const chars = [...current.text];
       const end = Math.min(chars.length, at.from + 1 + [...at.query].length);
       const label = [...entry.label];
@@ -760,9 +852,9 @@ export function useBlockEditing(
       current.typed(next);
       const to = at.from + label.length;
       open(current, to + 1);
-      void format(current, { from: at.from, to }, entry.mark, entry.value);
+      void format(current, { from: at.from, to }, entry.mark as 'agent' | 'block', entry.value);
     },
-    [mentionRows, open, format],
+    [mentionRows, open, format, openPage, closePage],
   );
 
   /** A key in the focused block; true when the block took it. */
@@ -791,9 +883,24 @@ export function useBlockEditing(
       current.typed(text);
       const mention = mentionRef.current?.id === id ? mentionRef.current : undefined;
       if (mention) {
-        const ids = mentionRows(mention).map((entry) => entry.id);
+        const rows = mentionRows(mention);
+        const ids = rows.map((entry) => entry.id);
+        const active = activeMention(rows, mention.active);
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && ids.length) {
-          setMentionAt({ ...mention, active: nextBlockMenuItem(ids, mention.active, event.key) });
+          setMentionAt({ ...mention, active: nextBlockMenuItem(ids, active, event.key) });
+          return true;
+        }
+        const opened = otherRef.current && 'open' in otherRef.current;
+        // → opens the active page; ←, or Backspace with nothing after the @, goes back (#6208).
+        if (event.key === 'ArrowRight' && active?.startsWith('page:')) {
+          pickMention(active);
+          return true;
+        }
+        if (
+          opened &&
+          (event.key === 'ArrowLeft' || (event.key === 'Backspace' && mention.query === ''))
+        ) {
+          closePage();
           return true;
         }
         if (event.key === 'Escape') {
@@ -802,7 +909,7 @@ export function useBlockEditing(
           return true;
         }
         if ((event.key === 'Enter' || event.key === 'Tab') && ids.length && !event.shiftKey) {
-          pickMention(mention.active && ids.includes(mention.active) ? mention.active : ids[0]!);
+          if (active) pickMention(active);
           return true;
         }
       }
@@ -847,7 +954,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush, format, indent, mentionRows, pickMention],
+    [split, join, pick, flush, format, indent, mentionRows, pickMention, closePage],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -1135,13 +1242,11 @@ export function useBlockEditing(
   const closeMenu = useCallback(() => setMenuAt(undefined), []);
   const mention = useMemo((): MentionMenu | undefined => {
     if (!mentionAt || editing?.id !== mentionAt.id) return undefined;
-    const entries = mentionEntries(tree, agents, mentionAt.query, mentionAt.id);
-    const active =
-      mentionAt.active && entries.some((entry) => entry.id === mentionAt.active)
-        ? mentionAt.active
-        : entries[0]?.id;
-    return { id: mentionAt.id, entries, ...(active && { active }) };
-  }, [mentionAt, editing?.id, tree, agents]);
+    const entries = mentionEntries(tree, agents, mentionAt.query, mentionAt.id, other);
+    const active = activeMention(entries, mentionAt.active);
+    const reading = other && 'open' in other && other.state === 'loading';
+    return { id: mentionAt.id, entries, ...(active && { active }), ...(reading && { reading }) };
+  }, [mentionAt, editing?.id, tree, agents, other]);
   const hoverMention = useCallback((entry: string) => {
     setMentionAt((at) => (at ? { ...at, active: entry } : at));
   }, []);

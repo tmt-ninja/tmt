@@ -19,6 +19,8 @@ import {
   BlockMenu,
   BlockMenuEmpty,
   BlockMenuFooter,
+  BlockMenuGroup,
+  BlockMenuSeparator,
   BlockKbd,
   BlockMenuItem,
   BlockToast,
@@ -183,6 +185,8 @@ export interface StructuredPageProps {
   mention?: MentionMenu;
   onPickMention?(entry: string): void;
   onHoverMention?(entry: string): void;
+  /** Where a mark naming a block on another page points (#6208); it opens through `onLink`. */
+  blockPageHref?(page: string, block: string): string;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
   /** The file blocks this tab is adding, drawn as their upload tile. */
@@ -602,6 +606,27 @@ function MentionPopover({
   onHover?(entry: string): void;
 }) {
   const rowId = (entry: string) => `block-mention-${entry.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  const row = (entry: MentionMenu['entries'][number]) => (
+    <BlockMenuItem
+      key={entry.id}
+      id={rowId(entry.id)}
+      active={entry.id === mention.active}
+      submenu={entry.mark === 'page'}
+      back={entry.mark === 'back'}
+      onMouseEnter={() => onHover?.(entry.id)}
+      // Choosing never takes focus from the editor.
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick?.(entry.id);
+      }}
+    >
+      {entry.label}
+    </BlockMenuItem>
+  );
+  // This page's rows, then the other pages as their own group under a quiet heading (#6208).
+  const here = mention.entries.filter((entry) => entry.mark !== 'page');
+  const pages = mention.entries.filter((entry) => entry.mark === 'page');
+  const active = mention.entries.find((entry) => entry.id === mention.active)?.mark;
   return (
     <div className="tmt-block-insert">
       <BlockMenu
@@ -610,25 +635,24 @@ function MentionPopover({
         placement="below"
         activeId={mention.active && rowId(mention.active)}
       >
-        {mention.entries.map((entry) => (
-          <BlockMenuItem
-            key={entry.id}
-            id={rowId(entry.id)}
-            active={entry.id === mention.active}
-            onMouseEnter={() => onHover?.(entry.id)}
-            // Choosing never takes focus from the editor.
-            onMouseDown={(event) => {
-              event.preventDefault();
-              onPick?.(entry.id);
-            }}
-          >
-            {entry.label}
-          </BlockMenuItem>
-        ))}
-        {mention.entries.length === 0 && (
-          <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
+        {here.map(row)}
+        {pages.length > 0 && (
+          <>
+            {here.length > 0 && <BlockMenuSeparator />}
+            <div role="group" aria-label={strings.blockMention.otherPages}>
+              <BlockMenuGroup>{strings.blockMention.otherPages}</BlockMenuGroup>
+              {pages.map(row)}
+            </div>
+          </>
         )}
-        <MenuKeys />
+        {mention.reading ? (
+          <BlockMenuEmpty>{strings.blockMention.reading}</BlockMenuEmpty>
+        ) : (
+          !mention.entries.some((entry) => entry.mark !== 'back') && (
+            <BlockMenuEmpty>{strings.blockMention.empty}</BlockMenuEmpty>
+          )
+        )}
+        <MenuKeys action={active === 'page' ? 'open' : active === 'back' ? 'back' : 'insert'} />
       </BlockMenu>
     </div>
   );
@@ -636,8 +660,9 @@ function MentionPopover({
 
 /** The key hints under the insert and @ menus, as the DS block-menu tag draws them: each key a
  * DS kbd chip, then what it does. */
-function MenuKeys() {
-  const { choose, insert, close } = strings.blockInsert.keys;
+function MenuKeys({ action = 'insert' }: { action?: 'insert' | 'open' | 'back' }) {
+  const { choose, close } = strings.blockInsert.keys;
+  const insert = strings.blockInsert.keys[action];
   return (
     <BlockMenuFooter>
       <span>
@@ -973,7 +998,7 @@ function Content({
     <MarkedText
       text={block.text}
       marks={block.marks}
-      blockHref={(id) => `#block-${id}`}
+      blockHref={(id, page) => (page ? rest.blockPageHref?.(page, id) : `#block-${id}`)}
       onLink={rest.onLink}
     />
   ) : (

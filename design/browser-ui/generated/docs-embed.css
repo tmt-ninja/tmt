@@ -1104,6 +1104,30 @@
 .tmt-block-menu[data-placement='sheet'] .tmt-block-menu-item {
   min-height: 44px;
 }
+.tmt-block-menu-chevron {
+  display: flex;
+  justify-self: end;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-block-menu-chevron svg,
+.tmt-block-menu-item[data-back] .tmt-block-menu-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.tmt-block-menu-item[data-back] .tmt-block-menu-icon {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: none;
+}
+
+.tmt-block-menu-item[data-back] {
+  grid-template-columns: 20px minmax(0, 1fr);
+  min-height: 28px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 600;
+}
 .tmt-block-menu-item[data-active] {
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-selected-text);

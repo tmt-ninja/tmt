@@ -9,6 +9,15 @@ type Entry = [id: string, block: Json];
 
 const MARKS = ['link', 'bold', 'italic', 'code', 'agent', 'block'] as const;
 
+/** A block mark's span: a block on this page by its ID, or on another page with its page (#6208).
+ * `value` is already escaped, and the validator admitted it. */
+function blockSpan(value: string): [string, string] {
+  const at = value.indexOf('/');
+  return at < 0
+    ? [`<span data-block="${value}">`, '</span>']
+    : [`<span data-page="${value.slice(0, at)}" data-block="${value.slice(at + 1)}">`, '</span>'];
+}
+
 export function escape(value: string): string {
   let out = '';
   for (const c of value) {
@@ -76,7 +85,7 @@ function rich(value: unknown): string {
                 ? ['<code>', '</code>']
                 : name === 'agent'
                   ? [`<span data-agent="${value}">`, '</span>']
-                  : [`<span data-block="${value}">`, '</span>'];
+                  : blockSpan(value);
       open += start;
       close = end + close;
     }

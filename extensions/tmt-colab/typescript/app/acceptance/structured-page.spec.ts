@@ -537,6 +537,69 @@ test('a dropped image and a pasted file upload, list and come back on undo', asy
   });
 });
 
+// #6208: the @ picker opens another of the owner's pages and marks its block with the page; the serve
+// admits the `<pageId>/<blockId>` value, and the chip opens that page through the page-link path.
+test('@ marks a block on another page, and the serve keeps it', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-at-pages');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const create = (title: string) =>
+      JSON.parse(
+        run(world, colab, [
+          'page',
+          'create',
+          '--title',
+          title,
+          '--structured',
+          '--json',
+          '--no-open',
+        ]),
+      ) as { pageId: string; path: string };
+    const insert = (pageId: string, type: string, text: string) =>
+      (
+        JSON.parse(
+          run(world, colab, ['block', 'insert', pageId, '--type', type, '--text', text, '--json']),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+    const other = create('Release checklist');
+    const tag = insert(other.pageId, 'todo', 'Tag the release');
+    const here = create('Plan');
+    const paragraph = insert(here.pageId, 'paragraph', 'See');
+    const page = await browser.context.newPage();
+    await page.goto(new URL(here.path, `${door.address}/`).href);
+    await expect(page.getByText('See', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await page.getByText('See', { exact: true }).click();
+    const editor = page.locator(`[data-block-id="${paragraph}"] [contenteditable="true"]`);
+    await editor.press('End');
+    await editor.pressSequentially(' @rel', { delay: 20 });
+    const menu = page.getByRole('listbox', { name: '@ mention' });
+    await menu.getByRole('option', { name: 'Release checklist' }).click({ timeout: 30_000 });
+    await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible({
+      timeout: 30_000,
+    });
+    for (let i = 0; i < 3; i++) await editor.press('Backspace');
+    await editor.press('Enter');
+    await expect(menu).toHaveCount(0);
+    // The serve holds the mark with the other page's ID, and the HTML export names that page.
+    const value = `${other.pageId}/${tag}`;
+    await expect
+      .poll(
+        () =>
+          (
+            JSON.parse(run(world, colab, ['block', 'get', here.pageId, paragraph, '--json'])) as {
+              block: { text?: { marks?: { mark: string; value?: string }[] } };
+            }
+          ).block.text?.marks?.find((mark) => mark.mark === 'block')?.value,
+        { timeout: 30_000 },
+      )
+      .toBe(value);
+    await page.close();
+  });
+});
+
 // #6194: a person writes a question in the browser on a page an agent made; the serve registers
 // it, and the person's answer reaches that agent, the page's creator.
 test('a question written in the browser is registered and its answer reaches the page creator', async () => {

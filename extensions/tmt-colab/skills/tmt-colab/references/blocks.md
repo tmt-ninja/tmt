@@ -27,7 +27,8 @@ tmt colab block batch PAGE --file ops.json --json                      # many op
 Every command is a granular edit that merges with what others change at the same time, so none needs
 a revision and none can answer `COLAB_STALE_BASE`. Block IDs are generated; `--id` picks one.
 Nothing goes in a block's text as HTML: marks are separate (`block text ... --mark bold --from 0 --to 5`;
-`--value` for `link`, `agent` and `block`, `--clear` to remove).
+`--value` for `link`, `agent` and `block`, `--clear` to remove). A `block` value is a block ID on
+this page, or `PAGE/ID` for a block on another page.
 
 URLs: a link mark and a file's `href` take `https://`, `http://` or `mailto:`, an image's `src` takes
 `https://` only; a file's `href` and an image's `src` also take `colab-attachment:TOKEN` (8 hex
