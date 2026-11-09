@@ -33,6 +33,7 @@ import { Connection, SAVE_REPLY_MS } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
+  SaveNotApplied,
   SaveOutcomeUnknown,
   SaveRefused,
   SaveTooLarge,
@@ -946,19 +947,16 @@ export class Live implements PageBinding {
   async work(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const deadline = Date.now() + SAVE_REPLY_MS;
+    const operationId = crypto.randomUUID();
     const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
-      if (error instanceof ConnectionReadyTimeout)
-        throw new Error(
-          'Page connection timed out before the action was sent; nothing was applied.',
-        );
+      if (error instanceof ConnectionReadyTimeout) throw new SaveNotApplied(operationId);
       throw error;
     });
-    const operationId = crypto.randomUUID();
     let result: WorkResult;
     try {
       result = await c.work(operationId, action, body, Math.max(0, deadline - Date.now()));
     } catch (error) {
-      if (!(error instanceof Error) || c.active) throw error;
+      if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
     }
     settled(result);

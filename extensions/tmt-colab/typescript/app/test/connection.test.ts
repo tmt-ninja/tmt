@@ -5,7 +5,7 @@ import type { TitleReadBudget } from '../src/transport.js';
 import type { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
 import type { OwnState } from '../src/fold-protocol.js';
-import { SAVE_SOURCE_BYTES, SaveTooLarge } from '../src/save.js';
+import { SAVE_SOURCE_BYTES, SaveNotApplied, SaveTooLarge } from '../src/save.js';
 
 const calls = vi.hoisted(() => [] as string[]);
 const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
@@ -117,7 +117,7 @@ it('bounds a work request even when connection readiness never arrives', async (
     .work('operation', 'subpage.create', { title: 'Page' }, 10)
     .catch((error: Error) => error);
   await vi.advanceTimersByTimeAsync(10);
-  expect(await work).toMatchObject({ message: 'Save reply timed out' });
+  expect(await work).toBeInstanceOf(SaveNotApplied);
   expect(Socket.current.send).not.toHaveBeenCalled();
   expect(Socket.current.close).toHaveBeenCalledOnce();
 });

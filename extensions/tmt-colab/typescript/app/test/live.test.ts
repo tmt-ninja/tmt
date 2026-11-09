@@ -2539,14 +2539,39 @@ it('bounds a work action waiting for a connection without sending it', async () 
       .work('subpage.create', { title: 'A page' })
       .catch((error: Error) => error);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(await result).toMatchObject({
-      message: 'Page connection timed out before the action was sent; nothing was applied.',
-    });
+    expect(await result).toBeInstanceOf(SaveNotApplied);
     expect(saves.work).not.toHaveBeenCalled();
+    expect(saves.status).not.toHaveBeenCalled();
   } finally {
     vi.useRealTimers();
     h.release({ source: 'verified', title: 'Page' });
     h.live.close();
+  }
+});
+
+it('reports an unsent work action as not applied without querying its status', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    vi.useFakeTimers();
+    saves.work.mockImplementationOnce(
+      (connection, operationId) =>
+        new Promise((_resolve, reject) => {
+          setTimeout(() => {
+            connection.close();
+            reject(new SaveNotApplied(operationId));
+          }, 30_000);
+        }),
+    );
+    const result = live.work('subpage.create', { title: 'A page' }).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toBeInstanceOf(SaveNotApplied);
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    live.close();
+    saves.work.mockClear();
   }
 });
 

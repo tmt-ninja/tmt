@@ -46,6 +46,7 @@ import {
   BLOCK_BATCH_OPS,
   blocksResult,
   SAVE_SOURCE_BYTES,
+  SaveNotApplied,
   SaveTooLarge,
   saveResult,
   workResult,
@@ -681,15 +682,23 @@ export class Connection {
     body: Record<string, unknown>,
     timeoutMs = SAVE_REPLY_MS,
   ): Promise<WorkResult> {
-    return (await this.#request(
-      operationId,
-      async () => {
-        await this.ready;
-        this.admission.validatePage(this.sharing);
-        this.send('work', { operationId, action, body });
-      },
-      timeoutMs,
-    )) as WorkResult;
+    let sending = false;
+    try {
+      return (await this.#request(
+        operationId,
+        async () => {
+          await this.ready;
+          this.admission.validatePage(this.sharing);
+          // Once send begins, a failure cannot prove the frame did not leave the browser.
+          sending = true;
+          this.send('work', { operationId, action, body });
+        },
+        timeoutMs,
+      )) as WorkResult;
+    } catch (error) {
+      if (!sending) throw new SaveNotApplied(operationId);
+      throw error;
+    }
   }
   /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
    * its receipt. A lost reply settles like a save's, by one `saveStatus`. `attachments` is a typed
