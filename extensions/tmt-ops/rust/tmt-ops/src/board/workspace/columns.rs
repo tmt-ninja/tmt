@@ -609,6 +609,8 @@ pub(in crate::board) fn activity_projection(
             ));
         }
         let room = width.saturating_sub(used);
+        // The unread words replace the activity word, so a task equal to that
+        // word still follows; only a repeat of the shown words is left out.
         let shown: String = primary
             .iter()
             .skip(1)
@@ -620,6 +622,7 @@ pub(in crate::board) fn activity_projection(
             .filter(|task| *task != shown.trim())
             .and_then(|task| {
                 let tail = format!(" · {task}");
+                // A suffix that does not fit whole is dropped, never cut inside a word.
                 (tail.width() <= room).then_some(tail)
             })
             .map(|text| span(text, task_role(row)));
