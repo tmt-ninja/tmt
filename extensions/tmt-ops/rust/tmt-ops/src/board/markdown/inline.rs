@@ -118,6 +118,15 @@ mod tests {
         let all: String = mapped.lines.iter().map(|line| line.to_string()).collect();
         assert!(all.contains("#42, o/r#7."), "{all}");
         assert!(all.contains("https://github.com/o/r/pull/9"));
+        // A mixed ASCII and full-width tail keeps the issue link.
+        let cjk = render_mapped("見 #43)。", 100, look);
+        let span = cjk
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.content == "#43")
+            .unwrap();
+        assert!(span.style.add_modifier.contains(Modifier::UNDERLINED));
         for text in ["#42", "o/r#7"] {
             let span = mapped
                 .lines

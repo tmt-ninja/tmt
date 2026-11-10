@@ -10,15 +10,18 @@ pub(super) struct Resolved {
     pub name: String,
 }
 
-/// A whitespace-separated word without its trailing spaces and closing punctuation: the
-/// token the transcript and plain rows test for a bare web link.
 /// Full-width punctuation ends a link: CJK prose puts it right after an address, with no space.
 const FULL_WIDTH_STOPS: [char; 10] = ['。', '，', '、', '）', '」', '』', '！', '？', '；', '：'];
 
+/// A whitespace-separated word without its trailing spaces and closing punctuation: the
+/// token the transcript and plain rows test for a bare web link. ASCII and full-width marks
+/// trim together, so a mixed tail such as `#42)。` keeps only `#42`.
 pub(super) fn word_token(word: &str) -> &str {
-    word.trim_end_matches(char::is_whitespace)
-        .trim_end_matches(['.', ',', '!', ')', ']', ':', ';'])
-        .trim_end_matches(FULL_WIDTH_STOPS)
+    word.trim_end_matches(|c: char| {
+        c.is_whitespace()
+            || ['.', ',', '!', ')', ']', ':', ';'].contains(&c)
+            || FULL_WIDTH_STOPS.contains(&c)
+    })
 }
 
 /// Where a bare link would sit in a token. It starts at the token's first character, or after

@@ -1431,6 +1431,7 @@ mod raw_link_tests {
             ("（https://x.dev/a）", "https://x.dev/a"),
             ("https://x.dev/a，然後", "https://x.dev/a"),
             ("看https://x.dev/a.，", "https://x.dev/a"),
+            ("看https://x.dev/a)。", "https://x.dev/a"),
         ] {
             let found = bare_urls(text);
             assert_eq!(found.len(), 1, "{text}");
@@ -1438,6 +1439,10 @@ mod raw_link_tests {
         }
         for text in ["xhttp://x.dev", "a1https://x.dev", "連結：httpfoo"] {
             assert!(bare_urls(text).is_empty(), "{text}");
+        }
+        // ASCII and full-width closing marks trim together, in any order.
+        for (word, token) in [("#42)。", "#42"), ("#42。)", "#42"), ("#42）. ", "#42")] {
+            assert_eq!(word_token(word), token, "{word}");
         }
     }
 
