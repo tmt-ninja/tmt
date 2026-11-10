@@ -10,6 +10,7 @@ type Cell = {
   underlay: string | null;
   bold: boolean;
   chip_surface: 'idle' | 'hot' | 'disabled' | null;
+  heat_level?: 0 | 1 | 2 | 3 | 4 | 5;
   continuation: boolean;
 };
 type Grid = {
@@ -102,7 +103,39 @@ function paintCell(cell: Cell, look: NonNullable<Props['look']>) {
       else fg = color;
     }
   };
-  if (cell.chip_surface) {
+  if (cell.heat_level !== undefined) {
+    if (look === 'terminal') {
+      const step = cell.heat_level;
+      bg = [
+        ansi.black,
+        ansi['bright black'],
+        ansi['bright black'],
+        ansi.white,
+        ansi.white,
+        ansi['bright white'],
+      ][step]!;
+      fg = step < 3 ? ansi['bright white']! : ansi.black!;
+    } else if (look !== 'NO_COLOR') {
+      // Match screen::neutral_ramp: interpolate the greys of Track and Text.
+      const grey = (hex: string) =>
+        Math.floor(
+          (parseInt(hex.slice(1, 3), 16) +
+            parseInt(hex.slice(3, 5), 16) +
+            parseInt(hex.slice(5, 7), 16)) /
+            3,
+        );
+      const end = light ? 'light' : 'dark';
+      const value = Math.floor(
+        (grey(colors.track![end]) * (5 - cell.heat_level) +
+          grey(colors.text![end]) * cell.heat_level) /
+          5,
+      );
+      bg = `rgb(${value}, ${value}, ${value})`;
+      const channel = value / 255;
+      const luminance = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      fg = (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#ffffff';
+    }
+  } else if (cell.chip_surface) {
     const hot = cell.chip_surface === 'hot';
     if (look === 'NO_COLOR') {
       reverse = cell.chip_surface !== 'disabled';
@@ -136,7 +169,12 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
     if (state !== 'ready') throw new Error('renderer unavailable');
     grid = JSON.parse(render(component, JSON.stringify(props), width, height)) as Grid;
     if (
-      grid.version !== 1 ||
+      grid.version !== 2 ||
+      grid.cells.some(
+        (cell) =>
+          cell.heat_level !== undefined &&
+          (!Number.isInteger(cell.heat_level) || cell.heat_level < 0 || cell.heat_level > 5),
+      ) ||
       grid.width !== width ||
       grid.height !== height ||
       grid.cells.length !== width * height
@@ -162,7 +200,7 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
             ...paintCell(cell, look),
           },
         },
-        cell.glyph || ' ',
+        cell.heat_level !== undefined && look !== 'NO_COLOR' ? ' ' : cell.glyph || ' ',
       ),
     ];
   });
@@ -189,7 +227,8 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
     'span',
     {
       style: {
-        display: 'inline-grid',
+        display: 'grid',
+        width: 'max-content',
         position: 'relative',
         gridTemplateColumns: `repeat(${width}, 1ch)`,
         gridTemplateRows: `repeat(${height}, 1.4em)`,

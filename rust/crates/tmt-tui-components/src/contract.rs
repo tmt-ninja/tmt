@@ -80,6 +80,40 @@ pub enum ChipSurface {
     Disabled,
 }
 
+/// One of the six neutral activity-ramp steps, resolved by the presentation adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u8", into = "u8")]
+pub enum HeatLevel {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+}
+
+impl TryFrom<u8> for HeatLevel {
+    type Error = &'static str;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        [
+            Self::Zero,
+            Self::One,
+            Self::Two,
+            Self::Three,
+            Self::Four,
+            Self::Five,
+        ]
+        .get(usize::from(value))
+        .copied()
+        .ok_or("invalid heat level")
+    }
+}
+impl From<HeatLevel> for u8 {
+    fn from(value: HeatLevel) -> Self {
+        value as u8
+    }
+}
+
 /// Continuations occupy the extra cells of a wide grapheme.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cell {
@@ -93,6 +127,8 @@ pub struct Cell {
     pub bg: Option<Role>,
     pub bold: bool,
     pub chip_surface: Option<ChipSurface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heat_level: Option<HeatLevel>,
     pub continuation: bool,
 }
 
@@ -105,6 +141,7 @@ impl Default for Cell {
             bg: None,
             bold: false,
             chip_surface: None,
+            heat_level: None,
             continuation: false,
         }
     }
@@ -181,6 +218,7 @@ impl CellGrid {
                     bg,
                     bold,
                     chip_surface: None,
+                    heat_level: None,
                     continuation: false,
                 },
             );
@@ -195,6 +233,7 @@ impl CellGrid {
                         bg,
                         bold,
                         chip_surface: None,
+                        heat_level: None,
                         continuation: true,
                     },
                 );

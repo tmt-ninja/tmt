@@ -25,22 +25,29 @@ pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, theme: &The
                 continue;
             }
             let role = |role: Role| screen::style(theme, role, depth);
-            let mut style = match cell.chip_surface {
-                Some(surface) => screen::chip(
-                    theme,
-                    ChipKind::Secondary,
-                    match surface {
-                        ChipSurface::Idle => ChipState::Idle,
-                        ChipSurface::Hot => ChipState::Hot,
-                        ChipSurface::Disabled => ChipState::Disabled,
-                    },
-                    depth,
-                ),
-                None => {
-                    let base = cell.underlay.map(role).unwrap_or_default();
-                    base.patch(cell.fg.map(role).unwrap_or_default())
+            let mut style = if let Some(heat) = cell.heat_level {
+                screen::neutral_ramp(theme, depth, heat.into())
+            } else {
+                match cell.chip_surface {
+                    Some(surface) => screen::chip(
+                        theme,
+                        ChipKind::Secondary,
+                        match surface {
+                            ChipSurface::Idle => ChipState::Idle,
+                            ChipSurface::Hot => ChipState::Hot,
+                            ChipSurface::Disabled => ChipState::Disabled,
+                        },
+                        depth,
+                    ),
+                    None => {
+                        let base = cell.underlay.map(role).unwrap_or_default();
+                        base.patch(cell.fg.map(role).unwrap_or_default())
+                    }
                 }
             };
+            if cell.underlay == Some(Role::Selection) && style.bg.is_none() {
+                style = style.add_modifier(ratatui::style::Modifier::REVERSED);
+            }
             if cell.bold {
                 style = style.add_modifier(ratatui::style::Modifier::BOLD);
             }
@@ -50,7 +57,11 @@ pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, theme: &The
             let target = &mut buffer[at];
             target.reset();
             if !cell.continuation {
-                target.set_symbol(&cell.glyph);
+                target.set_symbol(if cell.heat_level.is_some() && style.bg.is_some() {
+                    " "
+                } else {
+                    &cell.glyph
+                });
             }
             target.set_style(style);
         }
