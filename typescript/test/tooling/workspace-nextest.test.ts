@@ -137,6 +137,90 @@ describe('workspace nextest equivalence evidence', () => {
   });
 });
 
+// Terminal formats from nextest 0.9.148's status_line_all_variants snapshot.
+// No nextest process or host fixture is needed to reproduce the classification.
+describe('nextest terminal status evidence', () => {
+  const cases = [{ binary: 'tmt-cli::external_host', name: 'fixture_case', ignored: false }];
+  const record = (status: string) =>
+    `        ${status} [   2.000s] (  1/1) tmt-cli::external_host fixture_case\n`;
+
+  it('admits exactly the listed PASS identity with ANSI formatting', () => {
+    expect(verifyExecution(cases, `\x1b[32m${record('PASS')}\x1b[0m`, '3/3')).toEqual({
+      passed: 1,
+      ignored: 0,
+      total: 1,
+    });
+  });
+
+  it.each([
+    ['LEAK', 'executed, leaked handles'],
+    ['LEAK-FAIL', 'executed, leaked handles'],
+    ['FAIL + LEAK', 'executed, leaked handles'],
+    ['FAIL', 'executed, non-PASS status'],
+    ['XFAIL', 'executed, non-PASS status'],
+    ['TIMEOUT', 'executed, non-PASS status'],
+    ['TIMEOUT-PASS', 'executed, non-PASS status'],
+  ])('rejects %s with the actual execution reason and identity', (status, reason) => {
+    expect(() => verifyExecution(cases, record(status), '3/3')).toThrow(
+      `partition 3/3:\n["tmt-cli::external_host","fixture_case"]: ${reason} (${status})`
+    );
+  });
+
+  it('reports missing completion as unproven, including after a SLOW notice', () => {
+    const log = 'SLOW [> 60.000s] (─────────) tmt-cli::external_host fixture_case\n';
+    expect(() => verifyExecution(cases, log, '1/3')).toThrow(
+      'partition 1/3:\n["tmt-cli::external_host","fixture_case"]: missing terminal record (execution unproven)'
+    );
+  });
+
+  it('still rejects duplicate, foreign and ignored terminal identities', () => {
+    expect(() => verifyExecution([...cases, ...cases], record('PASS'))).toThrow(
+      'duplicate expected case identity'
+    );
+    expect(() => verifyExecution(cases, record('PASS') + record('PASS'))).toThrow(
+      'repeated terminal record'
+    );
+    expect(() =>
+      verifyExecution(cases, record('PASS').replace('fixture_case', 'foreign_case'))
+    ).toThrow('unexpected terminal record');
+    expect(() =>
+      verifyExecution(
+        [...cases, { binary: 'other', name: 'ignored', ignored: true }],
+        record('PASS') + 'PASS [0.1s] (2/2) other ignored\n'
+      )
+    ).toThrow('unexpected terminal record');
+  });
+
+  it('drains a successful phase before a subsequent verification failure exits', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-output-drain-'));
+    try {
+      const module = new URL('../../scripts/workspace-nextest.mjs', import.meta.url).href;
+      const script = `
+        import { runWorkspacePhase, verifyExecution } from ${JSON.stringify(module)};
+        await runWorkspacePhase(${JSON.stringify(root)}, 'fixture', 'fixture', [], {
+          spawn: () => ({ status: 0, signal: null,
+            stdout: 'o'.repeat(512 * 1024) + 'STDOUT-TAIL\\n',
+            stderr: 'e'.repeat(512 * 1024) + 'STDERR-TAIL\\n' }),
+        });
+        verifyExecution(${JSON.stringify(cases)}, '', '1/3');
+      `;
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        maxBuffer: 2 * 1024 ** 2,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('o'.repeat(512 * 1024) + 'STDOUT-TAIL\n');
+      expect(result.stderr).toContain('e'.repeat(512 * 1024) + 'STDERR-TAIL\n');
+      expect(result.stderr).toContain('missing terminal record (execution unproven)');
+      expect(readFileSync(path.join(root, 'fixture.log'), 'utf8')).toContain('STDERR-TAIL\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('compiled workspace partitions', () => {
   const cases = [
     { binary: 'suite', name: 'a', ignored: false },

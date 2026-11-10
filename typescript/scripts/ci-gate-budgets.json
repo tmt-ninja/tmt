@@ -1,5 +1,5 @@
 {
-  "baseline": "Workspace child p90s: #3283 weekly report, 2026-10-19 (n=31-35), issuecomment-6257514274. PR gate median retains the #3284 K2 series (n=5); PR gate p90 retains 1095s. Other jobs and MG gate limits retain #3230. K=3 (#3284, 2026-11-01): partition 3 provisionally takes partition 2's limits until two weekly reports have K=3 samples.",
+  "baseline": "Workspace child p90s: #3283 weekly report, 2026-10-19 (n=31-35), issuecomment-6257514274. PR gate median retains the #3284 K2 series (n=5); PR gate p90 retains 1095s. Other jobs and MG gate limits retain #3230. K=3 (#3284, 2026-11-01): partition 3 provisionally takes partition 2's limits until two weekly reports have K=3 samples. Native process shard p90s: #6219 REST gate-time measurement, 2026-11-11, newest 40 successful runs per PR/MG event; shard 1 n=31/36, shard 2 n=31/35. Replaces only the stale process aggregate row; other limits unchanged.",
   "gate": {
     "pull_request": { "median": 710, "p90": 1095 },
     "merge_group": { "median": 790, "p90": 911 }
@@ -12,7 +12,8 @@
     "Native Rust workspace tests / Verify exact workspace test identities": { "pull_request": 18, "merge_group": 19 },
     "Docker E2E shard 1/2": { "pull_request": 672, "merge_group": 692 },
     "Docker E2E shard 2/2": { "pull_request": 655, "merge_group": 639 },
-    "Native process contracts": { "pull_request": 592, "merge_group": 585 },
+    "Native process shard 1/2": { "pull_request": 420, "merge_group": 413 },
+    "Native process shard 2/2": { "pull_request": 393, "merge_group": 399 },
     "Code quality": { "pull_request": 180, "merge_group": 176 },
     "Unit tests": { "pull_request": 175, "merge_group": 170 },
     "Native package matrix": { "pull_request": 14, "merge_group": 15 }

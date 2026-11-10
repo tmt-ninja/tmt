@@ -22,7 +22,8 @@ export function compareInventories(
 ): TestCase[];
 export function verifyExecution(
   cases: TestCase[],
-  log: string
+  log: string,
+  partition?: string
 ): { passed: number; ignored: number; total: number };
 export const NEXTEST_VERSION: string;
 export const TOOLCHAIN: string;
