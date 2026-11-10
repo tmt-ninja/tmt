@@ -282,8 +282,11 @@ the move is a bootstrap reinstall.
   release inventory has changed". Extension receipts are bounded by a limit derived from the skill
   bounds; the CLI bound is owned by the [PR-channel contract](../../../../contracts/native-pr-channel.md#admission-receipt-and-activation).
 - After activation `native_install::release_skills` re-reads the tree under the installation lock
-  against the receipt. Install and upgrade refresh the owner's tree skills and remove by name the
-  ones a new release dropped; `uninstall` removes every skill the owner holds, with one consent
+  against the receipt. `install --skills` and the flows that ask first (the missing-extension
+  offer, `setup`) publish; a plain install or repair reports `skipped`; an upgrade refreshes only
+  an owner that already holds links. Publication is refused unless the store is inside HOME
+  (`ensure_publication_roots`): `--skills` refuses before activation, the others warn. Each
+  refreshes the owner's tree skills and removes by name the ones a new release dropped; `uninstall` removes every skill the owner holds, with one consent
   prompt naming skills and targets.
 
 ## Extensions through `tmt extension`

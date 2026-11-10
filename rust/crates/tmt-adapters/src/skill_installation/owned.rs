@@ -616,6 +616,27 @@ pub fn owned_skills_current(
     Ok(true)
 }
 
+/// Provider links land under HOME and point into the store, so a store outside HOME would
+/// leave real provider directories naming a location that belongs to another world: a
+/// fixture's temp directory, typically. An alias through a symlink still counts as inside.
+pub fn ensure_publication_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<()> {
+    let home = env.home();
+    let store = crate::config::normalize(global);
+    if store.starts_with(crate::config::normalize(home))
+        || files::resolved(global)?.starts_with(files::resolved(home)?)
+    {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "the skill store {} is outside HOME {}, so links published under HOME would point into it. Make them agree: set HOME to a directory containing the store, or unset TMT_HOME and XDG_CONFIG_HOME",
+            store.display(),
+            home.display()
+        ),
+    ))
+}
+
 /// Publish only the verified skills of an official managed product release.
 /// Arbitrary API names cannot enter the unchecked replacement path.
 pub fn install_release_skills(
@@ -633,6 +654,10 @@ pub fn install_release_skills(
     if skills.is_empty() {
         return Ok(OwnedReport::default());
     }
+    ensure_publication_roots(env, global).map_err(|cause| OwnedFailure {
+        cause,
+        report: OwnedReport::default(),
+    })?;
     install_owned_with_policy(env, global, product.as_str(), &skills, Publication::Release)
 }
 

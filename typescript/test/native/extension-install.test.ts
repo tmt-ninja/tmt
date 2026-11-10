@@ -9,7 +9,9 @@ import {
   symlinkSync,
   unlinkSync,
   writeFileSync,
+  readdirSync,
 } from 'node:fs';
+import os from 'node:os';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -48,6 +50,13 @@ async function enableHooks(sandbox: Sandbox, name: string): Promise<unknown> {
   const result = await runCli(sandbox, ['extension', 'hooks', 'enable', name, '--json']);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   return parseWholeStdout(result).enabled;
+}
+
+/** Release skills refuse a store outside HOME, and the shared sandbox keeps XDG beside HOME. */
+function storeInsideHome(sandbox: { home: string; env: NodeJS.ProcessEnv }): string {
+  const config = path.join(sandbox.home, '.config');
+  sandbox.env.XDG_CONFIG_HOME = config;
+  return path.join(config, 'tmt');
 }
 
 describe('a leftover former Squad installation', () => {
@@ -130,22 +139,21 @@ describe('Remote replacement notices after partial completion', () => {
               artifact.manifest,
               '--prefix',
               prefix,
+              '--skills',
               ...(json ? ['--json'] : []),
             ],
             { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
           );
+        const globalDir = storeInsideHome(sandbox);
         const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
         const installed = await installRemote(first);
         expect(installed.status, installed.stdout + installed.stderr).toBe(0);
         expect(installed.stdout + installed.stderr).not.toContain('Remote was upgraded');
         const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-        mkdirSync(path.join(sandbox.globalDir, 'remote'), { recursive: true });
-        writeFileSync(path.join(sandbox.globalDir, 'remote/machine.key'), 'retained invalid key');
-        writeFileSync(
-          path.join(sandbox.globalDir, 'remote/remote.db'),
-          'retained invalid database'
-        );
-        writeFileSync(path.join(sandbox.globalDir, 'skill-owners.json'), '{invalid');
+        mkdirSync(path.join(globalDir, 'remote'), { recursive: true });
+        writeFileSync(path.join(globalDir, 'remote/machine.key'), 'retained invalid key');
+        writeFileSync(path.join(globalDir, 'remote/remote.db'), 'retained invalid database');
+        writeFileSync(path.join(globalDir, 'skill-owners.json'), '{invalid');
         const second = await createArtifact(
           sandbox,
           '0.1.0-alpha.2',
@@ -168,7 +176,7 @@ describe('Remote replacement notices after partial completion', () => {
           expect(replaced.stdout).toContain('Warning:');
           expect(replaced.stdout).toContain(hint);
         }
-        expect(replaced.stdout).toContain(path.join(sandbox.globalDir, 'skill-owners.json'));
+        expect(replaced.stdout).toContain(path.join(globalDir, 'skill-owners.json'));
         expect((replaced.stdout + replaced.stderr).split('Remote was upgraded').length - 1).toBe(1);
         expect(realpathSync(path.join(prefix, 'lib/tmt-remote/current'))).not.toBe(oldRelease);
         expect(existsSync(oldRelease)).toBe(true);
@@ -176,16 +184,14 @@ describe('Remote replacement notices after partial completion', () => {
         expect(parseWholeStdout(listed).extensions).toContainEqual(
           expect.objectContaining({ name: 'remote', version: '0.1.0-alpha.2' })
         );
-        expect(readFileSync(path.join(sandbox.globalDir, 'remote/machine.key'), 'utf8')).toBe(
+        expect(readFileSync(path.join(globalDir, 'remote/machine.key'), 'utf8')).toBe(
           'retained invalid key'
         );
-        expect(readFileSync(path.join(sandbox.globalDir, 'remote/remote.db'), 'utf8')).toBe(
+        expect(readFileSync(path.join(globalDir, 'remote/remote.db'), 'utf8')).toBe(
           'retained invalid database'
         );
-        expect(readFileSync(path.join(sandbox.globalDir, 'skill-owners.json'), 'utf8')).toBe(
-          '{invalid'
-        );
-        expect(existsSync(path.join(sandbox.globalDir, 'remote/control.sock'))).toBe(false);
+        expect(readFileSync(path.join(globalDir, 'skill-owners.json'), 'utf8')).toBe('{invalid');
+        expect(existsSync(path.join(globalDir, 'remote/control.sock'))).toBe(false);
       });
     },
     60_000
@@ -317,7 +323,7 @@ describe('tmt extension install surface', () => {
           changed: true,
           version: '0.1.0-alpha.1',
           executable: path.join(realpathSync(prefix), `bin/tmt-${name}`),
-          skills: { status: 'current', available: [], published: [], removed: [] },
+          skills: { status: 'skipped', available: [], published: [], removed: [] },
         });
         expect(readlinkSync(path.join(prefix, `bin/tmt-${name}`))).toBe(
           `../lib/tmt-${name}/current/tmt-${name}`
@@ -419,7 +425,7 @@ describe('tmt extension install surface', () => {
         changed: true,
         version: '0.1.0-alpha.1',
         executable: path.join(realpathSync(prefix), 'bin/tmt-ops'),
-        skills: { status: 'current', available: [], published: [], removed: [] },
+        skills: { status: 'skipped', available: [], published: [], removed: [] },
       });
       for (const link of ['tmt-ops'])
         expect(readlinkSync(path.join(prefix, 'bin', link))).toBe('../lib/tmt-ops/current/tmt-ops');
@@ -988,6 +994,7 @@ describe('tmt extension install surface', () => {
           'alpha',
           ...extra,
         ]);
+      storeInsideHome(sandbox);
       const squad = (version: string, skills: Record<string, string>) =>
         createArtifact(sandbox, version, new Uint8Array(), 'ops', skills);
       const first = await squad('0.1.0-alpha.1', {
@@ -996,8 +1003,7 @@ describe('tmt extension install surface', () => {
         'tmt-ops-retired/SKILL.md': 'retired\n',
       });
 
-      // Binary consent also publishes the verified release tree without another flag.
-      const accepted = parseWholeStdout(await install(first)) as {
+      const accepted = parseWholeStdout(await install(first, ['--skills'])) as {
         skills: { status: string; published: Array<{ name: string; target: string }> };
       };
       expect(accepted.skills.status).toBe('current');
@@ -1037,7 +1043,7 @@ describe('tmt extension install surface', () => {
       // An update refreshes held tree skills, removes the one it dropped by
       // name, and leaves the playbook alone.
       const second = await squad('0.2.0-alpha.1', { 'tmt-ops/SKILL.md': 'lead v2\n' });
-      const updated = parseWholeStdout(await install(second)) as {
+      const updated = parseWholeStdout(await install(second, ['--skills'])) as {
         version: string;
         skills: { available: string[]; removed: string[] };
       };
@@ -1075,12 +1081,13 @@ describe('tmt extension install surface', () => {
         new URL('../../../extensions/tmt-colab/skills/tmt-colab/SKILL.md', import.meta.url),
         'utf8'
       );
+      storeInsideHome(sandbox);
       const prefix = path.join(sandbox.root, 'Colab skill prefix');
       const artifact = (version: string, content: string) =>
         createArtifact(sandbox, version, new Uint8Array(), 'colab', {
           'tmt-colab/SKILL.md': content,
         });
-      const install = (input: ArtifactFixture, skills = false) =>
+      const install = (input: ArtifactFixture, skills = true) =>
         runCli(
           sandbox,
           [
@@ -1170,8 +1177,101 @@ describe('tmt extension install surface', () => {
     });
   }, 90_000);
 
+  it('publishes release skills only with --skills, and never from a store outside HOME', async () => {
+    await withSandbox(async (sandbox) => {
+      expect(realpathSync(sandbox.home)).not.toBe(realpathSync(os.homedir()));
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops', {
+        'tmt-ops/SKILL.md': 'lead\n',
+      });
+      const install = (prefix: string, world: typeof sandbox, extra: string[] = []) =>
+        runCli(
+          world,
+          [
+            'extension',
+            'install',
+            'ops',
+            '--yes',
+            '--archive',
+            artifact.archive,
+            '--manifest',
+            artifact.manifest,
+            '--prefix',
+            prefix,
+            '--channel',
+            'alpha',
+            '--json',
+            ...extra,
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+      // Every link a publication would add sits under a provider directory in HOME.
+      const links = () =>
+        readdirSync(sandbox.home, { recursive: true, withFileTypes: true })
+          .filter((entry) => entry.isSymbolicLink())
+          .map((entry) => path.join(entry.parentPath, entry.name));
+      const refused = (
+        result: Awaited<ReturnType<typeof install>>,
+        store: string,
+        prefix: string
+      ) => {
+        expect(result.status, result.stdout + result.stderr).toBe(1);
+        const { error } = parseWholeStdout(result) as { error: { code: string; message: string } };
+        expect(error.code).toBe('EXTENSION_SKILLS_FAILED');
+        expect(error.message).toContain(store);
+        expect(error.message).toContain(sandbox.home);
+        expect(error.message).toContain('XDG_CONFIG_HOME');
+        expect(existsSync(prefix)).toBe(false);
+        expect(links()).toEqual([]);
+      };
+
+      const plain = await install(path.join(sandbox.root, 'plain prefix'), sandbox);
+      expect(plain.status, plain.stdout + plain.stderr).toBe(0);
+      expect(parseWholeStdout(plain)).toMatchObject({
+        installed: true,
+        skills: {
+          status: 'skipped',
+          available: ['tmt-ops'],
+          published: [],
+          hint: expect.stringContaining('--skills'),
+        },
+      });
+      expect(links()).toEqual([]);
+
+      // An explicit prefix and isolated XDG paths under the same HOME.
+      const isolated = path.join(sandbox.root, 'isolated config');
+      const xdgWorld = { ...sandbox, env: { ...sandbox.env, XDG_CONFIG_HOME: isolated } };
+      const unasked = await install(path.join(sandbox.root, 'xdg prefix'), xdgWorld);
+      expect(unasked.status, unasked.stdout + unasked.stderr).toBe(0);
+      expect(parseWholeStdout(unasked)).toMatchObject({ skills: { status: 'skipped' } });
+      expect(links()).toEqual([]);
+      const xdgPrefix = path.join(sandbox.root, 'xdg skills prefix');
+      refused(await install(xdgPrefix, xdgWorld, ['--skills']), isolated, xdgPrefix);
+
+      const store = path.join(sandbox.root, 'tmt home');
+      const tmtWorld = {
+        ...sandbox,
+        cli: {
+          executable: '/usr/bin/env',
+          args: [`TMT_HOME=${store}`, sandbox.cli.executable, ...sandbox.cli.args],
+        },
+      };
+      const tmtPrefix = path.join(sandbox.root, 'tmt home prefix');
+      refused(await install(tmtPrefix, tmtWorld, ['--skills']), store, tmtPrefix);
+
+      storeInsideHome(sandbox);
+      const published = await install(path.join(sandbox.root, 'home prefix'), sandbox, [
+        '--skills',
+      ]);
+      expect(published.status, published.stdout + published.stderr).toBe(0);
+      expect(parseWholeStdout(published)).toMatchObject({ skills: { status: 'current' } });
+      expect(links().length).toBeGreaterThan(0);
+      expect(links().every((link) => link.startsWith(sandbox.home))).toBe(true);
+    });
+  }, 90_000);
+
   it('keeps the extension installed when its skills cannot be published', async () => {
     await withSandbox(async (sandbox) => {
+      storeInsideHome(sandbox);
       const prefix = path.join(sandbox.root, 'extension prefix');
       const initial = await createArtifact(sandbox, '0.0.9-alpha.1', new Uint8Array(), 'ops');
       const installed = await runCli(sandbox, replacementArgs(initial, prefix));
