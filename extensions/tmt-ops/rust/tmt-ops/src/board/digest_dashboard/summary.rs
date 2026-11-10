@@ -240,33 +240,24 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
 }
 fn paint_text(frame: &mut Frame, app: &App, area: Rect, text: String, role: Role) {
     use ds::Component;
-    use tmt_tui::components::{design_system as ds, design_system_ratatui};
-    let mut grid = ds::CellGrid::new(ds::Size {
-        width: area.width,
-        height: 1,
+    use tmt_tui::components::design_system as ds;
+    super::paint_grid(frame, app, area, |grid| {
+        ds::Text::render(
+            &ds::TextProps {
+                spans: vec![ds::TextSpan {
+                    text: crate::board::view::fit(&text, usize::from(area.width)),
+                    role: ds::Token(role),
+                }],
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: area.width,
+                height: 1,
+            },
+            grid,
+        );
     });
-    ds::Text::render(
-        &ds::TextProps {
-            spans: vec![ds::TextSpan {
-                text: crate::board::view::fit(&text, usize::from(area.width)),
-                role: ds::Token(role),
-            }],
-        },
-        ds::Rect {
-            x: 0,
-            y: 0,
-            width: area.width,
-            height: 1,
-        },
-        &mut grid,
-    );
-    design_system_ratatui::paint(
-        &grid,
-        area,
-        frame.buffer_mut(),
-        &app.look().theme,
-        app.look().depth,
-    );
 }
 fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();

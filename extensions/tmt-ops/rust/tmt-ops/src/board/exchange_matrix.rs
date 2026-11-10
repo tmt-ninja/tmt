@@ -110,7 +110,7 @@ pub(in crate::board) fn by_traffic(
 }
 
 /// `text` cut to `width` cells from its left, behind a `…`, so its tail stays.
-pub(super) fn fit_tail(text: &str, width: usize) -> String {
+fn fit_tail(text: &str, width: usize) -> String {
     use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     if text.width() <= width {
         return text.to_owned();
@@ -133,6 +133,128 @@ pub(super) fn fit_tail(text: &str, width: usize) -> String {
     }
 }
 
+fn slot_layout(area: Rect, traffic: Option<&Traffic>, options: Options) -> (u16, u16, usize) {
+    let minimum = traffic
+        .map_or(0, |value| value.maximum)
+        .to_string()
+        .len()
+        .max(5) as u16
+        + 1;
+    let name = 12u16.min(area.width / 3);
+    let slots = usize::from(area.width.saturating_sub(name) / minimum)
+        .saturating_sub(usize::from(options.sum))
+        .min(options.limit)
+        .min(usize::from(area.height.saturating_sub(1)));
+    (name, minimum, slots)
+}
+
+fn value_cells(width: u16, name: u16, slots: usize, extra: u16, minimum: u16) -> u16 {
+    if slots == 0 {
+        minimum
+    } else {
+        (width.saturating_sub(name) / (slots as u16 + extra)).max(minimum)
+    }
+}
+
+fn labels_need_numbers(rows: &[ExchangeParticipant], width: usize) -> bool {
+    let abbreviated: Vec<_> = rows
+        .iter()
+        .map(|row| fit_tail(&super::notes::single_line(&row.name), width))
+        .collect();
+    abbreviated.iter().collect::<BTreeSet<_>>().len() != abbreviated.len()
+}
+
+fn numbered_label(numbered: bool, index: usize, name: &str) -> String {
+    if numbered {
+        format!("{} {name}", index + 1)
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Compact Digest projection: the board retains focus and hit handling.
+pub(in crate::board) fn digest_props(
+    area: Rect,
+    ranked: &[ExchangeParticipant],
+    selected: Option<&str>,
+    traffic: Option<&Traffic>,
+) -> Option<tmt_tui::components::design_system::TotalsTableProps> {
+    use tmt_tui::components::design_system as ds;
+    let (name_cap, minimum, slots) = slot_layout(
+        area,
+        traffic,
+        Options {
+            limit: 5,
+            sum: false,
+        },
+    );
+    let rows = participants(ranked, selected, slots);
+    if rows.is_empty() {
+        return None;
+    }
+    let value_limit = value_cells(area.width, name_cap, rows.len(), 0, minimum).saturating_sub(1);
+    let numbered = labels_need_numbers(&rows, usize::from(value_limit));
+    let label = |index: usize, name: &str| numbered_label(numbered, index, name);
+    use unicode_width::UnicodeWidthStr;
+    let name_width = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| label(index, &row.name).width())
+        .max()
+        .unwrap_or(0)
+        .max("from\\to".width())
+        .min(usize::from(name_cap)) as u16;
+    let mut columns = vec![ds::TotalsColumn {
+        header: crate::board::view::fit("from\\to", usize::from(name_width)),
+        width: name_width,
+        role: ds::Token(Role::Text),
+        right_aligned: false,
+    }];
+    columns.extend(rows.iter().enumerate().map(|(index, row)| {
+        let header = fit_tail(&label(index, &row.name), usize::from(value_limit));
+        let count_width = traffic.map_or(0, |value| value.maximum).to_string().len();
+        let width = header.width().max(count_width).max(1) as u16;
+        ds::TotalsColumn {
+            header,
+            width,
+            role: ds::Token(Role::Text),
+            right_aligned: true,
+        }
+    }));
+    let values = rows
+        .iter()
+        .enumerate()
+        .map(|(index, sender)| {
+            let mut values = vec![crate::board::view::fit(
+                &label(index, &sender.name),
+                usize::from(name_width),
+            )];
+            values.extend(rows.iter().map(|recipient| {
+                if sender.id == recipient.id {
+                    String::new()
+                } else {
+                    traffic.map_or_else(
+                        || "—".into(),
+                        |traffic| match traffic.count(&sender.id, &recipient.id).unwrap_or(0) {
+                            0 => "·".into(),
+                            count => count.to_string(),
+                        },
+                    )
+                }
+            }));
+            ds::TotalsRow {
+                values,
+                selected: false,
+                id: None,
+            }
+        })
+        .collect();
+    Some(ds::TotalsTableProps {
+        columns,
+        rows: values,
+    })
+}
+
 /// Missing traffic is `—`, observed zero is `·`, and self is a blank cell.
 pub(in crate::board) fn paint_with(
     buffer: &mut Buffer,
@@ -144,18 +266,14 @@ pub(in crate::board) fn paint_with(
     options: Options,
 ) -> Vec<CellHit> {
     let maximum = traffic.map_or(0, |traffic| traffic.maximum);
-    let minimum_cell = maximum.to_string().len().max(5) as u16 + 1;
-    let name_cells = 12u16.min(area.width / 3);
-    let extra = u16::from(options.sum);
-    let slots = usize::from(area.width.saturating_sub(name_cells) / minimum_cell)
-        .saturating_sub(usize::from(extra))
-        .min(options.limit)
-        .min(usize::from(area.height.saturating_sub(1)));
-    let value_cells = if slots == 0 {
-        minimum_cell
-    } else {
-        (area.width.saturating_sub(name_cells) / (slots as u16 + extra)).max(minimum_cell)
-    };
+    let (name_cells, minimum_cell, slots) = slot_layout(area, traffic, options);
+    let value_cells = value_cells(
+        area.width,
+        name_cells,
+        slots,
+        u16::from(options.sum),
+        minimum_cell,
+    );
     let rows = participants(ranked, selected, slots);
     if rows.is_empty() || area.height == 0 {
         return Vec::new();
@@ -171,18 +289,8 @@ pub(in crate::board) fn paint_with(
         let cut = fit_tail(&text, value_width);
         format!("{cut:>value_width$} ")
     };
-    let abbreviated: Vec<_> = rows
-        .iter()
-        .map(|row| fit_tail(&super::notes::single_line(&row.name), value_width))
-        .collect();
-    let numbered = abbreviated.iter().collect::<BTreeSet<_>>().len() != abbreviated.len();
-    let label = |index: usize, name: &str| {
-        if numbered {
-            format!("{} {name}", index + 1)
-        } else {
-            name.to_owned()
-        }
-    };
+    let numbered = labels_need_numbers(&rows, value_width);
+    let label = |index: usize, name: &str| numbered_label(numbered, index, name);
     let mut header = vec![Span::styled(
         fit("from\\to", name_cells),
         look.role(Role::Muted),
