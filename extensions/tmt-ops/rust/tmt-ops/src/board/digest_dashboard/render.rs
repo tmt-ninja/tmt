@@ -241,24 +241,23 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
             .len()
             .max(5) as u16
             + 1;
-        let name_width = 12u16.min(inside.width / 3);
-        let slots = usize::from(inside.width.saturating_sub(name_width) / minimum)
+        let name_cap = 12u16.min(inside.width / 3);
+        let slots = usize::from(inside.width.saturating_sub(name_cap) / minimum)
             .min(5)
             .min(usize::from(inside.height.saturating_sub(1)));
         let rows = exchange_matrix::participants(&ranked, selected, slots);
         if rows.is_empty() {
             return;
         }
-        let value_width = (inside.width.saturating_sub(name_width) / rows.len() as u16)
+        let value_limit = (inside.width.saturating_sub(name_cap) / rows.len() as u16)
             .max(minimum)
             .saturating_sub(1);
-        let name_width = name_width.saturating_sub(1);
         let abbreviations: Vec<_> = rows
             .iter()
             .map(|row| {
                 exchange_matrix::fit_tail(
                     &crate::board::notes::single_line(&row.name),
-                    usize::from(value_width),
+                    usize::from(value_limit),
                 )
             })
             .collect();
@@ -274,25 +273,33 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
                 name.to_owned()
             }
         };
+        use unicode_width::UnicodeWidthStr;
+        let name_width = rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| label(index, &row.name).width())
+            .max()
+            .unwrap_or(0)
+            .max("from\\to".width())
+            .min(usize::from(name_cap)) as u16;
         let mut columns = vec![ds::TotalsColumn {
             header: crate::board::view::fit("from\\to", usize::from(name_width)),
             width: name_width,
             role: ds::Token(Role::Text),
             right_aligned: false,
         }];
-        columns.extend(
-            rows.iter()
-                .enumerate()
-                .map(|(index, row)| ds::TotalsColumn {
-                    header: exchange_matrix::fit_tail(
-                        &label(index, &row.name),
-                        usize::from(value_width),
-                    ),
-                    width: value_width,
-                    role: ds::Token(Role::Text),
-                    right_aligned: true,
-                }),
-        );
+        columns.extend(rows.iter().enumerate().map(|(index, row)| {
+            let header =
+                exchange_matrix::fit_tail(&label(index, &row.name), usize::from(value_limit));
+            let count_width = traffic.map_or(0, |value| value.maximum).to_string().len();
+            let width = header.width().max(count_width).max(1) as u16;
+            ds::TotalsColumn {
+                header,
+                width,
+                role: ds::Token(Role::Text),
+                right_aligned: true,
+            }
+        }));
         let values = rows
             .iter()
             .enumerate()

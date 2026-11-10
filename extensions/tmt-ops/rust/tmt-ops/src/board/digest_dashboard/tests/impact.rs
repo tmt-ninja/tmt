@@ -742,3 +742,29 @@ fn populated_spec_fixture_draws_in_each_look_and_small_viewports() {
         }
     }
 }
+
+#[test]
+fn exchange_columns_stay_compact_and_keep_a_twelve_cell_row_name() {
+    let mut app = capture_case("impact-complete", crate::look::Look::default());
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.roster.members.get_mut(MEMBER).unwrap().name = "codex-worker".into();
+    let row = workspace.rows.iter_mut().find(|(target, _)| matches!(target,
+        crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER
+    )).unwrap();
+    row.1["name"] = serde_json::json!("codex-worker");
+    app.workspace_reconcile();
+    let shown = paint(&mut app, 160, 50);
+    let header = shown
+        .lines()
+        .find(|line| line.contains("from\\to"))
+        .unwrap();
+    let after = header.split_once("from\\to").unwrap().1;
+    assert!(
+        after.find(|c: char| !c.is_whitespace()).unwrap() < 16,
+        "{header}"
+    );
+    assert!(
+        shown.lines().any(|line| line.contains("codex-worker")),
+        "{shown}"
+    );
+}
