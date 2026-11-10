@@ -92,6 +92,8 @@ export async function install(
  * This proves setup skips healthy binaries without depending on live releases.
  */
 export async function installSetupExtensions(sandbox: Sandbox, withSkills = false): Promise<void> {
+  // Release skills publish only on request, from a store inside HOME.
+  if (withSkills) sandbox.env.XDG_CONFIG_HOME = path.join(sandbox.home, '.config');
   for (const product of ['ops', 'digest', 'remote', 'colab'] as const) {
     const artifact = await createArtifact(
       sandbox,
@@ -113,6 +115,7 @@ export async function installSetupExtensions(sandbox: Sandbox, withSkills = fals
         artifact.manifest,
         '--prefix',
         path.join(sandbox.home, '.local'),
+        ...(withSkills ? ['--skills'] : []),
         '--json',
       ],
       { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
