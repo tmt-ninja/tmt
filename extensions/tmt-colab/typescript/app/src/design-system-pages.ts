@@ -532,6 +532,7 @@ export async function publishDesignSystem(
   const bundle = await draftOf(transport, rootId, config, version, docs);
   const files = binding.files;
   if (!files) throw new Error('Files are not available on this page.');
+  await files.attachments.settle?.();
   const stored = await files.attachments.upload(
     {
       filename: `${config.prefix}-${version}.json`,

@@ -164,7 +164,18 @@ export class Live implements PageBinding {
           ? this.#threadProjection.view.threads
           : undefined,
       connection: () => this.#current,
-      settled: () => this.#settled(),
+      settled: async () => {
+        const connection = await this.#settled();
+        await this.#views;
+        requireValue(
+          !this.#closed &&
+            !this.#error &&
+            !this.#opening?.pending &&
+            this.#discussionVerified &&
+            connection === this.#connection,
+        );
+        return connection;
+      },
       reopen: (from) => this.#reopenForObjects(from),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () =>

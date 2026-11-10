@@ -435,6 +435,46 @@ describe('template, publish and the renderer source', () => {
     expect(second.pin).toBe(`${rootId}@0.1.1#${second.bundle.hash}`);
   });
 
+  it('waits for verified attachment readiness before publishing the release', async () => {
+    const { pages, make, binding, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const root = pages.get(rootId)!;
+    const rootBinding = binding(rootId);
+    const files = rootBinding.files!;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const settle = vi.fn(() => ready);
+    const upload = vi.fn(files.attachments.upload.bind(files.attachments));
+    files.attachments.settle = settle;
+    files.attachments.upload = upload;
+    const publishing = publishDesignSystem(transport, rootId, rootBinding, root.source, '0.1.1', {
+      pinTree: false,
+    });
+    try {
+      await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    await publishing;
+    expect(upload).toHaveBeenCalledOnce();
+
+    const refusedBinding = binding(rootId);
+    const refusedFiles = refusedBinding.files!;
+    const refusedUpload = vi.fn(refusedFiles.attachments.upload.bind(refusedFiles.attachments));
+    refusedFiles.attachments.settle = vi.fn().mockRejectedValue(new Error('Verification failed'));
+    refusedFiles.attachments.upload = refusedUpload;
+    await expect(
+      publishDesignSystem(transport, rootId, refusedBinding, root.source, '0.1.2', {
+        pinTree: false,
+      }),
+    ).rejects.toThrow('Verification failed');
+    expect(refusedUpload).not.toHaveBeenCalled();
+  });
+
   it('publishes each component with the examples its page shows', async () => {
     const { pages, make, transport } = space();
     make('Notes');
