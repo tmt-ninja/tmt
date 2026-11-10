@@ -6,6 +6,9 @@ use unicode_width::UnicodeWidthStr;
 pub struct TextSpan {
     pub text: String,
     pub role: Token,
+    /// Emphasis is opt-in; existing spans stay unbolded.
+    #[serde(default)]
+    pub bold: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,7 +42,7 @@ impl Component for Text {
         for span in &props.spans {
             let available = end.saturating_sub(x);
             let text = super::text::single_line(&span.text);
-            grid.text(
+            grid.text_bold(
                 Rect {
                     x,
                     width: available,
@@ -48,6 +51,7 @@ impl Component for Text {
                 &text,
                 span.role.0,
                 None,
+                span.bold,
             );
             x = x.saturating_add(
                 UnicodeWidthStr::width(text.as_str()).min(available as usize) as u16,

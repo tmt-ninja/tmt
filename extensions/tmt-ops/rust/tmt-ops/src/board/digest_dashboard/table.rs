@@ -203,6 +203,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         spans: vec![ds::TextSpan {
                             text: fit(&footer, usize::from(inside.width)),
                             role: ds::Token(Role::Muted),
+                            bold: false,
                         }],
                     },
                     ds::Rect {
@@ -272,7 +273,47 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         if matches!(field, Field::State)
                             && let Some(label) = app.activity_label(row)
                         {
-                            state = Some((slot, label));
+                            use unicode_width::UnicodeWidthStr;
+                            let projection = crate::board::workspace::columns::activity_projection(
+                                app,
+                                row,
+                                &label,
+                                usize::from(slot.width),
+                            );
+                            let primary = projection
+                                .primary
+                                .iter()
+                                .map(|span| span.text.width())
+                                .sum::<usize>() as u16;
+                            let task = projection.task.as_ref().map_or(0, |span| {
+                                (span.text.width() as u16).min(slot.width.saturating_sub(primary))
+                            });
+                            let todo = projection
+                                .todo
+                                .as_ref()
+                                .map_or(0, |span| span.text.width() as u16);
+                            let mut spans: Vec<_> = projection
+                                .primary
+                                .into_iter()
+                                .chain(projection.task)
+                                .chain(projection.todo)
+                                .collect();
+                            crate::board::workspace::columns::activity_selection(
+                                &mut spans, app, selected,
+                            );
+                            ds::Text::render(
+                                &ds::TextProps { spans },
+                                ds::Rect {
+                                    x: slot.x - cell.x,
+                                    y: 0,
+                                    width: slot
+                                        .width
+                                        .min(primary.saturating_add(task).saturating_add(todo)),
+                                    height: 1,
+                                },
+                                grid,
+                            );
+                            state = Some((slot, primary, task));
                             continue;
                         }
                         if matches!(
@@ -315,6 +356,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                         spans: vec![ds::TextSpan {
                                             text: "no usage source".into(),
                                             role: ds::Token(Role::Dim),
+                                            bold: false,
                                         }],
                                     },
                                     ds::Rect {
@@ -377,6 +419,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                     spans: vec![ds::TextSpan {
                                         text,
                                         role: ds::Token(Role::Text),
+                                        bold: false,
                                     }],
                                 },
                                 ds::Rect {
@@ -393,14 +436,9 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         selection_underlay(grid, cell.width);
                     }
                 });
-                if let Some((slot, label)) = state {
-                    crate::board::workspace::columns::paint_activity(
-                        frame.buffer_mut(),
-                        app,
-                        row,
-                        &label,
-                        slot,
-                        selected,
+                if let Some((slot, primary, task)) = state {
+                    crate::board::workspace::columns::record_activity_geometry(
+                        app, row, slot, primary, task,
                     );
                 }
                 app.hits.borrow_mut().push(Hit {

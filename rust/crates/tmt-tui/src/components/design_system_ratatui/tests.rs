@@ -240,10 +240,12 @@ fn component_cell_grids_match_all_looks_and_widths() {
                         TextSpan {
                             text: "used ".into(),
                             role: Token(Role::Text),
+                            bold: false,
                         },
                         TextSpan {
                             text: "840M".into(),
                             role: Token(Role::Accent),
+                            bold: false,
                         },
                     ],
                 },

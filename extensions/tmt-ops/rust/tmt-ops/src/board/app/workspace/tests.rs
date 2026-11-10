@@ -6049,6 +6049,137 @@ fn with_unread_replies(app: &mut App) {
     app.workspace_reconcile();
 }
 
+#[test]
+fn digest_state_text_keeps_native_styles_and_unread_geometry() {
+    use crate::board::workspace::columns::{
+        activity_projection, paint_activity, record_activity_geometry,
+    };
+    use ds::Component;
+    use tmt_cli_style::{Depth, Role, Theme, theme::Base};
+    use tmt_tui::components::{design_system as ds, design_system_ratatui};
+    use unicode_width::UnicodeWidthStr;
+
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        for unread in [false, true] {
+            for selected in [false, true] {
+                for width in [8, 24] {
+                    for ascii in [false, true] {
+                        let look = crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        };
+                        let mut app = disagreeing_board(false, look);
+                        if ascii {
+                            app.cron_glyphs = crate::board::overview::cron_counts::GlyphSet::Ascii;
+                        }
+                        if unread {
+                            with_unread_replies(&mut app);
+                        }
+                        app.unread_counted.set(true);
+                        let rows = app.workspace_rows();
+                        let row = rows.iter().find(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
+                        let mut label = app.activity_label(row).unwrap();
+                        label.idle_over = true;
+                        label.state = "idle";
+                        let area = Rect::new(0, 0, width, 1);
+                        let mut expected = ratatui::buffer::Buffer::empty(area);
+                        if selected {
+                            expected.set_style(area, app.look().selection());
+                        }
+                        app.workspace_state_cells.borrow_mut().clear();
+                        app.unread_hits.borrow_mut().clear();
+                        let used = paint_activity(&mut expected, &app, row, &label, area, selected);
+                        let states = app.workspace_state_cells.borrow().clone();
+                        let hits = format!("{:?}", app.unread_hits.borrow());
+                        if unread {
+                            assert!(
+                                !app.unread_hits.borrow().is_empty(),
+                                "unread state must keep its hit"
+                            );
+                        }
+                        let projection = activity_projection(&app, row, &label, usize::from(width));
+                        assert_eq!(
+                            projection.primary[0].role.0,
+                            if unread { Role::Unread } else { Role::Waiting }
+                        );
+                        if !unread {
+                            assert_eq!(projection.primary[0].text, if ascii { "!" } else { "◷" });
+                        }
+                        if let Some(task) = &projection.task {
+                            assert_eq!(task.role.0, Role::Blocked);
+                        }
+                        let primary = projection
+                            .primary
+                            .iter()
+                            .map(|span| span.text.width())
+                            .sum::<usize>() as u16;
+                        let task = projection.task.as_ref().map_or(0, |span| {
+                            (span.text.width() as u16).min(width.saturating_sub(primary))
+                        });
+                        let todo = projection
+                            .todo
+                            .as_ref()
+                            .map_or(0, |span| span.text.width() as u16);
+                        assert_eq!(used, primary.saturating_add(task).saturating_add(todo));
+                        let mut spans: Vec<_> = projection
+                            .primary
+                            .into_iter()
+                            .chain(projection.task)
+                            .chain(projection.todo)
+                            .collect();
+                        crate::board::workspace::columns::activity_selection(
+                            &mut spans, &app, selected,
+                        );
+                        let mut grid = ds::CellGrid::new(ds::Size { width, height: 1 });
+                        ds::Text::render(
+                            &ds::TextProps { spans },
+                            ds::Rect {
+                                x: 0,
+                                y: 0,
+                                width: width.min(used),
+                                height: 1,
+                            },
+                            &mut grid,
+                        );
+                        if selected {
+                            for x in 0..width {
+                                let mut cell = grid.get(x, 0).unwrap().clone();
+                                cell.underlay = Some(Role::Selection);
+                                grid.set(x, 0, cell);
+                            }
+                        }
+                        let mut actual = ratatui::buffer::Buffer::empty(area);
+                        design_system_ratatui::paint(
+                            &grid,
+                            area,
+                            &mut actual,
+                            &look.theme,
+                            look.depth,
+                        );
+                        app.workspace_state_cells.borrow_mut().clear();
+                        app.unread_hits.borrow_mut().clear();
+                        record_activity_geometry(&app, row, area, primary, task);
+                        assert_eq!(*app.workspace_state_cells.borrow(), states);
+                        assert_eq!(format!("{:?}", app.unread_hits.borrow()), hits);
+                        for x in 0..width.min(used) {
+                            assert_eq!(
+                                actual[(x, 0)],
+                                expected[(x, 0)],
+                                "{base:?} {depth:?} unread={unread} selected={selected} width={width} x={x}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Unread replies replace the activity words with `● N unread`, blue on the
 /// glyph only, and the task still follows. Without unread replies the cell
 /// keeps its activity form. The tree and Overview agree, in colour and without.

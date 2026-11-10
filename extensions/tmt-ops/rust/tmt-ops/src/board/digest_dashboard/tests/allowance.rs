@@ -96,7 +96,8 @@ fn row_of(rows: &[String], source: &str) -> Vec<String> {
 #[test]
 fn a_row_shows_left_the_worst_projection_and_the_reset() {
     let mut app = digest(vec![claude()]);
-    let rows = rows(&buffer(&mut app, 240, 40));
+    let frame = buffer(&mut app, 240, 40);
+    let rows = rows(&frame);
     assert!(
         rows.iter().any(|row| row.contains("Allowance Claude")),
         "{}",
@@ -113,6 +114,22 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
         !rows.iter().any(|row| row.contains("NEED")),
         "no NEED column"
     );
+    let (y, row) = rows
+        .iter()
+        .enumerate()
+        .find(|(_, row)| row.contains("Allowance Claude"))
+        .unwrap();
+    let x = row.find("26%").unwrap();
+    assert!(
+        frame[(x as u16, y as u16)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(
+        frame[((x + 3) as u16, y as u16)].fg,
+        ratatui::style::Color::Reset
+    );
+    assert_eq!(frame[(239, y as u16)].fg, ratatui::style::Color::Reset);
 }
 
 #[test]

@@ -481,27 +481,30 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
 /// The activity glyph: only a request that waits on the user uses attention
 /// colour; the `?` of stale or unknown activity is muted.
 pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::style::Style {
-    app.look().role(match state {
+    app.look().role(activity_role(state))
+}
+
+fn activity_role(state: &str) -> Role {
+    match state {
         "waiting" => Role::Waiting,
         "stale" | "unknown" => Role::Muted,
         _ => Role::Text,
-    })
+    }
 }
 
 /// The secondary task state is muted; only a blocked-type (`✗`) task is red.
 /// `◆` and `✗` are the board's only attention colours, so no authored task
 /// colour applies here.
-pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::style::Style {
+fn task_role(row: &OpsTreeRow) -> Role {
     let task = row
         .activity
         .as_ref()
         .and_then(|member| member.task.as_deref());
-    app.look()
-        .role(if crate::board::state_cell::glyph(task) == "✗" {
-            Role::Blocked
-        } else {
-            Role::Muted
-        })
+    if crate::board::state_cell::glyph(task) == "✗" {
+        Role::Blocked
+    } else {
+        Role::Muted
+    }
 }
 
 /// A member's STATE cell in `width` cells: the glyph, the activity words and
@@ -520,14 +523,31 @@ pub fn activity_spans(
     Option<ratatui::text::Span<'static>>,
     Option<ratatui::text::Span<'static>>,
 ) {
+    let projected = activity_projection(app, row, label, width);
+    let native = |span: tmt_tui::components::design_system::TextSpan| {
+        ratatui::text::Span::styled(
+            span.text,
+            table_style(app, selected, app.look().role(span.role.0)),
+        )
+    };
+    (
+        projected.primary.into_iter().map(native).collect(),
+        projected.task.map(native),
+        projected.todo.map(native),
+    )
+}
+
+fn todo_text(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    used: usize,
+    width: usize,
+) -> Option<String> {
     use unicode_width::UnicodeWidthStr;
-    let (primary, task) = activity_parts(app, row, label, width, selected);
-    let used = primary
-        .iter()
-        .map(|span| span.content.width())
-        .sum::<usize>()
-        + task.as_ref().map_or(0, |span| span.content.width());
-    (primary, task, todo_span(app, row, used, width, selected))
+    app.notes
+        .row_label(&row.target)
+        .map(|text| format!(" · {text}"))
+        .filter(|text| used + text.width() <= width)
 }
 
 /// Counts are optional: the existing state and task keep their whole width first.
@@ -538,51 +558,54 @@ pub fn todo_span(
     width: usize,
     selected: bool,
 ) -> Option<ratatui::text::Span<'static>> {
-    use unicode_width::UnicodeWidthStr;
-    app.notes
-        .row_label(&row.target)
-        .map(|text| format!(" · {text}"))
-        .filter(|text| used + text.width() <= width)
-        .map(|suffix| {
-            ratatui::text::Span::styled(
-                suffix,
-                table_style(app, selected, app.look().role(Role::Muted)),
-            )
-        })
+    todo_text(app, row, used, width).map(|text| {
+        ratatui::text::Span::styled(
+            text,
+            table_style(app, selected, app.look().role(Role::Muted)),
+        )
+    })
 }
 
-fn activity_parts(
+pub(in crate::board) struct ActivityProjection {
+    pub primary: Vec<tmt_tui::components::design_system::TextSpan>,
+    pub task: Option<tmt_tui::components::design_system::TextSpan>,
+    pub todo: Option<tmt_tui::components::design_system::TextSpan>,
+}
+
+pub(in crate::board) fn activity_projection(
     app: &crate::board::app::App,
     row: &OpsTreeRow,
     label: &crate::board::activity::Label,
     width: usize,
-    selected: bool,
-) -> (
-    Vec<ratatui::text::Span<'static>>,
-    Option<ratatui::text::Span<'static>>,
-) {
-    use ratatui::text::Span;
+) -> ActivityProjection {
+    use tmt_tui::components::design_system::{TextSpan, Token};
     use unicode_width::UnicodeWidthStr;
-    if width == 0 {
-        return (Vec::new(), None);
-    }
-    let task_span =
-        |text: String| Span::styled(text, table_style(app, selected, task_style(app, row)));
-    if let Some(unread) =
+    let span = |text: String, role| TextSpan {
+        text,
+        role: Token(role),
+        bold: false,
+    };
+    let (primary, task) = if width == 0 {
+        (Vec::new(), None)
+    } else if let Some(unread) =
         crate::board::state_cell::unread(app.unread_target(&row.target), app.look())
     {
         let mut used = 0;
         let mut primary = Vec::new();
-        for span in unread.spans {
+        for (index, part) in unread.spans.into_iter().enumerate() {
             let room = width.saturating_sub(used);
-            let content = crate::board::view::fit(&span.content, span.content.width().min(room));
+            let content = crate::board::view::fit(&part.content, part.content.width().min(room));
             if content.is_empty() {
                 break;
             }
             used += content.width();
-            primary.push(Span::styled(
+            primary.push(span(
                 content,
-                table_style(app, selected, span.style),
+                if index == 0 {
+                    Role::Unread
+                } else {
+                    Role::Muted
+                },
             ));
         }
         let room = width.saturating_sub(used);
@@ -591,60 +614,92 @@ fn activity_parts(
         let shown: String = primary
             .iter()
             .skip(1)
-            .map(|span| span.content.as_ref())
+            .map(|part| part.text.as_str())
             .collect();
-        let shown = shown.trim();
         let task = label
             .task
             .as_ref()
-            .filter(|task| *task != shown)
+            .filter(|task| *task != shown.trim())
             .and_then(|task| {
                 let tail = format!(" · {task}");
                 // A suffix that does not fit whole is dropped, never cut inside a word.
                 (tail.width() <= room).then_some(tail)
-            });
-        return (primary, task.map(task_span));
-    }
-    let over = label
-        .idle_over
-        .then(|| crate::board::state_cell::over(app.cron_glyphs, app.look()));
-    let symbol = over.as_ref().map_or_else(
-        || crate::board::state_cell::glyph(Some(label.state)),
-        |mark| mark.content.as_ref(),
-    );
-    // Unknown activity has no word: the glyph is the label's own `?`.
-    let unknown = label.state == "unknown";
-    let (head, task) = label.fit(if unknown {
-        width
+            })
+            .map(|text| span(text, task_role(row)));
+        (primary, task)
     } else {
-        width.saturating_sub(symbol.width() + 1)
-    });
-    let words = if unknown {
-        String::new()
-    } else {
-        format!(" {head}")
+        let over = label
+            .idle_over
+            .then(|| crate::board::state_cell::over(app.cron_glyphs, app.look()));
+        let symbol = over.as_ref().map_or_else(
+            || crate::board::state_cell::glyph(Some(label.state)),
+            |mark| mark.content.as_ref(),
+        );
+        let unknown = label.state == "unknown";
+        let (head, task) = label.fit(if unknown {
+            width
+        } else {
+            width.saturating_sub(symbol.width() + 1)
+        });
+        let words = if unknown {
+            String::new()
+        } else {
+            format!(" {head}")
+        };
+        let room = width.saturating_sub(symbol.width());
+        let words = crate::board::view::fit(&words, words.width().min(room));
+        let mut primary = vec![span(
+            symbol.to_owned(),
+            if over.is_some() {
+                Role::Waiting
+            } else {
+                activity_role(label.state)
+            },
+        )];
+        if !words.is_empty() {
+            primary.push(span(words, Role::Text));
+        }
+        (primary, task.map(|text| span(text, task_role(row))))
     };
-    let room = width.saturating_sub(symbol.width());
-    let words = crate::board::view::fit(&words, words.width().min(room));
-    let mut primary = vec![Span::styled(
-        symbol.to_owned(),
-        table_style(
-            app,
-            selected,
-            over.as_ref()
-                .map_or_else(|| activity_style(app, label.state), |mark| mark.style),
-        ),
-    )];
-    if !words.is_empty() {
-        primary.push(Span::styled(
-            words,
-            table_style(app, selected, app.look().role(Role::Text)),
-        ));
-    }
-    (
+    let used = primary.iter().map(|part| part.text.width()).sum::<usize>()
+        + task.as_ref().map_or(0, |part| part.text.width());
+    let todo = todo_text(app, row, used, width).map(|text| span(text, Role::Muted));
+    ActivityProjection {
         primary,
-        task.map(|task| Span::styled(task, table_style(app, selected, task_style(app, row)))),
-    )
+        task,
+        todo,
+    }
+}
+
+pub(in crate::board) fn record_activity_geometry(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    cell: ratatui::layout::Rect,
+    primary: u16,
+    task: u16,
+) {
+    use ratatui::layout::Rect;
+    let mut states = app.workspace_state_cells.borrow_mut();
+    if primary > 0 {
+        states.push(Rect::new(cell.x, cell.y, primary, 1));
+        app.push_unread_row_hit(Rect::new(cell.x, cell.y, primary, 1), &row.target);
+    }
+    if task > 0 {
+        states.push(Rect::new(cell.x + primary, cell.y, task, 1));
+    }
+}
+
+/// Reverse-only selection suppresses per-state foregrounds, as `table_style` does.
+pub(in crate::board) fn activity_selection(
+    spans: &mut [tmt_tui::components::design_system::TextSpan],
+    app: &crate::board::app::App,
+    selected: bool,
+) {
+    if selected && app.look().selection().bg.is_none() {
+        for span in spans {
+            span.role = tmt_tui::components::design_system::Token(Role::Selection);
+        }
+    }
 }
 
 /// Paints a member's STATE words into `cell` and records their areas as state
@@ -657,20 +712,12 @@ pub fn paint_activity(
     cell: ratatui::layout::Rect,
     selected: bool,
 ) -> u16 {
-    use ratatui::layout::Rect;
     let (primary, task, todo) = activity_spans(app, row, label, usize::from(cell.width), selected);
     let width = primary.iter().map(|span| span.width()).sum::<usize>() as u16;
     let task_width = task.as_ref().map_or(0, |task| {
         (task.width() as u16).min(cell.width.saturating_sub(width))
     });
-    let mut states = app.workspace_state_cells.borrow_mut();
-    if width > 0 {
-        states.push(Rect::new(cell.x, cell.y, width, 1));
-        app.push_unread_row_hit(Rect::new(cell.x, cell.y, width, 1), &row.target);
-    }
-    if task_width > 0 {
-        states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
-    }
+    record_activity_geometry(app, row, cell, width, task_width);
     let todo_width = todo.as_ref().map_or(0, |span| span.width() as u16);
     tmt_tui::components::strip::paint_left(
         buffer,

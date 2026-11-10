@@ -6214,12 +6214,55 @@
           ]
         }
       }
+    },
+    {
+      "name": "text-bold",
+      "input": {
+        "component": "text",
+        "props_json": "{\"spans\":[{\"text\":\"A\",\"role\":\"text\"},{\"text\":\"B\",\"role\":\"waiting\",\"bold\":true}]}",
+        "width": 2,
+        "height": 1
+      },
+      "expected": {
+        "ok": {
+          "version": 2,
+          "width": 2,
+          "height": 1,
+          "hits": [],
+          "cells_rle": [
+            [
+              1,
+              {
+                "glyph": "A",
+                "underlay": null,
+                "fg": "text",
+                "bg": null,
+                "bold": false,
+                "chip_surface": null,
+                "continuation": false
+              }
+            ],
+            [
+              1,
+              {
+                "glyph": "B",
+                "underlay": null,
+                "fg": "waiting",
+                "bg": null,
+                "bold": true,
+                "chip_surface": null,
+                "continuation": false
+              }
+            ]
+          ]
+        }
+      }
     }
   ],
   "artifacts": {
     "wasm": {
-      "raw": 485314,
-      "gzip": 144225
+      "raw": 478547,
+      "gzip": 144010
     },
     "glue": {
       "raw": 6145,
