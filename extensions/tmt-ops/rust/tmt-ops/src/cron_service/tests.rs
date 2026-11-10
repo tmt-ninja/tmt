@@ -817,6 +817,43 @@ fn deferred_legacy_reads_keep_jobs_and_holder_without_core_adoption() {
 }
 
 #[test]
+fn a_superseded_load_leaves_the_source_frozen_for_the_next_load() {
+    let f = Fixture::new();
+    f.seed_legacy(
+        json!({"version":2,"counters":{ROOM:1},"jobs":[{
+            "id":"c1","roomId":ROOM,"ownerId":WORKER,"message":"retained source",
+            "revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}
+        }]})
+        .to_string()
+        .as_bytes(),
+    );
+    f.change_model(|m| m["importFailure"] = json!(true));
+    assert!(list_jobs(&f.core, &f.config, None, 100).is_err());
+    let store = Store::new(&f.directory.join("ops")).unwrap();
+    let frozen = store.frozen_for_core().unwrap().unwrap();
+    f.change_model(|m| m["importFailure"] = json!(false));
+
+    let cancellation = crate::runner::Cancellation::default();
+    cancellation.cancel();
+    let cancelled = f
+        .core
+        .cancellable(cancellation)
+        .api("tick.status", json!({}))
+        .unwrap_err();
+    assert!(cancelled.was_cancelled());
+    let surfaced = adoption::recovery(&frozen, cancelled);
+    assert!(surfaced.was_cancelled(), "{surfaced}");
+    assert_ne!(surfaced.code, "SQUAD_CRON_CUTOVER_UNCONFIRMED");
+    assert_eq!(store.frozen_for_core().unwrap().unwrap(), frozen);
+    assert!(store.core_redirect().unwrap().is_none());
+
+    let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+    assert_eq!(listed.jobs.len(), 1);
+    assert_eq!(listed.jobs[0].job.message, "retained source");
+}
+
+#[test]
 fn a_frozen_import_recovers_after_publication_or_readback_failure_without_new_jobs() {
     for fault in ["importFailure", "importReadbackFailure"] {
         let f = Fixture::new();

@@ -773,24 +773,21 @@ fn wait_for_supervisor_end<R: CommandRunner>(
     }
 }
 
-/// Waits until `deadline` at most while the supervisor still reports the member's program
-/// running although that process is gone: the supervisor reaps its child only once per loop,
-/// so right after a stop its `Inspect` can lag the exit. Returns as soon as the report and the
-/// process agree, or the answer names another supervisor or pane process.
-fn settle_ended_program<R: CommandRunner>(runner: &R, binding: &Binding, deadline: Instant) {
+/// Waits until `deadline` at most for the supervisor to report that the member's program ended.
+/// A stop proves the agent gone, and the program on the terminal then ends with it: it is that
+/// agent, whose exit the supervisor reaps only once per loop, or the launcher above it, still
+/// exiting. Evidence read during that exit is inconclusive, so the close reads it afterwards.
+/// Returns as soon as the report says so, or names another supervisor or pane process.
+fn settle_ended_program(binding: &Binding, deadline: Instant) {
     let (socket, pane) = (&binding.server.socket_path, &binding.pane_id);
     loop {
         let Ok(state) = state(socket, pane, deadline) else {
             return;
         };
-        let behind = state.program_running()
+        let running = state.program_running()
             && state.server_pid == binding.server.server_pid
-            && state.pane_pid == binding.pane_pid
-            && matches!(
-                runtime::observe_runtime_process(runner, state.pane_pid, deadline),
-                Ok(runtime::ProcessObservation::Gone)
-            );
-        if !behind || Instant::now() + CLOSE_POLL >= deadline {
+            && state.pane_pid == binding.pane_pid;
+        if !running || Instant::now() + CLOSE_POLL >= deadline {
             return;
         }
         std::thread::sleep(CLOSE_POLL);
@@ -983,7 +980,7 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
         close_terminal(self.runner, binding)
     }
     fn settle_after_stop(&mut self, binding: &Binding, deadline: Instant) {
-        settle_ended_program(self.runner, binding, deadline);
+        settle_ended_program(binding, deadline);
     }
     fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)
@@ -1618,36 +1615,22 @@ mod tests {
     }
 
     #[test]
-    fn after_a_stop_the_close_waits_for_the_supervisor_to_report_its_reaped_program() {
-        // The stopped program is gone, but the supervisor reaps it only on its next loop.
-        let (mut child, pid, _) = spawn("exit 0");
-        child.wait().unwrap();
-        let (_root, binding, handle, answered) = lagging_supervisor(pid, 2, 3);
-        settle_ended_program(
-            &UnixCommandRunner,
-            &binding,
-            Instant::now() + Duration::from_secs(10),
-        );
+    fn after_a_stop_the_close_waits_for_the_supervisor_to_report_the_program_ended() {
+        // The agent is gone, and the program over it is still exiting or not yet reaped.
+        let (_root, binding, handle, answered) = lagging_supervisor(4242, 2, 3);
+        settle_ended_program(&binding, Instant::now() + Duration::from_secs(10));
         // It asked until the report caught up, and no more: the third answer was settled.
         assert_eq!(answers(&answered), 3);
         assert_eq!(handle.join().unwrap(), vec![Control::Inspect; 3]);
     }
 
     #[test]
-    fn a_running_program_is_already_settled_and_asked_once() {
-        let (mut child, pid, _) = spawn("sleep 30");
-        let (_root, binding, handle, answered) = lagging_supervisor(pid, usize::MAX, 1);
-        let started = Instant::now();
-        settle_ended_program(
-            &UnixCommandRunner,
-            &binding,
-            Instant::now() + Duration::from_secs(10),
-        );
-        assert!(started.elapsed() < Duration::from_secs(5));
+    fn a_report_naming_another_program_is_already_settled_and_asked_once() {
+        let (_root, mut binding, handle, answered) = lagging_supervisor(4242, usize::MAX, 1);
+        binding.pane_pid = 4243;
+        settle_ended_program(&binding, Instant::now() + Duration::from_secs(10));
         assert_eq!(answers(&answered), 1);
         assert_eq!(handle.join().unwrap(), vec![Control::Inspect]);
-        child.kill().unwrap();
-        child.wait().unwrap();
     }
 
     #[test]

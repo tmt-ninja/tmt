@@ -370,8 +370,10 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   `tmt rm`/`identity.remove` send `Close` before the existing wait for the supervisor's
   end, which an exited, not yet reaped supervisor satisfies. `stop --close` first lets the
   host's report settle (`HostDriver::settle_after_stop`, within `STOP_ALLOWANCE`): the
-  supervisor reaps its program once per loop, so its `Inspect` may still report the stopped
-  program running; a report still behind then is refused as `PANE_NOT_CLOSED`. Restore
+  stop proves the agent gone, but the supervisor reaps its program once per loop and a
+  launcher above the agent is still exiting, and evidence read during that exit is
+  inconclusive. The close waits for the supervisor to report the program ended; a program
+  still running at the deadline goes to the close's own checks. Restore
   captures only members whose agent runs; a built-in `workspace show` reads its members
   within the driver's own 3 s `BUDGET`, not the hook capture's.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
