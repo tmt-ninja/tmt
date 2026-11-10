@@ -16,7 +16,7 @@ use list_upgrade::shadowing_in;
 pub(crate) use list_upgrade::{listing, listing_with_guidance};
 use repair::repair_extension;
 pub(crate) use skills::retired_squad_hint;
-use skills::{global_dir, settle_skills};
+use skills::{SkillIntent, global_dir, settle_skills};
 #[cfg(test)]
 use skills::{published_document, published_lines};
 #[cfg(test)]
@@ -319,11 +319,17 @@ struct InstalledExtension {
     human: Human,
     executable: PathBuf,
     previous: Vec<String>,
-    changed: bool,
     notice: post_upgrade::PostUpgradeNotice,
 }
 
 fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Failure> {
+    // An explicit publication that cannot happen changes nothing at all.
+    if matches!(
+        request,
+        ExtensionInstallRequest::Install { skills: true, .. }
+    ) {
+        skills::refuse_split_roots()?;
+    }
     run_observed(request, mode, &|_| {})
 }
 
@@ -376,6 +382,7 @@ pub(crate) fn install_offered_at(
             product,
             &report.active_executable,
             &[],
+            SkillIntent::Publish,
             &mut document,
             &mut human,
         )?;
@@ -389,7 +396,8 @@ pub(crate) fn install_offered_at(
         archive: None,
         manifest: None,
         yes: true,
-        skills: false,
+        // The offer asked and reports what it publishes, so it needs no flag.
+        skills: true,
         repair: false,
     };
     let Some(result) = run_observed(request, OutputMode::default(), progress)? else {
@@ -431,7 +439,6 @@ fn run_observed(
                 human,
                 executable,
                 previous,
-                changed,
                 notice,
             } = if repair {
                 repair_extension(product, &prefix, archive.as_deref(), manifest.as_deref())?
@@ -447,9 +454,21 @@ fn run_observed(
                 )?
             };
             let mut human = human;
-            if !repair || changed || skills {
-                settle_skills(product, &executable, &previous, &mut document, &mut human)
-                    .map_err(|error| notice.retain(error))?;
+            if skills || !repair {
+                let intent = if skills {
+                    SkillIntent::Publish
+                } else {
+                    SkillIntent::Skip
+                };
+                settle_skills(
+                    product,
+                    &executable,
+                    &previous,
+                    intent,
+                    &mut document,
+                    &mut human,
+                )
+                .map_err(|error| notice.retain(error))?;
             }
             notice.record(&mut document, &mut human);
             Ok(Some((document, human)))

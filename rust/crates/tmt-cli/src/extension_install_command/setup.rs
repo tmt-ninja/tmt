@@ -187,6 +187,7 @@ pub(crate) fn apply_at(
             product,
             &current.active_executable,
             &[],
+            skills::SkillIntent::Publish,
             &mut document,
             &mut human,
         )?;

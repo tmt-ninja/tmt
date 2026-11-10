@@ -131,7 +131,6 @@ pub(super) fn install(
         human,
         executable: report.executable,
         previous,
-        changed: report.changed,
         notice,
     })
 }

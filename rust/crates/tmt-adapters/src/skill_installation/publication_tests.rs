@@ -1,4 +1,6 @@
-use super::{ProviderEnvironment, files, install, install_with_publisher};
+use super::{
+    ProviderEnvironment, ensure_publication_roots, files, install, install_with_publisher,
+};
 use crate::test_support::TestDirectory;
 use std::{fs, io};
 
@@ -61,4 +63,42 @@ fn abandoned_stage_is_preserved_without_blocking_a_new_install() {
         fs::read(stage.join("partial")).unwrap(),
         b"preserve for inspection"
     );
+}
+
+#[test]
+fn publication_needs_the_store_and_home_to_agree() {
+    let root = TestDirectory::new();
+    let home = root.path.join("home");
+    fs::create_dir(&home).unwrap();
+    let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
+    ensure_publication_roots(&env, &home.join(".config/tmt")).unwrap();
+
+    // The `..` is resolved first: this is outside HOME, whatever its prefix says.
+    for store in [root.path.join("isolated/tmt"), home.join("../isolated/tmt")] {
+        let refusal = ensure_publication_roots(&env, &store)
+            .unwrap_err()
+            .to_string();
+        assert!(refusal.contains(&root.path.join("isolated/tmt").display().to_string()));
+        assert!(refusal.contains(&home.display().to_string()));
+        assert!(refusal.contains("TMT_HOME") && refusal.contains("XDG_CONFIG_HOME"));
+    }
+}
+
+#[test]
+fn a_store_reached_through_a_symlink_on_either_side_agrees() {
+    let root = TestDirectory::new();
+    let home = root.path.join("home");
+    let dotfiles = root.path.join("dotfiles");
+    fs::create_dir(&home).unwrap();
+    fs::create_dir(&dotfiles).unwrap();
+    // A dotfile manager's `~/.config` link keeps the store inside HOME by its own path.
+    std::os::unix::fs::symlink(&dotfiles, home.join(".config")).unwrap();
+    let env = ProviderEnvironment::from_parts(home.clone(), root.path.clone(), Vec::new(), []);
+    ensure_publication_roots(&env, &home.join(".config/tmt")).unwrap();
+
+    // A HOME spelled through an alias still contains its real store.
+    let alias = root.path.join("alias");
+    std::os::unix::fs::symlink(&home, &alias).unwrap();
+    let env = ProviderEnvironment::from_parts(alias, root.path.clone(), Vec::new(), []);
+    ensure_publication_roots(&env, &home.join("store/tmt")).unwrap();
 }

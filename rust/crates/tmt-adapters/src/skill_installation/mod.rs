@@ -26,9 +26,9 @@ pub(crate) use owned::{
     valid_file as valid_skill_file, valid_name as valid_skill_name,
 };
 pub use owned::{
-    OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned,
-    install_release_skills, owned_by, owned_roots, owned_skills_current, owners, refresh_owned,
-    refusal, remove_owned,
+    OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, ensure_publication_roots,
+    install_owned, install_release_skills, owned_by, owned_roots, owned_skills_current, owners,
+    refresh_owned, refusal, remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;

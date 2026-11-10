@@ -1,7 +1,7 @@
 //! Managed extension observations and consented upgrades.
 
 use super::post_upgrade::PostUpgradeNotice;
-use super::skills::settle_skills;
+use super::skills::{SkillIntent, settle_skills};
 use super::{
     ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
     failure, installed, interruptible, prefix, repair_required, require_installable,
@@ -174,6 +174,7 @@ pub(super) fn upgrade_at_observed(
             product,
             &report.installation.executable,
             &previous,
+            SkillIntent::RefreshOwned,
             &mut document,
             &mut human,
         )

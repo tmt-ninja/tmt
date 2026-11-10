@@ -86,17 +86,42 @@ fn publish(
     )
 }
 
-/// Publish the activated release's skills without a second consent step.
+/// What activating a release does with the skills it bundles.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum SkillIntent {
+    /// `--skills`, or a flow that asked the user and reports what it publishes.
+    Publish,
+    /// An upgrade: follows the links this owner already holds, and adds none first.
+    RefreshOwned,
+    /// A plain install or repair: publication stays opt-in.
+    Skip,
+}
+
+/// An upgrade follows the owner's links and never publishes the first one.
+fn leaves_unpublished(intent: SkillIntent, owner_holds_links: bool) -> bool {
+    intent == SkillIntent::RefreshOwned && !owner_holds_links
+}
+
+/// Refuses `--skills` before anything activates when the publication would be refused later.
+pub(super) fn refuse_split_roots() -> Result<(), Failure> {
+    let env = ProviderEnvironment::capture()
+        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+    skill_installation::ensure_publication_roots(&env, &global_dir()?)
+        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))
+}
+
+/// Settle the activated release's skills without a second consent step.
 /// Skill failures are warnings; binary activation keeps its own outcome, and
 /// partial publication remains visible in the skill report.
 pub(super) fn settle_skills(
     product: Product,
     executable: &Path,
     previous: &[String],
+    intent: SkillIntent,
     document: &mut Value,
     human: &mut Human,
 ) -> Result<(), Failure> {
-    if let Err(error) = settle_publication(product, executable, previous, document, human) {
+    if let Err(error) = settle_publication(product, executable, previous, intent, document, human) {
         document["skills"]["status"] = json!("warning");
         document["skills"]["warning"] = error.document()["error"].clone();
         human.push(format!("Warning: {}", error.message));
@@ -116,6 +141,7 @@ fn settle_publication(
     product: Product,
     executable: &Path,
     previous: &[String],
+    intent: SkillIntent,
     document: &mut Value,
     human: &mut Human,
 ) -> Result<(), Failure> {
@@ -126,10 +152,25 @@ fn settle_publication(
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     let current = skill_names(&skills);
     document["skills"]["available"] = json!(current);
+    if intent == SkillIntent::Skip {
+        document["skills"]["status"] = json!("skipped");
+        if !skills.is_empty() {
+            let hint = format!(
+                "Publish its agent skills with: tmt extension install {name} --skills --yes"
+            );
+            document["skills"]["hint"] = json!(hint);
+            human.push(hint);
+        }
+        return Ok(());
+    }
     let paths = ConfigPaths::discover()?;
     let global = &paths.global_dir;
     let owned = skill_installation::owned_by(global, name)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+    if leaves_unpublished(intent, !owned.is_empty()) {
+        document["skills"]["status"] = json!("skipped");
+        return Ok(());
+    }
     let dropped: Vec<String> = previous
         .iter()
         .filter(|skill| owned.contains_key(*skill) && !current.contains(skill))
@@ -207,6 +248,11 @@ fn retired_squad_note(prefix: &Path, hook_consent: bool) -> Option<String> {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "Publish its agent skills with: tmt extension install {name} --skills --yes",
+        &[""],
+        &[("{name}", "colab")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         " Install Ops with: tmt extension install ops --yes",
         &[""],
         &[],
@@ -217,6 +263,18 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+#[cfg(test)]
+mod intent_tests {
+    use super::{SkillIntent, leaves_unpublished};
+
+    #[test]
+    fn an_upgrade_publishes_only_for_an_owner_that_already_holds_links() {
+        assert!(leaves_unpublished(SkillIntent::RefreshOwned, false));
+        assert!(!leaves_unpublished(SkillIntent::RefreshOwned, true));
+        assert!(!leaves_unpublished(SkillIntent::Publish, false));
+    }
+}
 
 #[cfg(test)]
 mod retired_squad_tests {
