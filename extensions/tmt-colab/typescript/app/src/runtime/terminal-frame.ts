@@ -154,6 +154,7 @@ function paintCell(cell: Cell, look: NonNullable<Props['look']>) {
     apply(cell.underlay);
     apply(cell.fg);
   }
+  if (look === 'NO_COLOR' && cell.underlay === 'selection') reverse = true;
   if (cell.bg) bg = backgrounds.has(cell.bg) ? defaults.bg : (roleColor(cell.bg) ?? defaults.bg);
   if (reverse) [fg, bg] = [bg, fg];
   return {

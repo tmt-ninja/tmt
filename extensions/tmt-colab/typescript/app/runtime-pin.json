@@ -17,10 +17,10 @@
     },
     {
       "name": "ui",
-      "path": "assets/colab-runtime-ui-a99c571dbd663970.js",
-      "sha256": "a99c571dbd6639708e8914e54bff673e744b9d2c79083dec8d9ebf8e466a23cb",
-      "length": 253559,
-      "gzip": 72832
+      "path": "assets/colab-runtime-ui-ad2eb85fe56dda7c.js",
+      "sha256": "ad2eb85fe56dda7ce8519b667f08774de525905d5103e01ee458221cdb661d7c",
+      "length": 253608,
+      "gzip": 72850
     },
     {
       "name": "browser",

@@ -7,14 +7,9 @@ use crate::board::{
 };
 use crate::config::{Pane, SavingsUnit};
 use crate::labels::digest::SavingsSummary;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::{Line, Span},
-};
+use ratatui::{Frame, layout::Rect};
 use std::rc::Rc;
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
@@ -109,70 +104,65 @@ pub(super) fn painted_width(app: &App) -> Option<u16> {
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
 }
-pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<Span<'static>> {
-    use ds::Component;
-    use tmt_tui::components::{design_system as ds, design_system_ratatui};
-    let width = values.len().min(u16::MAX as usize) as u16;
-    let area = ds::Rect {
-        x: 0,
-        y: 0,
-        width,
-        height: 1,
-    };
-    let mut grid = ds::CellGrid::new(ds::Size { width, height: 1 });
-    ds::ActivityCells::render(
-        &ds::ActivityCellsProps {
-            values: values.to_vec(),
-            selected,
-        },
-        area,
-        &mut grid,
-    );
-    let native = Rect::new(0, 0, width, 1);
-    let mut buffer = ratatui::buffer::Buffer::empty(native);
-    design_system_ratatui::paint(
-        &grid,
-        native,
-        &mut buffer,
-        &app.look().theme,
-        app.look().depth,
-    );
-    (0..width)
-        .map(|x| {
-            let cell = &buffer[(x, 0)];
-            Span::styled(cell.symbol().to_owned(), cell.style())
-        })
-        .collect()
+fn selection_underlay(grid: &mut tmt_tui::components::design_system::CellGrid, width: u16) {
+    for x in 0..width {
+        if let Some(mut cell) = grid.get(x, 0).cloned() {
+            cell.underlay = Some(Role::Selection);
+            grid.set(x, 0, cell);
+        }
+    }
 }
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside =
-        crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Agents by TOK");
+    let mut inside = super::render::pane_frame(frame, app, area, Pane::Rows, "Agents by TOK");
     if inside.is_empty() {
         return;
     }
     let unit = app.savings_unit();
     let fields = tracks(inside.width, unit);
-    let mut x = inside.x;
-    for (field, width) in &fields {
-        let caption = match field {
-            Field::Agent => "AGENT",
-            Field::State => "STATE",
-            Field::Activity => "ACTIVITY",
-            Field::Tokens => "TOK",
-            Field::Percent => "SAVED %",
-            Field::Saved => "SAVED",
-            Field::Held => "HELD",
-            Field::Mode => "MODE",
-        };
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(x, inside.y, *width, 1),
-            Line::styled(
-                fit(caption, usize::from(*width)),
-                app.look().role(Role::Muted),
-            ),
+    let columns = fields
+        .iter()
+        .map(|(field, width)| {
+            let caption = match field {
+                Field::Agent => "AGENT",
+                Field::State => "STATE",
+                Field::Activity => "ACTIVITY",
+                Field::Tokens => "TOK",
+                Field::Percent => "SAVED %",
+                Field::Saved => "SAVED",
+                Field::Held => "HELD",
+                Field::Mode => "MODE",
+            };
+            tmt_tui::components::design_system::TotalsColumn {
+                header: fit(caption, usize::from(*width)),
+                width: *width,
+                role: tmt_tui::components::design_system::Token(Role::Text),
+                right_aligned: false,
+            }
+        })
+        .collect();
+    {
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        super::paint_grid(
+            frame,
+            app,
+            Rect::new(inside.x, inside.y, inside.width, 1),
+            |grid| {
+                ds::TotalsTable::render(
+                    &ds::TotalsTableProps {
+                        columns,
+                        rows: vec![],
+                    },
+                    ds::Rect {
+                        x: 0,
+                        y: 0,
+                        width: inside.width,
+                        height: 1,
+                    },
+                    grid,
+                );
+            },
         );
-        x += width + 1;
     }
     inside.y += 1;
     inside.height -= 1;
@@ -201,13 +191,29 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     .collect::<Vec<_>>()
     .join(" · ");
     if inside.height > 1 && !footer.is_empty() {
-        strip::paint_left(
-            frame.buffer_mut(),
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        super::paint_grid(
+            frame,
+            app,
             Rect::new(inside.x, inside.bottom() - 1, inside.width, 1),
-            Line::styled(
-                fit(&footer, usize::from(inside.width)),
-                app.look().role(Role::Muted),
-            ),
+            |grid| {
+                ds::Text::render(
+                    &ds::TextProps {
+                        spans: vec![ds::TextSpan {
+                            text: fit(&footer, usize::from(inside.width)),
+                            role: ds::Token(Role::Muted),
+                        }],
+                    },
+                    ds::Rect {
+                        x: 0,
+                        y: 0,
+                        width: inside.width,
+                        height: 1,
+                    },
+                    grid,
+                );
+            },
         );
         inside.height -= 1;
     }
@@ -245,127 +251,157 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                     1,
                 );
                 let selected = Some(&row.target) == app.workspace.selected.as_ref();
-                if selected {
-                    frame.buffer_mut().set_style(cell, app.look().selection());
-                }
-                let row_ids = metrics::identities(row, &rows);
-                let reading = metrics::tokens(report, &row_ids);
-                // Tokens and percent read one supplied summary per row.
-                let row_saved = fields
-                    .iter()
-                    .any(|(field, _)| matches!(field, Field::Saved | Field::Percent))
-                    .then(|| row_savings(app, row, &row_ids));
-                let mut x = cell.x;
-                for (field, width) in &fields {
-                    let slot = Rect::new(x, cell.y, *width, 1).intersection(cell);
-                    x += width + 1;
-                    if slot.width != *width {
-                        continue;
-                    }
-                    if matches!(field, Field::State)
-                        && let Some(label) = app.activity_label(row)
-                    {
-                        crate::board::workspace::columns::paint_activity(
-                            frame.buffer_mut(),
-                            app,
-                            row,
-                            &label,
-                            slot,
-                            selected,
-                        );
-                        continue;
-                    }
-                    if matches!(
-                        field,
-                        Field::Activity | Field::Tokens | Field::Saved | Field::Percent
-                    ) && report.is_some_and(|report| {
-                        row_ids.iter().all(|id| {
-                            report.seat(id).is_none()
-                                && report
-                                    .unavailable
-                                    .iter()
-                                    .any(|missing| missing.who.id.as_deref() == Some(*id))
-                        })
-                    }) {
-                        if matches!(field, Field::Activity)
-                            || !fields.iter().any(|(f, _)| matches!(f, Field::Activity))
-                                && matches!(field, Field::Tokens)
+                use ds::Component;
+                use tmt_tui::components::design_system as ds;
+                let mut state = None;
+                super::paint_grid(frame, app, cell, |grid| {
+                    let row_ids = metrics::identities(row, &rows);
+                    let reading = metrics::tokens(report, &row_ids);
+                    // Tokens and percent read one supplied summary per row.
+                    let row_saved = fields
+                        .iter()
+                        .any(|(field, _)| matches!(field, Field::Saved | Field::Percent))
+                        .then(|| row_savings(app, row, &row_ids));
+                    let mut x = cell.x;
+                    for (field, width) in &fields {
+                        let slot = Rect::new(x, cell.y, *width, 1).intersection(cell);
+                        x += width + 1;
+                        if slot.width != *width {
+                            continue;
+                        }
+                        if matches!(field, Field::State)
+                            && let Some(label) = app.activity_label(row)
                         {
-                            let end = fields
-                                .iter()
-                                .scan(cell.x, |x, (f, w)| {
-                                    let start = *x;
-                                    *x += *w + 1;
-                                    Some((f, start + w))
-                                })
-                                .filter(|(f, _)| {
-                                    matches!(
-                                        f,
-                                        Field::Activity
-                                            | Field::Tokens
-                                            | Field::Saved
-                                            | Field::Percent
-                                    )
-                                })
-                                .map(|(_, end)| end)
-                                .max()
-                                .unwrap_or(slot.right());
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                Rect::new(slot.x, slot.y, end.saturating_sub(slot.x), 1)
-                                    .intersection(cell),
-                                Line::styled(
-                                    "no usage source",
-                                    if selected {
-                                        app.look().selection()
-                                    } else {
-                                        app.look().role(Role::Dim)
+                            state = Some((slot, label));
+                            continue;
+                        }
+                        if matches!(
+                            field,
+                            Field::Activity | Field::Tokens | Field::Saved | Field::Percent
+                        ) && report.is_some_and(|report| {
+                            row_ids.iter().all(|id| {
+                                report.seat(id).is_none()
+                                    && report
+                                        .unavailable
+                                        .iter()
+                                        .any(|missing| missing.who.id.as_deref() == Some(*id))
+                            })
+                        }) {
+                            if matches!(field, Field::Activity)
+                                || !fields.iter().any(|(f, _)| matches!(f, Field::Activity))
+                                    && matches!(field, Field::Tokens)
+                            {
+                                let end = fields
+                                    .iter()
+                                    .scan(cell.x, |x, (f, w)| {
+                                        let start = *x;
+                                        *x += *w + 1;
+                                        Some((f, start + w))
+                                    })
+                                    .filter(|(f, _)| {
+                                        matches!(
+                                            f,
+                                            Field::Activity
+                                                | Field::Tokens
+                                                | Field::Saved
+                                                | Field::Percent
+                                        )
+                                    })
+                                    .map(|(_, end)| end)
+                                    .max()
+                                    .unwrap_or(slot.right());
+                                ds::Text::render(
+                                    &ds::TextProps {
+                                        spans: vec![ds::TextSpan {
+                                            text: "no usage source".into(),
+                                            role: ds::Token(Role::Dim),
+                                        }],
                                     },
-                                ),
+                                    ds::Rect {
+                                        x: slot.x - cell.x,
+                                        y: 0,
+                                        width: end.min(cell.right()).saturating_sub(slot.x),
+                                        height: 1,
+                                    },
+                                    grid,
+                                );
+                            }
+                            continue;
+                        }
+                        if matches!(field, Field::Activity) {
+                            let values = metrics::activity(report, &row_ids);
+                            let each = values.len().div_ceil(usize::from(slot.width).max(1)).max(1);
+                            let values = values
+                                .chunks(each)
+                                .map(|values| {
+                                    values
+                                        .iter()
+                                        .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
+                                })
+                                .collect::<Vec<_>>();
+                            ds::ActivityCells::render(
+                                &ds::ActivityCellsProps { values, selected },
+                                ds::Rect {
+                                    x: slot.x - cell.x,
+                                    y: 0,
+                                    width: slot.width,
+                                    height: 1,
+                                },
+                                grid,
+                            );
+                        } else {
+                            let text = match (field, &row_saved) {
+                                (Field::Saved, Some(summary)) => {
+                                    saved(summary, SavingsUnit::Tokens)
+                                }
+                                (Field::Percent, Some(summary)) => {
+                                    saved(summary, SavingsUnit::Percent)
+                                }
+                                _ => value(app, row, *field, reading, &row_ids),
+                            };
+                            // Numeric tracks never show a clipped amount.
+                            let text =
+                                if matches!(field, Field::Tokens | Field::Percent | Field::Saved)
+                                    && unicode_width::UnicodeWidthStr::width(text.as_str())
+                                        > usize::from(*width)
+                                {
+                                    "—".into()
+                                } else {
+                                    fit(
+                                        &crate::board::notes::single_line(&text),
+                                        usize::from(*width),
+                                    )
+                                };
+                            ds::Text::render(
+                                &ds::TextProps {
+                                    spans: vec![ds::TextSpan {
+                                        text,
+                                        role: ds::Token(Role::Text),
+                                    }],
+                                },
+                                ds::Rect {
+                                    x: slot.x - cell.x,
+                                    y: 0,
+                                    width: slot.width,
+                                    height: 1,
+                                },
+                                grid,
                             );
                         }
-                        continue;
                     }
-                    let spans = if matches!(field, Field::Activity) {
-                        let values = metrics::activity(report, &row_ids);
-                        let each = values.len().div_ceil(usize::from(slot.width).max(1)).max(1);
-                        let values = values
-                            .chunks(each)
-                            .map(|values| {
-                                values
-                                    .iter()
-                                    .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
-                            })
-                            .collect::<Vec<_>>();
-                        hourly(app, &values, selected)
-                    } else {
-                        let text = match (field, &row_saved) {
-                            (Field::Saved, Some(summary)) => saved(summary, SavingsUnit::Tokens),
-                            (Field::Percent, Some(summary)) => saved(summary, SavingsUnit::Percent),
-                            _ => value(app, row, *field, reading, &row_ids),
-                        };
-                        // Numeric tracks never show a clipped amount.
-                        let text = if matches!(field, Field::Tokens | Field::Percent | Field::Saved)
-                            && unicode_width::UnicodeWidthStr::width(text.as_str())
-                                > usize::from(*width)
-                        {
-                            "—".into()
-                        } else {
-                            fit(
-                                &crate::board::notes::single_line(&text),
-                                usize::from(*width),
-                            )
-                        };
-                        vec![Span::styled(
-                            text,
-                            if selected {
-                                app.look().selection()
-                            } else {
-                                app.look().role(Role::Text)
-                            },
-                        )]
-                    };
-                    strip::paint_left(frame.buffer_mut(), slot, Line::from(spans));
+                    if selected {
+                        selection_underlay(grid, cell.width);
+                    }
+                });
+                if let Some((slot, label)) = state {
+                    crate::board::workspace::columns::paint_activity(
+                        frame.buffer_mut(),
+                        app,
+                        row,
+                        &label,
+                        slot,
+                        selected,
+                    );
                 }
                 app.hits.borrow_mut().push(Hit {
                     x: cell.x,

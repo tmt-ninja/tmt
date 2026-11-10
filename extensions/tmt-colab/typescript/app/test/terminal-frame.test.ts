@@ -44,6 +44,22 @@ test('unknown components visibly fail closed', () => {
   expect(html).toContain('Part unavailable');
 });
 
+test('NO_COLOR selected totals row matches the native reverse selection fixture', () => {
+  const fixture = vector.cases.find((entry) => entry.name === 'totals-matrix')!;
+  const { component, props_json, width, height } = fixture.input;
+  const html = renderToStaticMarkup(
+    React.createElement(TerminalFrame, {
+      component,
+      width,
+      height,
+      look: 'NO_COLOR',
+      ...JSON.parse(props_json),
+    }),
+  );
+  expect(html).toMatch(/grid-row:2;color:#13141c;background-color:#d8d8d8/i);
+  expect(html).toMatch(/grid-row:3;color:#d8d8d8;background-color:#13141c/i);
+});
+
 test('v2 heat cells follow the native neutral ramp and preserve glyphs without color', async () => {
   const glyphs = ['▁', '▂', '▃', '▄', '▆', '█'];
   const cells = glyphs.map((glyph, heat_level) => ({

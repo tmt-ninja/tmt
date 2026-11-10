@@ -11,6 +11,27 @@ pub(in crate::board) use details::Basis as EstimateBasis;
 pub(in crate::board) use render::open_basis;
 mod table;
 
+fn paint_grid(
+    frame: &mut ratatui::Frame,
+    app: &crate::board::app::App,
+    area: ratatui::layout::Rect,
+    draw: impl FnOnce(&mut tmt_tui::components::design_system::CellGrid),
+) {
+    use tmt_tui::components::{design_system as ds, design_system_ratatui};
+    let mut grid = ds::CellGrid::new(ds::Size {
+        width: area.width,
+        height: area.height,
+    });
+    draw(&mut grid);
+    design_system_ratatui::paint(
+        &grid,
+        area,
+        frame.buffer_mut(),
+        &app.look().theme,
+        app.look().depth,
+    );
+}
+
 use crate::board::{
     app::App,
     usage_report::Report,

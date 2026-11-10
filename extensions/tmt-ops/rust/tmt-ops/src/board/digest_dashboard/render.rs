@@ -5,6 +5,41 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
+pub(super) fn pane_frame(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    pane: Pane,
+    title: &str,
+) -> Rect {
+    use ds::Component;
+    use tmt_tui::components::design_system as ds;
+    if area.width < 3 || area.height < 3 {
+        return area;
+    }
+    super::paint_grid(frame, app, area, |grid| {
+        ds::PaneFrame::render(
+            &ds::PaneFrameProps {
+                title: title.into(),
+                focused: app.focused() == pane,
+                ascii: matches!(
+                    app.cron_glyphs,
+                    crate::board::overview::cron_counts::GlyphSet::Ascii
+                ),
+                back_hint: pane == Pane::Replies,
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: area.width,
+                height: area.height,
+            },
+            grid,
+        );
+    });
+    crate::board::pane_chrome::content_area(area)
+}
+
 /// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let _rows = app.workspace_frame_rows();
@@ -114,20 +149,28 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
 }
 fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
     let inside = if chrome {
-        crate::board::pane_chrome::paint(
-            frame,
-            app,
-            area,
-            Pane::Replies,
-            "Exchanges · talk + reply",
-        )
+        pane_frame(frame, app, area, Pane::Replies, "Exchanges · talk + reply")
     } else {
         if !area.is_empty() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect { height: 1, ..area },
-                Line::styled("── Exchanges · talk + reply", app.look().role(Role::Muted)),
-            );
+            use ds::Component;
+            use tmt_tui::components::design_system as ds;
+            super::paint_grid(frame, app, Rect { height: 1, ..area }, |grid| {
+                ds::SectionRule::render(
+                    &ds::SectionRuleProps {
+                        title: "Exchanges · talk + reply".into(),
+                        note: None,
+                        note_role: None,
+                        focused: false,
+                    },
+                    ds::Rect {
+                        x: 0,
+                        y: 0,
+                        width: area.width,
+                        height: 1,
+                    },
+                    grid,
+                );
+            });
         }
         Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),
@@ -171,24 +214,28 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
             Line::styled(text, app.look().role(Role::Muted)),
         );
     } else {
-        let _cells = exchange_matrix::paint(
-            frame.buffer_mut(),
-            inside,
-            &ranked,
-            selected,
-            report.and_then(|report| report.exchange.as_ref()),
-            app.look(),
-        );
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let traffic = report.and_then(|report| report.exchange.as_ref());
+        let Some(props) = exchange_matrix::digest_props(inside, &ranked, selected, traffic) else {
+            return;
+        };
+        super::paint_grid(frame, app, inside, |grid| {
+            ds::TotalsTable::render(
+                &props,
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: inside.width,
+                    height: inside.height,
+                },
+                grid,
+            );
+        });
     }
 }
 fn detail(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside = crate::board::pane_chrome::paint(
-        frame,
-        app,
-        area,
-        Pane::Replies,
-        &super::details::title(app),
-    );
+    let mut inside = pane_frame(frame, app, area, Pane::Replies, &super::details::title(app));
     if inside.is_empty() {
         return;
     }
@@ -243,8 +290,41 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
             .unwrap_or(false);
         inline.visible.set(visible);
     }
-    app.scrolls
-        .show(frame, Pane::Replies, inside, lines, app.look());
+    app.scrolls.show_paint(
+        frame,
+        Pane::Replies,
+        inside,
+        lines.len(),
+        app.look(),
+        |frame, viewport, offset| {
+            use ds::Component;
+            use tmt_tui::components::design_system as ds;
+            super::paint_grid(frame, app, viewport, |grid| {
+                for (y, line) in lines
+                    .iter()
+                    .skip(offset)
+                    .take(usize::from(viewport.height))
+                    .enumerate()
+                {
+                    ds::Text::render(
+                        &ds::TextProps {
+                            spans: vec![ds::TextSpan {
+                                text: line.to_string(),
+                                role: ds::Token(Role::Text),
+                            }],
+                        },
+                        ds::Rect {
+                            x: 0,
+                            y: y as u16,
+                            width: viewport.width,
+                            height: 1,
+                        },
+                        grid,
+                    );
+                }
+            });
+        },
+    );
     if !inside.is_empty()
         && let Some(target) = app.row_target(app.selected)
     {
