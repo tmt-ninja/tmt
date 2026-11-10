@@ -120,13 +120,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     };
     let line = |frame: &mut Frame, y: u16, text: String, role: Role| {
         if y < area.height {
-            strip::paint_left(
-                frame.buffer_mut(),
+            paint_text(
+                frame,
+                app,
                 Rect::new(area.x, area.y + y, area.width, 1),
-                Line::styled(
-                    crate::board::view::fit(&text, usize::from(area.width)),
-                    app.look().role(role),
-                ),
+                text,
+                role,
             );
         }
     };
@@ -195,10 +194,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             ),
         ];
         for (i, text) in texts.into_iter().enumerate() {
-            strip::paint_left(
-                frame.buffer_mut(),
+            paint_text(
+                frame,
+                app,
                 Rect::new(area.right() - side, area.y + 2 + i as u16, side, 1),
-                Line::styled(text, app.look().role(Role::Text)),
+                text,
+                Role::Text,
             );
         }
     }
@@ -219,10 +220,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             labels.push((mid_x, middle));
         }
         for (x, label) in labels {
-            strip::paint_left(
-                frame.buffer_mut(),
+            paint_text(
+                frame,
+                app,
                 Rect::new(area.x + x as u16, area.y + 4, label.width() as u16, 1),
-                Line::styled(label, app.look().role(Role::Muted)),
+                label.into(),
+                Role::Muted,
             );
         }
     }
@@ -233,6 +236,36 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         7,
         "Saved = avoided input · estimate, not a bill".into(),
         Role::Muted,
+    );
+}
+fn paint_text(frame: &mut Frame, app: &App, area: Rect, text: String, role: Role) {
+    use ds::Component;
+    use tmt_tui::components::{design_system as ds, design_system_ratatui};
+    let mut grid = ds::CellGrid::new(ds::Size {
+        width: area.width,
+        height: 1,
+    });
+    ds::Text::render(
+        &ds::TextProps {
+            spans: vec![ds::TextSpan {
+                text: crate::board::view::fit(&text, usize::from(area.width)),
+                role: ds::Token(role),
+            }],
+        },
+        ds::Rect {
+            x: 0,
+            y: 0,
+            width: area.width,
+            height: 1,
+        },
+        &mut grid,
+    );
+    design_system_ratatui::paint(
+        &grid,
+        area,
+        frame.buffer_mut(),
+        &app.look().theme,
+        app.look().depth,
     );
 }
 fn status_row(frame: &mut Frame, app: &App, area: Rect) {

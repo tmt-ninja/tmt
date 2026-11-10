@@ -7,14 +7,9 @@ use crate::board::{
 };
 use crate::config::{Pane, SavingsUnit};
 use crate::labels::digest::SavingsSummary;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::{Line, Span},
-};
+use ratatui::{Frame, layout::Rect};
 use std::rc::Rc;
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
@@ -109,70 +104,69 @@ pub(super) fn painted_width(app: &App) -> Option<u16> {
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
 }
-pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<Span<'static>> {
-    use ds::Component;
-    use tmt_tui::components::{design_system as ds, design_system_ratatui};
-    let width = values.len().min(u16::MAX as usize) as u16;
-    let area = ds::Rect {
-        x: 0,
-        y: 0,
-        width,
-        height: 1,
-    };
-    let mut grid = ds::CellGrid::new(ds::Size { width, height: 1 });
-    ds::ActivityCells::render(
-        &ds::ActivityCellsProps {
-            values: values.to_vec(),
-            selected,
-        },
-        area,
-        &mut grid,
-    );
-    let native = Rect::new(0, 0, width, 1);
-    let mut buffer = ratatui::buffer::Buffer::empty(native);
-    design_system_ratatui::paint(
-        &grid,
-        native,
-        &mut buffer,
-        &app.look().theme,
-        app.look().depth,
-    );
-    (0..width)
-        .map(|x| {
-            let cell = &buffer[(x, 0)];
-            Span::styled(cell.symbol().to_owned(), cell.style())
-        })
-        .collect()
+fn selection_underlay(grid: &mut tmt_tui::components::design_system::CellGrid, width: u16) {
+    for x in 0..width {
+        if let Some(mut cell) = grid.get(x, 0).cloned() {
+            cell.underlay = Some(Role::Selection);
+            grid.set(x, 0, cell);
+        }
+    }
 }
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside =
-        crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Agents by TOK");
+    let mut inside = super::render::pane_frame(frame, app, area, Pane::Rows, "Agents by TOK");
     if inside.is_empty() {
         return;
     }
     let unit = app.savings_unit();
     let fields = tracks(inside.width, unit);
-    let mut x = inside.x;
-    for (field, width) in &fields {
-        let caption = match field {
-            Field::Agent => "AGENT",
-            Field::State => "STATE",
-            Field::Activity => "ACTIVITY",
-            Field::Tokens => "TOK",
-            Field::Percent => "SAVED %",
-            Field::Saved => "SAVED",
-            Field::Held => "HELD",
-            Field::Mode => "MODE",
-        };
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(x, inside.y, *width, 1),
-            Line::styled(
-                fit(caption, usize::from(*width)),
-                app.look().role(Role::Muted),
-            ),
+    let columns = fields
+        .iter()
+        .map(|(field, width)| {
+            let caption = match field {
+                Field::Agent => "AGENT",
+                Field::State => "STATE",
+                Field::Activity => "ACTIVITY",
+                Field::Tokens => "TOK",
+                Field::Percent => "SAVED %",
+                Field::Saved => "SAVED",
+                Field::Held => "HELD",
+                Field::Mode => "MODE",
+            };
+            tmt_tui::components::design_system::TotalsColumn {
+                header: fit(caption, usize::from(*width)),
+                width: *width,
+                role: tmt_tui::components::design_system::Token(Role::Text),
+                right_aligned: false,
+            }
+        })
+        .collect();
+    {
+        use ds::Component;
+        use tmt_tui::components::{design_system as ds, design_system_ratatui};
+        let mut grid = ds::CellGrid::new(ds::Size {
+            width: inside.width,
+            height: 1,
+        });
+        ds::TotalsTable::render(
+            &ds::TotalsTableProps {
+                columns,
+                rows: vec![],
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: inside.width,
+                height: 1,
+            },
+            &mut grid,
         );
-        x += width + 1;
+        design_system_ratatui::paint(
+            &grid,
+            Rect::new(inside.x, inside.y, inside.width, 1),
+            frame.buffer_mut(),
+            &app.look().theme,
+            app.look().depth,
+        );
     }
     inside.y += 1;
     inside.height -= 1;
@@ -201,13 +195,33 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     .collect::<Vec<_>>()
     .join(" · ");
     if inside.height > 1 && !footer.is_empty() {
-        strip::paint_left(
-            frame.buffer_mut(),
+        use ds::Component;
+        use tmt_tui::components::{design_system as ds, design_system_ratatui};
+        let mut grid = ds::CellGrid::new(ds::Size {
+            width: inside.width,
+            height: 1,
+        });
+        ds::Text::render(
+            &ds::TextProps {
+                spans: vec![ds::TextSpan {
+                    text: fit(&footer, usize::from(inside.width)),
+                    role: ds::Token(Role::Muted),
+                }],
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: inside.width,
+                height: 1,
+            },
+            &mut grid,
+        );
+        design_system_ratatui::paint(
+            &grid,
             Rect::new(inside.x, inside.bottom() - 1, inside.width, 1),
-            Line::styled(
-                fit(&footer, usize::from(inside.width)),
-                app.look().role(Role::Muted),
-            ),
+            frame.buffer_mut(),
+            &app.look().theme,
+            app.look().depth,
         );
         inside.height -= 1;
     }
@@ -245,9 +259,13 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                     1,
                 );
                 let selected = Some(&row.target) == app.workspace.selected.as_ref();
-                if selected {
-                    frame.buffer_mut().set_style(cell, app.look().selection());
-                }
+                use ds::Component;
+                use tmt_tui::components::{design_system as ds, design_system_ratatui};
+                let mut grid = ds::CellGrid::new(ds::Size {
+                    width: cell.width,
+                    height: 1,
+                });
+                let mut state = None;
                 let row_ids = metrics::identities(row, &rows);
                 let reading = metrics::tokens(report, &row_ids);
                 // Tokens and percent read one supplied summary per row.
@@ -265,14 +283,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                     if matches!(field, Field::State)
                         && let Some(label) = app.activity_label(row)
                     {
-                        crate::board::workspace::columns::paint_activity(
-                            frame.buffer_mut(),
-                            app,
-                            row,
-                            &label,
-                            slot,
-                            selected,
-                        );
+                        state = Some((slot, label));
                         continue;
                     }
                     if matches!(
@@ -310,23 +321,25 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                 .map(|(_, end)| end)
                                 .max()
                                 .unwrap_or(slot.right());
-                            strip::paint_left(
-                                frame.buffer_mut(),
-                                Rect::new(slot.x, slot.y, end.saturating_sub(slot.x), 1)
-                                    .intersection(cell),
-                                Line::styled(
-                                    "no usage source",
-                                    if selected {
-                                        app.look().selection()
-                                    } else {
-                                        app.look().role(Role::Dim)
-                                    },
-                                ),
+                            ds::Text::render(
+                                &ds::TextProps {
+                                    spans: vec![ds::TextSpan {
+                                        text: "no usage source".into(),
+                                        role: ds::Token(Role::Dim),
+                                    }],
+                                },
+                                ds::Rect {
+                                    x: slot.x - cell.x,
+                                    y: 0,
+                                    width: end.min(cell.right()).saturating_sub(slot.x),
+                                    height: 1,
+                                },
+                                &mut grid,
                             );
                         }
                         continue;
                     }
-                    let spans = if matches!(field, Field::Activity) {
+                    if matches!(field, Field::Activity) {
                         let values = metrics::activity(report, &row_ids);
                         let each = values.len().div_ceil(usize::from(slot.width).max(1)).max(1);
                         let values = values
@@ -337,7 +350,16 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                     .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
                             })
                             .collect::<Vec<_>>();
-                        hourly(app, &values, selected)
+                        ds::ActivityCells::render(
+                            &ds::ActivityCellsProps { values, selected },
+                            ds::Rect {
+                                x: slot.x - cell.x,
+                                y: 0,
+                                width: slot.width,
+                                height: 1,
+                            },
+                            &mut grid,
+                        );
                     } else {
                         let text = match (field, &row_saved) {
                             (Field::Saved, Some(summary)) => saved(summary, SavingsUnit::Tokens),
@@ -356,16 +378,42 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                 usize::from(*width),
                             )
                         };
-                        vec![Span::styled(
-                            text,
-                            if selected {
-                                app.look().selection()
-                            } else {
-                                app.look().role(Role::Text)
+                        ds::Text::render(
+                            &ds::TextProps {
+                                spans: vec![ds::TextSpan {
+                                    text,
+                                    role: ds::Token(Role::Text),
+                                }],
                             },
-                        )]
-                    };
-                    strip::paint_left(frame.buffer_mut(), slot, Line::from(spans));
+                            ds::Rect {
+                                x: slot.x - cell.x,
+                                y: 0,
+                                width: slot.width,
+                                height: 1,
+                            },
+                            &mut grid,
+                        );
+                    }
+                }
+                if selected {
+                    selection_underlay(&mut grid, cell.width);
+                }
+                design_system_ratatui::paint(
+                    &grid,
+                    cell,
+                    frame.buffer_mut(),
+                    &app.look().theme,
+                    app.look().depth,
+                );
+                if let Some((slot, label)) = state {
+                    crate::board::workspace::columns::paint_activity(
+                        frame.buffer_mut(),
+                        app,
+                        row,
+                        &label,
+                        slot,
+                        selected,
+                    );
                 }
                 app.hits.borrow_mut().push(Hit {
                     x: cell.x,

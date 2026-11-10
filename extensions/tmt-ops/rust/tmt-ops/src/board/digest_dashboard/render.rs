@@ -5,6 +5,50 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
+pub(super) fn pane_frame(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    pane: Pane,
+    title: &str,
+) -> Rect {
+    use ds::Component;
+    use tmt_tui::components::{design_system as ds, design_system_ratatui};
+    if area.width < 3 || area.height < 3 {
+        return area;
+    }
+    let mut grid = ds::CellGrid::new(ds::Size {
+        width: area.width,
+        height: area.height,
+    });
+    ds::PaneFrame::render(
+        &ds::PaneFrameProps {
+            title: title.into(),
+            focused: app.focused() == pane,
+            ascii: matches!(
+                app.cron_glyphs,
+                crate::board::overview::cron_counts::GlyphSet::Ascii
+            ),
+            back_hint: pane == Pane::Replies,
+        },
+        ds::Rect {
+            x: 0,
+            y: 0,
+            width: area.width,
+            height: area.height,
+        },
+        &mut grid,
+    );
+    design_system_ratatui::paint(
+        &grid,
+        area,
+        frame.buffer_mut(),
+        &app.look().theme,
+        app.look().depth,
+    );
+    crate::board::pane_chrome::content_area(area)
+}
+
 /// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let _rows = app.workspace_frame_rows();
@@ -114,19 +158,36 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
 }
 fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
     let inside = if chrome {
-        crate::board::pane_chrome::paint(
-            frame,
-            app,
-            area,
-            Pane::Replies,
-            "Exchanges · talk + reply",
-        )
+        pane_frame(frame, app, area, Pane::Replies, "Exchanges · talk + reply")
     } else {
         if !area.is_empty() {
-            strip::paint_left(
-                frame.buffer_mut(),
+            use ds::Component;
+            use tmt_tui::components::{design_system as ds, design_system_ratatui};
+            let mut grid = ds::CellGrid::new(ds::Size {
+                width: area.width,
+                height: 1,
+            });
+            ds::SectionRule::render(
+                &ds::SectionRuleProps {
+                    title: "Exchanges · talk + reply".into(),
+                    note: None,
+                    note_role: None,
+                    focused: false,
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: area.width,
+                    height: 1,
+                },
+                &mut grid,
+            );
+            design_system_ratatui::paint(
+                &grid,
                 Rect { height: 1, ..area },
-                Line::styled("── Exchanges · talk + reply", app.look().role(Role::Muted)),
+                frame.buffer_mut(),
+                &app.look().theme,
+                app.look().depth,
             );
         }
         Rect::new(
@@ -171,24 +232,123 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
             Line::styled(text, app.look().role(Role::Muted)),
         );
     } else {
-        let _cells = exchange_matrix::paint(
-            frame.buffer_mut(),
+        use ds::Component;
+        use tmt_tui::components::{design_system as ds, design_system_ratatui};
+        let traffic = report.and_then(|report| report.exchange.as_ref());
+        let minimum = traffic
+            .map_or(0, |value| value.maximum)
+            .to_string()
+            .len()
+            .max(5) as u16
+            + 1;
+        let name_width = 12u16.min(inside.width / 3);
+        let slots = usize::from(inside.width.saturating_sub(name_width) / minimum)
+            .min(5)
+            .min(usize::from(inside.height.saturating_sub(1)));
+        let rows = exchange_matrix::participants(&ranked, selected, slots);
+        if rows.is_empty() {
+            return;
+        }
+        let value_width = (inside.width.saturating_sub(name_width) / rows.len() as u16)
+            .max(minimum)
+            .saturating_sub(1);
+        let name_width = name_width.saturating_sub(1);
+        let abbreviations: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                exchange_matrix::fit_tail(
+                    &crate::board::notes::single_line(&row.name),
+                    usize::from(value_width),
+                )
+            })
+            .collect();
+        let numbered = abbreviations
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != abbreviations.len();
+        let label = |index: usize, name: &str| {
+            if numbered {
+                format!("{} {name}", index + 1)
+            } else {
+                name.to_owned()
+            }
+        };
+        let mut columns = vec![ds::TotalsColumn {
+            header: crate::board::view::fit("from\\to", usize::from(name_width)),
+            width: name_width,
+            role: ds::Token(Role::Text),
+            right_aligned: false,
+        }];
+        columns.extend(
+            rows.iter()
+                .enumerate()
+                .map(|(index, row)| ds::TotalsColumn {
+                    header: exchange_matrix::fit_tail(
+                        &label(index, &row.name),
+                        usize::from(value_width),
+                    ),
+                    width: value_width,
+                    role: ds::Token(Role::Text),
+                    right_aligned: true,
+                }),
+        );
+        let values = rows
+            .iter()
+            .enumerate()
+            .map(|(index, sender)| {
+                let mut values = vec![crate::board::view::fit(
+                    &label(index, &sender.name),
+                    usize::from(name_width),
+                )];
+                values.extend(rows.iter().map(|recipient| {
+                    if sender.id == recipient.id {
+                        String::new()
+                    } else {
+                        traffic.map_or_else(
+                            || "—".into(),
+                            |traffic| match traffic.count(&sender.id, &recipient.id).unwrap_or(0) {
+                                0 => "·".into(),
+                                count => count.to_string(),
+                            },
+                        )
+                    }
+                }));
+                ds::TotalsRow {
+                    values,
+                    selected: false,
+                    id: None,
+                }
+            })
+            .collect();
+        let mut grid = ds::CellGrid::new(ds::Size {
+            width: inside.width,
+            height: inside.height,
+        });
+        ds::TotalsTable::render(
+            &ds::TotalsTableProps {
+                columns,
+                rows: values,
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: inside.width,
+                height: inside.height,
+            },
+            &mut grid,
+        );
+        design_system_ratatui::paint(
+            &grid,
             inside,
-            &ranked,
-            selected,
-            report.and_then(|report| report.exchange.as_ref()),
-            app.look(),
+            frame.buffer_mut(),
+            &app.look().theme,
+            app.look().depth,
         );
     }
 }
 fn detail(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside = crate::board::pane_chrome::paint(
-        frame,
-        app,
-        area,
-        Pane::Replies,
-        &super::details::title(app),
-    );
+    let mut inside = pane_frame(frame, app, area, Pane::Replies, &super::details::title(app));
     if inside.is_empty() {
         return;
     }
@@ -243,8 +403,50 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
             .unwrap_or(false);
         inline.visible.set(visible);
     }
-    app.scrolls
-        .show(frame, Pane::Replies, inside, lines, app.look());
+    app.scrolls.show_paint(
+        frame,
+        Pane::Replies,
+        inside,
+        lines.len(),
+        app.look(),
+        |frame, viewport, offset| {
+            use ds::Component;
+            use tmt_tui::components::{design_system as ds, design_system_ratatui};
+            let mut grid = ds::CellGrid::new(ds::Size {
+                width: viewport.width,
+                height: viewport.height,
+            });
+            for (y, line) in lines
+                .iter()
+                .skip(offset)
+                .take(usize::from(viewport.height))
+                .enumerate()
+            {
+                ds::Text::render(
+                    &ds::TextProps {
+                        spans: vec![ds::TextSpan {
+                            text: line.to_string(),
+                            role: ds::Token(Role::Text),
+                        }],
+                    },
+                    ds::Rect {
+                        x: 0,
+                        y: y as u16,
+                        width: viewport.width,
+                        height: 1,
+                    },
+                    &mut grid,
+                );
+            }
+            design_system_ratatui::paint(
+                &grid,
+                viewport,
+                frame.buffer_mut(),
+                &app.look().theme,
+                app.look().depth,
+            );
+        },
+    );
     if !inside.is_empty()
         && let Some(target) = app.row_target(app.selected)
     {

@@ -65,15 +65,6 @@ pub(in crate::board) struct Options {
     pub sum: bool,
 }
 
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            limit: 5,
-            sum: false,
-        }
-    }
-}
-
 /// What `sender` sent to anyone but itself, from the whole observed window.
 fn sent(traffic: &Traffic, sender: &str) -> u64 {
     traffic
@@ -118,28 +109,8 @@ pub(in crate::board) fn by_traffic(
     participants
 }
 
-/// The Digest tab's matrix: the top five agents, no total.
-pub(in crate::board) fn paint(
-    buffer: &mut Buffer,
-    area: Rect,
-    ranked: &[ExchangeParticipant],
-    selected: Option<&str>,
-    traffic: Option<&Traffic>,
-    look: Look,
-) -> Vec<CellHit> {
-    paint_with(
-        buffer,
-        area,
-        ranked,
-        selected,
-        traffic,
-        look,
-        Options::default(),
-    )
-}
-
 /// `text` cut to `width` cells from its left, behind a `…`, so its tail stays.
-fn fit_tail(text: &str, width: usize) -> String {
+pub(super) fn fit_tail(text: &str, width: usize) -> String {
     use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     if text.width() <= width {
         return text.to_owned();
