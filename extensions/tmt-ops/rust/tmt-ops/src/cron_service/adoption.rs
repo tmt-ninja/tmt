@@ -161,7 +161,12 @@ fn publish(core: &Core, store: &Store, frozen: &FrozenJobs) -> Result<(), SquadE
     }
 }
 
-fn recovery(frozen: &FrozenJobs, error: SquadError) -> SquadError {
+/// A load that was superseded is not a cutover failure: the source stays frozen, and the next
+/// load resumes it. Only the caller knows a cancellation is ordinary, so it stays recognizable.
+pub(super) fn recovery(frozen: &FrozenJobs, error: SquadError) -> SquadError {
+    if error.was_cancelled() {
+        return error;
+    }
     SquadError::hinted(
         "SQUAD_CRON_CUTOVER_UNCONFIRMED",
         &format!(
