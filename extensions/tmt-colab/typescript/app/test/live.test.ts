@@ -751,20 +751,54 @@ it('the first snapshot shows the document at once; threads and asks follow once 
     expect(first.threads).toBeUndefined();
     expect(first.asks).toBeUndefined();
     expect(first.threadPresentations).toBeUndefined();
+    // Settling the first attachment must wait for the held verification.
+    vi.useFakeTimers();
+    let attachmentSettled = false;
+    const settling = live.discussion.attachments.settle().then(() => {
+      attachmentSettled = true;
+    });
+    expect(await live.discussion.attachments.limits()).toEqual({ reason: 'unavailable' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attachmentSettled).toBe(false);
     const seen: PageView[] = [];
     live.subscribe(
       (value) => seen.push(value),
       () => {},
     );
     expect(seen.map((value) => value.discussionPending)).toEqual([true]);
+    vi.useRealTimers();
     release();
+    await settling;
+    expect(attachmentSettled).toBe(true);
     await vi.waitFor(() => expect(seen).toHaveLength(2));
     expect(seen[1].discussionPending).toBeUndefined();
     expect(seen[1].threads).toEqual([]);
+    expect(await live.discussion.attachments.limits()).toEqual({ payloadBytes: 4096 });
     expect(seen[1].asks).toEqual([]);
     const verified = await live.snapshot();
     expect(verified.discussionPending).toBeUndefined();
     expect(verified.threads).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+    live.close();
+  }
+});
+
+it('attachment readiness refuses when first-view verification fails', async () => {
+  let fail!: (error: Error) => void;
+  asks.project.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const live = openLive();
+  try {
+    expect((await live.snapshot()).discussionPending).toBe(true);
+    const settling = live.discussion.attachments.settle();
+    fail(new Error('Invalid discussion signature'));
+    await expect(settling).rejects.toThrow();
+    expect(await live.discussion.attachments.limits()).toEqual({ reason: 'unavailable' });
   } finally {
     live.close();
   }
