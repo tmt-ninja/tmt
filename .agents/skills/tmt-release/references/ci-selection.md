@@ -331,7 +331,7 @@ print the bounded private-JSON summary; acceptance never cancels active runs.
 Full scope calls `workspace-partitions.yml` under the workspace worker ID; Ops
 keeps Cargo/architecture verification. The producer retains independent Cargo/libtest
 discovery, separate doctests, dev build and selected native sync. Required `partitions`
-(K) is 2. Each Ubuntu consumer admits producer source/run/toolchain/archive digest
+(K) admits 2 or 3. Each Ubuntu consumer admits producer source/run/toolchain/archive digest
 separately from execution attempt, proves its slice and records actual PASS identities.
 The always-run collector rejects missing/skipped/failed/overlapping/foreign results
 before native aggregation; counts never replace exact non-ignored case coverage.
@@ -341,8 +341,8 @@ Consumers install pinned Rust for tests using Cargo metadata, pass real Cargo in
 `CARGO`, extract/run without cache restore or build. Only the admitted main producer
 writes caches. Phase evidence covers compile/list/archive/extract/execute; Actions
 steps retain setup/transfer/emulator/collection cost. Separate VMs own cleanup;
-local heavy proofs require Infra's run grant. Failed commands drain captured output
-before throwing, keeping names/details/summary in job logs and phase artifacts. `nextest list` (inventory, slice checks and downloaded-archive extraction/listing) has a 60 s command bound; compile/archive/execute retain 18 min. A timeout names the phase and bound while preserving its original cause/output and `timeoutMs`/`errorCode` phase evidence. It is not retried.
+local heavy proofs require Infra's run grant. All phases drain captured output
+before returning or throwing, keeping names/details/summary in job logs and phase artifacts. Identity failures name the partition, binary/case and terminal status; leaked handles remain rejected and are distinguished from missing completion evidence. `nextest list` (inventory, slice checks and downloaded-archive extraction/listing) has a 60 s command bound; compile/archive/execute retain 18 min. A timeout names the phase and bound while preserving its original cause/output and `timeoutMs`/`errorCode` phase evidence. It is not retried.
 
 Only a fully successful producer job and both uploads yield its receipt, binding
 original attempt, exact manifest bytes, archive hash/size and immutable inventory/

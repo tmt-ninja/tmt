@@ -71,19 +71,45 @@ export function compareInventories(cargo, nextest) {
 }
 
 /** A green summary alone cannot hide a filtered, missing or repeated case. */
-export function verifyExecution(cases, log) {
-  const observed = clean(log)
+export function verifyExecution(cases, log, partition = 'unspecified') {
+  const records = clean(log)
     .split('\n')
     .flatMap((line) => {
-      const match = /PASS\s+\[\s*[\d.]+s\]\s+\(\s*\d+\/\d+\)\s+(\S+)\s+(.+)$/.exec(line);
-      return match ? [JSON.stringify([match[1], match[2]])] : [];
+      // Numeric completion counters distinguish terminal records from SLOW notices.
+      // Keep non-PASS statuses: LEAK can accompany nextest exit zero.
+      const match = /^\s*(.*?)\s+\[\s*[\d.]+s\]\s+\(\s*\d+\/\d+\)\s+(\S+)\s+(.+)$/.exec(line);
+      return match ? [{ status: match[1], binary: match[2], name: match[3] }] : [];
     });
-  assert.equal(new Set(observed).size, observed.length, 'repeated nextest PASS');
-  const expected = cases
-    .filter((test) => !test.ignored)
-    .map((test) => JSON.stringify([test.binary, test.name]));
-  assert.deepEqual(observed.sort(), expected.sort(), 'nextest executed case identities differ');
-  return { passed: observed.length, ignored: cases.length - observed.length, total: cases.length };
+  const observed = new Map();
+  const problems = [];
+  for (const record of records) {
+    const identity = key(record);
+    if (observed.has(identity)) problems.push(`${identity}: repeated terminal record`);
+    observed.set(identity, record);
+  }
+  const active = cases.filter((test) => !test.ignored).map(key);
+  const expected = new Set(active);
+  if (expected.size !== active.length) problems.push('duplicate expected case identity');
+  for (const identity of expected) {
+    const record = observed.get(identity);
+    if (!record) problems.push(`${identity}: missing terminal record (execution unproven)`);
+    else if (record.status !== 'PASS') {
+      const reason = /LEAK|FL\+LK|LKFAIL/.test(record.status)
+        ? 'executed, leaked handles'
+        : 'executed, non-PASS status';
+      problems.push(`${identity}: ${reason} (${record.status})`);
+    }
+  }
+  for (const identity of observed.keys())
+    if (!expected.has(identity)) problems.push(`${identity}: unexpected terminal record`);
+  assert.equal(
+    problems.length,
+    0,
+    `nextest executed case identities differ; partition ${partition}:\n` +
+      problems.slice(0, 20).join('\n') +
+      (problems.length > 20 ? `\n... ${problems.length - 20} more discrepancies` : '')
+  );
+  return { passed: observed.size, ignored: cases.length - observed.size, total: cases.length };
 }
 
 export const NEXTEST_VERSION = '0.9.148';
@@ -263,7 +289,7 @@ export function aggregatePartitions(manifest, results, states, selection) {
     assert.equal(result.worldRemoved, true, 'partition world retained');
     const expected = partitionCases(cases, result.index, manifest.partitions);
     assert.deepEqual(result.cases, expected, 'partition result identities differ');
-    verifyExecution(expected, result.log);
+    verifyExecution(expected, result.log, `${result.index}/${manifest.partitions}`);
     union.push(...result.cases);
   }
   assert.equal(new Set(union.map(key)).size, union.length, 'overlapping partition cases');
@@ -738,23 +764,19 @@ export async function runWorkspacePhase(
   writeJSON(file, phases);
   const stdout = result.stdout ?? '';
   const stderr = (result.stderr ?? '') + diagnostics.join('\n');
-  if (result.error || result.status !== 0 || (world && !worldRemoved)) {
-    // An uncaught failure can exit before pipe writes drain; artifacts are already durable.
-    await Promise.all(
-      [
-        [process.stdout, stdout],
-        [process.stderr, stderr],
-      ].map(
-        ([stream, text]) =>
-          new Promise((resolve, reject) => {
-            stream.write(text, (error) => (error ? reject(error) : resolve()));
-          })
-      )
-    );
-  } else {
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
-  }
+  // The caller can fail verification after a successful child. Drain both pipes
+  // before returning so an uncaught assertion cannot truncate the console tail.
+  await Promise.all(
+    [
+      [process.stdout, stdout],
+      [process.stderr, stderr],
+    ].map(
+      ([stream, text]) =>
+        new Promise((resolve, reject) => {
+          stream.write(text, (error) => (error ? reject(error) : resolve()));
+        })
+    )
+  );
   if (world) assert.equal(worldRemoved, true, 'private world retained');
   console.log(`#3284 phase=${phase} seconds=${seconds.toFixed(3)} exit=${result.status}`);
   if (result.error?.code === 'ETIMEDOUT')
@@ -974,7 +996,7 @@ async function consume(directory, index) {
   const worldRemoved = phases.at(-1).worldRemoved;
   assert.equal(worldRemoved, true, 'partition world retained');
   const log = readFileSync(path.join(directory, 'nextest-execution.log'), 'utf8');
-  verifyExecution(expected, log);
+  verifyExecution(expected, log, `${index}/${manifest.partitions}`);
   writeJSON(path.join(directory, 'result.json'), {
     schema: 2,
     producerIdentity: manifest.producerIdentity,

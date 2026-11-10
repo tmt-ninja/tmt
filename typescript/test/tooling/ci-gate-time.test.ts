@@ -153,7 +153,10 @@ describe('recorded gate cohort', () => {
     ].map((name) => `Native Rust workspace tests / ${name}`);
     expect(unmeasuredBudgets(summary, budgets)).toEqual(
       ['pull_request', 'merge_group'].flatMap((event) =>
-        partitionJobs.map((job) => ({ event, job }))
+        [...partitionJobs, 'Native process shard 1/2', 'Native process shard 2/2'].map((job) => ({
+          event,
+          job,
+        }))
       )
     );
     expect(renderReport(summary, limits)).toMatch(
@@ -371,6 +374,18 @@ describe('collection failures', () => {
 });
 
 describe('budget file', () => {
+  it('budgets the two process workers rather than their wait-only aggregate', () => {
+    expect(budgets.jobs['Native process contracts']).toBeUndefined();
+    expect(budgets.jobs['Native process shard 1/2']).toEqual({
+      pull_request: 420,
+      merge_group: 413,
+    });
+    expect(budgets.jobs['Native process shard 2/2']).toEqual({
+      pull_request: 393,
+      merge_group: 399,
+    });
+  });
+
   it('parses, with both events and every job budgeted by a positive figure', () => {
     // Structural only: the figures are tightened over time and are not pinned here.
     for (const event of ['pull_request', 'merge_group'] as const) {
