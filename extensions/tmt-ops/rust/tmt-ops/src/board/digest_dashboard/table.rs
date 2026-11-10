@@ -288,32 +288,30 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                             let task = projection.task.as_ref().map_or(0, |span| {
                                 (span.text.width() as u16).min(slot.width.saturating_sub(primary))
                             });
-                            let spans = projection
+                            let todo = projection
+                                .todo
+                                .as_ref()
+                                .map_or(0, |span| span.text.width() as u16);
+                            let mut spans: Vec<_> = projection
                                 .primary
                                 .into_iter()
                                 .chain(projection.task)
                                 .chain(projection.todo)
                                 .collect();
+                            crate::board::workspace::columns::activity_selection(
+                                &mut spans, app, selected,
+                            );
                             ds::Text::render(
                                 &ds::TextProps { spans },
                                 ds::Rect {
                                     x: slot.x - cell.x,
                                     y: 0,
-                                    width: slot.width,
+                                    width: slot
+                                        .width
+                                        .min(primary.saturating_add(task).saturating_add(todo)),
                                     height: 1,
                                 },
                                 grid,
-                            );
-                            crate::board::workspace::columns::selected_activity_roles(
-                                grid,
-                                ds::Rect {
-                                    x: slot.x - cell.x,
-                                    y: 0,
-                                    width: slot.width,
-                                    height: 1,
-                                },
-                                app,
-                                selected,
                             );
                             state = Some((slot, primary, task));
                             continue;

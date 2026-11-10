@@ -6121,33 +6121,30 @@ fn digest_state_text_keeps_native_styles_and_unread_geometry() {
                         let task = projection.task.as_ref().map_or(0, |span| {
                             (span.text.width() as u16).min(width.saturating_sub(primary))
                         });
-                        let spans = projection
+                        let todo = projection
+                            .todo
+                            .as_ref()
+                            .map_or(0, |span| span.text.width() as u16);
+                        assert_eq!(used, primary.saturating_add(task).saturating_add(todo));
+                        let mut spans: Vec<_> = projection
                             .primary
                             .into_iter()
                             .chain(projection.task)
                             .chain(projection.todo)
                             .collect();
+                        crate::board::workspace::columns::activity_selection(
+                            &mut spans, &app, selected,
+                        );
                         let mut grid = ds::CellGrid::new(ds::Size { width, height: 1 });
                         ds::Text::render(
                             &ds::TextProps { spans },
                             ds::Rect {
                                 x: 0,
                                 y: 0,
-                                width,
+                                width: width.min(used),
                                 height: 1,
                             },
                             &mut grid,
-                        );
-                        crate::board::workspace::columns::selected_activity_roles(
-                            &mut grid,
-                            ds::Rect {
-                                x: 0,
-                                y: 0,
-                                width,
-                                height: 1,
-                            },
-                            &app,
-                            selected,
                         );
                         if selected {
                             for x in 0..width {
@@ -6169,7 +6166,7 @@ fn digest_state_text_keeps_native_styles_and_unread_geometry() {
                         record_activity_geometry(&app, row, area, primary, task);
                         assert_eq!(*app.workspace_state_cells.borrow(), states);
                         assert_eq!(format!("{:?}", app.unread_hits.borrow()), hits);
-                        for x in 0..used {
+                        for x in 0..width.min(used) {
                             assert_eq!(
                                 actual[(x, 0)],
                                 expected[(x, 0)],

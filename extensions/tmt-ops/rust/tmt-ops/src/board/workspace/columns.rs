@@ -687,18 +687,14 @@ pub(in crate::board) fn record_activity_geometry(
 }
 
 /// Reverse-only selection suppresses per-state foregrounds, as `table_style` does.
-pub(in crate::board) fn selected_activity_roles(
-    grid: &mut tmt_tui::components::design_system::CellGrid,
-    area: tmt_tui::components::design_system::Rect,
+pub(in crate::board) fn activity_selection(
+    spans: &mut [tmt_tui::components::design_system::TextSpan],
     app: &crate::board::app::App,
     selected: bool,
 ) {
     if selected && app.look().selection().bg.is_none() {
-        for x in area.x..area.x.saturating_add(area.width) {
-            if let Some(mut cell) = grid.get(x, area.y).cloned() {
-                cell.fg = None;
-                grid.set(x, area.y, cell);
-            }
+        for span in spans {
+            span.role = tmt_tui::components::design_system::Token(Role::Selection);
         }
     }
 }

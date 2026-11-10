@@ -125,6 +125,11 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
             .modifier
             .contains(ratatui::style::Modifier::BOLD)
     );
+    assert_eq!(
+        frame[((x + 3) as u16, y as u16)].fg,
+        ratatui::style::Color::Reset
+    );
+    assert_eq!(frame[(239, y as u16)].fg, ratatui::style::Color::Reset);
 }
 
 #[test]

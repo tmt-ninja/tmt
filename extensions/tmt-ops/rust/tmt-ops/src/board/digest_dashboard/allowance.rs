@@ -134,10 +134,15 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
         .offset
         .set(scroll.offset.get().min(scroll.hidden.get()));
     let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
-    let span = |text: String, role, bold| ds::TextSpan {
-        text,
-        role: ds::Token(role),
-        bold,
+    let span = |text: String, role, bold| {
+        (
+            ds::TextSpan {
+                text,
+                role: ds::Token(role),
+                bold,
+            },
+            false,
+        )
     };
     let mut spans = vec![span("Allowance ".into(), Role::Muted, false)];
     if rows.is_empty() {
@@ -145,7 +150,14 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         for (i, row) in rows.iter().skip(scroll.offset.get()).enumerate() {
             if i > 0 {
-                spans.push(span(" · ".into(), Role::Text, false));
+                spans.push((
+                    ds::TextSpan {
+                        text: " · ".into(),
+                        role: ds::Token(Role::Text),
+                        bold: false,
+                    },
+                    true,
+                ));
             }
             spans.extend(tile_row(
                 row,
@@ -159,24 +171,42 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
     }
     use ds::Component;
     super::paint_grid(frame, app, area, |grid| {
-        ds::Text::render(
-            &ds::TextProps { spans },
-            ds::Rect {
-                x: 0,
+        let mut x = 0u16;
+        for (span, unstyled) in spans {
+            let width = area
+                .width
+                .saturating_sub(x)
+                .min(span.text.width().min(u16::MAX as usize) as u16);
+            if width == 0 {
+                break;
+            }
+            let rect = ds::Rect {
+                x,
                 y: 0,
-                width: area.width,
+                width,
                 height: 1,
-            },
-            grid,
-        );
+            };
+            if unstyled {
+                // The original separator inherits the foreground from the board.
+                grid.text_with(rect, &span.text, None, None, false);
+            } else {
+                ds::Text::render(&ds::TextProps { spans: vec![span] }, rect, grid);
+            }
+            x += width;
+        }
     });
 }
 
-fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<ds::TextSpan> {
-    let span = |text: String, role, bold| ds::TextSpan {
-        text,
-        role: ds::Token(role),
-        bold,
+fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextSpan, bool)> {
+    let span = |text: String, role, bold| {
+        (
+            ds::TextSpan {
+                text,
+                role: ds::Token(role),
+                bold,
+            },
+            false,
+        )
     };
     let label = pad(&row.provider.label(), SOURCE, false);
     let Some(weekly) = &row.weekly else {
@@ -205,7 +235,14 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<ds::TextSp
             Role::Text,
             true,
         ),
-        span("  ".into(), Role::Text, false),
+        (
+            ds::TextSpan {
+                text: "  ".into(),
+                role: ds::Token(Role::Text),
+                bold: false,
+            },
+            true,
+        ),
         span(
             format!("{outlook:<20}"),
             if runs_out { Role::Waiting } else { Role::Text },
