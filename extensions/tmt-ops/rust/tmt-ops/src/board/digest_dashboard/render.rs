@@ -311,6 +311,7 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                             spans: vec![ds::TextSpan {
                                 text: line.to_string(),
                                 role: ds::Token(Role::Text),
+                                bold: false,
                             }],
                         },
                         ds::Rect {

@@ -9,11 +9,10 @@ use crate::board::{
 use ratatui::{
     Frame,
     layout::{Position, Rect},
-    text::{Line, Span},
 };
 use std::{cell::Cell, collections::BTreeMap};
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
+use tmt_tui::components::design_system as ds;
 use unicode_width::UnicodeWidthStr;
 
 const SOURCE: usize = 8;
@@ -135,44 +134,57 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
         .offset
         .set(scroll.offset.get().min(scroll.hidden.get()));
     let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
-    let mut spans = vec![Span::styled("Allowance ", app.look().role(Role::Muted))];
+    let span = |text: String, role, bold| ds::TextSpan {
+        text,
+        role: ds::Token(role),
+        bold,
+    };
+    let mut spans = vec![span("Allowance ".into(), Role::Muted, false)];
     if rows.is_empty() {
-        spans.push(Span::styled("unavailable", app.look().role(Role::Muted)));
+        spans.push(span("unavailable".into(), Role::Muted, false));
     } else {
         for (i, row) in rows.iter().skip(scroll.offset.get()).enumerate() {
             if i > 0 {
-                spans.push(Span::raw(" · "));
+                spans.push(span(" · ".into(), Role::Text, false));
             }
-            spans.extend(
-                tile_row(
-                    row,
-                    &zone,
-                    matches!(
-                        app.cron_glyphs,
-                        crate::board::overview::cron_counts::GlyphSet::Ascii
-                    ),
-                    app.look(),
-                )
-                .spans,
-            );
+            spans.extend(tile_row(
+                row,
+                &zone,
+                matches!(
+                    app.cron_glyphs,
+                    crate::board::overview::cron_counts::GlyphSet::Ascii
+                ),
+            ));
         }
     }
-    strip::paint_left(frame.buffer_mut(), area, Line::from(spans));
+    use ds::Component;
+    super::paint_grid(frame, app, area, |grid| {
+        ds::Text::render(
+            &ds::TextProps { spans },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: area.width,
+                height: 1,
+            },
+            grid,
+        );
+    });
 }
 
-fn tile_row(
-    row: &Row,
-    zone: &jiff::tz::TimeZone,
-    ascii: bool,
-    look: crate::look::Look,
-) -> Line<'static> {
+fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<ds::TextSpan> {
+    let span = |text: String, role, bold| ds::TextSpan {
+        text,
+        role: ds::Token(role),
+        bold,
+    };
     let label = pad(&row.provider.label(), SOURCE, false);
     let Some(weekly) = &row.weekly else {
-        return Line::from(vec![
-            Span::styled(label, look.role(Role::Text)),
-            Span::styled(pad("—", LEFT, true), look.role(Role::Dim)),
-            Span::styled("  no recent reading", look.role(Role::Muted)),
-        ]);
+        return vec![
+            span(label, Role::Text, false),
+            span(pad("—", LEFT, true), Role::Dim, false),
+            span("  no recent reading".into(), Role::Muted, false),
+        ];
     };
     let (outlook, runs_out) = match weekly.worst() {
         Outcome::RunsOut(at) => (
@@ -186,23 +198,25 @@ fn tile_row(
         Outcome::Lasts(_) => ("lasts past reset".into(), false),
         Outcome::Unknown => ("—".into(), false),
     };
-    Line::from(vec![
-        Span::styled(label, look.role(Role::Text)),
-        Span::styled(
+    vec![
+        span(label, Role::Text, false),
+        span(
             pad(&format!("{:.0}%", weekly.left), LEFT, true),
-            look.role(Role::Text)
-                .add_modifier(ratatui::style::Modifier::BOLD),
+            Role::Text,
+            true,
         ),
-        Span::raw("  "),
-        Span::styled(
+        span("  ".into(), Role::Text, false),
+        span(
             format!("{outlook:<20}"),
-            look.role(if runs_out { Role::Waiting } else { Role::Text }),
+            if runs_out { Role::Waiting } else { Role::Text },
+            false,
         ),
-        Span::styled(
+        span(
             format!("resets {}", clock(weekly.resets_at_ms, zone)),
-            look.role(Role::Muted),
+            Role::Muted,
+            false,
         ),
-    ])
+    ]
 }
 
 fn pad(text: &str, width: usize, right: bool) -> String {

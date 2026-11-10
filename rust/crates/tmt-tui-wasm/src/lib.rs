@@ -313,7 +313,7 @@ pub fn render_json(name: &str, props: &str, width: u32, height: u32) -> Result<S
                 return Err(error("collection_size"));
             }
             for span in spans {
-                fields(span, &["text", "role"], &[])?;
+                fields(span, &["text", "role"], &["bold"])?;
             }
             decode_draw::<Text>(value, area)?
         }

@@ -1,6 +1,21 @@
 use serde_json::Value;
 
 #[test]
+fn text_bold_is_optional_and_must_be_boolean() {
+    let render = |props| tmt_tui_wasm::render_json("text", props, 2, 1);
+    let output: Value = serde_json::from_str(
+        &render(
+            r#"{"spans":[{"text":"A","role":"text"},{"text":"B","role":"waiting","bold":true}]}"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(output["cells"][0]["bold"], false);
+    assert_eq!(output["cells"][1]["bold"], true);
+    assert!(render(r#"{"spans":[{"text":"A","role":"text","bold":1}]}"#).is_err());
+}
+
+#[test]
 fn versioned_vector_matches_native_renderer() {
     let vector: Value = serde_json::from_str(include_str!("vectors/v1.json")).unwrap();
     let registry: Value = serde_json::from_str(&tmt_tui_wasm::registry_json()).unwrap();

@@ -273,10 +273,12 @@ fn styled_text_strips_terminal_controls_and_preserves_span_roles() {
             TextSpan {
                 text: "A\u{1b}[31m".into(),
                 role: Token(Role::Text),
+                bold: false,
             },
             TextSpan {
                 text: "世".into(),
                 role: Token(Role::Accent),
+                bold: true,
             },
         ],
     };
@@ -288,7 +290,22 @@ fn styled_text_strips_terminal_controls_and_preserves_span_roles() {
     assert_eq!(grid.get(0, 0).unwrap().glyph, "A");
     assert_eq!(grid.get(1, 0).unwrap().glyph, "世");
     assert_eq!(grid.get(1, 0).unwrap().fg, Some(Role::Accent));
+    assert!(!grid.get(0, 0).unwrap().bold);
+    assert!(grid.get(1, 0).unwrap().bold);
+    assert!(
+        grid.get(2, 0).unwrap().bold,
+        "wide-cell continuation keeps emphasis"
+    );
     assert!(grid.get(2, 0).unwrap().continuation);
+}
+
+#[test]
+fn styled_text_emphasis_defaults_to_false() {
+    let span: TextSpan = serde_json::from_str(r#"{"text":"label","role":"text"}"#).unwrap();
+    assert!(!span.bold);
+    let bold: TextSpan =
+        serde_json::from_str(r#"{"text":"label","role":"text","bold":true}"#).unwrap();
+    assert!(bold.bold);
 }
 
 #[test]

@@ -247,6 +247,7 @@ fn paint_text(frame: &mut Frame, app: &App, area: Rect, text: String, role: Role
                 spans: vec![ds::TextSpan {
                     text: crate::board::view::fit(&text, usize::from(area.width)),
                     role: ds::Token(role),
+                    bold: false,
                 }],
             },
             ds::Rect {
