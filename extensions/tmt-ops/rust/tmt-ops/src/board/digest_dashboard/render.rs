@@ -12,6 +12,17 @@ pub(super) fn pane_frame(
     pane: Pane,
     title: &str,
 ) -> Rect {
+    pane_frame_with_note(frame, app, area, pane, title, None)
+}
+
+pub(super) fn pane_frame_with_note(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    pane: Pane,
+    title: &str,
+    note: Option<&str>,
+) -> Rect {
     use ds::Component;
     use tmt_tui::components::design_system as ds;
     if area.is_empty() {
@@ -21,7 +32,7 @@ pub(super) fn pane_frame(
         ds::PaneRule::render(
             &ds::PaneRuleProps {
                 title: title.into(),
-                note: None,
+                note: note.map(str::to_owned),
                 note_role: None,
                 focused: app.focused() == pane,
                 ascii: matches!(
@@ -87,6 +98,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .list
             .is_some_and(|list| list.y == side.y && list.x != side.x);
         let details = app.digest_panels().side_shown();
+        let side = if details {
+            pane_frame(frame, app, side, Pane::Replies, &super::details::title(app))
+        } else {
+            side
+        };
         if wide {
             let matrix_height = 9.min(side.height / 3);
             matrix(
@@ -228,7 +244,7 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
     }
 }
 fn detail(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside = pane_frame(frame, app, area, Pane::Replies, &super::details::title(app));
+    let mut inside = area;
     if inside.is_empty() {
         return;
     }

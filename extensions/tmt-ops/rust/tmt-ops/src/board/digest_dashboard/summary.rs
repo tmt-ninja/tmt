@@ -47,7 +47,18 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
         .iter()
         .find_map(|id| report.seat(id)?.window_series.as_ref())
     else {
-        return Vec::new();
+        let count = match app.digest_window() {
+            crate::config::DigestWindow::Day => 24,
+            crate::config::DigestWindow::Week => 7,
+            crate::config::DigestWindow::Month => 30,
+        };
+        return vec![
+            Bucket {
+                used: None,
+                saved: None
+            };
+            count
+        ];
     };
     let status = app
         .labels
@@ -60,6 +71,11 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
             let mut used = Some(0u64);
             let mut saved = Some(0u64);
             for id in ids {
+                // No usage source contributes nothing; the aggregate's coverage
+                // marker still makes that missing evidence visible.
+                if report.seat(id).is_none() {
+                    continue;
+                }
                 let point = report
                     .seat(id)
                     .and_then(|seat| seat.window_series.as_ref())
@@ -137,7 +153,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         frame,
         1,
         format!(
-            "█ used TOK  ▄ saved input (estimate) · {}",
+            "█ used TOK{}  ▄ saved input (estimate) · {}",
+            if metrics::tokens(metrics::report(app), &ids).is_some_and(|(_, partial)| partial) {
+                " ≥"
+            } else {
+                ""
+            },
             if app.digest_cost {
                 "$ window totals; chart stays TOK"
             } else {

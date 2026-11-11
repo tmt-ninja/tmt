@@ -798,11 +798,27 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
             let shown = paint(&mut app, 160, 36);
             assert!(shown.contains("Agents by TOK"), "{name}");
             assert!(
+                shown.contains("/ Search"),
+                "{name}: missing list search hint"
+            );
+            assert!(
                 !shown.contains("┏━ ▸ Agents by TOK"),
                 "{name}: heavy frame remains"
             );
         }
     });
+}
+
+#[test]
+fn selected_panel_contains_exchanges_below_the_member_title() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    let member = shown.find("tui-1 · 1d").expect("selected member title");
+    let exchanges = shown.find("Exchanges").expect("exchanges section");
+    assert!(
+        member < exchanges,
+        "member panel must contain exchanges: {shown}"
+    );
 }
 
 #[test]
@@ -829,4 +845,54 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
             "no orphan heading: {compact:?}"
         );
     });
+}
+
+#[test]
+fn aggregate_chart_keeps_observed_buckets_when_members_have_no_source() {
+    use crate::board::usage_report::Delivery;
+
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let rows = app.workspace_rows();
+    let ids: Vec<_> = rows.iter().filter_map(super::super::metrics::id).collect();
+    let buckets = super::super::summary::capture_buckets(&app, &ids);
+    assert!(
+        buckets
+            .iter()
+            .any(|bucket| bucket.used.is_some_and(|n| n > 0)),
+        "members without a source must not erase observed chart buckets"
+    );
+    let total = super::super::metrics::token_text(super::super::metrics::tokens(
+        super::super::metrics::report(&app),
+        &ids,
+    ));
+    assert!(
+        total.starts_with('≥'),
+        "partial total must be marked: {total}"
+    );
+    let shown = paint(&mut app, 160, 36);
+    let legend = shown
+        .lines()
+        .find(|line| line.contains("used TOK"))
+        .unwrap();
+    assert!(
+        legend.contains("used TOK ≥"),
+        "partial chart must be marked: {legend}"
+    );
+
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    report.seats.clear();
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report),
+    });
+    let buckets = super::super::summary::capture_buckets(&app, &ids);
+    assert_eq!(
+        buckets.len(),
+        24,
+        "all-absent day must retain its time buckets"
+    );
+    assert!(
+        buckets.iter().all(|bucket| bucket.used.is_none()),
+        "all-absent buckets must remain unknown"
+    );
 }

@@ -113,7 +113,14 @@ fn selection_underlay(grid: &mut tmt_tui::components::design_system::CellGrid, w
     }
 }
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside = super::render::pane_frame(frame, app, area, Pane::Rows, "Agents by TOK");
+    let mut inside = super::render::pane_frame_with_note(
+        frame,
+        app,
+        area,
+        Pane::Rows,
+        "Agents by TOK",
+        Some("/ Search"),
+    );
     if inside.is_empty() {
         return;
     }
