@@ -446,7 +446,22 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
             parts.push(("stale".into(), Role::Waiting, None));
         }
         if let Some(global) = status.global.as_ref() {
-            parts.push((global.text.clone(), Role::Text, None));
+            let text = global
+                .text
+                .trim_start_matches("Digest:")
+                .trim_start_matches("Digest ")
+                .trim();
+            let ascii = matches!(
+                app.cron_glyphs,
+                crate::board::overview::cron_counts::GlyphSet::Ascii
+            );
+            let mark = match (global.enabled, ascii) {
+                (true, false) => "●",
+                (false, false) => "○",
+                (true, true) => "*",
+                (false, true) => "o",
+            };
+            parts.push((format!("{mark} {text}"), Role::Text, None));
         }
         parts.push((format!("{} held", super::held_text(app)), Role::Text, None));
         if let Some(tick) = status.tick {
@@ -459,7 +474,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     let named = parts
         .iter()
         .any(|(text, _, choice)| choice.is_some() && text.starts_with("Digest"));
-    let lead = if named { "" } else { "Digest: " };
+    let lead = if named { "" } else { "Digest " };
     let mut spans = vec![Span::styled(lead, strong(app))];
     let mut used = lead.width();
     let mut first = true;

@@ -164,6 +164,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points:(0..count).map(|n| Point { tokens:((n+1)*factor*100) as u64, complete:scene != "digest-chart-gaps" || n != 2 }).collect() });
         seat.model_totals = Some(vec![("claude-opus-5-5".into(), seat.total()*3/4),("unattributed".into(), seat.total()-seat.total()*3/4)]);
         let mut member = template.clone(); member["identityId"] = serde_json::json!(seat.who.id);
+        if scene == "digest-spec-review" { member["heldCount"] = serde_json::json!(if seat.who.id.as_deref() == Some(MEMBER) { 3 } else { i % 9 }); }
         member["nextEligibleAtMs"] = serde_json::json!(now+90_000); member["lastDelivery"] = serde_json::json!({"settledAtMs":now-60_000,"messages":8,"batches":2});
         member["autoCaps"] = serde_json::json!({"maxWaitMs":300_000,"maxCount":5});
         member["savings"]["window"] = serde_json::json!(window.argument()); member["savings"]["fromMs"] = serde_json::json!(from); member["savings"]["throughMs"] = serde_json::json!(now);
@@ -607,7 +608,7 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
 /// A populated, source-shaped Digest fixture shared by the oracle and review capture.
 pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::app::App {
     use crate::board::{
-        limits::{Provider, Reading, Standing, Window},
+        limits::{Provider, Rates, Reading, Standing, Window},
         usage_report::{
             Delivery,
             model::{Pair, Traffic, Unavailable, Who},
@@ -736,7 +737,7 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
                 }),
                 burn: Some(0.4),
                 trend: None,
-                rates: Default::default(),
+                rates: Rates::measured(Some(4.0), Some(3.0), Some(2.0), Some(1.0)),
             })
             .collect(),
     );
@@ -935,7 +936,13 @@ fn spec_summary_has_unit_choices_and_one_compact_allowance_row() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let mut app = capture_case("digest-spec", crate::look::Look::default());
         let shown = paint(&mut app, 160, 36);
-        for expected in ["TOK    $", "Allowance Claude 65%", "saved = context"] {
+        for expected in [
+            "Digest ● on",
+            "TOK    $",
+            "Allowance Claude 65%",
+            "runs out",
+            "saved = context",
+        ] {
             assert!(shown.contains(expected), "missing {expected}: {shown}");
         }
     });
