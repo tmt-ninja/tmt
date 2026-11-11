@@ -158,6 +158,35 @@ pub fn process_cwd(pid: i32) -> Option<String> {
     absolute(&path).filter(|path| !path.ends_with(" (deleted)"))
 }
 
+/// One process's command name as the kernel keeps it (macOS `pbi_name`, else
+/// `pbi_comm`; Linux `/proc/<pid>/comm`), lossily decoded. It is untrusted display
+/// text that the process can set itself: callers clean and bound it before showing
+/// it. A process that is gone or unreadable has no name.
+#[cfg(target_os = "macos")]
+pub fn process_name(pid: i32) -> Option<String> {
+    let info = bsd_info(pid)?;
+    let text = |raw: &[libc::c_char]| {
+        let bytes: Vec<u8> = raw
+            .iter()
+            .map(|byte| *byte as u8)
+            .take_while(|byte| *byte != 0)
+            .collect();
+        (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned())
+    };
+    text(&info.pbi_name).or_else(|| text(&info.pbi_comm))
+}
+
+/// One process's command name; see the macOS variant.
+#[cfg(target_os = "linux")]
+pub fn process_name(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let bytes = std::fs::read(format!("/proc/{pid}/comm")).ok()?;
+    let bytes = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn absolute(path: &str) -> Option<String> {
     path.starts_with('/').then(|| path.to_owned())
@@ -293,5 +322,26 @@ mod cwd_tests {
         drop(child.stdin.take());
         child.wait().unwrap();
         assert!(process_cwd(pid).is_none(), "reaped");
+    }
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod name_tests {
+    use super::process_name;
+
+    #[test]
+    fn a_child_is_named_by_its_program_and_nothing_once_reaped() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        assert_eq!(process_name(pid).as_deref(), Some("sleep"));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(process_name(pid).is_none(), "reaped");
+        for pid in [0, -1, i32::MAX] {
+            assert!(process_name(pid).is_none(), "{pid}");
+        }
     }
 }

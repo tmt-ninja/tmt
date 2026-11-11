@@ -18,6 +18,7 @@ const RESUME: u8 = 0x2b;
 const RELAUNCH: u8 = 0x2c;
 const CLOSE: u8 = 0x2d;
 const TERMINAL: u8 = 0x2e;
+const TERMINAL_DETAIL: u8 = 0x2f;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
@@ -25,6 +26,7 @@ const ERROR: u8 = 0xa3;
 const LAUNCHED: u8 = 0xa4;
 const CAPABILITY_FLAGS: u8 = 0xa5;
 const TERMINAL_OWNER: u8 = 0xa6;
+const TERMINAL_DETAILS: u8 = 0xa7;
 /// Bit 0 of the capability flags: the supervisor answers `Control::Resume`.
 const RESUME_FLAG: u8 = 0x01;
 /// Bit 1: the supervisor keeps its terminal after the program ends and answers
@@ -35,6 +37,10 @@ const CLOSE_FLAG: u8 = 0x04;
 /// Bit 3: the supervisor serves one of a member's extra terminals and answers
 /// `Control::Terminal`.
 const TERMINAL_FLAG: u8 = 0x08;
+/// Bit 4: the extra terminal also answers `Control::TerminalDetail` (#6112).
+const TERMINAL_DETAIL_FLAG: u8 = 0x10;
+/// A shell or program name is display text; this bounds it in bytes.
+pub const NAME_LIMIT: usize = 64;
 /// An identity UUID and a start identity are short; this bounds a reply.
 const OWNER_LIMIT: usize = 128;
 /// At most this many program words in one relaunch.
@@ -92,6 +98,11 @@ pub enum Control {
     /// Ask an extra terminal whose it is and whether a program other than its
     /// shell runs there (#5991). A member supervisor closes the connection.
     Terminal,
+    /// `Terminal` plus the names of its shell and of the program in the
+    /// foreground (#6112). Only a supervisor that sets the terminal-detail
+    /// capability answers it; the reply to `Terminal` keeps its released bytes,
+    /// because a released decoder refuses trailing bytes.
+    TerminalDetail,
 }
 
 /// What a relaunch starts. Only `Shell` changes what the supervisor reports:
@@ -148,6 +159,7 @@ pub enum ControlReply {
         relaunch: bool,
         close: bool,
         terminal: bool,
+        terminal_detail: bool,
     },
     /// The answer to `Control::Terminal`: the identity UUID the terminal was
     /// opened for, when it started (Unix milliseconds), and whether the
@@ -157,6 +169,35 @@ pub enum ControlReply {
         created_ms: u64,
         busy: bool,
     },
+    /// The answer to `Control::TerminalDetail`. `shell` is the name of the
+    /// program the terminal started; `program` names the foreground job's
+    /// leader and is present only while `busy`. Both are untrusted display
+    /// text, cleaned by [`display_name`] on write and again on read.
+    TerminalDetail {
+        owner: String,
+        created_ms: u64,
+        busy: bool,
+        shell: Option<String>,
+        program: Option<String>,
+    },
+}
+
+/// A process or shell name as display text: control characters (ESC among
+/// them) and bidirectional overrides are dropped, surrounding space is trimmed,
+/// and the result is cut to [`NAME_LIMIT`] bytes on a character boundary.
+/// Nothing left reads as no name.
+pub fn display_name(raw: &str) -> Option<String> {
+    let mut name = String::new();
+    for c in raw.trim().chars().filter(|c| {
+        !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }) {
+        if name.len() + c.len_utf8() > NAME_LIMIT {
+            break;
+        }
+        name.push(c);
+    }
+    let name = name.trim_end();
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 fn malformed() -> ProtocolError {
@@ -217,6 +258,7 @@ impl Frame for Control {
             Self::Relaunch { .. } => RELAUNCH,
             Self::Close => CLOSE,
             Self::Terminal => TERMINAL,
+            Self::TerminalDetail => TERMINAL_DETAIL,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -263,7 +305,8 @@ impl Frame for Control {
             | Self::WaitLauncher
             | Self::Resume
             | Self::Close
-            | Self::Terminal => {}
+            | Self::Terminal
+            | Self::TerminalDetail => {}
         }
     }
     fn read(kind: u8, mut bytes: &[u8]) -> Result<Self, ProtocolError> {
@@ -277,6 +320,7 @@ impl Frame for Control {
             RESUME => Self::Resume,
             CLOSE => Self::Close,
             TERMINAL => Self::Terminal,
+            TERMINAL_DETAIL => Self::TerminalDetail,
             RELAUNCH => {
                 let kind = match take(&mut bytes, 1)? {
                     [0] => RelaunchKind::Resume,
@@ -354,6 +398,7 @@ impl Frame for ControlReply {
             Self::Launched(_) => LAUNCHED,
             Self::Capabilities { .. } => CAPABILITY_FLAGS,
             Self::Terminal { .. } => TERMINAL_OWNER,
+            Self::TerminalDetail { .. } => TERMINAL_DETAILS,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -389,12 +434,14 @@ impl Frame for ControlReply {
                 relaunch,
                 close,
                 terminal,
+                terminal_detail,
             } => out.push(
                 [
                     (resume, RESUME_FLAG),
                     (relaunch, RELAUNCH_FLAG),
                     (close, CLOSE_FLAG),
                     (terminal, TERMINAL_FLAG),
+                    (terminal_detail, TERMINAL_DETAIL_FLAG),
                 ]
                 .into_iter()
                 .filter(|(granted, _)| **granted)
@@ -408,6 +455,23 @@ impl Frame for ControlReply {
                 put(out, owner);
                 out.extend_from_slice(&created_ms.to_be_bytes());
                 out.push(u8::from(*busy));
+            }
+            Self::TerminalDetail {
+                owner,
+                created_ms,
+                busy,
+                shell,
+                program,
+            } => {
+                put(out, owner);
+                out.extend_from_slice(&created_ms.to_be_bytes());
+                out.push(u8::from(*busy));
+                let name = |name: &Option<String>| name.as_deref().and_then(display_name);
+                put(out, name(shell).as_deref().unwrap_or(""));
+                put(
+                    out,
+                    name(program).filter(|_| *busy).as_deref().unwrap_or(""),
+                );
             }
             Self::Screen(text) | Self::Error(text) | Self::Launched(text) => {
                 out.extend_from_slice(text.as_bytes())
@@ -474,9 +538,10 @@ impl Frame for ControlReply {
                     relaunch: flags & RELAUNCH_FLAG != 0,
                     close: flags & CLOSE_FLAG != 0,
                     terminal: flags & TERMINAL_FLAG != 0,
+                    terminal_detail: flags & TERMINAL_DETAIL_FLAG != 0,
                 }
             }
-            TERMINAL_OWNER => {
+            TERMINAL_OWNER | TERMINAL_DETAILS => {
                 let owner = nonempty(string(&mut bytes, OWNER_LIMIT)?)?;
                 let created_ms = u64::from_be_bytes(take(&mut bytes, 8)?.try_into().unwrap());
                 let busy = match take(&mut bytes, 1)? {
@@ -484,10 +549,22 @@ impl Frame for ControlReply {
                     [1] => true,
                     _ => return Err(malformed()),
                 };
-                Self::Terminal {
-                    owner,
-                    created_ms,
-                    busy,
+                if kind == TERMINAL_OWNER {
+                    Self::Terminal {
+                        owner,
+                        created_ms,
+                        busy,
+                    }
+                } else {
+                    let shell = display_name(&string(&mut bytes, NAME_LIMIT)?);
+                    let program = display_name(&string(&mut bytes, NAME_LIMIT)?).filter(|_| busy);
+                    Self::TerminalDetail {
+                        owner,
+                        created_ms,
+                        busy,
+                        shell,
+                        program,
+                    }
                 }
             }
             LAUNCHED => {

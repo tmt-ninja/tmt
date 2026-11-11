@@ -40,13 +40,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let screen_area = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
     let status = Rect::new(area.x, area.y + 1, area.width, 1);
     let footer = Rect::new(area.x, area.bottom() - 1, area.width, 1);
-    // Core does not say which shell runs: the line names what it is.
+    // The shell's name comes from Core's listing, never from this process's `$SHELL`;
+    // without one the line names what it is.
     let state = if row.ended { "ended" } else { "running" };
+    let shell = row.shell.as_deref().unwrap_or("shell");
     muted(
         frame,
         status,
         &format!(
-            " shell · {state} · {}×{}",
+            " {shell} · {state} · {}×{}",
             screen_area.width, screen_area.height
         ),
         app,

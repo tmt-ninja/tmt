@@ -29,6 +29,11 @@ impl Confirm {
         &self.title
     }
 
+    #[cfg(test)]
+    pub(super) fn lines(&self) -> &[String] {
+        &self.lines
+    }
+
     pub(super) fn invalidate(&self) {
         *self.hits.borrow_mut() = DialogHits::default();
     }

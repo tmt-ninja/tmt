@@ -136,6 +136,15 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
     // only under its own member.
     assert_eq!(listed(&world, &identity), std::slice::from_ref(&terminal));
     assert!(listed(&world, &other).is_empty());
+    // The world has no `SHELL`, so the terminal runs `/bin/sh`; at its prompt no
+    // program is named (#6112).
+    let idle = call(
+        &world,
+        "terminal.list",
+        serde_json::json!({"identityId": identity}),
+    );
+    assert_eq!(idle["terminals"][0]["shell"], "sh", "{idle}");
+    assert!(idle["terminals"][0].get("program").is_none(), "{idle}");
 
     // The stream is the member stream protocol; a shell inside is not the member.
     let mut view = View::open(&socket);
@@ -174,7 +183,12 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
             "terminal.list",
             serde_json::json!({"identityId": identity}),
         );
-        if terminals["terminals"][0]["busy"] == true {
+        // The job holds the terminal from the shell's fork until `sleep` is exec'd, so
+        // its name is awaited too.
+        if terminals["terminals"][0]["busy"] == true
+            && terminals["terminals"][0]["program"] == "sleep"
+        {
+            assert_eq!(terminals["terminals"][0]["shell"], "sh", "{terminals}");
             break;
         }
         assert!(Instant::now() < deadline, "never busy: {terminals}");

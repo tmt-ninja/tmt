@@ -36,7 +36,7 @@ use std::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command},
     time::{Duration, Instant},
 };
@@ -102,6 +102,13 @@ pub struct TerminalOf {
     /// Whether the owner's member supervisor still runs (its PID and start time), asked
     /// once per `OWNER_CHECK`.
     pub member_alive: Box<dyn FnMut() -> bool + Send>,
+}
+
+/// The display name of the shell a terminal started: the file name of its first
+/// program word, without the dash a login shell's name may carry.
+fn shell_name(program: &std::ffi::OsStr) -> Option<String> {
+    let name = Path::new(program).file_name()?.to_string_lossy();
+    tmt_pty_protocol::display_name(name.trim_start_matches('-'))
 }
 
 /// The socket and lock files of a running supervisor, removed when it ends. Ids
@@ -302,6 +309,9 @@ pub struct Supervisor {
     foreground: (Instant, bool),
     /// Set for an extra terminal, with the last time its member was checked.
     terminal: Option<(TerminalOf, Instant)>,
+    /// An extra terminal's shell name (#6112): the started program's file name
+    /// without a login dash, cleaned as display text.
+    shell_name: Option<String>,
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -420,6 +430,7 @@ impl Supervisor {
             launcher_stopped: false,
             paused: false,
             foreground: (Instant::now(), false),
+            shell_name: extra.as_ref().and_then(|_| shell_name(name)),
             terminal: extra.map(|extra| (extra, Instant::now())),
             _files: files,
             _lock: lock,
@@ -661,13 +672,13 @@ impl Supervisor {
         )
     }
 
-    /// A program other than the terminal's own shell holds its foreground (#5991).
-    fn busy(&self) -> bool {
-        let Some(child) = &self.child else {
-            return false;
-        };
+    /// The foreground group when a program other than the terminal's own shell
+    /// holds it (#5991); `None` while the shell itself is in the foreground.
+    fn foreground_job(&self) -> Option<Pid> {
+        let child = self.child.as_ref()?;
         tcgetpgrp(self.master.as_fd())
-            .is_ok_and(|group| group.as_raw() > 0 && group.as_raw().unsigned_abs() != child.id())
+            .ok()
+            .filter(|group| group.as_raw() > 0 && group.as_raw().unsigned_abs() != child.id())
     }
 
     /// Continues the launcher's group and, when another group holds the
@@ -1090,13 +1101,33 @@ impl Supervisor {
                 relaunch: self.terminal.is_none(),
                 close: true,
                 terminal: self.terminal.is_some(),
+                terminal_detail: self.terminal.is_some(),
             },
             Control::Terminal => match &self.terminal {
                 Some((terminal, _)) => ControlReply::Terminal {
                     owner: terminal.owner.clone(),
                     created_ms: terminal.created_ms,
-                    busy: self.busy(),
+                    busy: self.foreground_job().is_some(),
                 },
+                None => {
+                    ControlReply::Error("this supervisor serves a member, not a terminal".into())
+                }
+            },
+            Control::TerminalDetail => match &self.terminal {
+                Some((terminal, _)) => {
+                    let job = self.foreground_job();
+                    ControlReply::TerminalDetail {
+                        owner: terminal.owner.clone(),
+                        created_ms: terminal.created_ms,
+                        busy: job.is_some(),
+                        shell: self.shell_name.clone(),
+                        // The job's group leader names it; a leader that already
+                        // ended leaves the job unnamed.
+                        program: job
+                            .and_then(|group| tmt_sys::process_name(group.as_raw()))
+                            .and_then(|name| tmt_pty_protocol::display_name(&name)),
+                    }
+                }
                 None => {
                     ControlReply::Error("this supervisor serves a member, not a terminal".into())
                 }
@@ -1298,5 +1329,22 @@ fn winsize(size: Size) -> Winsize {
         ws_col: size.cols,
         ws_xpixel: 0,
         ws_ypixel: 0,
+    }
+}
+
+#[cfg(test)]
+mod shell_name_tests {
+    use super::shell_name;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn a_shell_is_named_by_its_file_name_without_a_login_dash() {
+        assert_eq!(shell_name(OsStr::new("/bin/zsh")).as_deref(), Some("zsh"));
+        assert_eq!(shell_name(OsStr::new("-zsh")).as_deref(), Some("zsh"));
+        assert_eq!(
+            shell_name(OsStr::new("/opt/\u{1b}[2Jfish")).as_deref(),
+            Some("[2Jfish")
+        );
+        assert_eq!(shell_name(OsStr::new("/")), None);
     }
 }

@@ -59,12 +59,13 @@ impl App {
                 let Some((identity, row)) = self.selected_terminal() else {
                     return Effect::None;
                 };
-                let (identity, id, title, ended, busy) = (
+                let (identity, id, title, ended, busy, program) = (
                     identity.to_owned(),
                     row.id.clone(),
                     row.title(),
                     row.ended,
                     row.busy,
+                    row.program.clone(),
                 );
                 if ended {
                     self.terminals.forget(&identity, &id);
@@ -74,7 +75,13 @@ impl App {
                 if busy {
                     return self.confirm(
                         format!("Close {title}?"),
-                        vec!["A program is still running. Closing ends it.".into()],
+                        vec![match program {
+                            Some(program) => format!(
+                                "A program is still running ({}). Closing ends it.",
+                                program_label(&program)
+                            ),
+                            None => "A program is still running. Closing ends it.".into(),
+                        }],
                         "Close".into(),
                         Choice::CloseTerminal {
                             identity,
@@ -173,4 +180,15 @@ impl App {
             },
         ))
     }
+}
+
+/// The widest a program's name runs in the close confirm, in display cells (#6112 review);
+/// a longer one ends in an ellipsis, and the dialog itself never outgrows the board.
+const PROGRAM_COLUMNS: usize = 24;
+
+pub(super) fn program_label(program: &str) -> String {
+    crate::board::view::fit(
+        program,
+        PROGRAM_COLUMNS.min(unicode_width::UnicodeWidthStr::width(program)),
+    )
 }

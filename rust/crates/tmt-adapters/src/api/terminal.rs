@@ -264,14 +264,22 @@ fn member(storage: &mut Storage, id: &str) -> Result<Binding, Fault> {
     active(&entry).cloned()
 }
 
+/// `shell` and `program` are untrusted display text, already cleaned and bounded by the
+/// supervisor protocol; each is left out when unknown (#6112).
 fn terminal_json(terminal: &terminal::Terminal) -> serde_json::Value {
-    json!({
+    let mut value = json!({
         "terminalId": terminal.id,
         "socket": terminal.socket,
         "pane": terminal.id,
         "busy": terminal.busy,
         "createdMs": terminal.created_ms,
-    })
+    });
+    for (key, name) in [("shell", &terminal.shell), ("program", &terminal.program)] {
+        if let Some(name) = name {
+            value[key] = name.as_str().into();
+        }
+    }
+    value
 }
 
 pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Result<Vec<u8>, Fault> {
@@ -304,8 +312,9 @@ pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Resu
             value["identityId"] = id.into();
             value["directory"] = directory.into();
             if let Some(fields) = value.as_object_mut() {
-                fields.remove("busy");
-                fields.remove("createdMs");
+                for key in ["busy", "createdMs", "shell", "program"] {
+                    fields.remove(key);
+                }
             }
             serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
         }

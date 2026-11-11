@@ -13,6 +13,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
         Control::Inspect,
         Control::Capabilities,
         Control::Terminal,
+        Control::TerminalDetail,
         Control::AwaitLaunch,
         Control::WaitLauncher,
         Control::LaunchReady { pane_pid: 123 },
@@ -87,24 +88,28 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             relaunch: true,
             close: true,
             terminal: false,
+            terminal_detail: false,
         },
         ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: false,
             terminal: false,
+            terminal_detail: false,
         },
         ControlReply::Capabilities {
             resume: true,
             relaunch: false,
             close: true,
             terminal: false,
+            terminal_detail: false,
         },
         ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: true,
             terminal: true,
+            terminal_detail: false,
         },
         ControlReply::Terminal {
             owner: "11111111-1111-4111-8111-111111111111".into(),
@@ -115,6 +120,20 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             owner: "11111111-1111-4111-8111-111111111111".into(),
             created_ms: 0,
             busy: false,
+        },
+        ControlReply::TerminalDetail {
+            owner: "11111111-1111-4111-8111-111111111111".into(),
+            created_ms: 7,
+            busy: true,
+            shell: Some("zsh".into()),
+            program: Some("cargo".into()),
+        },
+        ControlReply::TerminalDetail {
+            owner: "11111111-1111-4111-8111-111111111111".into(),
+            created_ms: 7,
+            busy: false,
+            shell: None,
+            program: None,
         },
         ControlReply::Screen(String::new()),
         ControlReply::Screen("visible".into()),
@@ -241,15 +260,17 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             relaunch: true,
             close: true,
             terminal: true,
+            terminal_detail: true,
         })
     );
     assert_eq!(
-        ServerMessage::read(0xa5, &[0xf0]).unwrap(),
+        ServerMessage::read(0xa5, &[0xe0]).unwrap(),
         ServerMessage::Control(ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: false,
             terminal: false,
+            terminal_detail: false,
         })
     );
     // A supervisor from #5926 grants resume only: Core sends it no Relaunch or Close.
@@ -260,6 +281,7 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             relaunch: false,
             close: false,
             terminal: false,
+            terminal_detail: false,
         })
     );
     assert!(ServerMessage::read(0xa5, &[]).is_err());
@@ -373,4 +395,111 @@ fn a_terminal_reply_needs_an_owner_a_time_and_one_flag_byte() {
         ServerMessage::read(0xa6, &payload).is_err(),
         "a missing flag"
     );
+}
+
+fn detail_payload(busy: u8, shell: &[u8], program: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&1u16.to_be_bytes());
+    payload.push(b'x');
+    payload.extend_from_slice(&7u64.to_be_bytes());
+    payload.push(busy);
+    for name in [shell, program] {
+        payload.extend_from_slice(&u16::try_from(name.len()).unwrap().to_be_bytes());
+        payload.extend_from_slice(name);
+    }
+    payload
+}
+
+fn detail_names(message: ServerMessage) -> (Option<String>, Option<String>) {
+    match message {
+        ServerMessage::Control(ControlReply::TerminalDetail { shell, program, .. }) => {
+            (shell, program)
+        }
+        other => panic!("not a terminal detail: {other:?}"),
+    }
+}
+
+/// The released reply to `Terminal` keeps its bytes: a released decoder refuses
+/// anything after the flag byte, so the names travel only in the detail reply.
+#[test]
+fn the_terminal_reply_keeps_its_released_bytes_and_refuses_trailing_names() {
+    let reply = ControlReply::Terminal {
+        owner: "x".into(),
+        created_ms: 7,
+        busy: true,
+    };
+    let mut released = Vec::new();
+    released.extend_from_slice(&1u16.to_be_bytes());
+    released.push(b'x');
+    released.extend_from_slice(&7u64.to_be_bytes());
+    released.push(1);
+    let mut payload = Vec::new();
+    reply.write_payload(&mut payload);
+    assert_eq!(payload, released);
+    let detail = detail_payload(1, b"zsh", b"cargo");
+    assert!(
+        ServerMessage::read(0xa6, &detail).is_err(),
+        "the owner reply with names after it is what a released client would refuse"
+    );
+}
+
+#[test]
+fn terminal_names_are_display_text_cleaned_on_write_and_on_read() {
+    // An escape sequence in a process name never reaches a reader.
+    assert_eq!(
+        detail_names(
+            ServerMessage::read(
+                0xa7,
+                &detail_payload(1, b"zsh", b"\x1b[31mcargo\x1b]0;x\x07")
+            )
+            .unwrap()
+        ),
+        (Some("zsh".into()), Some("[31mcargo]0;x".into()))
+    );
+    // Multibyte text is cut on a character boundary within the bound.
+    let long = "編譯".repeat(20);
+    let cut = display_name(&long).unwrap();
+    assert!(cut.len() <= NAME_LIMIT && long.starts_with(&cut));
+    assert_eq!(cut.chars().count(), NAME_LIMIT / 3);
+    assert_eq!(display_name(" \u{202e}\t "), None);
+    assert_eq!(display_name("  vim\u{1b} "), Some("vim".into()));
+    // The writer cleans and bounds too, and drops a program while not busy.
+    let reply = ControlReply::TerminalDetail {
+        owner: "x".into(),
+        created_ms: 7,
+        busy: false,
+        shell: Some(format!("\u{1b}{long}")),
+        program: Some("sleep".into()),
+    };
+    let mut payload = Vec::new();
+    reply.write_payload(&mut payload);
+    assert_eq!(
+        detail_names(ServerMessage::read(0xa7, &payload).unwrap()),
+        (Some(cut), None)
+    );
+    // A program a peer reports while not busy is dropped on read.
+    assert_eq!(
+        detail_names(ServerMessage::read(0xa7, &detail_payload(0, b"", b"sleep")).unwrap()),
+        (None, None)
+    );
+}
+
+#[test]
+fn a_terminal_detail_reply_is_strict_and_bounded() {
+    assert!(
+        ServerMessage::read(0xa7, &detail_payload(1, &[b'a'; NAME_LIMIT + 1], b"")).is_err(),
+        "an oversized name"
+    );
+    assert!(
+        ServerMessage::read(0xa7, &detail_payload(1, &[0xff], b"")).is_err(),
+        "a name that is not UTF-8"
+    );
+    let mut payload = detail_payload(1, b"zsh", b"cargo");
+    payload.push(0);
+    assert!(
+        ServerMessage::read(0xa7, &payload).is_err(),
+        "trailing bytes"
+    );
+    payload.truncate(payload.len() - 3);
+    assert!(ServerMessage::read(0xa7, &payload).is_err(), "a short name");
 }

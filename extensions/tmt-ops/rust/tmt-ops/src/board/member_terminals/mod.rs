@@ -33,6 +33,10 @@ pub(in crate::board) struct Row {
     pub busy: bool,
     /// Core no longer lists it: its shell ended.
     pub ended: bool,
+    /// The shell's name as Core last reported it (#6112); kept once it ended.
+    pub shell: Option<String>,
+    /// The foreground program's name, only while `busy` and Core knows it.
+    pub program: Option<String>,
 }
 
 impl Row {
@@ -48,6 +52,8 @@ pub(in crate::board) struct Listed {
     pub socket: PathBuf,
     pub busy: bool,
     pub created_ms: u64,
+    pub shell: Option<String>,
+    pub program: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -317,6 +323,8 @@ impl Terminals {
         if let Some(row) = member.rows.iter_mut().find(|row| row.id == terminal.id) {
             row.busy = terminal.busy;
             row.ended = false;
+            row.shell = terminal.shell.or(row.shell.take());
+            row.program = terminal.program;
             return;
         }
         member.numbered += 1;
@@ -326,6 +334,8 @@ impl Terminals {
             socket: terminal.socket,
             busy: terminal.busy,
             ended: false,
+            shell: terminal.shell,
+            program: terminal.program,
         });
     }
 }
@@ -434,7 +444,22 @@ fn listed(value: &serde_json::Value) -> Option<Listed> {
         socket,
         busy: value["busy"].as_bool().unwrap_or(false),
         created_ms: value["createdMs"].as_u64().unwrap_or(0),
+        shell: name(&value["shell"]),
+        program: name(&value["program"]).filter(|_| value["busy"] == true),
     })
+}
+
+/// A shell or program name from Core: display text only. Core cleans and bounds it;
+/// the board drops control characters again before it can reach the screen.
+fn name(value: &serde_json::Value) -> Option<String> {
+    let name: String = value
+        .as_str()?
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 mod board;
