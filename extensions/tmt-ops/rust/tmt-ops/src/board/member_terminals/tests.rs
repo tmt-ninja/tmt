@@ -376,6 +376,58 @@ mod board {
         );
     }
 
+    /// A long program name ends in an ellipsis at 24 cells, and on a narrow board the
+    /// confirm stays inside the board, wrapping its body rather than cutting it.
+    #[test]
+    fn a_long_program_name_is_ellipsized_and_the_confirm_fits_a_narrow_board() {
+        let long = "cargo-nextest-run-with-a-very-long-name";
+        let label = super::super::keys::program_label(long);
+        assert_eq!(unicode_width::UnicodeWidthStr::width(label.as_str()), 24);
+        assert!(label.ends_with('…') && long.starts_with(label.trim_end_matches('…')));
+        assert_eq!(super::super::keys::program_label("編譯器"), "編譯器");
+
+        let (mut app, member) = listed_board();
+        let mut named = terminal(2, 20, true);
+        named.program = Some(long.into());
+        app.terminals.finished(
+            Completed::Listed(vec![(
+                MEMBER.into(),
+                List::Terminals(vec![terminal(1, 10, false), named]),
+            )]),
+            0,
+        );
+        select(&mut app, &member, 2);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            app.confirm.as_ref().unwrap().lines(),
+            [format!(
+                "A program is still running ({label}). Closing ends it."
+            )]
+        );
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let screen: Vec<String> = (0..24)
+            .map(|y| {
+                (0..44)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_owned())
+                    .collect()
+            })
+            .collect();
+        let top = screen
+            .iter()
+            .find(|row| row.contains("Close Terminal 2?"))
+            .unwrap_or_else(|| panic!("no confirm in {screen:#?}"));
+        assert!(
+            top.contains('┌') && top.contains('┐'),
+            "the box is whole: {top}"
+        );
+        let body = screen.join("\n");
+        assert!(body.contains("(cargo-nextest"), "{body}");
+    }
+
     #[test]
     fn x_on_an_ended_terminal_removes_the_row_without_asking_core() {
         let (mut app, member) = listed_board();

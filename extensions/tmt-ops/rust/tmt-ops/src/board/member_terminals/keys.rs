@@ -76,9 +76,10 @@ impl App {
                     return self.confirm(
                         format!("Close {title}?"),
                         vec![match program {
-                            Some(program) => {
-                                format!("A program is still running ({program}). Closing ends it.")
-                            }
+                            Some(program) => format!(
+                                "A program is still running ({}). Closing ends it.",
+                                program_label(&program)
+                            ),
                             None => "A program is still running. Closing ends it.".into(),
                         }],
                         "Close".into(),
@@ -179,4 +180,15 @@ impl App {
             },
         ))
     }
+}
+
+/// The widest a program's name runs in the close confirm, in display cells (#6112 review);
+/// a longer one ends in an ellipsis, and the dialog itself never outgrows the board.
+const PROGRAM_COLUMNS: usize = 24;
+
+pub(super) fn program_label(program: &str) -> String {
+    crate::board::view::fit(
+        program,
+        PROGRAM_COLUMNS.min(unicode_width::UnicodeWidthStr::width(program)),
+    )
 }
