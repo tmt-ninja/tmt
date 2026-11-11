@@ -482,7 +482,31 @@ test('a dropped image and a pasted file upload, list and come back on undo', asy
 
       await add('drop', 'sketch.png', png, 'image/png');
       const image = page.locator('[data-block-id]').getByRole('img', { name: 'sketch.png' });
-      await expect(image).toBeVisible({ timeout: 30_000 });
+      try {
+        await expect(image).toBeVisible({ timeout: 30_000 });
+      } catch (error) {
+        // #6274: say which stage the drop stopped at (ignored, tile drawn, upload failed, batch
+        // not listed), bounded to one line, then fail as before.
+        const view = await page.evaluate((anchor) => {
+          const block = document.querySelector(`[data-block-id="${anchor}"]`);
+          return {
+            anchorFound: !!block,
+            anchorReadonly: !!block?.hasAttribute('data-readonly'),
+            tiles: document.querySelectorAll('.tmt-block-image-placeholder').length,
+            failedTiles: document.querySelectorAll('.tmt-block-image-failed').length,
+            images: document.querySelectorAll('[data-block-id] img').length,
+            status: document.querySelector('.tmt-block-toast-place')?.textContent?.slice(0, 160),
+          };
+        }, anchor);
+        const blocks = listed().map((block) => ({
+          type: block.type,
+          images: (block.props.images as unknown[] | undefined)?.length ?? 0,
+          files: (block.props.files as unknown[] | undefined)?.length ?? 0,
+          deleted: !!block.deleted,
+        }));
+        console.log(`#6274 drop diagnostics ${JSON.stringify({ view, blocks }).slice(0, 2000)}`);
+        throw error;
+      }
       await expect.poll(() => image.evaluate((n) => (n as HTMLImageElement).naturalWidth)).toBe(2);
       await page.getByText('Files follow.').click();
       await add('paste', 'notes.png', notes, 'image/png');

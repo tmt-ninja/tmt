@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
 import { capturePath } from './captures.js';
+import { text } from '../src/strings.js';
 
 async function mountFixture(page: import('@playwright/test').Page, content = 'plan') {
   await page.goto('/');
@@ -2008,3 +2009,43 @@ test('@ without the page list authority offers no other page and no hint', async
   await expect(menu.getByRole('option')).toHaveText(['@tmt-gui-lead', '@gui-2']);
   await expect(menu.getByRole('group', { name: 'Other pages' })).toHaveCount(0);
 });
+
+// #6274: a dropped file shows its uploading tile at once, even while an earlier batch of this page
+// is still held at the serve; the upload waits for that batch, the tile does not.
+test('a dropped file shows its tile while an earlier batch is still in flight', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const blocks = await topLevel(host);
+  const target = blocks[1]!;
+  await host.locator(`[data-block-id="${target}"]`).click();
+  const editor = host.locator(`[data-block-id="${target}"] [contenteditable="true"]`);
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  await addFiles(page, target, [{ name: 'board.png', png: '#c8553d' }]);
+  // The tile is a new block right after the one the file was dropped on.
+  await expect.poll(async () => (await topLevel(host)).length).toBe(blocks.length + 1);
+  const tile = (await topLevel(host))[2]!;
+  await expect(host.locator(`[data-block-id="${tile}"] .tmt-block-image-placeholder`)).toHaveCount(
+    1,
+  );
+  // Nothing is uploaded before the held batch settles; then the image lands.
+  expect(await page.evaluate(() => window.uploaded)).toEqual([]);
+  await page.evaluate(() => window.holdServe(false));
+  await expect(host.locator(`[data-block-id="${tile}"] img[alt="board.png"]`)).toHaveCount(1);
+});
+
+// #6274: files dropped or pasted on a page that cannot take them are not lost silently: the status
+// line says nothing was added.
+for (const how of ['drop', 'paste'] as const)
+  test(`files ${how === 'drop' ? 'dropped' : 'pasted'} on a page without file access say they were not added`, async ({
+    page,
+  }) => {
+    const host = await mountFixture(page, 'plan');
+    const blocks = await topLevel(host);
+    await addFiles(page, blocks[0]!, [{ name: 'notes.txt', text: 'Ship the stack.\n' }], how);
+    await expect(host.getByText(text.blockFiles.unavailable)).toBeVisible();
+    expect(await topLevel(host)).toEqual(blocks);
+  });

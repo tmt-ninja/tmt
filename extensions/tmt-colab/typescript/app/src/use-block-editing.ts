@@ -858,6 +858,8 @@ export function useBlockEditing(
     setRefusals((now) => now.filter((refusal) => refusal.key !== first.key));
     void out(undefined, first.ops);
   }, [out]);
+  /** Files dropped or pasted where this page cannot take them now (#6274). */
+  const refuseFiles = useCallback(() => notice(strings.blockFiles.unavailable), [notice]);
   /** Files whose uploads are under way: they count against the page's cap until their batch. */
   const adding = useRef(0);
   /**
@@ -878,9 +880,11 @@ export function useBlockEditing(
       clearTimeout(timer.current);
       flush();
       const current = sync.current;
-      await inflight.current;
       const top = treeRef.current.children();
       let anchor = after ?? current?.id ?? selection?.focus ?? top[top.length - 1]?.id;
+      // The first file's tile draws before the page waits for a batch still in flight, so a slow
+      // or stalled earlier write shows the file as uploading, never nothing (#6274).
+      let settled = false;
       for (const file of picked) {
         const read = await readBlockFile(file);
         if (typeof read === 'string') {
@@ -958,6 +962,11 @@ export function useBlockEditing(
           }
           commit(stored);
         };
+        if (!settled) {
+          draw({ state: 'loading' });
+          await inflight.current;
+          settled = true;
+        }
         await upload();
       }
     },
@@ -1444,6 +1453,7 @@ export function useBlockEditing(
     toast: toast ?? shownRefusal(refusals[0], retryRefused),
     undo,
     attach,
+    refuseFiles,
     uploads,
     choosing,
     mention,

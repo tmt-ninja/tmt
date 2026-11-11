@@ -199,6 +199,9 @@ export interface StructuredPageProps {
   blockPageHref?(page: string, block: string): string;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
+  /** Files reached a page that cannot take them now (no file access, or read only): the page says
+   * so instead of losing them silently (#6274). */
+  onFilesRefused?(): void;
   /** The file blocks this tab is adding, drawn as their upload tile. */
   uploads?: ReadonlyMap<string, BlockUpload>;
   /** "Image or file" was chosen in the insert menu: the file picker opens once per `id`. */
@@ -296,22 +299,25 @@ export function StructuredPage(props: StructuredPageProps) {
         onPointerLeave={() => setHovered(undefined)}
         // Dropping files, or pasting them, inserts them after the block they landed on (spec 圖片:
         // 拖檔案或貼上圖片＝插入). Text and a block's own drag are not files and pass through.
+        // Files the page cannot take now are still caught, so the browser never opens them in
+        // place of the page, and the status line says nothing was added.
         onDragOver={(event) => {
-          if (props.onAttach && !props.readonly && event.dataTransfer.types.includes('Files'))
-            event.preventDefault();
+          if (event.dataTransfer.types.includes('Files')) event.preventDefault();
         }}
         onDrop={(event) => {
           const files = carried(event.dataTransfer);
-          if (!props.onAttach || props.readonly || !files.length) return;
+          if (!files.length) return;
           event.preventDefault();
-          props.onAttach(files, landedOn(event.target));
+          if (!props.onAttach || props.readonly) props.onFilesRefused?.();
+          else props.onAttach(files, landedOn(event.target));
         }}
         onPasteCapture={(event) => {
           const files = carried(event.clipboardData);
-          if (!props.onAttach || props.readonly || !files.length) return;
+          if (!files.length) return;
           event.preventDefault();
           event.stopPropagation();
-          props.onAttach(files, landedOn(event.target));
+          if (!props.onAttach || props.readonly) props.onFilesRefused?.();
+          else props.onAttach(files, landedOn(event.target));
         }}
       >
         {props.tree.children(PAGE_PARENT).length === 0 && (

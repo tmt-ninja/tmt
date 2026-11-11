@@ -878,6 +878,7 @@ export function mount(
       closeBlockMenu,
       hoverBlockMenu,
       attach,
+      refuseFiles,
       uploads,
       choosing,
       mention,
@@ -949,6 +950,7 @@ export function mount(
           selectionRequest={selectionRequest}
           onPageKey={pageKey}
           toast={toast}
+          onFilesRefused={refuseFiles}
           onUndo={undo}
           blockMenu={blockMenu}
           onAction={act}
