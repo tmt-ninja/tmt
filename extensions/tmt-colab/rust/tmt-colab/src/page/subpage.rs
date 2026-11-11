@@ -34,6 +34,10 @@ pub fn is_create(action: &str) -> bool {
     action == crate::work::CREATE
 }
 
+pub fn is_create_batch(action: &str) -> bool {
+    action == crate::work::CREATE_BATCH
+}
+
 /// Prepare outside every lock; the commit's fences turn a page that moved meanwhile into a
 /// stale-base refusal.
 pub fn prepare(

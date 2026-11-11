@@ -150,6 +150,8 @@ export const DRAFT_READS = 6;
 /** Page sources a new system writes at once (`designSystemCreation`): with a follow's root and the
  * open page, a tab holds at most 6 of the door's 16 page tunnels. */
 export const CREATE_WRITES = 4;
+/** Bound each owner batch so a large template does not require one long work reply. */
+export const CREATE_BATCH = 32;
 /** How long a burst of edits to a system's pages settles before its followers redraw. */
 export const DRAFT_SETTLE_MS = 500;
 /** How long a follow's first draft waits for the live list's first revisions, so the docs it reads
@@ -741,8 +743,8 @@ async function designRootParent(transport: PageTransport): Promise<string> {
  * Make a system from the TMT template (#5866): a new top-level root; the tmt GUI docs as section
  * pages (Foundations, Components, Patterns) with a page each, every component the template carries
  * as a live component page in Components; the root's config with its own name and prefix; then the
- * first version, published so every page draws. Pages are made one at a time, so each section
- * keeps the template's order, and their sources are written `CREATE_WRITES` at a time. If a write
+ * first version, published so every page draws. Pages are made in ordered batches per parent,
+ * and their sources are written `CREATE_WRITES` at a time. If a write
  * fails no new one starts, the ones in flight finish, and the error names the page. The steps done
  * are kept, so a retry only does the rest. The template is loaded only here.
  */
@@ -758,6 +760,7 @@ export function designSystemCreation(
     string,
     { id: string; uncertain: boolean; childPage?: string; result?: WorkOutcome }
   >();
+  const batches = new Map<string, { id: string; uncertain: boolean }>();
   let configured = false;
   let published = false;
   let running: Promise<string> | undefined;
@@ -808,14 +811,112 @@ export function designSystemCreation(
       throw error;
     }
   };
-  const create = async (parent: Snapshot, key: string, title: string) => {
-    const existing = made.get(key);
-    if (existing) return existing;
-    const child = await work(parent, `create:${key}`, 'subpage.create', { title, format: 'html' });
-    if (!child.childPage) throw new Error(`The ${title} page was not made.`);
-    made.set(key, child.childPage);
-    reportCreated();
-    return child.childPage;
+  const createChunk = async (
+    parent: Snapshot,
+    batchKey: string,
+    pages: readonly { key: string; title: string }[],
+  ): Promise<string[]> => {
+    if (pages.every(({ key }) => made.has(key))) return pages.map(({ key }) => made.get(key)!);
+    const binding = parent.binding;
+    if (!binding?.subpageBatch || !binding.subpageBatchStatus)
+      throw new Error('Pages cannot be made in a batch here.');
+    let batch = batches.get(batchKey);
+    if (!batch) {
+      batch = { id: crypto.randomUUID(), uncertain: false };
+      batches.set(batchKey, batch);
+    }
+    const collect = (entries: readonly { childPage: string }[]) => {
+      for (const [index, entry] of entries.entries()) {
+        const page = pages[index];
+        if (!page) throw new Error('The page batch returned too many entries.');
+        const previous = made.get(page.key);
+        if (previous && previous !== entry.childPage)
+          throw new Error('The page batch returned a different page.');
+        if (!previous) {
+          made.set(page.key, entry.childPage);
+          reportCreated();
+        }
+      }
+    };
+    try {
+      let result = batch.uncertain ? await binding.subpageBatchStatus(batch.id) : undefined;
+      if (result) {
+        collect(result.entries);
+        if (result.state === 'running') throw new SaveOutcomeUnknown(batch.id);
+        batch.uncertain = false;
+      }
+      if (!result || result.state === 'absent') {
+        // Work has one request slot per connection. A separate, short-lived page binding can
+        // observe the running batch without replaying it or extending the request deadline.
+        const observer = new AbortController();
+        let watching: PageBinding | undefined;
+        let interval: ReturnType<typeof setInterval> | undefined;
+        let checking = false;
+        void transport
+          .page(parent.id, observer.signal)
+          .then((snapshot) => {
+            if (observer.signal.aborted) {
+              snapshot.binding?.close();
+              return;
+            }
+            watching = snapshot.binding;
+            interval = setInterval(() => {
+              if (checking || !watching?.subpageBatchStatus) return;
+              checking = true;
+              void watching
+                .subpageBatchStatus(batch.id)
+                .then((status) => {
+                  if (!observer.signal.aborted && status.state === 'running')
+                    collect(status.entries);
+                })
+                .catch(() => {})
+                .finally(() => {
+                  checking = false;
+                });
+            }, 1_000);
+          })
+          .catch(() => {});
+        try {
+          result = await binding.subpageBatch(batch.id, {
+            titles: pages.map(({ title }) => title),
+            format: 'html',
+          });
+        } finally {
+          observer.abort();
+          clearInterval(interval);
+          watching?.close();
+        }
+        collect(result.entries);
+      }
+      if (result.state === 'running') throw new SaveOutcomeUnknown(batch.id);
+      if (result.state === 'rejected')
+        throw new SaveRefused(
+          result.code ?? 'COLAB_UNAVAILABLE',
+          result.message ?? '',
+          result.conflicts,
+          result.childPage,
+          result.findings,
+          result.reason,
+        );
+      if (result.state !== 'committed' || result.entries.length !== pages.length)
+        throw new SaveOutcomeUnknown(batch.id);
+      return pages.map(({ key }) => made.get(key)!);
+    } catch (error) {
+      if (error instanceof SaveOutcomeUnknown) batch.uncertain = true;
+      throw error;
+    }
+  };
+  const createMany = async (
+    parent: Snapshot,
+    batchKey: string,
+    pages: readonly { key: string; title: string }[],
+  ): Promise<string[]> => {
+    const created: string[] = [];
+    for (let offset = 0; offset < pages.length; offset += CREATE_BATCH) {
+      const chunk = pages.slice(offset, offset + CREATE_BATCH);
+      created.push(...(await createChunk(parent, `${batchKey}:${offset / CREATE_BATCH}`, chunk)));
+    }
+    return created;
   };
   const write = (id: string, source: string) =>
     withPage(transport, id, async (page) => {
@@ -856,13 +957,24 @@ export function designSystemCreation(
     let patternPage: string | undefined;
     await withPage(transport, root, async (rootPage) => {
       if (!rootPage.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
-      for (const section of sections as DocSection[]) {
-        const sectionId = await create(rootPage, section.title, section.title);
+      const sectionList = sections as DocSection[];
+      const sectionIds = await createMany(
+        rootPage,
+        'sections',
+        sectionList.map((section) => ({ key: section.title, title: section.title })),
+      );
+      for (const [sectionIndex, section] of sectionList.entries()) {
+        const sectionId = sectionIds[sectionIndex]!;
         const listed: { id: string; title: string }[] = [];
         await withPage(transport, sectionId, async (sectionPage) => {
-          for (const doc of section.pages) {
+          const pageIds = await createMany(
+            sectionPage,
+            `section:${section.title}`,
+            section.pages.map((doc) => ({ key: `${section.title}/${doc.slug}`, title: doc.title })),
+          );
+          for (const [docIndex, doc] of section.pages.entries()) {
             const { body, component } = templatePageSource(section.title, doc, prefix, live);
-            const id = await create(sectionPage, `${section.title}/${doc.slug}`, doc.title);
+            const id = pageIds[docIndex]!;
             if (section.title === 'Foundations' && doc.slug === 'colour') foundationPage = id;
             if (section.title === 'Patterns' && doc.slug === 'tabs-row') patternPage = id;
             if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });

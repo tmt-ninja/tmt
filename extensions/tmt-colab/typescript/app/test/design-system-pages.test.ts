@@ -111,6 +111,24 @@ function space({ summaries = false }: { summaries?: boolean } = {}) {
         page().order.push(child);
         return { childPage: child };
       },
+      subpageBatch: async (
+        operationId: string,
+        body: { titles: readonly string[]; format?: 'html' },
+      ) => {
+        if (body.format !== 'html') throw new Error('Design pages must be created as HTML');
+        const entries = body.titles.map((title) => {
+          const childPage = make(title);
+          page().order.push(childPage);
+          return { operationId: crypto.randomUUID(), state: 'committed', childPage };
+        });
+        return { operationId, state: 'committed', entries, nextIndex: entries.length };
+      },
+      subpageBatchStatus: async (operationId: string) => ({
+        operationId,
+        state: 'absent',
+        entries: [],
+        nextIndex: 0,
+      }),
       files: {
         target: () => ({ kind: 'document', source: page().source }),
         add: async (stored: { original: { descriptor: { attachmentId: string } } }[]) => {
@@ -292,6 +310,182 @@ describe('template, publish and the renderer source', () => {
     });
   });
 
+  it.each(['committed', 'absent'] as const)(
+    'splits a large parent and resumes its uncertain chunk when status is %s',
+    async (status) => {
+      const { pages, make, transport } = space();
+      make('Home');
+      const calls: { id: string; titles: readonly string[] }[] = [];
+      const outcomes = new Map<
+        string,
+        Awaited<ReturnType<NonNullable<PageBinding['subpageBatch']>>>
+      >();
+      const statuses: string[] = [];
+      let dropped = false;
+      const page = transport.page.bind(transport);
+      (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+        const snapshot = await page(id, signal);
+        const binding = snapshot.binding;
+        if (pages.get(id)?.title === 'Components' && binding?.subpageBatch) {
+          const original = binding.subpageBatch.bind(binding);
+          binding.subpageBatch = async (operationId, body) => {
+            calls.push({ id: operationId, titles: [...body.titles] });
+            const retained = outcomes.get(operationId);
+            if (retained) return retained;
+            const result = await original(operationId, body);
+            outcomes.set(operationId, result);
+            if (calls.length === 2 && !dropped) {
+              dropped = true;
+              throw new SaveOutcomeUnknown(operationId);
+            }
+            return result;
+          };
+          binding.subpageBatchStatus = async (operationId) => {
+            statuses.push(operationId);
+            return status === 'committed'
+              ? outcomes.get(operationId)!
+              : { operationId, state: 'absent', entries: [], nextIndex: 0 };
+          };
+        }
+        return snapshot;
+      };
+      const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+      const componentTitles = (templateSections as { title: string; pages: { title: string }[] }[])
+        .find((section) => section.title === 'Components')!
+        .pages.map((entry) => entry.title);
+      expect(componentTitles.length).toBeGreaterThan(32);
+      const lengths = Array.from({ length: Math.ceil(componentTitles.length / 32) }, (_, index) =>
+        Math.min(32, componentTitles.length - index * 32),
+      );
+      await expect(creation.run()).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+      expect(calls.map((call) => call.titles.length)).toEqual(lengths.slice(0, 2));
+      const count = pages.size;
+      await creation.run();
+      const uniqueCalls = calls.filter(
+        (call, index) => calls.findIndex((item) => item.id === call.id) === index,
+      );
+      expect(uniqueCalls.map((call) => call.titles.length)).toEqual(lengths);
+      expect(uniqueCalls.flatMap((call) => call.titles)).toEqual(componentTitles);
+      expect(new Set(calls.map((call) => call.id)).size).toBe(lengths.length);
+      expect(statuses).toContain(calls[1]!.id);
+      expect(calls.filter((call) => call.id === calls[1]!.id)).toHaveLength(
+        status === 'absent' ? 2 : 1,
+      );
+      const components = [...pages.values()].find((value) => value.title === 'Components')!;
+      expect(components.order.map((id) => pages.get(id)!.title)).toEqual(componentTitles);
+      expect(pages.size).toBeGreaterThan(count);
+    },
+  );
+
+  it('reports retained entries while an owner batch is still running', async () => {
+    const { make, transport } = space();
+    make('Home');
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const batches = new Map<
+      string,
+      Awaited<ReturnType<NonNullable<PageBinding['subpageBatch']>>>
+    >();
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding;
+      if (binding?.subpageBatch) {
+        const original = binding.subpageBatch.bind(binding);
+        binding.subpageBatch = async (operationId, body) => {
+          const result = await original(operationId, body);
+          if (body.titles.includes('Foundations')) {
+            batches.set(operationId, result);
+            started();
+            await held;
+          }
+          return result;
+        };
+        binding.subpageBatchStatus = async (operationId) => {
+          const result = batches.get(operationId);
+          return result
+            ? { ...result, state: 'running', entries: result.entries.slice(0, 1), nextIndex: 1 }
+            : { operationId, state: 'absent', entries: [], nextIndex: 0 };
+        };
+      }
+      return snapshot;
+    };
+    const created: number[] = [];
+    const attempt = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' }).run(
+      (state) => {
+        if (state.phase === 'creating') created.push(state.done);
+      },
+    );
+    try {
+      await running;
+      await vi.waitFor(() => expect(created).toContain(1), { timeout: 3_000 });
+    } finally {
+      release();
+    }
+    await attempt;
+  });
+
+  it('resumes a refused batch with its retained ID and a partially made child', async () => {
+    const { pages, make, transport } = space();
+    make('Home');
+    const sent: string[] = [];
+    let partial:
+      | {
+          parent: string;
+          child: string;
+          first: Awaited<ReturnType<NonNullable<PageBinding['subpageBatch']>>>;
+        }
+      | undefined;
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding;
+      if (binding?.subpageBatch) {
+        const original = binding.subpageBatch.bind(binding);
+        binding.subpageBatch = async (operationId, body) => {
+          if (!body.titles.includes('Foundations')) return original(operationId, body);
+          sent.push(operationId);
+          if (!partial) {
+            const first = await original(operationId, { ...body, titles: body.titles.slice(0, 1) });
+            const child = make(body.titles[1]!);
+            partial = { parent: id, child, first };
+            return { ...first, state: 'rejected', code: 'COLAB_STALE_BASE', childPage: child };
+          }
+          expect(id).toBe(partial.parent);
+          pages.get(id)!.order.push(partial.child);
+          const rest = await original(operationId, { ...body, titles: body.titles.slice(2) });
+          const entries = [
+            ...partial.first.entries,
+            {
+              operationId: crypto.randomUUID(),
+              state: 'committed' as const,
+              childPage: partial.child,
+            },
+            ...rest.entries,
+          ];
+          return { operationId, state: 'committed', entries, nextIndex: entries.length };
+        };
+      }
+      return snapshot;
+    };
+    const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+    await expect(creation.run()).rejects.toBeInstanceOf(SaveRefused);
+    const madeBeforeRetry = pages.size;
+    expect(partial).toBeDefined();
+    expect(pages.get(partial!.parent)!.order).not.toContain(partial!.child);
+    await creation.run();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toBe(sent[0]);
+    expect(pages.get(partial!.parent)!.order.filter((id) => id === partial!.child)).toHaveLength(1);
+    expect(pages.size).toBeGreaterThan(madeBeforeRetry);
+  });
+
   it('stops writing after a failed page, names it, and a retry makes no page twice (#6162)', async () => {
     const clean = space();
     clean.make('Home');
@@ -329,6 +523,10 @@ describe('template, publish and the renderer source', () => {
       make('Home');
       const sameName = make('Acme');
       const outcomes = new Map<string, { childPage?: string }>();
+      const batchOutcomes = new Map<
+        string,
+        Awaited<ReturnType<NonNullable<PageBinding['subpageBatch']>>>
+      >();
       let failed = false;
       let pending = true;
       const page = transport.page.bind(transport);
@@ -344,10 +542,7 @@ describe('template, publish and the renderer source', () => {
               if (
                 !failed &&
                 ((stage === 'root' && action === 'subpage.create' && body.title === 'Acme') ||
-                  (stage === 'root-detach' && action === 'subpage.detach') ||
-                  (stage === 'child' &&
-                    action === 'subpage.create' &&
-                    body.title === 'Foundations'))
+                  (stage === 'root-detach' && action === 'subpage.detach'))
               ) {
                 failed = true;
                 throw new SaveOutcomeUnknown(operationId);
@@ -361,6 +556,25 @@ describe('template, publish and the renderer source', () => {
               throw new SaveOutcomeUnknown(operationId);
             }
             return outcomes.get(operationId)!;
+          };
+        }
+        if (stage === 'child' && binding?.subpageBatch) {
+          const original = binding.subpageBatch.bind(binding);
+          binding.subpageBatch = async (operationId, body) => {
+            const result = await original(operationId, body);
+            batchOutcomes.set(operationId, result);
+            if (!failed && body.titles.includes('Foundations')) {
+              failed = true;
+              throw new SaveOutcomeUnknown(operationId);
+            }
+            return result;
+          };
+          binding.subpageBatchStatus = async (operationId) => {
+            if (pending) {
+              pending = false;
+              return { operationId, state: 'running', entries: [], nextIndex: 0 };
+            }
+            return batchOutcomes.get(operationId)!;
           };
         }
         return snapshot;

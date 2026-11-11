@@ -7,7 +7,7 @@ import { text } from './strings.js';
 /** The most one page source can hold; mirrors decoder.rs `BASELINE_BYTES`. */
 export const SAVE_SOURCE_BYTES = SOURCE_BYTES;
 
-export type SaveState = 'committed' | 'unchanged' | 'absent' | 'pending' | 'rejected';
+export type SaveState = 'committed' | 'unchanged' | 'absent' | 'pending' | 'running' | 'rejected';
 /** The one reply to a save or a status request (`saveresult`). */
 export interface QuestionWriteFinding {
   code: string;
@@ -42,6 +42,17 @@ export interface SaveResult {
 
 /** The one reply to a `work` frame: a save's fields. */
 export type WorkResult = SaveResult;
+export const SUBPAGE_BATCH_ENTRIES = 128;
+export interface SubpageBatchEntry {
+  operationId: string;
+  state: 'committed' | 'unchanged';
+  childPage: string;
+}
+export interface SubpageBatchResult extends SaveResult {
+  state: 'running' | 'committed' | 'rejected' | 'absent';
+  entries: SubpageBatchEntry[];
+  nextIndex: number;
+}
 /** A block batch's reply (contract: Blocks): the save outcome plus, once the batch reached the
  * page, its receipt: the ops it applied, the typed hunks a whole-text op could not apply, and the
  * attachment IDs a batch with an attachment change listed and removed (#6190). */
@@ -266,6 +277,49 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
 export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {
   return saveResult(frame, operationId);
 }
+
+/** The ordered, bounded receipt of an owner sub-page create batch or its status. */
+export function subpageBatchResult(
+  frame: Record<string, unknown>,
+  operationId: string,
+): SubpageBatchResult {
+  const state = frame.state;
+  requireValue(
+    state === 'running' || state === 'committed' || state === 'rejected' || state === 'absent',
+  );
+  const { entries, nextIndex, ...base } = frame;
+  if (state === 'absent') {
+    requireValue(entries === undefined && nextIndex === undefined);
+    const result = saveResult(base, operationId);
+    requireValue(result.childPage === undefined);
+    return { ...result, state, entries: [], nextIndex: 0 };
+  }
+  requireValue(Array.isArray(entries) && entries.length <= SUBPAGE_BATCH_ENTRIES);
+  requireValue(Number.isSafeInteger(nextIndex) && nextIndex === entries.length);
+  requireValue(state !== 'committed' || entries.length > 0);
+  const ids = new Set<string>();
+  const pages = new Set<string>();
+  const generatedId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  for (const entry of entries) {
+    exactKeys(entry, ['operationId', 'state', 'childPage']);
+    requireValue(typeof entry.operationId === 'string' && generatedId.test(entry.operationId));
+    requireValue(typeof entry.childPage === 'string' && generatedId.test(entry.childPage));
+    requireValue(entry.state === 'committed' || entry.state === 'unchanged');
+    requireValue(!ids.has(entry.operationId) && !pages.has(entry.childPage));
+    ids.add(entry.operationId);
+    pages.add(entry.childPage);
+  }
+  const result = saveResult(
+    state === 'running' ? { ...base, state: 'pending' } : base,
+    operationId,
+  );
+  return {
+    ...result,
+    state,
+    entries: entries as SubpageBatchEntry[],
+    nextIndex: nextIndex as number,
+  };
+}
 export function blocksResult(frame: Record<string, unknown>, operationId: string): BlocksResult {
   const { receipt, ...rest } = frame;
   const result = saveResult(rest, operationId);
@@ -316,7 +370,8 @@ export function blocksResult(frame: Record<string, unknown>, operationId: string
 /** A settled result as the outcome the caller sees: success returns, everything else throws. */
 export function settled(result: SaveResult): SaveResult {
   // Still preparing on the page: the outcome is not final, and the save is never sent again.
-  if (result.state === 'pending') throw new SaveOutcomeUnknown(result.operationId);
+  if (result.state === 'pending' || result.state === 'running')
+    throw new SaveOutcomeUnknown(result.operationId);
   if (result.state === 'absent') throw new SaveNotApplied(result.operationId, result.childPage);
   if (result.state === 'rejected')
     throw new SaveRefused(

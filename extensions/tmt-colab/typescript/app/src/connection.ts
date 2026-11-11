@@ -49,9 +49,12 @@ import {
   SaveNotApplied,
   SaveTooLarge,
   saveResult,
+  subpageBatchResult,
+  SUBPAGE_BATCH_ENTRIES,
   workResult,
   type BlocksResult,
   type SaveResult,
+  type SubpageBatchResult,
   type WorkAction,
   type MetadataAction,
   type WorkResult,
@@ -152,6 +155,7 @@ export class Connection {
   /** At most one save or status request is in flight per connection. */
   #reply: {
     operationId: string;
+    batch: boolean;
     resolve(value: SaveResult): void;
     reject(error: Error): void;
     timer: ReturnType<typeof setTimeout>;
@@ -568,8 +572,10 @@ export class Connection {
     ) {
       const pending = this.#reply;
       requireValue(pending !== null);
-      const result =
-        frame.type === 'workresult'
+      if (pending.batch) requireValue(frame.type === 'workresult' || frame.type === 'saveresult');
+      const result = pending.batch
+        ? subpageBatchResult(frame, pending.operationId)
+        : frame.type === 'workresult'
           ? workResult(frame, pending.operationId)
           : frame.type === 'blocksresult'
             ? blocksResult(frame, pending.operationId)
@@ -700,6 +706,46 @@ export class Connection {
       throw error;
     }
   }
+  /** One owner batch; retries retain the same batch ID and body. */
+  async subpageBatch(
+    operationId: string,
+    body: { titles: readonly string[]; format?: 'html' },
+    timeoutMs = SAVE_REPLY_MS,
+  ): Promise<SubpageBatchResult> {
+    requireValue(body.titles.length > 0 && body.titles.length <= SUBPAGE_BATCH_ENTRIES);
+    requireValue(text(JSON.stringify(body)).length <= 48 * 1024);
+    let sending = false;
+    try {
+      return (await this.#request(
+        operationId,
+        async () => {
+          await this.ready;
+          this.admission.validatePage(this.sharing);
+          sending = true;
+          this.send('work', { operationId, action: 'subpage.createBatch', body });
+        },
+        timeoutMs,
+        true,
+      )) as SubpageBatchResult;
+    } catch (error) {
+      if (!sending) throw new SaveNotApplied(operationId);
+      throw error;
+    }
+  }
+  async subpageBatchStatus(
+    operationId: string,
+    timeoutMs = SAVE_REPLY_MS,
+  ): Promise<SubpageBatchResult> {
+    return (await this.#request(
+      operationId,
+      async () => {
+        await this.ready;
+        this.send('savestatus', { operationId });
+      },
+      timeoutMs,
+      true,
+    )) as SubpageBatchResult;
+  }
   /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
    * its receipt. A lost reply settles like a save's, by one `saveStatus`. `attachments` is a typed
    * change to the page's attachment list judged with the ops (#6190); a batch has no ops only when
@@ -739,11 +785,12 @@ export class Connection {
     operationId: string,
     send: () => Promise<void>,
     timeoutMs = SAVE_REPLY_MS,
+    batch = false,
   ): Promise<SaveResult> {
     requireValue(!this.#stopped && this.#reply === null);
     return new Promise<SaveResult>((resolve, reject) => {
       const timer = setTimeout(() => this.close(new Error('Save reply timed out')), timeoutMs);
-      this.#reply = { operationId, resolve, reject, timer };
+      this.#reply = { operationId, batch, resolve, reject, timer };
       send().catch((error) =>
         this.close(error instanceof Error ? error : new Error('Save unavailable')),
       );

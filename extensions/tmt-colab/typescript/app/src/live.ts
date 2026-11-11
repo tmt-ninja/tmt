@@ -44,6 +44,7 @@ import {
   type WorkAction,
   type MetadataAction,
   type WorkResult,
+  type SubpageBatchResult,
 } from './save.js';
 import type { BlockOp } from './block-model.js';
 import { hunksOf } from './save-hunks.js';
@@ -979,6 +980,51 @@ export class Live implements PageBinding {
     await this.#showsRevision(result.revision);
     return result.childPage === undefined ? {} : { childPage: result.childPage };
   }
+  /** Send one batch; after a lost reply, status and one same-ID replay recover retained entries. */
+  async subpageBatch(
+    operationId: string,
+    body: { titles: readonly string[]; format?: 'html' },
+  ): Promise<SubpageBatchResult> {
+    if (this.#closed || this.#error) throw new Error('Page editing unavailable');
+    const deadline = Date.now() + SAVE_REPLY_MS;
+    const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
+      if (error instanceof ConnectionReadyTimeout) throw new SaveNotApplied(operationId);
+      throw error;
+    });
+    try {
+      return await c.subpageBatch(operationId, body, Math.max(0, deadline - Date.now()));
+    } catch (error) {
+      if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
+      try {
+        const deadline = Date.now() + SAVE_REOPEN_MS;
+        const next = await this.#reopened(c, deadline);
+        while (Date.now() < deadline) {
+          const status = await next.subpageBatchStatus(
+            operationId,
+            Math.max(0, deadline - Date.now()),
+          );
+          if (status.state === 'absent')
+            return await next.subpageBatch(operationId, body, Math.max(0, deadline - Date.now()));
+          if (status.state !== 'running') return status;
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(100, Math.max(0, deadline - Date.now()))),
+          );
+        }
+        throw new SaveOutcomeUnknown(operationId);
+      } catch {
+        throw new SaveOutcomeUnknown(operationId);
+      }
+    }
+  }
+  /** Inspect an uncertain batch without sending a new create. */
+  async subpageBatchStatus(operationId: string): Promise<SubpageBatchResult> {
+    try {
+      const c = await connectionBefore(this.#current, Date.now() + SAVE_REPLY_MS);
+      return await c.subpageBatchStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
+    }
+  }
   /** A block batch, settled as `work` is: a lost reply by exactly one status request, never sent
    * again; it resolves once the page shows the commit. */
   async blocks(
@@ -1201,8 +1247,7 @@ export class Live implements PageBinding {
     }
   }
   /** The connection Live reopens after `lost` failed, once it is caught up. */
-  async #reopened(lost: Connection): Promise<Connection> {
-    const deadline = Date.now() + SAVE_REOPEN_MS;
+  async #reopened(lost: Connection, deadline = Date.now() + SAVE_REOPEN_MS): Promise<Connection> {
     while (!this.#closed && !this.#error && Date.now() < deadline) {
       const next = await connectionBefore(this.#current, deadline).catch(() => null);
       if (next && next !== lost && next.active) return next;

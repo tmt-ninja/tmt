@@ -627,6 +627,13 @@ fn delivery(
         ))
     }
 }
+#[derive(Clone, Default)]
+struct Saving {
+    count: usize,
+    /// Ordered completed batch entries while the owner operation is in flight.
+    batch: Option<Vec<serde_json::Value>>,
+}
+
 struct State<A> {
     store: Store,
     admission: A,
@@ -634,10 +641,10 @@ struct State<A> {
     checked_admission: Option<(u64, Instant)>,
     peers: HashMap<u64, Peer>,
     next: u64,
-    /// Saves between `save_job` and `finish_save`, by (page, operation ID) with a count: while
-    /// one is preparing, a status request for it is `pending`, never `absent`, even after the
-    /// connection that sent it is gone.
-    saving: HashMap<(String, String), usize>,
+    /// In-flight saves by (page, operation ID): a status request never reports `absent` while
+    /// preparation runs, even after the connection that sent it is gone. A batch also holds its
+    /// completed entries here until it finishes.
+    saving: HashMap<(String, String), Saving>,
     /// A service replacement finishes admitted saves but admits no new peer mutations.
     draining: bool,
     /// Tells the cloud-sync worker which page was last opened or written. Nothing waits on it
@@ -913,6 +920,111 @@ impl<A: Admission> Server<A> {
                 }
             }
         }
+    }
+
+    /// Run an ordered browser create batch through the same retained per-entry work path.
+    fn run_create_batch(&self, peer: u64, job: &SaveJob) -> Result<(), Code> {
+        use crate::page::save::SaveResult;
+        let edit = job.subpage.as_ref().ok_or(Code::Invalid)?;
+        let mut entries = Vec::new();
+        let mut revision = None;
+        let result = (|| -> Result<SaveResult, Code> {
+            let (titles, html) = match crate::subpage_create::batch(&edit.body) {
+                Ok(batch) => batch,
+                Err(_) => {
+                    return Ok(SaveResult::rejected(
+                        &edit.operation_id,
+                        &crate::page::Fault::Invalid,
+                    ));
+                }
+            };
+            for (index, title) in titles.iter().enumerate() {
+                let operation = crate::subpage_create::batch_operation_id(
+                    &job.scope.space,
+                    &edit.operation_id,
+                    index,
+                );
+                let (status, pending) = {
+                    let state = self.0.lock().map_err(|_| Code::Denied)?;
+                    state
+                        .admission
+                        .authorize(&job.principal, &job.scope, Access::Publish)?;
+                    let pending = state
+                        .saving
+                        .contains_key(&(job.scope.page.clone(), operation.clone()));
+                    let status = state
+                        .admission
+                        .save_status(&job.scope.page, &operation)
+                        .map_err(|_| Code::Denied)?;
+                    (status, pending)
+                };
+                if pending {
+                    return Ok(SaveResult::pending(&edit.operation_id));
+                }
+                let mut outcome = if status.state == "absent" {
+                    let mut entry = {
+                        let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+                        state
+                            .admission
+                            .authorize(&job.principal, &job.scope, Access::Publish)?;
+                        state.structured_job_base(
+                            &job.scope,
+                            job.principal.clone(),
+                            operation.clone(),
+                        )?
+                    };
+                    entry.subpage = Some(crate::page::subpage::SubpageEdit {
+                        page: job.scope.page.clone(),
+                        operation_id: operation.clone(),
+                        action: crate::work::CREATE.into(),
+                        body: if html {
+                            serde_json::json!({"title":title,"format":"html"})
+                        } else {
+                            serde_json::json!({"title":title})
+                        },
+                    });
+                    self.run_save_job(None, &entry)?
+                } else {
+                    status
+                };
+                if outcome.state != "committed" && outcome.state != "unchanged" {
+                    outcome.operation_id = edit.operation_id.clone();
+                    return Ok(outcome);
+                }
+                let child = outcome.child_page.ok_or(Code::Invalid)?;
+                revision = outcome.revision;
+                entries.push(serde_json::json!({
+                    "operationId":operation, "state":outcome.state, "childPage":child,
+                }));
+                let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+                if let Some(saving) = state
+                    .saving
+                    .get_mut(&(job.scope.page.clone(), edit.operation_id.clone()))
+                {
+                    saving.batch = Some(entries.clone());
+                }
+            }
+            Ok(SaveResult::committed(
+                &edit.operation_id,
+                revision.ok_or(Code::Invalid)?,
+            ))
+        })();
+        let reply = match result {
+            Ok(reply) => reply,
+            Err(Code::Denied) => {
+                SaveResult::rejected(&edit.operation_id, &crate::page::Fault::Denied)
+            }
+            Err(_) => SaveResult::rejected(&edit.operation_id, &crate::page::Fault::Unavailable),
+        };
+        let mut fields = serde_json::to_value(reply).map_err(|_| Code::Invalid)?;
+        if fields["state"] == "pending" {
+            fields["state"] = serde_json::json!("running");
+        }
+        fields["nextIndex"] = serde_json::json!(entries.len());
+        fields["entries"] = serde_json::json!(entries);
+        let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+        state.unsave(job);
+        state.reply_page(peer, &job.scope, "workresult", Ok(fields))
     }
     /// Make the page a browser's convert operation names, for the owner device that asked. The
     /// device's authority is checked again here, under the lock, because the page is made out of
@@ -1673,6 +1785,31 @@ impl<A: Admission> State<A> {
                     return Err(Code::Invalid);
                 }
                 values::generated_id(&operation_id)?;
+                if crate::page::subpage::is_create_batch(&action) {
+                    let key = (scope.page.clone(), operation_id.clone());
+                    if let Some(saving) = self.saving.get(&key) {
+                        if let Some(entries) = saving.batch.clone() {
+                            self.reply_page(
+                                id,
+                                &scope,
+                                "workresult",
+                                Ok(serde_json::json!({
+                                    "operationId": operation_id,
+                                    "state": "running",
+                                    "nextIndex": entries.len(),
+                                    "entries": entries,
+                                })),
+                            )?;
+                            return Ok(None);
+                        }
+                        return Err(Code::Invalid);
+                    }
+                    let job = self.work_job(&scope, principal, operation_id, action, body)?;
+                    if let Some(saving) = self.saving.get_mut(&key) {
+                        saving.batch = Some(Vec::new());
+                    }
+                    return Ok(Some(job));
+                }
                 return self
                     .work_job(&scope, principal, operation_id, action, body)
                     .map(Some);
@@ -1682,10 +1819,24 @@ impl<A: Admission> State<A> {
                     return Err(Code::Invalid);
                 }
                 values::generated_id(&operation_id)?;
-                let reply = if self
-                    .saving
-                    .contains_key(&(scope.page.clone(), operation_id.clone()))
-                {
+                let active = self.saving.get(&(scope.page.clone(), operation_id.clone()));
+                if let Some(entries) = active.and_then(|saving| saving.batch.clone()) {
+                    self.admission
+                        .authorize(&principal, &scope, Access::Publish)?;
+                    self.reply_page(
+                        id,
+                        &scope,
+                        "saveresult",
+                        Ok(serde_json::json!({
+                            "operationId": operation_id,
+                            "state": "running",
+                            "nextIndex": entries.len(),
+                            "entries": entries,
+                        })),
+                    )?;
+                    return Ok(None);
+                }
+                let reply = if active.is_some() {
                     crate::page::save::SaveResult::pending(&operation_id)
                 } else {
                     self.admission
@@ -1744,10 +1895,10 @@ impl<A: Admission> State<A> {
             return Err(Code::Invalid);
         }
         let open = self.admission.save_source().ok_or(Code::Denied)?;
-        *self
-            .saving
+        self.saving
             .entry((scope.page.clone(), operation_id.clone()))
-            .or_default() += 1;
+            .or_default()
+            .count += 1;
         Ok(SaveJob {
             open,
             scope: scope.clone(),
@@ -1775,7 +1926,10 @@ impl<A: Admission> State<A> {
         action: String,
         body: serde_json::Value,
     ) -> Result<SaveJob, Code> {
-        if !crate::page::subpage::known(&action) && !crate::page::subpage::is_create(&action) {
+        if !crate::page::subpage::known(&action)
+            && !crate::page::subpage::is_create(&action)
+            && !crate::page::subpage::is_create_batch(&action)
+        {
             return Err(Code::Invalid);
         }
         let mut job = self.structured_job_base(scope, principal, operation_id.clone())?;
@@ -1795,10 +1949,10 @@ impl<A: Admission> State<A> {
         operation_id: String,
     ) -> Result<SaveJob, Code> {
         let open = self.admission.save_source().ok_or(Code::Denied)?;
-        *self
-            .saving
+        self.saving
             .entry((scope.page.clone(), operation_id.clone()))
-            .or_default() += 1;
+            .or_default()
+            .count += 1;
         Ok(SaveJob {
             open,
             scope: scope.clone(),
@@ -1822,9 +1976,9 @@ impl<A: Admission> State<A> {
         self.release_save(&(job.save.page.clone(), job.save.operation_id.clone()));
     }
     fn release_save(&mut self, key: &(String, String)) {
-        if let Some(count) = self.saving.get_mut(key) {
-            *count -= 1;
-            if *count == 0 {
+        if let Some(saving) = self.saving.get_mut(key) {
+            saving.count -= 1;
+            if saving.count == 0 {
                 self.saving.remove(key);
             }
         }
@@ -2569,7 +2723,15 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         Ok(())
     }
     fn run_save(&self, job: SaveJob) -> Result<(), Code> {
-        self.server.run_save_job(Some(self.id), &job).map(|_| ())
+        if job
+            .subpage
+            .as_ref()
+            .is_some_and(|edit| crate::page::subpage::is_create_batch(&edit.action))
+        {
+            self.server.run_create_batch(self.id, &job)
+        } else {
+            self.server.run_save_job(Some(self.id), &job).map(|_| ())
+        }
     }
     fn close(&mut self, code: Code) -> Progress {
         self.objects = Err(crate::object_channel::Missing::Unavailable);

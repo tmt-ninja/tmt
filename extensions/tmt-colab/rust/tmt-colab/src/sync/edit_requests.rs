@@ -227,10 +227,11 @@ impl<A: Admission> Server<A> {
             Ok(()) => {
                 {
                     let mut state = self.0.lock().map_err(|_| Code::Denied)?;
-                    *state
+                    state
                         .saving
                         .entry((scope.page.clone(), operation.clone()))
-                        .or_default() += 1;
+                        .or_default()
+                        .count += 1;
                 }
                 let job = SaveJob {
                     open: open.clone(),
@@ -280,7 +281,13 @@ impl<A: Admission> Server<A> {
             if state.saving.contains_key(&key) {
                 return Ok(false);
             }
-            state.saving.insert(key.clone(), 1);
+            state.saving.insert(
+                key.clone(),
+                super::Saving {
+                    count: 1,
+                    batch: None,
+                },
+            );
         }
         let _claim = MetadataClaim { server: self, key };
         let stored = self
@@ -336,13 +343,13 @@ impl<A: Admission> Server<A> {
                                 metadata: Some(edit),
                                 blocks: None,
                             };
-                            *self
-                                .0
+                            self.0
                                 .lock()
                                 .map_err(|_| Code::Denied)?
                                 .saving
                                 .entry((scope.page.clone(), job.save.operation_id.clone()))
-                                .or_default() += 1;
+                                .or_default()
+                                .count += 1;
                             self.run_save_job(None, &job)?
                         }
                     },

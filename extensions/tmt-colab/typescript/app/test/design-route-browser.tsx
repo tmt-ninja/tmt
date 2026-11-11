@@ -32,6 +32,10 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     unknownCreate: false,
   };
   const pages = new Map<string, PageRecord>();
+  const batches = new Map<
+    string,
+    { operationId: string; state: 'committed'; childPage: string }[]
+  >();
   const counts = { opened: 0, closed: 0, active: 0, edits: 0 };
   const anchors: { pageId: string; body: string; anchor: unknown }[] = [];
   // The live page list a mounted transport serves: every page's revision, after each change.
@@ -154,6 +158,36 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
         notify(page);
         return { childPage: child };
       },
+      subpageBatch: async (
+        operationId: string,
+        body: { titles: readonly string[]; format?: 'html' },
+      ) => {
+        const key = `${id}:${operationId}`;
+        let entries = batches.get(key);
+        if (!entries) {
+          if (body.format !== 'html') throw new Error('Fixture design pages require HTML');
+          entries = body.titles.map((title) => {
+            const childPage = make(title);
+            page.order.push(childPage);
+            notify(page);
+            return { operationId: crypto.randomUUID(), state: 'committed' as const, childPage };
+          });
+          batches.set(key, entries);
+        }
+        return {
+          operationId,
+          state: 'committed',
+          revision: 'v1:fixture',
+          entries,
+          nextIndex: entries.length,
+        };
+      },
+      subpageBatchStatus: async (operationId: string) => ({
+        operationId,
+        state: 'absent',
+        entries: [],
+        nextIndex: 0,
+      }),
       files: {
         target: () => ({ kind: 'document', source: page.source }),
         add: async (stored: { id: string; bytes: Uint8Array }[]) => {
