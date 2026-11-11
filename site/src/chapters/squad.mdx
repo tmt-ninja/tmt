@@ -423,7 +423,7 @@ State colors on rows and tab marks are these tokens too: `blocked = { color = "b
 
 Ops comes with a skill for the lead agent. It teaches the lead to read the board, keep it current after every dispatch and reply, and find your settings. When a rule isn't clear, the lead **asks you** instead of guessing. That covers which states to use, what counts as waiting on you, and how members get started. It records what you agree on in its notes, or proposes a config change for you to apply; it never edits your settings on its own.
 
-`tmt extension install ops` offers this skill for the agents you use and asks first.
+`tmt extension install ops --skills` publishes this skill for the agents you use. A plain install does not publish agent skills.
 
 Optional **playbooks** are example skills for how a lead lays out its team on your host. Today there is one, `tmux-squad` (a leads session and a crew session, one window and worktree per member). Ops never runs it. Read it with `tmt ops playbook show tmux-squad`, then install it, change it, or ignore it.
 
@@ -448,10 +448,10 @@ Ops keeps its roster and board fields in tmt, with optional observed ages in a d
 ### Jumping between members
 
 <Callout title="tmux only, for now.">
-  This section needs a host that can switch panes, which today is tmux. Herdr panes (after `tmt
-  driver install herdr`) show on the board and receive messages, but Herdr can't focus a pane by ID,
-  so there Enter opens the row's actions, as in a plain terminal. cmux is not supported yet.
-  Everything else on the board works the same. You can skip this section.
+  This section needs a host that can switch panes, which today is tmux. Herdr panes show on the
+  board and receive messages, but Herdr can't focus a pane by ID, so there Enter opens the row's
+  actions, as in a plain terminal. cmux is not supported yet. Everything else on the board works the
+  same. You can skip this section.
 </Callout>
 
 A layout that works well: leads in one place you keep open, members in another, one window and worktree per piece of work. You talk to leads and read the board, and only drop into a member when it needs you. From the board, Enter takes you to that member's screen, even in another session, and `⌫` brings you back.

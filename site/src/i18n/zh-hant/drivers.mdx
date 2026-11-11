@@ -32,16 +32,16 @@ $ tmt setup                      # 選用：經你同意後，接上找到的每
 - [Claude Code](/drivers/claude-code)：runtime driver，支援精確恢復、session 開始時的 context，以及選用的訊息通道。
 - [Codex](/drivers/codex)：runtime driver，即使多個窗格共用同一個 Codex 伺服器，也能安全運作。
 
-<Mdx.h3 id="herdr-ships-with-tmt-approve-once">Herdr：隨 tmt 提供，核准一次即可</Mdx.h3>
+<Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：隨 tmt 提供，首次使用時核准</Mdx.h3>
 
-Herdr host driver 隨 tmt 提供，但必須經過你核准才會執行。`tmt driver install herdr` 會顯示它將執行的內容，並先詢問你：
+Herdr host driver 隨 tmt 提供。在 Herdr 窗格第一次執行使用 host 的命令（例如 `tmt ls`）時，tmt 會自動核准隨附的 driver，並顯示一行說明。
 
 <Cmd>{`
 $ tmt driver install herdr   # 顯示將執行的內容，再詢問你
 $ tmt driver ls              # herdr 的狀態：ok、changed 或 missing
 `}</Cmd>
 
-只要新版 driver 沒有要求更多權限，tmt 升級後就會沿用原本的核准。如果要求增加，`tmt driver ls` 會將它標為 changed 並列出原因，再執行 `tmt driver install herdr` 就能重新核准。核准前，在 Herdr 窗格裡執行的指令每天會顯示一次提示；Herdr 綁定會保留並等待，不會被刪除。
+tmt 升級後會沿用核准。如果新版 driver 提出更多要求，下次執行使用 host 的命令（例如 `tmt ls`）時，tmt 會自動重新核准並顯示說明。使用 `tmt driver rm herdr` 移除後，必須執行 `tmt driver install herdr` 才會再次核准。若無法核准，例如該版本沒有隨附 driver，在 Herdr 窗格執行的命令每天會顯示一次提示，綁定會保留並等待，不會被刪除。
 
 <Mdx.h3 id="usage-counters">用量計數</Mdx.h3>
 

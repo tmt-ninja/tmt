@@ -424,7 +424,7 @@ $ tmt ops sq theme rm --squad product     # 重新沿用 board 主題；保留�
 
 Ops 附帶給 lead agent 的 skill。它會教 lead 讀取 board、在每次派工與回覆後更新 board，以及找到你的設定。規則不清楚時，lead 會**詢問你**，不會用猜的。這包含使用哪些狀態、什麼算是等待你處理，以及成員如何啟動。它會把約定記在筆記裡，或提出設定變更讓你套用；不會自行編輯你的設定。
 
-`tmt extension install ops` 會提供這個 skill 給你使用的 agent，先詢問你。
+`tmt extension install ops --skills` 會將這個 skill 發布給你使用的 agent。不加 `--skills` 的安裝不會發布 agent skill。
 
 選用的 **playbook** 是範例 skill，說明 lead 如何在你的 host 上安排團隊。目前有一個 `tmux-squad`（一個 leads session 與一個 crew session，每個成員各有一個視窗與 worktree）。Ops 不會執行它。用 `tmt ops playbook show tmux-squad` 閱讀，再決定安裝、修改，或忽略。
 
@@ -449,9 +449,9 @@ Ops 把成員名單與 board 欄位存進 tmt；選用的觀察時間則放在�
 <Mdx.h3 id="jumping-between-members">在成員之間切換</Mdx.h3>
 
 <Callout title="目前只適用於 tmux。">
-  這一節需要能切換窗格的 host，目前是 tmux。Herdr 窗格（執行 `tmt driver install herdr` 後）會顯示在
-  board，也能接收訊息，但 Herdr 不能用 ID 切換到窗格，所以按 Enter
-  會像一般終端機一樣開啟該列的動作。cmux 尚未支援。board 的其他功能都相同。你可以跳過這一節。
+  這一節需要能切換窗格的 host，目前是 tmux。Herdr 窗格會顯示在 board，也能接收訊息，但 Herdr 不能用
+  ID 切換到窗格，所以按 Enter 會像一般終端機一樣開啟該列的動作。cmux 尚未支援。board
+  的其他功能都相同。你可以跳過這一節。
 </Callout>
 
 一種方便的配置：lead 放在你會一直開著的位置，成員放在另一處，每份工作各有一個視窗與 worktree。你與 lead 對話、讀取 board，只有成員需要你時才進到它的畫面。從 board 按 Enter 可以切到成員畫面，即使在另一個 session 也一樣；`⌫` 會帶你回來。
