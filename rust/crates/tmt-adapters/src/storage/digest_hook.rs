@@ -342,7 +342,7 @@ mod tests {
     }
 
     fn opened(
-        directory: &(TestDirectory, std::path::PathBuf, String),
+        directory: &((TestDirectory, TemplateLease), std::path::PathBuf, String),
     ) -> (Storage, IdentityContextSnapshot) {
         let (_, path, id) = directory;
         let expected = Storage::context_by_identity(path, id, 1).unwrap().unwrap();

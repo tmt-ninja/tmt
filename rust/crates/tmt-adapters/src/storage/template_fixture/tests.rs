@@ -617,7 +617,8 @@ fn a_new_lease_survives_the_previous_scope_being_removed() {
         let live = entries(&root);
         assert_eq!(live.len(), 1, "round {round}: {live:?}");
         let (template, _) = published(&store).unwrap();
-        assert!(template.starts_with(root.join(&live[0])));
+        // The store resolves its parent, so a symlinked TMPDIR such as macOS `/var` still matches.
+        assert!(template.starts_with(fs::canonicalize(&root).unwrap().join(&live[0])));
         drop(lease);
         assert_eq!(entries(&root), Vec::<String>::new());
     }
