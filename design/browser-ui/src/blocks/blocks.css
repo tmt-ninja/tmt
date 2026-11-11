@@ -463,11 +463,22 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+/* A section is a heading with a hairline under it: the title reads as the start of the section, its
+   meta sits beside it, and the blocks below line up with the title's edge. */
+.tmt-block-card[data-variant='section'] .tmt-block-card-head {
+  justify-content: flex-start;
+  padding-bottom: 8px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
 .tmt-block-card[data-variant='section'] .tmt-block-card-title {
   color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
+  font-size: var(--tmt-ui-command-size);
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.tmt-block-card[data-variant='section'] .tmt-block[data-depth='1'] {
+  margin-inline: -8px;
 }
 .tmt-block-card-meta {
   color: var(--tmt-ui-color-secondary);

@@ -45,6 +45,37 @@ test('a section card draws as a section, with its meta', async ({ page }) => {
   await expect(plain.locator('.tmt-block-card-meta')).toHaveCount(0);
 });
 
+test('a section reads as the start of a section: a strong title, its meta beside it, a rule, and the body in line', async ({
+  page,
+}) => {
+  await mountLayout(page);
+  const card = block('sec');
+  const title = await box(page, card, '.tmt-block-card-title');
+  const meta = await box(page, card, '.tmt-block-card-meta');
+  const head = await box(page, card, '.tmt-block-card-head');
+  // The title is not a caption: at least 13px, semibold.
+  const type = await page.evaluate((card) => {
+    const style = getComputedStyle(document.querySelector(`${card} .tmt-block-card-title`)!);
+    const rule = getComputedStyle(document.querySelector(`${card} .tmt-block-card-head`)!);
+    return {
+      size: parseFloat(style.fontSize),
+      weight: Number(style.fontWeight),
+      rule: parseFloat(rule.borderBottomWidth),
+    };
+  }, card);
+  expect(type.size).toBeGreaterThanOrEqual(13);
+  expect(type.weight).toBeGreaterThanOrEqual(600);
+  // The meta sits beside the title on its line, 12px away, inside the prose column.
+  expect(Math.round(meta.left - title.right)).toBeLessThanOrEqual(13);
+  expect(Math.abs(meta.top + meta.bottom - (title.top + title.bottom))).toBeLessThan(8);
+  expect(meta.right - head.left).toBeLessThanOrEqual(720);
+  // A hairline closes the head.
+  expect(type.rule).toBeGreaterThanOrEqual(1);
+  // The first block's text starts where the title does, not 8px in.
+  const text = await box(page, block('in-p'), 'p');
+  expect(Math.abs(text.left - title.left)).toBeLessThanOrEqual(0.5);
+});
+
 test('blocks in a card keep the page rhythm: tight runs and the heading space above', async ({
   page,
 }) => {

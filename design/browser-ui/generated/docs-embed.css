@@ -1359,11 +1359,21 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+
+.tmt-block-card[data-variant='section'] .tmt-block-card-head {
+  justify-content: flex-start;
+  padding-bottom: 8px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
 .tmt-block-card[data-variant='section'] .tmt-block-card-title {
   color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
+  font-size: var(--tmt-ui-command-size);
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.tmt-block-card[data-variant='section'] .tmt-block[data-depth='1'] {
+  margin-inline: -8px;
 }
 .tmt-block-card-meta {
   color: var(--tmt-ui-color-secondary);
