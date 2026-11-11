@@ -2,7 +2,7 @@
 // settles: a held annotation send and a Resolve all of 30 comments, released mid-typing, on a small
 // page and a 512 KiB page. Asserted: Chat handles every key (#6266), one React commit per key at
 // the median, and at most two long tasks. The per-key latency is recorded, not asserted. The
-// composer's final text is not asserted yet: #6267 adds that with its own fix.
+// composer's final text must also match exactly, including while background work settles (#6267).
 import { commentsRegion } from '../test/comments-region.js';
 import { pageAction, commentsAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
@@ -77,6 +77,8 @@ const typed = 'typing while background writes run, one key at a time.';
 async function typeMeasured(page: Page, label: string, busy?: () => void) {
   const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
   await input.click();
+  const initial = await input.textContent();
+  expect(initial).toBe('');
   await page.evaluate(() => {
     const probe = (window as unknown as { typingProbe: Probe }).typingProbe;
     probe.keys.length = 0;
@@ -106,7 +108,10 @@ async function typeMeasured(page: Page, label: string, busy?: () => void) {
   });
   expect(quantile(commits, 0.5)).toBeLessThanOrEqual(1);
   expect(probe.long.length).toBeLessThanOrEqual(2);
-  await input.fill('');
+  expect(await input.innerText()).toBe(typed);
+  // Use real editing keys: fill selects the DOM before Lexical admits its selection.
+  await input.press('ControlOrMeta+A');
+  await input.press('Backspace');
 }
 
 for (const [size, rows] of [
