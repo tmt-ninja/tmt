@@ -1092,7 +1092,11 @@ function Content({
       );
     case 'card':
       return (
-        <CardBlock title={typeof block.props.title === 'string' ? block.props.title : undefined}>
+        <CardBlock
+          variant={block.props.variant === 'section' ? 'section' : 'card'}
+          title={typeof block.props.title === 'string' ? block.props.title : undefined}
+          meta={typeof block.props.meta === 'string' ? block.props.meta : undefined}
+        >
           <Blocks
             tree={tree}
             parent={block.id}

@@ -228,6 +228,76 @@ const SPEC_PAGE: BlockRecord[] = (() => {
   ];
 })();
 
+/** A page laid out as a night page is (#6257): a section card with its meta, the same run of blocks
+ * at the root and in the card, a long paragraph, a table and consecutive questions. */
+const LAYOUT_PAGE: BlockRecord[] = (() => {
+  let at = 0;
+  const pos = () => String.fromCharCode(66 + at++);
+  const block = (
+    id: string,
+    type: BlockRecord['type'],
+    text: string | undefined,
+    props: Record<string, unknown> = {},
+    parent = 'root',
+  ): BlockRecord => ({
+    id,
+    type,
+    parent,
+    pos: pos(),
+    props,
+    ...(text !== undefined && { text }),
+    deleted: false,
+  });
+  /** The same run of blocks under `parent`, ids prefixed. */
+  const run = (prefix: string, parent: string): BlockRecord[] => [
+    block(`${prefix}-p`, 'paragraph', '一段文字', {}, parent),
+    block(`${prefix}-l1`, 'list', '第一項', {}, parent),
+    block(`${prefix}-l2`, 'list', '第二項', {}, parent),
+    block(`${prefix}-l3`, 'list', '第三項', {}, parent),
+    block(`${prefix}-t1`, 'todo', '做這個', { checked: false }, parent),
+    block(`${prefix}-t2`, 'todo', '再做這個', { checked: true }, parent),
+    block(`${prefix}-h2`, 'heading', '下一段', { level: 2 }, parent),
+    block(`${prefix}-h3`, 'heading', '小段', { level: 3 }, parent),
+    block(`${prefix}-after`, 'paragraph', '標題後的文字', {}, parent),
+  ];
+  const question = (id: string, parent = 'root') =>
+    block(
+      id,
+      'question',
+      '先做哪一個？',
+      { kind: 'single', choices: ['第一個', '第二個', '第三個'] },
+      parent,
+    );
+  return [
+    block('top', 'heading', '夜間計畫', { level: 2 }),
+    block(
+      'prose',
+      'paragraph',
+      '這一段很長，要看每一行放多少字。每個區塊只有一種長相，由設計系統決定；頁面不帶自己的樣式。同一時間只有被點到的那一塊是編輯器，其他區塊都是靜態內容，所以長頁面也不會變慢。你打字時 agent 也可以改同一塊：你的字先留在頁面上，agent 的修改在你停下來時合進來，游標留在你打字的地方。兩邊改到同一段文字時，兩邊的字都保留，頁面的字排在前面。',
+    ),
+    ...run('root', 'root'),
+    block('sec', 'card', undefined, { variant: 'section', title: '今天', meta: '3 項未完成' }),
+    ...run('in', 'sec'),
+    question('sq1', 'sec'),
+    question('sq2', 'sec'),
+    block('plain', 'card', undefined, { title: '一般卡片' }),
+    block('plain-p', 'paragraph', '卡片裡的文字', {}, 'plain'),
+    block('table', 'table', undefined, {
+      label: '區塊',
+      columns: [
+        { id: 'name', name: '區塊' },
+        { id: 'use', name: '用途' },
+      ],
+    }),
+    {
+      ...block('r1', 'row', undefined, {}, 'table'),
+      cells: { name: '小標題', use: '## 和 ###' },
+    },
+    question('q1'),
+    question('q2'),
+  ];
+})();
+
 declare global {
   interface Window {
     /** The scripted agent: one exact replacement in a block's text, as `block text --find`. */
@@ -313,7 +383,7 @@ const QUESTION_ATTRIBUTION = { writerId: '30000000-0000-4000-8000-000000000001',
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
  * serve applies a batch with `applyOps`, the editor's one model of the serve's apply. */
 export function mount(
-  content: 'plan' | 'spec' | 'empty' | 'empty-reader' | 'empty-failure' = 'plan',
+  content: 'plan' | 'spec' | 'layout' | 'empty' | 'empty-reader' | 'empty-failure' = 'plan',
   options: {
     /** The owner device may choose a question's recipient: it holds the metadata seam and reads
      * the agent directory. */
@@ -325,9 +395,17 @@ export function mount(
   document.getElementById('root')?.setAttribute('hidden', '');
   const host = document.createElement('main');
   host.id = 'structured-page-fixture';
-  host.style.cssText = 'max-width:720px;margin:24px auto;padding:12px';
+  // The layout page is measured at a stage wider than its prose measure (#6257).
+  host.style.cssText = `max-width:${content === 'layout' ? 1100 : 720}px;margin:24px auto;padding:12px`;
   document.body.append(host);
-  let blocks = content === 'spec' ? SPEC_PAGE : content.startsWith('empty') ? [] : start;
+  let blocks =
+    content === 'spec'
+      ? SPEC_PAGE
+      : content === 'layout'
+        ? LAYOUT_PAGE
+        : content.startsWith('empty')
+          ? []
+          : start;
   // Each change is a new view with the next local order, as `PageView.seq` gives it.
   let seq = 1;
   const listeners = new Set<(next: { records: BlockRecord[]; seq: number }) => void>();
