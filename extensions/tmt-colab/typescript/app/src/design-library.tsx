@@ -460,8 +460,9 @@ export function DesignLibrary({
           </Suspense>
         )}
       </section>
-      {creating && transport.management && (
+      {transport.management && (
         <DesignSystemDialog
+          open={creating}
           transport={transport}
           onDismiss={() => setCreating(false)}
           onCreated={(id, open) => {

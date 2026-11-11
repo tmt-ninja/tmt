@@ -6,7 +6,7 @@ import {
   type DesignSystemCreation,
 } from './design-system-pages.js';
 import type { PageTransport } from './transport.js';
-import { SaveOutcomeUnknown } from './save.js';
+import { SaveOutcomeUnknown, SaveRefused } from './save.js';
 import './design-system-ui.css';
 
 /*
@@ -17,10 +17,12 @@ import './design-system-ui.css';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function DesignSystemDialog({
+  open,
   transport,
   onDismiss,
   onCreated,
 }: {
+  open: boolean;
   transport: PageTransport;
   onDismiss(): void;
   onCreated(rootId: string, open: boolean): void;
@@ -35,6 +37,9 @@ export function DesignSystemDialog({
   const [uncertain, setUncertain] = useState(false);
   const dismissed = useRef(false);
   useEffect(() => {
+    if (open) dismissed.current = false;
+  }, [open]);
+  useEffect(() => {
     if (!busy) return;
     const timer = setTimeout(() => setStalled(true), 60_000);
     return () => clearTimeout(timer);
@@ -46,33 +51,37 @@ export function DesignSystemDialog({
     setBusy(true);
     setStalled(false);
     setError(undefined);
+    setUncertain(false);
     creation.current ??= designSystemCreation(transport, { name: name.trim(), prefix });
     try {
       const root = await creation.current.run((state) => {
-        if (!dismissed.current) {
-          setStalled(false);
-          setProgress(state);
-        }
+        setStalled(false);
+        setProgress(state);
       });
+      creation.current = undefined;
+      setBusy(false);
+      setProgress(undefined);
+      setName('My design system');
+      setPrefix('my-ui');
       onCreated(root, !dismissed.current);
     } catch (failure) {
-      if (!dismissed.current) {
-        const unknown = failure instanceof SaveOutcomeUnknown;
-        setUncertain(unknown);
-        setError(
-          unknown
-            ? 'Could not confirm some pages. Check the page list before starting again.'
+      const unknown = failure instanceof SaveOutcomeUnknown;
+      setUncertain(unknown);
+      setError(
+        unknown
+          ? 'Could not confirm a page. Resume to check the result before continuing.'
+          : failure instanceof SaveRefused && failure.childPage
+            ? `The page was created but not attached. ${message(failure)}`
             : message(failure),
-        );
-        setBusy(false);
-        setStalled(false);
-      }
+      );
+      setBusy(false);
+      setStalled(false);
     }
   };
   const started = creation.current !== undefined;
   return (
     <BrowserDialog
-      open
+      open={open}
       title="New design system"
       onDismiss={() => {
         dismissed.current = true;
@@ -89,16 +98,14 @@ export function DesignSystemDialog({
               onDismiss();
             }}
           />
-          {!uncertain && (
-            <BrowserAction
-              type="button"
-              variant="primary"
-              label={busy ? 'Creating…' : started ? 'Try again' : 'Create'}
-              busy={busy}
-              disabled={busy || !name.trim() || !prefixValid}
-              onActivate={() => void create()}
-            />
-          )}
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={busy ? 'Creating…' : uncertain ? 'Resume' : started ? 'Try again' : 'Create'}
+            busy={busy}
+            disabled={busy || !name.trim() || !prefixValid}
+            onActivate={() => void create()}
+          />
         </>
       }
     >

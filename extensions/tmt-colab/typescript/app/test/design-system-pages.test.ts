@@ -10,6 +10,7 @@ import {
 } from '../src/design-system.js';
 import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
 import type { Bundle } from '../../../../../design/systems/compiler.mjs';
+import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import {
   builtInDesign,
   builtInLink,
@@ -319,6 +320,169 @@ describe('template, publish and the renderer source', () => {
     expect(config.releases).toHaveLength(1);
     const failedPage = [...pages.values()].find((page) => page.title === failed)!;
     expect(failedPage.source).not.toBe(`<h1>${failed}</h1>`);
+  });
+
+  it.each(['root', 'root-detach', 'child'])(
+    'resumes an unknown %s operation by its retained identity',
+    async (stage) => {
+      const { pages, make, transport } = space();
+      make('Home');
+      const sameName = make('Acme');
+      const outcomes = new Map<string, { childPage?: string }>();
+      let failed = false;
+      let pending = true;
+      const page = transport.page.bind(transport);
+      (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+        const snapshot = await page(id, signal);
+        const binding = snapshot.binding;
+        if (binding?.work) {
+          const original = binding.work.bind(binding);
+          binding.work = async (action, body, operationId) => {
+            const result = await original(action, body, operationId);
+            if (operationId) {
+              outcomes.set(operationId, result);
+              if (
+                !failed &&
+                ((stage === 'root' && action === 'subpage.create' && body.title === 'Acme') ||
+                  (stage === 'root-detach' && action === 'subpage.detach') ||
+                  (stage === 'child' &&
+                    action === 'subpage.create' &&
+                    body.title === 'Foundations'))
+              ) {
+                failed = true;
+                throw new SaveOutcomeUnknown(operationId);
+              }
+            }
+            return result;
+          };
+          binding.workStatus = async (operationId) => {
+            if (pending) {
+              pending = false;
+              throw new SaveOutcomeUnknown(operationId);
+            }
+            return outcomes.get(operationId)!;
+          };
+        }
+        return snapshot;
+      };
+      const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+      await expect(creation.run()).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+      const count = pages.size;
+      await expect(creation.run()).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+      expect(pages.size).toBe(count);
+      const root = await creation.run();
+      expect(root).not.toBe(sameName);
+      expect([...pages.values()].filter((value) => value.title === 'Acme')).toHaveLength(2);
+      expect([...pages.values()].filter((value) => value.title === 'Foundations')).toHaveLength(1);
+    },
+  );
+
+  it('resumes a partially made root with the same operation id', async () => {
+    const { pages, make, transport } = space();
+    make('Home');
+    const outcomes = new Map<string, { childPage?: string }>();
+    const sent: string[] = [];
+    let first = true;
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding;
+      if (binding?.work) {
+        const original = binding.work.bind(binding);
+        binding.work = async (action, body, operationId) => {
+          if (action === 'subpage.create' && body.title === 'Acme' && operationId) {
+            sent.push(operationId);
+            const existing = outcomes.get(operationId);
+            if (existing) return existing;
+            const result = await original(action, body, operationId);
+            outcomes.set(operationId, result);
+            if (first) {
+              first = false;
+              throw new SaveOutcomeUnknown(operationId);
+            }
+            return result;
+          }
+          return original(action, body, operationId);
+        };
+        binding.workStatus = async (operationId) => {
+          throw new SaveNotApplied(operationId, outcomes.get(operationId)?.childPage);
+        };
+      }
+      return snapshot;
+    };
+    const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+    await expect(creation.run()).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+    const root = await creation.run();
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBe(sent[1]);
+    expect([...pages.values()].filter((value) => value.title === 'Acme')).toHaveLength(1);
+    expect(pages.has(root)).toBe(true);
+  });
+
+  it('attaches a page made before a refused create when the user retries', async () => {
+    const { pages, make, transport } = space();
+    const home = make('Home');
+    let refused = false;
+    let attaches = 0;
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding;
+      if (binding?.work) {
+        const original = binding.work.bind(binding);
+        binding.work = async (action, body, operationId) => {
+          if (action === 'subpage.attach') {
+            attaches++;
+            pages.get(id)!.order.push(String(body.pageId));
+            return {};
+          }
+          const result = await original(action, body, operationId);
+          if (!refused && id === home && action === 'subpage.create') {
+            refused = true;
+            pages.get(id)!.order = pages
+              .get(id)!
+              .order.filter((child) => child !== result.childPage);
+            throw new SaveRefused('COLAB_STALE_BASE', 'Changed', undefined, result.childPage);
+          }
+          return result;
+        };
+      }
+      return snapshot;
+    };
+    const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+    await expect(creation.run()).rejects.toBeInstanceOf(SaveRefused);
+    expect(attaches).toBe(0);
+    const root = await creation.run();
+    expect(attaches).toBe(1);
+    expect([...pages.values()].filter((value) => value.title === 'Acme')).toHaveLength(1);
+    expect(pages.has(root)).toBe(true);
+  });
+
+  it('uses a fresh operation after a settled refusal that made no page', async () => {
+    const { make, transport } = space();
+    make('Home');
+    const sent: string[] = [];
+    const page = transport.page.bind(transport);
+    (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+      const snapshot = await page(id, signal);
+      const binding = snapshot.binding;
+      if (binding?.work) {
+        const original = binding.work.bind(binding);
+        binding.work = async (action, body, operationId) => {
+          if (action === 'subpage.create' && body.title === 'Acme' && operationId) {
+            sent.push(operationId);
+            if (sent.length === 1) throw new SaveRefused('COLAB_CAPACITY', 'Try again.');
+          }
+          return original(action, body, operationId);
+        };
+      }
+      return snapshot;
+    };
+    const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+    await expect(creation.run()).rejects.toBeInstanceOf(SaveRefused);
+    await creation.run();
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).not.toBe(sent[1]);
   });
 
   it('on an older serve makes a top-level system under a borrowed page, publishes, pins every page and serves the bundle', async () => {

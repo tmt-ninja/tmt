@@ -2666,6 +2666,60 @@ it('a work action whose reply was lost asks for the operation status exactly onc
   }
 });
 
+it('rechecks an uncertain work outcome without replaying the action', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  const childPage = '20000000-0000-4000-8000-000000000010';
+  try {
+    await live.snapshot();
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { state: 'pending', revision: undefined }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { childPage } as Partial<SaveResult>),
+    );
+    await expect(live.workStatus(operationId)).resolves.toEqual({ childPage });
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { state: 'absent', revision: undefined, childPage }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toMatchObject({
+      operationId,
+      childPage,
+    });
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, {
+        state: 'rejected',
+        revision: undefined,
+        code: 'COLAB_LINK_REFUSED',
+        message: 'The page cannot be attached.',
+        childPage,
+      }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toMatchObject({
+      code: 'COLAB_LINK_REFUSED',
+      childPage,
+    });
+    expect(saves.work).not.toHaveBeenCalled();
+    expect(saves.status.mock.calls.map((call) => call[1])).toEqual(Array(4).fill(operationId));
+  } finally {
+    live.close();
+  }
+});
+
+it('sends a caller-retained work operation id unchanged', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  try {
+    await live.snapshot();
+    saves.work.mockImplementationOnce(async (_connection, id) => worked(id));
+    await live.work('subpage.create', { title: 'Example' }, operationId);
+    expect(saves.work.mock.calls[0][1]).toBe(operationId);
+  } finally {
+    live.close();
+  }
+});
+
 it('a create resolves with the page it made, and a refusal after the page was made still names it', async () => {
   const live = openLive();
   const page = '20000000-0000-4000-8000-000000000009';

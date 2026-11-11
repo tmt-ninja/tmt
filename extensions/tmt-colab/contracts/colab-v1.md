@@ -3682,6 +3682,13 @@ expires before the action is sent, the action was not applied and may be tried a
 after sending is checked by operation ID; an outcome that cannot be confirmed is never resent as a
 new operation.
 
+Design-system creation retains each operation ID and the original parent for the life of the
+creation attempt, including the root's detach. If an outcome is unknown, Resume first asks
+`savestatus` for that same ID. A pending or unavailable status stays uncertain; a recorded outcome
+is used as-is; an absent operation may be sent again with the same ID. A refusal is shown rather
+than silently retried. Closing and reopening the dialog while the Design workspace remains open
+retains the attempt, so it cannot accidentally create a second root.
+
 ### Answer blocks
 
 An answer block is authored page HTML. Register its ID first through [question metadata](#question-metadata-5052); answers remain ordinary discussion records:

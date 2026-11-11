@@ -944,10 +944,13 @@ export class Live implements PageBinding {
    * here: the new value arrives through the page's own stream, and this resolves once the page
    * shows the commit (or the wait ran out). A refusal throws `SaveRefused` with the serve's code;
    * a lost reply is settled by exactly one status request, and the action is never sent again. */
-  async work(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome> {
+  async work(
+    action: WorkAction,
+    body: Record<string, unknown>,
+    operationId = crypto.randomUUID(),
+  ): Promise<WorkOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const deadline = Date.now() + SAVE_REPLY_MS;
-    const operationId = crypto.randomUUID();
     const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
       if (error instanceof ConnectionReadyTimeout) throw new SaveNotApplied(operationId);
       throw error;
@@ -958,6 +961,19 @@ export class Live implements PageBinding {
     } catch (error) {
       if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
+    return result.childPage === undefined ? {} : { childPage: result.childPage };
+  }
+  /** Recheck a previously uncertain work operation without replaying it. */
+  async workStatus(operationId: string): Promise<WorkOutcome> {
+    let result: SaveResult;
+    try {
+      const connection = await connectionBefore(this.#current, Date.now() + SAVE_REPLY_MS);
+      result = await connection.saveStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
     }
     settled(result);
     await this.#showsRevision(result.revision);

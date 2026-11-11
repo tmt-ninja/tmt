@@ -18,7 +18,9 @@ import type {
   PageSummary,
   PageTransport,
   SpaceHome,
+  WorkOutcome,
 } from './transport.js';
+import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused, type WorkAction } from './save.js';
 import { DESIGN_SYSTEM_PROJECT } from './projects.js';
 import { subpages } from './work.js';
 import { PROJECT_REQUEST_PAGES } from './projects.js';
@@ -727,6 +729,14 @@ export interface DesignSystemCreation {
   run(progress?: (state: CreationProgress) => void): Promise<string>;
 }
 
+async function designRootParent(transport: PageTransport): Promise<string> {
+  const home = await transport.spaceHome();
+  const live = home.pages.filter((page) => !page.archived);
+  const parent = live.find(isDesignSystemPage) ?? live[0];
+  if (!parent) throw new Error('Make a page first: the space has none to start from.');
+  return parent.id;
+}
+
 /**
  * Make a system from the TMT template (#5866): a new top-level root; the tmt GUI docs as section
  * pages (Foundations, Components, Patterns) with a page each, every component the template carries
@@ -743,14 +753,65 @@ export function designSystemCreation(
   const made = new Map<string, string>();
   const written = new Set<string>();
   let rootId: string | undefined;
+  let rootParentId: string | undefined;
+  const operations = new Map<
+    string,
+    { id: string; uncertain: boolean; childPage?: string; result?: WorkOutcome }
+  >();
   let configured = false;
   let published = false;
   let running: Promise<string> | undefined;
   let reportCreated = () => {};
+  const work = async (
+    page: Snapshot,
+    key: string,
+    action: WorkAction,
+    body: Record<string, unknown>,
+  ): Promise<WorkOutcome> => {
+    const binding = page.binding;
+    if (!binding?.work) throw new Error('Pages cannot be made here.');
+    let operation = operations.get(key);
+    if (!operation) {
+      operation = { id: crypto.randomUUID(), uncertain: false };
+      operations.set(key, operation);
+    }
+    if (operation.result) return operation.result;
+    if (operation.childPage && action === 'subpage.create') {
+      await work(page, `${key}:attach`, 'subpage.attach', { pageId: operation.childPage });
+      operation.result = { childPage: operation.childPage };
+      return operation.result;
+    }
+    if (operation.uncertain) {
+      if (!binding.workStatus) throw new SaveOutcomeUnknown(operation.id);
+      try {
+        operation.result = await binding.workStatus(operation.id);
+        return operation.result;
+      } catch (error) {
+        if (error instanceof SaveRefused) {
+          if (error.childPage) operation.childPage = error.childPage;
+          else operations.delete(key);
+          throw error;
+        }
+        if (!(error instanceof SaveNotApplied)) throw error;
+        operation.uncertain = false;
+      }
+    }
+    try {
+      operation.result = await binding.work(action, body, operation.id);
+      return operation.result;
+    } catch (error) {
+      if (error instanceof SaveOutcomeUnknown) operation.uncertain = true;
+      if (error instanceof SaveRefused) {
+        if (error.childPage) operation.childPage = error.childPage;
+        else operations.delete(key);
+      }
+      throw error;
+    }
+  };
   const create = async (parent: Snapshot, key: string, title: string) => {
     const existing = made.get(key);
     if (existing) return existing;
-    const child = await parent.binding!.work!('subpage.create', { title, format: 'html' });
+    const child = await work(parent, `create:${key}`, 'subpage.create', { title, format: 'html' });
     if (!child.childPage) throw new Error(`The ${title} page was not made.`);
     made.set(key, child.childPage);
     reportCreated();
@@ -776,7 +837,18 @@ export function designSystemCreation(
     );
     reportCreated = () => progress({ phase: 'creating', done: made.size, total: totalCreated });
     reportCreated();
-    rootId ??= await newRoot(transport, name);
+    if (!rootId) {
+      rootParentId ??= await designRootParent(transport);
+      rootId = await withPage(transport, rootParentId, async (page) => {
+        const created = await work(page, 'root:create', 'subpage.create', {
+          title: name,
+          format: 'html',
+        });
+        if (!created.childPage) throw new Error('The design system page was not made.');
+        await work(page, 'root:detach', 'subpage.detach', { pageId: created.childPage });
+        return created.childPage;
+      });
+    }
     const root = rootId;
     const entries: DesignSystemConfig['components'] = [];
     const sources: { id: string; title: string; source: string }[] = [];
@@ -888,11 +960,8 @@ export function designSystemCreation(
 /** The root page of a new system, top level: made under an existing system (or the first page) and
  * detached from it at once. */
 export async function newRoot(transport: PageTransport, name: string): Promise<string> {
-  const home = await transport.spaceHome();
-  const live = home.pages.filter((page) => !page.archived);
-  const parent = live.find(isDesignSystemPage) ?? live[0];
-  if (!parent) throw new Error('Make a page first: the space has none to start from.');
-  return withPage(transport, parent.id, async (page) => {
+  const parent = await designRootParent(transport);
+  return withPage(transport, parent, async (page) => {
     if (!page.binding?.work) throw new Error('Pages cannot be made here.');
     const created = await page.binding.work('subpage.create', { title: name, format: 'html' });
     if (!created.childPage) throw new Error('The design system page was not made.');

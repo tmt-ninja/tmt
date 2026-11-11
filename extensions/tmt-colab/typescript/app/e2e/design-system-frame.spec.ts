@@ -813,6 +813,51 @@ test('a CSS-only draft refresh keeps the frame and falls back when component cod
   ).toBe('remount');
 });
 
+test('a slow draft refresh keeps the last compiled frame instead of replacing it with a notice', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (initial) => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'slow-draft-probe';
+    document.body.prepend(host);
+    const state = { slow: false, handle: undefined as any };
+    Object.assign(window, { slowDraftProbe: state });
+    state.handle = await mountRenderer(
+      host,
+      '<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>',
+      {
+        signal: new AbortController().signal,
+        onState: (value: string) => {
+          host.dataset.state = value;
+        },
+        designSystem: {
+          release: async () => undefined,
+          draft: async () => (state.slow ? new Promise(() => {}) : initial),
+          watch: () => () => {},
+        },
+      },
+    );
+  }, bundle);
+  await expect(page.locator('#slow-draft-probe')).toHaveAttribute('data-state', 'ready');
+  const iframe = page.locator('#slow-draft-probe iframe');
+  const before = await iframe.getAttribute('data-render-id');
+  await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const state = (window as any).slowDraftProbe;
+    state.slow = true;
+    return state.handle.refreshDesign(
+      '<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>',
+    );
+  });
+  expect(result).toBe('applied');
+  await expect(iframe).toHaveAttribute('data-render-id', before!);
+  await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
+  await expect(iframe.contentFrame().locator('[data-tmt-ds-notice]')).toHaveCount(0);
+});
+
 test('source and design updates both settle in either order on an updatable page', async ({
   page,
 }) => {

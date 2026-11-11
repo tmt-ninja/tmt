@@ -915,6 +915,10 @@ for (const stage of ['progress', 'stalled'] as const) {
       );
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    await page.getByRole('button', { name: 'New design system', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Creating…', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Brio');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.evaluate(() => (window as any).designFixture.controls.releaseCreate());
     await expect
       .poll(
@@ -934,7 +938,9 @@ for (const stage of ['progress', 'stalled'] as const) {
   });
 }
 
-test('a refused create offers retry; an unknown outcome stops without replay', async ({ page }) => {
+test('a refused create offers retry; an unknown outcome offers a status check', async ({
+  page,
+}) => {
   await open(page);
   await page.evaluate(() => {
     (window as any).designFixture.controls.refuseCreate = true;
@@ -953,8 +959,37 @@ test('a refused create offers retry; an unknown outcome stops without replay', a
   dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
   await dialog.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText(
-    'Could not confirm some pages. Check the page list before starting again.',
+    'Could not confirm a page. Resume to check the result before continuing.',
   );
   await expect(dialog.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeEnabled();
+  const beforeResume = await page.evaluate(() => (window as any).designFixture.pages.size);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'New design system', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+  await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Could not confirm a page. Resume to check the result before continuing.',
+  );
+  expect(await page.evaluate(() => (window as any).designFixture.pages.size)).toBe(beforeResume);
 });
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`capture uncertain creation resume ${width} ${theme}`, async ({ page }) => {
+      test.skip(!captures);
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await open(page);
+      await page.evaluate(() => {
+        (window as any).designFixture.controls.unknownCreate = true;
+      });
+      await page.getByRole('button', { name: 'New design system', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+      await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(dialog.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+      await capture(page, `resume-${width}-${theme}.png`);
+    });
+  }
+}
