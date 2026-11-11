@@ -505,6 +505,7 @@ impl Registration {
         if modules {
             answer["modules"] = serde_json::json!([{
                 "id":"design",
+                "rootAppFamily":"/design",
                 "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
                 "menu":[],
                 "settings":[],
@@ -1733,6 +1734,21 @@ fn reader_sync_error(code: Code) -> crate::sync::Code {
 mod describe_tests {
     use super::*;
     use crate::summary::{Summary, SummaryProjection};
+
+    #[test]
+    fn design_extra_declares_its_root_family_without_changing_the_primary() {
+        let primary = Registration::navigation_description(false);
+        let mut described = Registration::navigation_description(true);
+        let modules = described
+            .as_object_mut()
+            .unwrap()
+            .remove("modules")
+            .unwrap();
+        assert_eq!(described, primary);
+        assert_eq!(modules[0]["id"], "design");
+        assert_eq!(modules[0]["rootAppFamily"], "/design");
+        assert_eq!(modules[0]["entry"], "/assets/colab-module.js");
+    }
 
     #[test]
     fn cached_page_list_token_observes_own_and_other_connection_commits() {

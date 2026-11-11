@@ -64,6 +64,13 @@ struct Home {
 #[serde(deny_unknown_fields)]
 struct ExtraModule {
     id: String,
+    #[serde(
+        default,
+        rename = "rootAppFamily",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    root_app_family: Option<String>,
     rail: Rail,
     menu: Vec<Menu>,
     settings: Vec<SettingsLink>,
@@ -150,6 +157,10 @@ impl Description {
         }
         for extra in d.modules.iter_mut().flatten() {
             if !id(&extra.id)
+                || extra
+                    .root_app_family
+                    .as_ref()
+                    .is_some_and(|family| !crate::pages::root_app_family(family))
                 || !validate_module(
                     &mut extra.rail,
                     &extra.menu,
@@ -250,8 +261,8 @@ fn resolve_module(
 ) {
     let mounted = |p: &mut String| *p = format!("{}{p}", base.trim_end_matches('/'));
     let navigation = |p: &mut String| {
-        if let Some((extension, origin)) = extra
-            && crate::pages::extra_navigation(extension, p)
+        if let Some((family, origin)) = extra
+            && crate::pages::app_family(p, family)
         {
             *p = format!("{origin}{p}");
         } else {
@@ -278,7 +289,9 @@ impl ExtraModule {
             &mut self.settings,
             &mut self.entry,
             base,
-            Some((extension, origin)),
+            self.root_app_family
+                .as_deref()
+                .map(|family| (family, origin)),
         );
         let mut v = serde_json::to_value(self).expect("bounded display fields");
         let fields = v.as_object_mut().expect("module object");
@@ -425,6 +438,18 @@ impl Shell {
             None::<String>,
             json!({"extension":"remote","rail":{"label":"Remote","icon":"monitor-smartphone","path":format!("{origin}/remote/"),"order":200},"menu":[{"id":"remote","label":"Remote","path":format!("{origin}/remote/")}],"settings":[{"id":"settings","label":"My Remotes","path":format!("{origin}/remote/")}],"needsYou":0}),
         )];
+        let mut families = BTreeMap::<&str, usize>::new();
+        for entry in state.entries.values() {
+            if let Some((answer, at, _)) = &entry.good
+                && now.saturating_duration_since(*at) <= limits::DESCRIBE_STALE
+            {
+                for extra in answer.modules.iter().flatten() {
+                    if let Some(family) = &extra.root_app_family {
+                        *families.entry(family).or_default() += 1;
+                    }
+                }
+            }
+        }
         for (name, entry) in &state.entries {
             if let Some((answer, at, _)) = &entry.good
                 && now.saturating_duration_since(*at) <= limits::DESCRIBE_STALE
@@ -433,7 +458,14 @@ impl Shell {
                 let extras = primary.modules.take().unwrap_or_default();
                 let base = format!("{origin}{}", entry.source.mount);
                 modules.push((primary.rail.order, *name, None, primary.module(name, &base)));
-                for extra in extras {
+                for mut extra in extras {
+                    if extra
+                        .root_app_family
+                        .as_deref()
+                        .is_some_and(|family| families.get(family) != Some(&1))
+                    {
+                        extra.root_app_family = None;
+                    }
                     modules.push((
                         extra.rail.order,
                         *name,

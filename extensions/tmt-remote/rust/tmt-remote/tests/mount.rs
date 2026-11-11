@@ -1482,7 +1482,7 @@ fn shell_new_producer_omits_modules_for_old_remote_and_enables_them_only_with_ca
         let mut body: serde_json::Value = serde_json::from_str(&legacy).unwrap();
         // Colab-shaped producer fixture: only the requested feature adds the optional field.
         if text.contains("\r\ntmt-describe-features: modules\r\n") {
-            body["modules"] = serde_json::json!([{"id":"design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[],"settings":[]}]);
+            body["modules"] = serde_json::json!([{"id":"design","rootAppFamily":"/design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[],"settings":[]}]);
         }
         let body = body.to_string();
         write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
@@ -1628,5 +1628,124 @@ fn design_mount_retains_colab_owner_context_and_policy() {
         extension.seen.all().len(),
         2,
         "foreign origin must stop before Colab"
+    );
+}
+
+#[test]
+fn declared_roots_serve_only_the_static_shell_and_map_to_the_existing_mount() {
+    for family in ["/design", "/studio"] {
+        let door = Mounted::new(Arc::new(NoSessions));
+        let family_owned = family.to_owned();
+        let extension = door.extension(Arc::new(move |mut stream, seen| {
+            let head = request(&mut stream);
+            let describes = head.starts_with(b"GET /.tmt/remote/describe HTTP/1.1");
+            seen.push(head);
+            if !describes {
+                stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").unwrap();
+                return;
+            }
+            let body = serde_json::json!({"version":1,"rail":{"label":"Colab","icon":"box","path":"/","order":100},"menu":[],"settings":[],"modules":[{"id":"tools","rootAppFamily":family_owned,"rail":{"label":"Tools","icon":"box","path":format!("{family_owned}/"),"order":101},"menu":[],"settings":[],"entry":"/assets/tools.js"}]}).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        }));
+        for suffix in ["", "/", "/pages/abcd", "/tokens/a-1_b?open=one"] {
+            let path = format!("{family}{suffix}");
+            let reply = door.send(door.get(&path, "").as_bytes());
+            assert_eq!(reply[9..12].parse::<u16>().unwrap(), 200, "{reply}");
+            assert_eq!(
+                reply.split_once("\r\n\r\n").unwrap().1,
+                include_str!("../assets/shell.html")
+            );
+            let policy = "content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'\r\n";
+            assert!(reply.contains(policy));
+            assert!(!reply.to_ascii_lowercase().contains("set-cookie:"));
+            let head = door
+                .send(format!("HEAD {path} HTTP/1.1\r\nHost: {}\r\n\r\n", door.addr).as_bytes());
+            assert!(head.starts_with("HTTP/1.1 200"));
+            assert_eq!(
+                head.split_once("\r\n\r\n").unwrap().1,
+                include_str!("../assets/shell.html")
+            );
+            assert!(head.contains(policy));
+            assert_eq!(
+                door.mounts.extension_of(&path),
+                Some(("colab", door.at("/x/colab/")))
+            );
+            assert_eq!(
+                door.status(&door.get(&path, "Origin: https://foreign.example\r\n")),
+                403
+            );
+            assert_eq!(
+                door.status(&format!(
+                    "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Length: 0\r\n\r\n",
+                    door.addr
+                )),
+                404
+            );
+        }
+        for suffix in [
+            "x",
+            "/a/",
+            "/a.b",
+            "/a%2Fb",
+            "/%2e%2e",
+            "/\\other",
+            "/../remote",
+            "/a//b",
+        ] {
+            assert_ne!(
+                door.status(&door.get(&format!("{family}{suffix}"), "")),
+                200
+            );
+        }
+        assert_ne!(
+            door.status(&door.get(&format!("{family}/{}", "a".repeat(161)), "")),
+            200
+        );
+        assert_eq!(
+            door.status(&door.get(&door.at(&format!("/x/colab{family}/")), "")),
+            403
+        );
+        for path in [door.at("/x/design/"), "/x/colab/design/".into()] {
+            assert_eq!(door.status(&door.get(&path, "")), 404);
+        }
+        let all = extension.seen.all();
+        let seen: Vec<_> = all
+            .iter()
+            .filter(|head| head.starts_with("GET /.tmt/remote/describe HTTP/1.1"))
+            .collect();
+        assert_eq!(
+            seen.len(),
+            1,
+            "root lookup must reuse the existing description cache"
+        );
+        assert!(seen[0].starts_with("GET /.tmt/remote/describe HTTP/1.1"));
+        assert!(!seen[0].contains("cookie:"));
+        assert!(!seen[0].contains("tmt-device-context:"));
+    }
+}
+
+#[test]
+fn a_cold_root_with_a_blocked_description_fails_closed_within_the_existing_bound() {
+    let door = Mounted::new(Arc::new(NoSessions));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let _extension = door.extension(Arc::new(move |mut stream, seen| {
+        seen.push(request(&mut stream));
+        entered_tx.send(()).unwrap();
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+    }));
+    let started = Instant::now();
+    assert_eq!(door.status(&door.get("/studio/", "")), 404);
+    let elapsed = started.elapsed();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    release_tx.send(()).unwrap();
+    assert!(
+        elapsed < limits::DESCRIBE_WAIT + limits::SHELL_WAIT,
+        "cold lookup took {elapsed:?}"
     );
 }

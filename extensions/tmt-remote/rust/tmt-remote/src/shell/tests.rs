@@ -22,12 +22,83 @@ fn source(name: &'static str) -> Source {
 }
 
 fn extra() -> Value {
-    json!({"id":"design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[{"id":"library","label":"Library","path":"/design/library"}],"settings":[{"id":"preferences","label":"Preferences","path":"/design/settings"}],"entry":"/assets/design.js"})
+    json!({"id":"design","rootAppFamily":"/design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[{"id":"library","label":"Library","path":"/design/library"}],"settings":[{"id":"preferences","label":"Preferences","path":"/design/settings"}],"entry":"/assets/design.js"})
 }
 fn with_extra() -> Value {
     let mut v = value();
     v["modules"] = json!([extra()]);
     v
+}
+
+#[test]
+fn root_claims_refuse_reserved_unbounded_and_non_segment_families() {
+    for family in [
+        "/",
+        "//studio",
+        "/studio/",
+        "/studio/tools",
+        "/../studio",
+        "/%73tudio",
+        "/__",
+        "/sdk",
+        "/x",
+        "/r",
+        "/read",
+        "/pair",
+        "/p",
+        "/join",
+        "/colab",
+        "/remote",
+        "/ops",
+        "/digest",
+        "/settings",
+    ] {
+        let mut value = with_extra();
+        value["modules"][0]["rootAppFamily"] = json!(family);
+        assert!(parse(&value).is_none(), "accepted {family}");
+    }
+    let mut value = with_extra();
+    value["modules"][0]["rootAppFamily"] = json!(format!("/{}", "a".repeat(33)));
+    assert!(parse(&value).is_none());
+    value["modules"][0]["rootAppFamily"] = Value::Null;
+    assert!(parse(&value).is_none());
+    value["modules"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("rootAppFamily");
+    let module = parse(&value).unwrap().modules.unwrap().remove(0).module(
+        "other",
+        "https://door/r/abc/x/other/",
+        "https://door",
+    );
+    assert_eq!(module["rail"]["path"], "https://door/r/abc/x/other/design/");
+}
+
+#[test]
+fn conflicting_roots_stay_mounted_and_cannot_select_either_extension() {
+    let shell = Shell::with_reader(Arc::new(|_| parse(&with_extra())), Arc::new(Instant::now));
+    let answer = shell.snapshot(
+        vec![source("colab"), source("other")],
+        "https://door",
+        Instant::now() + Duration::from_secs(1),
+    );
+    let extras: Vec<_> = answer["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|module| module.get("module").is_some())
+        .collect();
+    assert_eq!(extras.len(), 2);
+    for module in extras {
+        assert!(module.get("rootAppFamily").is_none());
+        assert_eq!(
+            module["rail"]["path"],
+            format!(
+                "https://door/r/abc/x/{}/design/",
+                module["extension"].as_str().unwrap()
+            )
+        );
+    }
 }
 
 #[test]
@@ -466,11 +537,11 @@ fn unknown_count_keeps_the_module_and_null_or_over_bound_counts_refuse() {
 }
 
 #[test]
-fn root_extra_navigation_is_colab_design_only_and_script_stays_mounted() {
+fn root_extra_navigation_is_declared_by_any_extension_and_script_stays_mounted() {
     for (extension, path, expected) in [
         ("colab", "/design/", "https://door/design/"),
         ("colab", "/design/a-1_b", "https://door/design/a-1_b"),
-        ("other", "/design/", "https://door/r/abc/x/other/design/"),
+        ("other", "/design/", "https://door/design/"),
         ("colab", "/remote/", "https://door/r/abc/x/colab/remote/"),
         (
             "colab",

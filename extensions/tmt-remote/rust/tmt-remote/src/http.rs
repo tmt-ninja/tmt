@@ -102,6 +102,10 @@ impl Reply {
 }
 /// Application owns routes and authority. The door admits framing and Host first.
 pub trait Handler: Send + Sync {
+    /// Display-only declaration lookup for a root app query; never widens its byte grammar.
+    fn extra_app_route(&self, _path: &str) -> bool {
+        false
+    }
     /// Admit a head and return its body limit, or refuse before reading the body.
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply>;
     /// Return a reply for the door to write, or `None` after taking over the
@@ -308,13 +312,18 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
 /// such as `<prefix>/x/colab/`). Isolation between the operation routes and the mount
 /// space relies on it.
 fn target(path: &str) -> bool {
+    target_with_app(path, false)
+}
+fn target_with_app(path: &str, extra_app: bool) -> bool {
     // Only this fixed legacy redirect discards a query. Other route grammars stay strict.
     if let Some(query) = path.strip_prefix("/pair?") {
         return query.bytes().all(|b| b.is_ascii_graphic() && b != b'#');
     }
     // Route only on the path; values remain opaque bytes for the app or 308 Location.
     let path = match path.split_once('?') {
-        Some((route, query)) if route.starts_with("/p/") || crate::pages::app_route(route) => {
+        Some((route, query))
+            if route.starts_with("/p/") || crate::pages::app_route(route) || extra_app =>
+        {
             if !app_query(query) {
                 return false;
             }
@@ -462,7 +471,14 @@ fn acquire(
     }
     let method = request.method.ok_or_else(|| Reply::empty(400))?;
     let path = request.path.ok_or_else(|| Reply::empty(400))?;
-    if !target(path) {
+    if !target(path)
+        && !path.split_once('?').is_some_and(|(route, query)| {
+            crate::pages::extra_app_path(route)
+                && app_query(query)
+                && handler.extra_app_route(route)
+                && target_with_app(path, true)
+        })
+    {
         return Err(Reply::empty(400));
     }
     let limit = handler.admit(&Head {

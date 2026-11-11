@@ -62,20 +62,47 @@ pub(crate) fn app_route(path: &str) -> bool {
             | "/digest/"
     ) || app_extension(path).is_some()
 }
-/// Owner app families map to an existing extension, never a new public reader entry.
+/// The primary app keeps its existing mounted extension.
 pub(crate) fn app_extension(path: &str) -> Option<&'static str> {
-    for family in ["/colab", "/design"] {
-        if app_family(path, family) {
-            return Some("colab");
-        }
-    }
-    None
+    app_family(path, "/colab").then_some("colab")
 }
-/// The bounded root navigation exception for a Colab-described extra module.
-pub(crate) fn extra_navigation(extension: &str, path: &str) -> bool {
-    extension == "colab" && app_family(path, "/design")
+/// One bounded, non-reserved root segment; declarations cannot shadow door routes.
+pub(crate) fn root_app_family(family: &str) -> bool {
+    let Some(name) = family.strip_prefix('/') else {
+        return false;
+    };
+    (1..=crate::limits::DESCRIBE_ID).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !matches!(
+            name,
+            "colab"
+                | "remote"
+                | "ops"
+                | "digest"
+                | "settings"
+                | "sdk"
+                | "x"
+                | "r"
+                | "read"
+                | "pair"
+                | "p"
+                | "join"
+        )
 }
-fn app_family(path: &str, family: &str) -> bool {
+/// Syntactic app query framing only. Route admission still requires a live declaration.
+pub(crate) fn extra_app_path(path: &str) -> bool {
+    let family = path
+        .strip_prefix('/')
+        .unwrap_or(path)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let family = format!("/{family}");
+    root_app_family(&family) && app_family(path, &family)
+}
+pub(crate) fn app_family(path: &str, family: &str) -> bool {
     let Some(rest) = path.strip_prefix(family) else {
         return false;
     };
@@ -138,6 +165,20 @@ impl Pages {
             || path.starts_with("/pair/")
             || Mounts::short_route(path)
             || path.starts_with("/sdk/")
+    }
+    pub(crate) fn admit_extra(&self, head: &Head<'_>) -> Result<usize, Reply> {
+        if head.upgrade || !matches!(head.method, "GET" | "HEAD") {
+            return Err(Reply::empty(404));
+        }
+        if head.origin.is_some_and(|origin| origin != self.origin) {
+            let mut reply = asset("text/html; charset=utf-8", ERROR, Some(PAGE_POLICY));
+            reply.status = 403;
+            return Err(reply);
+        }
+        Ok(0)
+    }
+    pub(crate) fn extra_page(&self) -> Reply {
+        asset("text/html; charset=utf-8", SHELL, Some(SHELL_POLICY))
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.upgrade {

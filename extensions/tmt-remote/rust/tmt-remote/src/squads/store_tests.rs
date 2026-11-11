@@ -25,6 +25,9 @@ struct World {
 }
 impl World {
     fn new(root: PathBuf) -> Self {
+        Self::with_carrier_capacity(root, crate::journal::OPERATIONS)
+    }
+    fn with_carrier_capacity(root: PathBuf, carrier_capacity: i64) -> Self {
         let layout = Layout::open(&root).unwrap();
         let admitted_home = PathBuf::from(std::env::var_os("TMT_HOME").unwrap())
             .canonicalize()
@@ -35,7 +38,7 @@ impl World {
             "Store must remain inside the exact private TMT_HOME (including canonical macOS temp aliases)"
         );
         let lease = layout.serve_lock().unwrap();
-        let mut store = Store::open(&lease).unwrap();
+        let mut store = Store::open_with_carrier_capacity(&lease, carrier_capacity).unwrap();
         let machine = store.machine().unwrap().id;
         let now = now_ms().unwrap();
         let grant = Grant {
@@ -573,7 +576,8 @@ fn summary_heartbeats_exceed_carrier_capacity_without_accumulating_history() {
     private_child(
         "squads::store::tests::summary_heartbeats_exceed_carrier_capacity_without_accumulating_history",
         |root| {
-            let w = World::new(root);
+            let capacity = 8;
+            let w = World::with_carrier_capacity(root, capacity);
             let mut store = w.store.lock().unwrap();
             let generic_in = uuid_v4().unwrap();
             store
@@ -623,7 +627,7 @@ fn summary_heartbeats_exceed_carrier_capacity_without_accumulating_history() {
                     .summary_claim(&other, &w.machine, &active, b"protected active")
                     .unwrap()
             );
-            let count = crate::journal::OPERATIONS as u64 + 1;
+            let count = capacity as u64 + 1;
             for sequence in 1..=count {
                 let time = w.now + sequence * crate::limits::SQUAD_SUMMARY_HEARTBEAT_MS;
                 let snapshot = Summary::unavailable("Studio", time).unwrap();
@@ -720,6 +724,45 @@ fn summary_heartbeats_exceed_carrier_capacity_without_accumulating_history() {
                     .unwrap()
                     .iter()
                     .any(|row| row.id == generic_in)
+            );
+            // Exercise the injected bound in both directions: reducing only the loop
+            // would no longer prove compaction survives carrier capacity.
+            for _ in incoming..capacity {
+                store
+                    .cloud_begin(PEER, &uuid_v4().unwrap(), b"generic incoming", w.now)
+                    .unwrap();
+            }
+            assert_eq!(
+                store
+                    .cloud_begin(PEER, &uuid_v4().unwrap(), b"over capacity", w.now)
+                    .unwrap_err()
+                    .code,
+                "REMOTE_CLOUD_CAPACITY"
+            );
+            for _ in outgoing..capacity {
+                store
+                    .cloud_freeze_outgoing(
+                        &w.machine,
+                        &uuid_v4().unwrap(),
+                        b"generic intent",
+                        b"generic outgoing",
+                        w.now,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(
+                store
+                    .cloud_freeze_outgoing(
+                        &w.machine,
+                        &uuid_v4().unwrap(),
+                        b"over capacity",
+                        b"over capacity",
+                        w.now,
+                    )
+                    .err()
+                    .expect("outgoing carrier capacity must refuse")
+                    .code,
+                "REMOTE_CLOUD_CAPACITY"
             );
         },
     );

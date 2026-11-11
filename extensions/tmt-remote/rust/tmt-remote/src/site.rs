@@ -31,6 +31,9 @@ impl Site {
     }
 }
 impl Handler for Site {
+    fn extra_app_route(&self, path: &str) -> bool {
+        self.mounts.extra_app_extension(path).is_some()
+    }
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if self.mounts.serves(head.path) {
             self.mounts.admit(head)
@@ -38,6 +41,10 @@ impl Handler for Site {
             self.pages
                 .as_ref()
                 .map_or(Err(Reply::empty(404)), |pages| pages.admit(head))
+        } else if self.mounts.extra_app_extension(head.path).is_some() {
+            self.pages
+                .as_ref()
+                .map_or(Err(Reply::empty(404)), |pages| pages.admit_extra(head))
         } else {
             self.routes.admit(head)
         }
@@ -54,6 +61,12 @@ impl Handler for Site {
             Some(self.pages.as_ref().map_or(Reply::empty(404), |pages| {
                 pages.handle(&request, &self.mounts)
             }))
+        } else if self.mounts.extra_app_extension(&request.path).is_some() {
+            Some(
+                self.pages
+                    .as_ref()
+                    .map_or(Reply::empty(404), |pages| pages.extra_page()),
+            )
         } else {
             self.routes.handle(request, client)
         }

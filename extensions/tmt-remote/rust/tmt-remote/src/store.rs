@@ -41,6 +41,7 @@ pub(crate) fn open_connection(serving: &Serving, file: &str) -> Result<Connectio
 pub struct Store {
     pub(crate) connection: Connection,
     pub(crate) data_root: std::path::PathBuf,
+    pub(crate) carrier_capacity: i64,
 }
 /// Stable per-machine identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,6 +95,12 @@ impl Store {
     }
     /// Opening requires the held serve lock: there is never a second opener.
     pub fn open(serving: &Serving) -> Result<Self, RemoteError> {
+        Self::open_with_carrier_capacity(serving, crate::journal::OPERATIONS)
+    }
+    pub(crate) fn open_with_carrier_capacity(
+        serving: &Serving,
+        carrier_capacity: i64,
+    ) -> Result<Self, RemoteError> {
         let layout = serving.layout();
         let mut connection = open_connection(serving, "remote.db")?;
         migrate(&mut connection)?;
@@ -101,6 +108,7 @@ impl Store {
         crate::invitations::history::interrupt(&connection, crate::pairing::now_ms()?)?;
         Ok(Self {
             connection,
+            carrier_capacity,
             data_root: layout
                 .directory
                 .parent()

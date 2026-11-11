@@ -1,5 +1,11 @@
 import { expect, it } from 'vite-plus/test';
-import { designModuleLoad, designPath, moduleLoad } from '../src/module-entry.js';
+import {
+  extraModuleLoad,
+  appFamilyPath,
+  rootAppFamily,
+  rootModules,
+  moduleLoad,
+} from '../src/module-entry.js';
 
 const HERE = 'http://127.0.0.1:4000/colab/';
 const MOUNT = '/r/abcdefghijklmnop/x/colab/';
@@ -94,6 +100,7 @@ const described = (entry: string | undefined = ENTRY, extension = 'colab', path 
     {
       extension,
       module: 'design',
+      rootAppFamily: '/design',
       rail: { label: 'Design', icon: 'palette', path, order: 150 },
       menu: [],
       settings: [],
@@ -103,14 +110,17 @@ const described = (entry: string | undefined = ENTRY, extension = 'colab', path 
 });
 
 it('loads a described Design extra from the primary Colab mount, with no primary-script fallback', () => {
-  expect(designModuleLoad(described(), HERE)).toEqual({ link: `${MOUNT}design/`, entry: ENTRY });
+  expect(extraModuleLoad(described(), '/design', HERE)).toEqual({
+    link: `${MOUNT}design/`,
+    entry: ENTRY,
+  });
   const missing = described();
   delete (missing.modules[1] as { entry?: string }).entry;
-  expect(designModuleLoad(missing, HERE)).toEqual({ link: `${MOUNT}design/` });
-  expect(designModuleLoad({ version: 1, modules: described().modules.slice(0, 1) }, HERE)).toEqual(
-    {},
-  );
-  expect(designModuleLoad(undefined, HERE)).toEqual({});
+  expect(extraModuleLoad(missing, '/design', HERE)).toEqual({ link: `${MOUNT}design/` });
+  expect(
+    extraModuleLoad({ version: 1, modules: described().modules.slice(0, 1) }, '/design', HERE),
+  ).toEqual({});
+  expect(extraModuleLoad(undefined, '/design', HERE)).toEqual({});
 });
 
 it('confines Design script entries and refuses navigation outside its owned family', () => {
@@ -121,7 +131,7 @@ it('confines Design script entries and refuses navigation outside its owned fami
     ENTRY + '?x=1',
     'https://evil.example/x.js',
   ])
-    expect(designModuleLoad(described(entry), HERE)).toEqual({ link: `${MOUNT}design/` });
+    expect(extraModuleLoad(described(entry), '/design', HERE)).toEqual({ link: `${MOUNT}design/` });
   for (const path of [
     '/remote/',
     '/designer/',
@@ -132,17 +142,17 @@ it('confines Design script entries and refuses navigation outside its owned fami
     '/design/?x=1',
     'https://evil.example/design/',
   ])
-    expect(designModuleLoad(described(ENTRY, 'colab', path), HERE), path).toEqual({});
-  expect(designModuleLoad(described(ENTRY, 'other'), HERE)).toEqual({});
-  expect(designModuleLoad(described(), 'not a url')).toEqual({});
+    expect(extraModuleLoad(described(ENTRY, 'colab', path), '/design', HERE), path).toEqual({});
+  expect(extraModuleLoad(described(ENTRY, 'other'), '/design', HERE)).toEqual({});
+  expect(extraModuleLoad(described(), '/design', 'not a url')).toEqual({});
   const noPrimary = described();
   noPrimary.modules.shift();
-  expect(designModuleLoad(noPrimary, HERE)).toEqual({});
+  expect(extraModuleLoad(noPrimary, '/design', HERE)).toEqual({});
 });
 
 it('uses the same bounded Design path family as native owner-route admission', () => {
   for (const path of ['/design', '/design/', '/design/a-1_B', '/design/' + 'a'.repeat(160)])
-    expect(designPath(path)).toBe(true);
+    expect(appFamilyPath(path, '/design')).toBe(true);
   for (const path of [
     '/designx',
     '/design/a/',
@@ -152,5 +162,54 @@ it('uses the same bounded Design path family as native owner-route admission', (
     '/design/%2f',
     '/design/' + 'a'.repeat(161),
   ])
-    expect(designPath(path)).toBe(false);
+    expect(appFamilyPath(path, '/design')).toBe(false);
+});
+
+it('requires a declared unambiguous family and uses that extension instead of a module name', () => {
+  const answer = described();
+  const primary = answer.modules[0]!;
+  const extra = answer.modules[1]!;
+  if (!('module' in extra)) throw new Error('fixture must contain an extra');
+  primary.extension = 'other';
+  primary.rail.path = '/r/abcdefghijklmnop/x/other/';
+  extra.extension = 'other';
+  extra.module = 'tools';
+  extra.rootAppFamily = '/studio';
+  extra.rail.path = '/studio/';
+  extra.entry = 'assets/tools.js';
+  expect(extraModuleLoad(answer, '/studio', HERE)).toEqual({
+    link: '/r/abcdefghijklmnop/x/other/studio/',
+    entry: 'http://127.0.0.1:4000/r/abcdefghijklmnop/x/other/assets/tools.js',
+  });
+  expect(extraModuleLoad(answer, '/design', HERE)).toEqual({});
+  answer.modules.push({ ...extra });
+  expect(rootModules(answer)).toEqual([]);
+  expect(extraModuleLoad(answer, '/studio', HERE)).toEqual({});
+});
+
+it('refuses undeclared, reserved and malformed root families', () => {
+  for (const family of [
+    '/',
+    '//studio',
+    '/studio/',
+    '/studio/tools',
+    '/__',
+    '/sdk',
+    '/x',
+    '/r',
+    '/read',
+    '/pair',
+    '/p',
+    '/join',
+    '/remote',
+    '/ops',
+    '/digest',
+    '/settings',
+    '/colab',
+    '/' + 'a'.repeat(33),
+  ])
+    expect(rootAppFamily(family), family).toBe(false);
+  const answer = described();
+  delete (answer.modules[1] as { rootAppFamily?: string }).rootAppFamily;
+  expect(extraModuleLoad(answer, '/design', HERE)).toEqual({});
 });

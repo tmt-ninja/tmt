@@ -187,9 +187,11 @@ behavior.
 
 `shell` admits one capability-gated extra display module under the extension's same
 callback, cache age and socket fence. Composition keys extras by `(extension, module)`;
-Remote extension-wide lookups select only primaries. `pages` maps the Design app family
-to Colab's existing mount; `shell` resolves only that Colab extra's navigation at the root,
-with its script still confined to Colab's mount. The describe contract owns validation,
+Remote extension-wide lookups select only primaries. `mount` derives extra root-family ownership from the same bounded `shell` snapshot,
+cache and socket fence used for composition. `pages` serves only the static shell at
+those admitted roots; `shell` resolves their declared navigation at the root while
+scripts stay confined to each extension's primary mount. Invalid roots refuse their
+description; conflicting roots keep mounted navigation without a root claim. The describe contract owns validation,
 ordering and version-skew rules; the shared leaf owns rail rendering.
 
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one

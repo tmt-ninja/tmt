@@ -6905,6 +6905,7 @@ fn describe_adds_the_design_module_only_when_remote_admits_modules() {
             new["modules"],
             serde_json::json!([{
                 "id":"design",
+                "rootAppFamily":"/design",
                 "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
                 "menu":[],
                 "settings":[],
