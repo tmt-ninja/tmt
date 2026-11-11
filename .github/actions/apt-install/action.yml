@@ -32,18 +32,24 @@ runs:
         # larger package list. Kill stuck children too.
         apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
         install_options=(install --no-install-recommends -y)
-        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
+        update_state=$(mktemp)
         download_state=$(mktemp)
         unpack_state=$(mktemp)
-        trap '/bin/rm -f "$download_state" "$unpack_state"' EXIT
-        # The package list is intentionally split into separate arguments.
-        # shellcheck disable=SC2086
-        "$retry" 3 5 bash -eu -c '
+        trap '/bin/rm -f "$update_state" "$download_state" "$unpack_state"' EXIT
+        # Runs one network attempt. After the phase's first attempt times out, the
+        # next attempt first removes Azure from the runner image's mirror list; a
+        # phase that finds Azure already removed changes nothing.
+        with_mirror_fallback='
           state=$1; sources=$2; mirrors=$3; shift 3
           previous=$(cat "$state")
           if [ "$previous" = 124 ]; then
             # Admit only the pinned runner-image mirror+file layout.
-            if [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
+            if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
+               cmp -s "$mirrors" <(printf "%s\t%s\n" \
+                 https://archive.ubuntu.com/ubuntu/ priority:2 \
+                 https://security.ubuntu.com/ubuntu/ priority:3); then
+              :
+            elif [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
                [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
                awk -v uri="mirror+file:$mirrors" '"'"'
                  tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
@@ -62,14 +68,21 @@ runs:
           fi
           status=0
           "$@" || status=$?
-          # Only the first download timeout can arm fallback; later retries reuse it.
+          # Only the first timeout of a phase can arm fallback; later retries reuse it.
           if [ -z "$previous" ] && [ "$status" = 124 ]; then
             printf 124 > "$state"
           else
             printf done > "$state"
           fi
           exit "$status"
-        ' apt-install "$download_state" "$APT_SOURCES" "$APT_MIRRORS" \
+        '
+        "$retry" 3 5 bash -eu -c "$with_mirror_fallback" \
+          apt-install "$update_state" "$APT_SOURCES" "$APT_MIRRORS" \
+          sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
+        # The package list is intentionally split into separate arguments.
+        # shellcheck disable=SC2086
+        "$retry" 3 5 bash -eu -c "$with_mirror_fallback" \
+          apt-install "$download_state" "$APT_SOURCES" "$APT_MIRRORS" \
           sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" "${install_options[@]}" --download-only $PACKAGES
         # A failed unpack attempt can leave dpkg interrupted; repair it before the retry.
         # shellcheck disable=SC2086
