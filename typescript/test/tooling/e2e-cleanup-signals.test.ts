@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
 import { assertPrivateSocket, stopPrivateTmuxSocket } from '../support/private-tmux.js';
 import { groupLeader, stopOwnedGroups, type OwnedGroup } from '../e2e/harness/lifecycle.js';
-import { waitFor } from '../e2e/harness/readiness.js';
+import { waitFor, waitForPidFile } from '../e2e/harness/readiness.js';
 
 const require = createRequire(import.meta.url);
 const viteRequire = createRequire(require.resolve('vite-plus/package.json'));
 const vitest = path.join(path.dirname(viteRequire.resolve('vitest/package.json')), 'vitest.mjs');
 const lifecycle = fileURLToPath(new URL('../e2e/harness/lifecycle.ts', import.meta.url));
+const readinessModule = fileURLToPath(new URL('../e2e/harness/readiness.ts', import.meta.url));
 const fixtureModule = fileURLToPath(new URL('../e2e/harness/fixture.ts', import.meta.url));
 // Read-only provenance: a Linux CI pass can establish whether it exercised uutils.
 if (process.platform === 'linux') {
@@ -48,8 +49,35 @@ function removeProbeRegistry(registry: string): void {
   fs.rmSync(registry, { recursive: true, force: true });
 }
 
+it.each(['', '12', '0\n', '1\n', 'not-a-pid\n', '9007199254740993\n'])(
+  'waits for complete positive PID publication after %j',
+  async (incomplete) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-pid-readiness-'));
+    const file = path.join(root, 'pid');
+    fs.writeFileSync(file, incomplete);
+    let settled = false;
+    const pending = waitForPidFile(file, 1_000).then((pid) => {
+      settled = true;
+      return pid;
+    });
+    try {
+      // Hold publication across a complete event-loop turn. Existence-only
+      // readiness resolves here; the complete-record barrier must stay pending.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled, 'an incomplete PID file is not process readiness').toBe(false);
+      fs.writeFileSync(file, '12345\n');
+      expect(await pending).toBe(12345);
+    } finally {
+      fs.writeFileSync(file, '12345\n');
+      await pending.catch(() => {});
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
 it.each([
   'normal',
+  'readiness failure',
   'timeout',
   'thrown exit',
   'thrown exit in allocation',
@@ -78,33 +106,50 @@ it.each([
       import { E2EFixture } from ${JSON.stringify(fixtureModule)};
       import { groupLeader } from ${JSON.stringify(lifecycle)};
       import { writeExecutable } from ${JSON.stringify(executableWriter)};
+      import { waitForPidFile } from ${JSON.stringify(readinessModule)};
       test('hold an owned fixture', async () => {
         const fixture = new E2EFixture();
-        await fixture.start();
-        const executable = path.join(fixture.root, 'bin', 'tmt-ops');
-        // Keep the shim as the group leader; call sleep under its real utility name.
-        writeExecutable(executable, ['#!/bin/sh', '/bin/sleep "$@" &', 'wait "$!"', ''].join(String.fromCharCode(10)), 0o755);
-        let pid;
-        let panePid;
-        if (${JSON.stringify(scenario)}.startsWith('foreground ')) {
-          const shell = fixture.createShellPane('foreground');
-          panePid = shell.pid;
-          const pidFile = path.join(fixture.root, 'foreground-pid');
-          const startFile = path.join(fixture.root, 'foreground-start');
-          fs.writeFileSync(${JSON.stringify(proofFile)}, JSON.stringify({ root: fixture.root, socketRoot: fixture.socketRoot, socket: fixture.socketPath, tmux: fixture.tmuxPath, pid: 0, started: '', pidFile, startFile }));
-          const script = 'trap ' + String.fromCharCode(34, 34) + ' HUP; echo $$ > ' + pidFile + '; LC_ALL=C /bin/ps -p $$ -o lstart= > ' + startFile + '; exec ' + executable + ' 60';
-          const command = '/bin/sh -c ' + String.fromCharCode(39) + script + String.fromCharCode(39);
-          fixture.tmux(['send-keys', '-t', shell.pane, '-l', command]);
-          fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-          await fixture.waitFor(() => fs.existsSync(pidFile), 5000, 'foreground process readiness');
-          pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
-        } else {
-          pid = Number(fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_pid}', '-t', 'e2e', executable + ' 60']).trim());
+        try {
+          await fixture.start();
+          const publishProof = (details) => {
+            const stage = ${JSON.stringify(proofFile + '.tmp')};
+            fs.writeFileSync(stage, JSON.stringify({ root: fixture.root, socketRoot: fixture.socketRoot, socket: fixture.socketPath, tmux: fixture.tmuxPath, pid: 0, started: '', registry: process.env.TMT_E2E_RUN_REGISTRY, ...details }));
+            fs.renameSync(stage, ${JSON.stringify(proofFile)});
+          };
+          // Retain private cleanup ownership even if process readiness fails.
+          publishProof({});
+          const executable = path.join(fixture.root, 'bin', 'tmt-ops');
+          // Keep the shim as the group leader; call sleep under its real utility name.
+          writeExecutable(executable, ['#!/bin/sh', '/bin/sleep "$@" &', 'wait "$!"', ''].join(String.fromCharCode(10)), 0o755);
+          let pid;
+          let panePid;
+          if (${JSON.stringify(scenario)}.startsWith('foreground ')) {
+            const shell = fixture.createShellPane('foreground');
+            panePid = shell.pid;
+            const pidFile = path.join(fixture.root, 'foreground-pid');
+            const startFile = path.join(fixture.root, 'foreground-start');
+            publishProof({ pidFile, startFile });
+            const script = 'trap ' + String.fromCharCode(34, 34) + ' HUP; echo $$ > ' + pidFile + '; LC_ALL=C /bin/ps -p $$ -o lstart= > ' + startFile + '; exec ' + executable + ' 60';
+            const command = '/bin/sh -c ' + String.fromCharCode(39) + script + String.fromCharCode(39);
+            fixture.tmux(['send-keys', '-t', shell.pane, '-l', command]);
+            fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+            pid = await waitForPidFile(pidFile, 5000);
+          } else {
+            pid = Number(fixture.tmux(['new-window', '-d', '-P', '-F', '#{pane_pid}', '-t', 'e2e', executable + ' 60']).trim());
+          }
+          const leader = groupLeader(pid);
+          if (!leader) throw new Error('fixture group leader disappeared');
+          if (${JSON.stringify(scenario)} === 'stale lock SIGTERM') fs.mkdirSync(path.join(process.env.TMT_E2E_RUN_REGISTRY, '.lock'));
+          publishProof({ pid, panePid, started: leader.started });
+          if (${JSON.stringify(scenario)} === 'readiness failure') throw new Error('controlled fixture readiness failure');
+        } catch (error) {
+          try {
+            await fixture.stop();
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], 'fixture readiness and cleanup failed');
+          }
+          throw error;
         }
-        const leader = groupLeader(pid);
-        if (!leader) throw new Error('fixture group leader disappeared');
-        if (${JSON.stringify(scenario)} === 'stale lock SIGTERM') fs.mkdirSync(path.join(process.env.TMT_E2E_RUN_REGISTRY, '.lock'));
-        fs.writeFileSync(${JSON.stringify(proofFile)}, JSON.stringify({ root: fixture.root, socketRoot: fixture.socketRoot, socket: fixture.socketPath, tmux: fixture.tmuxPath, pid, panePid, started: leader.started, registry: process.env.TMT_E2E_RUN_REGISTRY }));
         if (${JSON.stringify(scenario)} === 'normal') { await fixture.stop(); return; }
         if (${JSON.stringify(scenario)} === 'thrown exit') process.exit(42);
         if (${JSON.stringify(scenario)} === 'thrown exit in allocation') fixture.registration.allocate(() => process.exit(42), () => {});
@@ -184,6 +229,10 @@ it.each([
               ? 0
               : 1;
       expect(result, output).toEqual({ code: expectedCode, signal: null });
+      if (scenario === 'readiness failure') {
+        expect(output).toContain('controlled fixture readiness failure');
+        expect(output).not.toContain('E2E fixture survived suite end');
+      }
       if (scenario === 'stale lock SIGTERM')
         expect(output).toContain('E2E registry stale lock recovered');
       if (

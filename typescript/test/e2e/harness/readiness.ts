@@ -35,6 +35,25 @@ export async function waitFor(
   throw new Error(`Timed out waiting for ${description}.`);
 }
 
+/** A shell may create the file before writing: only a complete positive PID is ready. */
+export async function waitForPidFile(file: string, timeoutMs: number): Promise<number> {
+  let pid = 0;
+  await waitFor(
+    () => {
+      if (!fs.existsSync(file)) return false;
+      const text = fs.readFileSync(file, 'utf8');
+      if (!/^[1-9]\d*\n$/.test(text)) return false;
+      const value = Number(text);
+      if (!Number.isSafeInteger(value) || value <= 1) return false;
+      pid = value;
+      return true;
+    },
+    timeoutMs,
+    'foreground process readiness'
+  );
+  return pid;
+}
+
 /** How a bounded wait for processes to exit ended; only `exited` proves every one is gone. */
 export type ProcessExit =
   | { outcome: 'exited' }
