@@ -429,7 +429,7 @@ $ tmt ops sq theme rm --squad product     # board の設定に再び従う。個
 
 Ops には lead agent 向けの skill が付属します。board を読み、依頼や返事のたびに更新し、ユーザーの設定を探す方法を教えます。ルールが不明なら、lead は推測せず**ユーザーに尋ねます**。使う状態、ユーザー待ちの判断、メンバーの起動方法も対象です。合意した内容を notes に記録するか、ユーザーが適用する設定変更を提案します。勝手に設定を編集しません。
 
-`tmt extension install ops` は、使っている agent への skill の追加を提案し、先に確認します。
+`tmt extension install ops --skills` は、使っている agent にこの skill を公開します。`--skills` を付けないインストールでは、agent の skill は公開されません。
 
 任意の **playbook** は、lead が host 上にチームを配置する方法を示す skill の例です。現在は `tmux-squad` が1つあります。leads セッションと crew セッションを使い、メンバーごとに1つのウィンドウと worktree を用意します。Ops 自身は実行しません。`tmt ops playbook show tmux-squad` で読み、インストールするか、変更するか、使わないかを選べます。
 
@@ -454,8 +454,8 @@ Ops は名簿と board のフィールドを tmt に保存し、任意の経過�
 <Mdx.h3 id="jumping-between-members">メンバー間の移動</Mdx.h3>
 
 <Callout title="この移動機能は現在 tmux のみです。">
-  この節にはペインを切り替えられる host が必要で、現在は tmux が対応します。Herdr のペインも（`tmt
-  driver install herdr` の後に）board に表示され、メッセージを受け取れます。ただし Herdr は ID
+  この節にはペインを切り替えられる host が必要で、現在は tmux が対応します。Herdr のペインも board
+  に表示され、メッセージを受け取れます。ただし Herdr は ID
   でペインにフォーカスできないため、通常の端末と同じく Enter で行の操作一覧を開きます。cmux
   はまだ未対応です。board のほかの機能は同じように動くので、この節は飛ばしても構いません。
 </Callout>

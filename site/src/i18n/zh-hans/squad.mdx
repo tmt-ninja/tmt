@@ -421,7 +421,7 @@ $ tmt ops sq theme rm --squad product     # 重新跟随看板设置；保留颜
 
 Ops 自带供 lead agent 使用的技能。它教 lead 读取看板、在每次分派和回复后更新看板，并找到你的设置。规则不清楚时，lead 会**询问你**，不会猜测。这包括使用哪些状态、什么情况算是在等你，以及如何启动成员。它会将约定记入笔记，或提出配置修改建议供你应用；不会自行编辑你的设置。
 
-`tmt extension install ops` 会为你使用的 agent 提供这个技能，并先询问。
+`tmt extension install ops --skills` 会向你使用的 agent 发布这个技能。不加 `--skills` 的安装不会发布 agent 技能。
 
 可选的 **playbook** 是示例技能，说明 lead 如何在你的 host 上安排团队。目前有一个 `tmux-squad`（一个 leads 会话和一个 crew 会话，每个成员一个窗口和 worktree）。Ops 不会运行它。用 `tmt ops playbook show tmux-squad` 阅读后，你可以安装、修改或忽略它。
 
@@ -446,9 +446,9 @@ Ops 将成员名单和看板字段保存在 tmt 中，可选的观察时长保�
 <Mdx.h3 id="jumping-between-members">在成员之间跳转</Mdx.h3>
 
 <Callout title="目前仅限 tmux。">
-  本节需要 host 支持切换窗格，目前只有 tmux 支持。Herdr 窗格（运行 `tmt driver install herdr`
-  后）会显示在看板上并接收消息，但 Herdr 无法按 ID 聚焦窗格，因此按 Enter
-  会打开该行的操作菜单，与普通终端相同。暂不支持 cmux。看板的其他功能完全相同。你可以跳过本节。
+  本节需要 host 支持切换窗格，目前只有 tmux 支持。Herdr 窗格会显示在看板上并接收消息，但 Herdr
+  无法按 ID 聚焦窗格，因此按 Enter 会打开该行的操作菜单，与普通终端相同。暂不支持
+  cmux。看板的其他功能完全相同。你可以跳过本节。
 </Callout>
 
 一种实用的安排是：将 lead 放在一个常开的地方，成员放在另一个地方，每项工作各用一个窗口和 worktree。你与 lead 沟通、查看看板，只在成员需要你时进入它的界面。在看板上按 Enter 可前往成员界面，即使它位于另一个会话；按 `⌫` 返回。
