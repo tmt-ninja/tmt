@@ -120,8 +120,8 @@ attempts for each network phase (60 s update, 120 s `--download-only`) with 10 s
 termination grace and 5/10 s backoff. It then unpacks and configures from the
 downloaded files (`--no-download`) in two 240 s attempts; before the second, it runs
 `dpkg --configure -a`, so the retry starts from a repaired dpkg state. After the first
-download timeout, only Azure is removed from the verified runner-image mirror list
-for remaining attempts; unexpected layouts are logged and unchanged.
+timeout of either network phase, only Azure is removed from the verified runner-image
+mirror list for remaining attempts; unexpected layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
 `Native process contracts` gates one `Native process build` and two `Native process

@@ -65,6 +65,8 @@ count=$(wc -l < "$LOG_DIR/$phase")
 count=$((count))
 case $phase in download | install)
   if [ -f "$APT_MIRRORS" ]; then /bin/cp "$APT_MIRRORS" "$LOG_DIR/mirrors-$count"; fi;;
+update)
+  if [ -f "$APT_MIRRORS" ]; then /bin/cp "$APT_MIRRORS" "$LOG_DIR/update-mirrors-$count"; fi;;
 esac
 # A kill while dpkg unpacks leaves dpkg interrupted, as on the hosted runner.
 case $phase in unpack | install)
@@ -166,7 +168,9 @@ function run(
   const mirrorBytes = () => (existsSync(list) ? readFileSync(list, 'utf8') : null);
   const beforeInstall = (attempt: number) =>
     readFileSync(path.join(dir, `mirrors-${attempt}`), 'utf8');
-  return { result, lines, mirrorBytes, beforeInstall, list, originalMirrors };
+  const beforeUpdate = (attempt: number) =>
+    readFileSync(path.join(dir, `update-mirrors-${attempt}`), 'utf8');
+  return { result, lines, mirrorBytes, beforeInstall, beforeUpdate, list, originalMirrors };
 }
 
 const options = '-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30';
@@ -244,11 +248,67 @@ describe('apt-install composite action', () => {
     expect(result.stderr).toContain('attempt 2 of 3 with status 124');
   });
 
-  it('does not arm fallback after update timeouts', () => {
-    const { result, lines, mirrorBytes } = run('update', '2');
+  it.each(['1', '2'])(
+    'removes only Azure before the second update after %s timeout(s)',
+    (count) => {
+      const { result, lines, mirrorBytes, beforeInstall, beforeUpdate, list } = run(
+        'update',
+        count
+      );
+      expect(result.status).toBe(0);
+      expect(beforeUpdate(1)).toBe(mirrors);
+      expect(beforeUpdate(2)).toBe(remainingMirrors);
+      if (count === '2') expect(beforeUpdate(3)).toBe(remainingMirrors);
+      expect(beforeInstall(1)).toBe(remainingMirrors);
+      expect(mirrorBytes()).toBe(remainingMirrors);
+      expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
+      expect(result.stdout).toContain(
+        `removed http://azure.archive.ubuntu.com/ubuntu/ from ${list}`
+      );
+      expect(lines('apt')).toEqual([update, download, unpack]);
+    }
+  );
+
+  it('retains fallback and returns the last timeout after all three update attempts', () => {
+    const { result, lines, mirrorBytes, beforeUpdate } = run('update', '99');
+    expect(result.status).toBe(124);
+    expect(beforeUpdate(1)).toBe(mirrors);
+    expect(beforeUpdate(2)).toBe(remainingMirrors);
+    expect(beforeUpdate(3)).toBe(remainingMirrors);
+    expect(mirrorBytes()).toBe(remainingMirrors);
+    expect(lines('mirror-edits')).toHaveLength(1);
+    expect(lines('download')).toEqual([]);
+  });
+
+  it('never switches for non-timeout update failures', () => {
+    const { result, lines, mirrorBytes } = run('update', '2', { failStatus: '100' });
     expect(result.status).toBe(0);
     expect(mirrorBytes()).toBe(mirrors);
     expect(lines('mirror-edits')).toEqual([]);
+    expect(lines('update')).toHaveLength(3);
+  });
+
+  it('reports an explicit no-op for an unexpected list after an update timeout', () => {
+    const custom = mirrors.replace('priority:2', 'priority:9');
+    const { result, lines, mirrorBytes } = run('update', '99', { mirrors: custom });
+    expect(result.status).toBe(124);
+    expect(mirrorBytes()).toBe(custom);
+    expect(lines('mirror-edits')).toEqual([]);
+    expect(result.stderr.match(/apt-install: mirror fallback no-op:/g)).toHaveLength(1);
+    expect(lines('update')).toHaveLength(3);
+  });
+
+  it('removes Azure once when update and download both time out', () => {
+    const { result, lines, mirrorBytes, beforeInstall, beforeUpdate, list } = run('both', '2');
+    expect(result.status).toBe(0);
+    expect(beforeUpdate(1)).toBe(mirrors);
+    expect(beforeUpdate(2)).toBe(remainingMirrors);
+    expect(beforeInstall(1)).toBe(remainingMirrors);
+    expect(beforeInstall(3)).toBe(remainingMirrors);
+    expect(mirrorBytes()).toBe(remainingMirrors);
+    expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
+    expect(result.stdout.match(/apt-install: removed/g)).toHaveLength(1);
+    expect(result.stderr).not.toContain('mirror fallback no-op');
   });
 
   it.each([
