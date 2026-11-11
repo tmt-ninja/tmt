@@ -96,6 +96,9 @@ fn row_of(rows: &[String], source: &str) -> Vec<String> {
 #[test]
 fn a_row_shows_left_the_worst_projection_and_the_reset() {
     let mut app = digest(vec![claude()]);
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let frame = buffer(&mut app, 240, 40);
     let rows = rows(&frame);
     assert!(
@@ -125,10 +128,12 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
             .modifier
             .contains(ratatui::style::Modifier::BOLD)
     );
-    assert_eq!(
-        frame[((x + 3) as u16, y as u16)].fg,
-        ratatui::style::Color::Reset
-    );
+    // LEFT pads the percentage to five cells; the following separator is unstyled.
+    for column in [x + 5, x + 6] {
+        let separator = &frame[(column as u16, y as u16)];
+        assert_eq!(separator.fg, ratatui::style::Color::Reset);
+        assert!(!separator.modifier.contains(ratatui::style::Modifier::BOLD));
+    }
     assert_eq!(frame[(239, y as u16)].fg, ratatui::style::Color::Reset);
 }
 
@@ -339,4 +344,23 @@ fn the_tokens_line_is_unknown_without_a_usable_report_or_complete_cells() {
         let mut app = claude_with_tokens([1_000; 24], complete, ends_ago);
         assert_eq!(claude_row(&mut app), row_running_out("Su 18:40"), "{label}");
     }
+}
+
+#[test]
+fn direction_a_narrow_allowance_never_clips_resets_mid_word() {
+    crate::status::with_now_ms(NOW, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = super::impact::capture_case("digest-spec", look);
+            let screen = rows(&buffer(&mut app, 100, 36));
+            let row = screen
+                .iter()
+                .find(|row| row.starts_with("Allowance "))
+                .unwrap();
+            let codex = row.split_once("Codex").unwrap().1.trim_end();
+            assert!(
+                codex.ends_with('…') || codex.contains("resets"),
+                "{name}: {row}"
+            );
+        }
+    });
 }

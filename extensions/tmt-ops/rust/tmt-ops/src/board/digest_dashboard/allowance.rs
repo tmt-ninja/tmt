@@ -172,7 +172,11 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
     use ds::Component;
     super::paint_grid(frame, app, area, |grid| {
         let mut x = 0u16;
-        for (span, unstyled) in spans {
+        for (mut span, unstyled) in spans {
+            let remaining = usize::from(area.width.saturating_sub(x));
+            if span.text.width() > remaining {
+                span.text = crate::board::view::fit(&span.text, remaining);
+            }
             let width = area
                 .width
                 .saturating_sub(x)

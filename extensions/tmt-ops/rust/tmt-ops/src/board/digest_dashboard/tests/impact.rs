@@ -768,3 +768,39 @@ fn exchange_columns_stay_compact_and_keep_a_twelve_cell_row_name() {
         "{shown}"
     );
 }
+
+#[test]
+fn direction_a_keeps_all_three_detail_sections_visible_at_100_by_36() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = capture_case("digest-spec", look);
+            let shown = paint(&mut app, 100, 36);
+            for section in ["Delivery", "Saved ·", "Models ·"] {
+                assert!(shown.contains(section), "{name}: missing {section}");
+            }
+            assert!(
+                shown.contains("used 30.0k · saved 6.0k"),
+                "{name}: missing selected savings"
+            );
+            assert!(
+                shown.contains("claude-opus-5-5"),
+                "{name}: missing selected model"
+            );
+        }
+    });
+}
+
+#[test]
+fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = capture_case("digest-spec", look);
+            let shown = paint(&mut app, 160, 36);
+            assert!(shown.contains("Agents by TOK"), "{name}");
+            assert!(
+                !shown.contains("┏━ ▸ Agents by TOK"),
+                "{name}: heavy frame remains"
+            );
+        }
+    });
+}

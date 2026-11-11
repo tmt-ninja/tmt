@@ -1011,7 +1011,7 @@ fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
     for (look_name, look) in looks() {
         for scene in crate::board::digest_dashboard::tests::impact::SCENES {
             let sizes: &[(u16, u16)] = if *scene == "digest-spec" {
-                &[(160, 36)]
+                &[(160, 36), (100, 36)]
             } else {
                 &[(160, 50), (120, 40), (100, 32)]
             };

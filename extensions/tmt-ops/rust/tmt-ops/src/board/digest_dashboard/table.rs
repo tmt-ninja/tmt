@@ -100,7 +100,7 @@ pub(super) fn narrow_hint(width: u16, unit: SavingsUnit, room: usize) -> Option<
 pub(super) fn painted_width(app: &App) -> Option<u16> {
     app.digest_placement(app.conversation.borrow().area)
         .list
-        .map(crate::board::pane_chrome::content_area)
+        .map(super::render::content_area)
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
 }

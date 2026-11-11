@@ -14,30 +14,41 @@ pub(super) fn pane_frame(
 ) -> Rect {
     use ds::Component;
     use tmt_tui::components::design_system as ds;
-    if area.width < 3 || area.height < 3 {
+    if area.is_empty() {
         return area;
     }
-    super::paint_grid(frame, app, area, |grid| {
-        ds::PaneFrame::render(
-            &ds::PaneFrameProps {
+    super::paint_grid(frame, app, Rect { height: 1, ..area }, |grid| {
+        ds::PaneRule::render(
+            &ds::PaneRuleProps {
                 title: title.into(),
+                note: None,
+                note_role: None,
                 focused: app.focused() == pane,
                 ascii: matches!(
                     app.cron_glyphs,
                     crate::board::overview::cron_counts::GlyphSet::Ascii
                 ),
-                back_hint: pane == Pane::Replies,
             },
             ds::Rect {
                 x: 0,
                 y: 0,
                 width: area.width,
-                height: area.height,
+                height: 1,
             },
             grid,
         );
     });
-    crate::board::pane_chrome::content_area(area)
+    content_area(area)
+}
+
+/// One title row, with the rest of the pane available to its existing content owner.
+pub(super) fn content_area(area: Rect) -> Rect {
+    Rect::new(
+        area.x,
+        area.y.saturating_add(u16::from(area.height > 0)),
+        area.width,
+        area.height.saturating_sub(1),
+    )
 }
 
 /// Summary and content share the same placement owner as focus and pointer input.
@@ -72,19 +83,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         94,
         frame.area(),
     );
-    if let (Some(list), Some(side)) = (placement.list, placement.conversation)
-        && list.y == side.y
-        && list.x != side.x
-        && !(crate::board::pane_chrome::boxed(list) && crate::board::pane_chrome::boxed(side))
-    {
-        // Framed panes mark the seam with their own edges; the gap between them stays the drag handle.
-        crate::board::divider::paint(
-            frame.buffer_mut(),
-            Rect::new(list.right(), list.y, 1, list.height),
-            false,
-            app.look(),
-        );
-    }
     if let Some(list) = placement.list {
         table::paint(frame, app, list);
     }
@@ -260,6 +258,7 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
     let lines = detail_lines(
         app,
         inside.width,
+        inside.height,
         crate::status::now_ms(),
         app.selected_row(),
     );
@@ -344,10 +343,17 @@ const BASIS: &str = "Estimate basis…";
 pub(super) fn detail_lines(
     app: &App,
     width: u16,
+    height: u16,
     now_ms: u64,
     row: Option<&serde_json::Value>,
 ) -> Vec<Line<'static>> {
-    super::details::panel(app, now_ms, row)
+    let lines = super::details::panel(app, now_ms, row);
+    let lines = if height <= 10 && width >= 60 && app.digest_inline.is_none() {
+        compact_detail_lines(lines, usize::from(width))
+    } else {
+        lines
+    };
+    lines
         .into_iter()
         .flat_map(|text| {
             crate::board::notes::wrap(&crate::board::notes::sanitize(&text), usize::from(width))
@@ -355,6 +361,31 @@ pub(super) fn detail_lines(
         .map(|text| Line::styled(text, app.look().role(Role::Text)))
         .collect()
 }
+/// Keep full words and values while putting short section summaries in fewer rows.
+fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
+    let mut out: Vec<String> = Vec::new();
+    for line in lines {
+        let heading = line.starts_with("── ") && line.ends_with(" ──");
+        let text = if heading {
+            line.trim_matches('─').trim().to_owned()
+        } else {
+            line
+        };
+        if !heading {
+            if let Some(previous) = out.last_mut() {
+                if previous.width() + 3 + text.width() <= width {
+                    previous.push_str(" · ");
+                    previous.push_str(&text);
+                    continue;
+                }
+            }
+        }
+        out.push(text);
+    }
+    out
+}
+
 /// Clock evidence uses the same visible wrapped projection as paint.
 pub(in crate::board) fn details_clock_mark(
     app: &App,
@@ -363,7 +394,7 @@ pub(in crate::board) fn details_clock_mark(
     height: u16,
     now_ms: u64,
 ) -> String {
-    let lines = detail_lines(app, width, now_ms, app.target_row(target));
+    let lines = detail_lines(app, width, height, now_ms, app.target_row(target));
     let viewport =
         crate::board::scroll::Scrolls::viewport(Rect::new(0, 0, width, height), lines.len());
     let offset = app
