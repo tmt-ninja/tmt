@@ -156,6 +156,24 @@ async function selectionOn(page: Page) {
     await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
   }).toPass();
 }
+test('Design loads the TUI frame model only when a TUI page opens', async ({ page }) => {
+  const modelRequests: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/\/docs\/tui\/(?:model|oracle-source)\.(?:ts|js)$/.test(path)) modelRequests.push(path);
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await openGuiButton(page);
+  expect(modelRequests).toEqual([]);
+
+  await pickSystem(page, 'tmt TUI');
+  await docsMenu(page);
+  await page.locator('.docs-nav a[href$="/ds/tui/roles"]').click();
+  await expect(page.locator('tmt-tui-frame').first()).toContainText('worker');
+  expect(modelRequests.some((path) => /\/model\.(?:ts|js)$/.test(path))).toBe(true);
+});
+
 test('tmt GUI draws the shipped pages and makes a discussion page only on the first Comment', async ({
   page,
 }) => {
