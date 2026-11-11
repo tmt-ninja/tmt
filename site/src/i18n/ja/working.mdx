@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 84f4db1a7324997af9b0f01a760de1623dc41d89
+sourceRevision: 68599fb098c6781fe6fd7cbb27998d804a3d35b9
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -18,8 +18,8 @@ import { components as Mdx } from "../../components/mdx";
 自分でコマンドを実行するときと同じ操作に、名前を付けます。tmt のオプションは名前の前に置き、その後の引数はすべて agent に渡します。tmt が覚えるのは使った agent の種類だけで、引数や秘密情報は保存しません。Ctrl-C、Ctrl-Z、`fg` は通常どおり使え、agent の終了コードもそのまま返ります。
 
 <Cmd>{`
-$ tmt run reviewer claude --model sonnet   # このペインに名前を付け、Claude Code を起動
-$ tmt run reviewer                         # 次回：記憶した agent を起動
+$ tmt run reviewer claude --model sonnet   # name this pane and start Claude Code
+$ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
 Codex と Claude は、`--channel` を指定しない限り貼り付けで配信します。`--no-channel` はその起動に限って通常の貼り付けを選び、`--channel` は channel を必須にして、使えなければ失敗します。両方は同時に指定できず、名前の前に置きます。channel を使うペインは貼り付けに切り替わりません。設定方法と現在の制約は [Codex の配信ガイド](/drivers/codex#message-delivery)を参照してください。
@@ -33,8 +33,8 @@ Codex と Claude は、`--channel` を指定しない限り貼り付けで配信
 今いるペインで、その agent 自身の会話を開き直します。再起動した後も、ペインを開いて名前を指定すれば各 agent を再開できます。runtime driver が会話とモデルを覚え、再開コマンドを組み立てるので、セッション ID をコピーする必要はありません。
 
 <Cmd>{`
-$ tmt resume reviewer           # reviewer 自身の会話を同じモデルで再開
-$ tmt resume --forget reviewer  # 記憶した会話を削除
+$ tmt resume reviewer           # reviewer's own conversation, same model
+$ tmt resume --forget reviewer  # drop the remembered conversation
 `}</Cmd>
 
 tmt が覚えるのは、agent の hook を通して driver が報告した情報だけです。`/clear` や新しいセッションで置き換わり、identity を別の agent プログラムに切り替えると古い情報は消えます。identity を削除した場合も消えます。会話がもう存在しなければ、その旨を伝え、勝手に新しい会話を始めることはありません。新しく始めると決めたら `tmt run reviewer` を実行してください。ペインは自分で選びます。tmt は tmux のレイアウトを復元しません。`tmt run --resume <name>` も別名として使えます。
@@ -49,9 +49,9 @@ agent がセッションを確認する前に再開に失敗すると、tmt は�
 
 <Cmd>{`
 $ tmt mv reviewer code-review
-$ tmt rm builder                  # 一時的な名前
-$ tmt rm --force planner          # 保存済みの名前
-$ tmt unbind                      # ペイン内で関連付けを解除。一時的な名前は廃止、保存済みはオフライン
+$ tmt rm builder                  # a temporary name
+$ tmt rm --force planner          # a saved one
+$ tmt unbind                      # in a pane: detach it; a temporary name is retired, a saved one goes offline
 `}</Cmd>
 
 `tmt add <pane> <name>` は別のペインを関連付けます。ペインには `%12` のような tmux ペイン ID、`window.pane`、`session:window.pane` を指定します。`tmt marked <name>` は tmux でマークしたペインを関連付けます。アクティブなペインを選ぶことはありません。どちらも `-s` を付けると名前を保存します。
@@ -99,8 +99,8 @@ agent がオフラインなら、`talk` はすぐにその旨を伝えます。�
 自分宛てのリクエストは inbox で待機します。receipt なしで、送信者の名前を指定して返事を送れます。同じ送信者から未回答のリクエストが複数ある場合、`tmt answer` は何も送らず一覧を表示します。`--request` で1件を選んでください。
 
 <Cmd>{`
-$ tmt inbox                              # 自分宛ての未処理リクエストを古い順に表示
-$ tmt answer reviewer "Yes, ship it."    # reviewer の未回答リクエストに返事
+$ tmt inbox                              # what is waiting on you, oldest first
+$ tmt answer reviewer "Yes, ship it."    # answer reviewer's open request
 $ tmt answer reviewer "Yes" --request req_9ba4…
 `}</Cmd>
 
@@ -109,10 +109,10 @@ $ tmt answer reviewer "Yes" --request req_9ba4…
 `tmt check` は agent のペインの最近の出力を、状況確認のために表示します。リクエストが完了したかどうかは判断しません。`tmt focus` はペインが今もその名前に属することを確かめ、自分の tmux クライアントをそのペインへ切り替えます。別のセッションにも移動できます。ペインへの入力は行いません。tmux 内で実行してください。
 
 <Cmd>{`
-$ tmt check builder 50      # builder のペインの末尾50行
-$ tmt focus builder         # builder のペインへ移動
-$ tmt focus %2              # 元のペインへ戻る
-$ tmt focus --client        # 移動対象のクライアントと表示中のペイン
+$ tmt check builder 50      # the last 50 lines of builder's pane
+$ tmt focus builder         # jump to builder's pane
+$ tmt focus %2              # and back to the pane you came from
+$ tmt focus --client        # which client would move, and which pane it shows
 `}</Cmd>
 
 `tmt focus --json` は移動前の場所と移動したクライアントを記録するので、スクリプトで元に戻れます。tmux の外や、自分のセッションを表示するクライアントがない場合、`focus` は何も変えず理由を伝えます。
@@ -122,11 +122,11 @@ $ tmt focus --client        # 移動対象のクライアントと表示中の�
 タイムアウト、detach、再起動、ペインの消失があってもリクエストは残ります。`tmt x` は、自分が開始してまだ確認済みにしていないリクエストを表示します。自分宛てのリクエストは `tmt inbox` にあります。それらを扱うには `x show`、`x ack`、`x ackall` に `--incoming` を付けます。
 
 <Cmd>{`
-$ tmt x                                  # 自分がまだ確認済みにしていないリクエスト
-$ tmt x show req_9ba4…                   # 元のリクエストと返事
-$ tmt x ack req_9ba4… --revision 3       # 読んだ revision を確認済みにする
-$ tmt x ackall                           # ここまでの全項目を確認済みにする
-$ tmt result req_9ba4…                   # 返事だけを表示
+$ tmt x                                  # your unacknowledged requests
+$ tmt x show req_9ba4…                   # the original request and its reply
+$ tmt x ack req_9ba4… --revision 3       # mark the revision you read as handled
+$ tmt x ackall                           # acknowledge everything listed so far
+$ tmt result req_9ba4…                   # just the reply
 `}</Cmd>
 
 `ack` には `x` または `x show` が表示した revision が必要なので、まだ見ていない返事を確認済みにして隠すことはありません。読むだけでは確認済みにならず、作業も取り消されず、保存期間も延びません。新しいリクエストの保存期間は、`exchange.retentionDays` を変えない限り90日です。
@@ -174,13 +174,17 @@ notes には保存済みの identity が必要で、一時的な identity では
   <code>tmt setup</code>
 </Mdx.h3>
 
-ファイルシステムだけを調べて、このマシンの agent を見つけます。agent を起動することはありません。見つかった agent には tmt の skill を追加します。Claude Code と Codex がインストールされていれば、会話の開始と終了を tmt に伝える lifecycle hook も追加します。これにより `tmt resume` とバッジの情報が保たれ、新しいセッションには短い要約が渡されます。不足しているものだけを計画し、一度確認します。
+ファイルシステムだけを調べて、このマシンの agent を見つけます。agent を起動することはありません。見つかった agent には tmt の skill を追加します。Claude Code と Codex がインストールされていれば、会話の開始と終了を tmt に伝える lifecycle hook も追加します。これにより `tmt resume` とバッジの情報が保たれ、新しいセッションには短い要約が渡されます。不足する agent の変更を計画し、公式拡張機能と同梱 skill も提案してから、一度確認します。
 
 <Cmd>{`
-$ tmt setup              # agent を探し、計画を表示して一度確認
-$ tmt setup claude       # 1種類の agent の hook
+$ tmt setup              # find agents, show the plan, ask once
+$ tmt setup claude       # hooks for one agent
 $ tmt setup codex --remove
 `}</Cmd>
+
+**Official extensions (bundled agent skills included)** の一覧は、Ops、Remote、Colab、Digest が選択された状態で始まります。↑/↓ で移動し、Space で選択、Enter で確認へ進みます。Colab には Remote が必要です。Colab を選ぶと Remote も選ばれ、Remote を外すと Colab も外れます。**Apply all of this** で承認すると計画を適用します。`tmt setup --yes` は質問せず既定の選択を承認します。同意のない非対話実行は何も変更しません。
+
+setup は正常なインストール済みバイナリーを保ち、検証済みリリースから不足する同梱 skill の追加を再試行します。Remote を Colab より先にインストールします。1項目が失敗しても完了した項目は残り、独立した項目は続行できます。Remote が失敗すると Colab の設定は行いません。結果には対応が必要な項目と setup の再実行方法が表示されます。これらの拡張機能をインストールしても、ブラウザーのペアリングや deploy の承認は行われません。
 
 tmt の hook 以外の既存設定はバイト単位で保たれ、先にバックアップを作ります。hook が失敗しても agent の動作を妨げません。バックアップは設定ファイルの隣にある非公開の `.tmt-setup-backups` フォルダーに置かれ、古いものも残ります。tmt が削除や移動をすることはありません。32個を超えても変更は適用しますが、警告とフォルダーの場所を表示するので、自分で整理できます。`--usage` は任意の[使用量カウンター](/drivers#usage-counters)を追加します。
 
@@ -191,8 +195,10 @@ tmt の hook 以外の既存設定はバイト単位で保たれ、先にバッ�
 tmt がインストールした hook、skill、拡張機能、`tmt` コマンドを削除します。動作中の拡張機能サービスは先に停止します。削除対象をすべて表示してから確認します。ユーザーが変更したものは残し、その旨を報告します。`--purge` を付けない限り、identity、メッセージ、notes は残ります。
 
 <Cmd>{`
-$ tmt uninstall          # 削除するものと残すものを表示して一度確認
-$ tmt uninstall --purge  # tmt のデータも削除
+$ tmt uninstall          # show what goes and what stays, then ask once
+$ tmt uninstall --purge  # also delete your tmt data
 `}</Cmd>
 
 [設定、shell の補完、よくある問題の対処 →](/working/settings)
+
+[計画、メッセージ方針、定期ジョブ →](/working/orchestration)

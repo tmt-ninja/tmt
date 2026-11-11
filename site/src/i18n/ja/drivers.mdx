@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 1c05410c1cac2ca4103b2382c3fc531e05719622
+sourceRevision: 1c1a224334dc8b99d5b58a2a1da3e26897a74ad9
 title: driver
 ---
 
@@ -13,9 +13,9 @@ driver は、特定の種類のプログラムについて tmt が把握する�
 **多くの場合、必要な driver は組み込まれています。インストールは不要です**。tmt は起動したプログラムを認識し、対応する driver を自動で使います。
 
 <Cmd>{`
-$ tmt run reviewer claude        # このペインを reviewer と命名して Claude Code を起動
-$ tmt run builder codex          # Codex でも同じ
-$ tmt setup                      # 任意：確認後、検出したすべての agent を接続
+$ tmt run reviewer claude        # name this pane "reviewer" and start Claude Code in it
+$ tmt run builder codex          # same for Codex
+$ tmt setup                      # optional: connect every agent found, after your OK
 `}</Cmd>
 
 設定しなくても、すべての agent は動作します。tmt はペインを通じてやり取りします。`tmt setup` は、agent 自身からしか得られない情報を追加します。どの会話がどの名前に属するかを把握し、`tmt resume` でその会話を再開できるようにします。また、起動時に「自分は誰で、何が待っているか」という短い概要を渡します。`tmt setup` は変更する設定を正確に表示し、先に確認します。`tmt setup claude` または `tmt setup codex` では 1 つの agent を設定でき、`--remove` で元に戻せます。
@@ -34,11 +34,12 @@ $ tmt setup                      # 任意：確認後、検出したすべての
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：tmt に同梱、初回使用時に承認</Mdx.h3>
 
-Herdr host driver は tmt に同梱されています。Herdr ペインで host を使うコマンド（例えば `tmt ls`）を初めて実行すると、tmt が同梱 driver を自動で承認し、その旨を1行表示します。
+Herdr host driver は tmt に同梱されています。Herdr ペインで host を使うコマンド（例えば `tmt ls`）を初めて実行すると、tmt が同梱 driver を自動で承認し、その旨を1行表示します。それは `tmt driver install herdr --yes` が記録する承認と同じで、すでに実行している tmt への信頼を超えるものではありません。確認や取り消しは次のとおりです。
 
 <Cmd>{`
-$ tmt driver install herdr   # 実行する内容を表示してから確認
-$ tmt driver ls              # herdr：ok、changed、missing
+$ tmt driver ls              # herdr: ok, changed or missing
+$ tmt driver rm herdr        # remove it; it stays removed
+$ tmt driver install herdr   # approve it again; shows what it will run, then asks
 `}</Cmd>
 
 tmt を更新しても承認は引き継がれます。新版の driver が追加の権限を求める場合、次に host を使うコマンド（例えば `tmt ls`）を実行すると自動で再承認し、その旨を表示します。`tmt driver rm herdr` で削除すると、`tmt driver install herdr` を実行するまで再承認されません。同梱 driver がないなどの理由で承認できない場合、Herdr ペインのコマンドは1日に1回ヒントを表示し、binding は削除されずに待機します。
@@ -65,8 +66,8 @@ tmt を更新しても承認は引き継がれます。新版の driver が追�
 その他の driver は、それぞれ独自のバージョンを持つパッケージとなり、extension と同じようにインストール、更新できる予定です。誰でも公開できます。driver は、tmt の driver プロトコルに応答する `tmt-driver-<name>` という名前のプログラムです。組み込みの driver も同じインターフェースを使います。インストールした driver が組み込みの driver を引き継ぐこともできる予定です。たとえば、機能を追加した Claude Code driver です。その場合も、`tmt driver ls` でどの driver がどのプログラムを担当するかを確認できます。
 
 <Cmd>{`
-$ tmt driver install ./tmt-driver-screen  # 実行する内容を表示してから確認
-$ tmt driver ls                          # 承認済み host driver：ok、changed、missing
+$ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
+$ tmt driver ls                          # approved host drivers: ok, changed or missing
 $ tmt driver rm screen
 `}</Cmd>
 

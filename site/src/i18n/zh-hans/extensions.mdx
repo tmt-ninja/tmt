@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/extensions.mdx
-sourceRevision: 662dd0e3e1f7e6b4ff45a84e74268a6d7386f1b9
+sourceRevision: 5345dc3f06a14175add0048ffb913db2d3ae89c7
 title: 扩展添加命令，不引入特例
 ---
 
@@ -11,9 +11,9 @@ import { St } from "../../components/marks";
 PATH 上任何名为 `tmt-<name>` 的程序都会成为 `tmt <name>`，就像组件为 gcloud 添加命令一样。内置命令始终优先，因此扩展不能替换 `talk` 或 `run`。扩展通过命令、JSON 输出和钩子访问 tmt，与其他程序使用相同的接口。
 
 <Cmd>{`
-$ tmt ops ui         # 运行 tmt-ops ui
-$ tmt help             # 列出找到的扩展
-$ tmt ops sq <Tab>     # 补全由扩展提供
+$ tmt ops ui           # runs tmt-ops ui
+$ tmt help             # lists extensions it found
+$ tmt ops sq <Tab>     # completion comes from the extension
 `}</Cmd>
 
 <Mdx.h3 id="install-update-and-remove">安装、更新和移除</Mdx.h3>
@@ -21,16 +21,20 @@ $ tmt ops sq <Tab>     # 补全由扩展提供
 下面的扩展采用相同的安装方式。每个扩展都有自己的版本和更新节奏。移除扩展会删除其命令和技能，保留数据。
 
 <Cmd>{`
-$ tmt extension install ops     # 修改任何内容前先询问
-$ tmt extension ls                # 已安装的扩展及其版本；--check 检查更新
-$ tmt upgrade                     # CLI、技能和已安装的官方扩展
-$ tmt extension upgrade ops     # 只更新 Ops
-$ tmt extension rm ops          # 保留数据
+$ tmt extension install ops       # asks before changing anything
+$ tmt extension ls                # what's installed and its version; --check looks for updates
+$ tmt upgrade                     # CLI, skills and installed official extensions
+$ tmt extension upgrade ops       # just Ops
+$ tmt extension rm ops            # your data stays
 `}</Cmd>
 
-`tmt upgrade` 也会更新已安装的官方扩展。每个扩展沿用自己的通道和固定版本，并统一询问一次；`--yes` 跳过询问。它也会提供缺失的官方扩展。一个扩展更新失败，也不会撤销其他扩展的更新。`tmt extension upgrade <name> --unpin` 取消固定版本。
+`tmt upgrade` 也会更新已安装的官方扩展。每个扩展沿用自己的通道和固定版本，并统一询问一次；`--yes` 跳过询问。它也会提供缺失的官方扩展。一个扩展更新失败，也不会撤销其他扩展的更新。[查看升级计划 →](/working/settings#update-tmt) `tmt extension upgrade <name> --unpin` 取消固定版本。
 
 普通安装不会发布供 agent 使用的技能。加上 `--skills` 会将附带技能纳入你批准的安装，不会再单独询问是否添加技能。要编写自己的扩展，请参阅[构建扩展](/develop/extensions)。PATH 上任何 `tmt-<name>` 都可以直接使用，不需要 `tmt extension`。
+
+<Mdx.h3 id="a-command-whose-extension-is-missing">命令所需的扩展尚未安装</Mdx.h3>
+
+在人操作的终端中运行 `tmt ops ui` 等缺失的官方命令时，tmt 会说明哪个扩展提供该命令，并询问 **Install it now [Y/n]**。这项安装包含附带技能。接受后会安装，然后在 **Run it again:** 后输出原命令，不会替你执行它。拒绝不会更改任何内容。帮助请求、JSON、管道和 agent 调用不会提供交互式安装，而是返回扩展未安装的错误和明确的安装命令。
 
 <Mdx.h3 id="known-extensions">已知扩展</Mdx.h3>
 

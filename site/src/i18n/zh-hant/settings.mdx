@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 187d39ce0c29258aeb7f0b987c067b5bd40332ba
+sourceRevision: e614b520623f4ccdd51c692a9be5cca642beddce
 title: 設定與疑難排解
 ---
 
@@ -17,11 +17,11 @@ tmt 的設定不多，每個都有預設值。這頁說明如何變更設定、�
 `tmt config show` 會列出所有設定，包括 tmt 實際使用的值、來源，以及接受哪些值。`set` 變更一項設定，`rm` 移除你為目前資料夾加上的覆寫值。
 
 <Cmd>{`
-$ tmt config show                                 # 值、來源與檔案路徑
-$ tmt config set pasteEnterDelayMs 800            # 套用到目前的資料夾
-$ tmt config set preambleEvery 5 --global         # 套用到所有資料夾
+$ tmt config show                                 # values, sources and file paths
+$ tmt config set pasteEnterDelayMs 800            # for the folder you're in
+$ tmt config set preambleEvery 5 --global         # for every folder
 $ tmt config set exchange.retentionDays 30 --global
-$ tmt config rm pasteEnterDelayMs                 # 移除目前資料夾的覆寫值
+$ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 `}</Cmd>
 
 | 設定                               | 預設值   | 用途                                                                                                                     | 設定方式                   |
@@ -49,21 +49,25 @@ $ tmt config rm pasteEnterDelayMs                 # 移除目前資料夾的覆�
 `tmt upgrade`（也可以寫成 `tmt update`）會沿用安裝時的 `stable` 或 `alpha` channel，更新 CLI、skill 與已安裝的[擴充套件](/extensions)。
 
 <Cmd>{`
-$ tmt upgrade                        # 目前 channel 的最新版本
-$ tmt upgrade --channel stable       # 切換 channel
-$ tmt upgrade --to 5.0.0-alpha.8     # 指定版本，並將 CLI 釘選在該版本
-$ tmt upgrade --unpin                # 恢復跟隨 channel
+$ tmt upgrade                        # the latest on your channel
+$ tmt upgrade --channel stable       # switch channel
+$ tmt upgrade --to 5.0.0-alpha.8     # an exact version, which pins the CLI there
+$ tmt upgrade --unpin                # follow the channel again
 `}</Cmd>
 
-`--channel` 和 `--to` 只選擇 CLI 的版本。擴充套件保留自己的 channel 與釘選版本，CLI 釘選也不會阻止它們更新。在人操作的終端機中，**Upgrade** 畫面會列出整體版本變更，並讓你選擇缺少的官方擴充套件及新偵測到的 provider 設定範圍，再以 **Upgrade [Y/n]** 一次確認。`--yes` 會批准元件更新及缺少的官方擴充套件與附帶 skill，但不會批准新 provider 的 hook 或 Core skill 設定範圍。沒有終端機，或使用 `--json`，又沒有加上 `--yes` 時，tmt 不會更新任何擴充套件：每個待更新套件都會回報為 `consentRequired`，並列出要重新執行的指令。其中一個擴充套件更新失敗，指令就會失敗，但不會撤銷其他套件的更新。
+`--channel` 和 `--to` 只選擇 CLI 的版本。擴充套件保留自己的 channel 與釘選版本，CLI 釘選也不會阻止它們更新。在人操作的終端機中，**Upgrade** 畫面會先顯示預計使用的元件版本，再一次要求核准。它也會提供缺少的官方擴充套件與新偵測到的 provider 設定範圍；選擇只適用於本次執行。**Upgrade [Y/n]** 按 Enter 就表示 yes。拒絕不會變更任何元件。
+
+`--yes` 會核准元件更新及缺少的官方擴充套件與附帶 skill，但不會核准新 provider 的 hook 或 Core skill 設定範圍。請以互動方式核准這些範圍，或使用顯示的 setup 命令。JSON、管線與 agent 執行不會詢問：未加 `--yes` 時，CLI 更新與先前已記錄的整合更新仍可進行，但擴充套件變更需要同意，缺少項目只會回報。
+
+結果以 `updated`、`needs approval` 或 `failed` 等標籤顯示已變更或需要處理的元件，將已是最新的元件歸在 **Up to date:** 下，並在 **Next:** 列出後續操作。某個獨立擴充套件失敗不會撤銷已完成的更新；重試前請檢查結果。應用程式資料會保留，skill 警告與需要核准的整合項目也會繼續顯示。
 
 <Mdx.h3 id="shell-completion">Shell 補完</Mdx.h3>
 
 `tmt completion` 會檢查 shell 的啟動檔案，並顯示需要加入的那一行。指定 `bash`、`zsh` 或 `fish`，可以檢查另一種 shell。它只能讀取檔案，無法判斷目前這個 shell 是否已載入補完。
 
 <Cmd>{`
-$ tmt completion                 # 檢查目前的 shell，顯示要加入的那一行
-$ tmt completion zsh             # 以同樣方式檢查 zsh
+$ tmt completion                 # check your shell and show the line
+$ tmt completion zsh             # the same for zsh
 `}</Cmd>
 
 請自行把那一行加入顯示的檔案；tmt 絕不編輯 shell 的啟動檔案。使用 zsh 時，請放在補完功能設定完成之後，無論你使用 `compinit` 或 oh-my-zsh 等框架。如果同一行出現兩次，tmt 會提醒你。接著開啟新的 shell。`tmt completion --json` 為腳本提供相同的檢查；尚未設定補完時，tmt 的主要說明（`tmt --help`）也會在終端機顯示提醒。

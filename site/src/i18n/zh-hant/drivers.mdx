@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 1c05410c1cac2ca4103b2382c3fc531e05719622
+sourceRevision: 1c1a224334dc8b99d5b58a2a1da3e26897a74ad9
 title: Driver
 ---
 
@@ -13,9 +13,9 @@ driver 是 tmt 對某種程式的了解。_host_ driver 認得 agent 所在的�
 **多數人需要的 driver 都已內建，不必另外安裝。** tmt 會辨識你啟動的程式，自動使用對應的 driver：
 
 <Cmd>{`
-$ tmt run reviewer claude        # 把窗格命名為 "reviewer"，並在裡面啟動 Claude Code
-$ tmt run builder codex          # Codex 也一樣
-$ tmt setup                      # 選用：經你同意後，接上找到的每個 agent
+$ tmt run reviewer claude        # name this pane "reviewer" and start Claude Code in it
+$ tmt run builder codex          # same for Codex
+$ tmt setup                      # optional: connect every agent found, after your OK
 `}</Cmd>
 
 不執行 setup，所有 agent 一樣能用：tmt 透過它們的窗格傳遞訊息。`tmt setup` 會補上只有 agent 本身才能提供的資訊。它讓 tmt 知道哪段對話屬於哪個名稱，讓 `tmt resume` 能重新開啟正確的對話，並在啟動時帶入一小段「你是誰、有哪些事在等你」的摘要。`tmt setup` 會列出要變更的設定，先詢問你才動手。`tmt setup claude` 或 `tmt setup codex` 只處理一個 agent；`--remove` 則會移除這些設定。
@@ -34,11 +34,12 @@ $ tmt setup                      # 選用：經你同意後，接上找到的每
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：隨 tmt 提供，首次使用時核准</Mdx.h3>
 
-Herdr host driver 隨 tmt 提供。在 Herdr 窗格第一次執行使用 host 的命令（例如 `tmt ls`）時，tmt 會自動核准隨附的 driver，並顯示一行說明。
+Herdr host driver 隨 tmt 提供。在 Herdr 窗格第一次執行使用 host 的命令（例如 `tmt ls`）時，tmt 會自動核准隨附的 driver，並顯示一行說明。這與 `tmt driver install herdr --yes` 記錄的是同一種核准，不會增加對已在執行的 tmt 以外的信任。查看或撤銷核准：
 
 <Cmd>{`
-$ tmt driver install herdr   # 顯示將執行的內容，再詢問你
-$ tmt driver ls              # herdr 的狀態：ok、changed 或 missing
+$ tmt driver ls              # herdr: ok, changed or missing
+$ tmt driver rm herdr        # remove it; it stays removed
+$ tmt driver install herdr   # approve it again; shows what it will run, then asks
 `}</Cmd>
 
 tmt 升級後會沿用核准。如果新版 driver 提出更多要求，下次執行使用 host 的命令（例如 `tmt ls`）時，tmt 會自動重新核准並顯示說明。使用 `tmt driver rm herdr` 移除後，必須執行 `tmt driver install herdr` 才會再次核准。若無法核准，例如該版本沒有隨附 driver，在 Herdr 窗格執行的命令每天會顯示一次提示，綁定會保留並等待，不會被刪除。
@@ -61,8 +62,8 @@ tmt 升級後會沿用核准。如果新版 driver 提出更多要求，下次�
 其他 driver 將各自成為獨立套件，有自己的版本，像擴充套件一樣安裝與更新。任何人都能發布：driver 是名為 `tmt-driver-<name>`、回應 tmt driver 協定的程式，內建 driver 也透過同一個介面運作。你安裝的 driver 也能接替內建版本，例如功能更多的 Claude Code driver。`tmt driver ls` 屆時會一律顯示各個程式由哪個 driver 處理。
 
 <Cmd>{`
-$ tmt driver install ./tmt-driver-screen  # 顯示將執行的內容，再詢問你
-$ tmt driver ls                          # 已核准的 host driver：ok、changed 或 missing
+$ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
+$ tmt driver ls                          # approved host drivers: ok, changed or missing
 $ tmt driver rm screen
 `}</Cmd>
 

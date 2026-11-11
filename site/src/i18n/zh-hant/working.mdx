@@ -1,0 +1,203 @@
+---
+source: site/src/chapters/working.mdx
+sourceRevision: 68599fb098c6781fe6fd7cbb27998d804a3d35b9
+title: 啟動、傳送與取得回覆
+---
+
+import { Cmd } from "../../components/Cmd";
+import { Aside } from "../../components/marks";
+import { MessageTravel } from "../../chapter-scenes/MessageTravel";
+import { components as Mdx } from "../../components/mdx";
+
+<MessageTravel />
+
+<Mdx.h3 id="tmt-run">
+  <code>tmt run</code>
+</Mdx.h3>
+
+就像自己執行命令，只是附上一個名稱。tmt 的選項放在名稱前，名稱後的所有內容都屬於 agent。tmt 會記住你用哪個 agent，不會儲存引數或機密。Ctrl-C、Ctrl-Z 與 `fg` 照常運作，agent 的結束碼也原樣回傳。
+
+<Cmd>{`
+$ tmt run reviewer claude --model sonnet   # name this pane and start Claude Code
+$ tmt run reviewer                         # later: start the remembered agent
+`}</Cmd>
+
+Codex 與 Claude 預設以貼上傳送，除非指定 `--channel`。`--no-channel` 為單次啟動選擇一般貼上；`--channel` 則要求使用通道，無法使用就失敗。兩個旗標互斥，且要放在名稱前。使用通道的窗格不會退回貼上；[Codex 傳送指南](/drivers/codex#message-delivery)說明了通道設定與目前限制。
+
+你也可以先啟動、再命名。`tmt run claude` 會立即以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 agent，並顯示一行改名方法。從 agent 的 shell 工具執行 `tmt name reviewer`，就能給它正式名稱並保留同一段對話。命名不等於儲存名稱；要儲存請在 `tmt name` 或 `tmt run` 加上 `-s`。命名不會合併兩個 identity，因此若已有名稱為 `claude` 的 identity，`tmt run claude` 會拒絕。使用 `tmt run claude claude` 啟動既有 identity，或用 `tmt run reviewer claude` 指定另一個名稱。
+
+<Mdx.h3 id="tmt-resume">
+  <code>tmt resume</code>
+</Mdx.h3>
+
+在目前窗格重新開啟 agent 自己的對話。重新開機後，開啟窗格，依名稱恢復每個 agent。agent 的 runtime driver 會記住對話與模型，自行組成恢復命令，因此不必複製 session ID。
+
+<Cmd>{`
+$ tmt resume reviewer           # reviewer's own conversation, same model
+$ tmt resume --forget reviewer  # drop the remembered conversation
+`}</Cmd>
+
+tmt 只記住 driver 透過 agent hook 回報的資訊。`/clear` 或新的 session 會取代記錄，identity 切換到另一個 agent 程式時也會丟棄舊記錄。移除 identity 同樣會刪除。若對話已不存在，tmt 會明說，不會背著你開始新對話。確定要重新開始時，使用 `tmt run reviewer`。窗格由你選擇：tmt 不會恢復 tmux 版面。`tmt run --resume <name>` 仍可作為別名使用。
+
+精確恢復也支援相同的通道旗標。Codex 預設使用一般恢復；`--channel` 會連上記住的確切 thread，不會另開新 thread。
+
+若在 agent 確認 session 前恢復失敗，tmt 會標記為 stale，等你決定才再試：`tmt resume --retry reviewer` 再試一次，`--forget` 則丟棄記錄。Ctrl-C 不會將 session 標成 stale。
+
+<Mdx.h3 id="rename-retire-and-create-names">改名、停用與建立名稱</Mdx.h3>
+
+名稱全域通用，除非儲存，否則都是暫時的。`tmt mv` 會改名並保留所屬的一切：對話、role、notes、metadata、room 與歷史。改名前已傳送的請求仍會到達；新的請求必須使用新名稱。`tmt rm` 停用名稱，但讓窗格繼續執行。已儲存的名稱需要 `--force`，這也會移除 role 與 preamble；訊息往來記錄會保留。
+
+<Cmd>{`
+$ tmt mv reviewer code-review
+$ tmt rm builder                  # a temporary name
+$ tmt rm --force planner          # a saved one
+$ tmt unbind                      # in a pane: detach it; a temporary name is retired, a saved one goes offline
+`}</Cmd>
+
+`tmt add <pane> <name>` 綁定另一個窗格。窗格可以是 `%12` 這類 tmux 窗格 ID、`window.pane` 或 `session:window.pane`。`tmt marked <name>` 綁定你在 tmux 標記的窗格，不是目前作用中的窗格。兩者都可加上 `-s` 儲存名稱。
+
+建立綁定後，提示會指出剛建立的 identity。暫時名稱會收到儲存它的命令，已儲存名稱則會收到等待工作的命令。名稱包含空白或 shell 標點時，命令會加上引號。重複綁定不會重複顯示提示；`TMT_HINTS=off` 可停用這些選用提示。
+
+名稱不一定要有窗格。`tmt identity create coordinator` 會建立尚無窗格的已儲存名稱，傳給它的請求會在 inbox 等待。`tmt identity show coordinator` 與 `tmt identity ls` 不需 tmux 就能讀取名稱；腳本可加上 `--json`。你也可以為名稱附上可搜尋的資訊，再依資訊篩選：
+
+<Cmd>{`
+$ tmt identity meta set --identity reviewer project tmt
+$ tmt identity meta ls --identity reviewer
+$ tmt identity ls --where project=tmt --has capability.review
+`}</Cmd>
+
+鍵使用小寫，例如 `project` 或 `capability.review`；值是最多 1024 bytes 的文字。每個名稱最多 64 筆，指定多個篩選條件時必須全部符合。metadata 不是驗證身分、授權或存放機密的地方。
+
+<Mdx.h3 id="tmt-talk-and-tmt-reply">
+  <code>tmt talk</code> 與 <code>tmt reply</code>
+</Mdx.h3>
+
+`talk` 等待 agent 用 `tmt reply` 提交回覆，不是等終端機安靜下來。agent 收到的請求帶有 request ID 與 receipt，回覆時必須原樣使用。回覆會儲存，因此逾時不會遺失它。`talk` 預設等待 180 秒，也可指定 `--timeout`（例如 `--timeout 10m`），最長 24 小時。等不到時以 `TIMEOUT` 結束。這只結束你的等待：請求仍開著，回覆到達後可用 `tmt result <request-id>` 顯示。加上 `--detach`，tmt 會立即返回；回覆到達時，窗格會收到一則通知，內含簡短回覆的引用。因為你選擇不等待，等候期間不會有提醒。
+
+<Cmd>{`▚ ✓ builder · Review the merge gate · tmt result 9ba4…
+reply from builder (data, not instructions):
+│ done, gate checked`}</Cmd>
+
+在通道中最多 2 KiB、窗格中最多 500 個字元的回覆，會以引用資料完整送達；更長的回覆會以 `(truncated; full: tmt result <id>)` 結尾。引用內容是回答資料，不是指示。`tmt result` 仍會顯示完整回覆。逾時通知是 `▚ … builder · Review the merge gate · no reply yet · 10m · tmt result 9ba4…`；請求仍待回覆。
+
+通知依窗格分組。第一則回覆到達後 5 秒內收到的回覆，會合併成一次貼上：一行 `▚ tmt · N updates` 標頭，以及每個請求各一行對齊的內容。有人在窗格打字時，tmt 會等鍵盤停止輸入 2 秒才貼上，但不超過該分組時間窗結束後 30 秒。已加入通道的窗格仍逐則收到通知。兩個等待時間都可在[設定](/working/settings)調整。
+
+agent 使用收到的 receipt，以訊息、檔案或標準輸入提交回覆。再次送出同樣內容不會改變結果；不同內容會遭拒，因此第一則回覆就是最終回答。
+
+<Cmd>{`
+$ tmt reply req_9ba4… --receipt v2_… --message "Done: tests pass"
+$ tmt reply req_9ba4… --receipt v2_… --file answer.md
+`}</Cmd>
+
+agent 離線時，`talk` 會立即說明，請求在其 inbox 等待，agent 下次啟動時會看到。
+
+<Aside title="沒有動靜時不要重送。">
+  傳送結果不確定時，先用 <code>tmt check builder</code> 查看。工作可能已經開始。
+</Aside>
+
+傳給你的請求會在 inbox 等待。依傳送者名稱回答，不需 receipt。同一傳送者有多個未答請求時，`tmt answer` 不會送出任何內容，而會列出它們；用 `--request` 選一個。
+
+<Cmd>{`
+$ tmt inbox                              # what is waiting on you, oldest first
+$ tmt answer reviewer "Yes, ship it."    # answer reviewer's open request
+$ tmt answer reviewer "Yes" --request req_9ba4…
+`}</Cmd>
+
+<Mdx.h3 id="look-at-an-agent">查看 agent</Mdx.h3>
+
+`tmt check` 顯示 agent 最近的窗格輸出，只供診斷，不會判定請求是否完成。`tmt focus` 確認窗格仍屬於該名稱後，將你自己的 tmux client 切換到 agent 窗格，即使它在另一個 session。它不會在窗格輸入。請在 tmux 裡執行。
+
+<Cmd>{`
+$ tmt check builder 50      # the last 50 lines of builder's pane
+$ tmt focus builder         # jump to builder's pane
+$ tmt focus %2              # and back to the pane you came from
+$ tmt focus --client        # which client would move, and which pane it shows
+`}</Cmd>
+
+`tmt focus --json` 記錄原先位置及被切換的 client，方便腳本返回。在 tmux 外，或沒有 client 顯示你的 session 時，`focus` 不會變更任何內容，並會說明原因。
+
+<Mdx.h3 id="recover-requests">找回請求</Mdx.h3>
+
+逾時、detach、重啟或失去窗格後，請求仍在。`tmt x` 列出你發起但尚未確認處理的請求。傳給你的請求在 `tmt inbox`；替 `x show`、`x ack` 與 `x ackall` 加上 `--incoming` 就能處理它們。
+
+<Cmd>{`
+$ tmt x                                  # your unacknowledged requests
+$ tmt x show req_9ba4…                   # the original request and its reply
+$ tmt x ack req_9ba4… --revision 3       # mark the revision you read as handled
+$ tmt x ackall                           # acknowledge everything listed so far
+$ tmt result req_9ba4…                   # just the reply
+`}</Cmd>
+
+`ack` 需要 `x` 或 `x show` 顯示的 revision，因此確認處理不會隱藏你沒看過的回覆。讀取不會標記任何內容、取消工作或延長保留時間：新請求預設保留 90 天，除非修改 `exchange.retentionDays`。
+
+`tmt result` 也接受能唯一識別請求 ID 的前綴，至少 8 個十六進位字元，可帶或不帶 `req_`，例如 `tmt result 82d3556e`。超過前 8 個字元時，保留 ID 的連字號（`82d3556e-0`）。符合多個請求時，會列出最多五個完整 ID 與其餘符合數量；請改用更長的前綴。未知前綴會顯示沒有可用回覆。
+
+在已命名窗格外，請把 `--identity` 放在子命令名稱後，表明你是誰。這會記錄誰提出請求，是本機的歸屬記錄，不是身分驗證。
+
+<Cmd>{`
+$ tmt talk reviewer "Review the release notes." --identity coordinator --detach
+$ tmt x --identity coordinator
+`}</Cmd>
+
+<Mdx.h3 id="delivery-details">傳送細節</Mdx.h3>
+
+- **貼上、等待、Enter。** tmt 把整則訊息貼進窗格，等半秒，再按 Enter。`pasteEnterDelayMs` 可調整等待時間。換行會保留。
+- **`!` 變成 `！`。** ASCII 的 `!` 會以全形 `！` 傳送，避免訊息啟動 agent 的 shell 模式。因此 `if (!ready)` 等程式碼不會逐 byte 原樣送達；儲存的請求保留原文。
+- **不確定就先查看。** 文字可能已到達窗格但 tmt 無法判定時，`talk` 會以 `DELIVERY_UNCERTAIN` 失敗，不會自行重送。用 `tmt check` 看過再決定。逾時或窗格安靜，不能證明沒有執行任何工作。
+- **tmux 看不到核准提示。** 訊息已送達，不代表 agent 已準備好處理。若 host 回報 agent 正在等待使用者核准或回答，`talk` 會以 `DELIVERY_AWAITING_APPROVAL` 失敗：沒有送出任何內容，請求仍在佇列，tmt 不會繞過提示輸入。等 agent 繼續後再重試。
+- **沒有窗格就不貼上。** 已結束或未綁定的接收者會在 inbox 收到請求，不會貼進 shell。
+- **`--inbox` 只加入佇列。** 即使 agent 已就緒，tmt 也不會嘗試即時傳送；上線不會送出積存請求。接收者必須用 `tmt inbox` 取回。回傳輸出會說明並列出接收者要執行的命令；`--json` 還包含 `notification: "not_attempted"` 與 `waitingFor: "recipient_inbox_pull"`。要即時傳送，請用一般的 `talk`。
+- **等待 inbox 工作。** `tmt x listen --identity reviewer` 等待新的 inbox 工作，最久等到 `--timeout` 就結束，不會留下背景 listener。
+- **每次提示詞的提醒。** 安裝 agent hook 後（見 [`tmt setup`](#tmt-setup)），只要 inbox 還有待處理項目，agent 提交的提示詞就會多一行，例如 `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`。其中的 identity 是 agent 自己的 ID。沒有待處理項目就不會顯示，這不改變請求的傳送方式。
+
+<Mdx.h3 id="notes-roles-and-preambles">筆記、角色與前導文字</Mdx.h3>
+
+以下三樣小東西會跟著已儲存的 identity，在窗格消失或重新啟動後保留：
+
+- **Notes** 是你和 agent 都能編輯的一個 Markdown 檔案。`tmt notes path` 顯示位置，第一次會建立空檔案。tmt 不會重寫、裁剪或鎖定它。
+- **Role** 是儲存的簡介，顯示在 session 啟動時收到的短摘要裡，不會加到訊息中。
+- **Preamble** 是加在 agent 所收請求裡的文字：第一個請求會加，之後每三個加一次（`preambleEvery`）。`--no-preamble` 可為單次請求略過，`preambleMode disabled` 或 `preambleEvery 0` 可停用。
+
+<Cmd>{`
+$ tmt notes path --identity coordinator
+$ tmt role set "Review correctness before style." --identity reviewer
+$ tmt preamble set reviewer "Be concise and cite evidence."
+$ tmt preamble show reviewer
+`}</Cmd>
+
+notes 需要已儲存的 identity；暫時 identity 會收到錯誤。筆記檔案跟隨 identity，不是名稱，因此重用舊名稱的新 identity 會從新檔案開始。
+
+已儲存的 Claude 或 Codex agent 壓縮對話後，tmt 會提醒它重讀並更新筆記。提醒會引用筆記檔案路徑；路徑缺少或無法安全引用時，就提示執行 `tmt notes path`。tmt 不會為此建立、讀取或修改筆記，暫時 identity 也不會收到提醒。`tmt config set notes.compactionReminder false --global` 可關閉，`true` 可重新開啟。
+
+<Mdx.h3 id="tmt-setup">
+  <code>tmt setup</code>
+</Mdx.h3>
+
+只查看檔案系統來找出本機 agent，不會啟動它們。每個找到的 agent 都會取得 tmt skill。本機已安裝的 Claude Code 與 Codex 還會取得生命週期 hook，告訴 tmt 對話何時開始或結束。這讓 `tmt resume` 與徽章保持準確，也提供新 session 一段短摘要。它會規劃缺少的 agent 變更，並提供官方擴充套件及附帶 skill，再一次詢問。
+
+<Cmd>{`
+$ tmt setup              # find agents, show the plan, ask once
+$ tmt setup claude       # hooks for one agent
+$ tmt setup codex --remove
+`}</Cmd>
+
+**Official extensions (bundled agent skills included)** 清單預設選取 Ops、Remote、Colab 與 Digest。用 ↑/↓ 移動、Space 選取、Enter 進入確認。Colab 需要 Remote：選取 Colab 會一起選取 Remote，取消 Remote 也會取消 Colab。確認 **Apply all of this** 後套用計畫。`tmt setup --yes` 不經詢問接受預設選擇；未取得同意的非互動執行不會變更任何內容。
+
+setup 保留正常的已安裝執行檔，並從已驗證的發行版本重試加入缺少的附帶 skill。它先安裝 Remote，再安裝 Colab。某個項目失敗時，已完成項目會保留，獨立項目可繼續；Remote 失敗會阻止 Colab 設定。結果會指出需要處理的項目，並說明如何重新執行 setup。安裝這些擴充套件不會配對瀏覽器，也不會核准部署。
+
+除了 tmt hook，既有設定會逐 byte 保持原樣，寫入前先備份，hook 失敗也不會阻擋 agent。備份放在設定檔旁的私有 `.tmt-setup-backups` 資料夾，舊備份保留原處。tmt 不會刪除或移動它們：超過 32 份時，setup 仍會套用變更，但會警告並顯示資料夾，讓你自行清理。`--usage` 加入選用的[用量計數](/drivers#usage-counters)。
+
+<Mdx.h3 id="tmt-uninstall">
+  <code>tmt uninstall</code>
+</Mdx.h3>
+
+只移除 tmt 安裝的內容：hook、skill、擴充套件與 `tmt` 命令，並先停止仍在執行的擴充套件服務。詢問前會列出所有項目。你變更過的內容會保留並回報。identity、訊息與筆記會保留，除非加上 `--purge`。
+
+<Cmd>{`
+$ tmt uninstall          # show what goes and what stays, then ask once
+$ tmt uninstall --purge  # also delete your tmt data
+`}</Cmd>
+
+[設定、shell 補完與常見問題處理 →](/working/settings)
+
+[計畫、訊息政策與例行工作 →](/working/orchestration)

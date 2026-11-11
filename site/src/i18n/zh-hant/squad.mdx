@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: f26bbb6aeae4289cf558edf386abc524258d836a
+sourceRevision: 982d09e1e68d7e4a74c75344567ca19c580e11b5
 title: Ops：lead、成員與一個 board
 ---
 
@@ -32,9 +32,9 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 
 <Cmd>{`
 $ tmt extension install ops
-$ tmt ops sq init product        # 為 squad 命名；不會詢問
-$ tmt ops sq lead sol            # 選用：指定 sol 為 lead
-$ tmt ops ui                   # 有終端機就開啟 board，其他情況列出成員
+$ tmt ops sq init product        # name the squad; it never asks
+$ tmt ops sq lead sol            # optional: sol leads it
+$ tmt ops ui                     # the board on a terminal, the member list anywhere else
 `}</Cmd>
 
 <Waiting /> 表示在等的是 _你_。Ops 會從你執行它的窗格認出你；也可以用 `tmt ops sq me ben`
@@ -112,6 +112,8 @@ board 在摘要列顯示目前 squad 已觀測的完成請求 token 總量與區
 
 這個摘要 meter 用於具名且啟用觀測的 squad；all／leads 不顯示它。HOME 彙整目前顯示的 squad：有資料且至少 100 欄時，顯示區間總量與成員占比；140 欄時加上模型與未回報成員。沒有觀測資料時不顯示 HOME 用量列，已量測的零仍保留為零。
 
+HOME 的 token 數字會在最多 600 ms 內平滑變化到新觀測的總量，可以增加也可以減少。這只是顯示過渡，不是即時 token 速率或預測。首次讀值、讀值不可用、所屬對象或區間改變，以及減少動態效果時，都會立即顯示最終值。若中間值會超出標頭儲存格，計數器也會直接顯示最終值，不會擠動相鄰內容。占比、模型與涵蓋範圍仍使用原始讀值，穩定後的值不變。
+
 在 `[board]` 設定 `tok = "1m/5m/60m"`，或在 `[squad.<name>.board]` 只設定一個 squad。三個區間須遞增，可用 1m 到 24h 的整數分鐘或小時。切換區間只影響目前執行狀態，不會寫入設定。
 
 在 `[board.token_rate]` 下為所有 squad 啟用或調整，或在 `[squad.<name>.board.token_rate]` 下只設定一個 squad：
@@ -167,7 +169,7 @@ o = "tab"
 
 在 `order`、`pin` 與 `hide` 裡寫成 `tab:needs-me`，才不會被當成 squad。頁籤名稱遵循 squad 的命名規則；`leads`、`all`、`colors`、`order`、`pin` 與 `hide` 是保留名稱。隱藏的頁籤仍能透過 **s** 開啟。
 
-篩選條件用 `=`、`!=`、`not`、`and`、`or` 與括號組合欄位；`waiting_on_you` 會比對正在等你的成員。在排序欄位前加上 `-` 可以反向排序。區段會拆分頁籤中的列：同一列可以出現在多個區段，其餘列放在沒有標題的區段後面。區段的按鍵設定優先於頁籤，頁籤又優先於全域設定。
+篩選條件用 `=`、`!=`、`not`、`and`、`or` 與括號組合欄位；`waiting_on_you` 會比對正在等你的成員。在排序欄位前加上 `-` 可以反向排序。區段會拆分頁籤中的列：同一列可以出現在多個區段，其餘列接在後面，不加標題。區段的按鍵設定優先於頁籤，頁籤又優先於全域設定。
 
 `tmt ops sq ls --tab needs-me` 會印出同樣的列，`--json` 則提供 board 的完整文件。成員名單或 inbox 讀取失敗時，board 與清單會註明結果不完整；即使這樣的頁籤是空的，也不代表沒有人在等你。
 
@@ -206,9 +208,9 @@ $ tmt ops sq config set tabs.hide '["leads"]'
 | wide    | 列、詳細資料／回覆、筆記分成三欄，比例為 40/30/30；不到 180 欄時，詳細資料與回覆會摺疊。               |
 
 <Cmd>{`
-$ tmt ops sq view set notes                  # 所有 board
-$ tmt ops sq view set wide --squad product   # 這個 squad
-$ tmt ops sq view rm --squad product         # 沿用原本的配置
+$ tmt ops sq view set notes                  # all boards
+$ tmt ops sq view set wide --squad product   # this squad
+$ tmt ops sq view rm --squad product         # inherit the arrangement
 `}</Cmd>
 
 squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squad 的 `view`、`[board] view`，最後是預設的 `members`。沒有指定視圖、只設定 direction/sizes 的現有配置會保留原本的窗格樣式。`view set` 只變更 `view`，若檔案同時被修改就會拒絕寫入；加上 `--squad` 時，也會拒絕覆寫手動配置，請先自行移除。`view rm` 只移除 `view`，自訂配置與摺疊設定都會保留。手動摺疊仍遵循原本的 session 規則。
@@ -266,7 +268,7 @@ board 上的內容都能調整。先選版面預設樣式，再從 squad 的設�
 | pr-queue     | 一份清單，最舊的排在前面                   | preparing · ready · sent · merged                  |
 | minimal      | 只顯示名稱與狀態                           | lead 寫的任何狀態                                  |
 
-具名的 **team** 視圖會把列放在選取成員的詳細資料與最新回覆旁，lead 的筆記在下方。每一列顯示成員、狀態、工作、pull request 與模型，第二行顯示它在等你處理什麼。窄終端機會自動調整：先縮小欄位，再隱藏模型，接著隱藏 pull request；不到 100 欄時，詳細資料與回覆會摺疊成標題，把空間留給列（**d** 可以一起展開詳細資料與回覆）。已經在 `[squad.<name>.board]` 下自訂 `direction`、`panes` 或 `sizes` 的 squad，會繼續使用 **crew**，直到你設定 `layout`。
+具名的 **team** 視圖會把列放在選取成員的詳細資料與最新回覆旁，lead 的筆記在下方。工作流程版面與 board 視圖互相獨立。squad 頁籤預設使用 **members**。每一列顯示成員、狀態、工作、pull request 與模型，第二行顯示它在等你處理什麼。窄終端機會自動調整：先縮小欄位，再隱藏模型，接著隱藏 pull request；不到 100 欄時，詳細資料與回覆會摺疊成標題，把空間留給列（**d** 可以一起展開詳細資料與回覆）。已經在 `[squad.<name>.board]` 下自訂 `direction`、`panes` 或 `sizes` 的 squad，會繼續使用 **crew**，直到你設定 `layout`。
 
 你可以改窗格與配置；加入自己的**區段**，每個都是有標題、篩選與排序的清單；也可以選擇**欄位**、**狀態**的顏色與順序，以及如何開啟連結。每個按鍵或點擊要做什麼，也由你設定。一個按鍵設定包含事件（例如 `o` 按鍵，或 `click`、`double-click`）與一行動作：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`；其中 `{field}` 會用該列的值填入。區段也可以有自己的按鍵設定。
 
@@ -353,7 +355,7 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-按鍵設定只來自你的設定檔，不會採用 agent 寫在 board 上的內容。`run` 直接啟動程式，不經 shell：每個 `{field}` 只填入一個參數，所以列的內容不能夾帶其他指令；填入後會讓參數以 `-` 開頭的值也會被拒絕，不能夾帶選項。除了 squad 自己的欄位，`{host}`、`{session}` 與 `{window}` 會指出成員的窗格所在位置；內建名稱優先於同名的 squad 欄位，而如果 host 沒有回報 session 或 window（外部 host 只回報名稱），使用它們的動作會被拒絕。`open` 只開啟網頁連結。`tmt ops sq ls` 使用相同區段，所以文字與 JSON 視圖會和 board 一致。不符合任何區段的成員會放在沒有標題的區段後面；區段的篩選條件不會默默隱藏成員。
+按鍵設定只來自你的設定檔，不會採用 agent 寫在 board 上的內容。`run` 直接啟動程式，不經 shell：每個 `{field}` 只填入一個參數，所以列的內容不能夾帶其他指令；填入後會讓參數以 `-` 開頭的值也會被拒絕，不能夾帶選項。除了 squad 自己的欄位，`{host}`、`{session}` 與 `{window}` 會指出成員的窗格所在位置；內建名稱優先於同名的 squad 欄位，而如果 host 沒有回報 session 或 window（外部 host 只回報名稱），使用它們的動作會被拒絕。`open` 只開啟網頁連結。`tmt ops sq ls` 使用相同區段，所以文字與 JSON 視圖會和 board 一致。不符合任何區段的成員會放在後面的無標題區段；區段的篩選條件不會默默隱藏成員。
 
 **欄位 provider** 會把 tmt 沒有的資料填入欄位，例如 pull request 狀態。provider 會依 `run` 相同的規則，為每個成員執行你指定的程式，並把輸出第一行放到同名欄位。board 不會等它：provider 在背景執行時，顯示上一次的值，再依 `every` 間隔重跑。執行失敗時顯示淡色的 `?`，不會顯示錯誤。`tmt ops sq ls --refresh-fields` 會先執行到期的 provider，再列出清單。程式可以印出 `{"value": "#412 open", "color": "review"}`，為儲存格建議一個主題 token；欄位自己的 `color` 門檻會優先於這個建議。
 
@@ -405,11 +407,11 @@ ignore_case = true          # optional; off by default
 board 沿用你為指令列設定的 `base`。還沒設定時，使用 **auto**。board 主題不會變更指令列顏色；`tmt config show` 會顯示指令列的主題與檔案。用 `tmt ops sq theme` 選擇 board 主題：
 
 <Cmd>{`
-$ tmt ops sq theme                        # 列出主題；● 標示目前使用的主題與來源
-$ tmt ops sq theme set auto               # 所有 board 配合終端機
-$ tmt ops sq theme set tmt-light          # 所有 board
-$ tmt ops sq theme set mono --squad product   # 一個 squad 的 board
-$ tmt ops sq theme rm --squad product     # 重新沿用 board 主題；保留你的顏色微調
+$ tmt ops sq theme                        # list themes; ● marks the one in use and where it comes from
+$ tmt ops sq theme set auto               # match your terminal, on every board
+$ tmt ops sq theme set tmt-light          # every board
+$ tmt ops sq theme set mono --squad product   # one squad's board
+$ tmt ops sq theme rm --squad product     # follow the board again; your color tweaks stay
 `}</Cmd>
 
 也可以在 `,` 設定選 **Theme**：↑ 與 ↓ 即時預覽各個主題，**Tab** 切換所有 board 或目前 squad，**Enter** 儲存，**Esc** 取消。不論用哪種方式，選擇都會寫進 `ops.toml`：所有 board 使用 `[board.theme]`，單一 squad 使用 `[squad.<name>.theme]`；檔案的其他內容保持原樣。squad 自己的主題優先於 board，board 又優先於指令列。每一層也能覆寫個別 token，使用與 `config.json` 相同的設定名稱。
@@ -477,15 +479,15 @@ Ops 把成員名單與 board 欄位存進 tmt；選用的觀察時間則放在�
 
 <More summary="更多指令">
 <Cmd>{`
-$ tmt ops sq add auth-fix docs-sweep  # 已經在執行的 agent，不論如何啟動
-$ tmt ops sq set auth-fix state=review    # lead 用來更新 board 的操作；field= 會清除
-$ tmt ops sq ls                       # 成員清單；腳本可用 --json
+$ tmt ops sq add auth-fix docs-sweep  # agents already running, however they started
+$ tmt ops sq set auth-fix state=review    # what leads do to keep the board current; field= clears
+$ tmt ops sq ls                       # the member list; --json for scripts
 $ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
 $ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
 $ tmt ops sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
-$ tmt ops sq jump auth-fix            # 以及 tmt ops sq back
-$ tmt ops sq jump --lead              # 你所在 squad 的 lead
-$ tmt ops sq rm auth-fix              # 離開 squad；agent 繼續執行
+$ tmt ops sq jump auth-fix            # and tmt ops sq back
+$ tmt ops sq jump --lead              # your squad's lead
+$ tmt ops sq rm auth-fix              # leaves the squad; the agent keeps running
 `}</Cmd>
 
 `tmt ops sq` 是 `tmt ops squad` 的簡寫。`tmt ops sq ls` 會列出每個 squad，除非用 `--squad <name>` 選擇一個。有多個 squad 時，會變更 squad 的指令必須指定 `--squad <name>`。
@@ -533,3 +535,5 @@ blocked = "blocked" # and of one with a blocked member
 | `tab`                          | 開啟該列所屬 squad 的頁籤；在 **all** 頁籤按 Enter 會做這個動作。 |
 
 在 board 按 `?`，就能查看目前生效的按鍵與動作。
+
+[計畫、訊息政策與例行工作 →](/working/orchestration)

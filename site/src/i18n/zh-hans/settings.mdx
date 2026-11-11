@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 187d39ce0c29258aeb7f0b987c067b5bd40332ba
+sourceRevision: e614b520623f4ccdd51c692a9be5cca642beddce
 title: 设置与故障排查
 ---
 
@@ -17,11 +17,11 @@ tmt 的设置不多，每项都有默认值。本页介绍如何修改设置、�
 `tmt config show` 列出所有设置，包括 tmt 实际使用的值、值的来源和允许的取值。`set` 修改一项设置，`rm` 删除你为当前文件夹设置的覆盖值。
 
 <Cmd>{`
-$ tmt config show                                 # 值、来源和文件路径
-$ tmt config set pasteEnterDelayMs 800            # 用于当前文件夹
-$ tmt config set preambleEvery 5 --global         # 用于所有文件夹
+$ tmt config show                                 # values, sources and file paths
+$ tmt config set pasteEnterDelayMs 800            # for the folder you're in
+$ tmt config set preambleEvery 5 --global         # for every folder
 $ tmt config set exchange.retentionDays 30 --global
-$ tmt config rm pasteEnterDelayMs                 # 删除当前文件夹的覆盖值
+$ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 `}</Cmd>
 
 | 设置                               | 默认值   | 作用                                                                                                                     | 设置位置                   |
@@ -49,21 +49,25 @@ $ tmt config rm pasteEnterDelayMs                 # 删除当前文件夹的覆�
 `tmt upgrade`（也可写作 `tmt update`）会沿用安装时的渠道（`stable` 或 `alpha`），更新 CLI、技能和已安装的 [extension](/extensions)。
 
 <Cmd>{`
-$ tmt upgrade                        # 更新到当前渠道的最新版
-$ tmt upgrade --channel stable       # 切换渠道
-$ tmt upgrade --to 5.0.0-alpha.8     # 指定确切版本，并将 CLI 固定在该版本
-$ tmt upgrade --unpin                # 恢复跟随渠道更新
+$ tmt upgrade                        # the latest on your channel
+$ tmt upgrade --channel stable       # switch channel
+$ tmt upgrade --to 5.0.0-alpha.8     # an exact version, which pins the CLI there
+$ tmt upgrade --unpin                # follow the channel again
 `}</Cmd>
 
-`--channel` 和 `--to` 只选择 CLI 的版本。extension 各自保留自己的渠道和固定版本，CLI 固定版本不会阻止它们更新。在人操作的终端中，**Upgrade** 界面会列出整体版本变化，并让你选择缺失的官方 extension 及新检测到的 provider 设置范围，再以 **Upgrade [Y/n]** 一次确认。`--yes` 会批准组件更新及缺失的官方 extension 和附带技能，但不会批准新 provider 的 hook 或 Core 技能设置范围。如果没有终端，或使用了 `--json`，且未加 `--yes`，tmt 不会应用任何 extension 更新：每个待更新的 extension 都会报告 `consentRequired`，并给出重新运行的命令。某个 extension 更新失败会让命令失败，但不会撤销其他 extension 的更新。
+`--channel` 和 `--to` 只选择 CLI 的版本。extension 各自保留自己的渠道和固定版本，CLI 固定版本不会阻止它们更新。在人操作的终端中，**Upgrade** 界面会先显示计划中的组件版本，再统一请求批准。它也会提供缺失的官方 extension 和新检测到的 provider 设置范围；选择仅适用于本次运行。**Upgrade [Y/n]** 按 Enter 即表示 yes。拒绝不会更改任何组件。
+
+`--yes` 会批准组件更新及缺失的官方 extension 和附带技能，但绝不会批准新 provider 的 hook 或 Core 技能设置范围。请以交互方式批准这些范围，或使用输出的 setup 命令。JSON、管道和 agent 运行不会询问：未加 `--yes` 时，CLI 更新和之前已记录的集成刷新仍可进行，但 extension 变更需要同意，缺失项目只会报告。
+
+结果以 `updated`、`needs approval` 或 `failed` 等标签显示已变更或需要处理的组件，将已是最新的组件归在 **Up to date:** 下，并在 **Next:** 列出后续操作。某个独立 extension 失败不会撤销已完成的更新；重试前请检查结果。应用数据会保留，技能警告和需要批准的集成项目也会继续显示。
 
 <Mdx.h3 id="shell-completion">Shell 补全</Mdx.h3>
 
 `tmt completion` 会检查 shell 的启动文件，并显示需要添加的一行。指定 `bash`、`zsh` 或 `fish`，可以检查另一种 shell。它只读取文件，无法判断当前 shell 是否已经加载了补全。
 
 <Cmd>{`
-$ tmt completion                 # 检查当前 shell，显示需要添加的一行
-$ tmt completion zsh             # 以相同方式检查 zsh
+$ tmt completion                 # check your shell and show the line
+$ tmt completion zsh             # the same for zsh
 `}</Cmd>
 
 请自行把那一行加入显示的文件；tmt 不会编辑 shell 的启动文件。使用 zsh 时，请将它放在补全设置完成之后，无论你使用 `compinit`，还是 oh-my-zsh 等框架。如果同一行出现两次，tmt 会提示。然后打开新的 shell。`tmt completion --json` 为脚本提供同样的检查结果。尚未设置补全时，tmt 的主帮助（`tmt --help`）也会在终端显示提醒。
