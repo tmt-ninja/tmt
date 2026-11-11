@@ -1779,9 +1779,11 @@ export async function mountRenderer(
     if (stopped || turn !== updates) return 'superseded';
     // A page that writes design-system tags without a pin keeps its frame across edits: its
     // findings and runtime chunks follow the new source, so a change to them needs a fresh frame
-    // (#5966). A pinned page never gets here: its frame key changes with every source.
+    // (#5966). Such a page has no pin, so this never reads a release or a draft and cannot time
+    // out into a notice; a pinned page never gets here, because its frame key changes with every
+    // source. A check that fails keeps the frame as drawn.
     if (sourceFrameKey(source) === 'design') {
-      const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
+      const next = await loadDesignSystem(source, options.designSystem).catch(() => frameDesign);
       if (stopped || turn !== updates) return 'superseded';
       if (!sameFrameDesign(next, frameDesign)) return 'remount';
     }

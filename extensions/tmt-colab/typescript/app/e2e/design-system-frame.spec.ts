@@ -927,6 +927,46 @@ test('an edit to an unpinned page keeps its frame only while its findings stay t
   ).toBe('remount');
 });
 
+test('an in-place edit of an unpinned page never waits for a release or a draft (#5966)', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'stuck-probe';
+    document.body.prepend(host);
+    const reads = { release: 0, draft: 0 };
+    // A design-system source that never answers: a slow compile that would end in a notice.
+    const never = () => new Promise<never>(() => {});
+    const handle = await mountRenderer(host, '<tmt-ui-button>Go</tmt-ui-button><p>First</p>', {
+      signal: new AbortController().signal,
+      onState: (state: string) => {
+        host.dataset.state = state;
+      },
+      designSystem: {
+        release: () => (reads.release++, never()),
+        draft: () => (reads.draft++, never()),
+        watch: () => () => {},
+      },
+    });
+    Object.assign(window, { stuckProbe: { handle, reads } });
+  });
+  await expect(page.locator('#stuck-probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(async () => {
+    const { handle, reads } = (window as any).stuckProbe;
+    const started = performance.now();
+    const outcome = await handle.update('<tmt-ui-button>Go</tmt-ui-button><p>Second</p>');
+    return { outcome, ms: performance.now() - started, reads };
+  });
+  expect(result.outcome).toBe('applied');
+  expect(result.reads).toEqual({ release: 0, draft: 0 });
+  // Far below the pin wait (PIN_WAIT_MS, 4 s) that turns a slow read into a notice.
+  expect(result.ms).toBeLessThan(1000);
+  await expect(page.frameLocator('#stuck-probe iframe').locator('p')).toHaveText('Second');
+});
+
 test('an unreadable release and a malformed pin both say so', async ({ page }) => {
   let frame = await mount(
     page,
