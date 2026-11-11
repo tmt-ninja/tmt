@@ -132,7 +132,7 @@ $ tmt add 0:1.2 builder     # name another pane without switching to it
 $ tmt rm builder            # retire a name; the pane keeps running
 `}</Cmd>
 
-默认名称是临时的，添加 `-s` 才会保存。`tmt ls` 以 agent 为主，而不是以窗格为主：先列出已保存的名称，再列出临时名称。每项都以 `driver:session` 标明所在位置，只有存在可执行的操作时才显示操作。
+名称默认是临时的，添加 `-s` 才会保存。`tmt ls` 以 agent 为主，而不是以窗格为主：先列出已保存的名称，再列出临时名称。每项都以 `driver:session` 标明所在位置，只有存在可执行的操作时才显示操作。
 
 <LsSample />
 

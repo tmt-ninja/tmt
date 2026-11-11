@@ -39,7 +39,7 @@ $ tmt ops sq lead sol            # optional: sol leads it
 $ tmt ops ui                     # the board on a terminal, the member list anywhere else
 `}</Cmd>
 
-<Waiting /> は、_ユーザー自身_の対応待ちを示します。Ops
+<Waiting /> は、<em>ユーザー自身</em>の対応待ちを示します。Ops
 は実行したペインからユーザーを識別します。一度記録しておきたい場合は `tmt ops sq me ben`
 を使えます。`tmt mv` で名前を変えても、同じ identity を追います。lead が自分のペインで squad
 コマンドを実行するときは、lead 自身として操作します。`tmt ops sq lead` による lead の選択は、`role`
@@ -90,7 +90,7 @@ HOME または squad タブで lead やメンバーを選び、**a → Tab → s
 
 **Apply and notify** は選択した全項目をまとめて送信し、プレビューした正確な生の値または不存在を照合します。予定値が変わらない選択も対象です。identity UUID、room、namespace、metadata keys は固定されます。選択した値がすべて変わらない場合は拒否し、更新も announcement も行いません。選択値が競合すると全項目を適用せず、プレビューを更新して選択を解除し、再度の明示的な送信を求めます。actor、identity、room、metadata namespace の変更は操作を拒否します。既存値が空または無効なら、未対応の値として拒否します。適用結果が不明な場合、通知を送らず再実行も提供しません。現在の metadata を確認してから開き直してください。適用済みまたは結果不明の後に context が変わっても、フォームはその結果を保ち、追加の操作を行いません。
 
-更新が確認されると、選択した agent に操作者を示す announcement が届くようキューへ送ります。内容は実際に変わった項目と理由だけです。返信を求めず、配信完了の証明でもありません。**Status updated; notification failed** は受け付けが未確認のとき **Retry notification only** を提供します。その操作にフォーカスして Enter を押すと、同じ operation とメッセージを使い、metadata の変更は繰り返しません。宛先が利用不可と確定した receipt からは再送できません。
+更新が確認されると、選択した agent に操作者を示す announcement が届きます。内容は実際に変わった項目と理由だけです。返信を求めず、配信完了の証明でもありません。**Status updated; notification failed** は受け付けが未確認のとき **Retry notification only** を提供します。その操作にフォーカスして Enter を押すと、同じ operation とメッセージを使い、metadata の変更は繰り返しません。宛先が利用不可と確定した receipt からは再送できません。
 
 **Requires a reply** は手動状態と別です。**Answer request** は指定した1件の既存 answer composer を開きます。明示的な dismissal も final reply です。手動項目の消去はリクエストを終了せず、回答は無関係な手動状態を消しません。複数件ある場合、回答先を選ばずに Tab で既存 picker を離れて別のモードへ移れます。
 
