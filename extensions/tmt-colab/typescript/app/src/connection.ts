@@ -732,12 +732,17 @@ export class Connection {
       throw error;
     }
   }
-  async subpageBatchStatus(operationId: string): Promise<SubpageBatchResult> {
-    await this.ready;
+  async subpageBatchStatus(
+    operationId: string,
+    timeoutMs = SAVE_REPLY_MS,
+  ): Promise<SubpageBatchResult> {
     return (await this.#request(
       operationId,
-      async () => this.send('savestatus', { operationId }),
-      SAVE_REPLY_MS,
+      async () => {
+        await this.ready;
+        this.send('savestatus', { operationId });
+      },
+      timeoutMs,
       true,
     )) as SubpageBatchResult;
   }

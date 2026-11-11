@@ -1,7 +1,11 @@
 //! Colab's owner-only socket on real Unix sockets: framing bounds, the device
 //! context from the remote door, the colab-sync-v2 handshake, tunnel bounds,
 //! capacity and shutdown.
+#[path = "support/process.rs"]
+#[allow(dead_code)] // This target uses only the shared fixture's owned-process subset.
+mod fixture_process;
 mod support;
+use fixture_process::FixtureCommand;
 use std::{
     fs,
     io::{Read, Write},
@@ -86,6 +90,57 @@ struct Running {
     worker: Option<JoinHandle<()>>,
 }
 impl Running {
+    /// Reopen the private data root left by a killed fixture process.
+    fn resume(root: PathBuf) -> Self {
+        let layout = Layout::existing(&root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let space = key.space_id.clone();
+        let store = Store::open(&layout).unwrap();
+        let save_root = root.clone();
+        let mut registration = Registration::with_decoder_config(
+            store,
+            key,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+        .unwrap()
+        .with_save_source(Arc::new(move || {
+            tmt_colab::page::save::open_source(
+                &save_root,
+                support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+            )
+        }));
+        for id in [DEVICE, OTHER] {
+            registration
+                .register(Some(&context(id)), &registration_body(id), now())
+                .unwrap();
+        }
+        let registration = Arc::new(Mutex::new(registration));
+        let socket = MountSocket::bind(&layout, &space, Tunnels::PRODUCT)
+            .unwrap()
+            .with_registration(&layout, Arc::clone(&registration))
+            .unwrap();
+        let path = socket.path.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let replacement = Arc::new(AtomicBool::new(false));
+        let requested = Arc::clone(&replacement);
+        let worker = std::thread::spawn(move || {
+            socket.run_until_replacement(&flag, &requested).unwrap();
+        });
+        Self {
+            save_gate: Arc::default(),
+            save_gate_skip: Arc::default(),
+            snapshot_gate: Arc::default(),
+            replacement,
+            clock_fault: Arc::new(AtomicI32::new(-1)),
+            registration,
+            root,
+            path,
+            space,
+            stop,
+            worker: Some(worker),
+        }
+    }
     fn start(tunnels: Tunnels) -> Self {
         Self::start_with_app(tunnels, None)
     }
@@ -5410,10 +5465,17 @@ fn a_browser_batch_rejects_invalid_input_before_creating_any_page() {
 
 #[test]
 fn a_dropped_browser_batch_reports_running_and_resumes_without_duplicates() {
+    for skip in [0, 1] {
+        dropped_browser_batch_at_open(skip);
+    }
+}
+
+fn dropped_browser_batch_at_open(skip: usize) {
     let (server, layout, key, mut peer) = work_fixture();
     let before = page_ids(&layout, &key);
     let (entered, parked) = std::sync::mpsc::channel();
     let (release, wait) = std::sync::mpsc::channel();
+    server.save_gate_skip.store(skip, Ordering::SeqCst);
     *server.save_gate.lock().unwrap() = Some((entered, wait));
     let body = json!({"titles":["One", "Two"], "format":"html"});
     send(
@@ -5426,6 +5488,8 @@ fn a_dropped_browser_batch_reports_running_and_resumes_without_duplicates() {
         ),
     );
     parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The second source open occurs after the child is created, before its link is prepared.
+    assert_eq!(page_ids(&layout, &key).len(), before.len() + skip);
     drop(peer);
     let mut observer = server.peer(DEVICE);
     observer
@@ -5474,6 +5538,163 @@ fn a_dropped_browser_batch_reports_running_and_resumes_without_duplicates() {
     assert_eq!(recovered["nextIndex"], 2, "{recovered}");
     assert_eq!(page_ids(&layout, &key).len(), before.len() + 2);
     assert_eq!(native_work(&layout, &key).len(), 2);
+}
+
+#[test]
+fn a_browser_batch_preserves_a_concurrent_page_edit_and_replays_safely() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let before = page_ids(&layout, &key);
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.snapshot_gate.lock().unwrap() = Some((entered, wait));
+    let body = json!({"titles":["One", "Two"], "format":"html"});
+    send(
+        &mut peer,
+        server.frame(
+            "work",
+            json!({
+                "operationId":WORK_ONE, "action":"subpage.createBatch", "body":body,
+            }),
+        ),
+    );
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    let publication = prepare_write(&layout, &key, "<p>Concurrent edit</p>");
+    let written = tmt_colab::page::ipc::publish(&layout, &key, &publication)
+        .unwrap()
+        .expect("the concurrent write is accepted while batch preparation is parked");
+    assert!(matches!(
+        written.record.outcome,
+        tmt_colab::publication::Outcome::Committed { .. }
+    ));
+    release.send(()).unwrap();
+    let first = receive_acked(&server, &mut peer, "workresult");
+    if first["state"] == "rejected" {
+        assert_eq!(first["code"], "COLAB_STALE_BASE", "{first}");
+    } else {
+        assert_eq!(first["state"], "committed", "{first}");
+    }
+    let resumed = work_action(&server, &mut peer, WORK_ONE, "subpage.createBatch", body);
+    assert_eq!(resumed["state"], "committed", "{resumed}");
+    assert_eq!(resumed["nextIndex"], 2, "{resumed}");
+    assert_eq!(native_source(&layout, &key), "<p>Concurrent edit</p>");
+    assert_eq!(native_work(&layout, &key).len(), 2);
+    assert_eq!(page_ids(&layout, &key).len(), before.len() + 2);
+}
+
+#[test]
+fn a_browser_batch_survives_a_process_kill_between_and_during_entries() {
+    const MARKER: &str = "TMT_TEST_BATCH_CRASH_MARKER";
+    const SKIP: &str = "TMT_TEST_BATCH_CRASH_SKIP";
+    if let Ok(marker) = std::env::var(MARKER) {
+        let skip: usize = std::env::var(SKIP).unwrap().parse().unwrap();
+        let (server, _, _, mut peer) = work_fixture();
+        fs::write(&marker, format!("{}\nstarting", server.root.display())).unwrap();
+        let (entered, parked) = std::sync::mpsc::channel();
+        let (_release, wait) = std::sync::mpsc::channel();
+        server.save_gate_skip.store(skip, Ordering::SeqCst);
+        *server.save_gate.lock().unwrap() = Some((entered, wait));
+        send(
+            &mut peer,
+            server.frame(
+                "work",
+                json!({
+                    "operationId":WORK_ONE, "action":"subpage.createBatch",
+                    "body":{"titles":["One", "Two"], "format":"html"},
+                }),
+            ),
+        );
+        parked.recv_timeout(Duration::from_secs(20)).unwrap();
+        fs::write(&marker, format!("{}\nready", server.root.display())).unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+
+    struct CrashWorld(PathBuf);
+    impl Drop for CrashWorld {
+        fn drop(&mut self) {
+            if let Ok(marker) = fs::read_to_string(&self.0)
+                && let Some(root) = marker.lines().next()
+                && root.starts_with("/tmp/tmt-1039-colab-")
+            {
+                let _ = fs::remove_dir_all(root);
+            }
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+    for skip in [1, 2] {
+        let marker = std::env::temp_dir().join(format!(
+            "tmt-batch-crash-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let world = CrashWorld(marker.clone());
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("a_browser_batch_survives_a_process_kill_between_and_during_entries")
+            .arg("--nocapture")
+            .env(MARKER, &marker)
+            .env(SKIP, skip.to_string())
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .spawn_owned()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let root = loop {
+            if let Ok(contents) = fs::read_to_string(&marker) {
+                let mut lines = contents.lines();
+                if let (Some(root), Some("ready")) = (lines.next(), lines.next()) {
+                    break PathBuf::from(root);
+                }
+            }
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "crash fixture exited before its barrier"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "crash fixture did not reach its barrier"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success(), "fixture was not killed");
+        let server = Running::resume(root);
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        assert_eq!(
+            page_ids(&layout, &key).len(),
+            2,
+            "one child exists at both barriers"
+        );
+        assert_eq!(native_work(&layout, &key).len(), skip - 1);
+        let mut peer = server.peer(DEVICE);
+        peer.get_ref()
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+        send(
+            &mut peer,
+            server.frame("savestatus", json!({"operationId":WORK_ONE})),
+        );
+        let status = receive_acked(&server, &mut peer, "saveresult");
+        assert_eq!(status["state"], "absent", "{status}");
+        let resumed = work_action(
+            &server,
+            &mut peer,
+            WORK_ONE,
+            "subpage.createBatch",
+            json!({
+                "titles":["One", "Two"], "format":"html",
+            }),
+        );
+        assert_eq!(resumed["state"], "committed", "{resumed}");
+        assert_eq!(resumed["nextIndex"], 2, "{resumed}");
+        assert_eq!(page_ids(&layout, &key).len(), 3);
+        assert_eq!(native_work(&layout, &key).len(), 2);
+        drop(peer);
+        drop(server);
+        drop(world);
+    }
 }
 
 #[test]

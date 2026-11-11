@@ -980,7 +980,7 @@ export class Live implements PageBinding {
     await this.#showsRevision(result.revision);
     return result.childPage === undefined ? {} : { childPage: result.childPage };
   }
-  /** Send one batch; a lost reply is inspected once and never silently replayed. */
+  /** Send one batch; after a lost reply, status and one same-ID replay recover retained entries. */
   async subpageBatch(
     operationId: string,
     body: { titles: readonly string[]; format?: 'html' },
@@ -996,7 +996,21 @@ export class Live implements PageBinding {
     } catch (error) {
       if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
       try {
-        return await (await this.#reopened(c)).subpageBatchStatus(operationId);
+        const deadline = Date.now() + SAVE_REOPEN_MS;
+        const next = await this.#reopened(c, deadline);
+        while (Date.now() < deadline) {
+          const status = await next.subpageBatchStatus(
+            operationId,
+            Math.max(0, deadline - Date.now()),
+          );
+          if (status.state === 'absent')
+            return await next.subpageBatch(operationId, body, Math.max(0, deadline - Date.now()));
+          if (status.state !== 'running') return status;
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(100, Math.max(0, deadline - Date.now()))),
+          );
+        }
+        throw new SaveOutcomeUnknown(operationId);
       } catch {
         throw new SaveOutcomeUnknown(operationId);
       }
@@ -1233,8 +1247,7 @@ export class Live implements PageBinding {
     }
   }
   /** The connection Live reopens after `lost` failed, once it is caught up. */
-  async #reopened(lost: Connection): Promise<Connection> {
-    const deadline = Date.now() + SAVE_REOPEN_MS;
+  async #reopened(lost: Connection, deadline = Date.now() + SAVE_REOPEN_MS): Promise<Connection> {
     while (!this.#closed && !this.#error && Date.now() < deadline) {
       const next = await connectionBefore(this.#current, deadline).catch(() => null);
       if (next && next !== lost && next.active) return next;

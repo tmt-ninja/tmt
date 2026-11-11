@@ -65,6 +65,8 @@ const saves = vi.hoisted(() => ({
   save: vi.fn(),
   status: vi.fn(),
   work: vi.fn(),
+  batch: vi.fn(),
+  batchStatus: vi.fn(),
   metadata: vi.fn(),
 }));
 const mutations = vi.hoisted(() => ({
@@ -188,6 +190,12 @@ vi.mock('../src/connection.js', () => ({
     }
     work(operationId: string, action: string, body: unknown) {
       return saves.work(this, operationId, action, body);
+    }
+    subpageBatch(operationId: string, body: unknown, timeout?: number) {
+      return saves.batch(this, operationId, body, timeout);
+    }
+    subpageBatchStatus(operationId: string, timeout?: number) {
+      return saves.batchStatus(this, operationId, timeout);
     }
     metadata(operationId: string, action: string, body: unknown, expectedRevision: string) {
       return saves.metadata(this, operationId, action, body, expectedRevision);
@@ -2114,6 +2122,8 @@ function openLive() {
   saves.save.mockReset();
   saves.status.mockReset();
   saves.work.mockReset();
+  saves.batch.mockReset();
+  saves.batchStatus.mockReset();
   return new Live(
     new URL('https://example.test/colab/'),
     {
@@ -2702,6 +2712,110 @@ it('rechecks an uncertain work outcome without replaying the action', async () =
     });
     expect(saves.work).not.toHaveBeenCalled();
     expect(saves.status.mock.calls.map((call) => call[1])).toEqual(Array(4).fill(operationId));
+  } finally {
+    live.close();
+  }
+});
+
+it('recovers a disconnected batch by checking status and resending the same ID once', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  const body = { titles: ['One', 'Two'], format: 'html' as const };
+  try {
+    await live.snapshot();
+    saves.batch.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Fresh membership catchup required'));
+      throw new Error('Fresh membership catchup required');
+    });
+    saves.batchStatus.mockImplementationOnce(async (_connection, id) => ({
+      operationId: id,
+      state: 'absent',
+      entries: [],
+      nextIndex: 0,
+    }));
+    saves.batch.mockImplementationOnce(async (_connection, id) => ({
+      operationId: id,
+      state: 'committed',
+      revision: 'v1:revision',
+      entries: [],
+      nextIndex: 0,
+    }));
+    await expect(live.subpageBatch(operationId, body)).resolves.toMatchObject({
+      state: 'committed',
+    });
+    expect(saves.batch).toHaveBeenCalledTimes(2);
+    expect(saves.batch.mock.calls.map((call) => call.slice(1, 3))).toEqual([
+      [operationId, body],
+      [operationId, body],
+    ]);
+    expect(saves.batchStatus).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
+it('waits for a running batch before replaying its retained ID', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  const body = { titles: ['One'], format: 'html' as const };
+  try {
+    await live.snapshot();
+    saves.batch.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Fresh membership catchup required'));
+      throw new Error('Fresh membership catchup required');
+    });
+    saves.batchStatus
+      .mockImplementationOnce(async (_connection, id) => ({
+        operationId: id,
+        state: 'running',
+        entries: [],
+        nextIndex: 0,
+      }))
+      .mockImplementationOnce(async (_connection, id) => ({
+        operationId: id,
+        state: 'absent',
+        entries: [],
+        nextIndex: 0,
+      }));
+    saves.batch.mockImplementationOnce(async (_connection, id) => ({
+      operationId: id,
+      state: 'committed',
+      revision: 'v1:revision',
+      entries: [],
+      nextIndex: 0,
+    }));
+    await expect(live.subpageBatch(operationId, body)).resolves.toMatchObject({
+      state: 'committed',
+    });
+    expect(saves.batchStatus).toHaveBeenCalledTimes(2);
+    expect(saves.batch).toHaveBeenCalledTimes(2);
+    expect(saves.batch.mock.calls[1][1]).toBe(operationId);
+  } finally {
+    live.close();
+  }
+});
+
+it('does not loop if the same-ID batch recovery loses its reply too', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  try {
+    await live.snapshot();
+    saves.batch.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Fresh membership catchup required'));
+      throw new Error('Fresh membership catchup required');
+    });
+    saves.batchStatus.mockImplementationOnce(async (_connection, id) => ({
+      operationId: id,
+      state: 'absent',
+      entries: [],
+      nextIndex: 0,
+    }));
+    saves.batch.mockRejectedValueOnce(new Error('Sync disconnected'));
+    await expect(live.subpageBatch(operationId, { titles: ['One'] })).rejects.toBeInstanceOf(
+      SaveOutcomeUnknown,
+    );
+    expect(saves.batch).toHaveBeenCalledTimes(2);
+    expect(saves.batchStatus).toHaveBeenCalledOnce();
   } finally {
     live.close();
   }
