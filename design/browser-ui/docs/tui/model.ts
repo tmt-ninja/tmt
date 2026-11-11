@@ -15,7 +15,7 @@ export const oracle = {
     styles: frame.styles.map((id) => frozen.styleDictionary[id]!),
   })),
 };
-export const looks = ['tmt', 'tmt-light', 'terminal', 'NO_COLOR'] as const;
+export { looks } from './looks.js';
 export const states = [...new Set(oracle.frames.map((frame) => frame.state))];
 export const framesFor = (state: string, look: string) =>
   oracle.frames.filter((frame) => frame.state === state && frame.look === look);

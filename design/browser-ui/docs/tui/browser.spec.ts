@@ -1,7 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { componentDocs, resolveSample, locatePart, tuiRoot } from './catalog.js';
+import { componentDocs, locatePart, tuiRoot } from './catalog.js';
+import { resolveSample } from './samples.js';
 import { patternDocs } from './patterns.js';
 import { tuiMockBase } from '../routes.js';
 import { oracle, states } from './model.js';
