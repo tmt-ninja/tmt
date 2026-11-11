@@ -876,13 +876,23 @@ fn exchange_columns_stay_compact_and_keep_a_twelve_cell_row_name() {
 
 #[test]
 fn spec_exchanges_include_observed_sender_totals() {
-    let mut app = capture_case("digest-spec", crate::look::Look::default());
-    let shown = paint(&mut app, 160, 50);
-    assert!(shown.contains("from\\to"));
-    assert!(
-        shown.contains("sum"),
-        "exchange total column missing: {shown}"
-    );
+    for (width, height) in [(160, 36), (100, 36)] {
+        let mut app = capture_case("digest-spec", crate::look::Look::default());
+        let shown = paint(&mut app, width, height);
+        let matrix = shown
+            .split_once("from\\to")
+            .expect("matrix header")
+            .1
+            .split_once("Delivery")
+            .expect("delivery section")
+            .0;
+        for column in ["agent-3", "agent-2", "agent-1", "tui-1", "sum"] {
+            assert!(
+                matrix.contains(column),
+                "{width}: missing {column}: {matrix}"
+            );
+        }
+    }
 }
 
 #[test]
