@@ -503,7 +503,7 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
     let row = app.selected_row();
     let panel = details::panel(&app, 121_000, row).join("\n");
     let evidence = details::evidence(&app, 121_000, row).join("\n");
-    for amount in ["18.2k", "18%"] {
+    for amount in ["18.2k", "saved % unavailable"] {
         assert_eq!(panel.matches(amount).count(), 1, "{panel}");
         assert!(!evidence.contains(amount));
     }
@@ -518,6 +518,47 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
         assert!(!panel.contains(fact));
     }
     assert!(panel.contains("inherited from workspace"));
+}
+
+#[test]
+fn saved_percent_requires_matching_usage_amounts_and_intervals() {
+    use crate::board::usage_report::Delivery;
+    let mut app = capture_case("impact-complete", crate::look::Look::default());
+    let mut doc = valued_document();
+    doc["members"][0]["savings"]["fromMs"] = 60_000.into();
+    doc["members"][0]["savings"]["throughMs"] = 120_000.into();
+    app.labels = crate::labels::Supplied::from_document("digest", &doc, false);
+    select_worker(&mut app);
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    let seat = report
+        .seats
+        .iter_mut()
+        .find(|seat| seat.who.id.as_deref() == Some(MEMBER))
+        .unwrap();
+    seat.input = 81_800;
+    seat.output = 0;
+    seat.complete = true;
+    seat.from_ms = 60_000;
+    seat.to_ms = 120_000;
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report.clone()),
+    });
+    let panel = super::super::details::panel(&app, 121_000, app.selected_row()).join("\n");
+    assert!(panel.contains("18% of input"), "{panel}");
+    report
+        .seats
+        .iter_mut()
+        .find(|seat| seat.who.id.as_deref() == Some(MEMBER))
+        .unwrap()
+        .input = 1_100;
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report),
+    });
+    let panel = super::super::details::panel(&app, 121_000, app.selected_row()).join("\n");
+    assert!(panel.contains("saved % unavailable"), "{panel}");
+    assert!(!panel.contains("18% of input"), "{panel}");
 }
 
 #[test]

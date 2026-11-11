@@ -310,12 +310,14 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
             if !labels.is_empty() {
                 lines.push(labels.join(" · ").replace(" ▾", ""));
             }
-            lines.push("Digest not available · Install: tmt extension install digest".into());
+            lines.push("Digest not available".into());
+            lines.push("tmt extension install digest".into());
             lines.push(unavailable.clone());
         }
     } else {
         if app.labels.digest().is_none() {
-            lines.push("Digest not available · Install: tmt extension install digest".into());
+            lines.push("Digest not available".into());
+            lines.push("tmt extension install digest".into());
         }
         lines.extend(delivery(app, now_ms, row));
     }
@@ -353,12 +355,14 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     } else {
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
+    let percent = comparable_percent(app, &selected.ids, &sum);
     lines.push(format!(
-        "── Saved · {} | {} of input ──",
+        "── Saved · {} | {} ──",
         app.digest_window().label(),
-        sum.percent
-            .value
-            .map_or("unavailable".into(), model::detail_percent)
+        percent.map_or("saved % unavailable".into(), |value| format!(
+            "{} of input",
+            model::detail_percent(value)
+        ))
     ));
     lines.push(format!(
         "used trend {}",
@@ -368,7 +372,7 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         "saved trend {}",
         super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
     ));
-    if sum.percent.value.is_some() && sum.percent.included < sum.total {
+    if percent.is_some() && sum.percent.included < sum.total {
         lines.push(format!(
             "SAVED % covers {} of {} agents",
             sum.percent.included, sum.total
@@ -470,6 +474,37 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         lines.push("Timers unavailable".into());
     }
     lines
+}
+
+/// Compare the same identities, windows and values before pairing a percent with usage.
+fn comparable_percent(
+    app: &App,
+    ids: &[&str],
+    sum: &crate::labels::digest::SavingsSummary,
+) -> Option<u16> {
+    let (status, false) = app.labels.digest()? else {
+        return None;
+    };
+    let report = metrics::report(app)?;
+    if ids.is_empty() || sum.percent.included != ids.len() || sum.included != ids.len() {
+        return None;
+    }
+    for id in ids {
+        let savings = status.members.get(*id)?.savings.as_ref()?;
+        let percent = savings.percent.as_ref()?;
+        let seat = report.seat(id)?;
+        if savings.window != app.digest_window()
+            || !savings.complete
+            || !seat.complete
+            || seat.observed_total()? != percent.observed
+            || savings.tokens? != percent.avoided
+            || (seat.from_ms, seat.to_ms) != (percent.from_ms, percent.through_ms)
+            || (savings.from_ms, savings.through_ms) != (percent.from_ms, percent.through_ms)
+        {
+            return None;
+        }
+    }
+    sum.percent.value
 }
 
 const FILE: &str = "digest.estimate-basis.xml";

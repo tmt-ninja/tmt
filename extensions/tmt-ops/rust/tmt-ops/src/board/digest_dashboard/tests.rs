@@ -999,7 +999,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     select_worker(&mut app);
     assert!(
         super::details::panel(&app, 121_000, app.selected_row())
-            .contains(&"── Saved · 1d | 18% of input ──".into())
+            .contains(&"── Saved · 1d | saved % unavailable ──".into())
     );
     app.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut app, 200, 60);
