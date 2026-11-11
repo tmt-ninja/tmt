@@ -120,6 +120,20 @@ pub(in crate::board) fn capture_case(
     }
     app.view.as_mut().unwrap().look = look;
     app.workspace_reconcile();
+    if scene.starts_with("impact-")
+        && let Some(report) = super::super::metrics::report(&app)
+    {
+        let mut report = report.clone();
+        for seat in &mut report.seats {
+            seat.input = 81_800;
+            seat.output = 0;
+        }
+        app.usage_report
+            .apply(crate::board::usage_report::Delivery {
+                since: window.range(),
+                result: Ok(report),
+            });
+    }
     if scene.starts_with("digest-") {
         install_chart(&mut app, scene, now);
     }
@@ -177,6 +191,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         let saved = total / divisor;
         member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(saved);
         member["savings"]["percent"] = serde_json::json!({"basisPoints":(saved*20_000+(saved+seat.input))/(2*(saved+seat.input)),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
+        if scene == "digest-spec-review" && i >= 16 { member["savings"]["percent"] = serde_json::Value::Null; }
         if scene == "digest-spec-review" { member["savings"]["cost"]["usdMicros"] = serde_json::json!(saved * 2); member["savings"]["cost"]["modelObservedAtMs"] = serde_json::json!(now - 60_000); } else { member["savings"]["cost"] = serde_json::Value::Null; }
         member["savings"]["series"] = (0..count).map(|n| { let gap = (scene == "digest-chart-gaps" && n == 3) || (scene == "digest-spec-review" && (n + i) % 4 == 0); serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*100) as u64 / divisor)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
@@ -193,6 +208,14 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     }
     if scene == "digest-zero-and-no-source" && report.seats.len() >= 2 {
         let missing = report.seats.remove(0);
+        if let Some(member) = doc["members"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|member| member["identityId"].as_str() == missing.who.id.as_deref())
+        {
+            member["savings"]["percent"] = serde_json::Value::Null;
+        }
         report
             .unavailable
             .push(crate::board::usage_report::model::Unavailable {
@@ -503,7 +526,7 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
     let row = app.selected_row();
     let panel = details::panel(&app, 121_000, row).join("\n");
     let evidence = details::evidence(&app, 121_000, row).join("\n");
-    for amount in ["18.2k", "saved % unavailable"] {
+    for amount in ["18.2k", "18%"] {
         assert_eq!(panel.matches(amount).count(), 1, "{panel}");
         assert!(!evidence.contains(amount));
     }
@@ -521,44 +544,14 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
 }
 
 #[test]
-fn saved_percent_requires_matching_usage_amounts_and_intervals() {
-    use crate::board::usage_report::Delivery;
-    let mut app = capture_case("impact-complete", crate::look::Look::default());
-    let mut doc = valued_document();
-    doc["members"][0]["savings"]["fromMs"] = 60_000.into();
-    doc["members"][0]["savings"]["throughMs"] = 120_000.into();
-    app.labels = crate::labels::Supplied::from_document("digest", &doc, false);
+fn selected_row_and_panel_share_the_digest_percent() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
     select_worker(&mut app);
-    let mut report = super::super::metrics::report(&app).unwrap().clone();
-    let seat = report
-        .seats
-        .iter_mut()
-        .find(|seat| seat.who.id.as_deref() == Some(MEMBER))
-        .unwrap();
-    seat.input = 81_800;
-    seat.output = 0;
-    seat.complete = true;
-    seat.from_ms = 60_000;
-    seat.to_ms = 120_000;
-    app.usage_report.apply(Delivery {
-        since: DigestWindow::Day.range(),
-        result: Ok(report.clone()),
-    });
+    let sum = super::super::metrics::savings(&app, &[MEMBER]);
+    let list = super::super::table::saved(&sum, SavingsUnit::Percent);
+    assert_ne!(list, "—");
     let panel = super::super::details::panel(&app, 121_000, app.selected_row()).join("\n");
-    assert!(panel.contains("18% of input"), "{panel}");
-    report
-        .seats
-        .iter_mut()
-        .find(|seat| seat.who.id.as_deref() == Some(MEMBER))
-        .unwrap()
-        .input = 1_100;
-    app.usage_report.apply(Delivery {
-        since: DigestWindow::Day.range(),
-        result: Ok(report),
-    });
-    let panel = super::super::details::panel(&app, 121_000, app.selected_row()).join("\n");
-    assert!(panel.contains("saved % unavailable"), "{panel}");
-    assert!(!panel.contains("18% of input"), "{panel}");
+    assert!(panel.contains(&format!("{list} of input")), "{panel}");
 }
 
 #[test]
@@ -915,16 +908,14 @@ fn spec_fixture_has_a_timer_and_unread_observation() {
         percentages.len() > 2,
         "fixture needs varied saved percentages"
     );
-    assert!(
-        app.labels
-            .digest()
-            .unwrap()
-            .0
-            .members
-            .values()
-            .all(|member| member.savings.as_ref().is_some_and(|s| s.percent.is_some())),
-        "every fixture member needs valid saved-percent evidence"
-    );
+    let report = super::super::metrics::report(&app).unwrap();
+    for (id, member) in &app.labels.digest().unwrap().0.members {
+        assert_eq!(
+            member.savings.as_ref().is_some_and(|s| s.percent.is_some()),
+            report.seat(id).is_some(),
+            "{id}"
+        );
+    }
     assert!(
         super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
             .iter()

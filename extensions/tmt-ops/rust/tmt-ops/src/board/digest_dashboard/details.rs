@@ -355,13 +355,13 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     } else {
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
-    let percent = comparable_percent(app, &selected.ids, &sum);
+    let percent = sum.percent.value;
     lines.push(format!(
         "── Saved · {} | {} ──",
         app.digest_window().label(),
         percent.map_or("saved % unavailable".into(), |value| format!(
             "{} of input",
-            model::detail_percent(value)
+            crate::board::savings::percent_text(value)
         ))
     ));
     lines.push(format!(
@@ -474,37 +474,6 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         lines.push("Timers unavailable".into());
     }
     lines
-}
-
-/// Compare the same identities, windows and values before pairing a percent with usage.
-fn comparable_percent(
-    app: &App,
-    ids: &[&str],
-    sum: &crate::labels::digest::SavingsSummary,
-) -> Option<u16> {
-    let (status, false) = app.labels.digest()? else {
-        return None;
-    };
-    let report = metrics::report(app)?;
-    if ids.is_empty() || sum.percent.included != ids.len() || sum.included != ids.len() {
-        return None;
-    }
-    for id in ids {
-        let savings = status.members.get(*id)?.savings.as_ref()?;
-        let percent = savings.percent.as_ref()?;
-        let seat = report.seat(id)?;
-        if savings.window != app.digest_window()
-            || !savings.complete
-            || !seat.complete
-            || seat.observed_total()? != percent.observed
-            || savings.tokens? != percent.avoided
-            || (seat.from_ms, seat.to_ms) != (percent.from_ms, percent.through_ms)
-            || (savings.from_ms, savings.through_ms) != (percent.from_ms, percent.through_ms)
-        {
-            return None;
-        }
-    }
-    sum.percent.value
 }
 
 const FILE: &str = "digest.estimate-basis.xml";
