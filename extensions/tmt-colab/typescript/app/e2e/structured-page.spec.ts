@@ -1385,7 +1385,7 @@ for (const width of [1440, 390])
         editing,
       );
       expect(await chip('.tmt-block-question-choices label')).toEqual(editingChip);
-      // The title is the DS card title, a space-m step under the meta line.
+      // The title is the DS card title, a space-s step under the meta line (#6257).
       const heading = await block.locator('h3').evaluate((node) => {
         const style = getComputedStyle(node);
         const token = (name: string) => {
@@ -1398,7 +1398,7 @@ for (const width of [1440, 390])
         };
         return {
           size: style.fontSize === token('--tmt-ui-card-title-size'),
-          gap: style.marginTop === token('--tmt-ui-space-m'),
+          gap: style.marginTop === token('--tmt-ui-space-s'),
           weight: style.fontWeight === style.getPropertyValue('--tmt-ui-card-title-weight').trim(),
         };
       });

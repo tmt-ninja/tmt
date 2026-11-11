@@ -157,8 +157,12 @@ for (const width of [1440, 390])
       const frameTop = await page
         .locator('iframe[title="Page content"]')
         .evaluate((node) => node.getBoundingClientRect().top + node.clientTop);
-      const listTop = await pageView.evaluate((node) => node.getBoundingClientRect().top);
-      expect(listTop).toBeGreaterThanOrEqual(frameTop + cardBottom);
+      // The list follows its slot once the frame has grown to hold it: a slot report that comes before
+      // the frame's height update is dropped (`top > frame.clientHeight`), so for a moment the list
+      // sits one report behind. It settles within a few hundred ms.
+      await expect
+        .poll(() => pageView.evaluate((node) => node.getBoundingClientRect().top))
+        .toBeGreaterThanOrEqual(frameTop + cardBottom);
       await expect(frame.getByText('Shared page components')).toBeVisible();
       await frame.getByLabel('Other…').check();
       await frame.getByLabel('Other: your answer').fill('Show the list first');

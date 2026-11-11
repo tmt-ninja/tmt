@@ -252,24 +252,26 @@ export function QuestionBlock({
               )}
             </div>
           )}
-          <Button
-            type="button"
-            disabled={!valid || busy || !onSend}
-            aria-disabled={!valid || busy || !onSend}
-            onClick={send}
-          >
-            Send
-          </Button>
-          {onEdit && (
-            <Button type="button" variant="outline" onClick={onEdit}>
-              Edit
+          <div className="tmt-block-question-actions">
+            <Button
+              type="button"
+              disabled={!valid || busy || !onSend}
+              aria-disabled={!valid || busy || !onSend}
+              onClick={send}
+            >
+              Send
             </Button>
-          )}
-          {state === 'answered' && onFollowUp && (
-            <button type="button" onClick={onFollowUp}>
-              Follow up
-            </button>
-          )}
+            {onEdit && (
+              <Button type="button" variant="outline" onClick={onEdit}>
+                Edit
+              </Button>
+            )}
+            {state === 'answered' && onFollowUp && (
+              <button type="button" onClick={onFollowUp}>
+                Follow up
+              </button>
+            )}
+          </div>
         </div>
       </section>
     </UiTheme>

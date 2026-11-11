@@ -36,8 +36,23 @@
 .tmt-block[data-kind='heading'][data-level='3'] {
   margin-top: 22px;
 }
-.tmt-block-doc-body > .tmt-block:first-child {
+.tmt-block-doc-body > .tmt-block:first-child,
+.tmt-block-card-body > .tmt-block:first-child {
   margin-top: 0;
+}
+/* Consecutive questions sit 16px apart, on the page and in a card. */
+.tmt-block:has(> * > .tmt-block-question) + .tmt-block:has(> * > .tmt-block-question) {
+  margin-top: 16px;
+}
+/* Prose keeps a reading measure; a table, a card, a mockup and an image keep the stage width. */
+.tmt-block:where(
+  [data-kind='text'],
+  [data-kind='heading'],
+  [data-kind='list-item'],
+  [data-kind='todo'],
+  [data-kind='callout']
+) {
+  max-width: 720px;
 }
 .tmt-block[data-depth='1'] {
   margin-inline: 0;
@@ -460,12 +475,7 @@
   white-space: nowrap;
 }
 .tmt-block-card-body {
-  display: grid;
-  gap: 10px;
   min-width: 0;
-}
-.tmt-block-card-body > .tmt-block {
-  margin-top: 0;
 }
 .tmt-block-callout > .tmt-ui-notice {
   margin: 0;
@@ -680,7 +690,7 @@ a.tmt-block-mention:focus-visible {
 /* The question reads as a card heading (the DS card title), not a document heading, whatever page
    it sits in. */
 .tmt-block-question .tmt-block-question-heading {
-  margin: var(--tmt-ui-space-m) 0 var(--tmt-ui-space-s);
+  margin: var(--tmt-ui-space-s) 0 var(--tmt-ui-space-m);
   font: var(--tmt-ui-card-title-weight) var(--tmt-ui-card-title-size) /
     var(--tmt-ui-card-title-line-height) var(--tmt-ui-font-body);
 }
@@ -689,14 +699,29 @@ a.tmt-block-mention:focus-visible {
   margin: 0;
   padding: 0;
 }
+/* The choices' legend is for assistive technology: the question above them names the group. */
 .tmt-block-question legend {
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .tmt-block-question-choices {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--tmt-ui-space-xs);
+  gap: var(--tmt-ui-space-s);
+}
+/* Send (and Edit, Follow up) sit 16px under the choices. */
+.tmt-block-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  margin-top: 16px;
 }
 .tmt-block-question-choices label,
 .tmt-block-question-choice-edit {
@@ -760,7 +785,7 @@ a.tmt-block-mention:focus-visible {
 }
 /* The kind on its own row, then Done where the card's Send sits. */
 .tmt-block-question-kind {
-  margin-block: var(--tmt-ui-space-s);
+  margin-block: 16px var(--tmt-ui-space-s);
 }
 .tmt-block-question-choices kbd {
   color: var(--tmt-ui-color-secondary);
