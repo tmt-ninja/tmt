@@ -361,6 +361,7 @@ fn direction_a_narrow_allowance_never_clips_resets_mid_word() {
                 codex.ends_with('…') || codex.contains("resets"),
                 "{name}: {row}"
             );
+            assert!(!codex.ends_with("r…"), "{name}: partial reset label: {row}");
         }
     });
 }

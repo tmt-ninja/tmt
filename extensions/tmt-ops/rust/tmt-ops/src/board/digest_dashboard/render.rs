@@ -394,11 +394,11 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
         }
         if !items.is_empty() {
             if !heading.is_empty() {
-                remainder.push(format!("── {heading} ──"));
+                items[0] = format!("{heading} · {}", items[0]);
             }
             remainder.extend(items);
         } else if !priority && !heading.is_empty() {
-            remainder.push(format!("── {heading} ──"));
+            remainder.push(heading);
         }
     }
     front.extend(remainder);

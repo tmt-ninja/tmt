@@ -175,7 +175,12 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
         for (mut span, unstyled) in spans {
             let remaining = usize::from(area.width.saturating_sub(x));
             if span.text.width() > remaining {
-                span.text = crate::board::view::fit(&span.text, remaining);
+                // A partially visible provider segment is less useful than a single marker.
+                span.text = if remaining > 0 {
+                    "…".into()
+                } else {
+                    String::new()
+                };
             }
             let width = area
                 .width

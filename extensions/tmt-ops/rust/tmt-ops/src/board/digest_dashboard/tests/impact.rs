@@ -824,5 +824,9 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
         for (index, heading) in ["Delivery", "Saved ·", "Models ·"].iter().enumerate() {
             assert!(compact[index].contains(heading), "{compact:?}");
         }
+        assert!(
+            compact[3].contains("held"),
+            "no orphan heading: {compact:?}"
+        );
     });
 }
