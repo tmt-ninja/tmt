@@ -1208,7 +1208,7 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
     }
     // `/colab/<segments>` is an app route now (pages.rs): it serves the one shell document.
     assert_eq!(door.status(&door.get("/colab/other", "")), 200);
-    for path in ["/.tmt/colab", "/x/colab/", "/r/abcd", "/other/abcd"] {
+    for path in ["/.tmt/colab", "/x/colab/", "/r/abcd"] {
         assert_eq!(door.status(&door.get(path, "")), 404, "{path}");
     }
     for path in ["/read/abcd"] {
@@ -1264,6 +1264,15 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
         extension.seen.all().is_empty(),
         "a refused entry reached Colab"
     );
+    // A possible extra root needs the display-only callback to discover that it is absent.
+    // It must never forward the candidate content path or acquire browser authority.
+    assert_eq!(door.status(&door.get("/other/abcd", "")), 404);
+    let lookup = extension.seen.all();
+    assert_eq!(lookup.len(), 1);
+    assert!(lookup[0].starts_with("GET /.tmt/remote/describe HTTP/1.1\r\n"));
+    assert!(lookup[0].contains("tmt-describe: 1\r\n"));
+    assert!(!lookup[0].contains("cookie:"));
+    assert!(!lookup[0].contains("tmt-device-context:"));
     // Boundary positives: the reader reaches exactly the public entry; `/p/<id>` redirects into
     // the app (pages.rs) and never reaches the extension.
     for (family, status) in [("p", 308), ("read", 200)] {
@@ -1279,7 +1288,9 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
             }
         }
     }
-    assert_eq!(extension.seen.all().len(), 4);
+    let seen = extension.seen.all();
+    assert_eq!(seen.len(), 5);
+    assert!(seen[1..].iter().all(|head| head.starts_with("GET /read/")));
 }
 
 #[test]

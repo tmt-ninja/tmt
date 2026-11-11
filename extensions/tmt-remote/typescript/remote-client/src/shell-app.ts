@@ -505,14 +505,20 @@ export function shellApp(): ShellHost | undefined {
     if (!routes.some((current) => current.id === route.id)) routes.push(route);
   // A cold document knows only its path. The live description must select its script.
   const family = `/${location.pathname.split('/')[1] ?? ''}`;
-  if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family)))
+  if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family))) {
+    // Before the live description arrives, use only the product's existing rail items.
+    const known = appRail(undefined, routes, {
+      origin: location.origin,
+      href: location.href,
+    }).main.find((item) => item.id === family.slice(1));
     routes.push(
       extraRoute(
         family,
         family.slice(1).replace(/^./, (letter) => letter.toUpperCase()),
-        family.slice(1),
+        known?.id ?? 'home',
       ),
     );
+  }
   /** The instance still loading or mounting: a later route load ends it before it draws. */
   let mounting: AbortController | undefined;
   const ownedRoutes: ShellRoute[] = [];
@@ -538,6 +544,8 @@ export function shellApp(): ShellHost | undefined {
       return {
         async mount(slot) {
           if (lifetime.signal.aborted) return;
+          // The live read can replace a cold route's rail identity. Paint it before the module.
+          if (route.id.startsWith('extra:')) slot.setMenu(undefined);
           let active = true;
           let adopted = false;
           let current = slot;

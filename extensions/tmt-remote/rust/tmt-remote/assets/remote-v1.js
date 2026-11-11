@@ -13258,7 +13258,13 @@ function shellApp() {
 	});
 	for (const route of declaredRoutes(rememberedShellAnswer())) if (!routes.some((current) => current.id === route.id)) routes.push(route);
 	const family = `/${location.pathname.split("/")[1] ?? ""}`;
-	if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family))) routes.push(extraRoute(family, family.slice(1).replace(/^./, (letter) => letter.toUpperCase()), family.slice(1)));
+	if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family))) {
+		const known = appRail(void 0, routes, {
+			origin: location.origin,
+			href: location.href
+		}).main.find((item) => item.id === family.slice(1));
+		routes.push(extraRoute(family, family.slice(1).replace(/^./, (letter) => letter.toUpperCase()), known?.id ?? "home"));
+	}
 	/** The instance still loading or mounting: a later route load ends it before it draws. */
 	let mounting;
 	const ownedRoutes = [];
@@ -13280,6 +13286,7 @@ function shellApp() {
 			const module = await route.load(remembered, settled);
 			return { async mount(slot) {
 				if (lifetime.signal.aborted) return;
+				if (route.id.startsWith("extra:")) slot.setMenu(void 0);
 				let active = true;
 				let adopted = false;
 				let current = slot;
