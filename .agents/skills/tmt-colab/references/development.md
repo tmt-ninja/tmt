@@ -94,13 +94,10 @@ uses this inventory and Remote SDK without a local door. Native releases pin
 `TMT_COLAB_HOSTING_DIR` ([Packaging and archives](#packaging-and-archives)). The `hosted-bundle.spec.ts` acceptance runs
 real release-tree files at a logical demo origin under Remote's unchanged composed CSP; the
 `hosted-reader.spec.ts` browser fixture checks the read-only states and responsive renderer.
-After both app builds and the Remote SDK build, run
-`node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` with Java 21 and pinned
-`firebase-tools` 15.29.0 already available. This explicit proof builds private native binaries,
-uses only loopback demo Auth/Firestore, and routes the unchanged composed CSP's three Firebase
-hosts to those emulators. It verifies sign-in, holder enrollment, signed authority and rendered
-content after seeding 100 CLI log originals and one save/wake, attaching per-phase traffic and advisory ledger
-totals. It never uses real Firebase or Docker; provider billing is not inferred from emulator reads.
+The hosted producer/reader emulator proof is CI-only. Reproduce it by rerunning
+its qualifying CI hosted-reader job; the
+[acceptance guidance](acceptance.md#hosted-producerreader-emulator-proof) owns setup,
+isolation and coverage.
 
 Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`
 from `rust/`. Run `hosting` and `deploy_declaration` again with `TMT_COLAB_HOSTING_DIR` set to a
