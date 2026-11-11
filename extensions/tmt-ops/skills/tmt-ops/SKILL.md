@@ -723,7 +723,8 @@ member or an agent that ended shows a dialog to resume, start a new session or o
 shell there; Esc hides it. On a built-in-host member, `t` opens an extra terminal (a login
 shell in its working directory, at most 8) listed under it as "Terminal N"; select one to see
 it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `j` for full screen and
-`x` to close it, which asks first while a program runs there. An ended terminal stays greyed
+`x` to close it, which asks first while a program runs there and names that program when Core
+reports it. The panel's status line names the shell Core reports. An ended terminal stays greyed
 until `x` removes it or the board restarts. Every other member opens on its chat, where Enter composes as
 for a tmux member. A left drag over the screen selects its text and copies it with the
 chat's Copy. While a program asked for the mouse, Ops ignores a plain drag (only the wheel

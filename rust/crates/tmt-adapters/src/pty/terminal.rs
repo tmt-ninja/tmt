@@ -49,6 +49,32 @@ pub struct Terminal {
     pub socket: String,
     pub busy: bool,
     pub created_ms: u64,
+    /// The name of the terminal's shell, from a supervisor that reports it (#6112).
+    pub shell: Option<String>,
+    /// The name of the program in the foreground, only while `busy` and known.
+    pub program: Option<String>,
+}
+
+/// What a terminal supervisor says about itself.
+struct Answer {
+    owner: String,
+    created_ms: u64,
+    busy: bool,
+    shell: Option<String>,
+    program: Option<String>,
+}
+
+impl Answer {
+    fn terminal(self, pty: &Path, id: String) -> Terminal {
+        Terminal {
+            socket: socket_path(pty, &id).to_string_lossy().into_owned(),
+            id,
+            busy: self.busy,
+            created_ms: self.created_ms,
+            shell: self.shell,
+            program: self.program,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -241,12 +267,7 @@ pub fn open(
     let terminal = ask(&pty, &id, Instant::now() + Duration::from_secs(3)).map_err(uncertain)?;
     let _ = fs::remove_file(&log_path);
     match terminal {
-        Some(terminal) if terminal.0 == owner.identity => Ok(Terminal {
-            socket: socket_path(&pty, &id).to_string_lossy().into_owned(),
-            id,
-            busy: terminal.2,
-            created_ms: terminal.1,
-        }),
+        Some(answer) if answer.owner == owner.identity => Ok(answer.terminal(&pty, id)),
         _ => Err(uncertain(io::Error::other(
             "the terminal did not name its owner",
         ))),
@@ -275,15 +296,10 @@ pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
         let Ok((id, answer)) = answers.recv_timeout(remaining + Duration::from_millis(50)) else {
             break;
         };
-        if let Some((owner, created_ms, busy)) = answer
-            && owner == identity
+        if let Some(answer) = answer
+            && answer.owner == identity
         {
-            terminals.push(Terminal {
-                socket: socket_path(&pty, &id).to_string_lossy().into_owned(),
-                id,
-                busy,
-                created_ms,
-            });
+            terminals.push(answer.terminal(&pty, id));
         }
     }
     terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
@@ -297,10 +313,10 @@ pub fn close(paths: &ConfigPaths, id: &str, force: bool) -> Result<(), TerminalE
     if !is_terminal_id(id) || super::validate(&pty, id).is_err() {
         return Err(TerminalError::NotFound);
     }
-    let Some((_, _, busy)) = ask(&pty, id, Instant::now() + PER_SOCKET).ok().flatten() else {
+    let Some(answer) = ask(&pty, id, Instant::now() + PER_SOCKET).ok().flatten() else {
         return Err(TerminalError::NotFound);
     };
-    if busy && !force {
+    if answer.busy && !force {
         return Err(TerminalError::Busy);
     }
     close_now(&pty, id, Instant::now() + CLOSE_WAIT)
@@ -373,20 +389,55 @@ fn close_now(pty: &Path, id: &str, deadline: Instant) -> Result<(), TerminalErro
     Ok(())
 }
 
-/// `(owner, created_ms, busy)` from a terminal supervisor, `None` from anything else.
-fn ask(pty: &Path, id: &str, deadline: Instant) -> io::Result<Option<(String, u64, bool)>> {
+/// What a terminal supervisor says about itself, `None` from anything else. A
+/// supervisor that grants the terminal-detail capability also names its shell and
+/// foreground program; an older one is asked the released `Control::Terminal`.
+fn ask(pty: &Path, id: &str, deadline: Instant) -> io::Result<Option<Answer>> {
     let mut client = Connection::connect_until(pty, id, deadline)?;
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    Ok(
-        match client.control(Control::Terminal, remaining.max(Duration::from_millis(1)))? {
-            ControlReply::Terminal {
-                owner,
-                created_ms,
-                busy,
-            } => Some((owner, created_ms, busy)),
-            _ => None,
-        },
-    )
+    let remaining = || {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_millis(1))
+    };
+    let detail = matches!(
+        client.control(Control::Capabilities, remaining())?,
+        ControlReply::Capabilities {
+            terminal_detail: true,
+            ..
+        }
+    );
+    let request = if detail {
+        Control::TerminalDetail
+    } else {
+        Control::Terminal
+    };
+    Ok(match client.control(request, remaining())? {
+        ControlReply::Terminal {
+            owner,
+            created_ms,
+            busy,
+        } => Some(Answer {
+            owner,
+            created_ms,
+            busy,
+            shell: None,
+            program: None,
+        }),
+        ControlReply::TerminalDetail {
+            owner,
+            created_ms,
+            busy,
+            shell,
+            program,
+        } => Some(Answer {
+            owner,
+            created_ms,
+            busy,
+            shell,
+            program,
+        }),
+        _ => None,
+    })
 }
 
 /// The `term_` ids with a socket in the pty directory.

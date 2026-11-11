@@ -507,10 +507,18 @@ directory}` once the new supervisor names its owner. `terminalId` and `pane` are
   `TERMINAL_OPEN_UNCONFIRMED` names the terminal id in its message: it may be running,
   so a caller lists or closes it and never opens again to retry.
 - `terminal.list` `{identityId}` answers `{identityId, terminals: [{terminalId,
-socket, pane, busy, createdMs}]}`, oldest first, with the same identity errors. It
+socket, pane, busy, createdMs, shell?, program?}]}`, oldest first, with the same identity errors. It
   opens no stream and types nothing. All supervisors are asked at once within 500 ms;
   one that does not answer is left out. `busy` means a program other than the shell runs in
   the foreground.
+  - `shell` is the file name of the shell the terminal started, such as `zsh`.
+  - `program` names the foreground job's process group leader, such as `cargo`. It is
+    present only while `busy` and readable, and absent while the shell itself holds the
+    terminal.
+  - Both are untrusted display text that a process can set, never authority. Core drops
+    control characters (escape sequences included) and bidirectional overrides and cuts each
+    name to 64 bytes on a UTF-8 boundary. An unknown or empty name is left out, and so is
+    each name from a terminal started by an earlier tmt that does not report them.
 - `terminal.close` `{terminalId, force?}` answers `{terminalId, closed: true}` once
   the supervisor hung up its shell and ended. A busy terminal without `force: true` is
   `TERMINAL_BUSY`, and nothing is sent; a caller confirms, then calls again with

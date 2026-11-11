@@ -8,6 +8,8 @@ fn terminal(n: u8, created_ms: u64, busy: bool) -> Listed {
         socket: PathBuf::from(format!("/tmp/pty/term_{n}.sock")),
         busy,
         created_ms,
+        shell: None,
+        program: None,
     }
 }
 
@@ -196,6 +198,31 @@ fn only_core_shaped_terminals_are_read() {
     }
 }
 
+/// Core cleans the names; the board still keeps control characters off the screen and
+/// takes a program only while busy (#6112).
+#[test]
+fn shell_and_program_names_are_display_text_and_a_program_needs_busy() {
+    let id = format!("term_{}", "ab".repeat(16));
+    let read = |busy: bool, shell: &str, program: &str| {
+        let value = serde_json::json!({"terminalId": id, "socket": "/tmp/pty/x.sock",
+            "busy": busy, "createdMs": 5, "shell": shell, "program": program});
+        let terminal = super::listed(&value).unwrap();
+        (terminal.shell, terminal.program)
+    };
+    assert_eq!(
+        read(true, "zsh", "cargo"),
+        (Some("zsh".into()), Some("cargo".into()))
+    );
+    assert_eq!(
+        read(true, "\u{1b}]0;x\u{7}zsh", "編譯\u{1b}[2J"),
+        (Some("]0;xzsh".into()), Some("編譯[2J".into()))
+    );
+    assert_eq!(read(false, " ", "sleep"), (None, None));
+    let bare = serde_json::json!({"terminalId": id, "socket": "/tmp/pty/x.sock"});
+    let terminal = super::listed(&bare).unwrap();
+    assert_eq!((terminal.shell, terminal.program), (None, None));
+}
+
 mod board {
     use super::super::{Completed, List, Task};
     use super::terminal;
@@ -305,6 +332,11 @@ mod board {
         select(&mut app, &member, 2);
         press(&mut app, KeyCode::Char('x'));
         assert!(app.modal_open(), "a busy terminal asks first");
+        // Core did not name the program: the body says only that one runs.
+        assert_eq!(
+            app.confirm.as_ref().unwrap().lines(),
+            ["A program is still running. Closing ends it."]
+        );
         assert_eq!(app.terminals.offer(&[], None, 0), None);
         // Cancel is first and the default: Enter changes nothing.
         press(&mut app, KeyCode::Enter);
@@ -321,6 +353,27 @@ mod board {
             app.terminals.offer(&[], None, 0),
             Some(Task::Close { force: true, .. })
         ));
+    }
+
+    #[test]
+    fn the_close_confirm_names_the_program_core_reports() {
+        let (mut app, member) = listed_board();
+        let mut named = terminal(2, 20, true);
+        named.shell = Some("zsh".into());
+        named.program = Some("cargo".into());
+        app.terminals.finished(
+            Completed::Listed(vec![(
+                MEMBER.into(),
+                List::Terminals(vec![terminal(1, 10, false), named]),
+            )]),
+            0,
+        );
+        select(&mut app, &member, 2);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            app.confirm.as_ref().unwrap().lines(),
+            ["A program is still running (cargo). Closing ends it."]
+        );
     }
 
     #[test]

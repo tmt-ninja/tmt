@@ -59,12 +59,13 @@ impl App {
                 let Some((identity, row)) = self.selected_terminal() else {
                     return Effect::None;
                 };
-                let (identity, id, title, ended, busy) = (
+                let (identity, id, title, ended, busy, program) = (
                     identity.to_owned(),
                     row.id.clone(),
                     row.title(),
                     row.ended,
                     row.busy,
+                    row.program.clone(),
                 );
                 if ended {
                     self.terminals.forget(&identity, &id);
@@ -74,7 +75,12 @@ impl App {
                 if busy {
                     return self.confirm(
                         format!("Close {title}?"),
-                        vec!["A program is still running. Closing ends it.".into()],
+                        vec![match program {
+                            Some(program) => {
+                                format!("A program is still running ({program}). Closing ends it.")
+                            }
+                            None => "A program is still running. Closing ends it.".into(),
+                        }],
                         "Close".into(),
                         Choice::CloseTerminal {
                             identity,

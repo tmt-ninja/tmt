@@ -477,7 +477,11 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   with `__pty-serve --terminal-owner <uuid>` plus the member supervisor's PID and start, at
   `term_<32 hex>` in the pty directory. The supervisor is the only record of its owner:
   `Control::Terminal` (`0x2e`, capability bit 3) answers owner, created time and `busy`
-  (`tcgetpgrp` of the master is not the shell). In terminal mode it refuses Publish,
+  (`tcgetpgrp` of the master is not the shell). `Control::TerminalDetail` (`0x2f`, bit 4,
+  #6112) adds the shell's file name and, while busy, the foreground group leader's
+  `tmt_sys::process_name`, both through `display_name`; the released `Terminal` reply keeps
+  its bytes because a released decoder refuses trailing ones, so `pty::terminal` asks
+  `Capabilities` first and falls back to it. In terminal mode it refuses Publish,
   PublishIf and Relaunch, ends when its shell ends, and closes itself when its member
   supervisor's PID and start no longer match. The loop only signals the PID each second
   (`kill(pid, 0)`); the start identity, which needs `ps`, is compared on a helper thread at

@@ -947,6 +947,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
             relaunch: true,
             close: true,
             terminal: false,
+            terminal_detail: false,
         }
     );
     let deadline = Instant::now() + WAIT;
@@ -1781,6 +1782,18 @@ fn busy(terminal: &Member) -> bool {
     }
 }
 
+/// The shell and program names of `Control::TerminalDetail`.
+fn detail_names(terminal: &Member) -> (Option<String>, Option<String>) {
+    match terminal
+        .connect()
+        .control(tmt_pty_protocol::Control::TerminalDetail, WAIT)
+        .unwrap()
+    {
+        tmt_pty_protocol::ControlReply::TerminalDetail { shell, program, .. } => (shell, program),
+        other => panic!("not a terminal detail: {other:?}"),
+    }
+}
+
 #[test]
 fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
     use tmt_pty_protocol::{Control, ControlReply};
@@ -1795,6 +1808,7 @@ fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
             relaunch: false,
             close: true,
             terminal: true,
+            terminal_detail: true,
         }
     );
     assert!(matches!(
@@ -1802,6 +1816,8 @@ fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
         ControlReply::Terminal { ref owner, created_ms: 1_762_300_000_000, busy: false }
             if owner == "11111111-1111-4111-8111-111111111111"
     ));
+    // At the prompt the shell holds the foreground: it is named, no program is (#6112).
+    assert_eq!(detail_names(&terminal), (Some("sh".into()), None));
     let mut client = terminal.connect();
     client
         .control(Control::Paste(b"sleep 30".to_vec()), WAIT)
@@ -1810,6 +1826,15 @@ fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
     let deadline = Instant::now() + WAIT;
     while !busy(&terminal) {
         assert!(Instant::now() < deadline, "sleep never took the terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // The job holds the terminal from the shell's fork until `sleep` is exec'd.
+    while detail_names(&terminal) != (Some("sh".into()), Some("sleep".into())) {
+        assert!(
+            Instant::now() < deadline,
+            "never named: {:?}",
+            detail_names(&terminal)
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
     // It has no binding and no kept terminal to relaunch on.

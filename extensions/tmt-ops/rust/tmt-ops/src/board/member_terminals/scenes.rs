@@ -24,6 +24,8 @@ fn listed(n: u8, busy: bool) -> Listed {
         socket: PathBuf::from(format!("/nonexistent/tmt-terminal/term_{n}.sock")),
         busy,
         created_ms: u64::from(n),
+        shell: Some("zsh".into()),
+        program: busy.then(|| "cargo".into()),
     }
 }
 
