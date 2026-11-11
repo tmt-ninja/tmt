@@ -1007,6 +1007,39 @@ mod tests {
     }
 
     #[test]
+    fn a_link_glued_to_cjk_prose_is_a_link_or_chip_and_the_prose_stays_text() {
+        use super::super::member_links::Target;
+        // Ben's 11-05 case: no space before the address, a full-width colon joins it.
+        let source = "Night 頁連結：http://127.0.0.1:50711/colab/p/36b98efb";
+        let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+        assert_eq!(text(&mapped.lines), ["Night 頁連結：▤ Colab · 36b98efb ↗"]);
+        let references: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(references.len(), 1);
+        assert_eq!(
+            references[0].target,
+            Target::Url("http://127.0.0.1:50711/colab/p/36b98efb".into())
+        );
+        let origin = references[0].source.as_ref().unwrap();
+        assert_eq!(
+            &source[origin.source.clone()],
+            "http://127.0.0.1:50711/colab/p/36b98efb"
+        );
+        // A web link after CJK text ends before full-width punctuation.
+        let source = "請看https://example.com/a。下一步";
+        let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+        assert_eq!(text(&mapped.lines), [source]);
+        let references: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(references.len(), 1);
+        assert_eq!(
+            references[0].target,
+            Target::Url("https://example.com/a".into())
+        );
+        // After an ASCII letter it is one word, not a link.
+        let mapped = render_conversation_with_members("xhttp://x.dev", 200, Look::default(), None);
+        assert!(mapped.mentions.iter().flatten().next().is_none());
+    }
+
+    #[test]
     fn a_file_chip_fits_one_line_and_ellipsizes_instead_of_wrapping() {
         let source = "'/tmp/very_long_file_name_with_spaces_in_it.txt'";
         for width in [1, 2, 3, 4, 12, 24] {

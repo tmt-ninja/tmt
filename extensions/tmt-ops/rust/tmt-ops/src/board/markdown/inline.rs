@@ -39,25 +39,32 @@ impl Renderer<'_> {
         let mut emitted = 0;
         let mut offset = 0;
         for word in text.split_inclusive(char::is_whitespace) {
-            let token = super::super::member_links::word_token(word);
+            let whole = super::super::member_links::word_token(word);
+            // A link glued to prose may sit inside the word; the prose around it stays text.
+            let span = super::super::member_links::link_range(whole);
+            let bare_url = self.link_url.is_none()
+                && super::super::member_links::is_bare_url(&whole[span.clone()]);
+            let (token, at) = if bare_url {
+                (&whole[span.clone()], offset + span.start)
+            } else {
+                (whole, offset)
+            };
             let label = issue_label(token);
-            let bare_url =
-                self.link_url.is_none() && super::super::member_links::is_bare_url(token);
             let numbered = token.strip_prefix('#').is_some_and(|number| {
                 !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
             });
             if label.is_some() || numbered || bare_url {
-                if offset > emitted {
-                    self.push(&text[emitted..offset], style);
+                if at > emitted {
+                    self.push(&text[emitted..at], style);
                 }
                 if let Some(id) = bare_url
                     .then(|| super::super::member_links::colab::page(token))
                     .flatten()
                 {
-                    // The token starts its word; copying the chip copies the address.
+                    // Copying the chip copies the address.
                     let source = self
                         .source_offset(text)
-                        .map(|at| at + offset..at + offset + token.len());
+                        .map(|base| base + at..base + at + token.len());
                     self.push_chip(id, token, source);
                 } else if bare_url {
                     let shown = label.as_deref().unwrap_or(token);
@@ -72,7 +79,7 @@ impl Renderer<'_> {
                 } else {
                     self.push(label.as_deref().unwrap_or(token), link);
                 }
-                emitted = offset + token.len();
+                emitted = at + token.len();
             }
             offset += word.len();
         }
@@ -111,6 +118,15 @@ mod tests {
         let all: String = mapped.lines.iter().map(|line| line.to_string()).collect();
         assert!(all.contains("#42, o/r#7."), "{all}");
         assert!(all.contains("https://github.com/o/r/pull/9"));
+        // A mixed ASCII and full-width tail keeps the issue link.
+        let cjk = render_mapped("見 #43)。", 100, look);
+        let span = cjk
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.content == "#43")
+            .unwrap();
+        assert!(span.style.add_modifier.contains(Modifier::UNDERLINED));
         for text in ["#42", "o/r#7"] {
             let span = mapped
                 .lines
