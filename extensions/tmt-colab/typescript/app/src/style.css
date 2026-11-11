@@ -380,14 +380,39 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-work-band-size, 0px)
   );
 }
-/* The blocks keep the design system's handle gutter (blocks.css: 56px inside the page root). The
-   handle hangs 48px left of its block, so it and the strip between it and the block belong to the
-   root: a pointer on its way to a button has not left the page, whatever the stage's margin (#6273). */
+/* A page of blocks (#6273): the handle hangs 48px left of its block, so the page gives every block
+   that room as an inset of its own. The page bar's title, the To do row and the block text all start
+   one inset in from the bar's edge, and the stage keeps the design system's gutter inside the page
+   root, so the handle and the strip to it belong to the root: a pointer on its way to a button has
+   not left the page, and the handle never reaches the sidebar or the window's edge. On a phone the
+   design system hides the handle, and the inset is its narrow gutter. */
+.tmt-ui-shell:has(.structured-page-stage) {
+  --colab-block-inset: 56px;
+}
 .structured-page-stage {
   box-sizing: border-box;
-  width: min(1280px, calc(100% - var(--colab-lane) - 32px));
-  margin-inline: auto;
+  max-width: 1280px;
+  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   padding-block-start: 16px;
+}
+.structured-page-stage .tmt-block-doc-body {
+  --tmt-block-gutter: var(--colab-block-inset);
+}
+.page-main:has(.structured-page-stage) .work-head {
+  padding-inline-start: calc(var(--work-gutter) + var(--colab-block-inset));
+}
+@media (min-width: 901px) {
+  .tmt-ui-shell:has(.structured-page-stage) .tmt-ui-topbar-navigation {
+    padding-inline-start: var(--colab-block-inset);
+  }
+}
+@media (max-width: 600px) {
+  .tmt-ui-shell:has(.structured-page-stage) {
+    --colab-block-inset: 8px;
+  }
+  .structured-page-stage .tmt-block-handle {
+    display: none;
+  }
 }
 .tmt-block-empty-start {
   display: block;

@@ -104,3 +104,35 @@ for (const width of [1440, 800])
       const root = (await page.locator('.structured-page-stage .tmt-block-doc').boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(root.x);
     });
+
+/** The left edge of an element's text, not of its box. */
+const textEdge = (page: Page, selector: string) =>
+  page
+    .locator(selector)
+    .first()
+    .evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return Math.round(range.getBoundingClientRect().left);
+    });
+
+for (const width of [1440, 800, 390])
+  test(`at ${width}px the blocks' text lines up with the page bar's text`, async ({ page }) => {
+    await mountShell(page, width);
+    const text = await textEdge(page, '.structured-page-stage [data-block-id="one"]');
+    // The To do row under the bar, at every width.
+    expect(text).toBe(await textEdge(page, '.work-head-chip'));
+    // The page title, where the bar shows it at the page's edge (beside the sidebar).
+    if (width > 900) expect(text).toBe(await textEdge(page, '.tmt-ui-topbar-title h1'));
+  });
+
+test('at 390px a phone shows no handle, as the design system says', async ({ page }) => {
+  await mountShell(page, 390);
+  const target = page.locator('.structured-page-stage [data-block-id="two"]');
+  const box = (await target.boundingBox())!;
+  await page.mouse.move(box.x + 30, box.y + 12);
+  await expect(target).toHaveCSS('background-color', /.+/);
+  await expect(page.locator('.structured-page-stage [data-slot="block-handle"]')).toBeHidden();
+  // Nothing of the page reaches past the window.
+  expect(box.x).toBeGreaterThanOrEqual(0);
+});
