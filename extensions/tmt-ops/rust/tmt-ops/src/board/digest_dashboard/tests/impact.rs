@@ -639,7 +639,10 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
                 room_id: Some(room.clone()),
                 identity_id: id.clone(),
             },
-            serde_json::json!({"id":id,"name":name,"state":"working"}),
+            serde_json::json!({"id":id,"name":name,"session":{"activity":{
+                "state": if i % 2 == 0 { "idle" } else { "working" },
+                "sinceMs": now - (i as u64 - 6) * 3_600_000
+            }}}),
         );
     }
     let ids: Vec<_> = workspace.roster.members.keys().cloned().collect();
@@ -807,6 +810,16 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
             );
         }
     });
+}
+
+#[test]
+fn spec_list_names_activity_window_and_missing_sources() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    assert!(shown.contains("ACTIVITY · last 1d"), "{shown}");
+    assert!(shown.contains("rows ·"), "{shown}");
+    let all_rows = paint(&mut app, 160, 50);
+    assert!(all_rows.contains("no usage source"), "{all_rows}");
 }
 
 #[test]

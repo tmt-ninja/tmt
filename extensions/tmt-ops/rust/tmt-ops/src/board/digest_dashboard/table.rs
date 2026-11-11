@@ -36,7 +36,7 @@ pub(super) fn tracks(width: u16, unit: SavingsUnit) -> Vec<(Field, u16)> {
     let _ = unit; // The unit affects window totals, never the list's fixed columns.
     let mut fields = vec![(Agent, 14u16), (State, 12u16)];
     if width >= 76 {
-        fields.push((Activity, if width >= 112 { 24 } else { 12 }));
+        fields.push((Activity, if width >= 86 { 21 } else { 12 }));
     }
     fields.extend([(Tokens, 7), (Saved, 7), (Percent, 8), (Held, 6), (Mode, 8)]);
 
@@ -130,17 +130,20 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|(field, width)| {
             let caption = match field {
-                Field::Agent => "AGENT",
-                Field::State => "STATE",
-                Field::Activity => "ACTIVITY",
-                Field::Tokens => "TOK",
-                Field::Percent => "SAVED %",
-                Field::Saved => "SAVED",
-                Field::Held => "HELD",
-                Field::Mode => "MODE",
+                Field::Agent => "AGENT".to_owned(),
+                Field::State => "STATE".to_owned(),
+                Field::Activity if *width >= 21 => {
+                    format!("ACTIVITY · last {} →", app.digest_window().label())
+                }
+                Field::Activity => "ACTIVITY".to_owned(),
+                Field::Tokens => "TOK".to_owned(),
+                Field::Percent => "SAVED %".to_owned(),
+                Field::Saved => "SAVED".to_owned(),
+                Field::Held => "HELD".to_owned(),
+                Field::Mode => "MODE".to_owned(),
             };
             tmt_tui::components::design_system::TotalsColumn {
-                header: fit(caption, usize::from(*width)),
+                header: fit(&caption, usize::from(*width)),
                 width: *width,
                 role: tmt_tui::components::design_system::Token(Role::Text),
                 right_aligned: false,
@@ -188,9 +191,17 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let room = usize::from(inside.width)
         .saturating_sub(unicode_width::UnicodeWidthStr::width(notes.as_str()))
         .saturating_sub(if notes.is_empty() { 0 } else { 3 });
+    let offset = app.scrolls.offset(Pane::Rows).min(rows.len());
+    let count = usize::from(inside.height.saturating_sub(1));
+    let end = (offset + count).min(rows.len());
     let footer = [
-        Some(format!("· = no observation · blank = 0 · {notes}")),
         narrow_hint(inside.width, unit, room),
+        Some(format!(
+            "{}–{} / {} rows · · = no usage observed in that hour · {notes}",
+            if rows.is_empty() { 0 } else { offset + 1 },
+            end,
+            rows.len()
+        )),
     ]
     .into_iter()
     .flatten()
@@ -335,10 +346,22 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                         .any(|missing| missing.who.id.as_deref() == Some(*id))
                             })
                         }) {
-                            if matches!(field, Field::Activity)
-                                || !fields.iter().any(|(f, _)| matches!(f, Field::Activity))
-                                    && matches!(field, Field::Tokens)
-                            {
+                            if matches!(field, Field::Activity) {
+                                ds::ActivityCells::render(
+                                    &ds::ActivityCellsProps {
+                                        values: vec![None; usize::from(slot.width)],
+                                        selected,
+                                    },
+                                    ds::Rect {
+                                        x: slot.x - cell.x,
+                                        y: 0,
+                                        width: slot.width,
+                                        height: 1,
+                                    },
+                                    grid,
+                                );
+                            }
+                            if matches!(field, Field::Tokens) {
                                 let end = fields
                                     .iter()
                                     .scan(cell.x, |x, (f, w)| {
