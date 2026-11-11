@@ -728,25 +728,6 @@ fn compact_detail_lines(
     front
 }
 
-#[cfg(test)]
-mod typed_row_tests {
-    use super::*;
-    use crate::board::digest_dashboard::details::PanelRow;
-
-    #[test]
-    fn messages_that_resemble_markup_stay_text() {
-        for text in [
-            "── timer ──",
-            "mode Auto Interval Off Use default",
-            "used trend 100",
-            "model · 50% · 100",
-        ] {
-            let rows = compact_detail_lines(vec![PanelRow::Text(text.into())], 80);
-            assert!(matches!(&rows[0], PanelRow::Text(value) if value == text));
-        }
-    }
-}
-
 /// Clock evidence uses the same visible wrapped projection as paint.
 pub(in crate::board) fn details_clock_mark(
     app: &App,
@@ -774,4 +755,23 @@ pub(in crate::board) fn details_clock_mark(
 /// The status-row and Impact `Estimate basis…` buttons open the Evidence modal over the board.
 pub(in crate::board) fn open_basis(app: &mut App) -> crate::board::app::Effect {
     app.open_estimate_basis()
+}
+
+#[cfg(test)]
+mod typed_row_tests {
+    use super::*;
+    use crate::board::digest_dashboard::details::PanelRow;
+
+    #[test]
+    fn messages_that_resemble_markup_stay_text() {
+        for text in [
+            "── timer ──",
+            "mode Auto Interval Off Use default",
+            "used trend 100",
+            "model · 50% · 100",
+        ] {
+            let rows = compact_detail_lines(vec![PanelRow::Text(text.into())], 80);
+            assert!(matches!(&rows[0], PanelRow::Text(value) if value == text));
+        }
+    }
 }
