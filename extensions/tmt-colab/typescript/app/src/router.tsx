@@ -2003,18 +2003,25 @@ function OpenPage({
         : state === 'loading'
           ? text.loading
           : text.blocked;
-  const deepThread = useRef<string | null>(null);
+  // The thread the address names when the page opens (a link with `#t=`), shown once it exists.
+  // Opening a thread later writes the address too, but that is not a link: a change to the threads
+  // afterwards must never open Comments again, close Chat or move focus (#6266).
+  const deepThread = useRef<{ page: string; thread: string } | null>(null);
   useEffect(() => {
-    const fragment = environment.threadFragment();
-    if (state !== 'ready' || !fragment) return;
-    const target = fragment.read();
-    if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
-    const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
+    const target = environment.threadFragment()?.read();
+    deepThread.current = target ? { page: snapshot.id, thread: target } : null;
+  }, [environment, snapshot.id]);
+  useEffect(() => {
+    const target = deepThread.current;
+    if (state !== 'ready' || target?.page !== snapshot.id) return;
+    const thread = view.threads?.find(
+      (value) => value.threadId === target.thread && !value.deleted,
+    );
     if (!thread) return;
-    deepThread.current = `${snapshot.id}:${target}`;
+    deepThread.current = null;
     showThread(`${thread.ref.writer}:${thread.ref.id}`);
     renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
-  }, [environment, showThread, state, snapshot.id, view.threads]);
+  }, [showThread, state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked =
