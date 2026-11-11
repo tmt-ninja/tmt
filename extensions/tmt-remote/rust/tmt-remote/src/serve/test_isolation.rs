@@ -3,8 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Open project locks only after exec in a one-case process: parallel sibling
-/// invocation forks must not inherit this fixture's credential, budget or serving locks.
+/// Open fixture resources only after exec in a one-case process: parallel sibling
+/// invocation forks must not inherit its locks or keep its listeners alive after cleanup.
 /// The existing invocation owner bounds, terminates and reaps a failed child.
 pub(crate) fn isolated_case(case: &str) -> bool {
     const MARKER: &str = "TMT_REMOTE_ISOLATED_TEST_CASE";

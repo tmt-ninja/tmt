@@ -23,6 +23,8 @@ mod deploy_fixture;
 mod executable_fixture;
 #[path = "cli/sync_commands.rs"]
 mod sync_commands;
+#[path = "../src/serve/test_isolation.rs"]
+mod test_isolation;
 use tmt_remote::{deploy_record::DeployRecordStore, error::RemoteError};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
