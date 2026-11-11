@@ -109,17 +109,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     app.cron_glyphs,
                     crate::board::overview::cron_counts::GlyphSet::Ascii
                 );
-                let style = app.look().role(Role::Dim);
-                if app.focused() != Pane::Replies {
-                    frame.buffer_mut()[(side.x, side.y)]
-                        .set_symbol(if ascii { "+" } else { "┬" })
-                        .set_style(style);
-                }
-                for y in side.y + 1..side.bottom() {
-                    frame.buffer_mut()[(side.x, y)]
-                        .set_symbol(if ascii { "|" } else { "│" })
-                        .set_style(style);
-                }
+                let focused = app.focused() == Pane::Replies;
+                crate::board::divider::paint_with_glyphs(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        side.x,
+                        side.y + u16::from(focused),
+                        1,
+                        side.height - u16::from(focused),
+                    ),
+                    !focused,
+                    ascii,
+                    app.look(),
+                );
             }
             inside
         } else {
@@ -359,68 +361,87 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                     .take(usize::from(viewport.height))
                     .enumerate()
                 {
-                    let text = line.to_string();
-                    if let Some(title) = text
-                        .strip_prefix("── ")
-                        .and_then(|text| text.strip_suffix(" ──"))
-                    {
-                        let (title, note) = title
-                            .split_once(" | ")
-                            .map_or((title, None), |(title, note)| {
-                                (title, Some(note.to_owned()))
-                            });
-                        ds::SectionRule::render(
-                            &ds::SectionRuleProps {
-                                title: title.into(),
-                                note,
-                                note_role: None,
-                                focused: false,
-                            },
-                            ds::Rect {
-                                x: 0,
-                                y: y as u16,
-                                width: viewport.width,
-                                height: 1,
-                            },
-                            grid,
-                        );
-                        continue;
+                    use super::details::PanelRow;
+                    let area = ds::Rect {
+                        x: 0,
+                        y: y as u16,
+                        width: viewport.width,
+                        height: 1,
+                    };
+                    match line {
+                        PanelRow::Rule { title, note } => {
+                            ds::SectionRule::render(
+                                &ds::SectionRuleProps {
+                                    title: title.clone(),
+                                    note: note.clone(),
+                                    note_role: None,
+                                    focused: false,
+                                },
+                                area,
+                                grid,
+                            );
+                        }
+                        PanelRow::ModeChips {
+                            text,
+                            selected,
+                            cursor,
+                        } => {
+                            paint_mode_chips(
+                                grid,
+                                y as u16,
+                                viewport.width,
+                                text,
+                                *selected,
+                                *cursor,
+                            );
+                        }
+                        PanelRow::Trend { saved, total } => {
+                            paint_trend(app, grid, y as u16, viewport.width, *saved, total);
+                        }
+                        PanelRow::Model {
+                            name,
+                            amount,
+                            total,
+                            partial,
+                        } => {
+                            if let (Ok(numerator), Ok(denominator)) =
+                                (u64::try_from(*amount), u64::try_from(*total))
+                            {
+                                ds::Gauge::render(
+                                    &ds::GaugeProps {
+                                        label: name.clone(),
+                                        label_width: 18,
+                                        numerator,
+                                        denominator,
+                                        total: Some(format!(
+                                            "{}{}",
+                                            crate::source::tokens(*amount),
+                                            if *partial { " partial" } else { "" }
+                                        )),
+                                        filled_role: ds::Token(Role::Text),
+                                        rest_role: ds::Token(Role::Muted),
+                                    },
+                                    area,
+                                    grid,
+                                );
+                            } else {
+                                grid.text(area, &line.to_string(), Role::Text, None);
+                            }
+                        }
+                        PanelRow::Text(text) => {
+                            ds::Text::render(
+                                &ds::TextProps {
+                                    spans: vec![ds::TextSpan {
+                                        text: text.clone(),
+                                        role: ds::Token(Role::Text),
+                                        bold: false,
+                                    }],
+                                },
+                                area,
+                                grid,
+                            );
+                        }
                     }
-                    if paint_mode_chips(app, grid, y as u16, viewport.width, &text) {
-                        continue;
-                    }
-                    if paint_trend(app, grid, y as u16, viewport.width, &text) {
-                        continue;
-                    }
-                    if let Some(props) = model_gauge(app, &text) {
-                        ds::Gauge::render(
-                            &props,
-                            ds::Rect {
-                                x: 0,
-                                y: y as u16,
-                                width: viewport.width,
-                                height: 1,
-                            },
-                            grid,
-                        );
-                        continue;
-                    }
-                    ds::Text::render(
-                        &ds::TextProps {
-                            spans: vec![ds::TextSpan {
-                                text: line.to_string(),
-                                role: ds::Token(Role::Text),
-                                bold: false,
-                            }],
-                        },
-                        ds::Rect {
-                            x: 0,
-                            y: y as u16,
-                            width: viewport.width,
-                            height: 1,
-                        },
-                        grid,
-                    );
                 }
             });
         },
@@ -439,32 +460,16 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn paint_mode_chips(
-    app: &App,
     grid: &mut tmt_tui::components::design_system::CellGrid,
     y: u16,
     width: u16,
     line: &str,
-) -> bool {
+    selected: Option<usize>,
+    cursor: Option<usize>,
+) {
     use ds::Component;
     use tmt_tui::components::design_system as ds;
-    let compact =
-        line.starts_with("Delivery ·") && line.contains("mode Auto Interval Off Use default");
-    if !compact
-        && !line.starts_with("mode Auto Interval Off Use default")
-        && !line.trim_start_matches(['▸', ' ']).starts_with("mode ")
-    {
-        return false;
-    }
-    let inline = app.digest_inline.as_ref();
-    let selected = inline.map(|edit| edit.mode).or_else(|| {
-        let id = app.selected_row()?.get("id")?.as_str()?;
-        let member = app.labels.digest()?.0.members.get(id)?;
-        Some(match member.mode {
-            crate::labels::digest::Mode::Auto => 0,
-            crate::labels::digest::Mode::Interval => 1,
-            crate::labels::digest::Mode::Off => 2,
-        })
-    });
+    let compact = line.starts_with("Delivery ·");
     ds::ChipRow::render(
         &ds::ChipRowProps {
             label: if compact {
@@ -484,8 +489,8 @@ fn paint_mode_chips(
                 })
                 .collect(),
             selected,
-            cursor: inline.filter(|edit| edit.field == 0).map(|edit| edit.mode),
-            active: inline.is_some_and(|edit| edit.field == 0),
+            cursor,
+            active: cursor.is_some(),
         },
         ds::Rect {
             x: 0,
@@ -495,7 +500,6 @@ fn paint_mode_chips(
         },
         grid,
     );
-    true
 }
 
 fn paint_trend(
@@ -503,24 +507,18 @@ fn paint_trend(
     grid: &mut tmt_tui::components::design_system::CellGrid,
     y: u16,
     width: u16,
-    line: &str,
-) -> bool {
+    saved: bool,
+    total: &str,
+) {
     use ds::Component;
     use tmt_tui::components::design_system as ds;
     use unicode_width::UnicodeWidthStr;
-    let (saved, total) = if let Some(total) = line.strip_prefix("used trend ") {
-        (false, total)
-    } else if let Some(total) = line.strip_prefix("saved trend ") {
-        (true, total)
-    } else {
-        return false;
-    };
     let rows = app.workspace_rows();
     let Some(row) = rows
         .iter()
         .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
     else {
-        return false;
+        return;
     };
     let ids = metrics::identities(row, &rows);
     let buckets = super::summary::capture_buckets(app, &ids);
@@ -570,46 +568,6 @@ fn paint_trend(
         Role::Text,
         None,
     );
-    true
-}
-
-/// Turn an admitted model row into the matching component without inventing attribution.
-fn model_gauge(app: &App, line: &str) -> Option<tmt_tui::components::design_system::GaugeProps> {
-    use tmt_tui::components::design_system as ds;
-    let (name, _) = line.split_once(" · ")?;
-    let rows = app.workspace_rows();
-    let row = rows
-        .iter()
-        .find(|row| Some(&row.target) == app.workspace.selected.as_ref())?;
-    let ids = metrics::identities(row, &rows);
-    let report = metrics::report(app)?;
-    let mut amount = 0u64;
-    let mut found = false;
-    for id in &ids {
-        if let Some(models) = report.seat(id).and_then(|seat| seat.model_totals.as_ref()) {
-            for (model, value) in models {
-                if model == name {
-                    amount = amount.checked_add(*value)?;
-                    found = true;
-                }
-            }
-        }
-    }
-    let (total, partial) = metrics::tokens(Some(report), &ids)?;
-    let total = u64::try_from(total).ok()?;
-    found.then(|| ds::GaugeProps {
-        label: name.into(),
-        label_width: 18,
-        numerator: amount,
-        denominator: total,
-        total: Some(format!(
-            "{}{}",
-            crate::source::tokens(u128::from(amount)),
-            if partial { " partial" } else { "" }
-        )),
-        filled_role: ds::Token(Role::Text),
-        rest_role: ds::Token(Role::Muted),
-    })
 }
 
 const BASIS: &str = "Estimate basis…";
@@ -620,11 +578,13 @@ pub(super) fn detail_lines(
     height: u16,
     now_ms: u64,
     row: Option<&serde_json::Value>,
-) -> Vec<Line<'static>> {
+) -> Vec<super::details::PanelRow> {
+    use super::details::PanelRow;
     let mut lines = super::details::panel(app, now_ms, row);
-    // Keep the evidence in the basis view; short panels prioritise the interactive sections.
     if height < 20 {
-        lines.retain(|line| !line.starts_with("Status observed:"));
+        lines.retain(
+            |line| !matches!(line, PanelRow::Text(text) if text.starts_with("Status observed:")),
+        );
     }
     let lines = if height <= 10 && width >= 60 && app.digest_inline.is_none() {
         compact_detail_lines(lines, usize::from(width))
@@ -633,104 +593,158 @@ pub(super) fn detail_lines(
     };
     lines
         .into_iter()
-        .flat_map(|text| {
-            use unicode_width::UnicodeWidthStr;
-            if text.starts_with("held ")
-                && text.width() > usize::from(width)
-                && let Some((first, last)) = text.split_once(" · last ")
-            {
-                let mut lines =
-                    crate::board::notes::wrap(&format!("{first} · …"), usize::from(width));
-                lines.extend(crate::board::notes::wrap(
-                    &format!("last {last}"),
-                    usize::from(width),
-                ));
-                return lines;
+        .flat_map(|line| match line {
+            PanelRow::Text(text) => {
+                use unicode_width::UnicodeWidthStr;
+                let wrapped = if text.starts_with("held ") && text.width() > usize::from(width) {
+                    if let Some((first, last)) = text.split_once(" · last ") {
+                        let mut lines =
+                            crate::board::notes::wrap(&format!("{first} · …"), usize::from(width));
+                        lines.extend(crate::board::notes::wrap(
+                            &format!("last {last}"),
+                            usize::from(width),
+                        ));
+                        lines
+                    } else {
+                        crate::board::notes::wrap(
+                            &crate::board::notes::sanitize(&text),
+                            usize::from(width),
+                        )
+                    }
+                } else {
+                    crate::board::notes::wrap(
+                        &crate::board::notes::sanitize(&text),
+                        usize::from(width),
+                    )
+                };
+                wrapped.into_iter().map(PanelRow::Text).collect::<Vec<_>>()
             }
-            crate::board::notes::wrap(&crate::board::notes::sanitize(&text), usize::from(width))
+            other => vec![other],
         })
-        .map(|text| Line::styled(text, app.look().role(Role::Text)))
         .collect()
 }
-/// Put each section's first value in view, keeping the remaining full values scrollable.
-fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
+
+/// Put each section's first value in view, keeping the remainder scrollable.
+fn compact_detail_lines(
+    lines: Vec<super::details::PanelRow>,
+    width: usize,
+) -> Vec<super::details::PanelRow> {
+    use super::details::PanelRow;
     use unicode_width::UnicodeWidthStr;
-    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    let mut groups: Vec<(String, Option<String>, Vec<PanelRow>)> = Vec::new();
     for line in lines {
-        if line.starts_with("── ") && line.ends_with(" ──") {
-            groups.push((line.trim_matches('─').trim().to_owned(), Vec::new()));
-        } else if let Some((_, items)) = groups.last_mut() {
-            items.push(line);
-        } else {
-            groups.push((String::new(), vec![line]));
+        match line {
+            PanelRow::Rule { title, note } => groups.push((title, note, Vec::new())),
+            other => {
+                if let Some((_, _, items)) = groups.last_mut() {
+                    items.push(other);
+                } else {
+                    groups.push((String::new(), None, vec![other]));
+                }
+            }
         }
     }
     let mut front = Vec::new();
     let mut remainder = Vec::new();
-    for (heading, mut items) in groups {
-        if heading.starts_with("Delivery |") {
-            let mode = heading
-                .split_once(" | ")
-                .map(|(_, value)| value.split(" · ").next().unwrap_or("unavailable"))
-                .unwrap_or("unavailable");
-            if let Some(index) = items.iter().position(|item| item.starts_with("held ")) {
-                let held = items.remove(index);
+    for (title, note, mut items) in groups {
+        if title == "Delivery"
+            && let Some(note) = &note
+        {
+            let mode = note.split(" · ").next().unwrap_or("unavailable");
+            if let Some(index) = items
+                .iter()
+                .position(|item| matches!(item, PanelRow::Text(text) if text.starts_with("held ")))
+            {
+                let PanelRow::Text(held) = items.remove(index) else {
+                    unreachable!()
+                };
                 let (summary, last) = held
                     .split_once(" · last ")
                     .map_or((held.as_str(), None), |(summary, last)| {
                         (summary, Some(last))
                     });
-                front.push(format!("Delivery · {mode} · {summary}"));
-                items.retain(|item| !item.starts_with("mode Auto Interval Off Use default"));
+                front.push(PanelRow::Text(format!("Delivery · {mode} · {summary}")));
+                items.retain(|item| !matches!(item, PanelRow::ModeChips { text, .. } if text.starts_with("mode Auto Interval Off Use default")));
                 if let Some(last) = last {
-                    items.insert(0, format!("last {last}"));
+                    items.insert(0, PanelRow::Text(format!("last {last}")));
                 }
                 remainder.extend(items);
                 continue;
             }
         }
-        let priority = heading == "Delivery"
-            || heading.starts_with("Delivery |")
-            || heading.starts_with("Saved ·")
-            || heading.starts_with("Models ·");
+        let heading = match &note {
+            Some(note) => format!("{title} · {note}"),
+            None => title.clone(),
+        };
+        let priority =
+            title == "Delivery" || title.starts_with("Saved ·") || title.starts_with("Models ·");
         if priority {
-            let first = if heading.starts_with("Saved ·")
-                && items.len() >= 2
-                && items[0].starts_with("used trend ")
-                && items[1].starts_with("saved trend ")
-            {
-                Some(format!(
-                    "used {} · saved {}",
-                    items[0].trim_start_matches("used trend "),
-                    items[1].trim_start_matches("saved trend ")
-                ))
+            let first = if title.starts_with("Saved ·") && items.len() >= 2 {
+                match (&items[0], &items[1]) {
+                    (
+                        PanelRow::Trend {
+                            saved: false,
+                            total: used,
+                        },
+                        PanelRow::Trend {
+                            saved: true,
+                            total: saved,
+                        },
+                    ) => Some(format!("used {used} · saved {saved}")),
+                    _ => {
+                        if items.is_empty() {
+                            None
+                        } else {
+                            Some(items.remove(0).to_string())
+                        }
+                    }
+                }
             } else if items.is_empty() {
                 None
             } else {
-                Some(items.remove(0))
+                Some(items.remove(0).to_string())
             };
             match first {
                 Some(value) if heading.width() + 3 + value.width() <= width => {
-                    front.push(format!("{} · {value}", heading.replace(" | ", " · ")))
+                    front.push(PanelRow::Text(format!("{heading} · {value}")))
                 }
                 Some(value) => {
-                    front.push(heading.replace(" | ", " · "));
-                    front.push(value);
+                    front.push(PanelRow::Text(heading.clone()));
+                    front.push(PanelRow::Text(value));
                 }
-                None => front.push(heading.replace(" | ", " · ")),
+                None => front.push(PanelRow::Text(heading.clone())),
             }
         }
         if !items.is_empty() {
             if !heading.is_empty() && !priority {
-                items[0] = format!("{} · {}", heading.replace(" | ", " · "), items[0]);
+                items[0] = PanelRow::Text(format!("{heading} · {}", items[0]));
             }
             remainder.extend(items);
         } else if !priority && !heading.is_empty() {
-            remainder.push(heading.replace(" | ", " · "));
+            remainder.push(PanelRow::Text(heading));
         }
     }
     front.extend(remainder);
     front
+}
+
+#[cfg(test)]
+mod typed_row_tests {
+    use super::*;
+    use crate::board::digest_dashboard::details::PanelRow;
+
+    #[test]
+    fn messages_that_resemble_markup_stay_text() {
+        for text in [
+            "── timer ──",
+            "mode Auto Interval Off Use default",
+            "used trend 100",
+            "model · 50% · 100",
+        ] {
+            let rows = compact_detail_lines(vec![PanelRow::Text(text.into())], 80);
+            assert!(matches!(&rows[0], PanelRow::Text(value) if value == text));
+        }
+    }
 }
 
 /// Clock evidence uses the same visible wrapped projection as paint.

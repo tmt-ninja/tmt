@@ -324,12 +324,12 @@ fn digest_redesign_delivery_eligibility_is_a_countdown_and_null_delivery_is_hidd
     let _no_commands = crate::runner::forbid_commands();
     let mut app = capture_case("digest-chart-day", crate::look::Look::default());
     let now = app.labels.digest().unwrap().0.observed_at_ms;
-    let panel = super::super::details::panel(&app, now, app.selected_row()).join("\n");
+    let panel = super::super::details::panel_text(&app, now, app.selected_row()).join("\n");
     assert!(panel.contains("next eligible in 1 min"), "{panel}");
     assert!(panel.contains("8 → 2"));
     assert!(panel.contains("unattributed"));
     app.labels = crate::labels::Supplied::from_document("digest", &valued_document(), false);
-    let panel = super::super::details::panel(&app, now, app.selected_row()).join("\n");
+    let panel = super::super::details::panel_text(&app, now, app.selected_row()).join("\n");
     assert!(!panel.contains("last "));
 }
 
@@ -524,7 +524,7 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
     press(&mut app, '2');
     select_worker(&mut app);
     let row = app.selected_row();
-    let panel = details::panel(&app, 121_000, row).join("\n");
+    let panel = details::panel_text(&app, 121_000, row).join("\n");
     let evidence = details::evidence(&app, 121_000, row).join("\n");
     for amount in ["18.2k", "18%"] {
         assert_eq!(panel.matches(amount).count(), 1, "{panel}");
@@ -550,7 +550,7 @@ fn selected_row_and_panel_share_the_digest_percent() {
     let sum = super::super::metrics::savings(&app, &[MEMBER]);
     let list = super::super::table::saved(&sum, SavingsUnit::Percent);
     assert_ne!(list, "—");
-    let panel = super::super::details::panel(&app, 121_000, app.selected_row()).join("\n");
+    let panel = super::super::details::panel_text(&app, 121_000, app.selected_row()).join("\n");
     assert!(panel.contains(&format!("{list} of input")), "{panel}");
 }
 
@@ -917,7 +917,7 @@ fn spec_fixture_has_a_timer_and_unread_observation() {
         );
     }
     assert!(
-        super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row())
             .iter()
             .any(|line| line.contains("check status"))
     );
@@ -932,7 +932,7 @@ fn spec_fixture_has_a_timer_and_unread_observation() {
         "fixture needs timed idle states"
     );
     assert!(
-        super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row())
             .iter()
             .any(|line| line.contains("Timers | 1 on"))
     );
@@ -1135,7 +1135,8 @@ fn inline_editor_is_visible_and_usable_in_the_real_detail_panel() {
 #[test]
 fn spec_saved_panel_has_distinct_used_and_saved_series() {
     let app = capture_case("digest-spec", crate::look::Look::default());
-    let lines = super::super::details::panel(&app, crate::status::now_ms(), app.selected_row());
+    let lines =
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row());
     assert!(lines.iter().any(|line| line.starts_with("used trend ")));
     assert!(lines.iter().any(|line| line.starts_with("saved trend ")));
 }
@@ -1217,7 +1218,8 @@ fn selected_panel_contains_exchanges_below_the_member_title() {
 fn direction_a_compact_details_keep_every_original_value_scrollable() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let app = capture_case("digest-spec", crate::look::Look::default());
-        let original = super::super::details::panel(&app, 1_791_600_000_000, app.selected_row());
+        let original =
+            super::super::details::panel_text(&app, 1_791_600_000_000, app.selected_row());
         let compact =
             super::super::render::detail_lines(&app, 94, 5, 1_791_600_000_000, app.selected_row())
                 .into_iter()

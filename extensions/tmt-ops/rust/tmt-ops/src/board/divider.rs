@@ -4,6 +4,16 @@ use ratatui::{buffer::Buffer, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 
 pub(in crate::board) fn paint(buffer: &mut Buffer, area: Rect, join: bool, look: Look) {
+    paint_with_glyphs(buffer, area, join, false, look);
+}
+
+pub(in crate::board) fn paint_with_glyphs(
+    buffer: &mut Buffer,
+    area: Rect,
+    join: bool,
+    ascii: bool,
+    look: Look,
+) {
     if area.width == 0 {
         return;
     }
@@ -12,7 +22,12 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, area: Rect, join: bool, look:
             buffer,
             Rect::new(area.x, y, 1, 1),
             Line::styled(
-                if join && y == area.y { "┬" } else { "│" },
+                match (ascii, join && y == area.y) {
+                    (true, true) => "+",
+                    (true, false) => "|",
+                    (false, true) => "┬",
+                    (false, false) => "│",
+                },
                 look.role(Role::Dim),
             ),
         );

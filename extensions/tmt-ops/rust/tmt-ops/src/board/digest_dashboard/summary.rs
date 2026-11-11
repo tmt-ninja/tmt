@@ -67,11 +67,7 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
     if ids
         .iter()
         .filter_map(|id| report.seat(id)?.window_series.as_ref())
-        .any(|series| {
-            series.from_ms != first.from_ms
-                || series.bucket_ms != first.bucket_ms
-                || series.points.len() != first.points.len()
-        })
+        .any(|series| !super::metrics::series_aligned(series, first))
     {
         return vec![
             Bucket {
@@ -101,9 +97,7 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
                 let point = report
                     .seat(id)
                     .and_then(|seat| seat.window_series.as_ref())
-                    .filter(|series| {
-                        series.from_ms == first.from_ms && series.bucket_ms == first.bucket_ms
-                    })
+                    .filter(|series| super::metrics::series_aligned(series, first))
                     .and_then(|series| series.points.get(i));
                 if let Some(point) = point.filter(|point| point.complete) {
                     match used.unwrap_or(0u64).checked_add(point.tokens) {

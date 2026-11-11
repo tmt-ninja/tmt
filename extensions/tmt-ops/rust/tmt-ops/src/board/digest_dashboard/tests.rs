@@ -998,7 +998,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     assert!(
-        super::details::panel(&app, 121_000, app.selected_row())
+        super::details::panel_text(&app, 121_000, app.selected_row())
             .contains(&"── Saved · 1d | 18% of input ──".into())
     );
     app.choose(crate::board::app::Choice::DigestBasis);
@@ -1244,7 +1244,7 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 60);
     assert!(
-        super::details::panel(&app, 121_000, app.selected_row())
+        super::details::panel_text(&app, 121_000, app.selected_row())
             .iter()
             .any(|line| line == "saved trend —"),
         "{shown}"

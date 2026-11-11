@@ -382,7 +382,7 @@ fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_e
     let shown = paint(&mut app, 160, 40);
     assert!(shown.contains("28.7k"), "{shown}");
     assert!(
-        super::super::details::panel(&app, 121_000, app.selected_row())
+        super::super::details::panel_text(&app, 121_000, app.selected_row())
             .join(" ")
             .contains("tmt extension install digest")
     );
@@ -391,7 +391,7 @@ fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_e
     let shown = paint(&mut app, 160, 40);
     assert!(shown.contains("7d ▾"), "{shown}");
     assert!(
-        super::super::details::panel(&app, 121_000, app.selected_row())
+        super::super::details::panel_text(&app, 121_000, app.selected_row())
             .iter()
             .any(|line| line == "saved trend —"),
         "{shown}"

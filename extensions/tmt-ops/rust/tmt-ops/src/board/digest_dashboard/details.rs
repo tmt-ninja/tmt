@@ -15,6 +15,74 @@ use tmt_tui::{
 pub(super) const METHOD: &str =
     "Method: saved = context each message would have reread if delivered alone";
 
+#[derive(Clone, Debug)]
+pub(super) enum PanelRow {
+    Rule {
+        title: String,
+        note: Option<String>,
+    },
+    ModeChips {
+        text: String,
+        selected: Option<usize>,
+        cursor: Option<usize>,
+    },
+    Trend {
+        saved: bool,
+        total: String,
+    },
+    Model {
+        name: String,
+        amount: u128,
+        total: u128,
+        partial: bool,
+    },
+    Text(String),
+}
+
+impl std::fmt::Display for PanelRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rule { title, note } => write!(
+                f,
+                "── {title}{} ──",
+                note.as_ref().map_or(String::new(), |n| format!(" | {n}"))
+            ),
+            Self::ModeChips { text, .. } | Self::Text(text) => f.write_str(text),
+            Self::Trend { saved, total } => {
+                write!(f, "{} trend {total}", if *saved { "saved" } else { "used" })
+            }
+            Self::Model {
+                name,
+                amount,
+                total,
+                partial,
+            } => write!(
+                f,
+                "{name} · {}% · {}{}",
+                amount * 100 / total,
+                crate::source::tokens(*amount),
+                if *partial { " · partial" } else { "" }
+            ),
+        }
+    }
+}
+
+struct Panel(Vec<PanelRow>);
+impl Panel {
+    fn push(&mut self, text: String) {
+        self.0.push(PanelRow::Text(text));
+    }
+    fn row(&mut self, row: PanelRow) {
+        self.0.push(row);
+    }
+    fn extend(&mut self, texts: impl IntoIterator<Item = String>) {
+        self.0.extend(texts.into_iter().map(PanelRow::Text));
+    }
+    fn contains(&self, text: &str) -> bool {
+        self.0.iter().any(|row| row.to_string() == text)
+    }
+}
+
 /// The selected row and the identities it stands for.
 struct Selection<'a> {
     all: bool,
@@ -235,10 +303,13 @@ pub(super) fn links(app: &App) -> Vec<String> {
 }
 
 /// The single agent panel shares the held status/report, never acquires on paint.
-pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
+pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<PanelRow> {
     let rows = app.workspace_rows();
     let selected = selection(&rows, app, row);
-    let mut lines = vec!["── Delivery ──".into()];
+    let mut lines = Panel(vec![PanelRow::Rule {
+        title: "Delivery".into(),
+        note: None,
+    }]);
     if let Some(id) = selected.id {
         if let Some((status, stale)) = app.labels.digest() {
             if let Some(member) = status.members.get(id) {
@@ -249,20 +320,35 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                 let edit_lines = inline.map(|edit| edit.lines());
                 if let Some(edit) = &edit_lines {
                     if let Some(mode) = edit.first() {
-                        lines.push(mode.clone());
+                        lines.row(PanelRow::ModeChips {
+                            text: mode.clone(),
+                            selected: inline.map(|edit| edit.mode),
+                            cursor: inline.filter(|edit| edit.field == 0).map(|edit| edit.mode),
+                        });
                     }
                 } else {
-                    lines.push("mode Auto Interval Off Use default".into());
+                    lines.row(PanelRow::ModeChips {
+                        text: "mode Auto Interval Off Use default".into(),
+                        selected: Some(match member.mode {
+                            crate::labels::digest::Mode::Auto => 0,
+                            crate::labels::digest::Mode::Interval => 1,
+                            crate::labels::digest::Mode::Off => 2,
+                        }),
+                        cursor: None,
+                    });
                 }
-                lines[0] = format!(
-                    "── Delivery | {} · {} ──",
-                    metrics::mode(app, Some(id)),
-                    if member.setting_source == crate::labels::digest::SettingSource::Default {
-                        "inherited from workspace"
-                    } else {
-                        "member override"
-                    }
-                );
+                lines.0[0] = PanelRow::Rule {
+                    title: "Delivery".into(),
+                    note: Some(format!(
+                        "{} · {}",
+                        metrics::mode(app, Some(id)),
+                        if member.setting_source == crate::labels::digest::SettingSource::Default {
+                            "inherited from workspace"
+                        } else {
+                            "member override"
+                        }
+                    )),
+                };
                 let mut delivery = format!(
                     "held {} · next eligible {}",
                     member
@@ -356,22 +442,20 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
     let percent = sum.percent.value;
-    lines.push(format!(
-        "── Saved · {} | {} ──",
-        app.digest_window().label(),
-        percent.map_or("saved % unavailable".into(), |value| format!(
-            "{} of input",
-            crate::board::savings::percent_text(value)
-        ))
-    ));
-    lines.push(format!(
-        "used trend {}",
-        metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids))
-    ));
-    lines.push(format!(
-        "saved trend {}",
-        super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
-    ));
+    lines.row(PanelRow::Rule {
+        title: format!("Saved · {}", app.digest_window().label()),
+        note: Some(percent.map_or("saved % unavailable".into(), |value| {
+            format!("{} of input", crate::board::savings::percent_text(value))
+        })),
+    });
+    lines.row(PanelRow::Trend {
+        saved: false,
+        total: metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids)),
+    });
+    lines.row(PanelRow::Trend {
+        saved: true,
+        total: super::table::saved(&sum, crate::config::SavingsUnit::Tokens),
+    });
     if percent.is_some() && sum.percent.included < sum.total {
         lines.push(format!(
             "SAVED % covers {} of {} agents",
@@ -382,10 +466,10 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         "{} at list price · messages/batches unavailable",
         super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $")
     ));
-    lines.push(format!(
-        "── Models · {} | by TOK ──",
-        app.digest_window().label()
-    ));
+    lines.row(PanelRow::Rule {
+        title: format!("Models · {}", app.digest_window().label()),
+        note: Some("by TOK".into()),
+    });
     let mut models = BTreeMap::<String, u128>::new();
     let mut missing = false;
     for id in &selected.ids {
@@ -406,12 +490,12 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     let total = reading.map_or(0, |(total, _)| total);
     if let Some(total) = std::num::NonZeroU128::new(total) {
         for (name, value) in models {
-            lines.push(format!(
-                "{name} · {}% · {}{}",
-                value * 100 / total.get(),
-                crate::source::tokens(value),
-                if missing { " · partial" } else { "" }
-            ));
+            lines.row(PanelRow::Model {
+                name,
+                amount: value,
+                total: total.get(),
+                partial: missing,
+            });
         }
     }
     if total == 0 || missing && models_empty {
@@ -431,9 +515,10 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
             })
             .count()
     });
-    lines.push(timer_note.map_or("── Timers ──".into(), |count| {
-        format!("── Timers | {count} on ──")
-    }));
+    lines.row(PanelRow::Rule {
+        title: "Timers".into(),
+        note: timer_note.map(|count| format!("{count} on")),
+    });
     if let Some(cron) = app.cron.cron.as_ref() {
         let jobs = cron
             .jobs
@@ -473,7 +558,15 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     } else {
         lines.push("Timers unavailable".into());
     }
-    lines
+    lines.0
+}
+
+#[cfg(test)]
+pub(super) fn panel_text(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
+    panel(app, now_ms, row)
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 const FILE: &str = "digest.estimate-basis.xml";
