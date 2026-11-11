@@ -14,7 +14,14 @@ export async function mountCanvasNotice(sheet: 'app' | 'reader') {
     <main className="canvas" style={{ position: 'relative', minHeight: 600 }}>
       <NoticeCard state="blocked" eyebrow="Colab" title="This page could not be drawn." />
       <div className="tmt-block-callout" data-testid="callout">
-        <BrowserNotice tone="working" title="A callout" body={null} tinted />
+        <BrowserNotice
+          tone="working"
+          announcement="status"
+          stateLabel="Working"
+          mark={null}
+          title="A callout"
+          body={null}
+        />
       </div>
     </main>,
   );
