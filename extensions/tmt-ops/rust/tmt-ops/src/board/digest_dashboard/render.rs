@@ -316,6 +316,47 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                     .take(usize::from(viewport.height))
                     .enumerate()
                 {
+                    let text = line.to_string();
+                    if let Some(title) = text
+                        .strip_prefix("── ")
+                        .and_then(|text| text.strip_suffix(" ──"))
+                    {
+                        ds::SectionRule::render(
+                            &ds::SectionRuleProps {
+                                title: title.into(),
+                                note: None,
+                                note_role: None,
+                                focused: false,
+                            },
+                            ds::Rect {
+                                x: 0,
+                                y: y as u16,
+                                width: viewport.width,
+                                height: 1,
+                            },
+                            grid,
+                        );
+                        continue;
+                    }
+                    if paint_mode_chips(app, grid, y as u16, viewport.width, &text) {
+                        continue;
+                    }
+                    if paint_trend(app, grid, y as u16, viewport.width, &text) {
+                        continue;
+                    }
+                    if let Some(props) = model_gauge(app, &text) {
+                        ds::Gauge::render(
+                            &props,
+                            ds::Rect {
+                                x: 0,
+                                y: y as u16,
+                                width: viewport.width,
+                                height: 1,
+                            },
+                            grid,
+                        );
+                        continue;
+                    }
                     ds::Text::render(
                         &ds::TextProps {
                             spans: vec![ds::TextSpan {
@@ -347,6 +388,178 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                 height: inside.height,
             });
     }
+}
+
+fn paint_mode_chips(
+    app: &App,
+    grid: &mut tmt_tui::components::design_system::CellGrid,
+    y: u16,
+    width: u16,
+    line: &str,
+) -> bool {
+    use ds::Component;
+    use tmt_tui::components::design_system as ds;
+    if !line.starts_with("mode Auto Interval Off Use default")
+        && !line.trim_start_matches(['▸', ' ']).starts_with("mode ")
+    {
+        return false;
+    }
+    let inline = app.digest_inline.as_ref();
+    let selected = inline.map(|edit| edit.mode).or_else(|| {
+        let id = app.selected_row()?.get("id")?.as_str()?;
+        let member = app.labels.digest()?.0.members.get(id)?;
+        Some(
+            if member.setting_source == crate::labels::digest::SettingSource::Default {
+                3
+            } else {
+                match member.mode {
+                    crate::labels::digest::Mode::Auto => 0,
+                    crate::labels::digest::Mode::Interval => 1,
+                    crate::labels::digest::Mode::Off => 2,
+                }
+            },
+        )
+    });
+    ds::ChipRow::render(
+        &ds::ChipRowProps {
+            label: "mode ".into(),
+            chips: ["Auto", "Interval", "Off", "Use default"]
+                .into_iter()
+                .enumerate()
+                .map(|(id, label)| ds::Chip {
+                    id: id as u64,
+                    label: label.into(),
+                    gap: " ".into(),
+                    enabled: true,
+                })
+                .collect(),
+            selected,
+            cursor: inline.filter(|edit| edit.field == 0).map(|edit| edit.mode),
+            active: inline.is_some_and(|edit| edit.field == 0),
+        },
+        ds::Rect {
+            x: 0,
+            y,
+            width,
+            height: 1,
+        },
+        grid,
+    );
+    true
+}
+
+fn paint_trend(
+    app: &App,
+    grid: &mut tmt_tui::components::design_system::CellGrid,
+    y: u16,
+    width: u16,
+    line: &str,
+) -> bool {
+    use ds::Component;
+    use tmt_tui::components::design_system as ds;
+    use unicode_width::UnicodeWidthStr;
+    let (saved, total) = if let Some(total) = line.strip_prefix("used trend ") {
+        (false, total)
+    } else if let Some(total) = line.strip_prefix("saved trend ") {
+        (true, total)
+    } else {
+        return false;
+    };
+    let rows = app.workspace_rows();
+    let Some(row) = rows
+        .iter()
+        .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
+    else {
+        return false;
+    };
+    let ids = metrics::identities(row, &rows);
+    let buckets = super::summary::capture_buckets(app, &ids);
+    let values = buckets
+        .iter()
+        .map(|point| if saved { point.saved } else { point.used })
+        .collect::<Vec<_>>();
+    let label = if saved { "saved" } else { "used" };
+    let right = (total.width() as u16).min(width.saturating_sub(6));
+    grid.text(
+        ds::Rect {
+            x: 0,
+            y,
+            width: 5.min(width),
+            height: 1,
+        },
+        label,
+        Role::Muted,
+        None,
+    );
+    let available = width.saturating_sub(7 + right);
+    if available >= values.len() as u16 && !values.is_empty() {
+        let scale = values.iter().flatten().copied().max().unwrap_or(1);
+        ds::Sparkline::render(
+            &ds::SparklineProps {
+                points: values,
+                scale,
+                unavailable: false,
+            },
+            ds::Rect {
+                x: 6,
+                y,
+                width: available,
+                height: 1,
+            },
+            grid,
+        );
+    }
+    grid.text(
+        ds::Rect {
+            x: width - right,
+            y,
+            width: right,
+            height: 1,
+        },
+        total,
+        Role::Text,
+        None,
+    );
+    true
+}
+
+/// Turn an admitted model row into the matching component without inventing attribution.
+fn model_gauge(app: &App, line: &str) -> Option<tmt_tui::components::design_system::GaugeProps> {
+    use tmt_tui::components::design_system as ds;
+    let (name, _) = line.split_once(" · ")?;
+    let rows = app.workspace_rows();
+    let row = rows
+        .iter()
+        .find(|row| Some(&row.target) == app.workspace.selected.as_ref())?;
+    let ids = metrics::identities(row, &rows);
+    let report = metrics::report(app)?;
+    let mut amount = 0u64;
+    let mut found = false;
+    for id in &ids {
+        if let Some(models) = report.seat(id).and_then(|seat| seat.model_totals.as_ref()) {
+            for (model, value) in models {
+                if model == name {
+                    amount = amount.checked_add(*value)?;
+                    found = true;
+                }
+            }
+        }
+    }
+    let (total, partial) = metrics::tokens(Some(report), &ids)?;
+    let total = u64::try_from(total).ok()?;
+    found.then(|| ds::GaugeProps {
+        label: name.into(),
+        label_width: 18,
+        numerator: amount,
+        denominator: total,
+        total: Some(format!(
+            "{}{}",
+            crate::source::tokens(u128::from(amount)),
+            if partial { " partial" } else { "" }
+        )),
+        filled_role: ds::Token(Role::Text),
+        rest_role: ds::Token(Role::Muted),
+    })
 }
 
 const BASIS: &str = "Estimate basis…";
@@ -392,7 +605,17 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
             || heading.starts_with("Saved ·")
             || heading.starts_with("Models ·");
         if priority {
-            let first = if items.is_empty() {
+            let first = if heading.starts_with("Saved ·")
+                && items.len() >= 2
+                && items[0].starts_with("used trend ")
+                && items[1].starts_with("saved trend ")
+            {
+                Some(format!(
+                    "used {} · saved {}",
+                    items[0].trim_start_matches("used trend "),
+                    items[1].trim_start_matches("saved trend ")
+                ))
+            } else if items.is_empty() {
                 None
             } else {
                 Some(items.remove(0))

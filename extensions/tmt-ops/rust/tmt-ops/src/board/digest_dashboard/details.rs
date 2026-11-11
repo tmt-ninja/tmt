@@ -48,7 +48,7 @@ pub(super) fn title(app: &App) -> String {
         .iter()
         .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
         .map_or("none".into(), |row| row.title.clone());
-    format!("Details · {name} · {}", app.digest_window().label())
+    format!("{name} · {}", app.digest_window().label())
 }
 
 /// What the supplier holds now: modes, held messages and its own clocks.
@@ -241,6 +241,9 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     if let Some(id) = selected.id {
         if let Some((status, stale)) = app.labels.digest() {
             if let Some(member) = status.members.get(id) {
+                if app.digest_inline.is_none() {
+                    lines.push("mode Auto Interval Off Use default".into());
+                }
                 lines.push(format!(
                     "{} · {}",
                     metrics::mode(app, Some(id)),
@@ -327,8 +330,11 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
     lines.push(format!(
-        "used {} · saved {}",
-        metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids)),
+        "used trend {}",
+        metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids))
+    ));
+    lines.push(format!(
+        "saved trend {}",
         super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
     ));
     lines.push(format!(

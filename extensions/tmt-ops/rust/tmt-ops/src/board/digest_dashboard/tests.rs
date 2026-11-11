@@ -820,7 +820,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("saved 18.2k"), "{shown}");
+    assert!(shown.contains("18.2k"), "{shown}");
 }
 
 #[test]
@@ -1243,7 +1243,12 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 60);
-    assert!(shown.contains("saved —"), "{shown}");
+    assert!(
+        super::details::panel(&app, 121_000, app.selected_row())
+            .iter()
+            .any(|line| line == "saved trend —"),
+        "{shown}"
+    );
     assert!(
         !shown.contains("saved 18.2k"),
         "old-window estimate cannot become a new-window value"

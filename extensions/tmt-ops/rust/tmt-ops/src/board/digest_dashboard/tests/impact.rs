@@ -594,7 +594,7 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
     for (scene, expected) in [
         ("digest-zero-and-no-source", "no usage source"),
         ("digest-populated-timer", "check status"),
-        ("digest-all-readonly", "Details · all"),
+        ("digest-all-readonly", "all · 1d"),
         ("digest-dollar-totals", "$ window totals; chart stays TOK"),
     ] {
         let mut app = capture_case(scene, crate::look::Look::default());
@@ -813,6 +813,25 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
 }
 
 #[test]
+fn spec_saved_panel_has_distinct_used_and_saved_series() {
+    let app = capture_case("digest-spec", crate::look::Look::default());
+    let lines = super::super::details::panel(&app, crate::status::now_ms(), app.selected_row());
+    assert!(lines.iter().any(|line| line.starts_with("used trend ")));
+    assert!(lines.iter().any(|line| line.starts_with("saved trend ")));
+}
+
+#[test]
+fn spec_models_use_a_proportion_bar_for_observed_model_totals() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 50);
+    let model = shown.split_once("claude-opus-5-5").expect("model row").1;
+    assert!(
+        model.chars().take(55).any(|c| c == '█'),
+        "model needs a gauge: {model}"
+    );
+}
+
+#[test]
 fn spec_list_names_activity_window_and_missing_sources() {
     let mut app = capture_case("digest-spec", crate::look::Look::default());
     let shown = paint(&mut app, 160, 36);
@@ -865,8 +884,8 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
             assert!(compact[index].contains(heading), "{compact:?}");
         }
         assert!(
-            compact[3].contains("held"),
-            "no orphan heading: {compact:?}"
+            compact.iter().any(|line| line.contains("held")),
+            "no held value: {compact:?}"
         );
     });
 }

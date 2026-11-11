@@ -43,13 +43,7 @@ fn one_panel_keeps_delivery_totals_models_and_timers_and_range_keys_do_not_chang
     let _no_commands = crate::runner::forbid_commands();
     let mut app = digest();
     let shown = paint(&mut app, 160, 50);
-    for label in [
-        "Details · worker · 1d",
-        "Delivery",
-        "Saved · 1d",
-        "Models",
-        "Timers",
-    ] {
+    for label in ["worker · 1d", "Delivery", "Saved · 1d", "Models", "Timers"] {
         assert!(shown.contains(label), "{label}: {shown}");
     }
     assert!(!shown.contains("▸ Impact") && !shown.contains("▸ Evidence"));
@@ -61,7 +55,7 @@ fn one_panel_keeps_delivery_totals_models_and_timers_and_range_keys_do_not_chang
     assert_eq!(app.workspace.selected, selected);
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
     app.workspace_reconcile();
-    assert!(paint(&mut app, 160, 50).contains("Details · all · 1d"));
+    assert!(paint(&mut app, 160, 50).contains("all · 1d"));
 }
 
 #[test]
