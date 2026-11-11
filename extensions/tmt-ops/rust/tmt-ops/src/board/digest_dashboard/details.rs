@@ -207,6 +207,10 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
         );
     }
     if let Some((status, _)) = app.labels.digest() {
+        text.push(format!(
+            "Status observed: {}",
+            model::observation_time(Some(status.observed_at_ms), now_ms, &zone)
+        ));
         text.extend(model::pricing_details(status));
     }
     text.push(METHOD.into());
@@ -244,16 +248,16 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                 if app.digest_inline.is_none() {
                     lines.push("mode Auto Interval Off Use default".into());
                 }
-                lines.push(format!(
-                    "{} · {}",
+                lines[0] = format!(
+                    "── Delivery | {} · {} ──",
                     metrics::mode(app, Some(id)),
                     if member.setting_source == crate::labels::digest::SettingSource::Default {
                         "inherited from workspace"
                     } else {
                         "member override"
                     }
-                ));
-                lines.push(format!(
+                );
+                let mut delivery = format!(
                     "held {} · next eligible {}",
                     member
                         .held_count
@@ -267,15 +271,16 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                                 "now".into()
                             }
                         })
-                ));
+                );
                 if let Some(last) = &member.last_delivery {
-                    lines.push(format!(
-                        "last {} ({} → {})",
+                    delivery.push_str(&format!(
+                        " · last {} ({} → {})",
                         model::observation_clock(Some(last.settled_at_ms), now_ms, &zone(app)),
                         last.messages,
                         last.batches
                     ));
                 }
+                lines.push(delivery);
                 if let Some((wait, count)) = member.auto_caps {
                     lines.push(format!(
                         "max hold {} ▾ · max messages {count} ▾",
@@ -323,12 +328,18 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     {
         lines.push(format!("Usage unavailable: {error}"));
     }
-    lines.push(format!("── Saved · {} ──", app.digest_window().label()));
     let sum = if selected.all {
         super::savings(app)
     } else {
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
+    lines.push(format!(
+        "── Saved · {} | {} of input ──",
+        app.digest_window().label(),
+        sum.percent
+            .value
+            .map_or("unavailable".into(), model::detail_percent)
+    ));
     lines.push(format!(
         "used trend {}",
         metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids))
@@ -337,21 +348,22 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         "saved trend {}",
         super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
     ));
-    lines.push(format!(
-        "saved % {} ({}/{} agents)",
-        sum.percent
-            .value
-            .map_or("unavailable".into(), model::detail_percent),
-        sum.percent.included,
-        sum.total
-    ));
+    if sum.percent.value.is_some() && sum.percent.included < sum.total {
+        lines.push(format!(
+            "SAVED % covers {} of {} agents",
+            sum.percent.included, sum.total
+        ));
+    }
     lines.push(format!(
         "List-price equivalent: {} ({}/{} agents)",
         super::table::saved(&sum, crate::config::SavingsUnit::Cost),
         sum.cost.included,
         sum.total
     ));
-    lines.push(format!("── Models · {} ──", app.digest_window().label()));
+    lines.push(format!(
+        "── Models · {} | by TOK ──",
+        app.digest_window().label()
+    ));
     let mut models = BTreeMap::<String, u128>::new();
     let mut missing = false;
     for id in &selected.ids {
@@ -383,7 +395,23 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     if total == 0 || missing && models_empty {
         lines.push("Model distribution unavailable".into());
     }
-    lines.push("── Timers ──".into());
+    let timer_note = app.cron.cron.as_ref().map(|cron| {
+        cron.jobs
+            .iter()
+            .filter(|job| {
+                (selected.all
+                    || job
+                        .job
+                        .owner_id
+                        .as_deref()
+                        .is_some_and(|id| selected.ids.contains(&id)))
+                    && job.state_label() == "on"
+            })
+            .count()
+    });
+    lines.push(timer_note.map_or("── Timers ──".into(), |count| {
+        format!("── Timers | {count} on ──")
+    }));
     if let Some(cron) = app.cron.cron.as_ref() {
         let jobs = cron
             .jobs

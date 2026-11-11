@@ -177,6 +177,18 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     inside.y += 1;
     inside.height -= 1;
     let rows = app.workspace_rows();
+    if app.follow
+        && let Some(index) = rows
+            .iter()
+            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+    {
+        let viewport = Rect {
+            height: inside.height.saturating_sub(u16::from(inside.height > 1)),
+            ..inside
+        };
+        app.scrolls
+            .reveal_range(Pane::Rows, index..index + 1, viewport, rows.len());
+    }
     // A percent is never marked as a bound, so a partial one names its coverage here.
     let coverage = Some(super::savings(app))
         .filter(|sum| sum.percent.value.is_some() && sum.percent.included < sum.total)
@@ -192,15 +204,22 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         .saturating_sub(unicode_width::UnicodeWidthStr::width(notes.as_str()))
         .saturating_sub(if notes.is_empty() { 0 } else { 3 });
     let offset = app.scrolls.offset(Pane::Rows).min(rows.len());
-    let count = usize::from(inside.height.saturating_sub(1));
+    let count = crate::board::scroll::Scrolls::viewport(
+        Rect {
+            height: inside.height.saturating_sub(u16::from(inside.height > 1)),
+            ..inside
+        },
+        rows.len(),
+    );
     let end = (offset + count).min(rows.len());
     let footer = [
         narrow_hint(inside.width, unit, room),
         Some(format!(
-            "{}–{} / {} rows · · = no usage observed in that hour · {notes}",
+            "{}–{} / {} rows · {} more ↓ · · = no usage observed in that hour · {notes}",
             if rows.is_empty() { 0 } else { offset + 1 },
             end,
-            rows.len()
+            rows.len(),
+            rows.len().saturating_sub(end)
         )),
     ]
     .into_iter()
@@ -241,14 +260,6 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         let mut starts = app.row_starts.borrow_mut();
         starts.clear();
         starts.extend(0..rows.len());
-    }
-    if app.follow
-        && let Some(index) = rows
-            .iter()
-            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
-    {
-        app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, inside, rows.len());
     }
     app.scrolls.show_paint(
         frame,

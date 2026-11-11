@@ -228,7 +228,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     if scene == "digest-all-readonly" {
         app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
     }
-    if scene == "digest-populated-timer" {
+    if matches!(scene, "digest-populated-timer" | "digest-spec-review") {
         let mut job = crate::board::cronboard::test_view(
             "worker",
             "check status",
@@ -632,6 +632,15 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
         let mut member = template.clone();
         member.id = id.clone();
         member.name = name.clone();
+        member.activity = crate::board::activity::ObservedActivity {
+            phase: if i % 2 == 0 {
+                crate::board::activity::Phase::Idle
+            } else {
+                crate::board::activity::Phase::Working
+            },
+            since_ms: Some(now - (i as u64 - 6) * 3_600_000),
+            last_ms: Some(now - (i as u64 - 6) * 3_600_000),
+        };
         workspace.roster.members.insert(id.clone(), member);
         workspace.roster.squads[0].members.push(id.clone());
         workspace.rows.insert(
@@ -730,6 +739,16 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
             })
             .collect(),
     );
+    app.home_leads.test_results(
+        "33333333-3333-4333-8333-333333333333",
+        serde_json::json!({
+            "items":[{"requestId":"digest-spec-answer", "kind":"request",
+                "sender":{"identityId":"33333333-3333-4333-8333-333333333333"},
+                "recipientId": ids[8], "final":{"status":"retained","submittedAtMs":now - 60_000},
+                "responsePreview":"Fixture answer", "recipientAcknowledged":true}],
+            "nextBefore":null
+        }),
+    );
     app.workspace_reconcile();
     select_worker(&mut app);
     app
@@ -738,12 +757,52 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
 #[test]
 fn populated_spec_fixture_draws_in_each_look_and_small_viewports() {
     for (name, look) in crate::board::home::tests::oracle::looks() {
-        for (width, height) in [(160, 36), (80, 24), (60, 8)] {
+        for (width, height) in [(160, 36), (100, 36), (80, 24), (60, 8)] {
             let mut app = spec_fixture(look);
             let shown = paint(&mut app, width, height);
             assert!(shown.contains("Digest"), "{name} {width}x{height}: {shown}");
         }
     }
+}
+
+#[test]
+fn spec_panel_keeps_delivery_savings_models_and_timer_at_160_by_36() {
+    let mut app = spec_fixture(crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    for section in ["Delivery", "Saved ·", "Models ·", "Timers", "check status"] {
+        assert!(shown.contains(section), "missing {section}: {shown}");
+    }
+}
+
+#[test]
+fn spec_fixture_has_a_timer_and_unread_observation() {
+    let app = spec_fixture(crate::look::Look::default());
+    let rows = app.workspace_rows();
+    assert!(
+        rows.iter()
+            .filter_map(super::super::metrics::id)
+            .any(|id| app.unread_count(id).total > 0)
+    );
+    assert!(
+        super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
+            .iter()
+            .any(|line| line.contains("check status"))
+    );
+    assert!(
+        rows.iter()
+            .filter_map(|row| app.activity_label_at(
+                row,
+                std::time::Instant::now(),
+                1_791_600_000_000
+            ))
+            .any(|label| label.state == "idle" && label.age.is_some()),
+        "fixture needs timed idle states"
+    );
+    assert!(
+        super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
+            .iter()
+            .any(|line| line.contains("Timers | 1 on"))
+    );
 }
 
 #[test]
@@ -769,6 +828,17 @@ fn exchange_columns_stay_compact_and_keep_a_twelve_cell_row_name() {
     assert!(
         shown.lines().any(|line| line.contains("codex-worker")),
         "{shown}"
+    );
+}
+
+#[test]
+fn spec_exchanges_include_observed_sender_totals() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 50);
+    assert!(shown.contains("from\\to"));
+    assert!(
+        shown.contains("sum"),
+        "exchange total column missing: {shown}"
     );
 }
 
@@ -810,6 +880,24 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
             );
         }
     });
+}
+
+#[test]
+fn inline_editor_is_visible_and_usable_in_the_real_detail_panel() {
+    let mut app = capture_case("digest-inline-mode", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    assert!(
+        app.digest_inline
+            .as_ref()
+            .is_some_and(|edit| edit.visible.get()),
+        "{shown}"
+    );
+    let effect = app.key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Right,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(effect, Effect::None);
+    assert_eq!(app.digest_inline.as_ref().unwrap().mode, 1);
 }
 
 #[test]
@@ -862,6 +950,10 @@ fn selected_panel_contains_exchanges_below_the_member_title() {
         member < exchanges,
         "member panel must contain exchanges: {shown}"
     );
+    assert!(
+        shown.contains("┬─"),
+        "the selected panel needs its divider: {shown}"
+    );
 }
 
 #[test]
@@ -874,9 +966,12 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
                 .into_iter()
                 .map(|line| line.to_string())
                 .collect::<Vec<_>>();
-        for expected in original.iter().filter(|line| !line.starts_with("── ")) {
+        for expected in original
+            .iter()
+            .filter(|line| !line.starts_with("── ") && !line.starts_with("Status observed:"))
+        {
             assert!(
-                compact.iter().any(|line| line.contains(expected)),
+                compact.join(" ").contains(expected),
                 "lost {expected:?}: {compact:?}"
             );
         }

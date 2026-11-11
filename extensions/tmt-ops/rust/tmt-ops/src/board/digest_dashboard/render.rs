@@ -99,12 +99,30 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .is_some_and(|list| list.y == side.y && list.x != side.x);
         let details = app.digest_panels().side_shown();
         let side = if details {
-            pane_frame(frame, app, side, Pane::Replies, &super::details::title(app))
+            let inside = pane_frame(frame, app, side, Pane::Replies, &super::details::title(app));
+            if wide && side.width > 2 && side.height > 2 {
+                let ascii = matches!(
+                    app.cron_glyphs,
+                    crate::board::overview::cron_counts::GlyphSet::Ascii
+                );
+                let style = app.look().role(Role::Dim);
+                if app.focused() != Pane::Replies {
+                    frame.buffer_mut()[(side.x, side.y)]
+                        .set_symbol(if ascii { "+" } else { "┬" })
+                        .set_style(style);
+                }
+                for y in side.y + 1..side.bottom() {
+                    frame.buffer_mut()[(side.x, y)]
+                        .set_symbol(if ascii { "|" } else { "│" })
+                        .set_style(style);
+                }
+            }
+            inside
         } else {
             side
         };
         if wide {
-            let matrix_height = 9.min(side.height / 3);
+            let matrix_height = 6.min(side.height / 3);
             matrix(
                 frame,
                 app,
@@ -157,8 +175,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
+    let title = format!("Exchanges · {}", app.digest_window().label());
     let inside = if chrome {
-        pane_frame(frame, app, area, Pane::Replies, "Exchanges · talk + reply")
+        pane_frame_with_note(frame, app, area, Pane::Replies, &title, Some("messages"))
     } else {
         if !area.is_empty() {
             use ds::Component;
@@ -166,8 +185,8 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
             super::paint_grid(frame, app, Rect { height: 1, ..area }, |grid| {
                 ds::SectionRule::render(
                     &ds::SectionRuleProps {
-                        title: "Exchanges · talk + reply".into(),
-                        note: None,
+                        title: title.clone(),
+                        note: Some("messages".into()),
                         note_role: None,
                         focused: false,
                     },
@@ -263,6 +282,23 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
             app.workspace_strip_hits
                 .borrow_mut()
                 .push((rect, crate::board::app::Choice::DigestBasis));
+            if let Some(pricing) = app
+                .labels
+                .digest()
+                .and_then(|(status, _)| status.pricing.as_ref())
+            {
+                let x = rect.right().saturating_add(2);
+                if x < row.right() {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(x, row.y, row.right() - x, 1),
+                        Line::styled(
+                            format!("prices as of {}", pricing.as_of),
+                            app.look().role(Role::Muted),
+                        ),
+                    );
+                }
+            }
         }
         inside.height -= 1;
     }
@@ -321,10 +357,15 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                         .strip_prefix("── ")
                         .and_then(|text| text.strip_suffix(" ──"))
                     {
+                        let (title, note) = title
+                            .split_once(" | ")
+                            .map_or((title, None), |(title, note)| {
+                                (title, Some(note.to_owned()))
+                            });
                         ds::SectionRule::render(
                             &ds::SectionRuleProps {
                                 title: title.into(),
-                                note: None,
+                                note,
                                 note_role: None,
                                 focused: false,
                             },
@@ -399,7 +440,10 @@ fn paint_mode_chips(
 ) -> bool {
     use ds::Component;
     use tmt_tui::components::design_system as ds;
-    if !line.starts_with("mode Auto Interval Off Use default")
+    let compact =
+        line.starts_with("Delivery |") && line.contains("mode Auto Interval Off Use default");
+    if !compact
+        && !line.starts_with("mode Auto Interval Off Use default")
         && !line.trim_start_matches(['▸', ' ']).starts_with("mode ")
     {
         return false;
@@ -408,21 +452,20 @@ fn paint_mode_chips(
     let selected = inline.map(|edit| edit.mode).or_else(|| {
         let id = app.selected_row()?.get("id")?.as_str()?;
         let member = app.labels.digest()?.0.members.get(id)?;
-        Some(
-            if member.setting_source == crate::labels::digest::SettingSource::Default {
-                3
-            } else {
-                match member.mode {
-                    crate::labels::digest::Mode::Auto => 0,
-                    crate::labels::digest::Mode::Interval => 1,
-                    crate::labels::digest::Mode::Off => 2,
-                }
-            },
-        )
+        Some(match member.mode {
+            crate::labels::digest::Mode::Auto => 0,
+            crate::labels::digest::Mode::Interval => 1,
+            crate::labels::digest::Mode::Off => 2,
+        })
     });
     ds::ChipRow::render(
         &ds::ChipRowProps {
-            label: "mode ".into(),
+            label: if compact {
+                "Delivery · mode "
+            } else {
+                "mode "
+            }
+            .into(),
             chips: ["Auto", "Interval", "Off", "Use default"]
                 .into_iter()
                 .enumerate()
@@ -571,7 +614,11 @@ pub(super) fn detail_lines(
     now_ms: u64,
     row: Option<&serde_json::Value>,
 ) -> Vec<Line<'static>> {
-    let lines = super::details::panel(app, now_ms, row);
+    let mut lines = super::details::panel(app, now_ms, row);
+    // Keep the evidence in the basis view; short panels prioritise the interactive sections.
+    if height < 20 {
+        lines.retain(|line| !line.starts_with("Status observed:"));
+    }
     let lines = if height <= 10 && width >= 60 && app.digest_inline.is_none() {
         compact_detail_lines(lines, usize::from(width))
     } else {
@@ -602,6 +649,7 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
     let mut remainder = Vec::new();
     for (heading, mut items) in groups {
         let priority = heading == "Delivery"
+            || heading.starts_with("Delivery |")
             || heading.starts_with("Saved ·")
             || heading.starts_with("Models ·");
         if priority {
