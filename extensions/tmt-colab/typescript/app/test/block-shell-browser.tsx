@@ -27,13 +27,18 @@ const entry = (
   props,
   ...(s !== undefined && { text: text(s) }),
 });
-/** Two paragraphs at the top level and one inside a card: the depths the handle must work at. */
+/** Two paragraphs at the top level and one inside a card (the depths the handle must work at),
+ * then a callout and a block under it. */
 const blocks: Record<string, BlockEntry> = {
   head: entry('heading', 'B', 'Block page', { level: 2 }),
   one: entry('paragraph', 'C', '第一個最上層的區塊'),
   two: entry('paragraph', 'D', '第二個最上層的區塊'),
   card: entry('card', 'E', undefined, { title: 'Card' }),
   nested: entry('paragraph', 'B', '卡片裡面的區塊', {}, 'card'),
+  // A callout draws the shared notice: it stays in the page's flow, not where the page's own
+  // status notice goes (#6280).
+  callout: entry('callout', 'F', '先做這個，再做下一個。', { tone: 'working', label: '做的順序' }),
+  after: entry('paragraph', 'G', '提示下面的區塊'),
 };
 
 export async function mountBlockShell(url = `/colab/pages/${PAGE}`) {

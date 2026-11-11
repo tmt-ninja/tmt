@@ -136,3 +136,20 @@ test('at 390px a phone shows no handle, as the design system says', async ({ pag
   // Nothing of the page reaches past the window.
   expect(box.x).toBeGreaterThanOrEqual(0);
 });
+
+for (const width of [1440, 390])
+  test(`at ${width}px a callout keeps its height in the page's flow (#6280)`, async ({ page }) => {
+    await mountShell(page, width);
+    const stage = page.locator('.structured-page-stage');
+    const callout = stage.locator('[data-block-id="callout"]');
+    await expect(callout).toContainText('先做這個，再做下一個。');
+    const notice = (await callout.locator('.tmt-ui-notice').boundingBox())!;
+    const block = (await callout.boundingBox())!;
+    const next = (await stage.locator('[data-block-id="after"]').boundingBox())!;
+    // The callout's notice is inside its block, which holds its height, and the block after it
+    // starts below it rather than under it.
+    expect(block.height).toBeGreaterThan(20);
+    expect(notice.y).toBeGreaterThanOrEqual(block.y - 1);
+    expect(notice.y + notice.height).toBeLessThanOrEqual(block.y + block.height + 1);
+    expect(next.y).toBeGreaterThanOrEqual(notice.y + notice.height);
+  });

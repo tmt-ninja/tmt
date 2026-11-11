@@ -535,7 +535,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   max-width: 880px;
   margin: 16px 0 0;
 }
-.canvas .tmt-ui-notice {
+/* The page's own status notice (a NoticeCard in the canvas), not a notice a block draws: a callout
+   keeps its place in the page's flow (#6280). */
+.canvas > .notice-card > .tmt-ui-notice {
   position: absolute;
   top: 100px;
   left: 20px;
