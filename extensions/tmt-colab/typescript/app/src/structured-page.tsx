@@ -218,23 +218,11 @@ const landedOn = (target: EventTarget | null) =>
     ? target.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
     : undefined;
 
-/**
- * Whether the pointer is in the strip between block `id` and its handle (#6248). The handle sits
- * left of the block with a gap, and the strip is no block's own space, so a pointer that leaves the
- * block toward a handle button crosses it: the block keeps the handle until the pointer is past.
- */
-function inHandleGap(root: HTMLElement | null, id: string | undefined, at: PointerEvent) {
-  if (!root || !id) return false;
-  const block = root.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`);
-  const handle = block?.querySelector<HTMLElement>(':scope > [data-slot="block-handle"]');
-  if (!block || !handle) return false;
-  const [edge, grip] = [block.getBoundingClientRect(), handle.getBoundingClientRect()];
-  const across =
-    grip.left < edge.left
-      ? at.clientX >= grip.left && at.clientX < edge.left
-      : at.clientX > edge.right && at.clientX <= grip.right;
-  return across && at.clientY >= edge.top && at.clientY <= edge.bottom;
-}
+/** A key that types into a block, as opposed to a modifier held for a click (⌘-click a link). */
+const typesInto = (event: React.KeyboardEvent) =>
+  !['Shift', 'Control', 'Alt', 'Meta'].includes(event.key) &&
+  event.target instanceof HTMLElement &&
+  (event.target.isContentEditable || event.target.matches('input, textarea'));
 
 /** The page's pointer state that the blocks draw: the hovered block and a drag in progress. */
 interface Pointer {
@@ -251,6 +239,8 @@ interface Pointer {
 export function StructuredPage(props: StructuredPageProps) {
   const root = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<string>();
+  // The last block the pointer entered: typing hides its handle, and the next move shows it again.
+  const entered = useRef<string>(undefined);
   const drop = useCallback(
     (id: string, parent: string, index: number) => props.onMove?.(id, parent, index),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,17 +276,24 @@ export function StructuredPage(props: StructuredPageProps) {
       <BlockDocument
         ref={root}
         onKeyDown={(event) => {
+          if (typesInto(event)) setHovered(undefined);
           if (props.onPageKey?.(event)) event.preventDefault();
         }}
-        // The handle follows the innermost block under the pointer, and stays while the pointer
-        // crosses the gap between that block and the handle (#6248).
-        onPointerMove={(event) => {
-          const block = (event.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
-          setHovered((now) =>
-            inHandleGap(root.current, now, event.nativeEvent) ? now : block?.dataset.blockId,
-          );
+        // The handle follows the last block the pointer entered and stays when the pointer leaves
+        // it (toward the handle, or into the space between blocks); only entering another block
+        // moves it (#6283). Going back out from a nested block to its parent enters nothing.
+        onPointerOver={(event) => {
+          const block = (event.target as Element).closest<HTMLElement>('[data-block-id]');
+          const from = event.relatedTarget;
+          if (!block || (from instanceof Node && block.contains(from))) return;
+          entered.current = block.dataset.blockId;
+          setHovered(entered.current);
         }}
-        onPointerLeave={() => setHovered(undefined)}
+        onPointerMove={() => setHovered((now) => now ?? entered.current)}
+        onPointerLeave={() => {
+          entered.current = undefined;
+          setHovered(undefined);
+        }}
         // Dropping files, or pasting them, inserts them after the block they landed on (spec 圖片:
         // 拖檔案或貼上圖片＝插入). Text and a block's own drag are not files and pass through.
         // Files the page cannot take now are still caught, so the browser never opens them in

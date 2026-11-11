@@ -104,12 +104,12 @@
     "title": "Block shell",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block\"></tmt-ui-component-docs></div>",
     "path": "components/block",
-    "description": "Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. Hover gives a light tint and selection a deeper one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the hovered or focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.",
+    "description": "Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. The pointer adds no tint and selection a light one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the last block the pointer entered (it stays there until the pointer enters another block) or the focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.",
     "usage": "import { BlockDocument, Block, BlockHandle, BlockDropLine, BlockGhost, blockKeyAction } from '@tmt/browser-ui/blocks';\n\n<BlockDocument>\n  <Block label=\"Table: Ticket status\" kind=\"table\" selected={selected} tabIndex={-1}\n    onKeyDown={(event) => run(blockKeyAction(event, selecting))}>\n    {hovered && <BlockHandle onInsert={openInsert} onMenu={openMenu} onGripPointerDown={startDrag} />}\n    <TableBlock … />\n  </Block>\n</BlockDocument>\n// While dragging: the dragged block takes state=\"dragging\", BlockDropLine marks the landing place\n// and BlockGhost follows the pointer.",
     "dos": [
      [
       "do",
-      "Render one handle per editor and move it to the hovered or focused block."
+      "Render one handle per editor and move it to the block the pointer last entered or the focused block."
      ],
      [
       "dont",

@@ -54,7 +54,7 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'block',
     name: 'Block shell',
     description:
-      'Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. Hover gives a light tint and selection a deeper one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the hovered or focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.',
+      'Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. The pointer adds no tint and selection a light one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the last block the pointer entered (it stays there until the pointer enters another block) or the focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.',
     preview: () => (
       <BlockDocument>
         <Block label="Paragraph: idle">
@@ -62,7 +62,7 @@ export const blockComponents: ComponentDoc[] = [
         </Block>
         <Block label="Paragraph: hover" state="hover">
           <BlockHandle />
-          <TextBlock>Hover: the tint, and the one shared handle in the gutter.</TextBlock>
+          <TextBlock>Hover: the one shared handle in the gutter, and no tint.</TextBlock>
         </Block>
         <Block label="Paragraph: selected" selected>
           <TextBlock>Selected: the selection tint, no border.</TextBlock>
@@ -101,7 +101,10 @@ export const blockComponents: ComponentDoc[] = [
       ],
     ],
     dos: [
-      ['do', 'Render one handle per editor and move it to the hovered or focused block.'],
+      [
+        'do',
+        'Render one handle per editor and move it to the block the pointer last entered or the focused block.',
+      ],
       ['dont', 'Draw a border or a resting fill around a block; only the card block has a frame.'],
     ],
   },
