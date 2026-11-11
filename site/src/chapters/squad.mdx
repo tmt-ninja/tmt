@@ -111,6 +111,8 @@ The board shows the selected squad's observed completed-request token total and 
 
 This summary meter belongs to named sampling squads; all/leads omit it. HOME uses the shown squads: with data and at least 100 columns it shows window totals and a member share; at 140 columns it adds models and unreported members. No readings means no HOME usage row, while measured zero remains zero.
 
+HOME's token digits ease toward a new observed total for at most 600 ms. They can count up or down; this is a display transition, not a live token rate or a forecast. The first reading, an unavailable reading, a change of owner or window, and reduced motion settle immediately. If an intermediate value would outgrow its header cell, the counter settles instead of shifting its neighbours. Shares, models and coverage still use the raw readings, and the settled value is unchanged.
+
 Set the three ascending windows with `tok = "1m/5m/60m"` under `[board]`, or `[squad.<name>.board]` for one squad; whole minutes/hours from 1m to 24h are allowed. Switching the window is runtime-only and does not write config.
 
 Turn it on or tune it under `[board.token_rate]` for every squad, or `[squad.<name>.board.token_rate]` for one:
