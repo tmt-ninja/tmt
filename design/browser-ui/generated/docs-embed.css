@@ -2657,7 +2657,7 @@ code {
     font-size: var(--tmt-ui-ref-size-7);
   }
   
-  .docs-snippet pre {
+  .docs-snippet:has(button) pre {
     padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
   }
 }
