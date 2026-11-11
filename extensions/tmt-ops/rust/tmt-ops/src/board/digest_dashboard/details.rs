@@ -412,11 +412,16 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<PanelRow
         .as_ref()
         .filter(|edit| Some(&edit.target) == app.workspace.selected.as_ref())
     {
-        let edit_lines = edit.lines();
+        let mut edit_lines = edit.lines();
         if edit_lines
             .first()
             .is_some_and(|first| !lines.contains(first))
         {
+            lines.row(PanelRow::ModeChips {
+                text: edit_lines.remove(0),
+                selected: Some(edit.mode),
+                cursor: (edit.field == 0).then_some(edit.mode),
+            });
             lines.extend(edit_lines);
         }
     }
