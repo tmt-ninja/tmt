@@ -1216,12 +1216,10 @@ a.tmt-block-mention:focus-visible {
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-s);
 }
-.tmt-block-page-toolbar select {
-  font: inherit;
-  color: inherit;
-  background: var(--tmt-ui-surface-paper);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-  border-radius: var(--tmt-ui-radius);
+.tmt-block-page-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
 }
 .tmt-block-page-filter {
   display: inline-flex;

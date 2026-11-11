@@ -23,7 +23,8 @@ for (const width of [1440, 390]) {
     await rows.first().focus();
     await page.keyboard.press('ArrowDown');
     await expect(rows.nth(1)).toBeFocused();
-    await page.getByLabel('Group by').selectOption('project');
+    await page.getByRole('combobox', { name: 'Group by' }).click();
+    await page.getByRole('option', { name: 'Project' }).click();
     await expect(grid.getByRole('button', { name: /spec/ })).toContainText('2');
   });
 }

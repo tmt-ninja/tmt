@@ -311,7 +311,7 @@ test('trusted page-view preserves authored presentation and selection', async ({
   }, bundle);
   const parent = page.locator('[data-parent-page-view]');
   await expect(parent.getByText('Admitted page')).toBeVisible();
-  await expect(parent.getByLabel('Group by')).toHaveValue('none');
+  await expect(parent.getByRole('combobox', { name: 'Group by' })).toHaveText('None');
   await expect(parent.getByText('Columns 2/5')).toBeVisible();
   await expect(parent.locator('[data-density]')).toHaveAttribute('data-density', 'comfortable');
   await expect(parent.getByRole('checkbox', { name: /select admitted page/i })).toBeChecked();
