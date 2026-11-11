@@ -8,7 +8,7 @@ export const blockPatterns: PatternDoc[] = [
   {
     slug: 'blocks-document',
     title: 'Blocks as one document',
-    lead: 'A page of blocks reads as one document: no border, fill or box between blocks. Hover tints the block and brings the one shared handle into the gutter; only the card draws a frame; callouts, code and tables keep their own fills and rules without another box.',
+    lead: 'A page of blocks reads as one document: no border, fill or box between blocks. Hover brings the one shared handle into the gutter, with no tint; only the card draws a frame; callouts, code and tables keep their own fills and rules without another box.',
     states: [
       ['document', 'At rest'],
       ['hover', 'Hover, with the shared handle'],

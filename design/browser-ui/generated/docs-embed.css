@@ -958,10 +958,6 @@
 .tmt-block[data-depth='1'] {
   margin-inline: 0;
 }
-.tmt-block:where(:not([data-readonly])):hover,
-.tmt-block[data-state='hover'] {
-  background: var(--tmt-ui-surface-hover);
-}
 .tmt-block[data-selected],
 .tmt-block[data-state='selected'] {
   background: var(--tmt-ui-surface-selection);

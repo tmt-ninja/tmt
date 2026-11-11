@@ -14,7 +14,7 @@ const style = (page: Page, selector: string, property: string) =>
 const transparent = 'rgba(0, 0, 0, 0)';
 
 for (const theme of ['light', 'dark'])
-  test(`a resting block draws no border, fill or shadow; hover and selection are tints only (${theme})`, async ({
+  test(`a block draws no border, fill or shadow, under the pointer too; selection is a tint only (${theme})`, async ({
     page,
   }) => {
     await open(page, 'part=editor', 1440, theme);
@@ -29,8 +29,10 @@ for (const theme of ['light', 'dark'])
     await expect(page.locator('.tmt-block-handle')).toHaveCount(0);
     await block.hover();
     await expect(page.locator('.tmt-block-handle')).toHaveCount(1);
-    const hover = await block.evaluate((element) => getComputedStyle(element).backgroundColor);
-    expect(hover).not.toBe(transparent);
+    // The handle alone shows which block the pointer is on (#6283).
+    expect(await block.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+      transparent,
+    );
     // The handle sits in the gutter, left of the block, never on it.
     const handle = (await page.locator('.tmt-block-handle').boundingBox())!;
     const box = (await block.boundingBox())!;
@@ -44,7 +46,6 @@ for (const theme of ['light', 'dark'])
     await expect(block).not.toHaveAttribute('aria-selected');
     const selected = await block.evaluate((element) => getComputedStyle(element).backgroundColor);
     expect(selected).not.toBe(transparent);
-    expect(selected).not.toBe(hover);
     expect(await block.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe(
       'none',
     );

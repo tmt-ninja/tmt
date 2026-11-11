@@ -957,12 +957,13 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
 
 - `BlockDocument` is the page column with the handle gutter. Every block sits in a `Block`
   (`role="group"`, labelled with its type and opening text). At rest a block draws no border,
-  fill or shadow; hover is the `surface-hover` tint, `selected` the `surface-selection` tint and
-  wins over hover, and the focus ring shows only on `:focus-visible`.
-- Render one `BlockHandle` per editor, inside the hovered or keyboard-focused block; it sits in
-  the gutter 8px left of that block, is out of the Tab order and hides under 480px of document
-  width. Its grip opens the block menu and starts a drag (`state="dragging"`, `BlockDropLine`,
-  `BlockGhost`).
+  fill or shadow, under the pointer too (the handle alone shows which block it is on); `selected`
+  is the `surface-selection` tint, and the focus ring shows only on `:focus-visible`.
+- Render one `BlockHandle` per editor, inside the last block the pointer entered (it stays when
+  the pointer leaves that block, and hides while typing and off the page) or the keyboard-focused
+  block; it sits in the gutter 8px left of that block, is out of the Tab order and hides under
+  480px of document width. Its grip opens the block menu and starts a drag
+  (`state="dragging"`, `BlockDropLine`, `BlockGhost`).
 - `blockKeyAction` is the one keyboard table: Menu, Shift+F10 or Cmd/Ctrl+/ open the block menu;
   Esc selects; arrows move and Shift+arrows extend the selection; Alt+Shift+arrows move;
   Cmd/Ctrl+D duplicates; Delete deletes; Cmd/Ctrl+Z undoes.
