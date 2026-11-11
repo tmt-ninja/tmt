@@ -811,7 +811,7 @@ fn returning_to_agents_keeps_uuid_and_link_while_only_observed_questions_are_dis
             .collect::<Vec<_>>()
             .join("\n");
         if tab == OpsTab::Digest {
-            assert!(text.contains("Details"), "{text}");
+            assert!(text.contains("Exchanges"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
                 "Digest shows status details"

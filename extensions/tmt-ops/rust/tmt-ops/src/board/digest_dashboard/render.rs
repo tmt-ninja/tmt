@@ -5,16 +5,6 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
-pub(super) fn pane_frame(
-    frame: &mut Frame,
-    app: &App,
-    area: Rect,
-    pane: Pane,
-    title: &str,
-) -> Rect {
-    pane_frame_with_note(frame, app, area, pane, title, None)
-}
-
 pub(super) fn pane_frame_with_note(
     frame: &mut Frame,
     app: &App,
@@ -98,8 +88,22 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .list
             .is_some_and(|list| list.y == side.y && list.x != side.x);
         let details = app.digest_panels().side_shown();
+        let folded = details && !wide;
         let side = if details {
-            let inside = pane_frame(frame, app, side, Pane::Replies, &super::details::title(app));
+            let title = super::details::title(app);
+            let title = if folded {
+                format!("{title} · Exchanges")
+            } else {
+                title
+            };
+            let inside = pane_frame_with_note(
+                frame,
+                app,
+                side,
+                Pane::Replies,
+                &title,
+                folded.then_some("messages"),
+            );
             if wide && side.width > 2 && side.height > 2 {
                 let ascii = matches!(
                     app.cron_glyphs,
@@ -131,6 +135,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ..side
                 },
                 !details,
+                false,
             );
             if details {
                 detail(
@@ -158,6 +163,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ..side
                 },
                 !details,
+                folded,
             );
             if details {
                 detail(
@@ -174,12 +180,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 }
-fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
+fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool, folded: bool) {
     let title = format!("Exchanges · {}", app.digest_window().label());
     let inside = if chrome {
         pane_frame_with_note(frame, app, area, Pane::Replies, &title, Some("messages"))
     } else {
-        if !area.is_empty() {
+        if !area.is_empty() && !folded {
             use ds::Component;
             use tmt_tui::components::design_system as ds;
             super::paint_grid(frame, app, Rect { height: 1, ..area }, |grid| {

@@ -239,9 +239,6 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     let rows = app.workspace_rows();
     let selected = selection(&rows, app, row);
     let mut lines = vec!["── Delivery ──".into()];
-    if app.labels.digest().is_none() {
-        lines.push("Digest not available · Install: tmt extension install digest".into());
-    }
     if let Some(id) = selected.id {
         if let Some((status, stale)) = app.labels.digest() {
             if let Some(member) = status.members.get(id) {
@@ -305,15 +302,21 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                 lines.push("Delivery unavailable".into());
             }
         } else {
-            lines.extend(
-                model::delivery(&app.labels, id, now_ms, &zone(app), |id| {
-                    metrics::name(app, Some(id))
-                })
-                .into_iter()
-                .map(|line| line.replace(" ▾", "")),
-            );
+            let fields = model::delivery(&app.labels, id, now_ms, &zone(app), |id| {
+                metrics::name(app, Some(id))
+            });
+            let (unavailable, labels) =
+                fields.split_last().expect("delivery includes availability");
+            if !labels.is_empty() {
+                lines.push(labels.join(" · ").replace(" ▾", ""));
+            }
+            lines.push("Digest not available · Install: tmt extension install digest".into());
+            lines.push(unavailable.clone());
         }
     } else {
+        if app.labels.digest().is_none() {
+            lines.push("Digest not available · Install: tmt extension install digest".into());
+        }
         lines.extend(delivery(app, now_ms, row));
     }
     if let Some(edit) = app

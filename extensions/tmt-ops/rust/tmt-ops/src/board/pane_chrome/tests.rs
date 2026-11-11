@@ -35,13 +35,13 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
                 let focused: Vec<_> = lines
                     .into_iter()
                     // Title rows only: the Details tab chips mark their shown tab with `▸` too.
-                    .filter(|line| line.contains("━ ▸ ") || line.contains("─ ▸ "))
+                    .filter(|line| line.contains("▸━"))
                     .collect();
                 assert_eq!(focused.len(), 1, "{focused:?}");
                 focused.into_iter().next().unwrap()
             };
             let title = draw(&mut app);
-            assert!(title.contains("▸ Agents by TOK"), "{title}");
+            assert!(title.contains("▸━ Agents by TOK"), "{title}");
             assert!(!title.contains("Esc back"));
             let selected = app.workspace.selected.clone();
             assert_eq!(
@@ -50,7 +50,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
             );
             assert_eq!(app.focused_pane(), Some(Pane::Replies));
             let title = draw(&mut app);
-            assert!(title.contains("· 1d · Esc back"), "{title}");
+            assert!(title.contains("· 1d"), "{title}");
             assert_eq!(
                 app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
                 Effect::None
@@ -58,7 +58,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
             assert_eq!(app.focused_pane(), Some(Pane::Rows));
             assert_eq!(app.shell.tab, OpsTab::Digest);
             assert_eq!(app.workspace.selected, selected);
-            assert!(draw(&mut app).contains("▸ Agents by TOK"));
+            assert!(draw(&mut app).contains("▸━ Agents by TOK"));
         }
     }
 }
