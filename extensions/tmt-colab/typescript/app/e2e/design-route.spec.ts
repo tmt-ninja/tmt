@@ -908,6 +908,18 @@ for (const stage of ['progress', 'stalled'] as const) {
     await expect(dialog.getByRole('status')).toHaveText('Creating pages: 0 of 109');
     await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeDisabled();
     await expect(dialog.getByRole('textbox', { name: 'Tag prefix', exact: true })).toBeDisabled();
+    const ink = await dialog
+      .locator('p')
+      .first()
+      .evaluate((node) => getComputedStyle(node).color);
+    await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toHaveCSS(
+      'color',
+      ink,
+    );
+    await expect(dialog.getByRole('textbox', { name: 'Tag prefix', exact: true })).toHaveCSS(
+      'color',
+      ink,
+    );
     await expect(dialog.getByRole('button', { name: 'Creating…', exact: true })).toBeDisabled();
     if (stage === 'stalled')
       await expect(dialog.getByRole('status')).toHaveText(
@@ -991,5 +1003,34 @@ for (const width of [1440, 390]) {
       await expect(dialog.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
       await capture(page, `resume-${width}-${theme}.png`);
     });
+    for (const stage of ['progress', 'stalled'] as const) {
+      test(`capture ${stage} creation ${width} ${theme}`, async ({ page }) => {
+        test.skip(!captures);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        await open(page);
+        await page.evaluate(() => {
+          (window as any).designFixture.controls.holdCreate = true;
+          const original = window.setTimeout;
+          window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) =>
+            original(
+              callback,
+              delay === 60_000 ? 1_000 : delay,
+              ...args,
+            )) as typeof window.setTimeout;
+        });
+        await page.getByRole('button', { name: 'New design system', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'New design system', exact: true });
+        await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+        await expect(dialog.getByRole('status')).toHaveText(
+          stage === 'stalled'
+            ? 'Still creating (0/109). This can take a while.'
+            : 'Creating pages: 0 of 109',
+        );
+        await capture(page, `${stage}-${width}-${theme}.png`);
+        await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+        await page.evaluate(() => (window as any).designFixture.controls.releaseCreate());
+      });
+    }
   }
 }

@@ -6,3 +6,8 @@
 .design-system-dialog p {
   margin: 0;
 }
+/* The values remain part of the active creation attempt, even while they cannot be edited. */
+.design-system-dialog .tmt-ui-field-control:disabled {
+  color: var(--tmt-ui-color-text);
+  -webkit-text-fill-color: var(--tmt-ui-color-text);
+}
