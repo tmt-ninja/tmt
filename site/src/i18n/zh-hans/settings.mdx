@@ -55,7 +55,7 @@ $ tmt upgrade --to 5.0.0-alpha.8     # 指定确切版本，并将 CLI 固定在
 $ tmt upgrade --unpin                # 恢复跟随渠道更新
 `}</Cmd>
 
-`--channel` 和 `--to` 只选择 CLI 的版本。extension 各自保留自己的渠道和固定版本，CLI 固定版本不会阻止它们更新。更新 extension 时会列出版本变化并询问一次，`--yes` 可代为确认。如果没有终端，或使用了 `--json`，且未加 `--yes`，tmt 不会应用任何 extension 更新：每个待更新的 extension 都会报告 `consentRequired`，并给出重新运行的命令。某个 extension 更新失败会让命令失败，但不会撤销其他 extension 的更新。
+`--channel` 和 `--to` 只选择 CLI 的版本。extension 各自保留自己的渠道和固定版本，CLI 固定版本不会阻止它们更新。在人操作的终端中，**Upgrade** 界面会列出整体版本变化，并让你选择缺失的官方 extension 及新检测到的 provider 设置范围，再以 **Upgrade [Y/n]** 一次确认。`--yes` 会批准组件更新及缺失的官方 extension 和附带技能，但不会批准新 provider 的 hook 或 Core 技能设置范围。如果没有终端，或使用了 `--json`，且未加 `--yes`，tmt 不会应用任何 extension 更新：每个待更新的 extension 都会报告 `consentRequired`，并给出重新运行的命令。某个 extension 更新失败会让命令失败，但不会撤销其他 extension 的更新。
 
 <Mdx.h3 id="shell-completion">Shell 补全</Mdx.h3>
 

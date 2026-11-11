@@ -21,9 +21,13 @@ $ tmt extension upgrade ops       # just Ops
 $ tmt extension rm ops            # your data stays
 `}</Cmd>
 
-`tmt upgrade` also updates the official extensions you installed, each on its own channel and pin, and asks once for all of them; `--yes` skips the question. It never installs a missing extension, and one that fails doesn't undo the others. `tmt extension upgrade <name> --unpin` clears a pin.
+`tmt upgrade` also updates the official extensions you installed, each on its own channel and pin, and asks once for all of them; `--yes` skips the question. It also offers missing official extensions; one that fails does not undo completed updates. [Review the upgrade plan →](/working/settings#update-tmt) `tmt extension upgrade <name> --unpin` clears a pin.
 
-If an extension comes with skills for your agents, install asks once whether to add them; `--skills` adds them without asking. To write your own extension, see [Build an extension](/develop/extensions). Any `tmt-<name>` on your PATH works without `tmt extension`.
+A plain extension install does not publish agent skills. Add `--skills` to include the bundled skills in the installation you approve; there is no second skill question. To write your own extension, see [Build an extension](/develop/extensions). Any `tmt-<name>` on your PATH works without `tmt extension`.
+
+### A command whose extension is missing
+
+If you run an absent official command such as `tmt ops ui` in a human terminal, tmt explains which extension supplies it and asks **Install it now [Y/n]**. The offer includes bundled agent skills. Accepting installs it, then prints **Run it again:** with your original command; it does not run that command for you. Declining changes nothing. Help requests, JSON, pipes and agent invocations do not offer an interactive install; they return the missing-extension error and an explicit installation command instead.
 
 ### Known extensions
 

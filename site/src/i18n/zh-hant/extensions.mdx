@@ -28,9 +28,9 @@ $ tmt extension upgrade ops     # 只更新 Ops
 $ tmt extension rm ops          # 保留你的資料
 `}</Cmd>
 
-`tmt upgrade` 也會更新你已安裝的官方擴充套件，各自沿用自己的 channel 與釘選版本，並一次詢問你是否全部更新；`--yes` 會跳過詢問。它不會安裝尚未安裝的擴充套件；其中一個失敗，也不會撤銷其他套件的更新。`tmt extension upgrade <name> --unpin` 會解除版本釘選。
+`tmt upgrade` 也會更新你已安裝的官方擴充套件，各自沿用自己的 channel 與釘選版本，並一次詢問你是否全部更新；`--yes` 會跳過詢問。它也會提供尚未安裝的官方擴充套件；其中一個失敗，也不會撤銷其他套件的更新。`tmt extension upgrade <name> --unpin` 會解除版本釘選。
 
-如果擴充套件附帶給 agent 的 skill，安裝時會詢問一次是否加入；`--skills` 會直接加入，不再詢問。要自行開發，請看[建立擴充套件](/develop/extensions)。PATH 上任何 `tmt-<name>` 都能運作，不必透過 `tmt extension`。
+一般安裝不會發布給 agent 的 skill。加上 `--skills`，會將附帶的 skill 納入你批准的安裝；不會再另外詢問是否加入 skill。要自行開發，請看[建立擴充套件](/develop/extensions)。PATH 上任何 `tmt-<name>` 都能運作，不必透過 `tmt extension`。
 
 <Mdx.h3 id="known-extensions">現有的擴充套件</Mdx.h3>
 
