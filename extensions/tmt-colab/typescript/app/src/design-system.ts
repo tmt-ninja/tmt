@@ -326,6 +326,13 @@ export function followedSystem(source: string): string | undefined {
   return pin && !pin.lock ? pin.system : undefined;
 }
 
+/** The Design docs chrome (the article, stages and snippets of a component page), scoped to
+ * `.tmt-design-docs`. The Design tab owns it: a page that draws in that wrapper gets it whatever its
+ * system, so a system with no CSS of its own (tmt-tui's) draws its docs as the tmt GUI does. It is
+ * read only when a page needs it, as its own chunk (#6272). */
+const usesDocsChrome = (source: string) => /\btmt-design-docs\b/.test(source);
+const docsChrome = () => import('./design-docs-chrome.js').then((module) => module.default);
+
 /** The frame's design system for a page, or undefined when it needs none: the components of the
  * draft or locked release, the page check's findings, or the notice that they cannot be used. */
 export async function loadDesignSystem(
@@ -344,8 +351,10 @@ export async function loadDesignSystem(
   if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
   const frame = frameDesignSystem(bundle, pin);
   const findings = findingsScript(checkPageElements(elements, pin, bundle as unknown as Bundle));
+  // In the system's layer, after its own rules, as the tmt GUI's bundle carried them before.
+  const docs = usesDocsChrome(source) ? await docsChrome() : '';
   return {
-    style: frame.style,
+    style: docs ? `${frame.style}\n@layer tmt-ui{${docs}}` : frame.style,
     script: `${frame.script}${findings}`,
     pageViewTags: bundle.components
       .filter((component) => component.parts?.includes('PageListTable'))

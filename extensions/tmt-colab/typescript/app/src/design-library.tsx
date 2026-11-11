@@ -21,6 +21,8 @@ const DesignDocs = lazy(() =>
 );
 import { designBase } from './entry.js';
 import { browserUiClasses } from '@tmt/browser-ui/static';
+/** How long a Publish notice stays in the header: as long as the page's other status lines. */
+const NOTICE_MS = 6000;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 function findPage(
   node: DesignTreeNode,
@@ -79,6 +81,9 @@ function Tree({
       </li>
     );
   const href = designPageHref(system, base, node);
+  const label = root ? 'Introduction' : node.title;
+  // A page titled by its own tag (tmt-tui's `tui-mark`) draws it once, not as title and tag.
+  const tag = node.tag && `${prefix}-${node.tag}`;
   return (
     <li>
       <a
@@ -97,8 +102,8 @@ function Tree({
           navigate(href);
         }}
       >
-        {root ? 'Introduction' : node.title}
-        {node.tag && <span className="design-page-tree-tag">{`${prefix}-${node.tag}`}</span>}
+        {label}
+        {tag && tag !== label && <span className="design-page-tree-tag">{tag}</span>}
       </a>
       {node.children.length > 0 && (
         <ul>
@@ -135,7 +140,8 @@ export function DesignLibrary({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [unreadable, setUnreadable] = useState<string[]>([]);
-  const [notice, setNotice] = useState<string>();
+  // What the last Publish or repin said, for the system it was about; the header shows it a while.
+  const [notice, setNotice] = useState<{ system: string; text: string }>();
   const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -250,7 +256,7 @@ export function DesignLibrary({
   const publish = () =>
     run(async () => {
       const result = await publishNext(transport, selected!.id);
-      setNotice(`Published ${result.version}.`);
+      setNotice({ system: selected!.id, text: `Published ${result.version}.` });
       setUnpinned(result.unpinned.length ? { pin: result.pin, pages: result.unpinned } : undefined);
       await refresh();
     });
@@ -258,8 +264,14 @@ export function DesignLibrary({
     run(async () => {
       const pages = await pinDesignTree(transport, selected!.id);
       setUnpinned(pages.length ? { pin: unpinned!.pin, pages } : undefined);
-      if (!pages.length) setNotice('Every page now follows the draft.');
+      if (!pages.length)
+        setNotice({ system: selected!.id, text: 'Every page now follows the draft.' });
     });
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   // The workspace is the scroller here, so a new page starts at its top.
   const open = (href: string) => {
     navigate(href);
@@ -297,6 +309,13 @@ export function DesignLibrary({
               ? `${base}/systems/${encodeURIComponent(id.slice(5))}`
               : `${base}/ds/${id}`,
           )
+        }
+        status={
+          notice && notice.system === selected?.id ? (
+            <span className="design-notice" role="status">
+              {notice.text}
+            </span>
+          ) : undefined
         }
         actions={
           <>
@@ -396,11 +415,6 @@ export function DesignLibrary({
               disabled={publishing}
               onActivate={() => void repin()}
             />
-          </p>
-        )}
-        {notice && (
-          <p className="design-feedback" role="status">
-            {notice}
           </p>
         )}
         {userPath || guiPath || atRoot || selected ? (

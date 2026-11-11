@@ -20,6 +20,7 @@
     "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
     "./docs-embed": "./docs/embed.tsx",
+    "./docs-embed.css": "./generated/docs-embed.css",
     "./docs-foundations": "./docs/foundation-page.tsx",
     "./docs-patterns": "./docs/pattern-page.tsx",
     "./docs-components": "./docs/component-page.tsx",

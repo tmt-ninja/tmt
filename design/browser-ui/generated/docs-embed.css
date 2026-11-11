@@ -2657,7 +2657,7 @@ code {
     font-size: var(--tmt-ui-ref-size-7);
   }
   
-  .docs-snippet pre {
+  .docs-snippet:has(button) pre {
     padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
   }
 }
@@ -4298,10 +4298,14 @@ tmt-tui-frame,
 @scope (.tmt-design-docs) {
 
 
-.docs-hero > h3,
-.docs-hero .docs-snippet,
+
+.docs-hero:has(~ .docs-snippet) > h3,
+.docs-hero:has(~ .docs-snippet) .docs-snippet,
 .ds-example-label {
   display: none;
+}
+.docs-hero:not(:has(~ .docs-snippet)) .docs-canvas-hero {
+  min-height: 0;
 }
 
 .docs-canvas > .docs-scene {

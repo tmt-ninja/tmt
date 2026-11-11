@@ -501,8 +501,9 @@ code {
   .docs-article h1 {
     font-size: var(--tmt-ui-ref-size-7);
   }
-  /* A code line runs under the Copy button on a phone: start the code below it. */
-  .docs-snippet pre {
+  /* A code line runs under the Copy button on a phone: start the code below it. A snippet with no
+     Copy button (a Colab docs page's) needs no room for one (#6272). */
+  .docs-snippet:has(button) pre {
     padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
   }
 }

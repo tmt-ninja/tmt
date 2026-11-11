@@ -19,7 +19,7 @@ async function capture(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: join(captures, name), fullPage: true });
 }
-async function open(page: Page, owner = true, routeBase = base) {
+async function open(page: Page, owner = true, routeBase = base, terminal = false) {
   // Match the native door's renderer entry; Vite otherwise returns the parent SPA.
   await page.route('**/colab/renderer.html', async (route) =>
     route.fulfill({
@@ -41,7 +41,7 @@ async function open(page: Page, owner = true, routeBase = base) {
   await page.route('**/src/main.tsx', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${routeBase}/',${owner});`,
+      body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${routeBase}/',${owner},{terminal:${terminal}});`,
     }),
   );
   await page.goto(`${routeBase}/`);
@@ -454,7 +454,7 @@ for (const width of [1440, 390])
       ).toBe(true);
       await capture(page, `design-user-home-${width}-${theme}.png`);
       await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
-      await expect(page.locator('.design-feedback[role="status"]')).toContainText(
+      await expect(page.locator('.tmt-ui-topbar-status [role="status"]')).toContainText(
         'Published 0.1.1.',
       );
       await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
@@ -648,7 +648,7 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Fixture upload refused');
   await expect(page.getByRole('button', { name: 'Publish 0.1.1', exact: true })).toBeDisabled();
-  await expect(page.locator('.design-feedback[role="status"]')).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-topbar-status [role="status"]')).toHaveCount(0);
   await page.evaluate(
     () =>
       ((
@@ -658,8 +658,131 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   await page.getByRole('button', { name: 'Reload design systems', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Publish 0.1.1', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
-  await expect(page.locator('.design-feedback[role="status"]')).toContainText('Published 0.1.1.');
+  await expect(page.locator('.tmt-ui-topbar-status [role="status"]')).toContainText(
+    'Published 0.1.1.',
+  );
   await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+});
+
+test('the Published notice sits in the header over the content, then goes away (#6272)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await pickSystem(page, 'Acme');
+  await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
+  const notice = page.getByRole('status').filter({ hasText: 'Published 0.1.1.' });
+  await expect(notice).toBeVisible();
+  // It is the header's own status line, in the bar and not a paragraph above the page tree.
+  await expect(page.locator('.tmt-ui-topbar-status').getByRole('status')).toHaveText(
+    'Published 0.1.1.',
+  );
+  const geometry = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const status = [...document.querySelectorAll('[role="status"]')].find((node) =>
+      node.textContent?.includes('Published 0.1.1.'),
+    )!;
+    const note = status.getBoundingClientRect();
+    return {
+      note: { left: note.left, right: note.right, top: note.top, bottom: note.bottom },
+      bar: box('.tmt-ui-topbar'),
+      title: box('.design-header-title'),
+      viewport: innerWidth,
+    };
+  });
+  // Inside the bar's height, clear of the window edge and past the title it follows.
+  expect(geometry.note.top).toBeGreaterThanOrEqual(geometry.bar.top - 1);
+  expect(geometry.note.bottom).toBeLessThanOrEqual(geometry.bar.bottom + 1);
+  expect(geometry.note.left).toBeGreaterThanOrEqual(geometry.title.right);
+  expect(geometry.note.right).toBeLessThanOrEqual(geometry.viewport - 16);
+  // Like the page's other status lines it goes after a while; the Publish button stays.
+  await expect(notice).toHaveCount(0, { timeout: 12_000 });
+  await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+});
+
+test('a page titled by its own tag shows the tag once in the Design sidebar (#6272)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, true, base, true);
+  await pickSystem(page, 'tmt-tui');
+  const tree = page.getByRole('navigation', { name: 'tmt-tui pages', exact: true });
+  const mark = tree.getByRole('link', { name: /^tui-mark/ });
+  await expect(mark).toBeVisible();
+  // The title is the tag: one line, not the same word twice.
+  await expect(mark).toHaveText('tui-mark');
+  await expect(mark.locator('.design-page-tree-tag')).toHaveCount(0);
+  // A page with a name of its own keeps its tag under it.
+  const gauge = tree.getByRole('link', { name: /^Gauge/ });
+  await expect(gauge.locator('.design-page-tree-tag')).toHaveText('tui-gauge');
+});
+
+test('a system with no CSS of its own still draws its docs pages in the Design docs chrome (#6272)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, true, base, true);
+  await pickSystem(page, 'tmt-tui');
+  const tree = page.getByRole('navigation', { name: 'tmt-tui pages', exact: true });
+  await tree.getByRole('link', { name: /^tui-mark/ }).click();
+  const frame = designFrame(page);
+  await expect(frame.getByRole('heading', { name: 'Terminal mark', exact: true })).toBeVisible();
+  const canvas = frame.locator('.docs-canvas').first();
+  const snippet = frame.locator('.docs-snippet').first();
+  await expect(canvas).toBeVisible();
+  // The canvas is a bordered, padded stage and the snippet a mono code box, as on the docs site.
+  const paint = async () => ({
+    canvas: await canvas.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        display: style.display,
+        padding: style.paddingTop,
+        border: style.borderTopWidth,
+        radius: style.borderTopLeftRadius,
+      };
+    }),
+    snippet: await snippet.evaluate((node) => {
+      const style = getComputedStyle(node);
+      const pre = getComputedStyle(node.querySelector('pre')!);
+      return {
+        border: style.borderTopWidth,
+        font: pre.fontFamily,
+        padding: pre.paddingTop,
+        white: pre.whiteSpace,
+      };
+    }),
+  });
+  const drawn = await paint();
+  expect(drawn.canvas.display).toBe('flex');
+  expect(Number.parseFloat(drawn.canvas.padding)).toBeGreaterThanOrEqual(16);
+  expect(Number.parseFloat(drawn.canvas.border)).toBeGreaterThan(0);
+  expect(Number.parseFloat(drawn.canvas.radius)).toBeGreaterThan(0);
+  expect(Number.parseFloat(drawn.snippet.border)).toBeGreaterThan(0);
+  expect(drawn.snippet.font).toMatch(/mono|Menlo|Consolas|monospace/i);
+  expect(drawn.snippet.white).toBe('pre');
+  // With no Usage section of its own, the page keeps its hero's heading and code, and the stage
+  // fits a one-line example.
+  const hero = frame.locator('.docs-hero');
+  await expect(hero.getByRole('heading', { name: 'tmt', exact: true })).toBeVisible();
+  await expect(hero.locator('.docs-snippet')).toBeVisible();
+  await expect(hero.locator('.docs-snippet')).toContainText('<tui-mark data="working"></tui-mark>');
+  expect((await canvas.boundingBox())!.height).toBeLessThan(120);
+  // The tmt GUI draws the same chrome, so one set of rules serves every system.
+  await pickSystem(page, 'Acme');
+  const gui = page.getByRole('navigation', { name: 'Acme pages', exact: true });
+  await gui.getByRole('link', { name: /^Button/ }).click();
+  await expect(designFrame(page).locator('.docs-canvas').first()).toBeVisible();
+  const reference = await designFrame(page)
+    .locator('.docs-canvas')
+    .first()
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { padding: style.paddingTop, border: style.borderTopWidth };
+    });
+  expect(reference).toEqual({ padding: drawn.canvas.padding, border: drawn.canvas.border });
+  // A tmt GUI page has its Usage snippet, so its hero stays a bare stage.
+  await expect(designFrame(page).locator('.docs-hero > h3')).toBeHidden();
+  await expect(designFrame(page).locator('.docs-hero .docs-snippet')).toBeHidden();
 });
 
 test('standalone Design keeps its docs, system cards and editing links on their owning mounts', async ({

@@ -5,7 +5,13 @@ import { startShellHost } from '@tmt/browser-ui/shell-host';
 import { createAppRouter } from '../src/router.js';
 import { ShellHostSlot } from '../src/colab-shell.js';
 import { hostInShell } from '../src/entry.js';
-import { createDesignSystem } from '../src/design-system-pages.js';
+import {
+  componentPageSource,
+  createDesignSystem,
+  DESIGN_PROJECT,
+  rootPageSource,
+  writePin,
+} from '../src/design-system-pages.js';
 import { SaveOutcomeUnknown } from '../src/save.js';
 import type { PageBinding, PageTransport, PageView } from '../src/transport.js';
 import '@tmt/browser-ui/static.css';
@@ -22,7 +28,11 @@ interface PageRecord {
   /** Bumped by every change, as the serve's page-read token moves with the page's head. */
   revision: number;
 }
-export async function mountDesign(url = '/colab/design/', owner = true) {
+export async function mountDesign(
+  url = '/colab/design/',
+  owner = true,
+  options: { terminal?: boolean } = {},
+) {
   const controls = {
     failUpload: false,
     holdCreate: false,
@@ -245,6 +255,49 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   const home = make('Notes');
   const initial = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
   if (!owner) delete (transport as { management?: unknown }).management;
+  /** A system shaped like tmt-tui's in a space: no CSS of its own, and component pages titled by
+   * their own tag, which the header and tree draw again. */
+  const addTerminalSystem = () => {
+    const root = make('tmt-tui');
+    const components = ['mark', 'gauge'].map((tag) => {
+      // `mark` is titled by its own tag, as tmt-tui's pages are; `gauge` has a name of its own.
+      const id = make(tag === 'mark' ? `tui-${tag}` : 'Gauge');
+      const doc = {
+        schema: 1,
+        kind: 'component',
+        tag,
+        props: { data: { type: 'string' } },
+        slots: ['default'],
+        examples: [{ title: 'tmt', markup: `<tui-${tag} data="working"></tui-${tag}>` }],
+        source: "export default ({React}) => ({data}) => React.createElement('span', null, data);",
+        css: '',
+      } as unknown as Parameters<typeof componentPageSource>[0];
+      pages.get(id)!.source = `${writePin('', root)}\n${componentPageSource(doc, 'tui', {
+        title: `Terminal ${tag}`,
+        description: `The ${tag} part.`,
+      })}`;
+      pages.get(id)!.projects = [DESIGN_PROJECT];
+      return { tag, page: id };
+    });
+    const config = {
+      schema: 1,
+      kind: 'design-system',
+      name: 'tmt-tui',
+      prefix: 'tui',
+      version: '0.1.0',
+      runtime: '4',
+      tokens: { css: '' },
+      components,
+      releases: [],
+    } as unknown as Parameters<typeof rootPageSource>[0];
+    const page = pages.get(root)!;
+    page.source = `${writePin('', root)}\n${rootPageSource(config)}`;
+    page.order = components.map((component) => component.page);
+    page.projects = [DESIGN_PROJECT];
+    listed();
+    return root;
+  };
+  const terminal = options.terminal ? addTerminalSystem() : undefined;
   (window as unknown as { designFixture: unknown }).designFixture = {
     pages,
     counts,
@@ -266,6 +319,7 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     controls,
     initial,
     home,
+    terminal,
   };
   const policy = (window as unknown as { designParentPolicy?: string }).designParentPolicy;
   if (policy) {

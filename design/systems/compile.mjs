@@ -74,9 +74,6 @@ function scopedUiThemeCss() {
   return `@scope ([data-tmt-ds-scope]){${stripComments(css.slice(0, end))}}`;
 }
 
-/** The docs' own look (the article, canvases, snippets), scoped to `.tmt-design-docs`. */
-const docsCss = () =>
-  stripComments(readFileSync(join(repo, 'design/browser-ui/generated/docs-embed.css'), 'utf8'));
 
 /**
  * The docs pages with their inline `style` attributes lifted into classes: a Colab page's CSP
@@ -123,7 +120,9 @@ async function compile(dir) {
   // The nav-only pages (Principles) lift their inline styles with the rest.
   const pages = liftInlineStyles([...docsOut.sections, { title: '', pages: docsOut.extras }]);
   const navPages = pages.sections.pop().pages;
-  const css = [tokensCss(), pageUiCss(), scopedUiThemeCss(), docsCss(), pages.css].join('\n');
+  // The docs' own look (the article, stages, snippets) is the Design tab's, drawn for every system's
+  // docs pages (design-system.ts), so a system's CSS carries only its tokens and its pages' lifted styles.
+  const css = [tokensCss(), pageUiCss(), scopedUiThemeCss(), pages.css].join('\n');
   const config = { ...rest, tokens: { ...rest.tokens, css } };
   const read = docs.map(({ doc }) => {
     const path = join(dir, doc);

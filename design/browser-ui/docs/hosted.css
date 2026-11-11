@@ -3,10 +3,16 @@
    flow, just under the docs' sticky top bar, and scrolls within itself. Loaded only through the
    scoped docs-embed.css. */
 /* The host's workspace is the docs' viewport: the docs layout keeps its outline sticky inside it. */
-.docs-hero > h3,
-.docs-hero .docs-snippet,
+/* A page with its own Usage snippet after the hero (the tmt GUI's) shows the hero as a bare stage.
+   A page without one (a space's system, such as tmt-tui) keeps the hero's heading and code, and its
+   stage fits the example rather than the tmt GUI's tall hero (#6272). */
+.docs-hero:has(~ .docs-snippet) > h3,
+.docs-hero:has(~ .docs-snippet) .docs-snippet,
 .ds-example-label {
   display: none;
+}
+.docs-hero:not(:has(~ .docs-snippet)) .docs-canvas-hero {
+  min-height: 0;
 }
 /* The generated page's live example owns the canvas width, so contained layouts have a real
    sizing context while intrinsically small controls can still center within it. */
