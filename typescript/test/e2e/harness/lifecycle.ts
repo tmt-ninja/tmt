@@ -7,6 +7,7 @@ import {
   stopPrivateTmuxSocket,
 } from '../../support/private-tmux.js';
 import { processState } from './cleanup.js';
+import { processGroupSnapshot } from './readiness.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -191,6 +192,14 @@ function groupExists(pid: number): boolean {
 export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
   const failures: Error[] = [];
   const waiting: OwnedGroup[] = [];
+  const report = (pending: readonly OwnedGroup[]): void => {
+    for (const { pid } of pending) {
+      console.error(
+        'E2E group cleanup snapshot:',
+        JSON.stringify({ pid, ...processGroupSnapshot(pid) })
+      );
+    }
+  };
   for (const group of groups) {
     let verified = false;
     try {
@@ -229,11 +238,14 @@ export function stopOwnedGroups(groups: readonly OwnedGroup[]): void {
       }
     });
     if (pending.length === 0) {
-      if (failures.length)
+      if (failures.length) {
+        report(groups);
         throw new AggregateError(failures, failures.map((failure) => failure.message).join(' '));
+      }
       return;
     }
     if (Date.now() >= deadline) {
+      report(pending);
       throw new AggregateError(
         failures,
         `E2E process groups survived or cannot be inspected: ${pending.map((group) => group.pid).join(', ')}`

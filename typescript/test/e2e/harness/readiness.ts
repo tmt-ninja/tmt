@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { ProcessState } from './cleanup.js';
 import type { MockEvent, CliProcess, CliResult } from './types.js';
@@ -20,6 +21,120 @@ export async function waitForEvent(
   throw new Error(
     `Timed out waiting for mock-agent event. Events: ${JSON.stringify(readEvents())}`
   );
+}
+
+interface ProcessObservation {
+  status: number | null;
+  signal?: string | null;
+  stdout?: string;
+  stderr?: string;
+  error?: unknown;
+}
+
+interface ProcessCommandEvidence {
+  command: string[];
+  status: number | null;
+  signal: string | null;
+  error: string | null;
+  stderr: string;
+}
+
+/** Read-only evidence; never supplies signalling or cleanup authority. */
+export function processGroupSnapshot(
+  pid: number,
+  inspect: (args: string[]) => ProcessObservation = (args) =>
+    spawnSync('/bin/ps', args, {
+      encoding: 'utf8',
+      timeout: 1_000,
+      killSignal: 'SIGKILL',
+      maxBuffer: 1024 * 1024,
+      env: { ...process.env, LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+): { leader: ProcessCommandEvidence; census: ProcessCommandEvidence; rows: string } {
+  const observe = (args: string[]) => {
+    let result: ProcessObservation;
+    try {
+      result = inspect(args);
+    } catch {
+      result = { status: null, error: { code: 'unavailable' } };
+    }
+    return {
+      result,
+      evidence: {
+        command: ['/bin/ps', ...args],
+        status: result.status,
+        signal: result.signal ?? null,
+        error:
+          result.error === undefined
+            ? null
+            : typeof result.error === 'object' &&
+                result.error !== null &&
+                'code' in result.error &&
+                typeof result.error.code === 'string'
+              ? result.error.code.slice(0, 128)
+              : 'unavailable',
+        stderr: (result.stderr ?? '').slice(-4_096),
+      },
+    };
+  };
+  const leader = observe(['-p', String(pid), '-o', 'pgid=', '-o', 'lstart=']);
+  const census = observe([
+    '-ax',
+    '-o',
+    'pid=',
+    '-o',
+    'ppid=',
+    '-o',
+    'pgid=',
+    '-o',
+    'stat=',
+    '-o',
+    'args=',
+  ]);
+  const rows = (census.result.stdout ?? '')
+    .split('\n')
+    .filter((line) => Number(/^\s*\d+\s+\d+\s+(\d+)\s/.exec(line)?.[1]) === pid)
+    .slice(0, 16)
+    .join('\n')
+    .slice(0, 8_192);
+  return {
+    leader: leader.evidence,
+    census: census.evidence,
+    rows:
+      rows ||
+      (census.result.status === 0 && !census.result.error
+        ? '[no matching processes]'
+        : '[unavailable]'),
+  };
+}
+
+/** Timeout evidence only: no environment values or unrelated process rows. */
+export function mockReadinessSnapshot(
+  pid: number,
+  environmentKeys: readonly string[],
+  readCapture: () => string
+): { pid: number; environmentKeys: string[]; environmentKeysTruncated: boolean; pane: string } {
+  let pane: string;
+  try {
+    pane = readCapture().slice(-16_384);
+  } catch {
+    // Do not dump subprocess errors: they may retain unfiltered stdout/stderr.
+    pane = '[unavailable]';
+  }
+  const keys: string[] = [];
+  let size = 0;
+  for (const key of [...environmentKeys].sort()) {
+    if (size + key.length > 8_192 || keys.length === 256) break;
+    keys.push(key);
+    size += key.length;
+  }
+  return {
+    pid,
+    environmentKeys: keys,
+    environmentKeysTruncated: keys.length !== environmentKeys.length,
+    pane,
+  };
 }
 
 export async function waitFor(

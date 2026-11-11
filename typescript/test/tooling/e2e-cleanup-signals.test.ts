@@ -78,6 +78,7 @@ it.each(['', '12', '0\n', '1\n', 'not-a-pid\n', '9007199254740993\n'])(
 it.each([
   'normal',
   'readiness failure',
+  'pre-ready hold',
   'timeout',
   'thrown exit',
   'thrown exit in allocation',
@@ -93,6 +94,7 @@ it.each([
     const home = path.join(directory, 'home');
     fs.mkdirSync(home);
     const proofFile = path.join(directory, 'proof.json');
+    const snapshotFile = path.join(directory, 'readiness-snapshot.json');
     const config = path.join(directory, 'config.mjs');
     fs.writeFileSync(
       config,
@@ -109,6 +111,36 @@ it.each([
       import { waitForPidFile } from ${JSON.stringify(readinessModule)};
       test('hold an owned fixture', async () => {
         const fixture = new E2EFixture();
+        if (${JSON.stringify(scenario)} === 'pre-ready hold') {
+          const report = console.error;
+          console.error = (...args) => {
+            if (args[0] === 'E2E mock readiness snapshot:') fs.writeFileSync(${JSON.stringify(snapshotFile)}, args[1]);
+            report(...args);
+          };
+          const observe = fixture.waitForEvent.bind(fixture);
+          fixture.waitForEvent = async (...args) => {
+            // Establish the controlled state before starting the unchanged
+            // production readiness deadline; a slow bootstrap is not the hold.
+            await fixture.waitFor(() => fs.existsSync(path.join(fixture.root, 'held')),
+              5000, 'controlled pre-ready hold');
+            return observe(...args);
+          };
+          const tmux = fixture.tmux.bind(fixture);
+          fixture.tmux = (args) => {
+            if (args[0] !== 'new-session') return tmux(args);
+            const mock = path.join(fixture.root, 'controlled-pre-ready.mjs');
+            fs.writeFileSync(mock, 'import fs from "node:fs"; fs.writeFileSync(' + JSON.stringify(path.join(fixture.root, 'held')) + ', "held"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000);');
+            const command = 'exec ' + JSON.stringify(process.execPath) + ' ' + JSON.stringify(mock);
+            const result = tmux([...args.slice(0, -1), command]);
+            const pid = Number(tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_pid}']).trim());
+            const leader = groupLeader(pid);
+            if (!leader) throw new Error('controlled pre-ready leader unavailable');
+            const stage = ${JSON.stringify(proofFile + '.tmp')};
+            fs.writeFileSync(stage, JSON.stringify({ root: fixture.root, socketRoot: fixture.socketRoot, socket: tmux(['display-message', '-p', '#{socket_path}']).trim(), tmux: fixture.tmuxPath, pid, started: leader.started, registry: process.env.TMT_E2E_RUN_REGISTRY }));
+            fs.renameSync(stage, ${JSON.stringify(proofFile)});
+            return result;
+          };
+        }
         try {
           await fixture.start();
           const publishProof = (details) => {
@@ -147,6 +179,11 @@ it.each([
             await fixture.stop();
           } catch (cleanupError) {
             throw new AggregateError([error, cleanupError], 'fixture readiness and cleanup failed');
+          }
+          if (${JSON.stringify(scenario)} === 'pre-ready hold') {
+            if (!String(error).includes('Timed out waiting for mock-agent event')) throw error;
+            if (fs.existsSync(fixture.root) || fs.existsSync(fixture.socketRoot)) throw new Error('pre-ready fixture roots survived');
+            return;
           }
           throw error;
         }
@@ -225,10 +262,28 @@ it.each([
               scenario === 'foreground SIGTERM' ||
               scenario === 'stale lock SIGTERM'
             ? 143
-            : scenario === 'normal'
+            : scenario === 'normal' || scenario === 'pre-ready hold'
               ? 0
               : 1;
       expect(result, output).toEqual({ code: expectedCode, signal: null });
+      if (scenario === 'pre-ready hold') {
+        expect(fs.existsSync(snapshotFile), output).toBe(true);
+        const snapshot = JSON.parse(fs.readFileSync(snapshotFile, 'utf8')) as {
+          pid: number;
+          environmentKeys: string[];
+          pane: string;
+          processGroup: { rows: string };
+        };
+        expect(snapshot.pid).toBe(proof.pid);
+        expect(snapshot.environmentKeys).toContain('TMT_MOCK_LOG');
+        const row = snapshot.processGroup.rows
+          .split('\n')
+          .find((line) => Number(line.trim().split(/\s+/)[0]) === proof!.pid);
+        expect(row, snapshot.processGroup.rows).toBeDefined();
+        expect(row!.trim().split(/\s+/)[3]).toMatch(/[ST]/);
+        expect(snapshot.processGroup.rows).toContain('controlled-pre-ready.mjs');
+        expect(output).not.toContain('E2E fixture survived suite end');
+      }
       if (scenario === 'readiness failure') {
         expect(output).toContain('controlled fixture readiness failure');
         expect(output).not.toContain('E2E fixture survived suite end');

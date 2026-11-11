@@ -2,7 +2,12 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { processState, type ProcessState } from '../e2e/harness/cleanup.js';
-import { waitForCapture, waitForProcessExit } from '../e2e/harness/readiness.js';
+import {
+  mockReadinessSnapshot,
+  processGroupSnapshot,
+  waitForCapture,
+  waitForProcessExit,
+} from '../e2e/harness/readiness.js';
 
 type Kill = (target: number, signal: 0) => unknown;
 
@@ -167,5 +172,98 @@ describe('E2E capture readiness', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('mock readiness timeout evidence', () => {
+  it('bounds the pane tail and records environment names only', () => {
+    const snapshot = mockReadinessSnapshot(
+      42,
+      ['TMT_MOCK_LOG', 'HOME'],
+      () => 'x'.repeat(20_000) + 'pane tail'
+    );
+    expect(snapshot).toEqual({
+      pid: 42,
+      environmentKeys: ['HOME', 'TMT_MOCK_LOG'],
+      environmentKeysTruncated: false,
+      pane: expect.any(String),
+    });
+    expect(snapshot.pane).toHaveLength(16_384);
+    expect(snapshot.pane.endsWith('pane tail')).toBe(true);
+  });
+
+  it('caps environment names without truncating a name into a misleading key', () => {
+    const snapshot = mockReadinessSnapshot(
+      42,
+      Array.from({ length: 300 }, (_, i) => `KEY_${i}`),
+      () => ''
+    );
+    expect(snapshot.environmentKeys).toHaveLength(256);
+    expect(snapshot.environmentKeysTruncated).toBe(true);
+    expect(mockReadinessSnapshot(42, ['x'.repeat(8_193)], () => '').environmentKeys).toEqual([]);
+  });
+
+  it('reports an unavailable pane without leaking subprocess errors', () => {
+    expect(
+      mockReadinessSnapshot(42, ['TOKEN'], () => {
+        throw new Error('secret output');
+      })
+    ).toEqual({
+      pid: 42,
+      environmentKeys: ['TOKEN'],
+      environmentKeysTruncated: false,
+      pane: '[unavailable]',
+    });
+  });
+
+  it('retains bounded inspection failures and only the requested group rows', () => {
+    const inspect = vi.fn((args: string[]) => ({
+      status: args[0] === '-p' ? 1 : 0,
+      stderr: args[0] === '-p' ? 'x'.repeat(5_000) + 'inspection failed' : '',
+      stdout:
+        args[0] === '-p'
+          ? ''
+          : [
+              '100 1 99 S unrelated-secret',
+              '42 1 42 Z node controlled-pre-ready',
+              ...Array.from({ length: 20 }, (_, i) => `${i + 200} 42 42 S ${'a'.repeat(1000)}`),
+            ].join('\n'),
+    }));
+    const snapshot = processGroupSnapshot(42, inspect);
+    expect(snapshot.leader).toMatchObject({
+      command: ['/bin/ps', '-p', '42', '-o', 'pgid=', '-o', 'lstart='],
+      status: 1,
+      stderr: expect.stringContaining('inspection failed'),
+    });
+    expect(JSON.stringify(snapshot.leader).length).toBeLessThan(4_300);
+    expect(snapshot.census).toMatchObject({ status: 0, stderr: '' });
+    expect(snapshot.rows).toContain('42 1 42 Z node controlled-pre-ready');
+    expect(snapshot.rows).not.toContain('unrelated-secret');
+    expect(snapshot.rows.length).toBeLessThanOrEqual(8_192);
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it('limits matching rows and marks failed or timed-out inspection explicitly', () => {
+    expect(
+      processGroupSnapshot(42, () => ({
+        status: 0,
+        stdout: Array.from({ length: 20 }, (_, i) => `${i + 100} 1 42 S worker`).join('\n'),
+      })).rows.split('\n')
+    ).toHaveLength(16);
+    expect(
+      processGroupSnapshot(42, () => ({
+        status: null,
+        signal: 'SIGKILL',
+        error: { code: 'ETIMEDOUT' },
+      })).leader
+    ).toMatchObject({ status: null, signal: 'SIGKILL', error: 'ETIMEDOUT' });
+    expect(
+      processGroupSnapshot(42, () => {
+        throw new Error('secret output');
+      }).census
+    ).toMatchObject({ status: null, error: 'unavailable' });
+    expect(processGroupSnapshot(42, () => ({ status: 0, stdout: '99 1 99 S other' })).rows).toBe(
+      '[no matching processes]'
+    );
   });
 });
