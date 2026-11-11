@@ -111,7 +111,14 @@ names the acceptance specs it ran and the exact tested executable/asset hashes.
 selected `colab-hosted` PR jobs and shard 1 of full label/weekly/manual acceptance,
 after ordinary acceptance, whatever its result, unless the run is cancelled. The shared action prepares
 Java 21, pinned Firebase tools and the emulator JAR; the wrapper owns private state,
-loopback demo Auth/Firestore, real native producer builds and Chromium cleanup.
+loopback demo Auth/Firestore, real native producer builds and Chromium cleanup. This wrapper
+refuses execution outside GitHub Actions before starting tools or making a world.
+Its serial, disposable job owns fixed loopback service ports (Auth 9099, Firestore
+8080 and websocket 9150, hub 4400); Firebase refuses occupied listeners rather than
+reusing them. No ephemeral port is probed and released before native builds.
+Failures print the configured endpoints and at most the last 200 lines / 64 KiB
+of each demo debug log, drain that console output, and preserve the full log artifacts
+before removing the world. Startup failures are not retried.
 Finite Firestore REST calls use one fresh loopback HTTP connection each, without retries,
 forwarding the original status, headers and body. Upstream failure aborts the browser request
 and fails the proof; only Listen long-polls use the pooled Playwright fetch path.

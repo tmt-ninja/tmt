@@ -2,8 +2,19 @@
 // No Docker, Hosting deployment, billing, credential import or production-network fallback.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import net from 'node:net';
+import {
+  closeSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,15 +27,36 @@ const run = (command, args, options = {}) => {
   assert.equal(result.error, undefined, `${command} did not start`);
   assert.equal(result.status, 0, `${command} failed (signal ${result.signal ?? 'none'})`);
 };
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
+// Keep startup causes in the retained console even after the debug artifact expires.
+async function printLogTail(source, name) {
+  const fd = openSync(source, 'r');
+  let output;
+  try {
+    const { size } = fstatSync(fd);
+    const limit = 64 * 1024;
+    const buffer = Buffer.alloc(Math.min(size, limit));
+    const bytes = readSync(fd, buffer, 0, buffer.length, Math.max(0, size - limit));
+    const lines = buffer
+      .subarray(0, bytes)
+      .toString('utf8')
+      .replace(/\r?\n$/, '')
+      .split(/\r?\n/);
+    const truncated = size > limit || lines.length > 200;
+    output = `[hosted-reader] ${name}: tail (at most 200 lines / 65536 input bytes; truncated=${truncated})\n${lines.slice(-200).join('\n')}\n`;
+  } finally {
+    closeSync(fd);
+  }
+  // The original failure is rethrown next; await the pipe so that cannot lose the tail.
+  await new Promise((resolve, reject) => {
+    process.stderr.write(output, (error) => (error ? reject(error) : resolve()));
   });
+}
+
+assert.equal(
+  process.env.GITHUB_ACTIONS,
+  'true',
+  'hosted-reader emulator proof is CI-only: fixed loopback ports belong to its disposable job VM',
+);
 
 if (process.argv[2] === '--scenario') {
   assert.equal(process.argv.length, 4);
@@ -55,6 +87,17 @@ if (process.argv[2] === '--scenario') {
   assert.equal(java.status, 0, 'Java 21 must already be selected');
   assert.match(java.stderr, /version "21[."]/);
   const world = mkdtempSync(path.join(tmpdir(), 'colab-hosted-emulator-'));
+  // Disposable CI jobs run this proof serially. Do not probe port 0 and release
+  // ephemeral ports before a lengthy build: outbound sockets can take them before
+  // Java binds. Firebase owns binding these distinct loopback service ports and
+  // fails explicitly if one is occupied; no retry or fallback is added here.
+  const emulators = {
+    auth: { host: '127.0.0.1', port: 9099 },
+    firestore: { host: '127.0.0.1', port: 8080, websocketPort: 9150 },
+    hub: { host: '127.0.0.1', port: 4400 },
+    ui: { enabled: false },
+    singleProjectMode: true,
+  };
   try {
     const home = path.join(world, 'home');
     mkdirSync(home);
@@ -77,8 +120,8 @@ if (process.argv[2] === '--scenario') {
     assert.equal(version.stdout.trim(), '15.29.0', 'use pinned firebase-tools 15.29.0');
     const bins = path.join(world, 'bin');
     mkdirSync(path.join(bins, 'examples'), { recursive: true });
-    const auth = `127.0.0.1:${await freePort()}`,
-      firestore = `127.0.0.1:${await freePort()}`;
+    const auth = `${emulators.auth.host}:${emulators.auth.port}`,
+      firestore = `${emulators.firestore.host}:${emulators.firestore.port}`;
     const env = {
       ...process.env,
       CARGO_BUILD_JOBS: '2',
@@ -151,13 +194,7 @@ if (process.argv[2] === '--scenario') {
           rules: path.join(artifacts, 'deploy-declaration-v1.firestore.rules'),
           indexes: path.join(artifacts, 'deploy-declaration-v1.firestore.indexes.json'),
         },
-        emulators: {
-          auth: { host: '127.0.0.1', port: Number(auth.split(':')[1]) },
-          firestore: { host: '127.0.0.1', port: Number(firestore.split(':')[1]) },
-          hub: { host: '127.0.0.1', port: await freePort() },
-          ui: { enabled: false },
-          singleProjectMode: true,
-        },
+        emulators,
       }),
     );
     const scenario = fileURLToPath(import.meta.url);
@@ -195,11 +232,17 @@ if (process.argv[2] === '--scenario') {
       { cwd: world, env: emulatorEnv },
     );
   } catch (error) {
+    console.error(`[hosted-reader] configured emulator listeners: ${JSON.stringify(emulators)}`);
     // These demo-emulator logs live in the private world, which must still be removed.
     for (const name of ['firebase-debug.log', 'firestore-debug.log']) {
       try {
         const source = path.join(world, name);
         if (existsSync(source)) {
+          try {
+            await printLogTail(source, name);
+          } catch (printError) {
+            console.error(`Could not print ${name}: ${String(printError).slice(0, 200)}`);
+          }
           const destination = path.join(app, 'test-results/emulators');
           mkdirSync(destination, { recursive: true });
           copyFileSync(source, path.join(destination, name));
