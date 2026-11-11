@@ -64,6 +64,23 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
             count
         ];
     };
+    if ids
+        .iter()
+        .filter_map(|id| report.seat(id)?.window_series.as_ref())
+        .any(|series| {
+            series.from_ms != first.from_ms
+                || series.bucket_ms != first.bucket_ms
+                || series.points.len() != first.points.len()
+        })
+    {
+        return vec![
+            Bucket {
+                used: None,
+                saved: None
+            };
+            first.points.len()
+        ];
+    }
     let status = app
         .labels
         .digest()
@@ -72,8 +89,9 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
     (0..first.points.len())
         .map(|i| {
             let from = first.from_ms + i as u64 * first.bucket_ms;
-            let mut used = Some(0u64);
-            let mut saved = Some(0u64);
+            let mut used = None;
+            let mut saved = None;
+            let (mut used_overflow, mut saved_overflow) = (false, false);
             for id in ids {
                 // No usage source contributes nothing; the aggregate's coverage
                 // marker still makes that missing evidence visible.
@@ -87,9 +105,12 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
                         series.from_ms == first.from_ms && series.bucket_ms == first.bucket_ms
                     })
                     .and_then(|series| series.points.get(i));
-                used = used
-                    .zip(point.filter(|p| p.complete))
-                    .and_then(|(sum, p)| sum.checked_add(p.tokens));
+                if let Some(point) = point.filter(|point| point.complete) {
+                    match used.unwrap_or(0u64).checked_add(point.tokens) {
+                        Some(sum) => used = Some(sum),
+                        None => used_overflow = true,
+                    }
+                }
                 let value = status
                     .and_then(|status| status.members.get(*id))
                     .and_then(|member| member.savings.as_ref());
@@ -101,15 +122,21 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
                             point.from_ms == from && point.to_ms == from + first.bucket_ms
                         })
                     });
-                saved = saved
-                    .zip(
-                        value
-                            .filter(|point| point.complete)
-                            .and_then(|point| point.tokens),
-                    )
-                    .and_then(|(sum, n)| sum.checked_add(n));
+                if let Some(value) = value
+                    .filter(|_| point.is_some_and(|point| point.complete))
+                    .filter(|point| point.complete)
+                    .and_then(|point| point.tokens)
+                {
+                    match saved.unwrap_or(0u64).checked_add(value) {
+                        Some(sum) => saved = Some(sum),
+                        None => saved_overflow = true,
+                    }
+                }
             }
-            Bucket { used, saved }
+            Bucket {
+                used: if used_overflow { None } else { used },
+                saved: if saved_overflow { None } else { saved },
+            }
         })
         .collect()
 }
@@ -153,7 +180,34 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         line(frame, 1, totals, Role::Text);
         return;
     }
-    line(frame, 1, "█ used  █ saved".into(), Role::Muted);
+    {
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let legend = Rect::new(area.x, area.y + 1, area.width, 1);
+        super::paint_grid(frame, app, legend, |grid| {
+            let span = |text: &str, role| ds::TextSpan {
+                text: text.into(),
+                role: ds::Token(role),
+                bold: false,
+            };
+            ds::Text::render(
+                &ds::TextProps {
+                    spans: vec![
+                        span("█ used  ", Role::Muted),
+                        span("█", Role::Accent),
+                        span(" saved", Role::Muted),
+                    ],
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: legend.width,
+                    height: 1,
+                },
+                grid,
+            );
+        });
+    }
     let buckets = super::chart_buckets(app);
     let each = app.digest_each.max(1);
     let each = if buckets.len().is_multiple_of(each) {

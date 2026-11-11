@@ -661,6 +661,27 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
     let mut front = Vec::new();
     let mut remainder = Vec::new();
     for (heading, mut items) in groups {
+        if heading.starts_with("Delivery |") {
+            let mode = heading
+                .split_once(" | ")
+                .map(|(_, value)| value.split(" · ").next().unwrap_or("unavailable"))
+                .unwrap_or("unavailable");
+            if let Some(index) = items.iter().position(|item| item.starts_with("held ")) {
+                let held = items.remove(index);
+                let (summary, last) = held
+                    .split_once(" · last ")
+                    .map_or((held.as_str(), None), |(summary, last)| {
+                        (summary, Some(last))
+                    });
+                front.push(format!("Delivery · {mode} · {summary}"));
+                items.retain(|item| !item.starts_with("mode Auto Interval Off Use default"));
+                if let Some(last) = last {
+                    items.insert(0, format!("last {last}"));
+                }
+                remainder.extend(items);
+                continue;
+            }
+        }
         let priority = heading == "Delivery"
             || heading.starts_with("Delivery |")
             || heading.starts_with("Saved ·")

@@ -159,7 +159,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         seat.from_ms = from; seat.to_ms = now; seat.window_ms = window.range().milliseconds(); seat.covered_ms = seat.window_ms;
         let factor = if scene == "digest-spec-review" && seat.who.id.as_deref() == Some(MEMBER) { 60 } else { i + 1 };
         let points = (0..count).map(|n| {
-            let absent = scene == "digest-spec-review" && n % 4 == 0;
+            let absent = scene == "digest-spec-review" && (n + i) % 4 == 0;
             Point { tokens: if absent { 0 } else { ((n + 1) * factor * 100) as u64 }, complete: !absent && (scene != "digest-chart-gaps" || n != 2) }
         }).collect::<Vec<_>>();
         let total = points.iter().map(|point| point.tokens).sum::<u64>();
@@ -178,7 +178,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(saved);
         member["savings"]["percent"] = serde_json::json!({"basisPoints":(saved*20_000+(saved+seat.input))/(2*(saved+seat.input)),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
         if scene == "digest-spec-review" { member["savings"]["cost"]["usdMicros"] = serde_json::json!(saved * 2); member["savings"]["cost"]["modelObservedAtMs"] = serde_json::json!(now - 60_000); } else { member["savings"]["cost"] = serde_json::Value::Null; }
-        member["savings"]["series"] = (0..count).map(|n| { let gap = (scene == "digest-chart-gaps" && n == 3) || (scene == "digest-spec-review" && n % 4 == 0); serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*100) as u64 / divisor)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
+        member["savings"]["series"] = (0..count).map(|n| { let gap = (scene == "digest-chart-gaps" && n == 3) || (scene == "digest-spec-review" && (n + i) % 4 == 0); serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*100) as u64 / divisor)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
     if scene == "digest-spec-review" {
@@ -846,6 +846,90 @@ fn spec_fixture_has_a_timer_and_unread_observation() {
             .iter()
             .any(|line| line.contains("Timers | 1 on"))
     );
+    let report = super::super::metrics::report(&app).unwrap();
+    let ids: Vec<_> = rows.iter().filter_map(super::super::metrics::id).collect();
+    let activity = super::super::metrics::activity(Some(report), &ids);
+    assert!(
+        activity.iter().flatten().any(|value| *value > 0),
+        "all must retain sourced activity"
+    );
+    let patterns = report
+        .seats
+        .iter()
+        .filter_map(|seat| seat.window_series.as_ref())
+        .map(|series| {
+            series
+                .points
+                .iter()
+                .map(|point| point.complete)
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(patterns.len() > 1, "members need varied activity coverage");
+}
+
+#[test]
+fn spec_legend_saved_mark_uses_the_chart_accent() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut app = spec_fixture(crate::look::Look::default());
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .find(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("█ used  █ saved")
+        })
+        .unwrap();
+    let marks = row
+        .iter()
+        .filter(|cell| cell.symbol() == "█")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        marks[1].fg,
+        app.look().role(tmt_cli_style::Role::Accent).fg.unwrap()
+    );
+}
+
+#[test]
+fn compact_delivery_shows_summary_and_editor_uses_one_caps_row() {
+    let mut app = spec_fixture(crate::look::Look::default());
+    let shown = paint(&mut app, 100, 36);
+    assert!(
+        shown.contains("Delivery · Auto · held 3 · next eligible"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("mode  Auto"),
+        "mode chips belong to edit: {shown}"
+    );
+    let mut edit = capture_case("digest-inline-mode", crate::look::Look::default())
+        .digest_inline
+        .take()
+        .unwrap();
+    for field in [1, 2] {
+        edit.field = field;
+        let lines = edit.lines();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[1].contains("max hold 5 min ▾") && lines[1].contains("max messages 5 ▾"),
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("↑↓ field")),
+            "{lines:?}"
+        );
+    }
 }
 
 #[test]
@@ -1049,10 +1133,12 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
                 .into_iter()
                 .map(|line| line.to_string())
                 .collect::<Vec<_>>();
-        for expected in original
-            .iter()
-            .filter(|line| !line.starts_with("── ") && !line.starts_with("Status observed:"))
-        {
+        for expected in original.iter().filter(|line| {
+            !line.starts_with("── ")
+                && !line.starts_with("Status observed:")
+                && !line.starts_with("mode Auto")
+                && !line.starts_with("held ")
+        }) {
             assert!(
                 compact.join(" ").contains(expected),
                 "lost {expected:?}: {compact:?}"
@@ -1061,6 +1147,16 @@ fn direction_a_compact_details_keep_every_original_value_scrollable() {
         for (index, heading) in ["Delivery", "Saved ·", "Models ·"].iter().enumerate() {
             assert!(compact[index].contains(heading), "{compact:?}");
         }
+        assert!(
+            compact[0].contains("held 3") && compact[0].contains("next eligible"),
+            "{compact:?}"
+        );
+        assert!(
+            compact
+                .iter()
+                .any(|line| line.contains("last 11:39 (8 → 2)")),
+            "{compact:?}"
+        );
         assert!(
             compact.iter().any(|line| line.contains("held")),
             "no held value: {compact:?}"

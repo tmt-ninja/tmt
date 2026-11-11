@@ -40,7 +40,18 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
         .iter()
         .find_map(|id| report.seat(id)?.window_series.as_ref())
     {
-        let mut values = vec![Some(0u64); first.points.len()];
+        if ids
+            .iter()
+            .filter_map(|id| report.seat(id)?.window_series.as_ref())
+            .any(|series| {
+                series.from_ms != first.from_ms
+                    || series.bucket_ms != first.bucket_ms
+                    || series.points.len() != first.points.len()
+            })
+        {
+            return vec![None; first.points.len()];
+        }
+        let mut values = vec![None; first.points.len()];
         for id in ids {
             let series = report
                 .seat(id)
@@ -51,13 +62,15 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
                         && series.points.len() == first.points.len()
                 });
             for (i, value) in values.iter_mut().enumerate() {
-                *value = value
-                    .zip(
-                        series
-                            .and_then(|series| series.points.get(i))
-                            .filter(|point| point.complete),
-                    )
-                    .and_then(|(sum, point)| sum.checked_add(point.tokens));
+                if let Some(point) = series
+                    .and_then(|series| series.points.get(i))
+                    .filter(|point| point.complete)
+                {
+                    let Some(sum) = value.unwrap_or(0u64).checked_add(point.tokens) else {
+                        return vec![None; first.points.len()];
+                    };
+                    *value = Some(sum);
+                }
             }
         }
         return values;

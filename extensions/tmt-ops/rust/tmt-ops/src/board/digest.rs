@@ -180,17 +180,26 @@ impl Inline {
         if self.mode == 0
             && let Some((wait, count)) = self.caps
         {
+            let hold = format!(
+                "max hold {} ▾",
+                super::digest_dashboard::model::human_duration(wait)
+            );
+            let messages = format!("max messages {count} ▾");
             lines.push(format!(
-                "{} max hold {}s ▾",
-                if self.field == 1 { "▸" } else { " " },
-                wait / 1000
-            ));
-            lines.push(format!(
-                "{} max messages {count} ▾",
-                if self.field == 2 { "▸" } else { " " }
+                "{} {} · {}",
+                if self.field > 0 { "▸" } else { " " },
+                if self.field == 1 {
+                    format!("[{hold}]")
+                } else {
+                    hold
+                },
+                if self.field == 2 {
+                    format!("[{messages}]")
+                } else {
+                    messages
+                }
             ));
         }
-        lines.push("↑↓ field · ←→ value · Enter apply/open · Esc cancel".into());
         lines
     }
 }

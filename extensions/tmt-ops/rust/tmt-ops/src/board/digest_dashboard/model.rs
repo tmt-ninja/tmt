@@ -270,7 +270,7 @@ fn duration_parts(ms: u64) -> (String, &'static str) {
     };
     (crate::source::tokens(u128::from(ms / unit)), label)
 }
-pub(super) fn human_duration(ms: u64) -> String {
+pub(in crate::board) fn human_duration(ms: u64) -> String {
     if ms < 1_000 {
         return "under 1 s".into();
     }
