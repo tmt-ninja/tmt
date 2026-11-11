@@ -194,7 +194,12 @@ struct CachedSummary {
 #[derive(Default)]
 pub struct SummaryCache {
     entries: Mutex<HashMap<String, CachedSummary>>,
-    refreshing: AtomicBool,
+    /// The one background fold while it may still run. The serve joins it before it exits: a
+    /// process that ends inside the worker's store commit leaves a hot journal that no read-only
+    /// open can roll back (#6235).
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Set by [`SummaryCache::close`]: no fold starts, and a running one stops before its next page.
+    closing: AtomicBool,
 }
 impl SummaryCache {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, CachedSummary>> {
@@ -270,29 +275,57 @@ impl SummaryCache {
         stale.truncate(limit);
         stale
     }
-    /// Claims the single refresh worker; `None` while another is running, so reads never stack.
-    fn claim(self: &Arc<Self>) -> Option<Worker> {
-        self.refreshing
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| Worker(Arc::clone(self)))
+    /// Starts `fold` on the single background worker, unless one is still running (reads never
+    /// stack) or the cache is closing. Never blocks the caller; a thread that cannot start leaves
+    /// no worker, so a later read tries again.
+    fn spawn(self: &Arc<Self>, fold: impl FnOnce(&SummaryCache) + Send + 'static) {
+        let mut worker = self
+            .worker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if self.closing()
+            || worker
+                .as_ref()
+                .is_some_and(|running| !running.is_finished())
+        {
+            return;
+        }
+        let cache = Arc::clone(self);
+        *worker = std::thread::Builder::new()
+            .name("colab-summary".into())
+            .spawn(move || fold(&cache))
+            .ok();
     }
-}
-struct Worker(Arc<SummaryCache>);
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.0.refreshing.store(false, Ordering::Release);
+    fn closing(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+    }
+    /// Stops the background fold after the page it is on and waits for it, so its store writes
+    /// are committed before the caller closes the store and exits. No fold starts afterwards.
+    pub fn close(&self) {
+        self.closing.store(true, Ordering::Release);
+        let running = self
+            .worker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(running) = running {
+            // A worker that panicked has nothing left to write.
+            let _ = running.join();
+        }
     }
 }
 
-/// Recomputes `pages` one at a time with `summarize`. A failure leaves the page without a fresh
-/// entry (marked failed at that fingerprint); there is no retry inside the run.
+/// Recomputes `pages` one at a time with `summarize`, until the cache closes. A failure leaves the
+/// page without a fresh entry (marked failed at that fingerprint); there is no retry inside the run.
 pub fn run(
     cache: &SummaryCache,
     pages: &[(String, String)],
     mut summarize: impl FnMut(&str, &str) -> Result<SummaryProjection>,
 ) {
     for (page, fingerprint) in pages {
+        if cache.closing() {
+            return;
+        }
         cache.put(page, fingerprint, summarize(page, fingerprint).ok());
     }
 }
@@ -321,26 +354,20 @@ pub fn refresh(
     if pages.is_empty() {
         return;
     }
-    let Some(worker) = cache.claim() else { return };
-    let (cache, open) = (Arc::clone(cache), Arc::clone(open));
-    let spawned = std::thread::Builder::new()
-        .name("colab-summary".into())
-        .spawn(move || {
-            let _worker = worker;
-            let Ok(mut source) = open() else {
-                // No source: mark every page failed at this fingerprint so the next read orders it last.
-                for (page, fingerprint) in &pages {
-                    cache.put(page, fingerprint, None);
-                }
-                return;
-            };
-            let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
-            run(&cache, &pages, |page, fingerprint| {
-                summarize_current(&mut source, &mut titles, page, fingerprint)
-            });
+    let open = Arc::clone(open);
+    cache.spawn(move |cache| {
+        let Ok(mut source) = open() else {
+            // No source: mark every page failed at this fingerprint so the next read orders it last.
+            for (page, fingerprint) in &pages {
+                cache.put(page, fingerprint, None);
+            }
+            return;
+        };
+        let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
+        run(cache, &pages, |page, fingerprint| {
+            summarize_current(&mut source, &mut titles, page, fingerprint)
         });
-    // A thread that could not start drops its closure, and with it the worker claim.
-    drop(spawned);
+    });
 }
 
 /// The catalog's pages with their fingerprints, the most recently updated first (then by page ID),
@@ -387,7 +414,7 @@ fn drain_with(
             .filter(|(page, _)| !tried.contains(page))
             .take(REFRESH_PAGES)
             .collect();
-        if batch.is_empty() {
+        if batch.is_empty() || cache.closing() {
             return;
         }
         tried.extend(batch.iter().map(|(page, _)| page.clone()));
@@ -398,34 +425,28 @@ fn drain_with(
 /// Schedules a drain of every stale page on one background worker with its own read-only source,
 /// unless a worker is already running. Never blocks the caller.
 pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
-    let Some(worker) = cache.claim() else { return };
-    let (cache, open) = (Arc::clone(cache), Arc::clone(open));
-    let spawned = std::thread::Builder::new()
-        .name("colab-summary".into())
-        .spawn(move || {
-            let _worker = worker;
-            let Ok(mut source) = open() else { return };
-            let space = source.keyring.space_id.clone();
-            let owner = source.keyring.owner_public();
-            let order = |source: &Source| -> Result<Vec<(String, String)>> {
-                let (catalog, fingerprints) = source.store.owner_read(&space, &owner, |tx| {
-                    Ok((tx.page_list()?, tx.page_fingerprints()?))
-                })?;
-                Ok(recent_first(&catalog, &fingerprints))
-            };
-            let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
-            // The fold needs the source mutably and the order reads it, so each pass takes turns.
-            let source = std::cell::RefCell::new(&mut source);
-            drain_with(
-                &cache,
-                || order(&source.borrow()),
-                |page, fingerprint| {
-                    summarize_current(&mut source.borrow_mut(), &mut titles, page, fingerprint)
-                },
-            );
-        });
-    // A thread that could not start drops its closure, and with it the worker claim.
-    drop(spawned);
+    let open = Arc::clone(open);
+    cache.spawn(move |cache| {
+        let Ok(mut source) = open() else { return };
+        let space = source.keyring.space_id.clone();
+        let owner = source.keyring.owner_public();
+        let order = |source: &Source| -> Result<Vec<(String, String)>> {
+            let (catalog, fingerprints) = source.store.owner_read(&space, &owner, |tx| {
+                Ok((tx.page_list()?, tx.page_fingerprints()?))
+            })?;
+            Ok(recent_first(&catalog, &fingerprints))
+        };
+        let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
+        // The fold needs the source mutably and the order reads it, so each pass takes turns.
+        let source = std::cell::RefCell::new(&mut source);
+        drain_with(
+            cache,
+            || order(&source.borrow()),
+            |page, fingerprint| {
+                summarize_current(&mut source.borrow_mut(), &mut titles, page, fingerprint)
+            },
+        );
+    });
 }
 
 #[cfg(test)]
@@ -862,13 +883,87 @@ mod tests {
 
     #[test]
     fn one_worker_runs_at_a_time() {
+        use std::sync::mpsc::channel;
         let cache = Arc::new(SummaryCache::default());
-        let first = cache.claim().expect("the first claim");
-        assert!(cache.claim().is_none(), "a second worker must not start");
-        drop(first);
+        let (started, first) = channel();
+        let (release, held) = channel::<()>();
+        cache.spawn(move |_| {
+            started.send(()).unwrap();
+            held.recv().unwrap();
+        });
+        first.recv().unwrap();
+        let ran = Arc::new(AtomicBool::new(false));
+        let second = Arc::clone(&ran);
+        cache.spawn(move |_| second.store(true, Ordering::Release));
+        release.send(()).unwrap();
+        let running = cache.worker.lock().unwrap().take().unwrap();
+        running.join().unwrap();
         assert!(
-            cache.claim().is_some(),
-            "the claim is released when the worker ends"
+            !ran.load(Ordering::Acquire),
+            "a second worker must not start"
         );
+        // The worker is free again once it ends.
+        let third = Arc::clone(&ran);
+        cache.spawn(move |_| third.store(true, Ordering::Release));
+        cache.close();
+        assert!(
+            ran.load(Ordering::Acquire),
+            "a worker starts after the last one ended"
+        );
+    }
+
+    /// The serve closes the cache before it closes the store and exits: close returns only after
+    /// the page being folded has finished (its title write committed), the drain takes no further
+    /// page, and no fold starts afterwards (#6235).
+    #[test]
+    fn close_waits_for_the_page_being_folded_and_starts_no_other() {
+        use std::sync::mpsc::channel;
+        let cache = Arc::new(SummaryCache::default());
+        let (started, first) = channel();
+        let (release, held) = channel::<()>();
+        let folded = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&folded);
+        cache.spawn(move |cache| {
+            let pages = [
+                ("a".to_owned(), "1".to_owned()),
+                ("b".to_owned(), "1".to_owned()),
+            ];
+            run(cache, &pages, |page, _| {
+                started.send(()).unwrap();
+                held.recv().unwrap();
+                log.lock().unwrap().push(page.to_owned());
+                Ok(summary(1).into())
+            });
+        });
+        first.recv().unwrap();
+        let closer = {
+            let cache = Arc::clone(&cache);
+            std::thread::spawn(move || cache.close())
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !cache.closing() {
+            assert!(std::time::Instant::now() < deadline, "close never started");
+            std::thread::yield_now();
+        }
+        // While page a is held, close cannot return: it waits however long the fold takes.
+        let held_for = std::time::Instant::now() + std::time::Duration::from_millis(100);
+        while std::time::Instant::now() < held_for {
+            assert!(
+                !closer.is_finished(),
+                "close returned while a page was being folded"
+            );
+            std::thread::yield_now();
+        }
+        release.send(()).unwrap();
+        closer.join().unwrap();
+        assert_eq!(*folded.lock().unwrap(), ["a"]);
+        let late = Arc::new(AtomicBool::new(false));
+        let ran = Arc::clone(&late);
+        cache.spawn(move |_| ran.store(true, Ordering::Release));
+        assert!(
+            cache.worker.lock().unwrap().is_none(),
+            "no fold starts after close"
+        );
+        assert!(!late.load(Ordering::Acquire));
     }
 }
