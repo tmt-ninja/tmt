@@ -100,7 +100,18 @@ export async function startIsolatedDoor(): Promise<IsolatedDoor> {
         await writeFile(file, html);
         const created = spawn(
           colabBinary,
-          ['page', 'create', '--title', title, '--layout', 'column', '--file', file, '--json'],
+          [
+            'page',
+            'create',
+            '--html',
+            '--title',
+            title,
+            '--layout',
+            'column',
+            '--file',
+            file,
+            '--json',
+          ],
           { env, cwd: root },
         );
         children.push(created);

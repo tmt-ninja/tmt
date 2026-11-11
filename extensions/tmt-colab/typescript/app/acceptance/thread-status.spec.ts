@@ -6,7 +6,7 @@ import fs, { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
+import { createPage, freePort, openChat, openPage, run, selectInRenderer } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function comments(page: Page) {
@@ -410,5 +410,39 @@ test('Resolve all writes the fewest own updates that fit: 1, 10 and 50 open comm
       { threads: 10, ownUpdates: 1 },
       { threads: 50, ownUpdates: 2 },
     ]);
+  });
+});
+
+// #6266: a thread the person opened earlier stays in the address (#t=). A later change to the
+// threads (here an agent resolving one) must not open Comments again: it would close Chat, move
+// focus and send the next typed keys elsewhere. Only the address a page opens with is a deep link.
+test('a thread change after a thread was opened leaves Chat open and focused (#6266)', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'focus-author');
+    const created = createPage(
+      world,
+      'Focus stays',
+      '<p id="quote">First passage.</p><p id="quote2">Second passage.</p>',
+    );
+    const page = await openPage(door, author, created);
+    const first = await annotate(page, 'First comment.');
+    await annotate(page, 'Second comment.', '#quote2');
+    // Opening a thread from Comments writes it into the address.
+    await comments(page);
+    await expect(page).toHaveURL(/#t=/);
+    await threadAction(page, 'Close (Esc)').click();
+    await expect(commentsRegion(page)).toBeHidden();
+    await openChat(page);
+    const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
+    await input.click();
+    await page.keyboard.type('Before');
+    await expect(input).toBeFocused();
+    run(world, world.binaries.colab, ['threads', 'resolve', created.pageId, first, '--json']);
+    await expect(commentsAction(page)).toHaveAccessibleName(/^Comments \(1\)/);
+    await page.keyboard.type(' after');
+    await expect(commentsRegion(page)).toBeHidden();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('Before after');
   });
 });
