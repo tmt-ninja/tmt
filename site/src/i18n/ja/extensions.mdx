@@ -28,9 +28,9 @@ $ tmt extension upgrade ops     # Ops だけを更新
 $ tmt extension rm ops          # データは残ります
 `}</Cmd>
 
-`tmt upgrade` はインストール済みの公式拡張機能も、それぞれの channel と固定バージョンに従って更新し、まとめて一度確認します。`--yes` で確認を省略できます。未インストールの拡張機能を追加することはなく、1つが失敗してもほかの更新は取り消しません。`tmt extension upgrade <name> --unpin` でバージョンの固定を解除します。
+`tmt upgrade` はインストール済みの公式拡張機能も、それぞれの channel と固定バージョンに従って更新し、まとめて一度確認します。`--yes` で確認を省略できます。未インストールの公式拡張機能も提案します。1つが失敗してもほかの更新は取り消しません。`tmt extension upgrade <name> --unpin` でバージョンの固定を解除します。
 
-拡張機能に agent 用の skill が付いていれば、インストール時に追加するか一度確認します。`--skills` を指定すると確認せずに追加します。自作する場合は[拡張機能を作る](/develop/extensions)を参照してください。PATH 上の `tmt-<name>` は `tmt extension` を使わなくても動きます。
+通常のインストールでは agent 用の skill は追加しません。`--skills` を指定すると、承認するインストールに同梱の skill を含めます。skill だけを別に確認する質問はありません。自作する場合は[拡張機能を作る](/develop/extensions)を参照してください。PATH 上の `tmt-<name>` は `tmt extension` を使わなくても動きます。
 
 <Mdx.h3 id="known-extensions">主な拡張機能</Mdx.h3>
 

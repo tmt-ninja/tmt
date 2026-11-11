@@ -159,13 +159,17 @@ After a saved Claude or Codex agent compacts its conversation, tmt reminds it to
 
 ### `tmt setup`
 
-Finds the agents on this machine by looking at the filesystem only; it never starts one. Every agent it finds gets tmt's skills. Claude Code and Codex, when installed here, also get lifecycle hooks that tell tmt when a conversation starts or ends. That keeps `tmt resume` and the badge accurate and gives a new session its short summary. It plans only what is missing and asks once.
+Finds the agents on this machine by looking at the filesystem only; it never starts one. Every agent it finds gets tmt's skills. Claude Code and Codex, when installed here, also get lifecycle hooks that tell tmt when a conversation starts or ends. That keeps `tmt resume` and the badge accurate and gives a new session its short summary. It plans missing agent changes and offers the official extensions with their bundled skills before asking once.
 
 <Cmd>{`
 $ tmt setup              # find agents, show the plan, ask once
 $ tmt setup claude       # hooks for one agent
 $ tmt setup codex --remove
 `}</Cmd>
+
+The **Official extensions (bundled agent skills included)** list starts with Ops, Remote, Colab and Digest selected. Use ↑/↓ to move, Space to select and Enter to review. Colab needs Remote: selecting Colab selects Remote, and clearing Remote also clears Colab. Confirm **Apply all of this** to apply the plan. `tmt setup --yes` accepts the default selection without a prompt; without consent, a noninteractive run makes no changes.
+
+Setup keeps healthy installed binaries and retries missing bundled skills from their verified release. It installs Remote before Colab. If one item fails, completed items remain and independent items can continue; a failed Remote prevents Colab setup. The result names what needs attention and tells you how to rerun setup. Installing these extensions does not pair a browser or approve a deployment.
 
 Your existing settings stay byte for byte apart from tmt's hooks, a backup is written first, and a failing hook never blocks the agent. Backups go into a private `.tmt-setup-backups` folder next to the settings file, and older backups stay where they are. tmt never deletes or moves them: past 32, setup still applies the change but warns and shows the folder so you can clean it up. `--usage` adds the optional [usage counters](/drivers#usage-counters).
 

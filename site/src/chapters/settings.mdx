@@ -46,7 +46,11 @@ $ tmt upgrade --to 5.0.0-alpha.8     # an exact version, which pins the CLI ther
 $ tmt upgrade --unpin                # follow the channel again
 `}</Cmd>
 
-`--channel` and `--to` choose the CLI's version only. Extensions keep their own channel and pin, and a pinned CLI doesn't hold them back. Extension updates ask once, listing the version changes, and `--yes` answers for you. With no terminal, or with `--json`, and without `--yes`, tmt applies none of them: each pending extension is reported as `consentRequired`, with the command to run again. An extension that fails to update makes the command fail but doesn't undo the others.
+`--channel` and `--to` choose the CLI's version only. Extensions keep their own channel and pin, and a pinned CLI doesn't hold them back. At a human terminal, the **Upgrade** screen shows the planned component versions before one approval. It also offers missing official extensions and newly detected provider scopes; selections apply only to this run. **Upgrade [Y/n]** accepts Enter as yes. Declining changes no components.
+
+`--yes` accepts component updates and missing official extensions with their bundled skills, but never grants a new provider's hooks or Core skill scope. Approve those interactively or follow the printed setup command. JSON, piped and agent runs never prompt: without `--yes`, CLI update behavior and previously recorded integration refresh remain available, while extension changes require consent and missing items are only reported.
+
+The result shows changed or attention-needed components with labels such as `updated`, `needs approval` or `failed`, groups current components under **Up to date:**, and lists actions under **Next:**. An independent extension failure keeps completed updates; inspect the result before retrying. Application data is kept. Skills warnings and integration items needing approval remain visible.
 
 ### Shell completion
 

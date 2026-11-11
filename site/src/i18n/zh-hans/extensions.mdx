@@ -28,9 +28,9 @@ $ tmt extension upgrade ops     # 只更新 Ops
 $ tmt extension rm ops          # 保留数据
 `}</Cmd>
 
-`tmt upgrade` 也会更新已安装的官方扩展。每个扩展沿用自己的通道和固定版本，并统一询问一次；`--yes` 跳过询问。它不会安装缺失的扩展。一个扩展更新失败，也不会撤销其他扩展的更新。`tmt extension upgrade <name> --unpin` 取消固定版本。
+`tmt upgrade` 也会更新已安装的官方扩展。每个扩展沿用自己的通道和固定版本，并统一询问一次；`--yes` 跳过询问。它也会提供缺失的官方扩展。一个扩展更新失败，也不会撤销其他扩展的更新。`tmt extension upgrade <name> --unpin` 取消固定版本。
 
-如果扩展附带供 agent 使用的技能，安装时会询问一次是否添加；`--skills` 不经询问直接添加。要编写自己的扩展，请参阅[构建扩展](/develop/extensions)。PATH 上任何 `tmt-<name>` 都可以直接使用，不需要 `tmt extension`。
+普通安装不会发布供 agent 使用的技能。加上 `--skills` 会将附带技能纳入你批准的安装，不会再单独询问是否添加技能。要编写自己的扩展，请参阅[构建扩展](/develop/extensions)。PATH 上任何 `tmt-<name>` 都可以直接使用，不需要 `tmt extension`。
 
 <Mdx.h3 id="known-extensions">已知扩展</Mdx.h3>
 

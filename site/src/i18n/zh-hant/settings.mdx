@@ -55,7 +55,7 @@ $ tmt upgrade --to 5.0.0-alpha.8     # 指定版本，並將 CLI 釘選在該版
 $ tmt upgrade --unpin                # 恢復跟隨 channel
 `}</Cmd>
 
-`--channel` 和 `--to` 只選擇 CLI 的版本。擴充套件保留自己的 channel 與釘選版本，CLI 釘選也不會阻止它們更新。更新擴充套件時會列出版本變更，一次詢問你；`--yes` 會代你回答。沒有終端機，或使用 `--json`，又沒有加上 `--yes` 時，tmt 不會更新任何擴充套件：每個待更新套件都會回報為 `consentRequired`，並列出要重新執行的指令。其中一個擴充套件更新失敗，指令就會失敗，但不會撤銷其他套件的更新。
+`--channel` 和 `--to` 只選擇 CLI 的版本。擴充套件保留自己的 channel 與釘選版本，CLI 釘選也不會阻止它們更新。在人操作的終端機中，**Upgrade** 畫面會列出整體版本變更，並讓你選擇缺少的官方擴充套件及新偵測到的 provider 設定範圍，再以 **Upgrade [Y/n]** 一次確認。`--yes` 會批准元件更新及缺少的官方擴充套件與附帶 skill，但不會批准新 provider 的 hook 或 Core skill 設定範圍。沒有終端機，或使用 `--json`，又沒有加上 `--yes` 時，tmt 不會更新任何擴充套件：每個待更新套件都會回報為 `consentRequired`，並列出要重新執行的指令。其中一個擴充套件更新失敗，指令就會失敗，但不會撤銷其他套件的更新。
 
 <Mdx.h3 id="shell-completion">Shell 補完</Mdx.h3>
 
