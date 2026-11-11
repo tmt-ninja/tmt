@@ -365,3 +365,29 @@ fn direction_a_narrow_allowance_never_clips_resets_mid_word() {
         }
     });
 }
+
+#[test]
+fn direction_a_allowance_has_at_most_one_ellipsis_at_each_width() {
+    for (name, look) in crate::board::home::tests::oracle::looks() {
+        for width in [160, 100, 80] {
+            let mut app =
+                crate::board::app::workspace::tests::capture_case("digest-allowance", look);
+            app.view.as_mut().unwrap().look = look;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .squad_looks
+                .clear();
+            let screen = rows(&buffer(&mut app, width, 36));
+            let row = screen
+                .iter()
+                .find(|row| row.starts_with("Allowance "))
+                .unwrap();
+            assert!(!row.contains("……"), "{name} {width}: {row}");
+        }
+    }
+}

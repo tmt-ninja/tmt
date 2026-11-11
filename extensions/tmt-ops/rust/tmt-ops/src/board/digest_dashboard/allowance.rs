@@ -174,7 +174,8 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
         let mut x = 0u16;
         for (mut span, unstyled) in spans {
             let remaining = usize::from(area.width.saturating_sub(x));
-            if span.text.width() > remaining {
+            let clipped = span.text.width() > remaining;
+            if clipped {
                 // A partially visible provider segment is less useful than a single marker.
                 span.text = if remaining > 0 {
                     "…".into()
@@ -202,6 +203,9 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
                 ds::Text::render(&ds::TextProps { spans: vec![span] }, rect, grid);
             }
             x += width;
+            if clipped {
+                break;
+            }
         }
     });
 }
