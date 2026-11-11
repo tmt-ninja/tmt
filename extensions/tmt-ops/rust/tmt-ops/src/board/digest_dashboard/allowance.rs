@@ -15,9 +15,6 @@ use tmt_cli_style::Role;
 use tmt_tui::components::design_system as ds;
 use unicode_width::UnicodeWidthStr;
 
-const SOURCE: usize = 8;
-const LEFT: usize = 5;
-
 /// Tokens each provider's members spent over the last 3 h and 24 h, from the usage report the
 /// Digest tab already holds: one 24-cell hourly series per seat, a seat counted for the driver
 /// its member is on now. Nothing is read for this; a missing or stale report, a seat with no
@@ -221,11 +218,11 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
             false,
         )
     };
-    let label = pad(&row.provider.label(), SOURCE, false);
+    let label = format!("{} ", row.provider.label());
     let Some(weekly) = &row.weekly else {
         return vec![
             span(label, Role::Text, false),
-            span(pad("—", LEFT, true), Role::Dim, false),
+            span("—".into(), Role::Dim, false),
             span("  no recent reading".into(), Role::Muted, false),
         ];
     };
@@ -243,40 +240,26 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
     };
     vec![
         span(label, Role::Text, false),
-        span(
-            pad(&format!("{:.0}%", weekly.left), LEFT, true),
-            Role::Text,
-            true,
-        ),
+        span(format!("{:.0}%", weekly.left), Role::Text, true),
         (
             ds::TextSpan {
-                text: "  ".into(),
+                text: " · ".into(),
                 role: ds::Token(Role::Text),
                 bold: false,
             },
             true,
         ),
         span(
-            format!("{outlook:<20}"),
+            outlook,
             if runs_out { Role::Waiting } else { Role::Text },
             false,
         ),
         span(
-            format!("resets {}", clock(weekly.resets_at_ms, zone)),
+            format!("  resets {}", clock(weekly.resets_at_ms, zone)),
             Role::Muted,
             false,
         ),
     ]
-}
-
-fn pad(text: &str, width: usize, right: bool) -> String {
-    let fitted = crate::board::view::fit(text, width);
-    let fill = " ".repeat(width.saturating_sub(fitted.width()));
-    if right {
-        format!("{fill}{fitted}")
-    } else {
-        format!("{fitted}{fill}")
-    }
 }
 
 fn clock(at_ms: u64, zone: &jiff::tz::TimeZone) -> String {

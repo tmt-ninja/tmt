@@ -86,10 +86,19 @@ fn words(row: &str) -> Vec<&str> {
 fn row_of(rows: &[String], source: &str) -> Vec<String> {
     rows.iter()
         .filter_map(|row| row.split_once("Allowance ").map(|(_, row)| row))
-        .flat_map(|row| row.split(" · "))
+        .filter_map(|row| row.find(source).map(|start| &row[start..]))
         .map(words)
-        .find(|row| row.first() == Some(&source))
-        .map(|row| row.into_iter().map(str::to_owned).collect())
+        .next()
+        .map(|row| {
+            row.into_iter()
+                .filter(|word| *word != "·")
+                .take_while(|word| {
+                    *word == source
+                        || !matches!(*word, "Claude" | "Openai" | "Muse" | "Codex" | "saved")
+                })
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_else(|| panic!("no {source} in {}", rows.join("\n")))
 }
 
@@ -128,13 +137,16 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
             .modifier
             .contains(ratatui::style::Modifier::BOLD)
     );
-    // LEFT pads the percentage to five cells; the following separator is unstyled.
-    for column in [x + 5, x + 6] {
+    // The spaces around the separator inherit the board foreground.
+    for column in [x + 3, x + 5] {
         let separator = &frame[(column as u16, y as u16)];
         assert_eq!(separator.fg, ratatui::style::Color::Reset);
         assert!(!separator.modifier.contains(ratatui::style::Modifier::BOLD));
     }
-    assert_eq!(frame[(239, y as u16)].fg, ratatui::style::Color::Reset);
+    assert_eq!(
+        frame[(239, y as u16)].fg,
+        app.look().role(tmt_cli_style::Role::Muted).fg.unwrap()
+    );
 }
 
 #[test]
@@ -166,7 +178,7 @@ fn only_a_window_that_runs_out_takes_the_attention_colour() {
             let row = &rows[y];
             let start = row.find(source).unwrap() as u16;
             let end = row[usize::from(start)..]
-                .find(" · ")
+                .find("  resets")
                 .map_or(buffer.area.width, |end| start + end as u16);
             start..end
         }
@@ -272,9 +284,13 @@ fn a_narrow_frame_keeps_allowance_to_one_line_under_the_window_totals() {
             .iter()
             .position(|row| row.starts_with("Allowance "))
             .unwrap();
-        assert!(rows[at - 1].starts_with("TOK "));
+        if width < 120 {
+            assert!(rows[at - 1].starts_with("TOK "));
+        } else {
+            assert!(rows.iter().any(|row| row.contains("≈ $ saved")));
+        }
         assert!(rows[at].contains("Claude") && rows[at].contains("26%"));
-        assert!(rows[at + 1].starts_with("Saved = avoided input"));
+        assert!(rows[at + 1].starts_with("saved = context"));
     }
 }
 

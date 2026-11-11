@@ -201,28 +201,45 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         app.look(),
     );
     if side > 0 {
-        let texts = [
-            format!(
-                "used {}",
-                metrics::token_text(metrics::tokens(metrics::report(app), &ids))
-            ),
-            format!(
-                "saved {} · {}",
-                amount(&sum, SavingsUnit::Tokens),
-                sum.percent
-                    .value
-                    .map_or("unavailable".into(), crate::board::savings::percent_text)
-            ),
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let table = Rect::new(area.right() - side, area.y + 1, side, 3);
+        let columns = [("TOK", 8), ("saved", 8), ("saved %", 8), ("≈ $ saved", 12)]
+            .into_iter()
+            .map(|(header, width)| ds::TotalsColumn {
+                header: header.into(),
+                width,
+                role: ds::Token(Role::Text),
+                right_aligned: true,
+            })
+            .collect();
+        let values = vec![
+            metrics::token_text(metrics::tokens(metrics::report(app), &ids)),
+            amount(&sum, SavingsUnit::Tokens),
+            sum.percent
+                .value
+                .map_or("—".into(), crate::board::savings::percent_text),
+            amount(&sum, SavingsUnit::Cost),
         ];
-        for (i, text) in texts.into_iter().enumerate() {
-            paint_text(
-                frame,
-                app,
-                Rect::new(area.right() - side, area.y + 2 + i as u16, side, 1),
-                text,
-                Role::Text,
+        super::paint_grid(frame, app, table, |grid| {
+            ds::TotalsTable::render(
+                &ds::TotalsTableProps {
+                    columns,
+                    rows: vec![ds::TotalsRow {
+                        values,
+                        selected: false,
+                        id: None,
+                    }],
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: table.width,
+                    height: table.height,
+                },
+                grid,
             );
-        }
+        });
     }
     let chart_width = area.width - side - u16::from(side > 0);
     let (start, middle) = match app.digest_window() {
@@ -250,14 +267,43 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    line(frame, 5, totals, Role::Text);
-    super::allowance::paint_inline(frame, app, Rect::new(area.x, area.y + 6, area.width, 1));
-    line(
+    if side == 0 || app.digest_cost {
+        line(frame, 5, totals, Role::Text);
+    }
+    let definition = "saved = context the agents did not reread (estimate, list price)";
+    let definition_width = definition.width() as u16;
+    let allowance_width = if area.width >= 140 {
+        area.width.saturating_sub(definition_width + 2)
+    } else {
+        area.width
+    };
+    super::allowance::paint_inline(
         frame,
-        7,
-        "Saved = avoided input · estimate, not a bill".into(),
-        Role::Muted,
+        app,
+        Rect::new(area.x, area.y + 6, allowance_width, 1),
     );
+    if allowance_width < area.width {
+        paint_text(
+            frame,
+            app,
+            Rect::new(
+                area.right() - definition_width,
+                area.y + 6,
+                definition_width,
+                1,
+            ),
+            definition.into(),
+            Role::Muted,
+        );
+        line(frame, 7, "Estimate, not a bill".into(), Role::Muted);
+    } else {
+        line(
+            frame,
+            7,
+            "saved = context avoided · estimate, not a bill".into(),
+            Role::Muted,
+        );
+    }
 }
 fn paint_text(frame: &mut Frame, app: &App, area: Rect, text: String, role: Role) {
     use ds::Component;
@@ -291,7 +337,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
         "d"
     };
     let each = format!("{}{} per bar ▾", app.digest_each.max(1), native);
-    let unit = if app.digest_cost { "$ ▾" } else { "TOK ▾" };
+    let unit = "TOK    $";
     let right = "Range ".width() as u16 + chip(&window) + chip(&each) + chip(unit) + 4;
     let start = area.right().saturating_sub(right).max(area.x);
     let mut x = start;
@@ -321,7 +367,56 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     button(frame, &mut x, &window, Choice::DigestWindowMenu);
     x = x.saturating_add(3);
     button(frame, &mut x, &each, Choice::DigestBarsMenu);
-    button(frame, &mut x, unit, Choice::SavingsUnit);
+    {
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let unit_area = Rect::new(x, area.y, area.right().saturating_sub(x), 1);
+        let mut hits = Vec::new();
+        super::paint_grid(frame, app, unit_area, |grid| {
+            hits = ds::ChipRow::render(
+                &ds::ChipRowProps {
+                    label: String::new(),
+                    chips: vec![
+                        ds::Chip {
+                            id: 0,
+                            label: "TOK".into(),
+                            gap: "  ".into(),
+                            enabled: true,
+                        },
+                        ds::Chip {
+                            id: 1,
+                            label: "$".into(),
+                            gap: String::new(),
+                            enabled: true,
+                        },
+                    ],
+                    selected: Some(usize::from(app.digest_cost)),
+                    cursor: None,
+                    active: false,
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: unit_area.width,
+                    height: 1,
+                },
+                grid,
+            );
+        });
+        for (rect, id) in hits {
+            if (id == 1) != app.digest_cost {
+                app.workspace_strip_hits.borrow_mut().push((
+                    Rect::new(
+                        unit_area.x + rect.x,
+                        unit_area.y + rect.y,
+                        rect.width,
+                        rect.height,
+                    ),
+                    Choice::SavingsUnit,
+                ));
+            }
+        }
+    }
 
     let left = Rect::new(area.x, area.y, start.saturating_sub(area.x + 2), 1);
     let mut parts: Vec<(String, Role, Option<Choice>)> = Vec::new();

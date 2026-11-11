@@ -1782,9 +1782,9 @@ fn the_summary_keeps_its_tok_chart_totals_and_allowance_at_each_width() {
             "Range",
             "1d ▾",
             "used TOK",
-            "saved 18.2k",
+            "18.2k",
             "Allowance",
-            "Saved = avoided input",
+            "saved = context",
         ] {
             assert!(shown.contains(text), "{text}: {shown}");
         }

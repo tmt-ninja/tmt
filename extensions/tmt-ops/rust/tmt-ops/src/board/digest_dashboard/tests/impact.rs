@@ -810,6 +810,17 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
 }
 
 #[test]
+fn spec_summary_has_unit_choices_and_one_compact_allowance_row() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = capture_case("digest-spec", crate::look::Look::default());
+        let shown = paint(&mut app, 160, 36);
+        for expected in ["TOK    $", "Allowance Claude 65%", "saved = context"] {
+            assert!(shown.contains(expected), "missing {expected}: {shown}");
+        }
+    });
+}
+
+#[test]
 fn selected_panel_contains_exchanges_below_the_member_title() {
     let mut app = capture_case("digest-spec", crate::look::Look::default());
     let shown = paint(&mut app, 160, 36);
