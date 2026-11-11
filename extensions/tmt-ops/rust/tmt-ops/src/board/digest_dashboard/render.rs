@@ -441,7 +441,7 @@ fn paint_mode_chips(
     use ds::Component;
     use tmt_tui::components::design_system as ds;
     let compact =
-        line.starts_with("Delivery |") && line.contains("mode Auto Interval Off Use default");
+        line.starts_with("Delivery ·") && line.contains("mode Auto Interval Off Use default");
     if !compact
         && !line.starts_with("mode Auto Interval Off Use default")
         && !line.trim_start_matches(['▸', ' ']).starts_with("mode ")
@@ -670,22 +670,22 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
             };
             match first {
                 Some(value) if heading.width() + 3 + value.width() <= width => {
-                    front.push(format!("{heading} · {value}"))
+                    front.push(format!("{} · {value}", heading.replace(" | ", " · ")))
                 }
                 Some(value) => {
-                    front.push(heading.clone());
+                    front.push(heading.replace(" | ", " · "));
                     front.push(value);
                 }
-                None => front.push(heading.clone()),
+                None => front.push(heading.replace(" | ", " · ")),
             }
         }
         if !items.is_empty() {
             if !heading.is_empty() {
-                items[0] = format!("{heading} · {}", items[0]);
+                items[0] = format!("{} · {}", heading.replace(" | ", " · "), items[0]);
             }
             remainder.extend(items);
         } else if !priority && !heading.is_empty() {
-            remainder.push(heading);
+            remainder.push(heading.replace(" | ", " · "));
         }
     }
     front.extend(remainder);

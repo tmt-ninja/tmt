@@ -157,10 +157,11 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     let template = doc["members"][0].clone();
     doc["members"] = report.seats.iter_mut().enumerate().map(|(i, seat)| {
         seat.from_ms = from; seat.to_ms = now; seat.window_ms = window.range().milliseconds(); seat.covered_ms = seat.window_ms;
-        let total = (count * (count + 1) / 2 * (i + 1) * 100) as u64;
+        let factor = if scene == "digest-spec-review" && seat.who.id.as_deref() == Some(MEMBER) { 60 } else { i + 1 };
+        let total = (count * (count + 1) / 2 * factor * 100) as u64;
         seat.input = total * 3 / 4; seat.output = total - seat.input;
         seat.complete = scene != "digest-chart-gaps";
-        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points:(0..count).map(|n| Point { tokens:((n+1)*(i+1)*100) as u64, complete:scene != "digest-chart-gaps" || n != 2 }).collect() });
+        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points:(0..count).map(|n| Point { tokens:((n+1)*factor*100) as u64, complete:scene != "digest-chart-gaps" || n != 2 }).collect() });
         seat.model_totals = Some(vec![("claude-opus-5-5".into(), seat.total()*3/4),("unattributed".into(), seat.total()-seat.total()*3/4)]);
         let mut member = template.clone(); member["identityId"] = serde_json::json!(seat.who.id);
         member["nextEligibleAtMs"] = serde_json::json!(now+90_000); member["lastDelivery"] = serde_json::json!({"settledAtMs":now-60_000,"messages":8,"batches":2});
@@ -169,8 +170,8 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         let saved = total / 5;
         member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(saved);
         member["savings"]["percent"] = serde_json::json!({"basisPoints":saved*10_000/(saved+seat.input),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
-        member["savings"]["cost"] = serde_json::Value::Null;
-        member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*(i+1)*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
+        if scene == "digest-spec-review" { member["savings"]["cost"]["usdMicros"] = serde_json::json!(saved * 2); member["savings"]["cost"]["modelObservedAtMs"] = serde_json::json!(now - 60_000); } else { member["savings"]["cost"] = serde_json::Value::Null; }
+        member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
     if scene == "digest-spec-review" {
@@ -620,11 +621,11 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
     let target = workspace.rows.iter_mut().find(|(target, _)| matches!(target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
     target.1["name"] = serde_json::json!("tui-1");
     workspace.roster.members.get_mut(MEMBER).unwrap().name = "tui-1".into();
-    for i in 7..20 {
+    for i in 7..18 {
         let id = format!("40000000-0000-4000-8000-{i:012}");
-        let name = if i == 18 {
+        let name = if i == 16 {
             "ben".into()
-        } else if i == 19 {
+        } else if i == 17 {
             "builder".into()
         } else {
             format!("agent-{i}")
@@ -674,7 +675,7 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
     let mut report = super::super::metrics::report(&app).unwrap().clone();
     report.unavailable = report
         .seats
-        .drain(18..)
+        .drain(16..)
         .map(|s| Unavailable {
             who: s.who,
             reason: "no usage source".into(),
@@ -852,7 +853,7 @@ fn direction_a_keeps_all_three_detail_sections_visible_at_100_by_36() {
                 assert!(shown.contains(section), "{name}: missing {section}");
             }
             assert!(
-                shown.contains("used 30.0k · saved 6.0k"),
+                shown.contains("used 1.8M · saved 360k"),
                 "{name}: missing selected savings"
             );
             assert!(
