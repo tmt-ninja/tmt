@@ -32,6 +32,9 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
                     })
                     .collect();
                 assert_eq!(crate::test_support::stacked_rules(&lines), None);
+                if let Some(y) = lines.iter().position(|line| line.contains("· Exchanges")) {
+                    assert!(lines[y + 1].contains("from"), "{:?}", lines[y + 1]);
+                }
                 let focused: Vec<_> = lines
                     .into_iter()
                     // Title rows only: the Details tab chips mark their shown tab with `▸` too.

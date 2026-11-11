@@ -151,7 +151,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         } else {
             let matrix_height = if details {
-                6.min(side.height.saturating_sub(3))
+                (if folded { 5 } else { 6 }).min(side.height.saturating_sub(3))
             } else {
                 side.height
             };
@@ -206,11 +206,12 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool, folded: bool) 
                 );
             });
         }
+        let heading_height = u16::from(area.height > 0 && !folded);
         Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),
-            area.y.saturating_add(u16::from(area.height > 0)),
+            area.y.saturating_add(heading_height),
             area.width.saturating_sub(2),
-            area.height.saturating_sub(1),
+            area.height.saturating_sub(heading_height),
         )
     };
     if inside.is_empty() {
