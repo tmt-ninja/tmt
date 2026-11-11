@@ -380,14 +380,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-work-band-size, 0px)
   );
 }
+/* The blocks keep the design system's handle gutter (blocks.css: 56px inside the page root). The
+   handle hangs 48px left of its block, so it and the strip between it and the block belong to the
+   root: a pointer on its way to a button has not left the page, whatever the stage's margin (#6273). */
 .structured-page-stage {
   box-sizing: border-box;
   width: min(1280px, calc(100% - var(--colab-lane) - 32px));
   margin-inline: auto;
   padding-block-start: 16px;
-}
-.structured-page-stage .tmt-block-doc-body {
-  padding-inline-start: 0;
 }
 .tmt-block-empty-start {
   display: block;
