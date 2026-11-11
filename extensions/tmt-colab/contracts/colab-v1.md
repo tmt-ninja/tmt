@@ -2705,7 +2705,11 @@ page, its `layout`, its page type, or the source's own part of the key. A source
 whose text could hold a `<script>` element, an inline `on*` handler attribute or
 the runtime marker is keyed by its whole text, so every change to it replaces the
 frame and its interactive JavaScript state is lost, as before; any other source is
-keyed only by the design-system match that bind fixes. Every other change is sent
+keyed only by the design-system match that bind fixes. For a source that writes
+design-system tags without a pin, the parent first rebuilds the frame's design
+system from the new source (page-check findings, component script, runtime chunks
+and capability tags); any difference from the frame's replaces the frame, so the
+findings follow edits (#5966). Every other change is sent
 over the render's MessagePort (never `window.postMessage`) as exactly
 `{type:"colab.render.source", requestId, sourceDigest, source}`: a UUID request,
 the SHA256 of the source bytes and the source, at most 2 MiB UTF-8 as at bind. A
@@ -6011,7 +6015,12 @@ or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own
 built-in one, and VERSION (default: the latest release). A space's release is the root page's
 attachment, read through the running serve under current access; the built-in release is read
 from the executable. The bundle must match
-its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
+its release record (version and hash) and hash to it as the renderer checks a pin (SHA-256 over
+the bundle's JSON without `hash`, keys in written order, as `JSON.stringify` writes it) or the
+command returns `COLAB_DESIGN_RELEASE_INVALID`.
+[`design-release-bundle-v1.json`](vectors/design-release-bundle-v1.json) holds the bytes the
+browser's publish uploads for a one-component system; both implementations test that it hashes to
+its own `hash`. It
 prints `pin` (the system, which follows the draft), the `meta` line to copy, `lock` and `lockMeta`
 (this release's lock), `principles` and each component's `tag`, `props`, `slots` and `examples` of
 that release, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing

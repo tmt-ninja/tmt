@@ -644,6 +644,34 @@ describe('template, publish and the renderer source', () => {
     expect(refusedUpload).not.toHaveBeenCalled();
   });
 
+  // #5966: `tmt colab design show` recomputes a release's hash in Rust. The fixture it checks is
+  // the bytes this publish path uploads (one component, so it stays small); regenerate it with
+  // TMT_UPDATE_FIXTURES=1 when the publish output changes on purpose.
+  it('uploads the release bytes the Rust design show fixture holds', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const root = pages.get(rootId)!;
+    const config = readBlock<DesignSystemConfig>(root.source, 'design-system')!;
+    root.source = writeBlock(root.source, 'design-system', {
+      ...config,
+      components: config.components.filter((entry) => entry.tag === 'button'),
+      tokens: { ...config.tokens, css: ':root {\n--acme-ref-ink-950: #0a0a0a;\n}' },
+      principles: ['Say what changed.'],
+    });
+    const { bundle } = await publishNext(transport, rootId);
+    const uploaded = new TextDecoder().decode(pages.get(rootId)!.attachments.at(-1)!.bytes);
+    expect(JSON.parse(uploaded)).toEqual(bundle);
+    expect(await bundleHash(bundle)).toBe(bundle.hash);
+    const fixture = new URL(
+      '../../../contracts/vectors/design-release-bundle-v1.json',
+      import.meta.url,
+    );
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    if (process.env.TMT_UPDATE_FIXTURES === '1') writeFileSync(fixture, uploaded);
+    expect(readFileSync(fixture, 'utf8')).toBe(uploaded);
+  });
+
   it('publishes each component with the examples its page shows', async () => {
     const { pages, make, transport } = space();
     make('Notes');
