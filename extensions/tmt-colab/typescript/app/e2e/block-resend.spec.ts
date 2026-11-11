@@ -65,7 +65,9 @@ test('after the last stale refusal the page says so and Retry sends the batch ag
   ]);
 });
 
-test('a refusal other than stale is not sent again and offers Retry', async ({ page }) => {
+test('a refusal the serve gives every time says why, is not sent again and offers no Retry', async ({
+  page,
+}) => {
   const host = await mountFixture(page);
   await page.evaluate(() => window.refuseBatch('missing', 1));
   await deleteParagraph(page);
@@ -73,9 +75,27 @@ test('a refusal other than stale is not sent again and offers Retry', async ({ p
   await expect(notice).toContainText(
     'Your last change was not saved: That block no longer exists.',
   );
+  // A Retry would be refused the same way: the line has no action, and the block is drawn again.
+  await expect(notice.getByRole('button')).toHaveCount(0);
   expect(await attempted(page)).toEqual(['delete:p']);
   await expect(host.locator('[data-block-id="p"]')).toHaveCount(1);
-  await expect(notice.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+test('a refusal the next send can get past offers Retry, and Retry sends the batch again', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await page.evaluate(() => window.refuseBatch('unavailable', 1));
+  await deleteParagraph(page);
+  const notice = page.getByRole('status').filter({ hasText: 'not saved' });
+  await expect(notice).toContainText('Your last change was not saved: Colab could not take');
+  // Not resent by itself (only a stale refusal is), and the block is drawn again meanwhile.
+  expect(await attempted(page)).toEqual(['delete:p']);
+  await expect(host.locator('[data-block-id="p"]')).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Retry' }).click();
+  await expect(host.locator('[data-block-id="p"]')).toHaveCount(0);
+  await expect(notice).toHaveCount(0);
+  expect(await attempted(page)).toEqual(['delete:p', 'delete:p']);
 });
 
 test('an outcome in doubt is not sent again and offers no Retry', async ({ page }) => {

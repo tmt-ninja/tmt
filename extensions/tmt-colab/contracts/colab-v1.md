@@ -5859,6 +5859,11 @@ the owner log/wraps through bounded catchup; this reply is not authority. Errors
 400 INVALID, 403 DENIED/EXPIRED, 409 CONFLICT/STALE_HEAD/TEMPLATE_CHANGED and 503 CAPACITY/UNAVAILABLE.
 `TEMPLATE_CHANGED` is a pre-write user-template copy refusal; the CLI maps it to
 `COLAB_TEMPLATE_CHANGED` with a hint to retry the same create command.
+The unsuccessful body of the browser `POST /api/management` is the same as the reserved
+socket's: the exact textual code with its status. The browser also reads JSON exactly
+`{code}`. It takes only INVALID, DENIED, EXPIRED, CONFLICT, STALE_HEAD, CAPACITY and
+UNAVAILABLE with their status above and shows that code (#5916); any other body, code or
+status is an unknown outcome.
 The runner implements member/link/epoch and sharing/history/retention/archive/delete
 actions. This socket composition selects loopback publication; the page-policy
 engine owns rotation, published keys and deletion. Methods other

@@ -2,6 +2,7 @@ import { expect, it } from 'vite-plus/test';
 import {
   BLOCK_STALE_RETRIES,
   blocksResult,
+  canSendAgain,
   conflictAt,
   resendStale,
   saveMessage,
@@ -367,4 +368,25 @@ it('never sends again after an outcome in doubt, a timeout or another refusal', 
     await expect(resendStale(refused.send)).rejects.toBeInstanceOf(Error);
     expect(refused.calls).toBe(1);
   }
+});
+
+// #6227: Retry is offered only for a refusal that a new send can get past. A code is listed on
+// purpose: a new one is refused the same way each time until someone decides otherwise.
+it('offers to send a refused batch again only for a refusal that can pass', () => {
+  const refused = (code: string) => new SaveRefused(code, 'Refused.');
+  for (const code of ['COLAB_STALE_BASE', 'COLAB_STREAM_GAP', 'COLAB_UNAVAILABLE'])
+    expect(canSendAgain(refused(code)), code).toBe(true);
+  for (const code of [
+    'COLAB_BLOCK_NOT_FOUND',
+    'COLAB_BLOCK_BAD_AFTER',
+    'COLAB_BLOCK_MARKUP',
+    'COLAB_CAPACITY',
+    'COLAB_DENIED',
+    'COLAB_INPUT_INVALID',
+    'COLAB_INVALID',
+    'COLAB_OPERATION_CONFLICT',
+    'COLAB_PAGE_INACTIVE',
+    'COLAB_STATE_MISSING',
+  ])
+    expect(canSendAgain(refused(code)), code).toBe(false);
 });

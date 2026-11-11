@@ -44,7 +44,7 @@ import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
-import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused } from './save.js';
+import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused, canSendAgain } from './save.js';
 import { text as strings } from './strings.js';
 import {
   type MentionEntry,
@@ -107,6 +107,9 @@ export type BlockMenuAction = (typeof BLOCK_MENU_ACTIONS)[number];
 
 /** How long the status line after a delete stays. */
 export const TOAST_MS = 6000;
+/** How long a settled batch stays drawn while the page's view has not yet reached its commit (the
+ * view comes after the commit is admitted; a view that never does must not pin the batch). */
+const VIEW_WAIT_MS = 5000;
 
 /** The format keys with ⌘ (Ctrl elsewhere) on a selected range: each toggles its mark. */
 const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
@@ -147,8 +150,9 @@ export interface Editing {
   from?: string;
 }
 
-/** A batch the serve refused for good: what the status line says, and whether it may be sent
- * again (not when its outcome is in doubt: it may have landed). */
+/** A batch the serve refused: what the status line says, and whether it may be sent again. It may
+ * not when its outcome is in doubt (it may have landed) or when the serve refuses it the same way
+ * each time (#6227): that one is told for a while, with its reason, and not drawn. */
 interface Refusal {
   key: number;
   ops: BlockOp[];
@@ -160,7 +164,7 @@ function refusalOf(key: number, ops: BlockOp[], error: unknown): Refusal {
     return {
       key,
       ops,
-      retryable: true,
+      retryable: canSendAgain(error),
       message:
         error.code === 'COLAB_STALE_BASE'
           ? strings.blockEdit.stale
@@ -224,10 +228,12 @@ export function useBlockEditing(
   /** Other pages an @ can name, under the page list's authority (#6208); absent without it. */
   pages?: MentionPages,
 ) {
-  /** This tab's batches on their way: the page draws them at once and drops each when it settles
-   * (the page then shows it, or it was refused). A file's placeholder is drawn the same way while
-   * the file uploads, and is never sent. */
-  const [pending, setPending] = useState<readonly { key: number; ops: BlockOp[] }[]>([]);
+  /** This tab's batches on their way: the page draws them at once and drops each when the page's
+   * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
+   * file's placeholder is drawn the same way while the file uploads, and is never sent. */
+  const [pending, setPending] = useState<
+    readonly { key: number; ops: BlockOp[]; shownAt?: number }[]
+  >([]);
   /** The batches the serve refused for good, oldest first (#6220): the page no longer draws them,
    * and the status line says so and sends the oldest again on Retry. */
   const [refusals, setRefusals] = useState<readonly Refusal[]>([]);
@@ -241,17 +247,30 @@ export function useBlockEditing(
   /** The page as drawn: the serve's blocks with this tab's batches on their way applied. A batch
    * the serve would refuse is left out. */
   const tree = useMemo(() => {
+    // A batch the view shows already is in `records`: it is not drawn on top again.
+    const drawing = pending.filter(
+      (batch) => batch.shownAt === undefined || seq === undefined || batch.shownAt > seq,
+    );
     let drawn: readonly BlockRecord[] = records;
-    for (const batch of pending)
+    for (const batch of drawing)
       try {
         drawn = applyOps(drawn, batch.ops);
       } catch {
         // Drawn without it; the serve refuses it too, and the page stays as it shows.
       }
-    return pending.length ? new BlockTree(drawn) : pageTree;
-  }, [records, pending, pageTree]);
+    return drawing.length ? new BlockTree(drawn) : pageTree;
+  }, [records, pending, pageTree, seq]);
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  // A batch the page's view shows now is the page's own: it is no longer drawn on top (#6249).
+  useEffect(() => {
+    if (seq === undefined) return;
+    setPending((now) =>
+      now.some((batch) => batch.shownAt !== undefined && batch.shownAt <= seq)
+        ? now.filter((batch) => batch.shownAt === undefined || batch.shownAt > seq)
+        : now,
+    );
+  }, [seq, pending]);
   const [editing, setEditing] = useState<Editing>();
   const sync = useRef<BlockTextSync | undefined>(undefined);
   const caret = useRef(0);
@@ -408,7 +427,16 @@ export function useBlockEditing(
         () => {},
       );
       const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
-      sent.then(drop, drop);
+      // The live page resolves a batch when its commit is admitted, a little before the view that
+      // shows it reaches `records`: dropping the batch then would take its block away and bring it
+      // back. It stays drawn until the view's order reaches the commit's (or `VIEW_WAIT_MS` passes).
+      sent.then((at) => {
+        if (typeof at !== 'number') return drop();
+        setPending((now) =>
+          now.map((batch) => (batch.key === key ? { ...batch, shownAt: at } : batch)),
+        );
+        setTimeout(drop, VIEW_WAIT_MS);
+      }, drop);
       inflight.current = sent.then(
         (at) => {
           if (current)
