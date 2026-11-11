@@ -148,7 +148,7 @@ export function DesignSystemDialog({
         {busy && (
           <p role="status">
             {stalled
-              ? `Still creating${progress && progress.phase !== 'publishing' ? ` (${progress.done}/${progress.total})` : ''}. This can take a while.`
+              ? `Still creating${progress && progress.phase !== 'publishing' ? ` (${progress.done} of ${progress.total})` : ''}. This can take a while.`
               : progress?.phase === 'creating'
                 ? `Creating pages: ${progress.done} of ${progress.total}`
                 : progress?.phase === 'pages'
