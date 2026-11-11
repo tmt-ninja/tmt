@@ -31,6 +31,8 @@ import type {
 } from './types.js';
 import {
   waitFor,
+  mockReadinessSnapshot,
+  processGroupSnapshot,
   waitForEvent,
   waitForProcessExit,
   waitForCapture,
@@ -534,7 +536,7 @@ exit ${'$'}status
       `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
       workspace
     );
-    await this.waitForEvent((event) => event.event === 'ready' && event.pid === created.pid);
+    await this.waitForMockReady(created.pane, created.pid);
     return created;
   }
 
@@ -690,9 +692,26 @@ exit ${'$'}status
         recorded.started = groupLeader(started.panePid)?.started ?? '';
       }
     );
-    await this.waitForEvent((event) => event.event === 'ready' && event.pid === this.panePid);
+    await this.waitForMockReady(this.pane, this.panePid);
     this.panePids.push(this.panePid);
     return { pane: this.pane, pid: this.panePid, workspace: this.workspace };
+  }
+
+  private async waitForMockReady(pane: string, pid: number): Promise<void> {
+    try {
+      await this.waitForEvent((event) => event.event === 'ready' && event.pid === pid);
+    } catch (error) {
+      console.error(
+        'E2E mock readiness snapshot:',
+        JSON.stringify({
+          ...mockReadinessSnapshot(pid, Object.keys(this.env), () =>
+            this.tmux(['capture-pane', '-p', '-S', '-100', '-t', pane])
+          ),
+          processGroup: processGroupSnapshot(pid),
+        })
+      );
+      throw error;
+    }
   }
 
   tmux(args: string[]): string {

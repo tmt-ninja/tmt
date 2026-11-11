@@ -231,8 +231,30 @@ describe('exited E2E group observations', () => {
       throw Object.assign(new Error('gone'), { status: 1 });
     });
     const signal = vi.spyOn(process, 'kill').mockReturnValue(true);
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const census = vi.spyOn(childProcess, 'spawnSync').mockReturnValue({
+      pid: 0,
+      output: [null, '95406 1 95406 Z controlled-zombie', 'inspection stderr'],
+      stdout: '95406 1 95406 Z controlled-zombie',
+      stderr: 'inspection stderr',
+      status: 1,
+      signal: null,
+    });
     expect(() => stopOwnedGroups([{ pid: 95406, started: 'known' }])).toThrow(
       'E2E process groups survived or cannot be inspected: 95406'
+    );
+    expect(report).toHaveBeenCalledTimes(1);
+    const snapshot = JSON.parse(String(report.mock.calls[0]![1]));
+    expect(snapshot).toMatchObject({
+      pid: 95406,
+      leader: { status: 1, stderr: 'inspection stderr' },
+      rows: '95406 1 95406 Z controlled-zombie',
+    });
+    expect(census).toHaveBeenCalledTimes(2);
+    expect(census).toHaveBeenCalledWith(
+      '/bin/ps',
+      expect.any(Array),
+      expect.objectContaining({ timeout: 1000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 })
     );
     expect(signal.mock.calls.every(([, value]) => value === 0)).toBe(true);
   });

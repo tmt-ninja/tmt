@@ -206,6 +206,8 @@ private tmux socket permits removing its stale socket inode after reasserting
 the private-root boundary. Other failures and changed file types remain errors.
 SIGKILL supervision remains outside this boundary.
 
+Readiness failures capture a bounded pane tail, process-group rows and environment key names before cleanup. Group cleanup failures retain bounded `ps` command/status/stderr and group-row snapshots; unavailable diagnostics preserve the original failure and never authorize signalling or deletion.
+
 Unknown group inspection stays pending inside the one-second cleanup bound;
 surviving or uninspectable groups fail cleanup. Preserve fixture cleanup order
 and error precedence. Pane-launched foregrounds remain scenario-owned: request
