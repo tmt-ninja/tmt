@@ -739,6 +739,9 @@ is added.
   own transaction and `delete_page_data` drops it with the page. The serve calls
   `Registration::start_summaries` once at start (the same single-flight `summary::drain` a list read
   schedules), so a store upgraded to schema 16 fills without the list being opened; no backfill state.
+  `Registration::close` first runs `SummaryCache::close`, which stops the worker before its next page
+  and joins it: a serve that exits inside the worker's commit leaves a hot journal that read-only
+  `Store::read` cannot roll back (`SQLITE_READONLY_ROLLBACK`, #6235).
   `Registration::pages` reads the current rows in the catalog's own transaction (`CatalogRead`) and
   `attach_to_catalog` adds them as `title` newest page first while the reply stays within
   `DISCOVERY_BYTES`; mounted `spaceHome` shows that title instead of the browser's hint.

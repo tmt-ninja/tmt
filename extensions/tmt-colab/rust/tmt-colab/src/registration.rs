@@ -281,7 +281,9 @@ impl Registration {
     pub(crate) fn release_reader(&mut self, id: &str) {
         self.readers.release(id);
     }
+    /// Waits for the background summary fold first: its title writes go to the same store.
     pub fn close(self) -> Result<()> {
+        self.summaries.close();
         self.store.close()
     }
     /// Read-only owner discovery also works before extension-key registration.
