@@ -732,8 +732,10 @@ the receiver side independent of an installed recipient Core. The qualifier also
 talk through the real Remote CLI/control sender; composed public final delivery is #4540 and real
 accounts remain #4539 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
-The library and binary test roots share `test_isolation::isolated_case` for native serve,
-factory, pairing and immediate serving-lease reacquisition fixtures. It executes before project
-files or locks open, so sibling invocation forks cannot inherit their credential, budget or serving
-locks; `tmt_invoke` bounds the child, captures failures and reaps its process group. Each case keeps
-its assertions and deadlines.
+The library, binary and CLI test roots share `test_isolation::isolated_case` for native serve,
+factory, pairing, immediate serving-lease reacquisition and fake message-owner cleanup fixtures.
+It executes before project files, locks or listeners open, so sibling invocation forks cannot
+inherit their credential, budget or serving locks or prolong a listener beyond its owner thread.
+Close-on-exec does not close inherited descriptors during the fork-to-exec interval. `tmt_invoke`
+bounds the child, captures failures and reaps its process group. Each case keeps its assertions
+and deadlines; the remaining CLI cases still run in parallel.

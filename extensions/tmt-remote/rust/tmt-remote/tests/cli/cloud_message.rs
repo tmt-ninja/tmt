@@ -267,6 +267,11 @@ fn prepared_cloud_message_lost_owner_answer_is_unconfirmed_without_another_submi
 }
 #[test]
 fn lost_answer_fixture_detects_missing_and_extra_submissions_through_completion() {
+    if super::test_isolation::isolated_case(
+        "cloud_message::lost_answer_fixture_detects_missing_and_extra_submissions_through_completion",
+    ) {
+        return;
+    }
     for count in [0, 1, 2] {
         let pilot = Pilot::new();
         let socket = owner_socket(&pilot);
@@ -310,6 +315,11 @@ fn lost_answer_fixture_detects_missing_and_extra_submissions_through_completion(
 }
 #[test]
 fn lost_answer_fixture_closes_its_owner_when_the_command_unwinds() {
+    if super::test_isolation::isolated_case(
+        "cloud_message::lost_answer_fixture_closes_its_owner_when_the_command_unwinds",
+    ) {
+        return;
+    }
     let pilot = Pilot::new();
     let socket = owner_socket(&pilot);
     let raw = serde_json::to_vec(&prepared()).unwrap();
