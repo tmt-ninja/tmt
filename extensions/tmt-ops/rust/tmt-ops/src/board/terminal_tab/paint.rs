@@ -560,3 +560,25 @@ pub(in crate::board) fn cells(
         }
     }
 }
+
+#[cfg(test)]
+mod boxed_style_tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, style::{Color, Style}, Terminal};
+
+    #[test]
+    fn boxed_preserves_line_and_span_styles_without_tinting_blank_rows() {
+        let mut terminal = Terminal::new(TestBackend::new(30, 6)).unwrap();
+        terminal.draw(|frame| {
+            boxed(frame, Look::default(), Rect::new(0, 0, 30, 6), "Test", vec![
+                Line::styled("selected", Style::default().fg(Color::White).bg(Color::Blue)),
+                Line::from(vec![Span::styled("muted", Style::default().fg(Color::DarkGray))]),
+                Line::default(),
+            ]);
+        }).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 1)].bg, Color::Blue, "line selection background");
+        assert_eq!(buffer[(2, 2)].fg, Color::DarkGray, "span foreground");
+        assert_ne!(buffer[(2, 3)].bg, Color::Blue, "blank row has no selection");
+    }
+}

@@ -416,7 +416,8 @@ mod tests {
                 QuotaWindow::Weekly,
                 NOW + 7_200_001,
             );
-            assert!(later.balance.is_none());
+            assert!(later.balance.is_some(), "old evidence remains a known balance");
+            assert!(usage_row(later, NOW + 7_200_001, 49, Look::default()).to_string().contains("ago"));
             assert_ne!(
                 usage_clock_mark(&app, NOW, 49),
                 usage_clock_mark(&app, NOW + 7_200_001, 49)
