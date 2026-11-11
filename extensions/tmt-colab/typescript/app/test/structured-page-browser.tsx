@@ -266,6 +266,9 @@ declare global {
     holdServe(hold: boolean): void;
     /** How many commits the serve holds now. */
     heldCommits(): number;
+    /** The page's view of each commit reaches the editor this many ms after the commit settles
+     * (the live page resolves a batch before it publishes the view that shows it, #6249). */
+    delayViews(ms: number): void;
     /** What the owner device asked of the recipient seam, in order: the selector, or `null` when it
      * asked for the page creator. */
     recipientChosen: (string | null)[];
@@ -328,11 +331,20 @@ export function mount(
   // Each change is a new view with the next local order, as `PageView.seq` gives it.
   let seq = 1;
   const listeners = new Set<(next: { records: BlockRecord[]; seq: number }) => void>();
+  let viewDelay = 0;
   const publish = (next: BlockRecord[]) => {
     blocks = next;
     seq++;
-    for (const listener of listeners) listener({ records: next, seq });
+    const view = { records: next, seq };
+    const show = () => {
+      for (const listener of listeners) listener(view);
+    };
+    if (viewDelay) setTimeout(show, viewDelay);
+    else show();
     return seq;
+  };
+  window.delayViews = (ms) => {
+    viewDelay = ms;
   };
   const write = (id: string, text: string) =>
     publish(blocks.map((block) => (block.id === id ? { ...block, text } : block)));
