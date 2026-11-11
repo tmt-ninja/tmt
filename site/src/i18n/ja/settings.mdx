@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 187d39ce0c29258aeb7f0b987c067b5bd40332ba
+sourceRevision: e614b520623f4ccdd51c692a9be5cca642beddce
 title: 設定と困ったときの対処
 ---
 
@@ -17,11 +17,11 @@ tmt の設定は少なく、どれにも既定値があります。このペー�
 `tmt config show` はすべての設定について、実際に使う値、その値の取得元、指定できる値を表示します。`set` は1つの設定を変更し、`rm` は現在のフォルダーで指定した上書きを削除します。
 
 <Cmd>{`
-$ tmt config show                                 # 値、取得元、ファイルのパス
-$ tmt config set pasteEnterDelayMs 800            # 現在のフォルダーに適用
-$ tmt config set preambleEvery 5 --global         # すべてのフォルダーに適用
+$ tmt config show                                 # values, sources and file paths
+$ tmt config set pasteEnterDelayMs 800            # for the folder you're in
+$ tmt config set preambleEvery 5 --global         # for every folder
 $ tmt config set exchange.retentionDays 30 --global
-$ tmt config rm pasteEnterDelayMs                 # このフォルダーの上書きを削除
+$ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 `}</Cmd>
 
 | 設定                               | 既定値   | 動作                                                                                                                                                        | 設定場所                 |
@@ -49,21 +49,25 @@ $ tmt config rm pasteEnterDelayMs                 # このフォルダーの上�
 `tmt upgrade`（別名 `tmt update`）は、インストール時の `stable` または `alpha` channel で、CLI、skill、インストール済みの[拡張機能](/extensions)を更新します。
 
 <Cmd>{`
-$ tmt upgrade                        # 現在の channel の最新版
-$ tmt upgrade --channel stable       # channel を変更
-$ tmt upgrade --to 5.0.0-alpha.8     # 指定したバージョンに CLI を固定
-$ tmt upgrade --unpin                # channel の更新に再び追従
+$ tmt upgrade                        # the latest on your channel
+$ tmt upgrade --channel stable       # switch channel
+$ tmt upgrade --to 5.0.0-alpha.8     # an exact version, which pins the CLI there
+$ tmt upgrade --unpin                # follow the channel again
 `}</Cmd>
 
-`--channel` と `--to` が選ぶのは CLI のバージョンだけです。拡張機能はそれぞれの channel と固定バージョンを保ち、CLI を固定しても更新できます。人が操作する端末では **Upgrade** 画面で全体のバージョン変更を確認し、未インストールの公式拡張機能と新しく検出した provider の設定範囲も選べます。**Upgrade [Y/n]** で一度承認します。`--yes` はコンポーネントの更新と不足する公式拡張機能および同梱 skill を承認しますが、新しい provider の hook や Core skill の設定範囲は承認しません。端末がない場合や `--json` の場合に `--yes` がなければ、拡張機能は1つも更新しません。更新待ちの各拡張機能を `consentRequired` として、再実行するコマンドとともに報告します。1つでも更新に失敗するとコマンドは失敗しますが、ほかの更新を取り消すことはありません。
+`--channel` と `--to` が選ぶのは CLI のバージョンだけです。拡張機能はそれぞれの channel と固定バージョンを保ち、CLI を固定しても更新できます。人が操作する端末では、**Upgrade** 画面に予定するコンポーネントのバージョンを表示し、一度承認を求めます。未インストールの公式拡張機能と新しく検出した provider の設定範囲も提案します。選択は今回の実行だけに適用されます。**Upgrade [Y/n]** では Enter が yes です。断るとコンポーネントは変更されません。
+
+`--yes` はコンポーネントの更新と不足する公式拡張機能および同梱 skill を承認しますが、新しい provider の hook や Core skill の設定範囲は承認しません。それらは対話的に承認するか、表示された setup コマンドを使ってください。JSON、パイプ、agent からの実行では質問しません。`--yes` がなくても CLI の更新と記録済み連携の更新は可能ですが、拡張機能の変更には同意が必要で、不足する項目は報告だけされます。
+
+結果では、変更された項目や対応が必要なコンポーネントに `updated`、`needs approval`、`failed` などのラベルを付け、最新のものは **Up to date:** にまとめ、次の操作を **Next:** に示します。独立した拡張機能が失敗しても、完了した更新は残ります。再試行前に結果を確認してください。アプリケーションのデータは保持されます。skill の警告や承認が必要な連携も引き続き表示されます。
 
 <Mdx.h3 id="shell-completion">shell の補完</Mdx.h3>
 
 `tmt completion` は shell の起動ファイルを調べ、追加する1行を表示します。`bash`、`zsh`、`fish` を指定すると、別の shell を確認できます。確認するのはファイルだけなので、現在の shell に補完が読み込まれているかは判断できません。
 
 <Cmd>{`
-$ tmt completion                 # shell を確認して追加する行を表示
-$ tmt completion zsh             # zsh でも同じように確認
+$ tmt completion                 # check your shell and show the line
+$ tmt completion zsh             # the same for zsh
 `}</Cmd>
 
 表示されたファイルに、その1行を自分で追加してください。tmt は shell の起動ファイルを編集しません。zsh では `compinit` や oh-my-zsh などのフレームワークで補完を設定した後に置きます。同じ行が2つある場合は tmt が知らせます。その後、新しい shell を開いてください。`tmt completion --json` はスクリプト向けに同じ確認結果を返します。補完が未設定なら、端末で表示する tmt のメインヘルプ（`tmt --help`）にも案内が出ます。
@@ -108,7 +112,7 @@ $ tmt --version
 `sudo` ではなく、自分が所有するインストール先を使ってください。
 
 <Mdx.h4 id="skills-conflict-with-files-tmt-didn-t-write">
-  skill が tmt 以外の作ったファイルと競合する
+  skill が tmt の書いていないファイルと競合する
 </Mdx.h4>
 
 tmt 自身の skill（公式 extension のものを含む）は常に優先されます。インストールやアップグレードでは、tmt の skill 名にあるものを確認なし・バックアップなしで置き換えます。自分の skill は別の名前で置いてください。tmt はほかの名前や、symlink の参照先フォルダーには触れません。

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-driver.mdx
-sourceRevision: e104919f05f4a56dfa6aeb6ae7c417700dbc930d
+sourceRevision: 828b4342651ed3ff5147f3af6ac7616706bc38e0
 title: 构建 driver
 ---
 
@@ -58,7 +58,7 @@ runtime driver 将能通过声明更高优先级，接管内置 driver 已能识
 - **依据证据，不凭声明。** 提供方的会话 ID 只用于关联已有 binding，绝不创建或移动 identity。
 - **共享 host 需要严格匹配。** 多个会话共用一个进程时，只接受精确匹配。无法确定时应明确说明，不要猜测。
 - **钩子绝不阻塞 agent。** 钩子总会在规定时限内成功退出。任何失败都应让 agent 正常启动，只是不带上下文。
-- **发送失败要说明情况：**未发送、不确定、被拒绝，或等待批准。“不确定”表示输入可能已到达 agent。tmt 从不自动重试，driver 也不应重试。
+- **发送失败要说明情况**：未发送、不确定、被拒绝，或等待批准。“不确定”表示输入可能已到达 agent。tmt 从不自动重试，driver 也不应重试。
 - **持久状态保持最新且精简。** 只有钩子证据能更新它。移除 identity、identity 切换程序、版本不匹配或 driver 被移除时，都要丢弃状态。绝不存储会话记录、参数或秘密信息。
 
 <Mdx.h3 id="publish-it">发布</Mdx.h3>

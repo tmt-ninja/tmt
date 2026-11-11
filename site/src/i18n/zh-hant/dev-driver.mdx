@@ -1,0 +1,66 @@
+---
+source: site/src/chapters/dev-driver.mdx
+sourceRevision: 828b4342651ed3ff5147f3af6ac7616706bc38e0
+title: 建立 driver
+---
+
+import { Callout, Terms } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+driver 讓 tmt 了解原本不認識的程式。
+
+<Callout title="規劃中。">
+  目前 driver 都編譯進 tmt，新增 driver 要透過貢獻程式碼到 tmt
+  儲存庫。本章介紹未來的方向：任何人都能發布的獨立套件。Herdr 已採用這種方式：driver 隨 tmt 提供，在
+  Herdr 窗格首次使用時核准。以下協定仍可能改變。傳輸格式由
+  [contracts/driver-protocol-v1.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/driver-protocol-v1.md)
+  定義。
+</Callout>
+
+<Mdx.h3 id="two-kinds">兩種 driver</Mdx.h3>
+
+<Terms>
+  <dt>host driver</dt>
+  <dd>
+    了解 agent 在哪裡執行，以及如何向它們輸入內容：指定窗格、傳遞輸入、擷取輸出及切換焦點。tmux
+    是內建的 host driver，Herdr 是第一個外部 host driver。
+  </dd>
+  <dt>runtime driver</dt>
+  <dd>
+    了解一種 agent 程式：如何辨識、呼叫者屬於哪段對話，以及如何啟動、恢復及結束。Claude Code 和
+    Codex 都已內建。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="a-driver-is-a-program">driver 是一個程式</Mdx.h3>
+
+driver 是名為 `tmt-driver-<name>` 的執行檔。tmt 每次操作執行它一次，形式為 `tmt-driver-<name> __tmt-driver <protocol> <operation>`，透過 stdin 傳入一個 JSON 請求，再從 stdout 讀取一個 JSON 回答：`{"ok": …}` 或 `{"error": {"code", "message"}}`。無法判定貼上的內容是否到達窗格時，這次傳送就算不確定，任何一方都不重試。每個操作都有期限與輸出上限，因此卡住或輸出過多的 driver 不會讓 tmt 一直等下去。操作以一次傳送或查找為單位；啟動一個程序約需 1.5 ms，比執行一條 tmux 命令還短。
+
+第一次呼叫一律是 `capabilities`。它回傳 driver 支援的協定版本、類型、名稱、版本及實作的操作。tmt 採用雙方都支援的最高協定版本，並至少再維持一個發行版本對前版協定的支援，因此 driver 不必在 tmt 更新當天就更新。
+
+內建 driver 也使用相同介面，因此自行安裝的 driver 與 tmt 隨附的 driver 會受到相同對待。
+
+<Mdx.h3 id="what-tmt-keeps">tmt 保留的職責</Mdx.h3>
+
+driver 的輸出是不可信的輸入。tmt 在限制內解析，依自己的規則檢查每個 ID 和目標，並在顯示前清理文字。需要信任的決定仍留在 tmt：
+
+- **驗證綁定。** tmt 比對 driver 回傳的證據，不會只憑 driver 的說法就認定呼叫者已通過驗證。
+- **傳送安全。** 保護 `!`、分階段貼上與送出 Enter，並回報不確定的傳送。
+- **儲存。** driver 不會開啟 tmt 的資料庫，tmt 也不會把資料路徑或 token 傳給它。這是契約，不是作業系統的保證，因此 tmt 不會依賴 driver 自覺遵守規則。
+- **同意。** 修改 agent 設定仍須先取得使用者同意，再透過 `tmt setup` 進行。
+
+<Mdx.h3 id="taking-over-from-a-built-in-driver-planned">接替內建 driver（規劃中）</Mdx.h3>
+
+runtime driver 將能宣告較高的優先順序，接替內建 driver 已能辨識的程式。社群提供、功能更多的 Claude Code driver 就能以此方式取代內建版本。接替關係會清楚顯示：安裝時列出將接替的每個內建程式，`tmt driver ls` 也會顯示哪個 driver 負責哪個程式。driver 不能使用內建 driver 的名稱，兩個已安裝的 driver 也不能宣告負責同一個程式；使用者必須移除其中一個。
+
+<Mdx.h3 id="rules-every-driver-follows">每個 driver 都要遵守的規則</Mdx.h3>
+
+- **依據證據，不憑宣稱。** provider 的 session ID 只用來關聯既有綁定，不會建立或移動 identity。
+- **共用 host 必須嚴格區分。** 多段對話共用一個程序時，只接受精確比對。無法判定時應明說，不要猜測。
+- **hook 不阻擋 agent。** hook 一律在時限內成功結束；發生任何失敗時，agent 仍正常啟動，只是不帶 context。
+- **傳送失敗要說明情況**：未傳送、不確定、遭拒或等待核准。「不確定」表示輸入可能已到達 agent。tmt 不會自動重試，driver 也不該重試。
+- **持久狀態保持最新且精簡。** 只有 hook 證據能更新它。移除 identity、identity 切換程式、版本不符或 driver 消失時，就會丟棄。不要儲存對話逐字稿、引數或機密。
+
+<Mdx.h3 id="publish-it">發布</Mdx.h3>
+
+runtime driver 將像擴充套件一樣打包與發布，有自己的版本。目前 `tmt driver install <path>` 會先顯示將執行的內容，再核准 host driver 執行檔。協定契約與符合性測試套件將隨第一個外部 driver 一起提供。

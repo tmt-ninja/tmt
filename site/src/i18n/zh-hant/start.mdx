@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
+sourceRevision: 37ca87954daf2b8e4de195a01fbfa8dab6828e60
 title: 給所有 agent 的一條通道
 ---
 
@@ -37,11 +37,72 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <BandHead name="install" />
 
-<Mdx.h3 id="install">安裝</Mdx.h3>
+<Mdx.h3 id="install-tmt">安裝 TMT</Mdx.h3>
 
 <Cmd>{`$ curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。
+安裝程式會把 `tmt` 放進 `~/.local/bin`，並在終端機中接著執行 `tmt setup`：找出你的 agent，提供 Ops、Remote、Colab、Digest 及其附帶 skill。檢查選取的擴充套件與預計進行的 agent 變更，再一次核准。之後隨時可執行 `tmt setup` 補齊缺少的項目；setup 不會升級正常的已安裝擴充套件。[設定詳情 →](/working#tmt-setup) 如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。
+
+<Mdx.h3 id="update-before-setting-up-firestore">設定 Firestore 前先更新</Mdx.h3>
+
+TMT 還在早期 alpha 階段。開始下方設定前，請先更新到 alpha channel：
+
+<Cmd>{`$ tmt upgrade --channel alpha`}</Cmd>
+
+閱讀結果及更新已安裝擴充套件的詢問。開始部署前先完成更新：更新可能改變部署時需要你核准的網站檔案。
+
+<Mdx.h3 id="install-remote-and-colab">安裝 Remote 與 Colab</Mdx.h3>
+
+Remote 負責部署 Firebase 設定；Colab 提供共用頁面應用程式及其部署需求。請在負責部署的機器上安裝兩者：
+
+<Cmd>{`
+$ tmt extension install remote --channel alpha
+$ tmt extension install colab --channel alpha
+`}</Cmd>
+
+逐一檢查並核准安裝詢問。安裝擴充套件不等於核准變更 Firebase 專案。
+
+<Mdx.h3 id="prepare-your-firebase-project">準備 Firebase 專案</Mdx.h3>
+
+使用你自己的 Firebase 專案，選擇免費的 Spark 方案。TMT 不會建立專案。部署前先選好 Firestore 區域；既有資料庫無法遷往其他區域。
+
+如果尚未安裝 Node.js，請先安裝，再安裝支援的 Firebase CLI，並用你自己的專案擁有者帳號登入：
+
+<Cmd>{`
+$ npm install -g firebase-tools@15.29.0
+$ firebase login
+`}</Cmd>
+
+在 Firebase 控制台開啟 **Authentication**，選擇一次 **Get started**。下方命令會選擇匿名登入；登入 Firebase CLI 不會代替這項控制台操作。
+
+<Mdx.h3 id="review-and-deploy">檢查並部署</Mdx.h3>
+
+將 `<project-id>` 和 `<region>` 換成你的專案 ID 與選定區域。請在互動式終端機中親自執行：
+
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+
+檢查摘要中的帳號、專案、區域、Security rules 與 Website files。在同一命令加上 `--details`，可在詢問前查看完整變更：
+
+<Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
+
+只有確認這些變更正是你想要的，才回答 `y`。回答 No 或結束輸入，本次執行就不會變更 Firebase 專案；但不會撤銷未完成部署先前已做的變更。這個部署命令沒有 `--yes` 或 `--no-open` 旗標。
+
+命令會儲存進度，一起建立所需索引，並在建置期間檢查最多三分鐘。如果顯示指示後停止，請依指示，以相同輸入重新執行同一命令。已核准但未完成的部署，若記錄的輸入未改變，就會直接繼續而不再詢問。若輸入改變，請先閱讀新的摘要與任何替換警告，再回答。
+
+保留命令顯示路徑下的 `deploy.json`。若結果不明，請私下保留 `Cause:` 與 `File:` 診斷資訊，並依顯示的下一步操作；不要刪除記錄，或反覆核准新的部署來繞過它。
+
+<Mdx.h3 id="check-completion">檢查是否完成</Mdx.h3>
+
+成功的結果是 `Run: complete; usable binding: true`，驗證已完成，並顯示 `Remote link:`。待處理或結果不明的工作不算完成設定。要重新輸出公開連線連結，或檢查本機記錄的設定：
+
+<Cmd>{`
+$ tmt remote link --project <project-id> --json
+$ tmt remote status --project <project-id> --layers --json
+`}</Cmd>
+
+連結說明如何連線，並不授予存取權。status 讀取已儲存的證據，而非專案剩餘配額；部署完成也不能證明其他人能開啟共用頁面。
+
+若部署尚未完成就需要修正，請保留記錄。收到僅安裝 Remote 修正的指示時，使用 `tmt extension upgrade remote --yes --json`，再繼續同一部署命令。一般的 `tmt upgrade` 也可能變更 Colab 網站檔案及你必須核准的變更。
 
 <Mdx.h3 id="built-in-drivers">內建的 driver</Mdx.h3>
 
@@ -52,10 +113,10 @@ tmt 內建多數人需要的 driver，不必另外安裝。**tmux** 是 host dri
 在 tmux 裡，先為 agent 所在的窗格命名（`tmt name`，也可以寫成 `tmt this`），之後就能從任何地方對它說話。頁面頂端的逐步示範播放的就是這個流程。
 
 <Cmd>{`
-$ tmt name reviewer                   # 在 agent 的窗格裡：為它命名
-$ tmt talk reviewer "Review the diff."  # 從任何窗格：送出，然後等待回覆
-$ tmt reply req_4f36… --receipt v2_… --message "…"   # agent 回覆；talk 會把它印出來
-$ tmt check reviewer                  # 覺得卡住時，看一下窗格的內容
+$ tmt name reviewer                   # in the agent's pane: name it
+$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
+$ tmt check reviewer                  # look at the pane if something seems stuck
 `}</Cmd>
 
 agent 不必記住那一行：它收到的請求本身就帶有完整的 `tmt reply` 指令，receipt 也包含在內。
@@ -68,9 +129,9 @@ agent 不必記住那一行：它收到的請求本身就帶有完整的 `tmt re
 接著管理你已有的名稱：
 
 <Cmd>{`
-$ tmt ls                    # 每個名稱、是暫時或已儲存，以及它是否在線
-$ tmt add 0:1.2 builder     # 不必切換過去，就替另一個窗格命名
-$ tmt rm builder            # 移除一個名稱；窗格繼續執行
+$ tmt ls                    # every name, its lifetime and whether it's present
+$ tmt add 0:1.2 builder     # name another pane without switching to it
+$ tmt rm builder            # retire a name; the pane keeps running
 `}</Cmd>
 
 名稱預設是暫時的，加上 `-s` 才會儲存。`tmt ls` 以 agent 為主，而不是窗格：先列已儲存的名稱，再列暫時的，每個都標出它所在的 `driver:session`，只有在有動作可做時才顯示動作。
@@ -85,17 +146,17 @@ $ tmt rm builder            # 移除一個名稱；窗格繼續執行
 
 <Cmd>{`
 $ tmt run -s reviewer claude --model sonnet
-$ tmt resume reviewer       # 之後在任何窗格：reviewer 自己的對話
+$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
 `}</Cmd>
 
 你也可以先啟動、之後再命名。`tmt run claude` 會立刻以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 Claude Code，再從 agent 的 shell 工具執行 `tmt name reviewer`，就會給它正式的名稱。命名會保留同一段對話，但不會儲存名稱；要儲存請加上 `-s`。
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt name -s reviewer      # 從 agent 的 shell 工具：命名，並保留這個名稱
+$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo
   {...resumeAfterReboot}
-  label="逐步示範：重新開機後，tmux 的版面回來了，但 agent 沒有；`tmt resume` 會讓 reviewer 和 builder 回到各自的對話，找不到對話時會回報，而不是重新開始。每個步驟都有字幕說明（字幕為英文）。"
+  label="逐步示範：重新開機後，tmux 的版面回來了，但 agent 沒有；tmt resume 會讓 reviewer 和 builder 回到各自的對話，找不到對話時會回報，而不是重新開始。每個步驟都有字幕說明（字幕為英文）。"
 />

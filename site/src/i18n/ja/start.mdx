@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
+sourceRevision: 37ca87954daf2b8e4de195a01fbfa8dab6828e60
 title: すべての agent に共通の通信経路
 ---
 
@@ -37,11 +37,72 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <BandHead name="install" />
 
-<Mdx.h3 id="install">インストール</Mdx.h3>
+<Mdx.h3 id="install-tmt">TMT をインストールする</Mdx.h3>
 
 <Cmd>{`$ curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-インストーラーは `tmt` を `~/.local/bin` に配置します。ターミナルで実行すると、そのまま `tmt setup` に進みます。agent を検出し、変更するファイルをすべて表示してから、一度だけ確認します。対象は各 agent の skill と、このマシンにインストールされている agent の session hook です。後からいつでも `tmt setup` を実行できます。その場合は、まだ設定されていない項目だけが表示されます。`tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。
+インストーラーは `tmt` を `~/.local/bin` に配置し、端末では続けて `tmt setup` を実行します。agent を検出し、Ops、Remote、Colab、Digest と同梱 skill を提案します。選んだ拡張機能と agent の変更予定を確認し、一度承認します。後からいつでも `tmt setup` で不足を補えます。正常にインストール済みの拡張機能を setup が更新することはありません。[設定の詳細 →](/working#tmt-setup) `tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。
+
+<Mdx.h3 id="update-before-setting-up-firestore">Firestore の設定前に更新する</Mdx.h3>
+
+TMT は初期の alpha 版です。以下の設定を始める前に alpha channel に更新してください。
+
+<Cmd>{`$ tmt upgrade --channel alpha`}</Cmd>
+
+結果と、インストール済み拡張機能の更新に関する質問を確認してください。deploy を始める前に更新を終えます。更新によって、deploy 時に承認する Website files が変わることがあるためです。
+
+<Mdx.h3 id="install-remote-and-colab">Remote と Colab をインストールする</Mdx.h3>
+
+Remote は Firebase の設定を deploy し、Colab は共有ページのアプリとその deploy 要件を提供します。deploy を管理するマシンに両方をインストールしてください。
+
+<Cmd>{`
+$ tmt extension install remote --channel alpha
+$ tmt extension install colab --channel alpha
+`}</Cmd>
+
+各インストールの質問を確認して承認します。拡張機能のインストールは、Firebase プロジェクトの変更を承認するものではありません。
+
+<Mdx.h3 id="prepare-your-firebase-project">Firebase プロジェクトを準備する</Mdx.h3>
+
+無料の Spark プランで自分の Firebase プロジェクトを使います。TMT はプロジェクトを作成しません。deploy 前に Firestore のリージョンを選んでください。既存のデータベースは別のリージョンに移せません。
+
+Node.js がなければインストールし、対応する Firebase CLI をインストールして、自分のプロジェクト所有者アカウントでログインします。
+
+<Cmd>{`
+$ npm install -g firebase-tools@15.29.0
+$ firebase login
+`}</Cmd>
+
+Firebase コンソールで **Authentication** を開き、**Get started** を一度選んでください。次のコマンドは匿名サインインを選択します。Firebase CLI へのログインだけでは、このコンソールの操作は行われません。
+
+<Mdx.h3 id="review-and-deploy">確認して deploy する</Mdx.h3>
+
+`<project-id>` と `<region>` を自分のプロジェクト ID と選んだリージョンに置き換え、対話型の端末で自分で実行してください。
+
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+
+概要のアカウント、プロジェクト、リージョン、Security rules、Website files を確認します。同じコマンドに `--details` を付けると、質問の前に変更全体を確認できます。
+
+<Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
+
+希望する変更である場合だけ `y` と答えてください。No または入力終了なら、その実行では Firebase プロジェクトを変更しません。ただし、未完了の deploy が以前に行った変更は取り消しません。この deploy コマンドに `--yes` や `--no-open` フラグはありません。
+
+進捗を保存し、必要なインデックスをまとめて作成して、構築中は最長3分間確認します。指示を表示して停止した場合は、それに従って同じ入力で同じコマンドを再実行します。承認済みで未完了の deploy は、記録した入力が変わっていなければ再確認なしで続行します。入力が変わった場合は、新しい概要と置き換えの警告を読んでから答えてください。
+
+表示されたパスにある `deploy.json` を保持してください。結果が不明な場合は、`Cause:` と `File:` の診断情報を非公開のまま保管し、表示された次の手順に従ってください。記録を削除したり、新しい deploy を何度も承認したりして回避しないでください。
+
+<Mdx.h3 id="check-completion">完了を確認する</Mdx.h3>
+
+成功は `Run: complete; usable binding: true` で、検証が完了し、`Remote link:` が表示されます。保留中や結果不明の作業は設定完了ではありません。公開の接続リンクを再表示するか、ローカルに記録された設定を確認するには、次を使います。
+
+<Cmd>{`
+$ tmt remote link --project <project-id> --json
+$ tmt remote status --project <project-id> --layers --json
+`}</Cmd>
+
+リンクは接続方法を示すもので、アクセス権の付与ではありません。status は保存済みの証拠を読み、プロジェクトの残りクォータは読みません。また、deploy の完了は他の人が共有ページを開けることの証明ではありません。
+
+deploy の途中で修正が必要になった場合は、記録を保持してください。Remote だけの修正をインストールするよう指示されたら、`tmt extension upgrade remote --yes --json` を使い、同じ deploy コマンドを再開します。通常の `tmt upgrade` は Colab の Website files と承認が必要な変更も変えることがあります。
 
 <Mdx.h3 id="built-in-drivers">組み込みの driver</Mdx.h3>
 
@@ -52,10 +113,10 @@ tmt には、通常必要になる driver が組み込まれています。追�
 tmux の中で、agent が動いているペインに名前を付けます（`tmt name`、または同じ意味の `tmt this`）。その後は、どこからでもメッセージを送れます。ページ上部のデモは、この流れを示しています。
 
 <Cmd>{`
-$ tmt name reviewer                   # agent のペインで命名
-$ tmt talk reviewer "Review the diff."  # どのペインからでも送信し、返信を待つ
-$ tmt reply req_4f36… --receipt v2_… --message "…"   # agent が返信し、talk が表示する
-$ tmt check reviewer                  # 処理が進まない場合にペインを確認
+$ tmt name reviewer                   # in the agent's pane: name it
+$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
+$ tmt check reviewer                  # look at the pane if something seems stuck
 `}</Cmd>
 
 agent がこの行を覚えておく必要はありません。受け取るリクエストには、receipt を含む正確な `tmt reply` コマンドが入っています。
@@ -68,9 +129,9 @@ agent がこの行を覚えておく必要はありません。受け取るリ�
 次に、付けた名前を管理します。
 
 <Cmd>{`
-$ tmt ls                    # すべての名前、存続期間、所在を表示
-$ tmt add 0:1.2 builder     # 切り替えずに別のペインを命名
-$ tmt rm builder            # 名前の使用を終了する。ペインは動き続ける
+$ tmt ls                    # every name, its lifetime and whether it's present
+$ tmt add 0:1.2 builder     # name another pane without switching to it
+$ tmt rm builder            # retire a name; the pane keeps running
 `}</Cmd>
 
 名前は、`-s` を付けない限り一時的なものです。`tmt ls` は agent を中心に表示します。保存済みの名前が先に、一時的な名前が後に並びます。それぞれの所在は `driver:session` で表示され、実行できる操作がある場合だけ、その操作も表示されます。
@@ -85,14 +146,14 @@ $ tmt rm builder            # 名前の使用を終了する。ペインは動�
 
 <Cmd>{`
 $ tmt run -s reviewer claude --model sonnet
-$ tmt resume reviewer       # 後からどのペインでも reviewer の会話を再開
+$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
 `}</Cmd>
 
 先に起動して、後から名前を付けることもできます。`tmt run claude` は、`claude-12ab34cd56ef` のような一時的な名前で Claude Code をすぐに起動します。agent の shell ツールから `tmt name reviewer` を実行すると、指定した名前に変わります。名前を付けても同じ会話は保持されますが、名前は保存されません。保存するには `-s` を付けてください。
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt name -s reviewer      # agent の shell ツールから命名し、名前を保存
+$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo

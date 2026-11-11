@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 261b7e67cca60556b4d87e8b5f962c13578c56d8
+sourceRevision: 37ca87954daf2b8e4de195a01fbfa8dab6828e60
 title: tmt 使用手册
 ---
 
@@ -35,11 +35,72 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <BandHead name="install" />
 
-<Mdx.h3 id="install">安装</Mdx.h3>
+<Mdx.h3 id="install-tmt">安装 TMT</Mdx.h3>
 
 <Cmd>{`$ curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
-安装程序将 `tmt` 放到 `~/.local/bin`。在终端中运行时，它还会继续执行 `tmt setup`：查找你的 agent，列出将修改的所有文件（各 agent 的技能，以及已安装 agent 的会话钩子），然后询问一次。之后随时可以运行 `tmt setup`，它只会补充缺少的配置。如果找不到 `tmt`，将 `~/.local/bin` 加入 PATH 一次即可。
+安装程序将 `tmt` 放到 `~/.local/bin`，在终端中继续执行 `tmt setup`：查找你的 agent，并提供 Ops、Remote、Colab、Digest 及其附带技能。检查所选扩展和计划中的 agent 变更，再统一批准一次。之后随时可运行 `tmt setup` 补齐缺少的项目；setup 不会升级正常的已安装扩展。[设置详情 →](/working#tmt-setup) 如果找不到 `tmt`，将 `~/.local/bin` 加入 PATH 一次即可。
+
+<Mdx.h3 id="update-before-setting-up-firestore">设置 Firestore 前先更新</Mdx.h3>
+
+TMT 处于早期 alpha 阶段。开始下方设置前，请先更新到 alpha 通道：
+
+<Cmd>{`$ tmt upgrade --channel alpha`}</Cmd>
+
+阅读结果及有关更新已安装扩展的询问。开始部署前先完成更新：更新可能改变部署时需要你批准的网站文件。
+
+<Mdx.h3 id="install-remote-and-colab">安装 Remote 和 Colab</Mdx.h3>
+
+Remote 负责部署 Firebase 设置；Colab 提供共享页面应用及其部署要求。请在负责部署的机器上安装两者：
+
+<Cmd>{`
+$ tmt extension install remote --channel alpha
+$ tmt extension install colab --channel alpha
+`}</Cmd>
+
+逐一检查并批准安装询问。安装扩展不等于批准更改 Firebase 项目。
+
+<Mdx.h3 id="prepare-your-firebase-project">准备 Firebase 项目</Mdx.h3>
+
+使用你自己的 Firebase 项目，选择免费的 Spark 方案。TMT 不会创建项目。部署前先选好 Firestore 区域；已有数据库不能迁往其他区域。
+
+如果尚未安装 Node.js，请先安装，再安装受支持的 Firebase CLI，并用你自己的项目所有者账号登录：
+
+<Cmd>{`
+$ npm install -g firebase-tools@15.29.0
+$ firebase login
+`}</Cmd>
+
+在 Firebase 控制台打开 **Authentication**，选择一次 **Get started**。下方命令会选择匿名登录；登录 Firebase CLI 不会代替这项控制台操作。
+
+<Mdx.h3 id="review-and-deploy">检查并部署</Mdx.h3>
+
+将 `<project-id>` 和 `<region>` 替换为你的项目 ID 和选定区域。请在交互式终端中亲自运行：
+
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+
+检查摘要中的账号、项目、区域、Security rules 和 Website files。在同一命令后添加 `--details`，可在询问前查看完整变更：
+
+<Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
+
+只有确认这些变更正是你想要的，才回答 `y`。回答 No 或结束输入，本次运行就不会更改 Firebase 项目；但不会撤销未完成部署之前已做的变更。该部署命令没有 `--yes` 或 `--no-open` 标志。
+
+命令会保存进度，一起创建所需索引，并在构建期间检查最多三分钟。如果它显示指示后停止，请依照指示，以相同输入重新运行同一命令。已批准但未完成的部署，如果记录的输入没有变化，会直接继续而不再询问。如果输入改变，请先阅读新的摘要及任何替换警告，再回答。
+
+保留命令所显示路径下的 `deploy.json`。如果结果未知，请私下保留 `Cause:` 和 `File:` 诊断信息，并依照显示的下一步操作；不要删除记录，或反复批准新的部署来绕过它。
+
+<Mdx.h3 id="check-completion">检查是否完成</Mdx.h3>
+
+成功的结果是 `Run: complete; usable binding: true`，验证已完成，并显示 `Remote link:`。待处理或未知的工作不算完成设置。要重新输出公开连接链接，或检查本地记录的设置：
+
+<Cmd>{`
+$ tmt remote link --project <project-id> --json
+$ tmt remote status --project <project-id> --layers --json
+`}</Cmd>
+
+链接说明如何连接，并不授予访问权限。status 读取已保存的证据，而不是项目剩余配额；部署完成也不能证明其他人能打开共享页面。
+
+如果部署尚未完成就需要修复，请保留记录。收到只安装 Remote 修复的指示时，使用 `tmt extension upgrade remote --yes --json`，然后继续同一部署命令。一般的 `tmt upgrade` 也可能更改 Colab 网站文件及你必须批准的变更。
 
 <Mdx.h3 id="built-in-drivers">内置 driver</Mdx.h3>
 
@@ -50,10 +111,10 @@ tmt 自带大多数人需要的 driver，无需另外安装。**tmux** 是 host 
 在 tmux 中，先为 agent 所在的窗格命名（`tmt name`，也可以写作 `tmt this`），再从任意位置向它发消息。页面顶部的演示展示的就是这个流程。
 
 <Cmd>{`
-$ tmt name reviewer                                  # 在 agent 的窗格中为它命名
-$ tmt talk reviewer "Review the diff."               # 从任意窗格发送请求，然后等待回复
-$ tmt reply req_4f36… --receipt v2_… --message "…"   # agent 回复，talk 输出回复内容
-$ tmt check reviewer                                 # 如果进度停滞，查看窗格
+$ tmt name reviewer                   # in the agent's pane: name it
+$ tmt talk reviewer "Review the diff."  # from any pane: send, then wait for the reply
+$ tmt reply req_4f36… --receipt v2_… --message "…"   # the agent answers; talk prints it
+$ tmt check reviewer                  # look at the pane if something seems stuck
 `}</Cmd>
 
 agent 不必记住这条回复命令：收到的请求中已经带有完整的 `tmt reply` 命令，包括 receipt。
@@ -66,12 +127,12 @@ agent 不必记住这条回复命令：收到的请求中已经带有完整的 `
 接着管理已有的名称：
 
 <Cmd>{`
-$ tmt ls                  # 列出所有名称、保留方式和当前是否在线
-$ tmt add 0:1.2 builder   # 无需切换，直接为另一个窗格命名
-$ tmt rm builder          # 注销名称，窗格继续运行
+$ tmt ls                    # every name, its lifetime and whether it's present
+$ tmt add 0:1.2 builder     # name another pane without switching to it
+$ tmt rm builder            # retire a name; the pane keeps running
 `}</Cmd>
 
-默认名称是临时的，添加 `-s` 才会保存。`tmt ls` 以 agent 为主，而不是以窗格为主：先列出已保存的名称，再列出临时名称。每项都以 `driver:session` 标明所在位置，只有存在可执行的操作时才显示操作。
+名称默认是临时的，添加 `-s` 才会保存。`tmt ls` 以 agent 为主，而不是以窗格为主：先列出已保存的名称，再列出临时名称。每项都以 `driver:session` 标明所在位置，只有存在可执行的操作时才显示操作。
 
 <LsSample />
 
@@ -83,14 +144,14 @@ $ tmt rm builder          # 注销名称，窗格继续运行
 
 <Cmd>{`
 $ tmt run -s reviewer claude --model sonnet
-$ tmt resume reviewer   # 之后在任意窗格中恢复 reviewer 的原会话
+$ tmt resume reviewer       # later, in any pane: reviewer's own conversation
 `}</Cmd>
 
 也可以先启动，再命名。`tmt run claude` 会立即启动 Claude Code，并使用类似 `claude-12ab34cd56ef` 的临时名称。然后通过 agent 的 shell 工具运行 `tmt name reviewer`，为它设置正式名称。命名会保留原会话，但不会保存名称；需要保存时加上 `-s`。
 
 <Cmd>{`
 $ tmt run claude --model sonnet
-$ tmt name -s reviewer   # 通过 agent 的 shell 工具命名并保存
+$ tmt name -s reviewer      # from the agent's shell tool: name it, and keep the name
 `}</Cmd>
 
 <PaneDemo

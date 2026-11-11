@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: f26bbb6aeae4289cf558edf386abc524258d836a
+sourceRevision: 982d09e1e68d7e4a74c75344567ca19c580e11b5
 title: Ops：lead、成员和一个看板
 ---
 
@@ -31,9 +31,9 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 
 <Cmd>{`
 $ tmt extension install ops
-$ tmt ops sq init product        # 为 squad 命名；不会询问
-$ tmt ops sq lead sol            # 可选：由 sol 带队
-$ tmt ops ui                   # 在终端中显示看板，其他情况下显示成员列表
+$ tmt ops sq init product        # name the squad; it never asks
+$ tmt ops sq lead sol            # optional: sol leads it
+$ tmt ops ui                     # the board on a terminal, the member list anywhere else
 `}</Cmd>
 
 <Waiting /> 标出正在等<em>你</em>处理的事项。Ops 根据运行它的窗格识别你，也可以用 `tmt ops sq me
@@ -77,7 +77,7 @@ squad 标签页默认使用 **members**：lead 与成员显示在同一个带边
 | / · tab · s              | 搜索 · 下一个窗格 · 切换到任意标签页                                                                                                                                                                                                               |
 | ctrl-r                   | 立即刷新。侧边窗格视图还可用 **d** 折叠详情和回复。                                                                                                                                                                                                |
 
-以上是默认按键。`r`、`T`、`l`、`w` 不再有默认绑定；reply、theme、view、token-window 动作仍可自行绑定。自定义绑定优先；`?` 列出有效按键。
+以上是默认按键。`r`、`T`、`l`、`w` 没有默认绑定；reply、theme、view、token-window 动作仍可自行绑定。自定义绑定优先；`?` 列出有效按键。
 
 <Mdx.h3 id="update-status">Update status</Mdx.h3>
 
@@ -108,6 +108,8 @@ squad 标签页默认使用 **members**：lead 与成员显示在同一个带边
 看板在摘要行显示当前 squad 已观测的已完成请求 token 总量和窗口，例如 `1.2k tok 1m`。它结合 core 的公开历史与本看板的观测，每 5–10 秒随请求完成更新，不会在模型输出时逐 token 更新。在 `,` 设置中选择 **Token window**，循环切换配置的窗口（默认 1m、5m、1h）。数字是窗口总量，不是每秒速率。`0` 是已测得的零；`~` 表示覆盖不完整；`–` 或 `no usage reported yet` 表示数据不可用。没有报告计数的成员列在 `?` 下。八格柱形显示观测到的 token 分段：空白表示没有证据，`▁` 表示测得的零。输入加输出只计算一次缓存输入；不同 provider 报告的是 token 单位，不是费用。历史覆盖是尽力获取，不完整的观测不能当作测得的零。
 
 这个摘要 meter 用于具名且开启观测的 squad；all／leads 不显示它。HOME 汇总当前显示的 squad：有数据且至少 100 列时显示窗口总量和成员占比；140 列时增加模型和未报告成员。没有观测数据时不显示 HOME 用量行，测得的零仍保留为零。
+
+HOME 的 token 数字会在最多 600 ms 内平滑变化到新观测的总量，可以增加也可以减少。这只是显示过渡，不是实时 token 速率或预测。首次读数、读数不可用、所属对象或窗口改变，以及减少动态效果时，都会立即显示最终值。如果中间值会超出标题单元格，计数器也会直接显示最终值，不会挤动相邻内容。占比、模型和覆盖范围仍使用原始读数，稳定后的值不变。
 
 在 `[board]` 设置 `tok = "1m/5m/60m"`，或在 `[squad.<name>.board]` 为单个 squad 设置。三个窗口须递增，使用 1m 到 24h 的整数分钟或小时。切换窗口只影响运行时状态，不写入配置。
 
@@ -203,9 +205,9 @@ $ tmt ops sq config set tabs.hide '["leads"]'
 | wide    | 成员行、详情/回复、笔记分为三列，比例为 40/30/30；低于 180 列时折叠详情/回复。                        |
 
 <Cmd>{`
-$ tmt ops sq view set notes                  # 所有看板
-$ tmt ops sq view set wide --squad product   # 这个 squad
-$ tmt ops sq view rm --squad product         # 继承布局
+$ tmt ops sq view set notes                  # all boards
+$ tmt ops sq view set wide --squad product   # this squad
+$ tmt ops sq view rm --squad product         # inherit the arrangement
 `}</Cmd>
 
 squad 手写的 `board.layout` 或 `panes` 始终优先，其次是该 squad 的 `view`、`[board] view`，最后是默认的 `members`。现有配置如果只设置 direction/sizes、没有指定视图，会保留原来的窗格预设。`view set` 只修改 `view` 键；文件同时发生变化时会拒绝写入。指定 `--squad` 后，也会拒绝覆盖手写布局，需要你先自行移除。`view rm` 只移除 `view`，自定义布局和折叠设置仍会保留。手动折叠遵循原有的会话规则。
@@ -263,7 +265,7 @@ detail 窗格在成员字段下方只读显示所选成员自己的笔记本，�
 | pr-queue | 一个列表，最旧的排在前面                   | preparing · ready · sent · merged                  |
 | minimal  | 只有名称和状态                             | lead 写入的任意状态                                |
 
-具名的 **team** 视图会将成员行放在所选成员的详情和最新回复旁边，lead 的笔记放在下方。每行显示成员、状态、任务、拉取请求和模型，第二行显示正在等你处理的事项。在窄终端中会自动调整：先缩窄列，再隐藏模型，然后隐藏拉取请求；低于 100 列时，详情和回复折叠为标题，将空间留给成员行（**d** 可一起恢复详情和回复）。如果 squad 已在 `[squad.<name>.board]` 下设置自己的 `direction`、`panes` 或 `sizes`，它会继续使用 **crew**，直到你设置 `layout`。
+具名的 **team** 视图会将成员行放在所选成员的详情和最新回复旁边，lead 的笔记放在下方。工作流布局与看板视图相互独立。squad 标签页默认使用 **members**。每行显示成员、状态、任务、拉取请求和模型，第二行显示正在等你处理的事项。在窄终端中会自动调整：先缩窄列，再隐藏模型，然后隐藏拉取请求；低于 100 列时，详情和回复折叠为标题，将空间留给成员行（**d** 可一起恢复详情和回复）。如果 squad 已在 `[squad.<name>.board]` 下设置自己的 `direction`、`panes` 或 `sizes`，它会继续使用 **crew**，直到你设置 `layout`。
 
 你可以修改窗格及其排列方式；添加自己的**分区**，每个分区都是带标题、筛选条件和排序的列表；选择**列**、**状态**及其颜色和顺序，以及链接的打开方式。你也可以设置每个按键或点击的行为。绑定由事件（例如按键 `o`，或 `click`、`double-click`）和一行操作组成：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`，其中 `{field}` 从该行取值。分区可以有自己的绑定。
 
@@ -402,11 +404,11 @@ ignore_case = true          # optional; off by default
 看板跟随你为命令行设置的 `base`。尚未设置时，使用 **auto**。看板主题不会改变命令行颜色；`tmt config show` 显示命令行的主题及其文件。用 `tmt ops sq theme` 选择看板主题：
 
 <Cmd>{`
-$ tmt ops sq theme                        # 列出主题；● 标出当前主题及其来源
-$ tmt ops sq theme set auto               # 所有看板都匹配终端
-$ tmt ops sq theme set tmt-light          # 所有看板
-$ tmt ops sq theme set mono --squad product   # 一个 squad 的看板
-$ tmt ops sq theme rm --squad product     # 重新跟随看板设置；保留颜色微调
+$ tmt ops sq theme                        # list themes; ● marks the one in use and where it comes from
+$ tmt ops sq theme set auto               # match your terminal, on every board
+$ tmt ops sq theme set tmt-light          # every board
+$ tmt ops sq theme set mono --squad product   # one squad's board
+$ tmt ops sq theme rm --squad product     # follow the board again; your color tweaks stay
 `}</Cmd>
 
 也可在 `,` 设置中选择 **Theme**：↑ 和 ↓ 实时预览主题，**Tab** 在所有看板与当前 squad 之间切换，**Enter** 保存，**Esc** 取消。两种方式都会将选择写入 `ops.toml`：所有看板使用 `[board.theme]`，单个 squad 使用 `[squad.<name>.theme]`，文件其他内容保持不变。squad 自己的主题优先于看板主题，看板主题又优先于命令行主题。每一层都可以用与 `config.json` 相同的键覆盖单个 token。
@@ -474,15 +476,15 @@ Ops 将成员名单和看板字段保存在 tmt 中，可选的观察时长保�
 
 <More summary="更多命令">
 <Cmd>{`
-$ tmt ops sq add auth-fix docs-sweep  # 已经运行的 agent，无论以何种方式启动
-$ tmt ops sq set auth-fix state=review    # lead 用它更新看板；field= 留空可清除
-$ tmt ops sq ls                       # 成员列表；脚本可用 --json
+$ tmt ops sq add auth-fix docs-sweep  # agents already running, however they started
+$ tmt ops sq set auth-fix state=review    # what leads do to keep the board current; field= clears
+$ tmt ops sq ls                       # the member list; --json for scripts
 $ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
 $ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
 $ tmt ops sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
-$ tmt ops sq jump auth-fix            # 然后可用 tmt ops sq back 返回
-$ tmt ops sq jump --lead              # 当前 squad 的 lead
-$ tmt ops sq rm auth-fix              # 离开 squad；agent 继续运行
+$ tmt ops sq jump auth-fix            # and tmt ops sq back
+$ tmt ops sq jump --lead              # your squad's lead
+$ tmt ops sq rm auth-fix              # leaves the squad; the agent keeps running
 `}</Cmd>
 
 `tmt ops sq` 是 `tmt ops squad` 的简写。`tmt ops sq ls` 列出所有 squad，除非用 `--squad <name>` 选择一个。存在多个 squad 时，修改 squad 的命令必须带 `--squad <name>`。
@@ -530,3 +532,5 @@ blocked = "blocked" # and of one with a blocked member
 | `tab`                          | 打开该行所属 squad 的标签页，与 **all** 标签页中 Enter 的作用相同 |
 
 在看板上按 `?` 查看当前生效的按键和绑定。
+
+[计划、消息策略和例行任务 →](/working/orchestration)
