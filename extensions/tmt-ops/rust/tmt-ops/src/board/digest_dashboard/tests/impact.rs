@@ -783,6 +783,64 @@ fn spec_panel_keeps_delivery_savings_models_and_timer_at_160_by_36() {
 }
 
 #[test]
+fn compressed_activity_keeps_a_mixed_observed_and_missing_pair() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let look = crate::board::home::tests::oracle::looks()
+        .into_iter()
+        .find(|(name, _)| *name == "NO_COLOR")
+        .unwrap()
+        .1;
+    let mut app = spec_fixture(look);
+    let report = super::super::metrics::report(&app).unwrap();
+    let points = &report
+        .seat(MEMBER)
+        .unwrap()
+        .window_series
+        .as_ref()
+        .unwrap()
+        .points;
+    let pair = points
+        .chunks(2)
+        .position(|hours| {
+            hours.iter().any(|hour| hour.complete && hour.tokens > 0)
+                && hours.iter().any(|hour| !hour.complete)
+        })
+        .expect("fixture needs a mixed pair");
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let lines = buffer
+        .content
+        .chunks(160)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let header = lines
+        .iter()
+        .position(|row| row.contains("AGENT") && row.contains("ACTIVITY"))
+        .unwrap();
+    let x = lines[header].find("ACTIVITY").unwrap();
+    let y = (header + 1..lines.len())
+        .find(|y| {
+            buffer.content[*y * 160..*y * 160 + x]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("tui-1")
+        })
+        .unwrap();
+    let symbol = buffer[(x as u16 + pair as u16, y as u16)].symbol();
+    assert!(
+        !matches!(symbol, "·" | " "),
+        "mixed pair must show the observed activity, got {symbol:?}"
+    );
+}
+
+#[test]
 fn spec_fixture_has_a_timer_and_unread_observation() {
     let app = spec_fixture(crate::look::Look::default());
     let rows = app.workspace_rows();

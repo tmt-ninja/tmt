@@ -422,9 +422,9 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                             let values = values
                                 .chunks(each)
                                 .map(|values| {
-                                    values
-                                        .iter()
-                                        .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
+                                    let mut observed = values.iter().flatten().copied().peekable();
+                                    observed.peek()?;
+                                    observed.try_fold(0u64, u64::checked_add)
                                 })
                                 .collect::<Vec<_>>();
                             ds::ActivityCells::render(
