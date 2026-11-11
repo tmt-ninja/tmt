@@ -293,6 +293,11 @@ fn malformed_member_mutation_answer_is_unconfirmed_without_resend() {
 
 #[test]
 fn public_exact_machine_commands_and_offline_browser_recovery_preserve_receipts() {
+    if super::test_isolation::isolated_case(
+        "member_commands::public_exact_machine_commands_and_offline_browser_recovery_preserve_receipts",
+    ) {
+        return;
+    }
     use tmt_remote::members::{Association, Owner};
     fn journal(pilot: &Pilot) -> Vec<Vec<rusqlite::types::Value>> {
         let sql = rusqlite::Connection::open(pilot.root.join("state/remote/remote.db")).unwrap();

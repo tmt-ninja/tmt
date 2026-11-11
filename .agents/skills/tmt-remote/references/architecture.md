@@ -733,9 +733,10 @@ talk through the real Remote CLI/control sender; composed public final delivery 
 accounts remain #4539 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
 The library, binary and CLI test roots share `test_isolation::isolated_case` for native serve,
-factory, pairing, immediate serving-lease reacquisition and fake message-owner cleanup fixtures.
-It executes before project files, locks or listeners open, so sibling invocation forks cannot
-inherit their credential, budget or serving locks or prolong a listener beyond its owner thread.
+factory, pairing, immediate serving-lease reacquisition, fake message-owner cleanup and repeated
+CLI member-seeding lease reacquisition fixtures. It executes before project files, locks or
+listeners open, so sibling invocation forks cannot inherit their credential, budget or serving
+locks or prolong a listener beyond its owner thread.
 Close-on-exec does not close inherited descriptors during the fork-to-exec interval. `tmt_invoke`
 bounds the child, captures failures and reaps its process group. Each case keeps its assertions
 and deadlines; the remaining CLI cases still run in parallel.
