@@ -246,6 +246,9 @@ export default defineConfig(({ mode }) => ({
                   fileName: () => 'assets/reader.js',
                   cssFileName: 'assets/reader',
                 },
+                // The native allowlist serves the reader one fixed script, so its lazy imports
+                // (the Design docs chrome, #6272) stay inside it rather than split into chunks.
+                rollupOptions: { output: { codeSplitting: false } },
               }
             : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
 }));
