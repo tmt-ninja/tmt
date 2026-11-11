@@ -8,11 +8,14 @@ export function DesignHeader({
   systems,
   onSelect,
   actions,
+  status,
 }: {
   system: string;
   systems: readonly { id: string; name: string }[];
   onSelect(id: string): void;
   actions?: ReactNode;
+  /** The header's status line, left of the actions. */
+  status?: ReactNode;
 }) {
   const current = systems.find((entry) => entry.id === system);
   return (
@@ -43,6 +46,7 @@ export function DesignHeader({
           </span>
         </h1>
       }
+      status={status}
       actions={actions ? <div className="design-header-actions">{actions}</div> : undefined}
     />
   );

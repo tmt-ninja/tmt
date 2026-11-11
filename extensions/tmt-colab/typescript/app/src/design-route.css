@@ -12,6 +12,12 @@
   padding: var(--tmt-ui-ref-space-3);
   margin: 0;
 }
+/* A Publish's notice is the header's status line: quiet text left of the actions, until it times out. */
+.design-notice {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  white-space: nowrap;
+}
 .design-user-system {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -159,6 +165,11 @@
   .tmt-ui-topbar:has(.design-header-actions > :nth-child(2)) .tmt-ui-topbar-actions {
     grid-column: 1 / -1;
     grid-row: 2;
+    justify-self: end;
+  }
+  /* The notice takes the row below the actions, at the page's right edge as they are. */
+  .tmt-ui-topbar:has(.design-header-title) .tmt-ui-topbar-status {
+    grid-column: 1 / -1;
     justify-self: end;
   }
   /* Over the action's mark-and-label grid (browser-ui action.css), which keeps a label's width. */

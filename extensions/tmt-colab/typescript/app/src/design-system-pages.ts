@@ -600,8 +600,8 @@ const docs = {
 };
 
 /** A component page: its block (what publish compiles), then its docs in the tmt GUI docs' own
- * component layout (the system CSS carries their scoped styles): notes, the live examples and the
- * props table. */
+ * component layout (the Design tab draws their scoped styles for every system): notes, the live
+ * examples and the props table. */
 export function componentPageSource(
   doc: ComponentDoc & { notes?: string },
   prefix: string,

@@ -78,6 +78,7 @@ const entries: Record<string, string> = {
   './manage-list': 'Browser entry shell (ordered management list and dialog)',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',
+  './docs-embed.css': "the docs chrome Colab Design draws for every system's docs pages",
   './docs-foundations': 'the live foundation pages hosted by Colab Design',
   './docs-patterns': 'the live pattern scenes hosted by Colab Design',
   './docs-components': 'the live component pages hosted by Colab Design',
