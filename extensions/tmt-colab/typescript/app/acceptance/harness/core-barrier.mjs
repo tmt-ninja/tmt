@@ -86,7 +86,8 @@ if (diagnostic) {
     diagnosticTail.toString('utf8'),
   );
 }
-if (argv.join(' ') === 'remote status --json') {
+// Colab's live discovery for each object-channel handshake.
+if (argv.join(' ') === 'remote status --machine --json') {
   fs.appendFileSync(
     path.join(directory, 'discovery.jsonl'),
     `${JSON.stringify({ elapsedMs: performance.now() - started, ...exit })}\n`,
