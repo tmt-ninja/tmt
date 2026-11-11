@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -6,6 +6,11 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -44,6 +49,7 @@ export function PageViewToolbar({
   onColumnsChange,
 }: PageViewToolbarProps) {
   const root = useRef<HTMLDivElement>(null);
+  const groupLabel = useId();
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {
     const node = root.current;
@@ -76,21 +82,28 @@ export function PageViewToolbar({
               </button>
             </span>
           ))}
-          <label>
-            Group by{' '}
-            <select
+          <span className="tmt-block-page-group">
+            <span id={groupLabel}>Group by</span>
+            <Select
               value={groupBy}
               disabled={!onGroupChange}
-              onChange={(event) =>
-                onGroupChange?.(event.target.value as PageViewToolbarProps['groupBy'])
-              }
+              onValueChange={(value) => onGroupChange?.(value as PageViewToolbarProps['groupBy'])}
             >
-              <option value="state">State</option>
-              <option value="project">Project</option>
-              <option value="owner">Owner</option>
-              <option value="none">None</option>
-            </select>
-          </label>
+              {/* Framed as the Columns button beside it: the small control height and outline. */}
+              <SelectTrigger
+                aria-labelledby={groupLabel}
+                className="tmt:h-8 tmt:border-border tmt:[border-radius:var(--tmt-foundation-radius)]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="state">State</SelectItem>
+                <SelectItem value="project">Project</SelectItem>
+                <SelectItem value="owner">Owner</SelectItem>
+                <SelectItem value="none">None</SelectItem>
+              </SelectContent>
+            </Select>
+          </span>
           {narrow ? (
             <Sheet>
               <SheetTrigger asChild>
