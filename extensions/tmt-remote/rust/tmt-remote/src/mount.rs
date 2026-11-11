@@ -528,7 +528,8 @@ impl Mounts {
                 // A route of the one web app named for a mounted extension (`/colab/...`): the
                 // page the extension's module renders in.
                 let bare = path.split(['?', '#']).next().unwrap_or(path);
-                let name = crate::pages::app_extension(bare)?;
+                let name =
+                    crate::pages::app_extension(bare).or_else(|| self.extra_app_extension(bare))?;
                 self.extensions
                     .iter()
                     .find(|extension| extension.name == name)
@@ -859,13 +860,27 @@ impl Mounts {
         reply.body = body.to_vec();
         reply
     }
-    fn shell_reply(&self, request: &Request) -> Reply {
-        if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
-            return Reply::empty(403);
+    /// Display-only root claims use the same finite callbacks, cache and socket fence.
+    /// The static shell grants no Session, cookie, script or content access.
+    pub(crate) fn extra_app_extension(&self, path: &str) -> Option<&'static str> {
+        let path = path.split(['?', '#']).next().unwrap_or(path);
+        if !crate::pages::extra_app_path(path) {
+            return None;
         }
-        let Some(admitted) = self.sessions.context(request.cookie.as_deref()) else {
-            return Reply::empty(404);
-        };
+        let value = self.shell_snapshot();
+        let modules = value["modules"].as_array()?;
+        let module = modules.iter().find(|module| {
+            module["module"].is_string()
+                && module["rootAppFamily"]
+                    .as_str()
+                    .is_some_and(|family| crate::pages::app_family(path, family))
+        })?;
+        self.extensions
+            .iter()
+            .find(|e| Some(e.name) == module["extension"].as_str())
+            .map(|e| e.name)
+    }
+    fn shell_snapshot(&self) -> Value {
         let deadline = Instant::now() + limits::SHELL_WAIT;
         let sources = self
             .extensions
@@ -886,7 +901,16 @@ impl Mounts {
                 }
             })
             .collect();
-        let value = self.shell.snapshot(sources, &self.origin, deadline);
+        self.shell.snapshot(sources, &self.origin, deadline)
+    }
+    fn shell_reply(&self, request: &Request) -> Reply {
+        if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
+            return Reply::empty(403);
+        }
+        let Some(admitted) = self.sessions.context(request.cookie.as_deref()) else {
+            return Reply::empty(404);
+        };
+        let value = self.shell_snapshot();
         // Recheck the admitted session after waiting; cached display data never bypasses revocation.
         if !self.still_admitted(&admitted, request) {
             return Reply::empty(404);

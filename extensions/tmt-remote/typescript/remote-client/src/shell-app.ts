@@ -19,7 +19,13 @@ import tmtSettings from '../../../rust/tmt-remote/assets/tmt-settings.html?raw';
 import ops from '../../../rust/tmt-remote/assets/ops.html?raw';
 import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
-import { designModuleLoad, moduleLoad, type ModuleLoad } from './module-entry.js';
+import {
+  extraModuleLoad,
+  moduleLoad,
+  rootAppFamily,
+  rootModules,
+  type ModuleLoad,
+} from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { remoteApp } from './remote-app.js';
 import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
@@ -273,7 +279,7 @@ function colabRouteLoad(
                   title,
                   title === 'Colab'
                     ? 'Colab is not running on your machine. Run tmt colab serve there, then reload.'
-                    : 'Design is not available from this Colab. Start or update Colab on your machine, then reload.',
+                    : `${title} is not available from its extension. Start or update it on your machine, then reload.`,
                 )
               : message(
                   slot,
@@ -293,7 +299,7 @@ function colabRouteLoad(
             title,
             title === 'Colab'
               ? 'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.'
-              : 'Design could not start here. Colab may have stopped on your machine. Reload to try again.',
+              : `${title} could not start here. Its extension may have stopped on your machine. Reload to try again.`,
             load.link ? { href: load.link, label: `Open ${title}` } : undefined,
           ),
       };
@@ -301,7 +307,7 @@ function colabRouteLoad(
   };
 }
 
-export const routes: readonly ShellRoute[] = [
+export const routes: ShellRoute[] = [
   {
     id: 'home',
     paths: ['/'],
@@ -366,16 +372,32 @@ export const routes: readonly ShellRoute[] = [
     keep: true,
     load: colabRouteLoad('Colab', colabLoad),
   },
-  {
-    id: 'design',
-    paths: ['/design', '/design/'],
-    rail: 'design',
-    load: colabRouteLoad('Design', (answer) => {
-      const load = designModuleLoad(answer, location.href);
+];
+
+/** Extra routes come from declarations; the visual rail retains its existing policy. */
+function extraRoute(family: string, title: string, rail: string): ShellRoute {
+  return {
+    id: `extra:${family}`,
+    paths: [family, `${family}/`],
+    rail,
+    load: colabRouteLoad(title, (answer) => {
+      const load = extraModuleLoad(answer, family, location.href);
       return load.link ? load : undefined;
     }),
-  },
-];
+  };
+}
+
+function declaredRoutes(answer: ShellAnswer | undefined): ShellRoute[] {
+  return rootModules(answer).map((module) =>
+    extraRoute(
+      module.rootAppFamily as string,
+      module.rail.label,
+      module.extension === 'colab' && module.module === 'design'
+        ? 'design'
+        : `${module.extension}:${module.module}`,
+    ),
+  );
+}
 
 /** Whether this browser's pairing reopened a door session. */
 async function reopened(): Promise<boolean> {
@@ -479,9 +501,28 @@ export function shellApp(): ShellHost | undefined {
       started?.navigate(href);
     },
   });
+  for (const route of declaredRoutes(rememberedShellAnswer()))
+    if (!routes.some((current) => current.id === route.id)) routes.push(route);
+  // A cold document knows only its path. The live description must select its script.
+  const family = `/${location.pathname.split('/')[1] ?? ''}`;
+  if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family))) {
+    // Before the live description arrives, use only the product's existing rail items.
+    const known = appRail(undefined, routes, {
+      origin: location.origin,
+      href: location.href,
+    }).main.find((item) => item.id === family.slice(1));
+    routes.push(
+      extraRoute(
+        family,
+        family.slice(1).replace(/^./, (letter) => letter.toUpperCase()),
+        known?.id ?? 'home',
+      ),
+    );
+  }
   /** The instance still loading or mounting: a later route load ends it before it draws. */
   let mounting: AbortController | undefined;
-  const ownedRoutes = routes.map((route): ShellRoute => ({
+  const ownedRoutes: ShellRoute[] = [];
+  const own = (route: ShellRoute): ShellRoute => ({
     ...route,
     async load(remembered, settled) {
       // Each mounted instance has its own lifetime, ended only by its release, so a module the
@@ -496,12 +537,15 @@ export function shellApp(): ShellHost | undefined {
           observed = true;
           answer = read;
         }
+        installRoutes(read);
         publishSearch?.();
       });
       const module = await route.load(remembered, settled);
       return {
         async mount(slot) {
           if (lifetime.signal.aborted) return;
+          // The live read can replace a cold route's rail identity. Paint it before the module.
+          if (route.id.startsWith('extra:')) slot.setMenu(undefined);
           let active = true;
           let adopted = false;
           let current = slot;
@@ -572,7 +616,31 @@ export function shellApp(): ShellHost | undefined {
         },
       };
     },
-  }));
+  });
+  const installRoutes = (read: ShellAnswer | undefined) => {
+    if (!read) return;
+    const extras = declaredRoutes(read);
+    // A changed description replaces its routes; old root claims must not accumulate.
+    for (const list of [routes, ownedRoutes])
+      for (let index = list.length - 1; index >= 0; index--)
+        if (
+          list[index]!.id.startsWith('extra:') &&
+          !extras.some((extra) => extra.id === list[index]!.id)
+        )
+          list.splice(index, 1);
+    for (const extra of extras) {
+      const current = routes.find((route) => route.id === extra.id);
+      if (current) {
+        current.rail = extra.rail;
+        const owned = ownedRoutes.find((route) => route.id === extra.id);
+        if (owned) owned.rail = extra.rail;
+      } else {
+        routes.push(extra);
+        ownedRoutes.push(own(extra));
+      }
+    }
+  };
+  ownedRoutes.push(...routes.map(own));
   const host = startShellHost(root, ownedRoutes, {
     // Every module shares this tab's one session (#5954); none opens its own.
     sessions: {
@@ -624,6 +692,7 @@ export function shellApp(): ShellHost | undefined {
       const read = await host.redescribe();
       answer = read;
       observed = true;
+      installRoutes(read);
       publishSearch?.();
       return read;
     },

@@ -112,9 +112,10 @@ Browser assets live at the door root, disjoint from the route prefix, under the 
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
 `/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
-`/design`, `/design/` and `/design/<segments>` (each segment `[A-Za-z0-9_-]+`,
-at most 160 bytes after `/colab/` or `/design/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
-explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
+and root app families admitted from an extra module description below (each suffix segment
+`[A-Za-z0-9_-]+`, at most 160 bytes after the family plus `/`) answer the same static
+`shell.html`, whose only script is `/sdk/shell.js`. Roots require an explicit admitted
+description, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
 and the document reads no cookie or session. Its policy is the pairing page policy below plus only
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
 `frame-src 'self'`, with `object-src 'none'`; it is no wider than Colab's mounted document policy.
@@ -190,8 +191,8 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table or a mapped app family (`/colab/…` and `/design/…`
-both map to Colab; #5965 moves the `/design/…` entry into Colab's module description), or null. It
+entry in the same Remote-owned table, the primary `/colab/…` app family, or an
+admitted extra's declared root app family mapped to that extra's own extension, or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.
@@ -2143,7 +2144,7 @@ whole answer. Its fields are:
 - Optional `needsYou`: integer 0–9999, equal to the module's own in-app Needs-you
   number. Absent means unknown and shows no badge; explicit null is refused.
 - Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
-- Optional `modules`: at most one extra `{id, rail, menu, settings, entry?}`. It uses
+- Optional `modules`: at most one extra `{id, rail, menu, settings, entry?, rootAppFamily?}`. It uses
   the same field rules and bounds as the primary, including link-only fallback for
   an invalid entry. It has no `version`, `needsYou` or `home`. An invalid extra or
   explicit null refuses the entire answer; the combined body retains the 16 KiB cap.
@@ -2151,6 +2152,9 @@ whole answer. Its fields are:
   comma-separated tokens contain `modules`; otherwise it returns the exact old
   primary-only answer, so older Remote versions continue to admit it. Older
   extensions may ignore the header and return their unchanged primary-only answer.
+  This compatibility promise covers primary-only descriptions. An older Remote rejects
+  an extra carrying `rootAppFamily`; these module descriptions require Remote with
+  root-family support. No new feature token or compatibility mapping is used.
 - Optional `entry`: the path of the module's web app script, ending in `.js`. An entry that is not
   a valid path or not a script is dropped and the rest of the description stands; the app then
   offers the module's link instead of mounting it.
@@ -2161,20 +2165,37 @@ or bidi controls and are text, never markup. Icons are names from `house`, `file
 lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
 escape. The door resolves paths inside that module's own mount, never another module,
-with one navigation exception: a Colab extra's rail, menu or settings path matching the
-bounded `/design` app family resolves at the door root. Every script `entry` remains
-inside Colab's own mount; this exception grants no script, session or content authority.
+with one declared navigation exception: an extra's optional `rootAppFamily` is one
+absolute segment `/[a-z0-9-]{1,32}`, without a trailing slash. It cannot claim the door's
+reserved roots (`colab`, `remote`, `ops`, `digest`, `settings`, `sdk`, `x`, `r`, `read`,
+`pair`, `p`, `join`); `/__` and other nonmatching segments are invalid too. Invalid claims
+refuse the whole description. If multiple live descriptions claim the same family,
+none receives that root: their extra navigation stays mounted and the composed claim
+is omitted. An admitted extra's rail, menu or settings path in its own family resolves
+at the door root, with the suffix grammar and bound above. Other navigation stays
+mounted. Every script `entry` remains inside the same extension's primary mount;
+this exception grants no script, session or content authority.
+
+Root-page admission and `/sdk/mount` derive ownership from the same bounded local
+describe snapshot, cache age and socket-incarnation fence as composition, with no
+separate registry or persistence. A cold lookup waits at most the existing 300 ms
+composition bound, then fails closed if no admitted claim is available. Missing,
+expired or conflicting claims never guess an extension. These display-only callbacks
+carry neither a browser cookie nor device context; the composed shell endpoint still
+requires its live owner-device session. Root GET/HEAD returns only the static shell,
+under the same CSP and Origin policy. Pairing, cookie scope and mounted content
+admission remain unchanged.
 
 The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
-needsYou?, home?, entry?}]}`. The primary has no `module` field; an extra has the
+needsYou?, home?, entry?, rootAppFamily?}]}`. The primary has no `module` field; an extra has the
 same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
 its own primary and sorts by rail order, extension name, then primary before extra.
-Only the Design navigation exception above leaves the same extension mount. Extras share their extension's
+Only the declared navigation exception above leaves the same extension mount. Extras share their extension's
 one callback, cache age and socket-incarnation fence; removal or expiry removes
 both. Primary-only composition stays byte-identical. Extension-wide consumers
 (Needs-you, Home cards, search transport and primary Colab discovery) select the primary,
-never an extra. The Design route loads only its described extra's script, confined using
-the primary Colab mount, without a primary-script fallback.
+never an extra. An extra root route loads only its described extra's script, confined using
+that extension's primary mount, without a primary-script fallback.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good

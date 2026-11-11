@@ -8649,35 +8649,49 @@ function moduleLoad(rail, entry, here, fallback) {
 		entry: target.href
 	} : { link };
 }
-/** Only the admitted Design app family can leave a Colab extra's mount for navigation. */
-function designPath(path) {
-	if (path === "/design" || path === "/design/") return true;
-	const rest = path.startsWith("/design/") ? path.slice(8) : void 0;
+/** One bounded root segment cannot shadow the door's route families. */
+function rootAppFamily(family) {
+	return /^\/[a-z0-9-]{1,32}$/.test(family) && ![
+		"colab",
+		"remote",
+		"ops",
+		"digest",
+		"settings",
+		"sdk",
+		"x",
+		"r",
+		"read",
+		"pair",
+		"p",
+		"join"
+	].includes(family.slice(1));
+}
+function appFamilyPath(path, family) {
+	if (!rootAppFamily(family)) return false;
+	if (path === family || path === `${family}/`) return true;
+	const rest = path.startsWith(`${family}/`) ? path.slice(family.length + 1) : void 0;
 	return rest !== void 0 && rest.length <= 160 && rest.split("/").every((segment) => /^[A-Za-z0-9_-]+$/.test(segment));
 }
-/** Navigation may use the owner route; script authority still comes from the primary mount. */
-function designModuleLoad(answer, here) {
-	const primary = answer?.modules.find((module) => module.extension === "colab" && !("module" in module));
-	if (!primary) return {};
+/** Root routes are display data; scripts still require the live description and primary mount. */
+function rootModules(answer) {
+	const modules = answer?.modules ?? [];
+	return modules.filter((module) => typeof module.module === "string" && /^[a-z0-9-]{1,32}$/.test(module.module) && typeof module.rootAppFamily === "string" && rootAppFamily(module.rootAppFamily) && modules.filter((other) => other.rootAppFamily === module.rootAppFamily).length === 1);
+}
+function extraModuleLoad(answer, family, here) {
+	const extra = rootModules(answer).find((module) => module.rootAppFamily === family);
+	const primary = answer?.modules.find((module) => module.extension === extra?.extension && !("module" in module));
+	if (!primary || !extra || !plain(extra.rail.path)) return {};
 	let page;
+	let route;
 	try {
 		page = new URL(here);
+		route = new URL(extra.rail.path, page);
 	} catch {
 		return {};
 	}
-	const extra = answer?.modules.find((module) => {
-		if (module.extension !== "colab" || !("module" in module) || typeof module.module !== "string" || !/^[a-z0-9-]{1,32}$/.test(module.module) || !plain(module.rail.path)) return false;
-		try {
-			const route = new URL(module.rail.path, page);
-			return route.origin === page.origin && !route.search && !route.hash && designPath(route.pathname);
-		} catch {
-			return false;
-		}
-	});
-	if (!extra) return {};
+	if (route.origin !== page.origin || route.search || route.hash || !appFamilyPath(route.pathname, family)) return {};
 	const load = moduleLoad(primary.rail.path, extra.entry, here);
-	if (!load.link) return {};
-	const route = new URL(extra.rail.path, page);
+	if (!load.link || moduleMount(load.link) !== extra.extension) return {};
 	return {
 		link: `${load.link}${route.pathname.slice(1)}`,
 		...load.entry ? { entry: load.entry } : {}
@@ -13052,7 +13066,7 @@ function colabRouteLoad(title, select) {
 		if (!entry) return { mount: (slot) => load ? message(slot, title, `${title} could not be opened here.`, load.link ? {
 			href: load.link,
 			label: `Open ${title}`
-		} : void 0) : answer ? message(slot, title, title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there, then reload." : "Design is not available from this Colab. Start or update Colab on your machine, then reload.") : message(slot, title, `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`, {
+		} : void 0) : answer ? message(slot, title, title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there, then reload." : `${title} is not available from its extension. Start or update it on your machine, then reload.`) : message(slot, title, `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`, {
 			href: "/remote/",
 			label: "Pair this browser"
 		}) };
@@ -13062,7 +13076,7 @@ function colabRouteLoad(title, select) {
 				entry
 );
 		} catch {
-			return { mount: (slot) => message(slot, title, title === "Colab" ? "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page." : "Design could not start here. Colab may have stopped on your machine. Reload to try again.", load.link ? {
+			return { mount: (slot) => message(slot, title, title === "Colab" ? "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page." : `${title} could not start here. Its extension may have stopped on your machine. Reload to try again.`, load.link ? {
 				href: load.link,
 				label: `Open ${title}`
 			} : void 0) };
@@ -13122,17 +13136,23 @@ var routes = [
 		rail: "colab",
 		keep: true,
 		load: colabRouteLoad("Colab", colabLoad)
-	},
-	{
-		id: "design",
-		paths: ["/design", "/design/"],
-		rail: "design",
-		load: colabRouteLoad("Design", (answer) => {
-			const load = designModuleLoad(answer, location.href);
-			return load.link ? load : void 0;
-		})
 	}
 ];
+/** Extra routes come from declarations; the visual rail retains its existing policy. */
+function extraRoute(family, title, rail) {
+	return {
+		id: `extra:${family}`,
+		paths: [family, `${family}/`],
+		rail,
+		load: colabRouteLoad(title, (answer) => {
+			const load = extraModuleLoad(answer, family, location.href);
+			return load.link ? load : void 0;
+		})
+	};
+}
+function declaredRoutes(answer) {
+	return rootModules(answer).map((module) => extraRoute(module.rootAppFamily, module.rail.label, module.extension === "colab" && module.module === "design" ? "design" : `${module.extension}:${module.module}`));
+}
 /** Whether this browser's pairing reopened a door session. */
 async function reopened() {
 	try {
@@ -13236,9 +13256,19 @@ function shellApp() {
 			started?.navigate(href);
 		}
 	});
+	for (const route of declaredRoutes(rememberedShellAnswer())) if (!routes.some((current) => current.id === route.id)) routes.push(route);
+	const family = `/${location.pathname.split("/")[1] ?? ""}`;
+	if (rootAppFamily(family) && !routes.some((route) => route.paths.includes(family))) {
+		const known = appRail(void 0, routes, {
+			origin: location.origin,
+			href: location.href
+		}).main.find((item) => item.id === family.slice(1));
+		routes.push(extraRoute(family, family.slice(1).replace(/^./, (letter) => letter.toUpperCase()), known?.id ?? "home"));
+	}
 	/** The instance still loading or mounting: a later route load ends it before it draws. */
 	let mounting;
-	const host = startShellHost(root, routes.map((route) => ({
+	const ownedRoutes = [];
+	const own = (route) => ({
 		...route,
 		async load(remembered, settled) {
 			mounting?.abort();
@@ -13250,11 +13280,13 @@ function shellApp() {
 					observed = true;
 					answer = read;
 				}
+				installRoutes(read);
 				publishSearch?.();
 			});
 			const module = await route.load(remembered, settled);
 			return { async mount(slot) {
 				if (lifetime.signal.aborted) return;
+				if (route.id.startsWith("extra:")) slot.setMenu(void 0);
 				let active = true;
 				let adopted = false;
 				let current = slot;
@@ -13322,7 +13354,25 @@ function shellApp() {
 				};
 			} };
 		}
-	})), {
+	});
+	const installRoutes = (read) => {
+		if (!read) return;
+		const extras = declaredRoutes(read);
+		for (const list of [routes, ownedRoutes]) for (let index = list.length - 1; index >= 0; index--) if (list[index].id.startsWith("extra:") && !extras.some((extra) => extra.id === list[index].id)) list.splice(index, 1);
+		for (const extra of extras) {
+			const current = routes.find((route) => route.id === extra.id);
+			if (current) {
+				current.rail = extra.rail;
+				const owned = ownedRoutes.find((route) => route.id === extra.id);
+				if (owned) owned.rail = extra.rail;
+			} else {
+				routes.push(extra);
+				ownedRoutes.push(own(extra));
+			}
+		}
+	};
+	ownedRoutes.push(...routes.map(own));
+	const host = startShellHost(root, ownedRoutes, {
 		sessions: {
 			open: rootSession,
 			forget: (previous) => forgetSession(previous)
@@ -13369,6 +13419,7 @@ function shellApp() {
 			const read = await host.redescribe();
 			answer = read;
 			observed = true;
+			installRoutes(read);
 			publishSearch?.();
 			return read;
 		},

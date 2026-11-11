@@ -64,10 +64,31 @@ export function moduleLoad(
   return inside ? { link, entry: target.href } : { link };
 }
 
-/** Only the admitted Design app family can leave a Colab extra's mount for navigation. */
-export function designPath(path: string): boolean {
-  if (path === '/design' || path === '/design/') return true;
-  const rest = path.startsWith('/design/') ? path.slice('/design/'.length) : undefined;
+/** One bounded root segment cannot shadow the door's route families. */
+export function rootAppFamily(family: string): boolean {
+  return (
+    /^\/[a-z0-9-]{1,32}$/.test(family) &&
+    ![
+      'colab',
+      'remote',
+      'ops',
+      'digest',
+      'settings',
+      'sdk',
+      'x',
+      'r',
+      'read',
+      'pair',
+      'p',
+      'join',
+    ].includes(family.slice(1))
+  );
+}
+
+export function appFamilyPath(path: string, family: string): boolean {
+  if (!rootAppFamily(family)) return false;
+  if (path === family || path === `${family}/`) return true;
+  const rest = path.startsWith(`${family}/`) ? path.slice(family.length + 1) : undefined;
   return (
     rest !== undefined &&
     rest.length <= 160 &&
@@ -75,42 +96,50 @@ export function designPath(path: string): boolean {
   );
 }
 
-/** Navigation may use the owner route; script authority still comes from the primary mount. */
-export function designModuleLoad(answer: ShellAnswer | undefined, here: string): ModuleLoad {
-  const primary = answer?.modules.find(
-    (module) => module.extension === 'colab' && !('module' in module),
+type Extra = ShellAnswer['modules'][number] & { rootAppFamily?: unknown; entry?: string };
+
+/** Root routes are display data; scripts still require the live description and primary mount. */
+export function rootModules(answer: ShellAnswer | undefined): Extra[] {
+  const modules = (answer?.modules ?? []) as Extra[];
+  return modules.filter(
+    (module) =>
+      typeof module.module === 'string' &&
+      /^[a-z0-9-]{1,32}$/.test(module.module) &&
+      typeof module.rootAppFamily === 'string' &&
+      rootAppFamily(module.rootAppFamily) &&
+      modules.filter((other) => other.rootAppFamily === module.rootAppFamily).length === 1,
   );
-  if (!primary) return {};
+}
+
+export function extraModuleLoad(
+  answer: ShellAnswer | undefined,
+  family: string,
+  here: string,
+): ModuleLoad {
+  const extra = rootModules(answer).find((module) => module.rootAppFamily === family);
+  const primary = answer?.modules.find(
+    (module) => module.extension === extra?.extension && !('module' in module),
+  );
+  if (!primary || !extra || !plain(extra.rail.path)) return {};
   let page: URL;
+  let route: URL;
   try {
     page = new URL(here);
+    route = new URL(extra.rail.path, page);
   } catch {
     return {};
   }
-  const extra = answer?.modules.find((module) => {
-    if (
-      module.extension !== 'colab' ||
-      !('module' in module) ||
-      typeof module.module !== 'string' ||
-      !/^[a-z0-9-]{1,32}$/.test(module.module) ||
-      !plain(module.rail.path)
-    )
-      return false;
-    try {
-      const route = new URL(module.rail.path, page);
-      return (
-        route.origin === page.origin && !route.search && !route.hash && designPath(route.pathname)
-      );
-    } catch {
-      return false;
-    }
-  });
-  if (!extra) return {};
-  const load = moduleLoad(primary.rail.path, (extra as { entry?: string }).entry, here);
-  if (!load.link) return {};
-  const route = new URL(extra.rail.path, page);
+  if (
+    route.origin !== page.origin ||
+    route.search ||
+    route.hash ||
+    !appFamilyPath(route.pathname, family)
+  )
+    return {};
+  const load = moduleLoad(primary.rail.path, extra.entry, here);
+  if (!load.link || moduleMount(load.link) !== extra.extension) return {};
   // If the script is absent or cannot load, the paired alias can open the standalone
-  // Colab view; the root navigation link would only reopen this same fallback.
+  // extension view; the root navigation link would only reopen this same fallback.
   return {
     link: `${load.link}${route.pathname.slice(1)}`,
     ...(load.entry ? { entry: load.entry } : {}),

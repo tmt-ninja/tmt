@@ -78,7 +78,7 @@ impl Store {
             });
         }
         let (count,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",[peer],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database)?;
-        if count >= journal::OPERATIONS
+        if count >= self.carrier_capacity
             || bytes.saturating_add(carrier.len() as i64) > journal::FROZEN_BYTES
         {
             return Err(RemoteError::new(
@@ -384,7 +384,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         let (count,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",[peer],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database)?;
-        if count >= journal::OPERATIONS
+        if count >= self.carrier_capacity
             || bytes.saturating_add(carrier.len() as i64) > journal::FROZEN_BYTES
         {
             return Err(RemoteError::new(
@@ -431,7 +431,7 @@ impl Store {
             .query_map(
                 params![
                     now.saturating_sub(journal::RECOVERY) as i64,
-                    journal::OPERATIONS
+                    self.carrier_capacity
                 ],
                 |r| {
                     Ok(CarrierCleanup {
