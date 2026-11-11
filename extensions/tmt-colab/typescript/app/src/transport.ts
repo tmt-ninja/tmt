@@ -128,7 +128,13 @@ export interface PageBinding {
   canWork?(): boolean;
   /** One closed work action, committed by the serve; the new value follows through `subscribe`.
    * Throws `SaveRefused` with the serve's code (`COLAB_LINK_REFUSED`, `COLAB_STALE_BASE`, …). */
-  work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
+  work?(
+    action: WorkAction,
+    body: Record<string, unknown>,
+    operationId?: string,
+  ): Promise<WorkOutcome>;
+  /** Read the retained outcome of a work operation without issuing it again. */
+  workStatus?(operationId: string): Promise<WorkOutcome>;
   /** One batch of a structured page's block ops (#6004), merged and committed by the serve; it
    * resolves once the page shows the commit, with the typed hunks a whole-text op could not apply.
    * Throws `SaveRefused` with the serve's code (`COLAB_BLOCK_BAD_AFTER`, …). */

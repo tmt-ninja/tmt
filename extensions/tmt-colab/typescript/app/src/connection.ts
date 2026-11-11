@@ -46,6 +46,7 @@ import {
   BLOCK_BATCH_OPS,
   blocksResult,
   SAVE_SOURCE_BYTES,
+  SaveNotApplied,
   SaveTooLarge,
   saveResult,
   workResult,
@@ -88,7 +89,7 @@ const FRAME_BYTES = 64 * 1024;
 /** What the frame envelope (version, type, space, page, epoch) takes, with room to spare. */
 const ENVELOPE_BYTES = 1024;
 /** The whole reply budget for one save: upload window, native preparation and commit. */
-const SAVE_REPLY_MS = 30_000;
+export const SAVE_REPLY_MS = 30_000;
 /** The reply budget for a usage or compact request: a combine decodes the page several times. */
 const PAGE_REPLY_MS = 20_000;
 /** Bytes the socket may hold unsent before the next chunk waits; keeps a 2 MiB save paced. */
@@ -679,12 +680,25 @@ export class Connection {
     operationId: string,
     action: WorkAction,
     body: Record<string, unknown>,
+    timeoutMs = SAVE_REPLY_MS,
   ): Promise<WorkResult> {
-    await this.ready;
-    this.admission.validatePage(this.sharing);
-    return (await this.#request(operationId, async () =>
-      this.send('work', { operationId, action, body }),
-    )) as WorkResult;
+    let sending = false;
+    try {
+      return (await this.#request(
+        operationId,
+        async () => {
+          await this.ready;
+          this.admission.validatePage(this.sharing);
+          // Once send begins, a failure cannot prove the frame did not leave the browser.
+          sending = true;
+          this.send('work', { operationId, action, body });
+        },
+        timeoutMs,
+      )) as WorkResult;
+    } catch (error) {
+      if (!sending) throw new SaveNotApplied(operationId);
+      throw error;
+    }
   }
   /** One block batch of a structured page (#6004), merged and committed natively; the reply carries
    * its receipt. A lost reply settles like a save's, by one `saveStatus`. `attachments` is a typed
@@ -721,10 +735,14 @@ export class Connection {
     await this.ready;
     return this.#request(operationId, async () => this.send('savestatus', { operationId }));
   }
-  #request(operationId: string, send: () => Promise<void>): Promise<SaveResult> {
+  #request(
+    operationId: string,
+    send: () => Promise<void>,
+    timeoutMs = SAVE_REPLY_MS,
+  ): Promise<SaveResult> {
     requireValue(!this.#stopped && this.#reply === null);
     return new Promise<SaveResult>((resolve, reject) => {
-      const timer = setTimeout(() => this.close(new Error('Save reply timed out')), SAVE_REPLY_MS);
+      const timer = setTimeout(() => this.close(new Error('Save reply timed out')), timeoutMs);
       this.#reply = { operationId, resolve, reject, timer };
       send().catch((error) =>
         this.close(error instanceof Error ? error : new Error('Save unavailable')),

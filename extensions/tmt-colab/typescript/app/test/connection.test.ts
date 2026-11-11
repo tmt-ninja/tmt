@@ -5,7 +5,7 @@ import type { TitleReadBudget } from '../src/transport.js';
 import type { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
 import type { OwnState } from '../src/fold-protocol.js';
-import { SAVE_SOURCE_BYTES, SaveTooLarge } from '../src/save.js';
+import { SAVE_SOURCE_BYTES, SaveNotApplied, SaveTooLarge } from '../src/save.js';
 
 const calls = vi.hoisted(() => [] as string[]);
 const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
@@ -95,6 +95,31 @@ afterEach(() => {
   provenance.ownerOnly = true;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+it('bounds a work request even when connection readiness never arrives', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', Socket);
+  const admission = {
+    ...scope,
+    root: new Uint8Array(32),
+    closeKeys() {},
+    validatePage: vi.fn(),
+    registration: { deviceId: author, syncUrl: 'wss://example.test/colab/sync' },
+  } as unknown as Admission;
+  const connection = new Connection(
+    admission,
+    new URL('https://example.test/colab/'),
+    'private',
+    vi.fn(),
+    vi.fn(),
+  );
+  const work = connection
+    .work('operation', 'subpage.create', { title: 'Page' }, 10)
+    .catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await work).toBeInstanceOf(SaveNotApplied);
+  expect(Socket.current.send).not.toHaveBeenCalled();
+  expect(Socket.current.close).toHaveBeenCalledOnce();
 });
 it('fails closed for an epoch baseline without prior-writer proof', async () => {
   provenance.baseline = true;

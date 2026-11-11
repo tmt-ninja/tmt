@@ -1,11 +1,12 @@
 import { BrowserAction, BrowserDialog, BrowserField } from '@tmt/browser-ui/react';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   designSystemCreation,
   type CreationProgress,
   type DesignSystemCreation,
 } from './design-system-pages.js';
 import type { PageTransport } from './transport.js';
+import { SaveOutcomeUnknown, SaveRefused } from './save.js';
 import './design-system-ui.css';
 
 /*
@@ -16,13 +17,15 @@ import './design-system-ui.css';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function DesignSystemDialog({
+  open,
   transport,
   onDismiss,
   onCreated,
 }: {
+  open: boolean;
   transport: PageTransport;
   onDismiss(): void;
-  onCreated(rootId: string): void;
+  onCreated(rootId: string, open: boolean): void;
 }) {
   const id = useId().replace(/:/g, '');
   const [name, setName] = useState('My design system');
@@ -30,43 +33,77 @@ export function DesignSystemDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [progress, setProgress] = useState<CreationProgress>();
+  const [stalled, setStalled] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
+  const dismissed = useRef(false);
+  useEffect(() => {
+    if (open) dismissed.current = false;
+  }, [open]);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setTimeout(() => setStalled(true), 60_000);
+    return () => clearTimeout(timer);
+  }, [busy, progress]);
   // A started system keeps its name and prefix: Create again continues it, never a second copy.
   const creation = useRef<DesignSystemCreation>(undefined);
   const prefixValid = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(prefix);
   const create = async () => {
     setBusy(true);
+    setStalled(false);
     setError(undefined);
+    setUncertain(false);
     creation.current ??= designSystemCreation(transport, { name: name.trim(), prefix });
     try {
-      onCreated(await creation.current.run(setProgress));
-    } catch (failure) {
-      setError(message(failure));
+      const root = await creation.current.run((state) => {
+        setStalled(false);
+        setProgress(state);
+      });
+      creation.current = undefined;
       setBusy(false);
+      setProgress(undefined);
+      setName('My design system');
+      setPrefix('my-ui');
+      onCreated(root, !dismissed.current);
+    } catch (failure) {
+      const unknown = failure instanceof SaveOutcomeUnknown;
+      setUncertain(unknown);
+      setError(
+        unknown
+          ? 'Could not confirm a page. Resume to check the result before continuing.'
+          : failure instanceof SaveRefused && failure.childPage
+            ? `The page was created but not attached. ${message(failure)}`
+            : message(failure),
+      );
+      setBusy(false);
+      setStalled(false);
     }
   };
   const started = creation.current !== undefined;
   return (
     <BrowserDialog
-      open
+      open={open}
       title="New design system"
       onDismiss={() => {
-        if (!busy) onDismiss();
+        dismissed.current = true;
+        onDismiss();
       }}
       actions={
         <>
           <BrowserAction
             type="button"
             variant="secondary"
-            label="Cancel"
-            disabled={busy}
-            onActivate={onDismiss}
+            label={started ? 'Close' : 'Cancel'}
+            onActivate={() => {
+              dismissed.current = true;
+              onDismiss();
+            }}
           />
           <BrowserAction
             type="button"
             variant="primary"
-            label={started && !busy ? 'Try again' : 'Create'}
+            label={busy ? 'Creating…' : uncertain ? 'Resume' : started ? 'Try again' : 'Create'}
             busy={busy}
-            disabled={!name.trim() || !prefixValid}
+            disabled={busy || !name.trim() || !prefixValid}
             onActivate={() => void create()}
           />
         </>
@@ -84,6 +121,7 @@ export function DesignSystemDialog({
             <input
               {...props}
               value={name}
+              disabled={started}
               readOnly={started}
               onChange={(event) => setName(event.target.value)}
             />
@@ -101,16 +139,23 @@ export function DesignSystemDialog({
             <input
               {...props}
               value={prefix}
+              disabled={started}
               readOnly={started}
               onChange={(event) => setPrefix(event.target.value)}
             />
           )}
         />
-        {busy && progress && (
+        {busy && (
           <p role="status">
-            {progress.phase === 'pages'
-              ? `Writing pages: ${progress.done} of ${progress.total}`
-              : 'Publishing the first version…'}
+            {stalled
+              ? `Still creating${progress && progress.phase !== 'publishing' ? ` (${progress.done} of ${progress.total})` : ''}. This can take a while.`
+              : progress?.phase === 'creating'
+                ? `Creating pages: ${progress.done} of ${progress.total}`
+                : progress?.phase === 'pages'
+                  ? `Writing pages: ${progress.done} of ${progress.total}`
+                  : progress?.phase === 'publishing'
+                    ? 'Publishing the first version…'
+                    : 'Preparing the design system…'}
           </p>
         )}
         {error && <p role="alert">{error}</p>}

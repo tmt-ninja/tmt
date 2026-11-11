@@ -1791,6 +1791,9 @@ export async function mountRenderer(
     pendingDesign?.settle('superseded');
     const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
     if (stopped || turn !== designUpdates) return 'superseded';
+    // A timed-out refresh must not replace an already drawn draft with a transient notice.
+    // The pending draft notifies followers when it eventually completes.
+    if (next?.failure === 'unavailable' && !frameDesign.failure) return 'applied';
     if (
       !next ||
       next.script !== frameDesign.script ||

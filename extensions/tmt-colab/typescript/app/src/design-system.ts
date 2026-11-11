@@ -71,6 +71,8 @@ export interface DesignSystemBundle {
 export interface FrameDesignSystem {
   readonly script: string;
   readonly style: string;
+  /** A host-generated notice rather than a compiled design system. */
+  readonly failure?: DesignSystemFailure;
   /** Host-only admission derived from the verified bundle, never from page markup alone. */
   readonly pageViewTags?: readonly string[];
   readonly pageDataTags?: readonly string[];
@@ -184,6 +186,7 @@ export function noticeFrame(failure: DesignSystemFailure, detail?: string): Fram
   );
   return {
     style: '',
+    failure,
     script: `addEventListener('DOMContentLoaded',()=>{const n=document.createElement('p');n.setAttribute('data-tmt-ds-notice','');n.setAttribute('role','alert');n.textContent=${text};document.body.prepend(n);});`,
   };
 }

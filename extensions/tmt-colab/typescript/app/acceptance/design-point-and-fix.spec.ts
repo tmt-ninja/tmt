@@ -191,6 +191,16 @@ test('an @agent comment on a design-system example becomes a live patch of that 
           .locator('[data-ds-example]')
           .first(),
       ).toBeVisible({ timeout: 60_000 });
+      // The source's example exists even when the initial frame still has a draft-unavailable
+      // notice. Begin measuring only after the actual component from the prior edit is drawn.
+      await expect(
+        next
+          .locator('.design-workspace iframe')
+          .first()
+          .contentFrame()
+          .locator('[data-ds-example="button:secondary"]')
+          .getByRole('button', { name: 'Draft', exact: true }),
+      ).toHaveAttribute('data-variant', 'outline', { timeout: 60_000 });
       tabs.push(next);
     }
     // Settled: one held read in flight for the five tabs.

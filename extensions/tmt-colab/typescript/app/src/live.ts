@@ -29,10 +29,11 @@ import type {
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
-import { Connection } from './connection.js';
+import { Connection, SAVE_REPLY_MS } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
+  SaveNotApplied,
   SaveOutcomeUnknown,
   SaveRefused,
   SaveTooLarge,
@@ -52,6 +53,26 @@ import { standaloneRequest } from './export-runtime.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
+
+class ConnectionReadyTimeout extends Error {}
+
+/** Bound a pending connection without cancelling or replaying an operation. */
+async function connectionBefore<T>(connection: Promise<T>, deadline: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      connection,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ConnectionReadyTimeout('Page connection timed out')),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface LiveSession {
   registration: Registration;
@@ -923,16 +944,36 @@ export class Live implements PageBinding {
    * here: the new value arrives through the page's own stream, and this resolves once the page
    * shows the commit (or the wait ran out). A refusal throws `SaveRefused` with the serve's code;
    * a lost reply is settled by exactly one status request, and the action is never sent again. */
-  async work(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome> {
+  async work(
+    action: WorkAction,
+    body: Record<string, unknown>,
+    operationId = crypto.randomUUID(),
+  ): Promise<WorkOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
-    const c = await this.#current;
-    const operationId = crypto.randomUUID();
+    const deadline = Date.now() + SAVE_REPLY_MS;
+    const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
+      if (error instanceof ConnectionReadyTimeout) throw new SaveNotApplied(operationId);
+      throw error;
+    });
     let result: WorkResult;
     try {
-      result = await c.work(operationId, action, body);
+      result = await c.work(operationId, action, body, Math.max(0, deadline - Date.now()));
     } catch (error) {
-      if (!(error instanceof Error) || c.active) throw error;
+      if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
+    return result.childPage === undefined ? {} : { childPage: result.childPage };
+  }
+  /** Recheck a previously uncertain work operation without replaying it. */
+  async workStatus(operationId: string): Promise<WorkOutcome> {
+    let result: SaveResult;
+    try {
+      const connection = await connectionBefore(this.#current, Date.now() + SAVE_REPLY_MS);
+      result = await connection.saveStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
     }
     settled(result);
     await this.#showsRevision(result.revision);
@@ -1163,7 +1204,7 @@ export class Live implements PageBinding {
   async #reopened(lost: Connection): Promise<Connection> {
     const deadline = Date.now() + SAVE_REOPEN_MS;
     while (!this.#closed && !this.#error && Date.now() < deadline) {
-      const next = await this.#current.catch(() => null);
+      const next = await connectionBefore(this.#current, deadline).catch(() => null);
       if (next && next !== lost && next.active) return next;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

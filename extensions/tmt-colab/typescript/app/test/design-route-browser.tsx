@@ -6,6 +6,7 @@ import { createAppRouter } from '../src/router.js';
 import { ShellHostSlot } from '../src/colab-shell.js';
 import { hostInShell } from '../src/entry.js';
 import { createDesignSystem } from '../src/design-system-pages.js';
+import { SaveOutcomeUnknown } from '../src/save.js';
 import type { PageBinding, PageTransport, PageView } from '../src/transport.js';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
@@ -22,7 +23,14 @@ interface PageRecord {
   revision: number;
 }
 export async function mountDesign(url = '/colab/design/', owner = true) {
-  const controls = { failUpload: false };
+  const controls = {
+    failUpload: false,
+    holdCreate: false,
+    createStarted: false,
+    releaseCreate: undefined as (() => void) | undefined,
+    refuseCreate: false,
+    unknownCreate: false,
+  };
   const pages = new Map<string, PageRecord>();
   const counts = { opened: 0, closed: 0, active: 0, edits: 0 };
   const anchors: { pageId: string; body: string; anchor: unknown }[] = [];
@@ -126,6 +134,21 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
           return {};
         }
         if (action !== 'subpage.create') throw new Error(action);
+        if (controls.holdCreate) {
+          controls.holdCreate = false;
+          controls.createStarted = true;
+          await new Promise<void>((resolve) => {
+            controls.releaseCreate = resolve;
+          });
+        }
+        if (controls.refuseCreate) {
+          controls.refuseCreate = false;
+          throw new Error('Fixture creation refused');
+        }
+        if (controls.unknownCreate) {
+          controls.unknownCreate = false;
+          throw new SaveOutcomeUnknown('fixture-operation');
+        }
         const child = make(String(body.title));
         page.order.push(child);
         notify(page);

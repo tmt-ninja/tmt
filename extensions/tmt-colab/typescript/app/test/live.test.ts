@@ -121,6 +121,7 @@ vi.mock('../src/admission.js', () => ({
   },
 }));
 vi.mock('../src/connection.js', () => ({
+  SAVE_REPLY_MS: 30_000,
   Connection: class {
     witness = retryFixture.witnessNext;
     objects = {
@@ -2525,6 +2526,80 @@ const worked = (operationId: string, fields: Partial<SaveResult> = {}): SaveResu
   ...fields,
 });
 
+it('bounds a work action waiting for a connection without sending it', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    const old = connections.at(-1)!;
+    connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+    old.failed(new Error('RESYNC_REQUIRED'));
+    await h.created;
+    vi.useFakeTimers();
+    const result = h.live
+      .work('subpage.create', { title: 'A page' })
+      .catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toBeInstanceOf(SaveNotApplied);
+    expect(saves.work).not.toHaveBeenCalled();
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    h.release({ source: 'verified', title: 'Page' });
+    h.live.close();
+  }
+});
+
+it('reports an unsent work action as not applied without querying its status', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    vi.useFakeTimers();
+    saves.work.mockImplementationOnce(
+      (connection, operationId) =>
+        new Promise((_resolve, reject) => {
+          setTimeout(() => {
+            connection.close();
+            reject(new SaveNotApplied(operationId));
+          }, 30_000);
+        }),
+    );
+    const result = live.work('subpage.create', { title: 'A page' }).catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toBeInstanceOf(SaveNotApplied);
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    live.close();
+    saves.work.mockClear();
+  }
+});
+
+it('does not replay a sent work action when reconnection never settles its outcome', async () => {
+  const h = heldResync();
+  try {
+    await h.live.snapshot();
+    connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+    saves.work.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    vi.useFakeTimers();
+    const result = h.live
+      .work('subpage.create', { title: 'A page' })
+      .catch((error: Error) => error);
+    await h.created;
+    await vi.advanceTimersByTimeAsync(20_100);
+    expect(await result).toBeInstanceOf(SaveOutcomeUnknown);
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    h.release({ source: 'verified', title: 'Page' });
+    h.live.close();
+  }
+});
+
 it('a work action is sent once with its closed body and resolves when the owner commits it', async () => {
   const live = openLive();
   try {
@@ -2586,6 +2661,60 @@ it('a work action whose reply was lost asks for the operation status exactly onc
     expect(saves.work).toHaveBeenCalledOnce();
     expect(saves.status).toHaveBeenCalledOnce();
     expect(saves.status.mock.calls[0][1]).toBe(saves.work.mock.calls[0][1]);
+  } finally {
+    live.close();
+  }
+});
+
+it('rechecks an uncertain work outcome without replaying the action', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  const childPage = '20000000-0000-4000-8000-000000000010';
+  try {
+    await live.snapshot();
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { state: 'pending', revision: undefined }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { childPage } as Partial<SaveResult>),
+    );
+    await expect(live.workStatus(operationId)).resolves.toEqual({ childPage });
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, { state: 'absent', revision: undefined, childPage }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toMatchObject({
+      operationId,
+      childPage,
+    });
+    saves.status.mockImplementationOnce(async (_connection, id) =>
+      worked(id, {
+        state: 'rejected',
+        revision: undefined,
+        code: 'COLAB_LINK_REFUSED',
+        message: 'The page cannot be attached.',
+        childPage,
+      }),
+    );
+    await expect(live.workStatus(operationId)).rejects.toMatchObject({
+      code: 'COLAB_LINK_REFUSED',
+      childPage,
+    });
+    expect(saves.work).not.toHaveBeenCalled();
+    expect(saves.status.mock.calls.map((call) => call[1])).toEqual(Array(4).fill(operationId));
+  } finally {
+    live.close();
+  }
+});
+
+it('sends a caller-retained work operation id unchanged', async () => {
+  const live = openLive();
+  const operationId = '20000000-0000-4000-8000-000000000009';
+  try {
+    await live.snapshot();
+    saves.work.mockImplementationOnce(async (_connection, id) => worked(id));
+    await live.work('subpage.create', { title: 'Example' }, operationId);
+    expect(saves.work.mock.calls[0][1]).toBe(operationId);
   } finally {
     live.close();
   }
