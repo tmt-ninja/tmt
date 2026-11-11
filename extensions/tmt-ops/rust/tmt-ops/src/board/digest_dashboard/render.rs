@@ -41,14 +41,9 @@ pub(super) fn pane_frame(
     content_area(area)
 }
 
-/// One title row, with the rest of the pane available to its existing content owner.
+/// Retain the original pane content rectangle and its pointer/scroll geometry.
 pub(super) fn content_area(area: Rect) -> Rect {
-    Rect::new(
-        area.x,
-        area.y.saturating_add(u16::from(area.height > 0)),
-        area.width,
-        area.height.saturating_sub(1),
-    )
+    crate::board::pane_chrome::content_area(area)
 }
 
 /// Summary and content share the same placement owner as focus and pointer input.
@@ -361,29 +356,53 @@ pub(super) fn detail_lines(
         .map(|text| Line::styled(text, app.look().role(Role::Text)))
         .collect()
 }
-/// Keep full words and values while putting short section summaries in fewer rows.
+/// Put each section's first value in view, keeping the remaining full values scrollable.
 fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
     use unicode_width::UnicodeWidthStr;
-    let mut out: Vec<String> = Vec::new();
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for line in lines {
-        let heading = line.starts_with("── ") && line.ends_with(" ──");
-        let text = if heading {
-            line.trim_matches('─').trim().to_owned()
+        if line.starts_with("── ") && line.ends_with(" ──") {
+            groups.push((line.trim_matches('─').trim().to_owned(), Vec::new()));
+        } else if let Some((_, items)) = groups.last_mut() {
+            items.push(line);
         } else {
-            line
-        };
-        if !heading {
-            if let Some(previous) = out.last_mut() {
-                if previous.width() + 3 + text.width() <= width {
-                    previous.push_str(" · ");
-                    previous.push_str(&text);
-                    continue;
+            groups.push((String::new(), vec![line]));
+        }
+    }
+    let mut front = Vec::new();
+    let mut remainder = Vec::new();
+    for (heading, mut items) in groups {
+        let priority = heading == "Delivery"
+            || heading.starts_with("Saved ·")
+            || heading.starts_with("Models ·");
+        if priority {
+            let first = if items.is_empty() {
+                None
+            } else {
+                Some(items.remove(0))
+            };
+            match first {
+                Some(value) if heading.width() + 3 + value.width() <= width => {
+                    front.push(format!("{heading} · {value}"))
                 }
+                Some(value) => {
+                    front.push(heading.clone());
+                    front.push(value);
+                }
+                None => front.push(heading.clone()),
             }
         }
-        out.push(text);
+        if !items.is_empty() {
+            if !heading.is_empty() {
+                remainder.push(format!("── {heading} ──"));
+            }
+            remainder.extend(items);
+        } else if !priority && !heading.is_empty() {
+            remainder.push(format!("── {heading} ──"));
+        }
     }
-    out
+    front.extend(remainder);
+    front
 }
 
 /// Clock evidence uses the same visible wrapped projection as paint.

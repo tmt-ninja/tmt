@@ -804,3 +804,25 @@ fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
         }
     });
 }
+
+#[test]
+fn direction_a_compact_details_keep_every_original_value_scrollable() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let app = capture_case("digest-spec", crate::look::Look::default());
+        let original = super::super::details::panel(&app, 1_791_600_000_000, app.selected_row());
+        let compact =
+            super::super::render::detail_lines(&app, 94, 5, 1_791_600_000_000, app.selected_row())
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+        for expected in original.iter().filter(|line| !line.starts_with("── ")) {
+            assert!(
+                compact.iter().any(|line| line.contains(expected)),
+                "lost {expected:?}: {compact:?}"
+            );
+        }
+        for (index, heading) in ["Delivery", "Saved ·", "Models ·"].iter().enumerate() {
+            assert!(compact[index].contains(heading), "{compact:?}");
+        }
+    });
+}
