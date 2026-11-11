@@ -402,6 +402,19 @@ mod tests {
         assert!(matches_release(&bundle, &release));
     }
 
+    /// The bytes the browser's publish uploads (`publishDesignSystem`), written by
+    /// `design-system-pages.test.ts`, which fails when they change: a release published today is
+    /// accepted.
+    #[test]
+    fn a_release_from_the_publish_path_is_accepted() {
+        let bundle: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/design-release-bundle-v1.json"
+        ))
+        .unwrap();
+        let release = json!({"version":bundle["version"],"bundle":bundle["hash"]});
+        assert!(matches_release(&bundle, &release));
+    }
+
     #[test]
     fn a_bundle_whose_bytes_do_not_hash_to_its_pin_is_refused() {
         let bundle = built_in_bundle();

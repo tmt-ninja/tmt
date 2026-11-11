@@ -6017,7 +6017,10 @@ attachment, read through the running serve under current access; the built-in re
 from the executable. The bundle must match
 its release record (version and hash) and hash to it as the renderer checks a pin (SHA-256 over
 the bundle's JSON without `hash`, keys in written order, as `JSON.stringify` writes it) or the
-command returns `COLAB_DESIGN_RELEASE_INVALID`. It
+command returns `COLAB_DESIGN_RELEASE_INVALID`.
+[`design-release-bundle-v1.json`](vectors/design-release-bundle-v1.json) holds the bytes the
+browser's publish uploads for a one-component system; both implementations test that it hashes to
+its own `hash`. It
 prints `pin` (the system, which follows the draft), the `meta` line to copy, `lock` and `lockMeta`
 (this release's lock), `principles` and each component's `tag`, `props`, `slots` and `examples` of
 that release, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
