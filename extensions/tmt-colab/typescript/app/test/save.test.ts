@@ -7,6 +7,7 @@ import {
   resendStale,
   saveMessage,
   saveResult,
+  subpageBatchResult,
   SaveConflict,
   SaveNotApplied,
   SaveOutcomeUnknown,
@@ -26,6 +27,56 @@ const frame = (fields: Record<string, unknown>) => ({
   ...fields,
 });
 const DIGEST = 'A'.repeat(43);
+
+it('admits only bounded ordered sub-page batch receipts', () => {
+  const entry = {
+    operationId: '60000000-0000-4000-8000-000000000001',
+    state: 'committed',
+    childPage: '60000000-0000-4000-8000-000000000002',
+  };
+  expect(
+    subpageBatchResult(frame({ state: 'running', entries: [entry], nextIndex: 1 }), 'o'),
+  ).toMatchObject({ state: 'running', entries: [entry], nextIndex: 1 });
+  expect(subpageBatchResult(frame({ state: 'absent' }), 'o')).toMatchObject({
+    state: 'absent',
+    entries: [],
+    nextIndex: 0,
+  });
+  expect(
+    subpageBatchResult(
+      frame({ state: 'committed', revision: 'v1:abc', entries: [entry], nextIndex: 1 }),
+      'o',
+    ),
+  ).toMatchObject({ state: 'committed', entries: [entry] });
+  expect(
+    subpageBatchResult(
+      frame({
+        state: 'rejected',
+        code: 'COLAB_STALE_BASE',
+        entries: [entry],
+        nextIndex: 1,
+        childPage: '60000000-0000-4000-8000-000000000004',
+      }),
+      'o',
+    ),
+  ).toMatchObject({ state: 'rejected', code: 'COLAB_STALE_BASE', nextIndex: 1 });
+  for (const bad of [
+    { state: 'running', entries: [entry], nextIndex: 0 },
+    { state: 'running', entries: [entry, entry], nextIndex: 2 },
+    {
+      state: 'running',
+      entries: [entry, { ...entry, operationId: '60000000-0000-4000-8000-000000000003' }],
+      nextIndex: 2,
+    },
+    { state: 'running', entries: [{ ...entry, childPage: 'bad' }], nextIndex: 1 },
+    { state: 'running', entries: [{ ...entry, state: 'rejected' }], nextIndex: 1 },
+    { state: 'absent', entries: [], nextIndex: 0 },
+    { state: 'absent', childPage: entry.childPage },
+    { state: 'committed', revision: 'v1:abc', entries: [], nextIndex: 0 },
+    { state: 'committed', revision: 'v1:abc', entries: Array(129).fill(entry), nextIndex: 129 },
+  ])
+    expect(() => subpageBatchResult(frame(bad), 'o')).toThrow();
+});
 
 it('a merged commit names the source it holds, and only a commit may', () => {
   const merged = saveResult(

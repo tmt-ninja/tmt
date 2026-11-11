@@ -22,6 +22,7 @@ type Result<T> = crate::closed::Result<T>;
 /// (`page::subpage_create`), so it is not a value action.
 pub const SUBPAGE_ACTIONS: [&str; 3] = ["subpage.attach", "subpage.detach", "subpage.move"];
 pub const CREATE: &str = "subpage.create";
+pub const CREATE_BATCH: &str = "subpage.createBatch";
 /// Rewrites a version 1 value as version 2 and changes nothing else.
 pub const MIGRATE: &str = "work.migrate";
 

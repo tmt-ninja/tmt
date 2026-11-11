@@ -192,6 +192,9 @@ pub const SUMMARY_LINE2_POINTS: usize = 60;
 /// The most direct sub-pages one page lists (contract: Work). The whole `meta.work` value is one
 /// replacement, so it stays within the shell's single-update size.
 pub const SUBPAGES: usize = 256;
+/// A browser sub-page batch is bounded before any page is made.
+pub const SUBPAGE_BATCH_ENTRIES: usize = 128;
+pub const SUBPAGE_BATCH_BYTES: usize = 48 * 1024;
 pub const WORK_BYTES: usize = 128 * 1024;
 /// Legacy-migration-only: the most tasks a task-era version 1 value held. It is still read while
 /// the serve rewrites it as version 2 (#5825); nothing writes it any more.

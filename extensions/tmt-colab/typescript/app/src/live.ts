@@ -44,6 +44,7 @@ import {
   type WorkAction,
   type MetadataAction,
   type WorkResult,
+  type SubpageBatchResult,
 } from './save.js';
 import type { BlockOp } from './block-model.js';
 import { hunksOf } from './save-hunks.js';
@@ -978,6 +979,37 @@ export class Live implements PageBinding {
     settled(result);
     await this.#showsRevision(result.revision);
     return result.childPage === undefined ? {} : { childPage: result.childPage };
+  }
+  /** Send one batch; a lost reply is inspected once and never silently replayed. */
+  async subpageBatch(
+    operationId: string,
+    body: { titles: readonly string[]; format?: 'html' },
+  ): Promise<SubpageBatchResult> {
+    if (this.#closed || this.#error) throw new Error('Page editing unavailable');
+    const deadline = Date.now() + SAVE_REPLY_MS;
+    const c = await connectionBefore(this.#current, deadline).catch((error: unknown) => {
+      if (error instanceof ConnectionReadyTimeout) throw new SaveNotApplied(operationId);
+      throw error;
+    });
+    try {
+      return await c.subpageBatch(operationId, body, Math.max(0, deadline - Date.now()));
+    } catch (error) {
+      if (error instanceof SaveNotApplied || !(error instanceof Error) || c.active) throw error;
+      try {
+        return await (await this.#reopened(c)).subpageBatchStatus(operationId);
+      } catch {
+        throw new SaveOutcomeUnknown(operationId);
+      }
+    }
+  }
+  /** Inspect an uncertain batch without sending a new create. */
+  async subpageBatchStatus(operationId: string): Promise<SubpageBatchResult> {
+    try {
+      const c = await connectionBefore(this.#current, Date.now() + SAVE_REPLY_MS);
+      return await c.subpageBatchStatus(operationId);
+    } catch {
+      throw new SaveOutcomeUnknown(operationId);
+    }
   }
   /** A block batch, settled as `work` is: a lost reply by exactly one status request, never sent
    * again; it resolves once the page shows the commit. */

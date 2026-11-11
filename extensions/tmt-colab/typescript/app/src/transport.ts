@@ -14,7 +14,7 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
-import type { BlocksResult, MetadataAction, WorkAction } from './save.js';
+import type { BlocksResult, MetadataAction, SubpageBatchResult, WorkAction } from './save.js';
 import type { BlockOp } from './block-model.js';
 export interface PageView extends Projection {
   /** The local, per-binding order of the content this view shows: higher is newer. It orders views
@@ -135,6 +135,12 @@ export interface PageBinding {
   ): Promise<WorkOutcome>;
   /** Read the retained outcome of a work operation without issuing it again. */
   workStatus?(operationId: string): Promise<WorkOutcome>;
+  /** Create an ordered batch or inspect its retained/running outcome using the same ID. */
+  subpageBatch?(
+    operationId: string,
+    body: { titles: readonly string[]; format?: 'html' },
+  ): Promise<SubpageBatchResult>;
+  subpageBatchStatus?(operationId: string): Promise<SubpageBatchResult>;
   /** One batch of a structured page's block ops (#6004), merged and committed by the serve; it
    * resolves once the page shows the commit, with the typed hunks a whole-text op could not apply.
    * Throws `SaveRefused` with the serve's code (`COLAB_BLOCK_BAD_AFTER`, …). */

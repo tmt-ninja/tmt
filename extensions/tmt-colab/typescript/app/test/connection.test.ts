@@ -516,6 +516,35 @@ it('sends a work action with its closed body and resolves on the work reply', as
   }
 });
 
+it('sends a sub-page batch and accepts bounded running status without replay', async () => {
+  const { connection, socket } = await open();
+  try {
+    const body = { titles: ['One', 'Two'], format: 'html' as const };
+    const pending = connection.subpageBatch(operation, body);
+    await awaitSent(socket, 1);
+    expect(sent(socket).at(-1)).toEqual({
+      ...scope,
+      type: 'work',
+      operationId: operation,
+      action: 'subpage.createBatch',
+      body,
+    });
+    socket.receive({
+      ...savedFrame({ state: 'running', entries: [], nextIndex: 0 }),
+      type: 'workresult',
+    });
+    await expect(pending).resolves.toMatchObject({ state: 'running', entries: [], nextIndex: 0 });
+    const status = connection.subpageBatchStatus(operation);
+    await awaitSent(socket, 2);
+    expect(sent(socket).at(-1)).toMatchObject({ type: 'savestatus', operationId: operation });
+    socket.receive(savedFrame({ state: 'running', entries: [], nextIndex: 0 }));
+    await expect(status).resolves.toMatchObject({ state: 'running', nextIndex: 0 });
+    expect(sent(socket).filter((frame) => frame.type === 'work')).toHaveLength(1);
+  } finally {
+    connection.close();
+  }
+});
+
 it('closes on a work reply that nobody asked for', async () => {
   const { connection, socket, failed } = await open();
   socket.receive({ ...savedFrame({ state: 'committed', revision: 'v1:abc' }), type: 'workresult' });

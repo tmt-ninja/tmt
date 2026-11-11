@@ -5357,6 +5357,126 @@ fn a_browser_create_makes_the_derived_page_attaches_it_and_answers_status_with_t
 }
 
 #[test]
+fn a_browser_batch_makes_ordered_children_and_replays_without_duplicates() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let before = page_ids(&layout, &key);
+    let body = json!({"titles":["One", "One", "Two"], "format":"html"});
+    let created = work_action(
+        &server,
+        &mut peer,
+        WORK_ONE,
+        "subpage.createBatch",
+        body.clone(),
+    );
+    assert_eq!(created["state"], "committed", "{created}");
+    assert_eq!(created["nextIndex"], 3, "{created}");
+    let expected: Vec<_> = (0..3)
+        .map(|index| {
+            let operation =
+                tmt_colab::subpage_create::batch_operation_id(&key.space_id, WORK_ONE, index);
+            tmt_colab::subpage_create::child_page_id(&key.space_id, &operation)
+        })
+        .collect();
+    let entries = created["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), expected.len(), "{created}");
+    for (entry, child) in entries.iter().zip(&expected) {
+        assert_eq!(entry["state"], "committed", "{entry}");
+        assert_eq!(entry["childPage"], *child, "{entry}");
+    }
+    assert_eq!(native_work(&layout, &key), expected);
+    assert_eq!(page_ids(&layout, &key).len(), before.len() + 3);
+    let replay = work_action(&server, &mut peer, WORK_ONE, "subpage.createBatch", body);
+    assert_eq!(replay["state"], "committed", "{replay}");
+    assert_eq!(replay["entries"], created["entries"]);
+    assert_eq!(page_ids(&layout, &key).len(), before.len() + 3);
+}
+
+#[test]
+fn a_browser_batch_rejects_invalid_input_before_creating_any_page() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let before = page_ids(&layout, &key);
+    for (operation, body) in [
+        (WORK_ONE, json!({"titles":[]})),
+        (WORK_TWO, json!({"titles":["Valid", " "]})),
+        (WORK_THREE, json!({"titles":["Valid"], "format":"blocks"})),
+        (WORK_FOUR, json!({"titles":vec!["x"; 129]})),
+    ] {
+        let refused = work_action(&server, &mut peer, operation, "subpage.createBatch", body);
+        assert_eq!(refused["state"], "rejected", "{refused}");
+        assert_eq!(refused["code"], "COLAB_INPUT_INVALID", "{refused}");
+        assert_eq!(page_ids(&layout, &key), before);
+    }
+}
+
+#[test]
+fn a_dropped_browser_batch_reports_running_and_resumes_without_duplicates() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let before = page_ids(&layout, &key);
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let body = json!({"titles":["One", "Two"], "format":"html"});
+    send(
+        &mut peer,
+        server.frame(
+            "work",
+            json!({
+                "operationId":WORK_ONE, "action":"subpage.createBatch", "body":body,
+            }),
+        ),
+    );
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    drop(peer);
+    let mut observer = server.peer(DEVICE);
+    observer
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    send(
+        &mut observer,
+        server.frame("savestatus", json!({"operationId":WORK_ONE})),
+    );
+    let running = receive_acked(&server, &mut observer, "saveresult");
+    assert_eq!(running["state"], "running", "{running}");
+    assert_eq!(running["nextIndex"], 0, "{running}");
+    assert_eq!(running["entries"], json!([]));
+    let duplicate = work_action(
+        &server,
+        &mut observer,
+        WORK_ONE,
+        "subpage.createBatch",
+        body.clone(),
+    );
+    assert_eq!(duplicate["state"], "running", "{duplicate}");
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        send(
+            &mut observer,
+            server.frame("savestatus", json!({"operationId":WORK_ONE})),
+        );
+        let status = receive_acked(&server, &mut observer, "saveresult");
+        if status["state"] == "absent" {
+            break;
+        }
+        assert_eq!(status["state"], "running", "{status}");
+        assert!(Instant::now() < deadline, "batch did not settle");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let recovered = work_action(
+        &server,
+        &mut observer,
+        WORK_ONE,
+        "subpage.createBatch",
+        body,
+    );
+    assert_eq!(recovered["state"], "committed", "{recovered}");
+    assert_eq!(recovered["nextIndex"], 2, "{recovered}");
+    assert_eq!(page_ids(&layout, &key).len(), before.len() + 2);
+    assert_eq!(native_work(&layout, &key).len(), 2);
+}
+
+#[test]
 fn browser_list_actions_commit_and_meet_the_same_admission_as_the_write_command() {
     let (server, layout, key, mut peer) = work_fixture();
     let one = work_action(

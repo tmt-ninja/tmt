@@ -3632,7 +3632,8 @@ for a page to adopt, so running it again makes another page.
 
 The owner browser changes work through the sync socket's `work` frame (`operationId, action, body`),
 owner device only, never a link or a public reader. `action` is `subpage.attach`, `subpage.move`,
-`subpage.detach`, `summary.set`, `summary.clear` or `subpage.create`, and `body` its closed body;
+`subpage.detach`, `summary.set`, `summary.clear`, `subpage.create` or `subpage.createBatch`, and
+`body` its closed body;
 neither carries attribution, and the write is the root-local writer's, with no display agent. The
 serve prepares it from a snapshot of its own outside the sync lock, like a browser Save, and runs
 the write command's admission first, so the link rules cannot drift between the command and the
@@ -3656,7 +3657,7 @@ outcome is not resent: the user is asked to check the sub-pages. Share readers a
 no Add control.
 
 `subpage.create` with the body `{title}` and nothing else makes a page and attaches it, as
-`tmt colab subpage create` does, and is the only browser action that makes a page. Page creation is
+`tmt colab subpage create` does; its batch form below is the other browser action that makes pages. Page creation is
 otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`, checked
 again under the sync lock when the page is made): the page's first text is the title as an escaped
 heading, and no source, layout or agent comes from the caller. The serve refuses a source page the
@@ -3676,6 +3677,21 @@ The one `workresult` has a `saveresult`'s fields: `state` `committed` with the `
 operation ID is recorded with the commit, so `savestatus` on it answers a lost reply, and an ID that
 already has a recorded outcome never answers `unchanged` for another action. Like any frame, a reply
 is acknowledged by the browser's `ack`.
+
+`subpage.createBatch` makes ordered children of one parent. Its closed body is `titles` (one to
+128 titles, each admitted by the existing title rule) and optional `format: "html"`; its compact
+JSON encoding is at most 48 KiB. The entire body is checked before any page is made. Each zero-based entry
+uses a derived operation ID: SHA-256 of the UTF-8 bytes `tmt-colab/subpage-batch-entry/v1`, a zero
+byte, the space ID, a zero byte, then the batch ID, `:`, and the decimal index. Take the first 16
+bytes, set UUID version bits to 4 and variant bits to 10, and format as a lowercase UUID. The entry
+uses the existing `subpage.create` retained outcome and child-page derivation.
+
+The owner processes entries in order and stops at the first refusal, reporting retained entries
+and the next index. Resending a batch ID walks those same entry IDs, returns their recorded outcomes
+and continues the remaining entries. While the batch runs, `savestatus` reports running progress;
+after a serve restart, resending the request reconstructs progress from retained entry outcomes.
+The ledger does not bind the batch ID to all titles: a changed resend reports any prior outcomes
+and uses the newly supplied titles for entries not yet made.
 
 The browser's 30 s work-request budget includes waiting for its connection to become ready. If it
 expires before the action is sent, the action was not applied and may be tried again. A lost reply
