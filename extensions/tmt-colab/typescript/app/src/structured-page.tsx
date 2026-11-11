@@ -215,6 +215,24 @@ const landedOn = (target: EventTarget | null) =>
     ? target.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
     : undefined;
 
+/**
+ * Whether the pointer is in the strip between block `id` and its handle (#6248). The handle sits
+ * left of the block with a gap, and the strip is no block's own space, so a pointer that leaves the
+ * block toward a handle button crosses it: the block keeps the handle until the pointer is past.
+ */
+function inHandleGap(root: HTMLElement | null, id: string | undefined, at: PointerEvent) {
+  if (!root || !id) return false;
+  const block = root.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`);
+  const handle = block?.querySelector<HTMLElement>(':scope > [data-slot="block-handle"]');
+  if (!block || !handle) return false;
+  const [edge, grip] = [block.getBoundingClientRect(), handle.getBoundingClientRect()];
+  const across =
+    grip.left < edge.left
+      ? at.clientX >= grip.left && at.clientX < edge.left
+      : at.clientX > edge.right && at.clientX <= grip.right;
+  return across && at.clientY >= edge.top && at.clientY <= edge.bottom;
+}
+
 /** The page's pointer state that the blocks draw: the hovered block and a drag in progress. */
 interface Pointer {
   hovered?: string;
@@ -267,10 +285,13 @@ export function StructuredPage(props: StructuredPageProps) {
         onKeyDown={(event) => {
           if (props.onPageKey?.(event)) event.preventDefault();
         }}
-        // The handle follows the innermost block under the pointer.
+        // The handle follows the innermost block under the pointer, and stays while the pointer
+        // crosses the gap between that block and the handle (#6248).
         onPointerMove={(event) => {
           const block = (event.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
-          setHovered(block?.dataset.blockId);
+          setHovered((now) =>
+            inHandleGap(root.current, now, event.nativeEvent) ? now : block?.dataset.blockId,
+          );
         }}
         onPointerLeave={() => setHovered(undefined)}
         // Dropping files, or pasting them, inserts them after the block they landed on (spec 圖片:
