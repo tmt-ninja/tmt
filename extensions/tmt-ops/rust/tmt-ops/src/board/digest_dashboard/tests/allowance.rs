@@ -118,9 +118,7 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
     // 1.0 pt/h over the last 3 h empties it first, at Su 04:40; it resets Su 18:40.
     assert_eq!(
         row_of(&rows, "Claude"),
-        [
-            "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
-        ]
+        ["Claude", "26%", "✗", "runs", "out", "Su", "04:40"]
     );
     assert!(
         !rows.iter().any(|row| row.contains("NEED")),
@@ -290,7 +288,7 @@ fn a_narrow_frame_keeps_allowance_to_one_line_under_the_window_totals() {
             assert!(rows.iter().any(|row| row.contains("≈ $ saved")));
         }
         assert!(rows[at].contains("Claude") && rows[at].contains("26%"));
-        assert!(rows[at + 1].starts_with("saved = context"));
+        assert!(!rows[at].contains("r…"), "reset label must not be cut");
     }
 }
 
@@ -322,11 +320,9 @@ fn claude_row(app: &mut App) -> Vec<String> {
 /// so each empties it at Su 18:40) when the worst projection runs out at `at`.
 fn row_running_out(at: &str) -> Vec<String> {
     let (day, time) = at.split_once(' ').unwrap();
-    [
-        "Claude", "20%", "✗", "runs", "out", day, time, "resets", "Su", "18:40",
-    ]
-    .map(str::to_owned)
-    .to_vec()
+    ["Claude", "20%", "✗", "runs", "out", day, time]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 #[test]
@@ -374,7 +370,7 @@ fn direction_a_narrow_allowance_never_clips_resets_mid_word() {
                 .unwrap();
             let codex = row.split_once("Codex").unwrap().1.trim_end();
             assert!(
-                codex.ends_with('…') || codex.contains("resets"),
+                codex.ends_with('…') || codex.contains("runs out"),
                 "{name}: {row}"
             );
             assert!(!codex.ends_with("r…"), "{name}: partial reset label: {row}");

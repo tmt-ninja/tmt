@@ -245,7 +245,16 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     if let Some(id) = selected.id {
         if let Some((status, stale)) = app.labels.digest() {
             if let Some(member) = status.members.get(id) {
-                if app.digest_inline.is_none() {
+                let inline = app
+                    .digest_inline
+                    .as_ref()
+                    .filter(|edit| Some(&edit.target) == app.workspace.selected.as_ref());
+                let edit_lines = inline.map(|edit| edit.lines());
+                if let Some(edit) = &edit_lines {
+                    if let Some(mode) = edit.first() {
+                        lines.push(mode.clone());
+                    }
+                } else {
                     lines.push("mode Auto Interval Off Use default".into());
                 }
                 lines[0] = format!(
@@ -281,7 +290,9 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                     ));
                 }
                 lines.push(delivery);
-                if let Some((wait, count)) = member.auto_caps {
+                if let Some(edit) = &edit_lines {
+                    lines.extend(edit.iter().skip(1).cloned());
+                } else if let Some((wait, count)) = member.auto_caps {
                     lines.push(format!(
                         "max hold {} ▾ · max messages {count} ▾",
                         model::human_duration(wait)
@@ -305,12 +316,18 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     } else {
         lines.extend(delivery(app, now_ms, row));
     }
-    if let Some(inline) = app
+    if let Some(edit) = app
         .digest_inline
         .as_ref()
-        .filter(|inline| Some(&inline.target) == app.workspace.selected.as_ref())
+        .filter(|edit| Some(&edit.target) == app.workspace.selected.as_ref())
     {
-        lines.extend(inline.lines());
+        let edit_lines = edit.lines();
+        if edit_lines
+            .first()
+            .is_some_and(|first| !lines.contains(first))
+        {
+            lines.extend(edit_lines);
+        }
     }
     if !selected.all
         && let Some((status, _)) = app.labels.digest()
@@ -355,10 +372,8 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         ));
     }
     lines.push(format!(
-        "List-price equivalent: {} ({}/{} agents)",
-        super::table::saved(&sum, crate::config::SavingsUnit::Cost),
-        sum.cost.included,
-        sum.total
+        "{} at list price · messages/batches unavailable",
+        super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $")
     ));
     lines.push(format!(
         "── Models · {} | by TOK ──",
@@ -430,17 +445,22 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         }
         for job in jobs {
             lines.push(format!(
-                "{} · {} · {} · {} · {}",
+                "{} {} {} {} {}{}",
                 job.job.id(),
                 job.squad,
-                job.state_label(),
+                crate::cron_service::schedule_text(&job.job.schedule),
                 job.next_ms.first().map_or("next unavailable".into(), |at| {
                     crate::board::cronboard::countdown(
                         *at,
                         i64::try_from(now_ms).unwrap_or(i64::MAX),
                     )
                 }),
-                crate::board::notes::single_line(&job.job.message)
+                crate::board::notes::single_line(&job.job.message),
+                if job.state_label() == "on" {
+                    ""
+                } else {
+                    " · paused"
+                }
             ));
         }
     } else {

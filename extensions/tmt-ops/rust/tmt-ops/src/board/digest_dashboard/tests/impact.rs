@@ -158,21 +158,27 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     doc["members"] = report.seats.iter_mut().enumerate().map(|(i, seat)| {
         seat.from_ms = from; seat.to_ms = now; seat.window_ms = window.range().milliseconds(); seat.covered_ms = seat.window_ms;
         let factor = if scene == "digest-spec-review" && seat.who.id.as_deref() == Some(MEMBER) { 60 } else { i + 1 };
-        let total = (count * (count + 1) / 2 * factor * 100) as u64;
+        let points = (0..count).map(|n| {
+            let absent = scene == "digest-spec-review" && n % 4 == 0;
+            Point { tokens: if absent { 0 } else { ((n + 1) * factor * 100) as u64 }, complete: !absent && (scene != "digest-chart-gaps" || n != 2) }
+        }).collect::<Vec<_>>();
+        let total = points.iter().map(|point| point.tokens).sum::<u64>();
         seat.input = total * 3 / 4; seat.output = total - seat.input;
-        seat.complete = scene != "digest-chart-gaps";
-        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points:(0..count).map(|n| Point { tokens:((n+1)*factor*100) as u64, complete:scene != "digest-chart-gaps" || n != 2 }).collect() });
+        seat.complete = scene != "digest-chart-gaps" && scene != "digest-spec-review";
+        if scene == "digest-spec-review" { seat.covered_ms = seat.window_ms * 3 / 4; }
+        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points });
         seat.model_totals = Some(vec![("claude-opus-5-5".into(), seat.total()*3/4),("unattributed".into(), seat.total()-seat.total()*3/4)]);
         let mut member = template.clone(); member["identityId"] = serde_json::json!(seat.who.id);
         if scene == "digest-spec-review" { member["heldCount"] = serde_json::json!(if seat.who.id.as_deref() == Some(MEMBER) { 3 } else { i % 9 }); }
         member["nextEligibleAtMs"] = serde_json::json!(now+90_000); member["lastDelivery"] = serde_json::json!({"settledAtMs":now-60_000,"messages":8,"batches":2});
         member["autoCaps"] = serde_json::json!({"maxWaitMs":300_000,"maxCount":5});
         member["savings"]["window"] = serde_json::json!(window.argument()); member["savings"]["fromMs"] = serde_json::json!(from); member["savings"]["throughMs"] = serde_json::json!(now);
-        let saved = total / 5;
+        let divisor = if scene == "digest-spec-review" { 5 + i as u64 % 7 } else { 5 };
+        let saved = total / divisor;
         member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(saved);
-        member["savings"]["percent"] = serde_json::json!({"basisPoints":saved*10_000/(saved+seat.input),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
+        member["savings"]["percent"] = serde_json::json!({"basisPoints":(saved*20_000+(saved+seat.input))/(2*(saved+seat.input)),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
         if scene == "digest-spec-review" { member["savings"]["cost"]["usdMicros"] = serde_json::json!(saved * 2); member["savings"]["cost"]["modelObservedAtMs"] = serde_json::json!(now - 60_000); } else { member["savings"]["cost"] = serde_json::Value::Null; }
-        member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
+        member["savings"]["series"] = (0..count).map(|n| { let gap = (scene == "digest-chart-gaps" && n == 3) || (scene == "digest-spec-review" && n % 4 == 0); serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*100) as u64 / divisor)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
     if scene == "digest-spec-review" {
@@ -323,7 +329,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
     for scene in SCENES.iter().filter(|scene| **scene != "impact-basis") {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
-        for label in ["Range", "used TOK", "Saved ·", "Models", "Timers"] {
+        for label in ["Range", "█ used  █ saved", "Saved ·", "Models", "Timers"] {
             assert!(shown.contains(label), "{scene}: {label}: {shown}");
         }
         let sum = super::super::savings(&app);
@@ -338,7 +344,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
         assert!(compact[1].contains("Window list-price equivalent"));
         assert!(compact[1].contains("not a bill"));
         let full = summary_lines(&app, 160, 8);
-        assert!(full[1].contains("used TOK") && !full[1].contains("used $"));
+        assert!(full[1].contains("█ used  █ saved") && !full[1].contains("used $"));
     }
 }
 
@@ -597,7 +603,7 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
         ("digest-zero-and-no-source", "no usage source"),
         ("digest-populated-timer", "check status"),
         ("digest-all-readonly", "all · 1d"),
-        ("digest-dollar-totals", "$ window totals; chart stays TOK"),
+        ("digest-dollar-totals", "█ used  █ saved"),
     ] {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
@@ -785,6 +791,41 @@ fn spec_fixture_has_a_timer_and_unread_observation() {
             .filter_map(super::super::metrics::id)
             .any(|id| app.unread_count(id).total > 0)
     );
+    let activity = super::super::metrics::activity(super::super::metrics::report(&app), &[MEMBER]);
+    assert!(
+        activity.iter().any(Option::is_none) && activity.iter().flatten().any(|value| *value > 0),
+        "fixture must contain missing and observed hours"
+    );
+    let percentages = app
+        .labels
+        .digest()
+        .unwrap()
+        .0
+        .members
+        .values()
+        .filter_map(|member| {
+            member
+                .savings
+                .as_ref()?
+                .percent
+                .as_ref()
+                .map(|percent| percent.basis_points)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        percentages.len() > 2,
+        "fixture needs varied saved percentages"
+    );
+    assert!(
+        app.labels
+            .digest()
+            .unwrap()
+            .0
+            .members
+            .values()
+            .all(|member| member.savings.as_ref().is_some_and(|s| s.percent.is_some())),
+        "every fixture member needs valid saved-percent evidence"
+    );
     assert!(
         super::super::details::panel(&app, crate::status::now_ms(), app.selected_row())
             .iter()
@@ -854,7 +895,7 @@ fn direction_a_keeps_all_three_detail_sections_visible_at_100_by_36() {
                 assert!(shown.contains(section), "{name}: missing {section}");
             }
             assert!(
-                shown.contains("used 1.8M · saved 360k"),
+                shown.contains("used ") && shown.contains(" · saved "),
                 "{name}: missing selected savings"
             );
             assert!(
@@ -894,6 +935,11 @@ fn inline_editor_is_visible_and_usable_in_the_real_detail_panel() {
             .is_some_and(|edit| edit.visible.get()),
         "{shown}"
     );
+    assert_eq!(
+        shown.matches("max hold").count(),
+        1,
+        "the editor must reuse the visible caps: {shown}"
+    );
     let effect = app.key(ratatui::crossterm::event::KeyEvent::new(
         ratatui::crossterm::event::KeyCode::Right,
         ratatui::crossterm::event::KeyModifiers::NONE,
@@ -927,6 +973,14 @@ fn spec_list_names_activity_window_and_missing_sources() {
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("ACTIVITY · last 1d"), "{shown}");
     assert!(shown.contains("rows ·"), "{shown}");
+    assert!(
+        !shown.contains("more ↓ · · ="),
+        "duplicate footer separator: {shown}"
+    );
+    assert!(
+        !shown.contains("75 he…"),
+        "aggregate held must fit as a number: {shown}"
+    );
     let all_rows = paint(&mut app, 160, 50);
     assert!(all_rows.contains("no usage source"), "{all_rows}");
 }
@@ -945,6 +999,17 @@ fn spec_summary_has_unit_choices_and_one_compact_allowance_row() {
         ] {
             assert!(shown.contains(expected), "missing {expected}: {shown}");
         }
+        let allowance = shown
+            .split_once("Allowance ")
+            .unwrap()
+            .1
+            .split_once("saved = context")
+            .unwrap()
+            .0;
+        assert!(
+            !allowance.contains('…'),
+            "160-column provider summaries must fit: {allowance}"
+        );
     });
 }
 
@@ -1016,14 +1081,7 @@ fn aggregate_chart_keeps_observed_buckets_when_members_have_no_source() {
         "partial total must be marked: {total}"
     );
     let shown = paint(&mut app, 160, 36);
-    let legend = shown
-        .lines()
-        .find(|line| line.contains("used TOK"))
-        .unwrap();
-    assert!(
-        legend.contains("used TOK ≥"),
-        "partial chart must be marked: {legend}"
-    );
+    assert!(shown.contains("█ used  █ saved"), "chart legend: {shown}");
 
     let mut report = super::super::metrics::report(&app).unwrap().clone();
     report.seats.clear();

@@ -146,7 +146,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         } else {
             let matrix_height = if details {
-                7.min(side.height / 3)
+                6.min(side.height.saturating_sub(3))
             } else {
                 side.height
             };
@@ -627,6 +627,19 @@ pub(super) fn detail_lines(
     lines
         .into_iter()
         .flat_map(|text| {
+            use unicode_width::UnicodeWidthStr;
+            if text.starts_with("held ")
+                && text.width() > usize::from(width)
+                && let Some((first, last)) = text.split_once(" · last ")
+            {
+                let mut lines =
+                    crate::board::notes::wrap(&format!("{first} · …"), usize::from(width));
+                lines.extend(crate::board::notes::wrap(
+                    &format!("last {last}"),
+                    usize::from(width),
+                ));
+                return lines;
+            }
             crate::board::notes::wrap(&crate::board::notes::sanitize(&text), usize::from(width))
         })
         .map(|text| Line::styled(text, app.look().role(Role::Text)))
@@ -680,7 +693,7 @@ fn compact_detail_lines(lines: Vec<String>, width: usize) -> Vec<String> {
             }
         }
         if !items.is_empty() {
-            if !heading.is_empty() {
+            if !heading.is_empty() && !priority {
                 items[0] = format!("{} · {}", heading.replace(" | ", " · "), items[0]);
             }
             remainder.extend(items);

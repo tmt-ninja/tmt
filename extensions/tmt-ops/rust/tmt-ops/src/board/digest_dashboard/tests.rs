@@ -1783,14 +1783,7 @@ fn the_summary_keeps_its_tok_chart_totals_and_allowance_at_each_width() {
     let selected = app.workspace.selected.clone();
     for (width, height) in [(160, 50), (120, 40), (100, 32)] {
         let shown = paint(&mut app, width, height);
-        for text in [
-            "Range",
-            "1d ▾",
-            "used TOK",
-            "18.2k",
-            "Allowance",
-            "saved = context",
-        ] {
+        for text in ["Range", "1d ▾", "█ used  █ saved", "18.2k", "Allowance"] {
             assert!(shown.contains(text), "{text}: {shown}");
         }
         assert_eq!(app.workspace.selected, selected);

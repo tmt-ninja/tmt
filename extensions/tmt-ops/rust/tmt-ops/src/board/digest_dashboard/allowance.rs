@@ -238,7 +238,7 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
         Outcome::Lasts(_) => ("lasts past reset".into(), false),
         Outcome::Unknown => ("—".into(), false),
     };
-    vec![
+    let mut parts = vec![
         span(label, Role::Text, false),
         span(format!("{:.0}%", weekly.left), Role::Text, true),
         (
@@ -254,12 +254,15 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
             if runs_out { Role::Waiting } else { Role::Text },
             false,
         ),
-        span(
+    ];
+    if !runs_out {
+        parts.push(span(
             format!("  resets {}", clock(weekly.resets_at_ms, zone)),
             Role::Muted,
             false,
-        ),
-    ]
+        ));
+    }
+    parts
 }
 
 fn clock(at_ms: u64, zone: &jiff::tz::TimeZone) -> String {

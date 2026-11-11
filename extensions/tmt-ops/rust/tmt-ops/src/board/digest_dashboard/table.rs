@@ -215,11 +215,16 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let footer = [
         narrow_hint(inside.width, unit, room),
         Some(format!(
-            "{}–{} / {} rows · {} more ↓ · · = no usage observed in that hour · {notes}",
+            "{}–{} / {} rows · {} more ↓ · = no usage observed in that hour{}",
             if rows.is_empty() { 0 } else { offset + 1 },
             end,
             rows.len(),
-            rows.len().saturating_sub(end)
+            rows.len().saturating_sub(end),
+            if notes.is_empty() {
+                String::new()
+            } else {
+                format!(" · {notes}")
+            }
         )),
     ]
     .into_iter()
@@ -507,7 +512,7 @@ fn value(
         Field::Percent => unreachable!("percent reads the supplied savings summary"),
         Field::Saved => unreachable!(),
         Field::Held if metrics::id(row).is_none() => {
-            metrics::held(app, ids).map_or("—".into(), |count| format!("{count} held"))
+            metrics::held(app, ids).map_or("—".into(), |count| count.to_string())
         }
         Field::Mode => metrics::mode(app, metrics::id(row)),
         Field::Held => metrics::held(app, ids).map_or("—".into(), |count| count.to_string()),

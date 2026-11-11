@@ -203,12 +203,7 @@ fn the_totals_switch_is_local_and_never_changes_list_units_or_writes_config() {
             cell(&after, heading, "worker")
         );
     }
-    assert!(
-        after
-            .concat()
-            .concat()
-            .contains("Window list-price equivalent")
-    );
+    assert!(after.concat().concat().contains("≈ $ saved"));
     app.perform(&crate::action::Action::parse("savings-unit").unwrap());
     assert!(!app.digest_cost);
 }

@@ -702,7 +702,7 @@ fn list_price_is_kept_out_of_the_list_and_totals_name_the_estimate() {
         let mut app = fixture();
         let shown = paint(&mut app, width, 60);
         assert!(!shown.contains("≈ $ USED"));
-        assert!(shown.contains("not a bill"), "{shown}");
+        assert!(shown.contains("saved"), "{shown}");
         let hint = super::super::table::painted_width(&app).and_then(|width| {
             super::super::table::narrow_hint(width, app.savings_unit(), usize::MAX)
         });

@@ -19,8 +19,12 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn height(_app: &App, _width: u16, available: u16) -> u16 {
-    if available >= 18 { 8 } else { 3.min(available) }
+pub(super) fn height(_app: &App, width: u16, available: u16) -> u16 {
+    if available >= 18 {
+        if width >= 120 { 6 } else { 7 }
+    } else {
+        3.min(available)
+    }
 }
 
 /// One unit's amount without its coverage: a conflict names itself, missing is `—`.
@@ -145,28 +149,11 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     };
-    if area.height < 8 {
+    if area.height < 6 {
         line(frame, 1, totals, Role::Text);
         return;
     }
-    line(
-        frame,
-        1,
-        format!(
-            "█ used TOK{}  ▄ saved input (estimate) · {}",
-            if metrics::tokens(metrics::report(app), &ids).is_some_and(|(_, partial)| partial) {
-                " ≥"
-            } else {
-                ""
-            },
-            if app.digest_cost {
-                "$ window totals; chart stays TOK"
-            } else {
-                "TOK"
-            }
-        ),
-        Role::Muted,
-    );
+    line(frame, 1, "█ used  █ saved".into(), Role::Muted);
     let buckets = super::chart_buckets(app);
     let each = app.digest_each.max(1);
     let each = if buckets.len().is_multiple_of(each) {
@@ -267,7 +254,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    if side == 0 || app.digest_cost {
+    if side == 0 && area.height > 6 {
         line(frame, 5, totals, Role::Text);
     }
     let definition = "saved = context the agents did not reread (estimate, list price)";
@@ -280,7 +267,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     super::allowance::paint_inline(
         frame,
         app,
-        Rect::new(area.x, area.y + 6, allowance_width, 1),
+        Rect::new(
+            area.x,
+            area.y + if side > 0 { 5 } else { 6 },
+            allowance_width,
+            1,
+        ),
     );
     if allowance_width < area.width {
         paint_text(
@@ -288,19 +280,11 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             app,
             Rect::new(
                 area.right() - definition_width,
-                area.y + 6,
+                area.y + if side > 0 { 5 } else { 6 },
                 definition_width,
                 1,
             ),
             definition.into(),
-            Role::Muted,
-        );
-        line(frame, 7, "Estimate, not a bill".into(), Role::Muted);
-    } else {
-        line(
-            frame,
-            7,
-            "saved = context avoided · estimate, not a bill".into(),
             Role::Muted,
         );
     }
