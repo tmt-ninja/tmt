@@ -189,6 +189,22 @@ export function sourceFrameKey(source: string): string {
   if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime|tmt-ds/i.test(source)) return `scripted:${source}`;
   return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
 }
+/** Whether a frame built for design system `a` is still right for `b`: the same findings and
+ * component scripts, runtime chunks and data tags, and (unless `style` is false) the same style. */
+function sameFrameDesign(
+  a: FrameDesignSystem | undefined,
+  b: FrameDesignSystem | undefined,
+  { style = true } = {},
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.script === b.script &&
+    (!style || a.style === b.style) &&
+    JSON.stringify(a.runtimeChunks) === JSON.stringify(b.runtimeChunks) &&
+    JSON.stringify(a.pageViewTags) === JSON.stringify(b.pageViewTags) &&
+    JSON.stringify(a.pageDataTags) === JSON.stringify(b.pageDataTags)
+  );
+}
 /** What an in-place update came to: the frame applied it, the page needs a fresh frame, or a newer
  * update or the end of the render replaced it. */
 export type SourceUpdate = 'applied' | 'remount' | 'superseded';
@@ -1761,6 +1777,14 @@ export async function mountRenderer(
       return 'remount';
     }
     if (stopped || turn !== updates) return 'superseded';
+    // A page that writes design-system tags without a pin keeps its frame across edits: its
+    // findings and runtime chunks follow the new source, so a change to them needs a fresh frame
+    // (#5966). A pinned page never gets here: its frame key changes with every source.
+    if (sourceFrameKey(source) === 'design') {
+      const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
+      if (stopped || turn !== updates) return 'superseded';
+      if (!sameFrameDesign(next, frameDesign)) return 'remount';
+    }
     const requestId = crypto.randomUUID();
     return new Promise<SourceUpdate>((resolve) => {
       const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);
@@ -1794,14 +1818,8 @@ export async function mountRenderer(
     // A timed-out refresh must not replace an already drawn draft with a transient notice.
     // The pending draft notifies followers when it eventually completes.
     if (next?.failure === 'unavailable' && !frameDesign.failure) return 'applied';
-    if (
-      !next ||
-      next.script !== frameDesign.script ||
-      JSON.stringify(next.runtimeChunks) !== JSON.stringify(frameDesign.runtimeChunks) ||
-      JSON.stringify(next.pageViewTags) !== JSON.stringify(frameDesign.pageViewTags) ||
-      JSON.stringify(next.pageDataTags) !== JSON.stringify(frameDesign.pageDataTags)
-    )
-      return 'remount';
+    // Only the style changes in place; anything the frame's scripts were built from remounts.
+    if (!next || !sameFrameDesign(next, frameDesign, { style: false })) return 'remount';
     const requestId = crypto.randomUUID();
     return new Promise<SourceUpdate>((resolve) => {
       const timer = setTimeout(() => settle('remount'), SOURCE_UPDATE_MS);

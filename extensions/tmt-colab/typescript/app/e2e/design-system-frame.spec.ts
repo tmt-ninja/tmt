@@ -892,6 +892,41 @@ test('source and design updates both settle in either order on an updatable page
   }
 });
 
+test('an edit to an unpinned page keeps its frame only while its findings stay the same (#5966)', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const host = document.createElement('div');
+    host.id = 'unpinned-probe';
+    document.body.prepend(host);
+    const handle = await mountRenderer(host, '<tmt-ui-button>Go</tmt-ui-button><p>First</p>', {
+      signal: new AbortController().signal,
+      onState: (state: string) => {
+        host.dataset.state = state;
+      },
+    });
+    Object.assign(window, { unpinnedProbe: handle });
+  });
+  await expect(page.locator('#unpinned-probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#unpinned-probe iframe');
+  const findings = frame.getByRole('status', { name: 'Design system check' });
+  await expect(findings.getByRole('listitem')).toHaveText([
+    '<tmt-ui-button> needs the page to pin a design system (<meta name="tmt-ds">).',
+  ]);
+  const update = (source: string) =>
+    page.evaluate((source) => (window as any).unpinnedProbe.update(source), source);
+  // The same findings: the text changes in place.
+  expect(await update('<tmt-ui-button>Go</tmt-ui-button><p>Second</p>')).toBe('applied');
+  await expect(frame.locator('p')).toHaveText('Second');
+  // A new tag changes the findings the frame was built with, so the page needs a fresh frame.
+  expect(
+    await update('<tmt-ui-button>Go</tmt-ui-button><tmt-ui-card>Card</tmt-ui-card><p>Third</p>'),
+  ).toBe('remount');
+});
+
 test('an unreadable release and a malformed pin both say so', async ({ page }) => {
   let frame = await mount(
     page,
