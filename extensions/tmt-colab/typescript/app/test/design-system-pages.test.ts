@@ -310,6 +310,73 @@ describe('template, publish and the renderer source', () => {
     });
   });
 
+  it.each(['committed', 'absent'] as const)(
+    'splits a large parent and resumes its uncertain chunk when status is %s',
+    async (status) => {
+      const { pages, make, transport } = space();
+      make('Home');
+      const calls: { id: string; titles: readonly string[] }[] = [];
+      const outcomes = new Map<
+        string,
+        Awaited<ReturnType<NonNullable<PageBinding['subpageBatch']>>>
+      >();
+      const statuses: string[] = [];
+      let dropped = false;
+      const page = transport.page.bind(transport);
+      (transport as { page: PageTransport['page'] }).page = async (id, signal) => {
+        const snapshot = await page(id, signal);
+        const binding = snapshot.binding;
+        if (pages.get(id)?.title === 'Components' && binding?.subpageBatch) {
+          const original = binding.subpageBatch.bind(binding);
+          binding.subpageBatch = async (operationId, body) => {
+            calls.push({ id: operationId, titles: [...body.titles] });
+            const retained = outcomes.get(operationId);
+            if (retained) return retained;
+            const result = await original(operationId, body);
+            outcomes.set(operationId, result);
+            if (calls.length === 2 && !dropped) {
+              dropped = true;
+              throw new SaveOutcomeUnknown(operationId);
+            }
+            return result;
+          };
+          binding.subpageBatchStatus = async (operationId) => {
+            statuses.push(operationId);
+            return status === 'committed'
+              ? outcomes.get(operationId)!
+              : { operationId, state: 'absent', entries: [], nextIndex: 0 };
+          };
+        }
+        return snapshot;
+      };
+      const creation = designSystemCreation(transport, { name: 'Acme', prefix: 'acme' });
+      const componentTitles = (templateSections as { title: string; pages: { title: string }[] }[])
+        .find((section) => section.title === 'Components')!
+        .pages.map((entry) => entry.title);
+      expect(componentTitles.length).toBeGreaterThan(32);
+      const lengths = Array.from({ length: Math.ceil(componentTitles.length / 32) }, (_, index) =>
+        Math.min(32, componentTitles.length - index * 32),
+      );
+      await expect(creation.run()).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+      expect(calls.map((call) => call.titles.length)).toEqual(lengths.slice(0, 2));
+      const count = pages.size;
+      await creation.run();
+      const uniqueCalls = calls.filter(
+        (call, index) => calls.findIndex((item) => item.id === call.id) === index,
+      );
+      expect(uniqueCalls.map((call) => call.titles.length)).toEqual(lengths);
+      expect(uniqueCalls.flatMap((call) => call.titles)).toEqual(componentTitles);
+      expect(new Set(calls.map((call) => call.id)).size).toBe(lengths.length);
+      expect(statuses).toContain(calls[1]!.id);
+      expect(calls.filter((call) => call.id === calls[1]!.id)).toHaveLength(
+        status === 'absent' ? 2 : 1,
+      );
+      const components = [...pages.values()].find((value) => value.title === 'Components')!;
+      expect(components.order.map((id) => pages.get(id)!.title)).toEqual(componentTitles);
+      expect(pages.size).toBeGreaterThan(count);
+    },
+  );
+
   it('reports retained entries while an owner batch is still running', async () => {
     const { make, transport } = space();
     make('Home');

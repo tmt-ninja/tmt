@@ -150,6 +150,8 @@ export const DRAFT_READS = 6;
 /** Page sources a new system writes at once (`designSystemCreation`): with a follow's root and the
  * open page, a tab holds at most 6 of the door's 16 page tunnels. */
 export const CREATE_WRITES = 4;
+/** Bound each owner batch so a large template does not require one long work reply. */
+export const CREATE_BATCH = 32;
 /** How long a burst of edits to a system's pages settles before its followers redraw. */
 export const DRAFT_SETTLE_MS = 500;
 /** How long a follow's first draft waits for the live list's first revisions, so the docs it reads
@@ -809,7 +811,7 @@ export function designSystemCreation(
       throw error;
     }
   };
-  const createMany = async (
+  const createChunk = async (
     parent: Snapshot,
     batchKey: string,
     pages: readonly { key: string; title: string }[],
@@ -903,6 +905,18 @@ export function designSystemCreation(
       if (error instanceof SaveOutcomeUnknown) batch.uncertain = true;
       throw error;
     }
+  };
+  const createMany = async (
+    parent: Snapshot,
+    batchKey: string,
+    pages: readonly { key: string; title: string }[],
+  ): Promise<string[]> => {
+    const created: string[] = [];
+    for (let offset = 0; offset < pages.length; offset += CREATE_BATCH) {
+      const chunk = pages.slice(offset, offset + CREATE_BATCH);
+      created.push(...(await createChunk(parent, `${batchKey}:${offset / CREATE_BATCH}`, chunk)));
+    }
+    return created;
   };
   const write = (id: string, source: string) =>
     withPage(transport, id, async (page) => {
