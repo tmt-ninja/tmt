@@ -1,7 +1,4 @@
-use crate::{
-    board::savings::percent_text,
-    labels::{Supplied, digest::SettingSource},
-};
+use crate::labels::{Supplied, digest::SettingSource};
 use tmt_cli_style::mark::Mark;
 
 pub(in crate::board) fn held_text(
@@ -250,14 +247,6 @@ fn valuation_basis(member: &crate::labels::digest::Member) -> Vec<String> {
     fields
 }
 
-pub(super) fn detail_percent(points: u16) -> String {
-    match points {
-        0 => "0%".into(),
-        1..=4 => "<0.1%".into(),
-        5..=94 => format!("0.{}%", (points + 5) / 10),
-        _ => percent_text(points),
-    }
-}
 fn duration_parts(ms: u64) -> (String, &'static str) {
     let (unit, label) = if ms >= 86_400_000 {
         (86_400_000, "d")
@@ -330,16 +319,6 @@ mod detail_copy_tests {
     use super::*;
     #[test]
     fn readable_detail_units_preserve_unknown_and_small_nonzero_values() {
-        for (points, expected) in [
-            (0, "0%"),
-            (1, "<0.1%"),
-            (5, "0.1%"),
-            (49, "0.5%"),
-            (99, "1%"),
-            (1820, "18%"),
-        ] {
-            assert_eq!(detail_percent(points), expected);
-        }
         assert_eq!(human_window(0, 1_000), "under 1 s");
         assert_eq!(human_window(60_000, 120_000), "1–2 min");
         assert_eq!(human_duration(600_000), "10 min");
