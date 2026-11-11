@@ -136,6 +136,7 @@ export function LiveStructuredPage({
     closeBlockMenu,
     hoverBlockMenu,
     attach,
+    refuseFiles,
     uploads,
     choosing,
     mention,
@@ -189,6 +190,7 @@ export function LiveStructuredPage({
       failedFirstText={failedFirstText}
       onMove={move}
       onAttach={files && ((picked, after) => void attach(picked, after))}
+      onFilesRefused={refuseFiles}
       uploads={uploads}
       choosing={choosing}
       onDownloadFile={onDownloadFile}

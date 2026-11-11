@@ -134,6 +134,7 @@ export const text = {
     'too-large': (name: string) => `${name} is larger than 8 MiB, so it was not added.`,
     unreadable: (name: string) => `${name} could not be read, so it was not added.`,
     noPlace: 'Files cannot go inside that block. Select another block and add again.',
+    unavailable: 'Files cannot be added to this page right now, so nothing was added.',
     pick: 'Choose an image or file',
   },
   blockMention: {
