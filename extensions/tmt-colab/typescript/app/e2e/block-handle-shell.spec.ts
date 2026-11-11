@@ -1,0 +1,155 @@
+import { expect, test, type Page } from '@playwright/test';
+
+// #6273: the handle (＋ and ⋯) hangs 48px left of its block. On a top-level block in the app, the
+// page stage left it outside the page root (the stage's margin is 30px at 1440 with the sidebar), so
+// the pointer left the root before it reached a button and the handle went, as before #6248; at a
+// narrow window the handle lay off the screen. block-handle.spec.ts passed because its fixture host
+// is a 720px column with the design system's own gutter. This one runs in the real shell.
+async function mountShell(page: Page, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.route('**/colab/renderer.html', async (route) =>
+    route.fulfill({
+      response: await route.fetch({ url: new URL('/renderer.html', route.request().url()).href }),
+    }),
+  );
+  await page.route('**/src/main.tsx', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `import {mountBlockShell} from '/test/block-shell-browser.tsx'; void mountBlockShell();`,
+    }),
+  );
+  // Any served path: the fixture puts the page's own address in place.
+  await page.goto('/colab/design/');
+  await expect(page.locator('.structured-page-stage [data-block-id="two"]')).toBeVisible();
+}
+
+/** Move the pointer from `from` to `to` in small steps, as a hand does, and say at which x the
+ * handle was gone. */
+async function travel(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
+  const handle = page.locator('.structured-page-stage [data-slot="block-handle"]');
+  const gone: number[] = [];
+  await page.mouse.move(from.x, from.y);
+  const steps = Math.ceil(Math.abs(from.x - to.x) / 4);
+  for (let step = 1; step <= steps; step++) {
+    const x = from.x + ((to.x - from.x) * step) / steps;
+    await page.mouse.move(x, from.y + ((to.y - from.y) * step) / steps);
+    if ((await handle.count()) === 0) gone.push(Math.round(x));
+  }
+  return gone;
+}
+
+for (const width of [1440, 800])
+  for (const block of ['two', 'nested'] as const)
+    for (const button of ['Insert block', 'Block actions'] as const)
+      test(`at ${width}px the pointer goes from the ${block} block's text to ${button} and clicks it`, async ({
+        page,
+      }) => {
+        await mountShell(page, width);
+        const stage = page.locator('.structured-page-stage');
+        const target = stage.locator(`[data-block-id="${block}"]`);
+        const text = (await target.boundingBox())!;
+        const start = { x: text.x + 60, y: text.y + 12 };
+        await page.mouse.move(start.x, start.y);
+        const control = target.locator(':scope > [data-slot="block-handle"]').getByRole('button', {
+          name: button,
+        });
+        await expect(control).toBeVisible();
+        const box = (await control.boundingBox())!;
+        const goal = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+        // The handle stays under the pointer all the way, over the gap between block and handle.
+        expect(await travel(page, start, goal)).toEqual([]);
+        await expect(control).toBeVisible();
+        await page.mouse.down();
+        await page.mouse.up();
+        if (button === 'Block actions')
+          await expect(page.getByRole('menu', { name: 'Block actions' })).toBeVisible();
+        // Insert block starts a new block after this one; the page answers it later.
+        else
+          await expect
+            .poll(() =>
+              page.evaluate(
+                (id) =>
+                  (
+                    window as unknown as {
+                      blockShell: { batches: { op: string; after?: string | null }[][] };
+                    }
+                  ).blockShell.batches
+                    .flat()
+                    .filter((op) => op.op === 'insert' && op.after === id).length,
+                block,
+              ),
+            )
+            .toBe(1);
+      });
+
+for (const width of [1440, 800])
+  for (const block of ['two', 'nested'] as const)
+    test(`at ${width}px the ${block} block's handle is on the screen and clear of the sidebar`, async ({
+      page,
+    }) => {
+      await mountShell(page, width);
+      const target = page.locator(`.structured-page-stage [data-block-id="${block}"]`);
+      const text = (await target.boundingBox())!;
+      await page.mouse.move(text.x + 60, text.y + 12);
+      const handle = target.locator(':scope > [data-slot="block-handle"]');
+      await expect(handle).toBeVisible();
+      const box = (await handle.boundingBox())!;
+      // Both buttons are inside the window, and beside the sidebar where there is one.
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      if (width === 1440) {
+        const rail = (await page.locator('.tmt-ui-rail').boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(rail.x + rail.width);
+      }
+      // And inside the page root, so a pointer on the way to them has not left the page.
+      const root = (await page.locator('.structured-page-stage .tmt-block-doc').boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(root.x);
+    });
+
+/** The left edge of an element's text, not of its box. */
+const textEdge = (page: Page, selector: string) =>
+  page
+    .locator(selector)
+    .first()
+    .evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return Math.round(range.getBoundingClientRect().left);
+    });
+
+for (const width of [1440, 800, 390])
+  test(`at ${width}px the blocks' text lines up with the page bar's text`, async ({ page }) => {
+    await mountShell(page, width);
+    const text = await textEdge(page, '.structured-page-stage [data-block-id="one"]');
+    // The To do row under the bar, at every width.
+    expect(text).toBe(await textEdge(page, '.work-head-chip'));
+    // The page title, where the bar shows it at the page's edge (beside the sidebar).
+    if (width > 900) expect(text).toBe(await textEdge(page, '.tmt-ui-topbar-title h1'));
+  });
+
+test('at 390px a phone shows no handle, as the design system says', async ({ page }) => {
+  await mountShell(page, 390);
+  const target = page.locator('.structured-page-stage [data-block-id="two"]');
+  const box = (await target.boundingBox())!;
+  await page.mouse.move(box.x + 30, box.y + 12);
+  await expect(target).toHaveCSS('background-color', /.+/);
+  await expect(page.locator('.structured-page-stage [data-slot="block-handle"]')).toBeHidden();
+  // Nothing of the page reaches past the window.
+  expect(box.x).toBeGreaterThanOrEqual(0);
+});
+
+for (const width of [1440, 390])
+  test(`at ${width}px a callout keeps its height in the page's flow (#6280)`, async ({ page }) => {
+    await mountShell(page, width);
+    const stage = page.locator('.structured-page-stage');
+    const callout = stage.locator('[data-block-id="callout"]');
+    await expect(callout).toContainText('先做這個，再做下一個。');
+    const notice = (await callout.locator('.tmt-ui-notice').boundingBox())!;
+    const block = (await callout.boundingBox())!;
+    const next = (await stage.locator('[data-block-id="after"]').boundingBox())!;
+    // The callout's notice is inside its block, which holds its height, and the block after it
+    // starts below it rather than under it.
+    expect(block.height).toBeGreaterThan(20);
+    expect(notice.y).toBeGreaterThanOrEqual(block.y - 1);
+    expect(notice.y + notice.height).toBeLessThanOrEqual(block.y + block.height + 1);
+    expect(next.y).toBeGreaterThanOrEqual(notice.y + notice.height);
+  });

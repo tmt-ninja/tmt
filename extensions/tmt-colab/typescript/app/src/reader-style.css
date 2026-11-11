@@ -74,7 +74,8 @@ main {
   border: 0;
   background: #fff;
 }
-.canvas .tmt-ui-notice {
+/* The page's own status notice (a NoticeCard in the canvas), not a notice a block draws (#6280). */
+.canvas > .notice-card > .tmt-ui-notice {
   position: fixed;
   z-index: 20;
   top: calc(var(--reader-bar-size) + env(safe-area-inset-top, 0px) + 24px);
@@ -106,7 +107,7 @@ main {
   .status {
     font-size: 11px;
   }
-  .canvas .tmt-ui-notice {
+  .canvas > .notice-card > .tmt-ui-notice {
     top: calc(var(--reader-bar-size) + env(safe-area-inset-top, 0px) + 16px);
     right: 16px;
     width: calc(100vw - 32px);
