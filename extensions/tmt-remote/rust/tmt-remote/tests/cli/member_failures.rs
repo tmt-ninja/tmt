@@ -30,6 +30,11 @@ fn durable_rows(pilot: &Pilot) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
 
 #[test]
 fn ambiguous_and_foreign_members_commands_refuse_without_durable_changes() {
+    if super::test_isolation::isolated_case(
+        "member_failures::ambiguous_and_foreign_members_commands_refuse_without_durable_changes",
+    ) {
+        return;
+    }
     let mut pilot = Pilot::new();
     let (first, member) = seed_member(&pilot);
     seed_member(&pilot);
@@ -92,6 +97,11 @@ fn ambiguous_and_foreign_members_commands_refuse_without_durable_changes() {
 
 #[test]
 fn expired_and_revoked_machine_reads_do_not_restore_access() {
+    if super::test_isolation::isolated_case(
+        "member_failures::expired_and_revoked_machine_reads_do_not_restore_access",
+    ) {
+        return;
+    }
     let pilot = Pilot::new();
     let (expired, member) = seed_member(&pilot);
     let (revoked, _) = seed_member(&pilot);
