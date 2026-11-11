@@ -760,6 +760,13 @@ test('a system with no CSS of its own still draws its docs pages in the Design d
   expect(Number.parseFloat(drawn.snippet.border)).toBeGreaterThan(0);
   expect(drawn.snippet.font).toMatch(/mono|Menlo|Consolas|monospace/i);
   expect(drawn.snippet.white).toBe('pre');
+  // With no Usage section of its own, the page keeps its hero's heading and code, and the stage
+  // fits a one-line example.
+  const hero = frame.locator('.docs-hero');
+  await expect(hero.getByRole('heading', { name: 'tmt', exact: true })).toBeVisible();
+  await expect(hero.locator('.docs-snippet')).toBeVisible();
+  await expect(hero.locator('.docs-snippet')).toContainText('<tui-mark data="working"></tui-mark>');
+  expect((await canvas.boundingBox())!.height).toBeLessThan(120);
   // The tmt GUI draws the same chrome, so one set of rules serves every system.
   await pickSystem(page, 'Acme');
   const gui = page.getByRole('navigation', { name: 'Acme pages', exact: true });
@@ -773,6 +780,9 @@ test('a system with no CSS of its own still draws its docs pages in the Design d
       return { padding: style.paddingTop, border: style.borderTopWidth };
     });
   expect(reference).toEqual({ padding: drawn.canvas.padding, border: drawn.canvas.border });
+  // A tmt GUI page has its Usage snippet, so its hero stays a bare stage.
+  await expect(designFrame(page).locator('.docs-hero > h3')).toBeHidden();
+  await expect(designFrame(page).locator('.docs-hero .docs-snippet')).toBeHidden();
 });
 
 test('standalone Design keeps its docs, system cards and editing links on their owning mounts', async ({
