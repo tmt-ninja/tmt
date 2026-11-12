@@ -1,5 +1,5 @@
 import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
-import { defineConfig } from 'vite-plus';
+import { build, defineConfig } from 'vite-plus';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
@@ -7,6 +7,7 @@ import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 import { tuiOracle } from '@tmt/browser-ui/docs-oracle';
 import { entryOf, isBuild } from './src/build-stamp.ts';
 import { runtimeBuildOptions, runtimeChunksPlugin } from '../../scripts/runtime-chunks.mjs';
+import { standaloneBinderPlugin } from '../../scripts/standalone-binder.mjs';
 
 /**
  * The app build the Colab module is made beside (#4282): the hashed entry of the `dist/index.html`
@@ -116,6 +117,8 @@ export default defineConfig(({ mode }) => ({
               'utf8',
             ),
           }),
+          // The standalone copy's binder checks the chunks just written (#6157).
+          standaloneBinderPlugin({ build }),
         ]
       : []),
     {

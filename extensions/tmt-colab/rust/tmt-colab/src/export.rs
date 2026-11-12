@@ -21,6 +21,34 @@ pub mod standalone;
 /// One export's conversations never exceed this many bytes (both files together).
 pub const CONVERSATIONS_BYTES: usize = 8 * 1024 * 1024;
 
+/// A space system's locked release for a standalone copy (#6157): the system root page, named by
+/// the page's pin, read once read-only at its current epoch for the release's attachment, whose
+/// bytes come from the export's own attachment source. Any failure is no release, never an error.
+struct StoreReleases<'a> {
+    store: &'a Store,
+    key: &'a Keyring,
+    decoder: std::cell::RefCell<&'a mut Decoder>,
+    source: &'a dyn attachments::Source,
+}
+impl standalone::Releases for StoreReleases<'_> {
+    fn release(&self, system: &str, version: &str, hash: &str) -> Option<serde_json::Value> {
+        // The bound `tmt colab design show` gives the same read.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let selector = crate::attachments::release_selector(
+            self.store,
+            self.key,
+            system,
+            version,
+            hash,
+            &mut self.decoder.borrow_mut(),
+            deadline,
+        )
+        .ok()?;
+        let bytes = self.source.read(system, &selector).ok()?;
+        serde_json::from_slice(&bytes).ok()
+    }
+}
+
 pub const DISCLOSURE: &str =
     "This creates an unencrypted copy of the page. Anyone with these files can read it.";
 
@@ -374,9 +402,15 @@ impl Bundle {
         // Only an ordinary page's HTML can need a copy; the copy is derived from the
         // admitted source and never replaces it.
         let derived = if content_name == "page.html" {
-            std::str::from_utf8(&content)
-                .ok()
-                .and_then(|source| standalone::derive(source, assets))
+            std::str::from_utf8(&content).ok().and_then(|source| {
+                let releases = StoreReleases {
+                    store,
+                    key,
+                    decoder: std::cell::RefCell::new(&mut *decoder),
+                    source: attachment_source,
+                };
+                standalone::derive(source, assets, &releases)
+            })
         } else {
             None
         };

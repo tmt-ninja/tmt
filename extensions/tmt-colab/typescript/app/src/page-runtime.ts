@@ -40,6 +40,7 @@ interface PinnedFile {
 const runtimePin = pin as unknown as {
   chunks: readonly (PinnedFile & { name: string; kind?: 'wasm' })[];
   theme: PinnedFile;
+  binder: PinnedFile;
 };
 
 const read = async (url: string): Promise<string> => {
@@ -155,6 +156,27 @@ export async function loadRuntime(
 /** Every chunk's text in load order, for a standalone export, which has no parent to ask. */
 export const allRuntimeChunks = () =>
   runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm').map((chunk) => chunk.name);
+
+/** What a standalone copy of a page that pins a design system carries (#6157): the theme, every
+ * chunk's text by name in load order, and the binder that checks them when the file opens. Each is
+ * verified against the pin here too; any failure rejects. */
+export async function loadStandaloneRuntime(baseUri: string): Promise<{
+  readonly theme: string;
+  readonly binder: string;
+  readonly chunks: readonly { readonly name: string; readonly text: string }[];
+}> {
+  const files = runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm');
+  const [theme, binder, ...texts] = await Promise.all([
+    pinnedText(baseUri, runtimePin.theme),
+    pinnedText(baseUri, runtimePin.binder),
+    ...files.map((chunk) => pinnedText(baseUri, chunk)),
+  ]);
+  return {
+    theme: theme!,
+    binder: binder!,
+    chunks: files.map((chunk, index) => ({ name: chunk.name, text: texts[index]! })),
+  };
+}
 
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
  * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and

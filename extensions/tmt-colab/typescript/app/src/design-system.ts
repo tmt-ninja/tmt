@@ -104,31 +104,39 @@ export function pinContent(system: unknown, lock?: unknown): string | null {
     ? content
     : null;
 }
-/** The page's pin: the first `<meta name="tmt-ds">` in document order, parsed with scripting off. */
-export function designSystemPin(source: string): DesignSystemPin | null {
-  if (!source.includes(MARKER)) return null;
-  const content = new DOMParser()
-    .parseFromString(source, 'text/html')
-    .querySelector(`meta[name="${MARKER}"]`)
-    ?.getAttribute('content')
-    ?.trim();
-  const match = content ? PIN.exec(content) : null;
+/** A pin from a `<meta name="tmt-ds">` content, or null when it is not a pin's grammar. */
+export function parsePin(content: string | null | undefined): DesignSystemPin | null {
+  const match = content ? PIN.exec(content.trim()) : null;
   if (!match) return null;
   return match[2]
     ? { system: match[1]!, lock: { version: match[2], hash: match[3]! } }
     : { system: match[1]! };
+}
+/** The page's pin: the first `<meta name="tmt-ds">` in document order, parsed with scripting off. */
+export function designSystemPin(source: string): DesignSystemPin | null {
+  if (!source.includes(MARKER)) return null;
+  return parsePin(
+    new DOMParser()
+      .parseFromString(source, 'text/html')
+      .querySelector(`meta[name="${MARKER}"]`)
+      ?.getAttribute('content'),
+  );
 }
 /** Whether the page names a design system at all, pinned well or not. */
 export const namesDesignSystem = (source: string) =>
   source.includes(MARKER) &&
   !!new DOMParser().parseFromString(source, 'text/html').querySelector(`meta[name="${MARKER}"]`);
 
-/** The bundle's own hash: SHA-256 over its JSON without the `hash` field, in written key order. */
-export async function bundleHash(bundle: DesignSystemBundle): Promise<string> {
+/** What a bundle's own hash covers: its JSON without the `hash` field, in written key order. */
+export function bundleBody(bundle: DesignSystemBundle): string {
   const { hash: _hash, ...body } = bundle;
+  return JSON.stringify(body);
+}
+/** The bundle's own hash: SHA-256 over `bundleBody`. */
+export async function bundleHash(bundle: DesignSystemBundle): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(body)),
+    new TextEncoder().encode(bundleBody(bundle)),
   );
   return `sha256-${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
@@ -139,7 +147,8 @@ export type DesignSystemFailure =
   | 'hash-mismatch'
   | 'newer-runtime'
   | 'newer-schema'
-  | 'draft-broken';
+  | 'draft-broken'
+  | 'runtime-mismatch';
 /** A draft that does not compile, naming what to fix in Design. */
 export class DesignDraftError extends Error {}
 /** Where a page's bundle comes from, read by the caller with the access it has. */
@@ -153,6 +162,19 @@ export interface DesignSystemSource {
   watch(system: string, changed: () => void): () => void;
 }
 
+/** Whether `bundle`, whose own hash is `hash`, is the release `lock` names and this TMT can draw it. */
+export function verifyRelease(
+  bundle: DesignSystemBundle | undefined,
+  lock: DesignSystemLock,
+  hash: (bundle: DesignSystemBundle) => string | undefined,
+): DesignSystemBundle | DesignSystemFailure {
+  if (!bundle || bundle.version !== lock.version) return 'unknown-release';
+  if (bundle.schema > 1) return 'newer-schema';
+  if (bundle.hash !== lock.hash || hash(bundle) !== lock.hash) return 'hash-mismatch';
+  if (!supportsRuntime(bundle.runtime) || !supportsCapabilities(bundle)) return 'newer-runtime';
+  return bundle;
+}
+
 /** The verified bundle a locked pin names, or why it cannot be used. */
 export async function resolveDesignSystem(
   system: string,
@@ -160,11 +182,8 @@ export async function resolveDesignSystem(
   source: DesignSystemSource,
 ): Promise<DesignSystemBundle | DesignSystemFailure> {
   const bundle = await source.release(system, lock).catch(() => undefined);
-  if (!bundle || bundle.version !== lock.version) return 'unknown-release';
-  if (bundle.schema > 1) return 'newer-schema';
-  if (bundle.hash !== lock.hash || (await bundleHash(bundle)) !== lock.hash) return 'hash-mismatch';
-  if (!supportsRuntime(bundle.runtime) || !supportsCapabilities(bundle)) return 'newer-runtime';
-  return bundle;
+  const hash = bundle && bundle.version === lock.version ? await bundleHash(bundle) : undefined;
+  return verifyRelease(bundle, lock, () => hash);
 }
 
 const notices: Record<DesignSystemFailure, string> = {
@@ -175,7 +194,12 @@ const notices: Record<DesignSystemFailure, string> = {
   'newer-runtime': 'This page needs a newer TMT to show its components.',
   'newer-schema': 'This page needs a newer TMT to show its components.',
   'draft-broken': 'This page’s design system draft does not compile. Fix it in Design.',
+  'runtime-mismatch':
+    'This copy’s page runtime does not match its build, so its components cannot be drawn.',
 };
+/** A frame script's body, run once the page has parsed: at once when it is injected later (#6157). */
+const onParsed = (body: string) =>
+  `(()=>{const run=()=>{${body}};document.readyState==='loading'?addEventListener('DOMContentLoaded',run,{once:true}):run();})();`;
 const closes = (text: string, tag: string) =>
   text.includes('<!--') || text.toLowerCase().includes(`</${tag}`);
 /** A frame script that only says why the components cannot be drawn. */
@@ -187,7 +211,9 @@ export function noticeFrame(failure: DesignSystemFailure, detail?: string): Fram
   return {
     style: '',
     failure,
-    script: `addEventListener('DOMContentLoaded',()=>{const n=document.createElement('p');n.setAttribute('data-tmt-ds-notice','');n.setAttribute('role','alert');n.textContent=${text};document.body.prepend(n);});`,
+    script: onParsed(
+      `const n=document.createElement('p');n.setAttribute('data-tmt-ds-notice','');n.setAttribute('role','alert');n.textContent=${text};document.body.prepend(n);`,
+    ),
   };
 }
 
@@ -271,22 +297,25 @@ export const checkPageElements = (
   bundle: Bundle | null,
 ) => checkElements(elements, pin, bundle, ownElements);
 
-function pageElements(source: string) {
-  return [...new DOMParser().parseFromString(source, 'text/html').body.querySelectorAll('*')].map(
-    (element) => ({
-      tag: element.localName,
-      attrs: Object.fromEntries([...element.attributes].map((a) => [a.name, a.value])),
-    }),
-  );
-}
+/** Every element of a body as `{tag, attrs}`. */
+export const bodyElements = (body: HTMLElement) =>
+  [...body.querySelectorAll('*')].map((element) => ({
+    tag: element.localName,
+    attrs: Object.fromEntries([...element.attributes].map((a) => [a.name, a.value])),
+  }));
+/** Every element of the page's source as `{tag, attrs}`, parsed inertly. */
+export const pageElements = (source: string) =>
+  bodyElements(new DOMParser().parseFromString(source, 'text/html').body);
 
 /** A frame script that lists the page check's findings at the top of the page. */
-function findingsScript(findings: readonly Finding[]): string {
+export function findingsScript(findings: readonly Finding[]): string {
   if (!findings.length) return '';
   const lines = JSON.stringify(
     findings.map((finding) => findingText[finding.code](finding)),
   ).replace(/</g, '\\u003c');
-  return `addEventListener('DOMContentLoaded',()=>{const box=document.createElement('aside');box.setAttribute('data-tmt-ds-findings','');box.setAttribute('role','status');box.setAttribute('aria-label','Design system check');box.style.cssText='margin:0 0 12px;padding:8px 12px;border:1px solid var(--tmt-ui-color-waiting,#8a5a08);border-radius:6px;font:13px/1.4 system-ui,sans-serif;color:inherit';const list=document.createElement('ul');list.style.cssText='margin:0;padding-left:18px';for(const line of ${lines}){const item=document.createElement('li');item.textContent=line;list.append(item);}box.append(list);document.body.prepend(box);});`;
+  return onParsed(
+    `const box=document.createElement('aside');box.setAttribute('data-tmt-ds-findings','');box.setAttribute('role','status');box.setAttribute('aria-label','Design system check');box.style.cssText='margin:0 0 12px;padding:8px 12px;border:1px solid var(--tmt-ui-color-waiting,#8a5a08);border-radius:6px;font:13px/1.4 system-ui,sans-serif;color:inherit';const list=document.createElement('ul');list.style.cssText='margin:0;padding-left:18px';for(const line of ${lines}){const item=document.createElement('li');item.textContent=line;list.append(item);}box.append(list);document.body.prepend(box);`,
+  );
 }
 
 /** How long a page waits for its pinned release before it renders with a notice instead. */
@@ -319,6 +348,11 @@ const deadline = () =>
   new Promise<Outcome>((resolve) =>
     setTimeout(() => resolve({ failure: 'unavailable' }), PIN_WAIT_MS),
   );
+/** The pin's verified bundle (the draft's, for a pin with no lock), or why there is none. A slow or
+ * stuck read never blanks the page: past the deadline it is `unavailable`, and the read goes on for
+ * the next open. */
+export const pinnedBundle = (pin: DesignSystemPin, from: DesignSystemSource) =>
+  Promise.race([outcome(pin, from), deadline()]);
 
 /** The system a page follows live (its pin has no lock), for the renderer to watch. */
 export function followedSystem(source: string): string | undefined {
@@ -345,9 +379,7 @@ export async function loadDesignSystem(
   const elements = pageElements(source);
   if (!named) return { style: '', script: findingsScript(checkPageElements(elements, null, null)) };
   if (!pin || !from) return noticeFrame('unknown-release');
-  // A slow or stuck read never blanks the page: past the deadline it renders with the notice, and
-  // the read goes on for the next open.
-  const bundle = await Promise.race([outcome(pin, from), deadline()]);
+  const bundle = await pinnedBundle(pin, from);
   if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
   const frame = frameDesignSystem(bundle, pin);
   const findings = findingsScript(checkPageElements(elements, pin, bundle as unknown as Bundle));

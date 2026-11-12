@@ -1,7 +1,0 @@
-{
-  "version": 1,
-  "source": "<meta name=\"tmt-ds\" content=\"fixture\"><fixture-gauge></fixture-gauge>",
-  "notice": "<p role=\"status\" data-colab-standalone-notice>Design-system components, including TerminalFrame, are unavailable in standalone export.</p>",
-  "html": "<!doctype html><html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'\"><meta charset=\"utf-8\"><script>(()=>{const q=matchMedia('(prefers-color-scheme: dark)'),r=document.documentElement,s=()=>{r.dataset.theme=q.matches?'dark':'light'};s();q.addEventListener('change',s)})()</script></head><body><p role=\"status\" data-colab-standalone-notice>Design-system components, including TerminalFrame, are unavailable in standalone export.</p><meta name=\"tmt-ds\" content=\"fixture\"><fixture-gauge></fixture-gauge></body></html>",
-  "sha256": "22a79a8889e13eae705472be5376d405f4fa0bb8872e13375becb1833d1adcc5"
-}

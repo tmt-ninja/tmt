@@ -250,6 +250,7 @@ fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does
             style: "@theme inline{}",
         }),
         design: None,
+        standalone: None,
     };
     let capture = |f: &Fixture, assets: &Assets| {
         Bundle::capture_with_assets(
@@ -378,6 +379,7 @@ fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
     let offered = Assets {
         runtime: Some(runtime),
         design: Some(design),
+        standalone: None,
     };
     let capture = |f: &Fixture, assets: &Assets| {
         Bundle::capture_with_assets(
@@ -410,7 +412,8 @@ fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
             source,
             &Assets {
                 runtime: None,
-                design: Some(design)
+                design: Some(design),
+                standalone: None,
             }
         )
         .unwrap(),
@@ -430,6 +433,7 @@ fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
         &Assets {
             runtime: Some(runtime),
             design: None,
+            standalone: None,
         },
     )
     .publish(&f.root)
@@ -456,6 +460,67 @@ fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
     assert!(text.starts_with("<!doctype html><html><head>"));
     assert!(!text.contains("window.ui"));
 }
+/// A page that locks a space system's release (#6157): the export reads the system root page once,
+/// read-only, for the release's attachment. A root that holds no such attachment, or no page at all,
+/// gives `design-release-unavailable` and the rest of the export, and the store is unchanged.
+#[test]
+fn a_locked_space_release_is_read_without_writing_and_its_absence_names_the_reason() {
+    use tmt_colab::export::standalone::{self, Assets, Design, Standalone};
+    let chunks = [("base", "window.tmt={};")];
+    let offered = Assets {
+        runtime: None,
+        design: Some(Design {
+            script: "window.ui={};",
+            style: "@layer tmt-ui{}",
+        }),
+        standalone: Some(Standalone {
+            theme: "@theme inline{}",
+            binder: "window.bind={};",
+            chunks: &chunks,
+        }),
+    };
+    let lock = format!("1.2.3#sha256-{}", "ab".repeat(32));
+    // The exported page is its own system root: its config block records the release, but the
+    // attachment it names is not on the page.
+    let config = format!(
+        r#"<script type="application/json" data-tmt-ds="design-system">{{"releases":[{{"version":"1.2.3","bundle":"sha256-{}","attachment":"60000000-0000-4000-8000-000000000001"}}]}}</script>"#,
+        "ab".repeat(32)
+    );
+    for root in [PAGE, "10000000-0000-4000-8000-000000000099"] {
+        let mut f = Fixture::new();
+        f.append(
+            &format!("<meta name=\"tmt-ds\" content=\"{root}@{lock}\"><tmt-ui-badge>λ</tmt-ui-badge>{config}"),
+            "Locks a space release",
+        );
+        let before = fs::read(f.layout.directory.join("space.db")).unwrap();
+        let bundle = Bundle::capture_with_assets(
+            &f.store,
+            &f.key,
+            PAGE,
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
+            1234,
+            &Unserved,
+            &offered,
+        )
+        .unwrap()
+        .publish(&f.root)
+        .unwrap();
+        assert_eq!(
+            bundle.standalone,
+            Some(standalone::Outcome {
+                included: false,
+                reason: Some(standalone::DESIGN_RELEASE_UNAVAILABLE),
+            }),
+            "{root}"
+        );
+        assert_eq!(
+            fs::read(f.layout.directory.join("space.db")).unwrap(),
+            before,
+            "{root}"
+        );
+    }
+}
+
 #[test]
 fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
     for (source, title) in [

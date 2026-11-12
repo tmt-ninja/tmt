@@ -58,11 +58,18 @@ chunks.push({
   glue: { sha256: hash(glueBytes), length: glueBytes.length, gzip: gzipLength(glueBytes) },
   bytes: wasmBytes,
 });
+// The standalone copy's binder (#6157), which carries the hashes of these chunks.
+const binderBytes = readFileSync(join(directory, 'assets/colab-standalone-binder.js'));
 const built = {
   version: 2,
   packages,
   chunks: chunks.map(({ bytes: _bytes, ...chunk }) => chunk),
   theme: { path: 'assets/colab-runtime.css', sha256: hash(themeBytes), length: themeBytes.length },
+  binder: {
+    path: 'assets/colab-standalone-binder.js',
+    sha256: hash(binderBytes),
+    length: binderBytes.length,
+  },
 };
 
 const pinPath = join(app, 'runtime-pin.json');
@@ -91,6 +98,15 @@ expect(
   JSON.stringify(pin.theme) === JSON.stringify(built.theme),
   'runtime theme differs from runtime-pin.json',
 );
+expect(
+  JSON.stringify(pin.binder) === JSON.stringify(built.binder),
+  'standalone binder differs from runtime-pin.json',
+);
+for (const chunk of chunks.filter((entry) => entry.kind !== 'wasm'))
+  expect(
+    binderBytes.includes(chunk.sha256),
+    `the standalone binder does not carry the ${chunk.name} chunk's hash`,
+  );
 const stray = assets.filter(
   (file) =>
     /^(colab-runtime[-.].*\.js|entry-.*\.js)$/.test(file) &&

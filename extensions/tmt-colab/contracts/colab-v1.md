@@ -7636,7 +7636,7 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
 
-### Standalone copy of a page that uses the runtime or the design system (#1693, #5057)
+### Standalone copy of a page that uses the runtime or the design system (#1693, #5057, #6157)
 
 `page.html` is the exact admitted source and never changes. For an ordinary page that needs a
 standalone copy, the export also writes `page.standalone.html`, listed right after `page.html` (after
@@ -7651,20 +7651,16 @@ when the file is opened from disk with no Colab and no network. A page needs a c
   [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
   the root.
 
-A page with a `<meta name="tmt-ds">` element also gets a standalone copy, even when it needs
-neither bundled asset. Verified design-system bundles are not yet included in standalone export
-(#6157). Its copy displays the following notice before the source, rather than implying that its
-components are available: `<p role="status" data-colab-standalone-notice>Design-system components,
-including TerminalFrame, are unavailable in standalone export.</p>` (without the line break).
-No terminal wasm is embedded in this case. Browser and native builders pin the same exact output in
-[`vectors/standalone-named-design-v1.json`](vectors/standalone-named-design-v1.json).
+- It names a design system: it has a `<meta name="tmt-ds">` element. The copy carries the page's
+  pinned bundle, verified as the frame verifies it, and every runtime chunk, as inert data, with the
+  build's binder that checks and runs them when the file opens (below).
 
-A page can need both; it then carries both. The bytes are this template around the exact source, in
-UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
+A page can need several; it then carries each. The bytes are this template around the exact source,
+in UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
 what the page needs, and nothing else added:
 
 ```text
-<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>[{namedDesignNotice}]{source}</body></html>
+<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>][{designSystem}]</head><body>{source}</body></html>
 ```
 
 A page that needs only the runtime gets exactly the bytes it got before the design system existed.
@@ -7675,6 +7671,26 @@ A page that needs only the runtime gets exactly the bytes it got before the desi
   file, like any HTML file.
 - `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
   scheme and follows its changes, because the runtime theme and the design tokens read `data-theme`.
+- `{designSystem}`, for a page that names a design system, is
+  `<script type="application/json" id="tmt-ds-bundle" data-pin="{pin}" data-lock="{lock}"[ data-prose]>{bundle}</script>`,
+  then `<script type="text/plain" data-chunk="{name}">{chunk}</script>` for every runtime chunk of
+  the build in vector order (the terminal renderer is not carried yet; a page that writes a
+  TerminalFrame says `TerminalFrame is unavailable in standalone export.`), then
+  `<script>{binder}</script>`. `{bundle}` is the verified bundle as compact JSON in its written key
+  order (what `JSON.stringify` writes) with every `<` written `\u003c`; `{pin}` is the page's pin
+  (`<system>` or `<system>@<version>#<hash>`); `{lock}` is `<version>#<hash>` of the bundle the
+  export verified, so a page that follows a draft is frozen to the draft its author saw;
+  `data-prose` is written when the page does not ask for the runtime itself. Such a page gets no
+  `{script}`: its `{style}` is the runtime theme and the binder runs the chunks. `{binder}` is the
+  build's `assets/colab-standalone-binder.js`, recorded in `runtime-pin.json`; it carries the SHA-256
+  of each chunk of its build. When the file opens, while its head parses, the binder checks each
+  chunk's SHA-256 and leaves out one that differs (a component that needs it draws "Part
+  unavailable"; without the base no component is defined), checks the bundle's own hash against
+  `{lock}` and a locked page's pin against `{lock}`, and then writes the chunks, the seal and the
+  frame's own component definitions as inline scripts. A failed bundle check shows the frame's
+  notice and defines no component. Once the body has parsed it adds the frame's page-check findings
+  (an unknown component is refused as in the frame). The binder fetches nothing and needs no policy
+  source beyond the frame's: the policy is unchanged.
 - `{script}` is every runtime chunk of the same build in vector order, each followed by one LF, then
   `window.__colabRuntimeSeal?.();` (a copy has no parent to choose chunks, so it carries them all, #6085);
   `{style}` is that build's `assets/colab-runtime.css`. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
@@ -7692,16 +7708,24 @@ When a page needs a copy but none can be made, the export still succeeds without
 why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
 load it), `runtime-unusable` (a runtime text could escape its element), `design-unavailable` and
 `design-unusable` (the same for the design system's files) and, for native export only, `page-too-deep`
-(the page nests past the parse depth, so its runtime marker cannot be judged). The first part the page
+(the page nests past the parse depth, so its runtime marker cannot be judged). A page that names a
+design system can also get the frame's failure for its pin: `design-unknown-release`,
+`design-hash-mismatch`, `design-newer-runtime`, `design-newer-schema` or `design-draft-broken`, and
+`design-release-unavailable` when its release could not be read in time. Native export carries the
+built-in system from the executable and a space system's locked release from its root page: it reads
+that one page read-only at its current epoch for the release's attachment and the attachment's bytes
+through the running serve, never starting one; any failure there is `design-release-unavailable`.
+Native export cannot compile a space system's draft, so a page that follows one gets
+`design-draft-unavailable`; the browser export carries it. The first part the page
 needs that is missing names the reason, runtime before design. The CLI JSON result has
 `standalone: {included, reason?}` (absent for a page that needs no copy) and the human output prints a
 line naming the reason; the browser's Export panel does the same. Native export reads the runtime
 marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides pass the same
 cases (`vectors/runtime-marker-v1.json`); the design test is the same text test in the frame, the
 browser export and the native export, pinned by `vectors/design-marker-v1.json`. Native and browser
-export write identical bytes: `vectors/export-v1.json` has `standalone` (the runtime), `standaloneDesign`
-and `standaloneBoth` sections with tiny stand-in files that pin each copy, its policy, theme switch, hash
-and the manifest.
+export write identical bytes: `vectors/export-v1.json` has `standalone` (the runtime), `standaloneDesign`,
+`standaloneBoth` and `standaloneDesignSystem` sections with tiny stand-in files that pin each copy, its
+policy, theme switch, hash and the manifest.
 
 ### Attachments in an export (#1867)
 

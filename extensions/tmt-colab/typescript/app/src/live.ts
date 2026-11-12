@@ -51,6 +51,7 @@ import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
 import { standaloneRequest } from './export-runtime.js';
+import type { DesignSystemSource } from './design-system.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
@@ -736,7 +737,7 @@ export class Live implements PageBinding {
     }
     return this.#current;
   }
-  async export(): Promise<ExportBundle> {
+  async export(designSystems?: DesignSystemSource): Promise<ExportBundle> {
     const c = await this.#settled();
     const view = await c.run(async () => {
       requireValue(!this.#closed && !this.#error && c === this.#connection);
@@ -779,7 +780,7 @@ export class Live implements PageBinding {
       },
       (selector) => this.discussion.attachments.read(selector),
     );
-    const standalone = await standaloneRequest(page);
+    const standalone = await standaloneRequest(page, designSystems);
     return prepareExport({
       ...page,
       attachmentEntries: attachments,

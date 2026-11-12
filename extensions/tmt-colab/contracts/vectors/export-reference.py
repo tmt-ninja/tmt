@@ -499,18 +499,33 @@ STANDALONE_THEME_SWITCH = ("(()=>{const q=matchMedia('(prefers-color-scheme: dar
                            "q.addEventListener('change',s)})()")
 
 
-def standalone_document(source, runtime=None, design=None):
+def standalone_document(source, runtime=None, design=None, design_system=None):
     """The head holds, in order: the design style and the runtime's theme (the frame carries them in
     that order), the theme switch, then the design script and the runtime script (#5057). A page that
-    needs only the runtime gets the same bytes as before the design system."""
+    needs only the runtime gets the same bytes as before the design system. A page that pins a design
+    system (#6157) carries no runtime script: its theme, then after the design script the inert bundle
+    block (every `<` escaped), one inert block per runtime chunk, and the binder that runs them."""
+    if design_system:
+        runtime = None
+    theme = design_system["theme"] if design_system else (runtime["style"] if runtime else None)
+    blocks = ''
+    if design_system:
+        blocks = ('<script type="application/json" id="tmt-ds-bundle"'
+                  f' data-pin="{design_system["pin"]}" data-lock="{design_system["lock"]}"'
+                  + (' data-prose' if design_system["prose"] else '') + '>'
+                  + design_system["bundle"].replace('<', '\\u003c') + '</script>'
+                  + ''.join(f'<script type="text/plain" data-chunk="{chunk["name"]}">{chunk["text"]}</script>'
+                            for chunk in design_system["chunks"])
+                  + f'<script>{design_system["binder"]}</script>')
     return ('<!doctype html><html' + (' data-colab-design' if design else '') + '><head>'
             f'<meta http-equiv="Content-Security-Policy" content="{STANDALONE_POLICY}">'
             '<meta charset="utf-8">'
             + (f'<style>{design["style"]}</style>' if design else '')
-            + (f'<style type="text/tailwindcss">{runtime["style"]}</style>' if runtime else '')
+            + (f'<style type="text/tailwindcss">{theme}</style>' if theme is not None else '')
             + f'<script>{STANDALONE_THEME_SWITCH}</script>'
             + (f'<script>{design["script"]}</script>' if design else '')
             + (f'<script>{runtime["script"]}</script>' if runtime else '')
+            + blocks
             + f'</head><body>{source}</body></html>')
 
 
@@ -577,8 +592,8 @@ def vector():
     runtime = {"script": "window.tmt={};", "style": "@theme inline{}"}
     design = {"script": "window.ui={};", "style": "@layer tmt-ui{}"}
 
-    def standalone_case(source_text, runtime_text, design_text):
-        file_text = standalone_document(source_text, runtime_text, design_text)
+    def standalone_case(source_text, runtime_text, design_text, design_system=None):
+        file_text = standalone_document(source_text, runtime_text, design_text, design_system)
         file_info = dict(info("page.standalone.html", file_text.encode("utf-8")), derivedFrom="page.html")
         manifest_text = manifest_of([info("page.html", source_text.encode("utf-8")), file_info]
                                     + conversation_files)
@@ -587,6 +602,8 @@ def vector():
             case["runtime"] = runtime_text
         if design_text:
             case["design"] = design_text
+        if design_system:
+            case["designSystem"] = design_system
         case.update({
             "fileUtf8": file_text,
             "fileSha256": hashlib.sha256(file_text.encode("utf-8")).hexdigest(),
@@ -606,6 +623,16 @@ def vector():
                    '<tmt-icon name="check"></tmt-icon><p>λ 😀\u0000 & exact</p>')
     standalone_design = standalone_case(design_source, None, design)
     standalone_both = standalone_case(both_source, runtime, design)
+    # A page that pins a design system (#6157) carries its verified bundle and every runtime chunk as
+    # inert blocks and the binder; the texts here are tiny stand-ins, and the bundle holds an end tag
+    # its block must escape. A page that also asks for the runtime gets no runtime script of its own.
+    pinned_source = ('<meta name="tmt-ds" content="tmt-gui">\r\n'
+                     '<tmt-ui-badge>λ 😀\u0000 & exact</tmt-ui-badge>')
+    design_system = {"bundle": '{"schema":1,"text":"</script><!--"}', "pin": "tmt-gui",
+                     "lock": "0.1.0#sha256-" + "ab" * 32, "prose": True, "theme": "@theme inline{}",
+                     "chunks": [{"name": "base", "text": "window.tmt={};"}, {"name": "ui", "text": "window.ui={};"}],
+                     "binder": "window.bind={};"}
+    standalone_design_system = standalone_case(pinned_source, None, design, design_system)
     return {
         "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 "
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
@@ -626,6 +653,7 @@ def vector():
         "standalone": standalone,
         "standaloneDesign": standalone_design,
         "standaloneBoth": standalone_both,
+        "standaloneDesignSystem": standalone_design_system,
     }
 
 

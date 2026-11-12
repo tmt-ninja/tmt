@@ -296,6 +296,20 @@ pub(crate) fn runtime_marker(source: &str) -> Result<Option<String>, TooDeep> {
         .map(|id| tree.attr(id, "content").unwrap_or_default().to_owned()))
 }
 
+/// The `content` of the first `<meta name="tmt-ds">` in document order, found as
+/// [`runtime_marker`] finds its marker (#6157); `Ok(Some(""))` when it has none.
+pub(crate) fn design_pin(source: &str) -> Result<Option<String>, TooDeep> {
+    if !source.contains("tmt-ds") {
+        return Ok(None);
+    }
+    let tree = tree::Tree::parse(source).map_err(|_| TooDeep)?;
+    Ok(tree
+        .elements()
+        .into_iter()
+        .find(|&id| tree.name(id) == "meta" && tree.attr(id, "name") == Some("tmt-ds"))
+        .map(|id| tree.attr(id, "content").unwrap_or_default().to_owned()))
+}
+
 /// Whether the document contains the design-system pin element, with scripting disabled.
 pub(crate) fn named_design(source: &str) -> Result<bool, TooDeep> {
     if !source.contains("tmt-ds") {
