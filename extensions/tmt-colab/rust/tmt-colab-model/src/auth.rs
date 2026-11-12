@@ -79,23 +79,31 @@ pub fn operation(value: &str) -> Result<()> {
     ))
 }
 /// The page a space-level management request names in its signed `page` field. The frame binds one
-/// page and a project change has none, so `project.manage` names this fixed value and no other
-/// management request may.
+/// page and a project change or a new page has none, so `project.manage` and `page.new` name this
+/// fixed value and no other management request may.
 pub const SPACE_SCOPE_PAGE: &str = "00000000-0000-4000-8000-000000000000";
 /// The management operations that change owner-store state without a log statement.
 fn display_only(operation: &str) -> bool {
     matches!(operation, "page.projects" | "project.manage" | "page.pin")
 }
-/// A device-signed management request names a log operation or one of the display-only operations
-/// that change owner-store state without a log statement. Statements never use the second kind.
+/// The owner device's new top-level page from a template (#5076). The owner makes it at its own
+/// head, so the request names no revision; statements never name it.
+pub const PAGE_NEW: &str = "page.new";
+fn space_scoped(operation: &str) -> bool {
+    matches!(operation, "project.manage" | PAGE_NEW)
+}
+/// A device-signed management request names a log operation, one of the display-only operations
+/// that change owner-store state without a log statement, or `page.new`. Statements never use the
+/// last two kinds.
 pub fn management_operation(value: &str) -> Result<()> {
-    require(operation(value).is_ok() || display_only(value))
+    require(operation(value).is_ok() || display_only(value) || value == PAGE_NEW)
 }
 /// The signed revision field of a management request. A log operation names the membership head it
-/// was prepared against, a positive decimal. A display-only operation changes no membership head, so
-/// its field is empty and nothing can be read into it.
+/// was prepared against, a positive decimal. A display-only operation changes no membership head,
+/// and `page.new` is made at the owner's own head, so their field is empty and nothing can be read
+/// into it.
 pub fn management_revision(operation: &str, value: &str) -> Result<Option<u64>> {
-    if display_only(operation) {
+    if display_only(operation) || operation == PAGE_NEW {
         require(value.is_empty())?;
         return Ok(None);
     }
@@ -120,7 +128,7 @@ pub fn management_input(v: &Management<'_>) -> Result<Vec<u8>> {
     }
     management_operation(v.operation)?;
     management_revision(v.operation, v.expected_revision)?;
-    require((v.operation == "project.manage") == (v.page == SPACE_SCOPE_PAGE))?;
+    require(space_scoped(v.operation) == (v.page == SPACE_SCOPE_PAGE))?;
     values::time(v.issued_at)?;
     values::time(v.expires_at)?;
     require(

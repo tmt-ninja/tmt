@@ -254,6 +254,14 @@ impl Registration {
             list_token: Default::default(),
         })
     }
+    pub(crate) fn space_id(&self) -> &str {
+        &self.keyring.space_id
+    }
+    /// The owner's membership head now: none before the space's first statement.
+    pub(crate) fn owner_head(&self) -> crate::Result<Option<tmt_colab_model::statement::Head>> {
+        self.store
+            .owner_head(&self.keyring.space_id, &self.keyring.owner_public())
+    }
     /// The page's current epoch, to name it when the cloud worker is asked to look at it again.
     pub fn page_epoch(&self, page: &str) -> Option<u64> {
         self.store

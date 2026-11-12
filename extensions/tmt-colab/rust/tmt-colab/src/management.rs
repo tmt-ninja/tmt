@@ -32,6 +32,8 @@ impl Storage {
 pub const PATH: &str = "/api/management";
 pub const LOCAL_PATH: &str = "/.tmt/colab/management";
 const PAYLOAD_BYTES: usize = 16 * 1024;
+/// A template selector is a name (at most 40 characters) or a page ID.
+const TEMPLATE_SELECTOR_BYTES: usize = 64;
 type Result<T> = std::result::Result<T, Code>;
 type Syntax<T> = tmt_colab_model::Result<T>;
 
@@ -84,6 +86,20 @@ enum Action {
     MemberRole(RoleScope),
     LinkAdd(Link),
     LinkRemove(Reset),
+    /// The owner device's new top-level page from a template (#5076): the serve resolves the
+    /// template, and its source and layout, itself.
+    New(NewPage),
+}
+/// The payload of `page.new`: what the browser chooses, and nothing the template brings.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NewPage {
+    page_id: String,
+    title: String,
+    /// A template selector: a compiled name, a user template's name, or a template page's ID.
+    template: String,
+    #[serde(default, deserialize_with = "creator_selection")]
+    creator: Option<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -381,6 +397,23 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             link(&value, Some(page))?;
             Action::LinkAdd(value)
         }
+        auth::PAGE_NEW => {
+            if page != auth::SPACE_SCOPE_PAGE {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let mut value: NewPage = typed(bytes)?;
+            values::generated_id(&value.page_id)?;
+            value.title = crate::subpage_create::title(&Value::String(value.title))
+                .map_err(|_| tmt_colab_model::Invalid)?
+                .to_owned();
+            if value.title.len() > crate::decoder::BASELINE_TITLE_BYTES
+                || value.template.is_empty()
+                || value.template.len() > TEMPLATE_SELECTOR_BYTES
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::New(value)
+        }
         "link.remove" => {
             let value: Reset = typed(bytes)?;
             values::generated_id(&value.link_id)?;
@@ -595,6 +628,9 @@ fn apply(
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
+    if let Action::New(new) = &command.action {
+        return new_page(service, &command, new, now);
+    }
     // Projects are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
     if let Some(head) = match &command.action {
         Action::Projects(changes) => Some(service.set_projects(changes)),
@@ -711,7 +747,9 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Projects(_) | Action::Project(_) | Action::Pin(_) => return Err(Code::Invalid),
+        Action::Projects(_) | Action::Project(_) | Action::Pin(_) | Action::New(_) => {
+            return Err(Code::Invalid);
+        }
         Action::MemberAdd(v) => {
             OwnerAction::Member(MemberAction::Add(crate::store::owner::Recipient {
                 kind: "member".into(),
@@ -778,6 +816,118 @@ fn apply(
         deleted_page: matches!(command.action, Action::Delete).then_some(command.page),
         touched,
     })
+}
+
+/// `page.new` (#5076): the page the operation names, made from the template the serve resolves. The
+/// page ID is the name-based ID over the space and the operation, so a replay finds its page and is
+/// answered with it, without reading the template again; a new operation makes a new page. The
+/// template's source and layout come only from the template: a compiled one's, or a user
+/// template's page as it is now, with its question agents set to the creator. Nothing is written
+/// before the template resolves.
+fn new_page(
+    service: &mut crate::registration::Registration,
+    command: &Command,
+    new: &NewPage,
+    now: u64,
+) -> Result<Applied> {
+    use crate::{
+        template_catalog::{self, Found},
+        transitions::{OwnerAction, OwnerRequest},
+    };
+    let space = service.space_id().to_owned();
+    if new.page_id != crate::subpage_create::new_page_id(&space, &command.operation_id) {
+        return Err(Code::Invalid);
+    }
+    let reply = |head: tmt_colab_model::statement::Head| -> Result<Applied> {
+        let reply = serde_json::json!({"operationId":command.operation_id,"pageId":new.page_id,
+            "membershipHead":{"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)}});
+        Ok(Applied {
+            body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
+            resync_page: None,
+            deleted_page: None,
+            touched: Vec::new(),
+        })
+    };
+    // A device that signed this request is registered, so the space has a head.
+    let head = || service.owner_head().ok().flatten().ok_or(Code::Unavailable);
+    if service.page_epoch(&new.page_id).is_some() {
+        return reply(head()?);
+    }
+    let creator = new
+        .creator
+        .as_ref()
+        .and_then(|creator| creator["agent"]["name"].as_str());
+    let open = service.save_source().ok_or(Code::Unavailable)?;
+    let (template, template_page, source, layout) = {
+        let mut space = open().map_err(|_| Code::Unavailable)?;
+        let catalog = template_catalog::catalog(
+            &space.layout,
+            &space.store,
+            &space.keyring,
+            &mut space.decoder,
+        )
+        .map_err(|_| Code::Unavailable)?;
+        let found = catalog.find(&new.template).map_err(|error| {
+            match error
+                .downcast_ref::<template_catalog::Refusal>()
+                .map(|refusal| refusal.code())
+            {
+                Some("COLAB_TEMPLATE_UNKNOWN" | "COLAB_TEMPLATE_AMBIGUOUS") => Code::Invalid,
+                _ => Code::Unavailable,
+            }
+        })?;
+        match found {
+            Found::BuiltIn(template) => (
+                template.name.to_owned(),
+                None,
+                crate::templates::source_for_creator(
+                    &template.source().map_err(|_| Code::Unavailable)?,
+                    creator,
+                ),
+                template.layout(),
+            ),
+            Found::User(user) => {
+                let content = template_catalog::read_user(
+                    &space.store,
+                    &space.keyring,
+                    &mut space.decoder,
+                    &user,
+                )
+                .map_err(|_| Code::TemplateChanged)?;
+                let layout = content.layout.ok_or(Code::Invalid)?;
+                let source = crate::templates::rewrite_question_agents(&content.source, creator)
+                    .ok_or(Code::Invalid)?;
+                (user.name, Some(user.page), source, layout)
+            }
+        }
+    };
+    let expected = head()?.revision;
+    let applied = service
+        .apply_owner(
+            OwnerRequest {
+                operation_id: &crate::subpage_create::new_page_create_id(
+                    &space,
+                    &command.operation_id,
+                ),
+                expected_revision: expected,
+                action: OwnerAction::Create {
+                    page: &new.page_id,
+                    title: &new.title,
+                    source: &source,
+                    publisher_agent: None,
+                    creation_recipient: None,
+                    creator: new.creator.as_ref(),
+                    template: Some(&template),
+                    template_page: template_page.as_deref(),
+                    layout: Some(&layout),
+                },
+                transport_digest: Some(command.transport_digest),
+                scope: None,
+            },
+            now,
+        )
+        .map_err(|error| error.code)?;
+    reply(applied.head)
 }
 
 #[cfg(test)]

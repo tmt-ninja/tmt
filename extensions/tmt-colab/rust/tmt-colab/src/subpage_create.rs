@@ -70,6 +70,15 @@ pub fn child_page_id(space: &str, operation_id: &str) -> String {
 pub fn create_operation_id(space: &str, operation_id: &str) -> String {
     named_id(b"tmt-colab/convert-create/v1\0", space, operation_id)
 }
+/// The top-level page a browser's `page.new` operation makes (#5076), named the same way under its
+/// own domain, so a replay finds its page and a new operation makes a new one.
+pub fn new_page_id(space: &str, operation_id: &str) -> String {
+    named_id(b"tmt-colab/page-new/v1\0", space, operation_id)
+}
+/// The ID that page's creation is recorded under, apart from the browser's operation ID.
+pub fn new_page_create_id(space: &str, operation_id: &str) -> String {
+    named_id(b"tmt-colab/page-new-create/v1\0", space, operation_id)
+}
 fn named_id(domain: &[u8], space: &str, operation_id: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(domain);

@@ -135,6 +135,24 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
         auth::management_input(&request).is_err(),
         "a space-scope page names no page to pin"
     );
+    // A new page (#5076) is space-scoped and names no revision; it is never a log statement.
+    request.operation = "page.new";
+    request.page = auth::SPACE_SCOPE_PAGE;
+    request.expected_revision = "";
+    assert!(auth::management_input(&request).is_ok());
+    request.expected_revision = "1";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "a new page is made at the owner's head"
+    );
+    request.expected_revision = "";
+    request.page = page;
+    assert!(
+        auth::management_input(&request).is_err(),
+        "a new page names the space scope page"
+    );
+    assert!(auth::operation("page.new").is_err());
+    assert!(tmt_colab_model::payload::decode("page.new", b"{}").is_err());
     request.page = page;
     request.expected_revision = "1";
     for display_only in ["page.projects", "project.manage", "page.pin"] {
