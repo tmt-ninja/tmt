@@ -86,7 +86,16 @@ impl Controller {
             })
             .map_err(|_| INVALID.to_owned())
     }
+    #[cfg(test)]
     fn impact(&self, app: &App) -> Vec<String> {
+        self.impact_with_draft(app, &self.draft())
+    }
+
+    fn impact_with_draft(
+        &self,
+        app: &App,
+        draft: &Result<crate::config::IdleAlert, String>,
+    ) -> Vec<String> {
         let Some(snapshot) = app.workspace_snapshot() else {
             return vec!["? Current activity unavailable.".into()];
         };
@@ -156,8 +165,8 @@ impl Controller {
                     .join(", ")
             )
         };
-        match self.draft() {
-            Ok(setting) if original != Some(setting) => {
+        match draft {
+            Ok(setting) if original.as_ref() != Some(setting) => {
                 let after_ms = u64::try_from(setting.after.as_millis()).unwrap_or(u64::MAX);
                 let removed: Vec<_> = alerted
                     .iter()
