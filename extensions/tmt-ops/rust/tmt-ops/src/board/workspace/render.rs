@@ -501,14 +501,31 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .find(|(field, _)| *field == Field::State)
                 .map_or(0, |(_, rect)| usize::from(rect.width));
             let mut checklist_hit = None;
-            let (state, state_primary_width) = if let Some(label) = app.activity_label(row) {
-                let (primary, task, todo) =
-                    columns::activity_spans(app, row, &label, state_width, false);
-                let width = primary.iter().map(Span::width).sum();
-                (
-                    Line::from_iter(primary.into_iter().chain(task).chain(todo)),
-                    Some(width),
-                )
+            let (state, state_primary_width, state_attention) = if let Some(label) =
+                app.activity_label(row)
+            {
+                let projection = columns::activity_projection(app, row, &label, state_width);
+                let width = projection
+                    .primary
+                    .iter()
+                    .map(|span| unicode_width::UnicodeWidthStr::width(span.text.as_str()))
+                    .sum();
+                let spans: Vec<_> = projection
+                    .primary
+                    .into_iter()
+                    .chain(projection.task)
+                    .chain(projection.todo)
+                    .collect();
+                let attention = spans
+                    .iter()
+                    .map(|span| matches!(span.role.0, Role::Unread | Role::Waiting | Role::Blocked))
+                    .collect();
+                let line = Line::from_iter(
+                    spans
+                        .into_iter()
+                        .map(|span| Span::styled(span.text, look.role(span.role.0))),
+                );
+                (line, Some(width), attention)
             } else {
                 let squad = if let OpsTarget::Squad(room) = &row.target {
                     snapshot
@@ -586,7 +603,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     state.spans.push(suffix);
                 }
-                (state, Some(used))
+                (state, Some(used), Vec::new())
             };
             let expanded = rows
                 .get(index + 1)
@@ -650,6 +667,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         if !app.terminals.rows(identity_id).is_empty()),
                     state,
                     state_primary_width,
+                    state_attention,
                     tokens,
                     session: match &row.target {
                         OpsTarget::Member { identity_id, .. } => {
@@ -855,7 +873,7 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
             let rows = app.workspace_rows();
             let matches: Vec<_> = rows
                 .iter()
-                .filter(|row| row.title.to_lowercase().contains(&query))
+                .filter(|row| crate::board::search_field::matches_query(&row.title, &query))
                 .collect();
             let matched = matches
                 .iter()

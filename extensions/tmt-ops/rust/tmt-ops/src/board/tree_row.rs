@@ -24,6 +24,7 @@ pub(in crate::board) struct Row<'a> {
     pub folds: bool,
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
+    pub state_attention: Vec<bool>,
     pub tokens: String,
     pub session: String,
     pub model: String,
@@ -44,7 +45,7 @@ pub(in crate::board) struct Painted {
     pub tokens: Option<Rect>,
 }
 
-fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
+fn style(look: Look, row: &Row<'_>, value: Style, attention: bool) -> Style {
     let idle = row
         .source
         .activity
@@ -53,13 +54,14 @@ fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
     let value = if idle
         && !row.selected
         && !row.unread
+        && !attention
         && (value == look.role(Role::Text) || value == look.role(Role::Muted))
     {
         look.role(Role::Dim)
     } else {
         value
     };
-    if row.in_conversation {
+    let result = if row.in_conversation {
         let mut style = look
             .conversation()
             .patch(look.row_span(true, value, false))
@@ -69,6 +71,11 @@ fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
         style
     } else {
         selection(look, row.selected, value)
+    };
+    if idle && !row.selected && !row.unread && attention {
+        result.remove_modifier(Modifier::DIM)
+    } else {
+        result
     }
 }
 
@@ -196,7 +203,7 @@ pub(in crate::board) fn paint(
     row: &Row<'_>,
     look: Look,
 ) -> Painted {
-    let base = style(look, row, look.role(Role::Text));
+    let base = style(look, row, look.role(Role::Text), false);
     for y in area.y..area.bottom() {
         strip::paint_left(
             buffer,
@@ -311,21 +318,11 @@ pub(in crate::board) fn paint(
                 Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
             }
         };
-        line.style = style(look, row, line.style);
-        for span in &mut line.spans {
-            span.style = style(look, row, span.style);
-        }
-        if matches!(field, AgentsField::State) && !row.selected && !row.unread {
-            if let Some(mark) = line.spans.first_mut() {
-                mark.style = mark.style.remove_modifier(Modifier::DIM);
-            }
-            for span in &mut line.spans {
-                if span.style.fg == look.role(Role::Blocked).fg
-                    && look.role(Role::Blocked).fg.is_some()
-                {
-                    span.style = span.style.remove_modifier(Modifier::DIM);
-                }
-            }
+        line.style = style(look, row, line.style, false);
+        for (index, span) in line.spans.iter_mut().enumerate() {
+            let attention = matches!(field, AgentsField::State)
+                && row.state_attention.get(index).copied().unwrap_or(false);
+            span.style = style(look, row, span.style, attention);
         }
         if row.in_conversation
             && matches!(field, AgentsField::Agent)
@@ -380,6 +377,7 @@ mod tests {
                 depth,
             };
             for (selected, unread, role) in [
+                (false, false, Role::Muted),
                 (false, false, Role::Waiting),
                 (false, false, Role::Blocked),
                 (false, true, Role::Unread),
@@ -395,6 +393,10 @@ mod tests {
                         Span::styled(" blocked", look.role(Role::Blocked)),
                     ]),
                     state_primary_width: Some(1),
+                    state_attention: vec![
+                        matches!(role, Role::Waiting | Role::Blocked | Role::Unread),
+                        true,
+                    ],
                     tokens: "1".into(),
                     session: String::new(),
                     model: String::new(),
@@ -418,10 +420,24 @@ mod tests {
                 let mark = &buffer[(15, 0)];
                 assert_eq!(
                     mark.fg,
-                    style(look, &row, look.role(role)).fg.unwrap_or_default(),
+                    style(
+                        look,
+                        &row,
+                        look.role(role),
+                        matches!(role, Role::Waiting | Role::Blocked | Role::Unread)
+                    )
+                    .fg
+                    .unwrap_or_default(),
                     "{base:?} {role:?}"
                 );
-                assert!(!mark.modifier.contains(Modifier::DIM), "{base:?} {role:?}");
+                if role == Role::Muted && !selected && depth == tmt_cli_style::Depth::Ansi16 {
+                    assert!(
+                        mark.modifier.contains(Modifier::DIM),
+                        "plain idle: {base:?}"
+                    );
+                } else {
+                    assert!(!mark.modifier.contains(Modifier::DIM), "{base:?} {role:?}");
+                }
                 if !selected && !unread {
                     assert!(
                         !buffer[(17, 0)].modifier.contains(Modifier::DIM),
@@ -431,7 +447,7 @@ mod tests {
                 if selected || unread {
                     assert_eq!(
                         buffer[(5, 0)].fg,
-                        style(look, &row, look.role(Role::Text))
+                        style(look, &row, look.role(Role::Text), false)
                             .fg
                             .unwrap_or_default(),
                         "{base:?}"
@@ -480,6 +496,7 @@ mod tests {
                 folds: false,
                 state: Line::default(),
                 state_primary_width: None,
+                state_attention: Vec::new(),
                 tokens: "—".into(),
                 session: String::new(),
                 model: "gpt-6.1-sol".into(),
@@ -537,6 +554,7 @@ mod tests {
                 )
                 .unwrap(),
                 state_primary_width: Some(10),
+                state_attention: vec![true, false],
                 tokens: "12.3K".into(),
                 session: String::new(),
                 model: "gpt-6.1-sol".into(),
@@ -604,6 +622,7 @@ mod tests {
                         )
                         .unwrap(),
                         state_primary_width: Some(10),
+                        state_attention: vec![true, false],
                         tokens: "—".into(),
                         session: String::new(),
                         model: String::new(),

@@ -947,11 +947,9 @@ impl App {
         if query_changed
             && selects_matches
             && !self.search.is_empty()
-            && let Some(first) = rows.iter().find(|row| {
-                row.title
-                    .to_lowercase()
-                    .contains(&self.search.to_lowercase())
-            })
+            && let Some(first) = rows
+                .iter()
+                .find(|row| crate::board::search_field::matches_query(&row.title, &self.search))
         {
             self.workspace.selected = Some(first.target.clone());
         }

@@ -522,7 +522,7 @@ impl OpsWorkspace {
         expand: bool,
     ) -> Vec<OpsTreeRow> {
         let query = query.to_lowercase();
-        let matches = |name: &str| name.to_lowercase().contains(&query);
+        let matches = |name: &str| crate::board::search_field::matches_query(name, &query);
         let pool: Vec<_> = roster.pool().collect();
         // Keep an unfiltered unknown/empty pool, but search only shows matching
         // identities and their containing group.

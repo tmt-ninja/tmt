@@ -175,10 +175,16 @@ pub(super) fn paint(
 
 /// Highlight original characters, including Unicode case-fold expansions, with
 /// weight only. No lowercased text or control bytes reach the display.
+pub(in crate::board) fn matches_query(text: &str, query: &str) -> bool {
+    crate::board::notes::sanitize(text)
+        .to_lowercase()
+        .contains(&query.to_lowercase())
+}
+
 fn highlight(text: &str, query: &str, normal: ratatui::style::Style) -> Line<'static> {
     let text = crate::board::notes::sanitize(text);
     let needle = query.to_lowercase();
-    if needle.is_empty() {
+    if needle.is_empty() || !matches_query(&text, query) {
         return Line::from(Span::styled(text, normal));
     }
     let mut spans = Vec::new();
@@ -225,6 +231,27 @@ pub(super) fn highlight_line(mut line: Line<'static>, query: &str) -> Line<'stat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matching_and_highlight_share_case_folded_visible_text() {
+        use ratatui::style::{Modifier, Style};
+        for (text, query, expected) in [
+            ("Worker", "orK", true),
+            ("worker", "missing", false),
+            ("A\u{1b}[31mB", "ab", true),
+        ] {
+            let found = matches_query(text, query);
+            assert_eq!(found, expected, "{text:?} {query:?}");
+            let line = highlight(text, query, Style::default());
+            assert_eq!(
+                line.spans
+                    .iter()
+                    .any(|span| span.style.add_modifier.contains(Modifier::BOLD)),
+                found,
+                "{text:?} {query:?}"
+            );
+        }
+    }
     use ratatui::crossterm::event::KeyModifiers;
     fn press(query: &mut Editor, editing: &mut bool, code: KeyCode) -> Option<Input> {
         key(query, editing, KeyEvent::new(code, KeyModifiers::NONE))
