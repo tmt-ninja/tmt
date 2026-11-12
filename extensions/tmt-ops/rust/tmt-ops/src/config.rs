@@ -31,8 +31,9 @@ mod workspace;
 pub use states::{Rank, States};
 pub(crate) use unread::ReadMarkers;
 pub use workspace::{
-    DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort, OverviewColumn,
-    OverviewDirection, OverviewPanel, OverviewPanels, Panel, PanelSetting, Panels, TokRange,
+    BoardLabel, DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort,
+    OverviewColumn, OverviewDirection, OverviewPanel, OverviewPanels, Panel, PanelSetting, Panels,
+    TokRange, WorkspaceLabels,
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults,
