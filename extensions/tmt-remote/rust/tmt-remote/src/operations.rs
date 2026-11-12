@@ -716,7 +716,10 @@ impl Operations {
                 ));
             }
         }
-        let payload = permit.with_store(|store| store.observe(&permit.grant, || {
+        // Core observations own no durable write. Keep both fences short, and capture
+        // fallible Core results so authority is rechecked even when the read fails.
+        permit.revalidate()?;
+        let payload = (|| {
             match operation {
                 "agents.list" => {
                     let value = self.core.agents(&self.stop)?;
@@ -725,35 +728,71 @@ impl Operations {
                     let mut agents = Vec::new();
                     for row in rows {
                         let id = row["id"].as_str().ok_or_else(invalid)?;
-                        if !permit.authority.permits(id) { continue; }
+                        if !permit.authority.permits(id) {
+                            continue;
+                        }
                         let mut projected = json!({"id":id,"name":row["name"].as_str().ok_or_else(invalid)?,"presence":row["presence"].as_str().ok_or_else(invalid)?});
-                        if let Some(delivery) = row.get("delivery") { projected["delivery"] = delivery.clone(); }
-                        if let Some(driver) = row.get("runningDriver").and_then(Value::as_str).filter(|driver| {
-                            !driver.is_empty() && driver.len() <= crate::limits::RUNNING_DRIVER_BYTES
-                                && driver.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-                        }) { projected["runningDriver"] = json!(driver); }
-                        if let Some(activity) = row.pointer("/session/activity").filter(|activity| {
-                            matches!(activity["state"].as_str(), Some("working" | "idle" | "unknown" | "ended"))
-                                && activity.get("sinceMs").is_some_and(|since| since.is_null()
-                                    || since.as_u64().is_some_and(|value| value <= 9_007_199_254_740_991))
-                        }) {
-                            projected["activity"] = json!({"state":activity["state"],"sinceMs":activity["sinceMs"]});
+                        if let Some(delivery) = row.get("delivery") {
+                            projected["delivery"] = delivery.clone();
+                        }
+                        if let Some(driver) = row
+                            .get("runningDriver")
+                            .and_then(Value::as_str)
+                            .filter(|driver| {
+                                !driver.is_empty()
+                                    && driver.len() <= crate::limits::RUNNING_DRIVER_BYTES
+                                    && driver.bytes().all(|byte| {
+                                        byte.is_ascii_lowercase()
+                                            || byte.is_ascii_digit()
+                                            || byte == b'-'
+                                    })
+                            })
+                        {
+                            projected["runningDriver"] = json!(driver);
+                        }
+                        if let Some(activity) =
+                            row.pointer("/session/activity").filter(|activity| {
+                                matches!(
+                                    activity["state"].as_str(),
+                                    Some("working" | "idle" | "unknown" | "ended")
+                                ) && activity.get("sinceMs").is_some_and(|since| {
+                                    since.is_null()
+                                        || since
+                                            .as_u64()
+                                            .is_some_and(|value| value <= 9_007_199_254_740_991)
+                                })
+                            })
+                        {
+                            projected["activity"] =
+                                json!({"state":activity["state"],"sinceMs":activity["sinceMs"]});
                         }
                         projected["observedAtMs"] = json!(observed_at_ms);
                         agents.push(projected);
                     }
                     Ok(json!({"identities":agents}))
-                },
+                }
                 "requests.list" => {
                     let query = conversation.as_ref().expect("validated conversation input");
-                    let core = self.api_with_limit(query.to_string().as_bytes(), crate::limits::CONVERSATION_RESPONSE_BYTES)
-                        .map_err(|_| RemoteError::new("REMOTE_CORE_UNAVAILABLE", "Conversation is unavailable."))?;
+                    let core = self
+                        .api_with_limit(
+                            query.to_string().as_bytes(),
+                            crate::limits::CONVERSATION_RESPONSE_BYTES,
+                        )
+                        .map_err(|_| {
+                            RemoteError::new(
+                                "REMOTE_CORE_UNAVAILABLE",
+                                "Conversation is unavailable.",
+                            )
+                        })?;
                     conversation::response(&core, query)
-                },
+                }
                 "orchestration.read" => {
                     let request = orchestration.as_ref().expect("admitted orchestration read");
-                    orchestration::outcome(self.api_with_limit(request.to_string().as_bytes(), crate::limits::ORCHESTRATION_RESPONSE_BYTES))
-                },
+                    orchestration::outcome(self.api_with_limit(
+                        request.to_string().as_bytes(),
+                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+                    ))
+                }
                 "identities.status" => self.api(&permit.message.payload),
                 "requests.show" => self.api(&permit.message.payload).map(|mut detail| {
                     let projected = message_state(&detail, permit.owner_browser());
@@ -768,34 +807,51 @@ impl Operations {
                 "check" => {
                     let input = agent.as_ref().expect("validated check input");
                     self.core.check(&input.agent_id, input.lines, &self.stop)
-                },
+                }
                 "result" => {
                     let id = request.as_deref().expect("validated request input");
-                    let api = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
-                    result_state(id, self.api(api.to_string().as_bytes()), permit.owner_browser())
-                },
+                    let api =
+                        json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
+                    result_state(
+                        id,
+                        self.api(api.to_string().as_bytes()),
+                        permit.owner_browser(),
+                    )
+                }
                 "operation.show" => {
                     let owned = owned.as_ref().expect("owned operation");
-                    if matches!(owned.phase.as_str(), "held" | "accepted" | "cancelled" | "refused") {
+                    if matches!(
+                        owned.phase.as_str(),
+                        "held" | "accepted" | "cancelled" | "refused"
+                    ) {
                         return Ok(state(owned));
                     }
-                    let frozen = owned.frozen.as_deref().ok_or_else(|| database("owned frozen intent absent"))?;
+                    let frozen = owned
+                        .frozen
+                        .as_deref()
+                        .ok_or_else(|| database("owned frozen intent absent"))?;
                     held_intent(&permit.grant, &owned.id, frozen)?;
                     // Missing/malformed core receipts stay uncertain; observation never sends.
-                    Ok(self.resolve(frozen, false, &permit.grant).unwrap_or_else(|_| uncertain(&owned.id)))
-                },
+                    Ok(self
+                        .resolve(frozen, false, &permit.grant)
+                        .unwrap_or_else(|_| uncertain(&owned.id)))
+                }
                 "dispatch.show" => {
                     let owned = owned.as_ref().expect("owned operation");
-                    if matches!(owned.phase.as_str(), "held" | "cancelled" | "refused") { return Ok(state(owned)); }
+                    if matches!(owned.phase.as_str(), "held" | "cancelled" | "refused") {
+                        return Ok(state(owned));
+                    }
                     match self.api(&permit.message.payload) {
                         Ok(receipt) if receipt["operationId"] == owned.id => Ok(receipt),
                         Ok(_) => Err(invalid()),
                         Err(_) => Ok(uncertain(&owned.id)),
                     }
-                },
+                }
                 _ => unreachable!(),
             }
-        }))??;
+        })();
+        permit.revalidate()?;
+        let payload = payload?;
         if operation == "operation.show"
             && payload["state"] == "accepted"
             && owned
@@ -1040,13 +1096,6 @@ enum SettlementKind {
     RecoveryObservation,
 }
 impl Store {
-    /// A bounded public observation is ordered against cross-process grant revocation.
-    fn observe<T>(&mut self, grant: &Grant, action: impl FnOnce() -> T) -> Result<T, RemoteError> {
-        let (tx, _) = self.authorized_at(grant, now_ms)?;
-        let value = action();
-        tx.commit().map_err(database)?;
-        Ok(value)
-    }
     /// A send-now is ordered against revocation like a dispatch effect: authority, this device's
     /// ownership of the request and the audit row commit with the bounded core call.
     pub(crate) fn send_now<T>(

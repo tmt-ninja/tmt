@@ -602,7 +602,11 @@ stable or still-unresolved originals are pure reads; a definitive outcome learne
 caller-owned original settles that original once, with its notification attributed to the observing
 session. It never sends. A lost read reply requires a new signed
 request, not journal recovery. Signature, freshness, session, scope, sequence and call-budget
-fences still apply. Response entries contain effect state/receipt references
+fences still apply. Read-only Core observations revalidate the session and persisted grant before
+and after the Core call, without holding the live-session or Store fence across that call.
+Authority loss or session closure during the call refuses the result; recovery settlement still
+uses its existing durable fence. State-changing Core effects retain their effect/revocation fence.
+Response entries contain effect state/receipt references
 rather than full final bodies. Release frozen payloads after confirmed core acceptance/cancellation;
 keep only intent digests, ownership and immutable core references, without duplicate permanent
 prompt history. After the initial beginning cursor is issued, a timeout has empty entries and an

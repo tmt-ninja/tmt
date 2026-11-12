@@ -74,13 +74,18 @@ bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is 
 
 `operations::conversation` validates the fixed viewer-resolved public Core query and
 allowlists its bounded response. The operation owner admits only the owner's own-origin
-browser with `results.read` and the selected member UUID, under the existing observation
-fence. Core positions remain opaque; no identity creation, acknowledgment or new store
+browser with `results.read` and the selected member UUID, under the existing permit
+checks. Core positions remain opaque; no identity creation, acknowledgment or new store
 belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
 bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
 
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
+
+`Operations::read` brackets fallible Core observations with `MessagePermit::revalidate`.
+Core runs outside the live-session and Store mutexes, with no SQLite authorization transaction
+held. The post-check runs before returning a result, including after a Core error; recovery
+settlement and state-changing effects retain their separately owned durable fences.
 
 Local device trust belongs to the [loopback driver](../../../../contracts/remote-channel-v1.md#transport-binding-loopback-http),
 not a base authentication layer ahead of Firestore. The implementation below remains unchanged;
