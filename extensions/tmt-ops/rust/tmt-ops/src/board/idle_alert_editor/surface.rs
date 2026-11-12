@@ -16,10 +16,11 @@ impl Controller {
             placement: Placement::Center,
         };
         let available = self.config.is_some();
-        let invalid = available && self.draft().is_err();
+        let draft = self.draft();
+        let invalid = available && draft.is_err();
         let probe = modal.areas(body, [66, 18], true, false);
         let impact: Vec<_> = self
-            .impact(app)
+            .impact_with_draft(app, &draft)
             .iter()
             .flat_map(|text| {
                 crate::board::notes::wrap(&safe(text), usize::from(probe.content.width))
@@ -155,7 +156,7 @@ impl Controller {
             if editor.height > 0 {
                 self.hits.borrow_mut().push((editor, Control::After));
             }
-            let after = self.draft().ok().map(|s| s.after.as_secs());
+            let after = draft.as_ref().ok().map(|s| s.after.as_secs());
             let options: Vec<_> = PRESETS
                 .iter()
                 .enumerate()
