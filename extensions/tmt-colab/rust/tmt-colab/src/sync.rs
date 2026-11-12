@@ -877,9 +877,12 @@ impl<A: Admission> Server<A> {
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
             let mut made = Made::default();
+            let mut removes = None;
             let prepared = if let Some(edit) = &job.metadata {
-                crate::page::metadata::prepare(&job.open, edit, &read_clock)
-                    .map(|prepared| (prepared, None))
+                crate::page::metadata::prepare(&job.open, edit, &read_clock).map(|edit| {
+                    removes = edit.removes;
+                    (edit.prepared, None)
+                })
             } else if let Some(batch) = &job.blocks {
                 crate::page::blocks::prepare(&job.open, batch, &read_clock).map(
                     |(prepared, receipt)| {
@@ -919,7 +922,17 @@ impl<A: Admission> Server<A> {
                 Ok(now) => {
                     let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
                     match state.finish_save(reply_to, job, prepared, made, now, may_retry)? {
-                        SaveFinish::Replied(result) => return Ok(*result),
+                        SaveFinish::Replied(result) => {
+                            drop(state);
+                            // A Remove template moves the default only once its clear committed.
+                            // The clear stays committed if the settings write fails: the
+                            // default then names a gone template, which the catalog answers as
+                            // starter and Colab settings shows as a note.
+                            if let Some(removal) = removes.filter(|_| result.state == "committed") {
+                                let _ = removal.reset_default();
+                            }
+                            return Ok(*result);
+                        }
                         SaveFinish::Retry => evaluations += 1,
                     }
                 }

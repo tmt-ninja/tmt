@@ -62,9 +62,9 @@ export function shortcutRows(
 
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
- * module menu is Colab's own fixed list: All pages, the Shortcuts group, Dashboards (the shell
- * pages, when there are any), then Colab settings. Exactly one row is selected: settings or a
- * dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
+ * module menu is Colab's own fixed list: All pages and Templates, the Shortcuts group, Dashboards
+ * (the shell pages, when there are any), then Colab settings. Exactly one row is selected: settings,
+ * Templates or a dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
  * else All pages.
  */
 export function ColabShell({
@@ -156,6 +156,20 @@ export function ColabShell({
               current:
                 !settings && !templatesRoute && !dashboard && !rows.some((row) => row.current),
             },
+            // Templates (#5077): a fixed Colab row with All pages, above the Shortcuts group, so
+            // it never reads as a shortcut Manage could remove.
+            ...(transport.management
+              ? [
+                  {
+                    id: 'templates',
+                    icon: 'file-text' as const,
+                    label: text.templates.title,
+                    href: href('/templates'),
+                    ...(templates === undefined ? {} : { total: templates }),
+                    current: templatesRoute,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -187,23 +201,6 @@ export function ColabShell({
                 label: text.colabSettings.shells,
                 fallbackIcon: 'layout-dashboard' as const,
                 items: shells,
-              },
-            ]
-          : []),
-        // Templates (#5077): the space's templates, beside Colab settings.
-        ...(transport.management
-          ? [
-              {
-                items: [
-                  {
-                    id: 'templates',
-                    icon: 'file-text' as const,
-                    label: text.templates.title,
-                    href: href('/templates'),
-                    ...(templates === undefined ? {} : { total: templates }),
-                    current: templatesRoute,
-                  },
-                ],
               },
             ]
           : []),

@@ -1271,12 +1271,25 @@ fn receive_skips_websocket_keepalive_frames_before_json() {
 }
 
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
+    hello_on(server, peer, id, PAGE)
+}
+/// `hello` for a session on another page of the space.
+fn hello_on(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    id: &str,
+    page_id: &str,
+) -> Vec<Value> {
+    let on = |mut frame: Value| {
+        frame["page"] = page_id.into();
+        frame
+    };
     send(
         peer,
-        server.frame(
+        on(server.frame(
             "hello",
             json!({"membershipRevision":"0","device":id,"cursors":[]}),
-        ),
+        )),
     );
     let first = receive(peer);
     assert_eq!(first["type"], "catchup");
@@ -1291,13 +1304,13 @@ fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Va
         json!(values::encode_binary(&head.hash))
     );
     assert_eq!(first["baseline"], Value::Null);
-    send(peer, server.frame("ack", json!({"cursors":[]})));
+    send(peer, on(server.frame("ack", json!({"cursors":[]}))));
     let mut pages = vec![first];
     for _ in 0..8 {
         let page = receive(peer);
         assert_eq!(page["type"], "catchup");
         let more = page["more"].as_bool().unwrap();
-        send(peer, server.frame("ack", json!({"cursors":[]})));
+        send(peer, on(server.frame("ack", json!({"cursors":[]}))));
         if page.get("wraps").is_some() && more {
             continue;
         }

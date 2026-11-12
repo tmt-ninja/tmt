@@ -914,19 +914,24 @@ fn the_browser_and_the_cli_share_one_owner_per_template_rule() {
             "template.set",
             json!({"name":"notes","description":"Notes"})
         )
-        .unwrap(),
+        .unwrap()
+        .prepared,
         save::Prepared::Write(_)
     ));
     agrees(&pilot);
 
     // Removing the default template returns the serving machine's default to starter, as the CLI's
-    // remove does, and the list says so.
+    // remove does, but only once the clear commits: a browser clear that is prepared and never
+    // committed leaves the default where it was.
     pilot.call(&["template", "default", "weekly-review", "--json"]);
     agrees(&pilot);
-    assert!(matches!(
-        browser(&template, "template.clear", json!({})).unwrap(),
-        save::Prepared::Write(_)
-    ));
+    let default = settings(&pilot)["defaultTemplate"].clone();
+    let clear = browser(&template, "template.clear", json!({})).unwrap();
+    assert!(matches!(clear.prepared, save::Prepared::Write(_)));
+    assert!(clear.removes.is_some());
+    assert_eq!(settings(&pilot)["defaultTemplate"], default);
+    agrees(&pilot);
+    pilot.call(&["template", "remove", "weekly-review", "--json"]);
     assert!(settings(&pilot).get("defaultTemplate").is_none());
     agrees(&pilot);
 }

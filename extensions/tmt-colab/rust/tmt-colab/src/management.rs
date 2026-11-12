@@ -901,15 +901,7 @@ fn new_page(
             &mut space.decoder,
         )
         .map_err(|_| Code::Unavailable)?;
-        let found = catalog.find(&new.template).map_err(|error| {
-            match error
-                .downcast_ref::<template_catalog::Refusal>()
-                .map(|refusal| refusal.code())
-            {
-                Some("COLAB_TEMPLATE_UNKNOWN" | "COLAB_TEMPLATE_AMBIGUOUS") => Code::Invalid,
-                _ => Code::Unavailable,
-            }
-        })?;
+        let found = catalog.find(&new.template).map_err(find_refusal)?;
         match found {
             Found::BuiltIn(template) => (
                 template.name.to_owned(),
@@ -967,6 +959,18 @@ fn new_page(
 /// `template.default` (#5077): the serving machine's default template, written where `template
 /// default` writes it. A selector that names no template writes nothing; `starter`, or none, clears
 /// the setting. Setting it again is the same change, so a replay answers the same.
+/// A template the request names that is unknown or ambiguous is the caller's `INVALID`; a store
+/// that could not be read is `UNAVAILABLE`.
+fn find_refusal(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
+    match error
+        .downcast_ref::<crate::template_catalog::Refusal>()
+        .map(|refusal| refusal.code())
+    {
+        Some("COLAB_TEMPLATE_UNKNOWN" | "COLAB_TEMPLATE_AMBIGUOUS") => Code::Invalid,
+        _ => Code::Unavailable,
+    }
+}
+
 fn default_template(
     service: &mut crate::registration::Registration,
     command: &Command,
@@ -985,7 +989,7 @@ fn default_template(
         )
         .map_err(|_| Code::Unavailable)?
         .find(selector)
-        .map_err(|_| Code::Invalid)?,
+        .map_err(find_refusal)?,
     };
     crate::settings::set_default_template(&space.root, template_catalog::default_setting(&found))
         .map_err(|_| Code::Unavailable)?;

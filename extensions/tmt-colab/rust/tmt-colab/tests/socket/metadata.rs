@@ -270,7 +270,8 @@ fn a_committed_metadata_operation_is_recovered_before_its_old_target_is_checked(
         },
         &|| Ok(now()),
     )
-    .unwrap();
+    .unwrap()
+    .prepared;
     let tmt_colab::page::save::Prepared::Write(frozen) = prepared else {
         panic!("new handling")
     };
@@ -899,4 +900,139 @@ fn an_editor_link_clears_a_question_recipient_and_a_stale_target_never_applies()
     let stale = ask(&mut stream, &mut peer, 2, original);
     assert_eq!(stale["result"]["code"], "COLAB_STALE_BASE", "{stale}");
     assert_eq!(read(&layout, &key).questions, current.questions);
+}
+
+/// Remove template on the page socket (#5077): the serving machine's default that names the
+/// template returns to starter only once the clear commits. A refused clear leaves it, and a
+/// replay of the committed clear does not move a default chosen since.
+#[test]
+fn a_browser_remove_template_resets_the_default_only_after_it_commits() {
+    // A page of its own with a layout, as `template save` requires; frames name it.
+    const TEMPLATE: &str = "00000000-0000-4000-8000-0000000000f0";
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let head: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT max(CAST(revision AS INTEGER)) FROM membership_log",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let create = json!({"space":server.space,"page":TEMPLATE,"expectedRevision":head.to_string(),
+        "operationId":"40000000-0000-4000-8000-0000000000f1","operation":"page.create",
+        "payload":values::encode_binary(&serde_json::to_vec(&json!({"pageId":TEMPLATE,
+            "title":"Weekly review","source":"<h1>Week</h1>\n<p>Shipped</p>\n",
+            "layout":{"kind":"column"}})).unwrap())});
+    let made = server.event(tmt_colab::management::LOCAL_PATH, "", &create.to_string());
+    assert!(made.starts_with("HTTP/1.1 200"), "{made}");
+    let (socket, response) = server.tunnel();
+    assert!(response.starts_with("HTTP/1.1 101"), "{response}");
+    let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    hello_on(&server, &mut peer, DEVICE, TEMPLATE);
+    let revision = || {
+        let store = Store::read(&layout).unwrap();
+        let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap();
+        let page = tmt_colab::page::read(&store, &key, TEMPLATE, &mut decoder).unwrap();
+        store.close().unwrap();
+        page.revision
+    };
+    let change = |peer: &mut _, operation: &str, revision: &str, action: &str, body: Value| {
+        let mut frame = server.frame("metadata", json!({"operationId":operation,"expectedRevision":revision,"action":action,"body":body}));
+        frame["page"] = TEMPLATE.into();
+        send(peer, frame);
+        // Bounded: the serve's pings keep the read open, so a missing result fails here.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut seen = Vec::new();
+        loop {
+            assert!(Instant::now() < deadline, "no metadataresult: {seen:?}");
+            let frame = receive(peer);
+            let mut ack = server.frame("ack", json!({"cursors":[]}));
+            ack["page"] = TEMPLATE.into();
+            send(peer, ack);
+            match frame["type"].as_str() {
+                Some("metadataresult") => break frame,
+                Some("error") => panic!("{frame}"),
+                _ => seen.push(frame["type"].clone()),
+            }
+        }
+    };
+    let created = revision();
+    let saved = change(
+        &mut peer,
+        WORK_ONE,
+        &created,
+        "template.set",
+        json!({"name":"weekly-review"}),
+    );
+    assert_eq!(saved["state"], "committed", "{saved}");
+    let set_default = |operation: &str, template: &str| {
+        let response = server.event(
+            tmt_colab::management::PATH,
+            &format!("{}\r\n", owner(DEVICE)),
+            &space_body(
+                &server,
+                operation,
+                "template.default",
+                json!({"template":template}),
+                DEVICE,
+                now(),
+            ),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    };
+    let default = || {
+        serde_json::from_str::<Value>(
+            &fs::read_to_string(server.root.join("colab/settings.json")).unwrap(),
+        )
+        .unwrap()
+        .get("defaultTemplate")
+        .cloned()
+    };
+    set_default("40000000-0000-4000-8000-0000000000f2", "weekly-review");
+    let chosen = default();
+    assert_eq!(chosen.as_ref().and_then(Value::as_str), Some(TEMPLATE));
+
+    // A clear the owner refuses (a stale revision) commits nothing, and the default stays.
+    let refused = change(&mut peer, WORK_TWO, &created, "template.clear", json!({}));
+    assert_eq!(refused["state"], "rejected", "{refused}");
+    assert_eq!(default(), chosen);
+    assert_eq!(revision(), saved["revision"]);
+
+    // The committed clear returns the default to starter.
+    let cleared = change(
+        &mut peer,
+        WORK_THREE,
+        saved["revision"].as_str().unwrap(),
+        "template.clear",
+        json!({}),
+    );
+    assert_eq!(cleared["state"], "committed", "{cleared}");
+    assert_eq!(default(), None);
+
+    // Sent again, the clear finds no template and is refused; its committed result is recovered
+    // through save status. Neither moves a default chosen since.
+    set_default("40000000-0000-4000-8000-0000000000f3", "report");
+    let again = change(
+        &mut peer,
+        WORK_THREE,
+        saved["revision"].as_str().unwrap(),
+        "template.clear",
+        json!({}),
+    );
+    assert_eq!(again["code"], "COLAB_TEMPLATE_UNKNOWN", "{again}");
+    let mut status = server.frame("savestatus", json!({"operationId":WORK_THREE}));
+    status["page"] = TEMPLATE.into();
+    send(&mut peer, status);
+    let recovered = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(recovered["state"], "committed", "{recovered}");
+    assert_eq!(recovered["revision"], cleared["revision"]);
+    assert_eq!(default(), Some(json!("report")));
 }

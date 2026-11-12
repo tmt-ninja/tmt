@@ -6727,7 +6727,8 @@ default` writes (below); it is that machine's default, not a space-wide value. A
   admission is `template save`'s and `template remove`'s: the name grammar, a name no other page
   carries and no compiled name, a register-clean page that names a layout, the description rule
   (no description keeps the existing one, else the title); only a user template can be removed, and
-  removing the default returns it to `starter`. Saves across pages are ordered by one lock in the
+  removing the default returns it to `starter` once the clear commits (a refused clear leaves the
+  default, and a default chosen since is kept). Saves across pages are ordered by one lock in the
   data root (`template-saves.lock`), which `template save` also holds from its name check until its
   write commits, so two pages never both take one name.
 

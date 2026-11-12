@@ -7,6 +7,31 @@ use super::{
 use crate::decoder::StructuredKind;
 use serde_json::Value;
 
+/// A prepared metadata edit and what its commit must do afterwards.
+pub struct PreparedEdit {
+    pub prepared: Prepared,
+    /// A Remove template: the template it removes, whose default returns to starter only once the
+    /// clear commits (`Removal::reset_default`), as `template remove` does.
+    pub removes: Option<Removal>,
+}
+
+/// The template a Remove template takes away, and the data root whose settings name the default.
+pub struct Removal {
+    root: std::path::PathBuf,
+    template: crate::template_catalog::User,
+}
+impl Removal {
+    /// After the clear committed: a default that names the removed template returns to starter. A
+    /// default changed meanwhile to another template stays.
+    pub fn reset_default(&self) -> crate::Result<()> {
+        let settings = crate::settings::read_or_default(&self.root);
+        if crate::template_catalog::is_default(settings.default_template(), &self.template) {
+            crate::settings::set_default_template(&self.root, None)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct MetadataEdit {
     pub page: String,
     pub operation_id: String,
@@ -112,7 +137,7 @@ pub fn prepare(
     open: &SourceOpener,
     edit: &MetadataEdit,
     clock: &dyn Fn() -> crate::Result<u64>,
-) -> crate::Result<Prepared> {
+) -> crate::Result<PreparedEdit> {
     let kind = validate(&edit.action, &edit.body)?;
     let body = if edit.action == "question.agent" {
         resolve_question_agent(&edit.body)?
@@ -167,15 +192,13 @@ pub fn prepare(
         &mut source.decoder,
         clock,
     )?;
-    // A removed template that was the serving machine's default returns it to starter, as
-    // `template remove` does.
-    if let Some(user) = removed {
-        let settings = crate::settings::read_or_default(&source.root);
-        if crate::template_catalog::is_default(settings.default_template(), &user) {
-            crate::settings::set_default_template(&source.root, None)?;
-        }
-    }
-    super::save::structured(&source, &edit.page, &edit.operation_id, prepared)
+    Ok(PreparedEdit {
+        prepared: super::save::structured(&source, &edit.page, &edit.operation_id, prepared)?,
+        removes: removed.map(|template| Removal {
+            root: source.root.clone(),
+            template,
+        }),
+    })
 }
 
 #[cfg(test)]
