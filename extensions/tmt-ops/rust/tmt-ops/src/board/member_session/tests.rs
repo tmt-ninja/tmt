@@ -147,7 +147,8 @@ fn unbound_field_is_explicit_and_host_neutral_in_rows_and_dialog() {
             } else {
                 format!("{host} · work")
             };
-            for scene in ["session-rows-tree"] {
+            {
+                let scene = "session-rows-tree";
                 let mut app = capture_case(scene, crate::look::Look::default());
                 binding_observation(&mut app, host, value.clone());
                 assert_eq!(app.member_session_evidence(MEMBER).compact(), expected);
@@ -261,7 +262,8 @@ fn unbound_flag_changes_fence_copy_and_legacy_confirmations() {
 
 #[test]
 fn host_column_keeps_unbound_mark_and_word_when_the_host_is_clipped() {
-    for scene in ["session-rows-tree"] {
+    {
+        let scene = "session-rows-tree";
         let mut app = capture_case(scene, crate::look::Look::default());
         let host = "a-host-name-longer-than-the-session-track";
         binding_observation(&mut app, host, Some(json!(true)));

@@ -764,8 +764,6 @@ pub struct WorkspaceColumnValues {
     pub model: Option<String>,
     /// A basic driver observes no runtime: say `basic` where the runtime is blank.
     pub basic: bool,
-    /// The plain program the member runs instead of an agent; it is also `model` (#5769).
-    pub plain: Option<String>,
 }
 
 /// Dense model cells use the acquired model only while its driver is running.
@@ -875,11 +873,8 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         digest,
         cron: input.timers,
         runtime: input.agent.and_then(|agent| agent.runtime.clone()),
-        model: plain
-            .clone()
-            .or_else(|| input.agent.and_then(|agent| agent.model.clone())),
+        model: plain.or_else(|| input.agent.and_then(|agent| agent.model.clone())),
         basic: input.agent.is_some_and(|agent| agent.basic),
-        plain,
     })
 }
 
@@ -1089,13 +1084,11 @@ mod tests {
         };
         let (agent, tree_model) = cells(serde_json::json!({"id": "a", "name": "w",
             "runningDriver": "codex", "resume": {"model": "gpt-6.1-sol"}}));
-        assert_eq!(agent.plain, None);
         assert_eq!(agent.text(Column::Model, row), "gpt-6.1-sol");
         assert_eq!(agent.text(Column::TokensPerHour, row), "1.2k");
         assert_eq!(tree_model, "gpt-6.1-sol");
         let (plain, tree_model) =
             cells(serde_json::json!({"id": "a", "name": "w", "plainProgram": "zsh"}));
-        assert_eq!(plain.plain.as_deref(), Some("zsh"));
         assert_eq!(plain.text(Column::Model, row), "zsh");
         assert_eq!(plain.text(Column::TokensPerHour, row), "—");
         assert_eq!(plain.text(Column::Digest, row), "—");
@@ -1179,7 +1172,6 @@ mod tests {
             runtime: runtime.map(str::to_owned),
             model: None,
             basic,
-            plain: None,
         };
         assert_eq!(values(None, true).text(Column::Runtime, &row), "basic");
         assert_eq!(values(None, false).text(Column::Runtime, &row), "—");

@@ -30,7 +30,6 @@ impl Header {
             Self::Squads(sort) => Order {
                 agents: sort,
                 reversed: false,
-                ..order
             },
         }
     }
@@ -195,7 +194,6 @@ mod tests {
         let by_name = name.clicked(Order {
             agents: OpsSort::Attention,
             reversed: true,
-            ..Order::default()
         });
         assert_eq!((by_name.agents, by_name.reversed), (OpsSort::Name, false));
         let reversed = name.clicked(by_name);
@@ -205,11 +203,7 @@ mod tests {
 
     #[test]
     fn a_tree_names_run_up_and_attention_runs_down() {
-        let order = |agents, reversed| Order {
-            agents,
-            reversed,
-            ..Order::default()
-        };
+        let order = |agents, reversed| Order { agents, reversed };
         let name = Header::Squads(OpsSort::Name);
         let state = Header::Squads(OpsSort::Attention);
         assert_eq!(

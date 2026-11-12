@@ -349,39 +349,6 @@ impl OpsRoster {
     }
 }
 
-/// One row per identity, independent of squad expansion and duplicate membership.
-/// Retain a real squad occurrence for the existing management admission lane.
-pub(in crate::board) fn identity_rows(
-    snapshot: &observe::OpsWorkspaceSnapshot,
-    query: &str,
-    preferred: Option<&OpsTarget>,
-    visibility: &OpsVisibility,
-) -> Vec<OpsTreeRow> {
-    identity_rows_matching(snapshot, query, preferred, visibility, |_| true)
-}
-
-/// Apply a destination's evidence predicate before choosing one UUID occurrence.
-/// An ineligible preferred membership cannot hide another eligible occurrence.
-pub(in crate::board) fn identity_rows_matching(
-    snapshot: &observe::OpsWorkspaceSnapshot,
-    query: &str,
-    preferred: Option<&OpsTarget>,
-    visibility: &OpsVisibility,
-    admit: impl Fn(&OpsTreeRow) -> bool,
-) -> Vec<OpsTreeRow> {
-    let mut rows = admitted_identity_rows(snapshot, query, preferred, visibility, admit);
-    rows.sort_by(|a, b| {
-        a.title
-            .to_lowercase()
-            .cmp(&b.title.to_lowercase())
-            .then(a.target.cmp(&b.target))
-    });
-    if snapshot.preferences.reversed {
-        rows.reverse();
-    }
-    rows
-}
-
 /// Project admitted UUID occurrences without imposing a destination's display
 /// order. Digest ranks by TOK and must not first sort the same rows by name.
 pub(in crate::board) fn admitted_identity_rows(

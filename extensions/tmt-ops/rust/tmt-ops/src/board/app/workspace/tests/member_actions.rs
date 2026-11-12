@@ -543,7 +543,8 @@ fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
         }
         let disabled =
             crate::board::keycap::control_span(&app, "w", OpsUiAction::WorkspaceSnapshots).style;
-        for (key, ui) in [("t", OpsUiAction::PaneMeasure)] {
+        {
+            let (key, ui) = ("t", OpsUiAction::PaneMeasure);
             assert_eq!(
                 crate::board::keycap::control_span(&app, key, ui).style,
                 disabled,

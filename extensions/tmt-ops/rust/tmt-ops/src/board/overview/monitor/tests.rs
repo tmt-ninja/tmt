@@ -255,7 +255,7 @@ fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
         crate::config::OpsSort::Attention
     );
     assert_eq!(press(&mut app, KeyCode::Char('G')), Effect::None);
-    assert_eq!(app.workspace_order().reversed, true);
+    assert!(app.workspace_order().reversed);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
 }

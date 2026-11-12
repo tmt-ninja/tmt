@@ -150,9 +150,8 @@ fn each_tok_part_lights_up_alone_under_the_pointer() {
             if let Some(mark) = at.mark {
                 controls.push(("sort", mark));
             }
-            assert_eq!(
-                at.mark.is_some(),
-                false,
+            assert!(
+                at.mark.is_none(),
                 "{name} {width}: the tree does not sort by tokens"
             );
             for (part, area) in &controls {

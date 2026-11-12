@@ -1462,13 +1462,13 @@ impl App {
                             choice: Choice::WorkspaceBegin(kind),
                         });
                     }
-                    for (label, action) in [("Timers", OpsUiAction::Timers)] {
-                        entries.push(MenuEntry {
-                            key: String::new(),
-                            label: label.into(),
-                            choice: Choice::Action(Action::parse(action.spec().name).unwrap()),
-                        });
-                    }
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: "Timers".into(),
+                        choice: Choice::Action(
+                            Action::parse(OpsUiAction::Timers.spec().name).unwrap(),
+                        ),
+                    });
                 }
                 entries.push(MenuEntry {
                     key: String::new(),

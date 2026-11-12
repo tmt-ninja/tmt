@@ -65,7 +65,8 @@ fn assert_remove(app: &App, room_id: &str, revision: u64) {
 
 #[test]
 fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
-    for tab in [OpsTab::Digest] {
+    {
+        let tab = OpsTab::Digest;
         let mut app = flat(1, tab);
         let selected = app.workspace.selected.clone();
         assert_eq!(
@@ -84,7 +85,8 @@ fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
 
 #[test]
 fn multiple_memberships_require_a_room_choice_before_any_review() {
-    for tab in [OpsTab::Digest] {
+    {
+        let tab = OpsTab::Digest;
         let mut app = flat(2, tab);
         let selected = app.workspace.selected.clone();
         assert_eq!(
@@ -129,7 +131,8 @@ fn common_pool_member_has_no_membership_instead_of_a_refresh_problem() {
 
 #[test]
 fn a_flat_partial_roster_needs_refresh_even_with_one_observed_membership() {
-    for tab in [OpsTab::Digest] {
+    {
+        let tab = OpsTab::Digest;
         for observation in [OpsObservation::Partial, OpsObservation::Unavailable] {
             let mut app = flat(1, tab);
             let roster = &mut app
@@ -338,7 +341,8 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
 #[test]
 fn all_squad_required_actions_share_flat_context_and_known_absence_reasons() {
     for kind in [Kind::Add, Kind::Lead, Kind::RenameSquad] {
-        for tab in [OpsTab::Digest] {
+        {
+            let tab = OpsTab::Digest;
             let mut app = flat(0, tab);
             assert_eq!(app.workspace_begin(kind), Effect::None);
             assert!(app.workspace_form.is_none() && app.menu.is_none());
@@ -480,7 +484,8 @@ fn picker_keys_work_after_geometry_invalidation_without_a_repaint() {
 
 #[test]
 fn unknown_membership_absence_is_not_reported_as_a_known_empty_pool() {
-    for tab in [OpsTab::Digest] {
+    {
+        let tab = OpsTab::Digest;
         let mut app = flat(0, tab);
         app.view
             .as_mut()

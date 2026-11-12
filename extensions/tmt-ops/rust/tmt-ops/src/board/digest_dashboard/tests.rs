@@ -113,37 +113,50 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
             serde_json::json!({"id":"id","name":"Agent"}),
         );
     }
-    let rows =
-        crate::board::workspace::identity_rows(&snapshot, "agent", None, &Default::default());
+    let rows = crate::board::workspace::admitted_identity_rows(
+        &snapshot,
+        "agent",
+        None,
+        &Default::default(),
+        |_| true,
+    );
     assert_eq!(rows.len(), 1);
     assert!(
         matches!(&rows[0].target, OpsTarget::Member { room_id: Some(room), .. } if room == "a")
     );
     assert!(
-        crate::board::workspace::identity_rows(&snapshot, "absent", None, &Default::default())
-            .is_empty()
+        crate::board::workspace::admitted_identity_rows(
+            &snapshot,
+            "absent",
+            None,
+            &Default::default(),
+            |_| true
+        )
+        .is_empty()
     );
     let preferred = OpsTarget::Member {
         room_id: Some("b".into()),
         identity_id: "id".into(),
     };
     assert_eq!(
-        crate::board::workspace::identity_rows(
+        crate::board::workspace::admitted_identity_rows(
             &snapshot,
             "agent",
             Some(&preferred),
-            &Default::default()
+            &Default::default(),
+            |_| true,
         )[0]
         .target,
         preferred
     );
     snapshot.roster.squads[1].members.clear();
     assert_ne!(
-        crate::board::workspace::identity_rows(
+        crate::board::workspace::admitted_identity_rows(
             &snapshot,
             "agent",
             Some(&preferred),
-            &Default::default()
+            &Default::default(),
+            |_| true,
         )[0]
         .target,
         preferred
@@ -154,8 +167,14 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
         identity_id: "id".into(),
     });
     assert!(
-        crate::board::workspace::identity_rows(&snapshot, "agent", None, &Default::default())
-            .is_empty(),
+        crate::board::workspace::admitted_identity_rows(
+            &snapshot,
+            "agent",
+            None,
+            &Default::default(),
+            |_| true
+        )
+        .is_empty(),
         "stale row documents do not establish membership"
     );
 }
