@@ -700,3 +700,28 @@ describe('bootstrap upgrade refusal context', () => {
     }
   });
 });
+
+describe('README GitHub-only install and upgrade origin', () => {
+  // A network may block the short install domain, so GitHub alone must be enough (#6314).
+  const read = (...parts: string[]) =>
+    readFileSync(path.join(repositoryRoot, '..', ...parts), 'utf8');
+  // The installer's own hosts are proven above ('install.sh downloads only from the public
+  // release host'); this pins what the README tells a restricted network to allow.
+  it('documents the direct GitHub command and only hosts the upgrade client allows', () => {
+    const readme = read('README.md');
+    expect(readme).toContain(
+      'curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh'
+    );
+    const allowed = /const ALLOWED_HOSTS: &\[&str\] = &\[([^\]]+)\]/.exec(
+      read('rust', 'crates', 'tmt-adapters', 'src', 'release_http.rs')
+    );
+    expect(allowed).not.toBeNull();
+    const client = [...allowed![1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    expect(client.every((host) => /(^|\.)github(usercontent)?\.com$/.test(host))).toBe(true);
+    const documented = [...readme.matchAll(/`([a-z.-]+\.com)`/g)].map((match) => match[1]);
+    // Everything the client may contact, except the API host that only PR builds use.
+    expect(new Set(documented)).toEqual(
+      new Set(client.filter((host) => host !== 'api.github.com'))
+    );
+  });
+});

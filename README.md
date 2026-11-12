@@ -28,6 +28,13 @@ Install on macOS or Linux:
 curl -fsSL https://install.tmt.ninja | sh
 ```
 
+If your network blocks `install.tmt.ninja`, install straight from GitHub. The
+short address only redirects to this file:
+
+```sh
+curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh
+```
+
 Set up your agents and the optional extensions:
 
 ```sh
@@ -48,6 +55,10 @@ tmt upgrade --channel alpha
 
 Only the alpha channel works for now. Installing and upgrading need no GitHub
 token.
+
+Installing, upgrading and extension downloads use GitHub only. On a restricted
+network, allow `github.com`, `raw.githubusercontent.com`,
+`release-assets.githubusercontent.com` and `objects.githubusercontent.com`.
 
 ## The core idea
 
