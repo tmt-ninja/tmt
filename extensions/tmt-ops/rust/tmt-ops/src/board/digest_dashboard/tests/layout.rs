@@ -363,7 +363,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     assert!(shown.contains("ACTIVITY"));
     assert!(!shown.contains("SHARE"));
     assert!(!shown.contains("≈ $ USED"));
-    assert!(shown.contains("Details"));
+    assert!(shown.contains("worker · 1d"));
     key(&mut app, KeyCode::Tab);
     let shown = paint(&mut app, 80, 40);
     assert!(shown.contains("from\\to"));
@@ -382,7 +382,7 @@ fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_e
     let shown = paint(&mut app, 160, 40);
     assert!(shown.contains("28.7k"), "{shown}");
     assert!(
-        super::super::details::panel(&app, 121_000, app.selected_row())
+        super::super::details::panel_text(&app, 121_000, app.selected_row())
             .join(" ")
             .contains("tmt extension install digest")
     );
@@ -390,7 +390,12 @@ fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_e
     app.digest_window = crate::config::DigestWindow::Week;
     let shown = paint(&mut app, 160, 40);
     assert!(shown.contains("7d ▾"), "{shown}");
-    assert!(shown.contains("saved —"), "{shown}");
+    assert!(
+        super::super::details::panel_text(&app, 121_000, app.selected_row())
+            .iter()
+            .any(|line| line == "saved trend —"),
+        "{shown}"
+    );
 }
 
 #[test]
@@ -697,7 +702,7 @@ fn list_price_is_kept_out_of_the_list_and_totals_name_the_estimate() {
         let mut app = fixture();
         let shown = paint(&mut app, width, 60);
         assert!(!shown.contains("≈ $ USED"));
-        assert!(shown.contains("not a bill"), "{shown}");
+        assert!(shown.contains("saved"), "{shown}");
         let hint = super::super::table::painted_width(&app).and_then(|width| {
             super::super::table::narrow_hint(width, app.savings_unit(), usize::MAX)
         });

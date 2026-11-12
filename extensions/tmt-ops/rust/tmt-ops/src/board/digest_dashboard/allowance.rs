@@ -15,9 +15,6 @@ use tmt_cli_style::Role;
 use tmt_tui::components::design_system as ds;
 use unicode_width::UnicodeWidthStr;
 
-const SOURCE: usize = 8;
-const LEFT: usize = 5;
-
 /// Tokens each provider's members spent over the last 3 h and 24 h, from the usage report the
 /// Digest tab already holds: one 24-cell hourly series per seat, a seat counted for the driver
 /// its member is on now. Nothing is read for this; a missing or stale report, a seat with no
@@ -172,7 +169,17 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
     use ds::Component;
     super::paint_grid(frame, app, area, |grid| {
         let mut x = 0u16;
-        for (span, unstyled) in spans {
+        for (mut span, unstyled) in spans {
+            let remaining = usize::from(area.width.saturating_sub(x));
+            let clipped = span.text.width() > remaining;
+            if clipped {
+                // A partially visible provider segment is less useful than a single marker.
+                span.text = if remaining > 0 {
+                    "…".into()
+                } else {
+                    String::new()
+                };
+            }
             let width = area
                 .width
                 .saturating_sub(x)
@@ -193,6 +200,9 @@ pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
                 ds::Text::render(&ds::TextProps { spans: vec![span] }, rect, grid);
             }
             x += width;
+            if clipped {
+                break;
+            }
         }
     });
 }
@@ -208,11 +218,11 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
             false,
         )
     };
-    let label = pad(&row.provider.label(), SOURCE, false);
+    let label = format!("{} ", row.provider.label());
     let Some(weekly) = &row.weekly else {
         return vec![
             span(label, Role::Text, false),
-            span(pad("—", LEFT, true), Role::Dim, false),
+            span("—".into(), Role::Dim, false),
             span("  no recent reading".into(), Role::Muted, false),
         ];
     };
@@ -228,42 +238,31 @@ fn tile_row(row: &Row, zone: &jiff::tz::TimeZone, ascii: bool) -> Vec<(ds::TextS
         Outcome::Lasts(_) => ("lasts past reset".into(), false),
         Outcome::Unknown => ("—".into(), false),
     };
-    vec![
+    let mut parts = vec![
         span(label, Role::Text, false),
-        span(
-            pad(&format!("{:.0}%", weekly.left), LEFT, true),
-            Role::Text,
-            true,
-        ),
+        span(format!("{:.0}%", weekly.left), Role::Text, true),
         (
             ds::TextSpan {
-                text: "  ".into(),
+                text: " · ".into(),
                 role: ds::Token(Role::Text),
                 bold: false,
             },
             true,
         ),
         span(
-            format!("{outlook:<20}"),
+            outlook,
             if runs_out { Role::Waiting } else { Role::Text },
             false,
         ),
-        span(
-            format!("resets {}", clock(weekly.resets_at_ms, zone)),
+    ];
+    if !runs_out {
+        parts.push(span(
+            format!("  resets {}", clock(weekly.resets_at_ms, zone)),
             Role::Muted,
             false,
-        ),
-    ]
-}
-
-fn pad(text: &str, width: usize, right: bool) -> String {
-    let fitted = crate::board::view::fit(text, width);
-    let fill = " ".repeat(width.saturating_sub(fitted.width()));
-    if right {
-        format!("{fill}{fitted}")
-    } else {
-        format!("{fitted}{fill}")
+        ));
     }
+    parts
 }
 
 fn clock(at_ms: u64, zone: &jiff::tz::TimeZone) -> String {

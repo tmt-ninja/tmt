@@ -36,7 +36,7 @@ pub(super) fn tracks(width: u16, unit: SavingsUnit) -> Vec<(Field, u16)> {
     let _ = unit; // The unit affects window totals, never the list's fixed columns.
     let mut fields = vec![(Agent, 14u16), (State, 12u16)];
     if width >= 76 {
-        fields.push((Activity, if width >= 112 { 24 } else { 12 }));
+        fields.push((Activity, if width >= 86 { 21 } else { 12 }));
     }
     fields.extend([(Tokens, 7), (Saved, 7), (Percent, 8), (Held, 6), (Mode, 8)]);
 
@@ -100,7 +100,7 @@ pub(super) fn narrow_hint(width: u16, unit: SavingsUnit, room: usize) -> Option<
 pub(super) fn painted_width(app: &App) -> Option<u16> {
     app.digest_placement(app.conversation.borrow().area)
         .list
-        .map(crate::board::pane_chrome::content_area)
+        .map(super::render::content_area)
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
 }
@@ -113,7 +113,14 @@ fn selection_underlay(grid: &mut tmt_tui::components::design_system::CellGrid, w
     }
 }
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
-    let mut inside = super::render::pane_frame(frame, app, area, Pane::Rows, "Agents by TOK");
+    let mut inside = super::render::pane_frame_with_note(
+        frame,
+        app,
+        area,
+        Pane::Rows,
+        "Agents by TOK",
+        Some("/ Search"),
+    );
     if inside.is_empty() {
         return;
     }
@@ -123,17 +130,20 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|(field, width)| {
             let caption = match field {
-                Field::Agent => "AGENT",
-                Field::State => "STATE",
-                Field::Activity => "ACTIVITY",
-                Field::Tokens => "TOK",
-                Field::Percent => "SAVED %",
-                Field::Saved => "SAVED",
-                Field::Held => "HELD",
-                Field::Mode => "MODE",
+                Field::Agent => "AGENT".to_owned(),
+                Field::State => "STATE".to_owned(),
+                Field::Activity if *width >= 21 => {
+                    format!("ACTIVITY · last {} →", app.digest_window().label())
+                }
+                Field::Activity => "ACTIVITY".to_owned(),
+                Field::Tokens => "TOK".to_owned(),
+                Field::Percent => "SAVED %".to_owned(),
+                Field::Saved => "SAVED".to_owned(),
+                Field::Held => "HELD".to_owned(),
+                Field::Mode => "MODE".to_owned(),
             };
             tmt_tui::components::design_system::TotalsColumn {
-                header: fit(caption, usize::from(*width)),
+                header: fit(&caption, usize::from(*width)),
                 width: *width,
                 role: tmt_tui::components::design_system::Token(Role::Text),
                 right_aligned: false,
@@ -167,6 +177,18 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     inside.y += 1;
     inside.height -= 1;
     let rows = app.workspace_rows();
+    if app.follow
+        && let Some(index) = rows
+            .iter()
+            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+    {
+        let viewport = Rect {
+            height: inside.height.saturating_sub(u16::from(inside.height > 1)),
+            ..inside
+        };
+        app.scrolls
+            .reveal_range(Pane::Rows, index..index + 1, viewport, rows.len());
+    }
     // A percent is never marked as a bound, so a partial one names its coverage here.
     let coverage = Some(super::savings(app))
         .filter(|sum| sum.percent.value.is_some() && sum.percent.included < sum.total)
@@ -181,9 +203,29 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let room = usize::from(inside.width)
         .saturating_sub(unicode_width::UnicodeWidthStr::width(notes.as_str()))
         .saturating_sub(if notes.is_empty() { 0 } else { 3 });
+    let offset = app.scrolls.offset(Pane::Rows).min(rows.len());
+    let count = crate::board::scroll::Scrolls::viewport(
+        Rect {
+            height: inside.height.saturating_sub(u16::from(inside.height > 1)),
+            ..inside
+        },
+        rows.len(),
+    );
+    let end = (offset + count).min(rows.len());
     let footer = [
-        Some(format!("· = no observation · blank = 0 · {notes}")),
         narrow_hint(inside.width, unit, room),
+        Some(format!(
+            "{}–{} / {} rows · {} more ↓ · = no usage observed in that hour{}",
+            if rows.is_empty() { 0 } else { offset + 1 },
+            end,
+            rows.len(),
+            rows.len().saturating_sub(end),
+            if notes.is_empty() {
+                String::new()
+            } else {
+                format!(" · {notes}")
+            }
+        )),
     ]
     .into_iter()
     .flatten()
@@ -223,14 +265,6 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         let mut starts = app.row_starts.borrow_mut();
         starts.clear();
         starts.extend(0..rows.len());
-    }
-    if app.follow
-        && let Some(index) = rows
-            .iter()
-            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
-    {
-        app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, inside, rows.len());
     }
     app.scrolls.show_paint(
         frame,
@@ -328,10 +362,22 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                                         .any(|missing| missing.who.id.as_deref() == Some(*id))
                             })
                         }) {
-                            if matches!(field, Field::Activity)
-                                || !fields.iter().any(|(f, _)| matches!(f, Field::Activity))
-                                    && matches!(field, Field::Tokens)
-                            {
+                            if matches!(field, Field::Activity) {
+                                ds::ActivityCells::render(
+                                    &ds::ActivityCellsProps {
+                                        values: vec![None; usize::from(slot.width)],
+                                        selected,
+                                    },
+                                    ds::Rect {
+                                        x: slot.x - cell.x,
+                                        y: 0,
+                                        width: slot.width,
+                                        height: 1,
+                                    },
+                                    grid,
+                                );
+                            }
+                            if matches!(field, Field::Tokens) {
                                 let end = fields
                                     .iter()
                                     .scan(cell.x, |x, (f, w)| {
@@ -376,9 +422,9 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                             let values = values
                                 .chunks(each)
                                 .map(|values| {
-                                    values
-                                        .iter()
-                                        .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
+                                    let mut observed = values.iter().flatten().copied().peekable();
+                                    observed.peek()?;
+                                    observed.try_fold(0u64, u64::checked_add)
                                 })
                                 .collect::<Vec<_>>();
                             ds::ActivityCells::render(
@@ -466,7 +512,7 @@ fn value(
         Field::Percent => unreachable!("percent reads the supplied savings summary"),
         Field::Saved => unreachable!(),
         Field::Held if metrics::id(row).is_none() => {
-            metrics::held(app, ids).map_or("—".into(), |count| format!("{count} held"))
+            metrics::held(app, ids).map_or("—".into(), |count| count.to_string())
         }
         Field::Mode => metrics::mode(app, metrics::id(row)),
         Field::Held => metrics::held(app, ids).map_or("—".into(), |count| count.to_string()),

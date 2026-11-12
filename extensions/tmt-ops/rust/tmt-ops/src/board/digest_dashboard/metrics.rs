@@ -8,6 +8,13 @@ use crate::labels::digest::SavingsSummary;
 
 pub(super) use crate::board::usage_report::valuation::{input_price, tokens};
 
+pub(super) fn series_aligned(
+    a: &crate::board::usage_report::model::WindowSeries,
+    b: &crate::board::usage_report::model::WindowSeries,
+) -> bool {
+    a.from_ms == b.from_ms && a.bucket_ms == b.bucket_ms && a.points.len() == b.points.len()
+}
+
 pub(super) fn report(app: &App) -> Option<&Report> {
     match app.usage_report.view_for(app.digest_range()) {
         View::Report(report) => Some(report),
@@ -40,24 +47,29 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
         .iter()
         .find_map(|id| report.seat(id)?.window_series.as_ref())
     {
-        let mut values = vec![Some(0u64); first.points.len()];
+        if ids
+            .iter()
+            .filter_map(|id| report.seat(id)?.window_series.as_ref())
+            .any(|series| !series_aligned(series, first))
+        {
+            return vec![None; first.points.len()];
+        }
+        let mut values = vec![None; first.points.len()];
         for id in ids {
             let series = report
                 .seat(id)
                 .and_then(|seat| seat.window_series.as_ref())
-                .filter(|series| {
-                    series.from_ms == first.from_ms
-                        && series.bucket_ms == first.bucket_ms
-                        && series.points.len() == first.points.len()
-                });
+                .filter(|series| series_aligned(series, first));
             for (i, value) in values.iter_mut().enumerate() {
-                *value = value
-                    .zip(
-                        series
-                            .and_then(|series| series.points.get(i))
-                            .filter(|point| point.complete),
-                    )
-                    .and_then(|(sum, point)| sum.checked_add(point.tokens));
+                if let Some(point) = series
+                    .and_then(|series| series.points.get(i))
+                    .filter(|point| point.complete)
+                {
+                    let Some(sum) = value.unwrap_or(0u64).checked_add(point.tokens) else {
+                        return vec![None; first.points.len()];
+                    };
+                    *value = Some(sum);
+                }
             }
         }
         return values;

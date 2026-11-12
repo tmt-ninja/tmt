@@ -120,6 +120,20 @@ pub(in crate::board) fn capture_case(
     }
     app.view.as_mut().unwrap().look = look;
     app.workspace_reconcile();
+    if scene.starts_with("impact-")
+        && let Some(report) = super::super::metrics::report(&app)
+    {
+        let mut report = report.clone();
+        for seat in &mut report.seats {
+            seat.input = 81_800;
+            seat.output = 0;
+        }
+        app.usage_report
+            .apply(crate::board::usage_report::Delivery {
+                since: window.range(),
+                result: Ok(report),
+            });
+    }
     if scene.starts_with("digest-") {
         install_chart(&mut app, scene, now);
     }
@@ -157,20 +171,29 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     let template = doc["members"][0].clone();
     doc["members"] = report.seats.iter_mut().enumerate().map(|(i, seat)| {
         seat.from_ms = from; seat.to_ms = now; seat.window_ms = window.range().milliseconds(); seat.covered_ms = seat.window_ms;
-        let total = (count * (count + 1) / 2 * (i + 1) * 100) as u64;
+        let factor = if scene == "digest-spec-review" && seat.who.id.as_deref() == Some(MEMBER) { 60 } else { i + 1 };
+        let points = (0..count).map(|n| {
+            let absent = scene == "digest-spec-review" && (n + i) % 4 == 0;
+            Point { tokens: if absent { 0 } else { ((n + 1) * factor * 100) as u64 }, complete: !absent && (scene != "digest-chart-gaps" || n != 2) }
+        }).collect::<Vec<_>>();
+        let total = points.iter().map(|point| point.tokens).sum::<u64>();
         seat.input = total * 3 / 4; seat.output = total - seat.input;
-        seat.complete = scene != "digest-chart-gaps";
-        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points:(0..count).map(|n| Point { tokens:((n+1)*(i+1)*100) as u64, complete:scene != "digest-chart-gaps" || n != 2 }).collect() });
+        seat.complete = scene != "digest-chart-gaps" && scene != "digest-spec-review";
+        if scene == "digest-spec-review" { seat.covered_ms = seat.window_ms * 3 / 4; }
+        seat.window_series = Some(WindowSeries { from_ms:from, bucket_ms:bucket, points });
         seat.model_totals = Some(vec![("claude-opus-5-5".into(), seat.total()*3/4),("unattributed".into(), seat.total()-seat.total()*3/4)]);
         let mut member = template.clone(); member["identityId"] = serde_json::json!(seat.who.id);
+        if scene == "digest-spec-review" { member["heldCount"] = serde_json::json!(if seat.who.id.as_deref() == Some(MEMBER) { 3 } else { i % 9 }); }
         member["nextEligibleAtMs"] = serde_json::json!(now+90_000); member["lastDelivery"] = serde_json::json!({"settledAtMs":now-60_000,"messages":8,"batches":2});
         member["autoCaps"] = serde_json::json!({"maxWaitMs":300_000,"maxCount":5});
         member["savings"]["window"] = serde_json::json!(window.argument()); member["savings"]["fromMs"] = serde_json::json!(from); member["savings"]["throughMs"] = serde_json::json!(now);
-        let saved = total / 5;
+        let divisor = if scene == "digest-spec-review" { 5 + i as u64 % 7 } else { 5 };
+        let saved = total / divisor;
         member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(saved);
-        member["savings"]["percent"] = serde_json::json!({"basisPoints":saved*10_000/(saved+seat.input),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
-        member["savings"]["cost"] = serde_json::Value::Null;
-        member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*(i+1)*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
+        member["savings"]["percent"] = serde_json::json!({"basisPoints":(saved*20_000+(saved+seat.input))/(2*(saved+seat.input)),"estimatedInputTokensAvoided":saved,"observedInputTokens":seat.input,"fromMs":from,"throughMs":now});
+        if scene == "digest-spec-review" && i >= 16 { member["savings"]["percent"] = serde_json::Value::Null; }
+        if scene == "digest-spec-review" { member["savings"]["cost"]["usdMicros"] = serde_json::json!(saved * 2); member["savings"]["cost"]["modelObservedAtMs"] = serde_json::json!(now - 60_000); } else { member["savings"]["cost"] = serde_json::Value::Null; }
+        member["savings"]["series"] = (0..count).map(|n| { let gap = (scene == "digest-chart-gaps" && n == 3) || (scene == "digest-spec-review" && (n + i) % 4 == 0); serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*factor*100) as u64 / divisor)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
     if scene == "digest-spec-review" {
@@ -185,6 +208,14 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     }
     if scene == "digest-zero-and-no-source" && report.seats.len() >= 2 {
         let missing = report.seats.remove(0);
+        if let Some(member) = doc["members"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|member| member["identityId"].as_str() == missing.who.id.as_deref())
+        {
+            member["savings"]["percent"] = serde_json::Value::Null;
+        }
         report
             .unavailable
             .push(crate::board::usage_report::model::Unavailable {
@@ -228,7 +259,7 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     if scene == "digest-all-readonly" {
         app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
     }
-    if scene == "digest-populated-timer" {
+    if matches!(scene, "digest-populated-timer" | "digest-spec-review") {
         let mut job = crate::board::cronboard::test_view(
             "worker",
             "check status",
@@ -293,12 +324,12 @@ fn digest_redesign_delivery_eligibility_is_a_countdown_and_null_delivery_is_hidd
     let _no_commands = crate::runner::forbid_commands();
     let mut app = capture_case("digest-chart-day", crate::look::Look::default());
     let now = app.labels.digest().unwrap().0.observed_at_ms;
-    let panel = super::super::details::panel(&app, now, app.selected_row()).join("\n");
+    let panel = super::super::details::panel_text(&app, now, app.selected_row()).join("\n");
     assert!(panel.contains("next eligible in 1 min"), "{panel}");
     assert!(panel.contains("8 → 2"));
     assert!(panel.contains("unattributed"));
     app.labels = crate::labels::Supplied::from_document("digest", &valued_document(), false);
-    let panel = super::super::details::panel(&app, now, app.selected_row()).join("\n");
+    let panel = super::super::details::panel_text(&app, now, app.selected_row()).join("\n");
     assert!(!panel.contains("last "));
 }
 
@@ -321,7 +352,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
     for scene in SCENES.iter().filter(|scene| **scene != "impact-basis") {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
-        for label in ["Range", "used TOK", "Saved ·", "Models", "Timers"] {
+        for label in ["Range", "█ used  █ saved", "Saved ·", "Models", "Timers"] {
             assert!(shown.contains(label), "{scene}: {label}: {shown}");
         }
         let sum = super::super::savings(&app);
@@ -336,7 +367,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
         assert!(compact[1].contains("Window list-price equivalent"));
         assert!(compact[1].contains("not a bill"));
         let full = summary_lines(&app, 160, 8);
-        assert!(full[1].contains("used TOK") && !full[1].contains("used $"));
+        assert!(full[1].contains("█ used  █ saved") && !full[1].contains("used $"));
     }
 }
 
@@ -493,7 +524,7 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
     press(&mut app, '2');
     select_worker(&mut app);
     let row = app.selected_row();
-    let panel = details::panel(&app, 121_000, row).join("\n");
+    let panel = details::panel_text(&app, 121_000, row).join("\n");
     let evidence = details::evidence(&app, 121_000, row).join("\n");
     for amount in ["18.2k", "18%"] {
         assert_eq!(panel.matches(amount).count(), 1, "{panel}");
@@ -510,6 +541,17 @@ fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
         assert!(!panel.contains(fact));
     }
     assert!(panel.contains("inherited from workspace"));
+}
+
+#[test]
+fn selected_row_and_panel_share_the_digest_percent() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    select_worker(&mut app);
+    let sum = super::super::metrics::savings(&app, &[MEMBER]);
+    let list = super::super::table::saved(&sum, SavingsUnit::Percent);
+    assert_ne!(list, "—");
+    let panel = super::super::details::panel_text(&app, 121_000, app.selected_row()).join("\n");
+    assert!(panel.contains(&format!("{list} of input")), "{panel}");
 }
 
 #[test]
@@ -594,8 +636,8 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
     for (scene, expected) in [
         ("digest-zero-and-no-source", "no usage source"),
         ("digest-populated-timer", "check status"),
-        ("digest-all-readonly", "Details · all"),
-        ("digest-dollar-totals", "$ window totals; chart stays TOK"),
+        ("digest-all-readonly", "all · 1d"),
+        ("digest-dollar-totals", "█ used  █ saved"),
     ] {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
@@ -606,7 +648,7 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
 /// A populated, source-shaped Digest fixture shared by the oracle and review capture.
 pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::app::App {
     use crate::board::{
-        limits::{Provider, Reading, Standing, Window},
+        limits::{Provider, Rates, Reading, Standing, Window},
         usage_report::{
             Delivery,
             model::{Pair, Traffic, Unavailable, Who},
@@ -620,11 +662,11 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
     let target = workspace.rows.iter_mut().find(|(target, _)| matches!(target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
     target.1["name"] = serde_json::json!("tui-1");
     workspace.roster.members.get_mut(MEMBER).unwrap().name = "tui-1".into();
-    for i in 7..20 {
+    for i in 7..18 {
         let id = format!("40000000-0000-4000-8000-{i:012}");
-        let name = if i == 18 {
+        let name = if i == 16 {
             "ben".into()
-        } else if i == 19 {
+        } else if i == 17 {
             "builder".into()
         } else {
             format!("agent-{i}")
@@ -632,6 +674,15 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
         let mut member = template.clone();
         member.id = id.clone();
         member.name = name.clone();
+        member.activity = crate::board::activity::ObservedActivity {
+            phase: if i % 2 == 0 {
+                crate::board::activity::Phase::Idle
+            } else {
+                crate::board::activity::Phase::Working
+            },
+            since_ms: Some(now - (i as u64 - 6) * 3_600_000),
+            last_ms: Some(now - (i as u64 - 6) * 3_600_000),
+        };
         workspace.roster.members.insert(id.clone(), member);
         workspace.roster.squads[0].members.push(id.clone());
         workspace.rows.insert(
@@ -639,7 +690,10 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
                 room_id: Some(room.clone()),
                 identity_id: id.clone(),
             },
-            serde_json::json!({"id":id,"name":name,"state":"working"}),
+            serde_json::json!({"id":id,"name":name,"session":{"activity":{
+                "state": if i % 2 == 0 { "idle" } else { "working" },
+                "sinceMs": now - (i as u64 - 6) * 3_600_000
+            }}}),
         );
     }
     let ids: Vec<_> = workspace.roster.members.keys().cloned().collect();
@@ -662,7 +716,7 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
     let mut report = super::super::metrics::report(&app).unwrap().clone();
     report.unavailable = report
         .seats
-        .drain(18..)
+        .drain(16..)
         .map(|s| Unavailable {
             who: s.who,
             reason: "no usage source".into(),
@@ -723,9 +777,19 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
                 }),
                 burn: Some(0.4),
                 trend: None,
-                rates: Default::default(),
+                rates: Rates::measured(Some(4.0), Some(3.0), Some(2.0), Some(1.0)),
             })
             .collect(),
+    );
+    app.home_leads.test_results(
+        "33333333-3333-4333-8333-333333333333",
+        serde_json::json!({
+            "items":[{"requestId":"digest-spec-answer", "kind":"request",
+                "sender":{"identityId":"33333333-3333-4333-8333-333333333333"},
+                "recipientId": ids[8], "final":{"status":"retained","submittedAtMs":now - 60_000},
+                "responsePreview":"Fixture answer", "recipientAcknowledged":true}],
+            "nextBefore":null
+        }),
     );
     app.workspace_reconcile();
     select_worker(&mut app);
@@ -735,11 +799,226 @@ pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::a
 #[test]
 fn populated_spec_fixture_draws_in_each_look_and_small_viewports() {
     for (name, look) in crate::board::home::tests::oracle::looks() {
-        for (width, height) in [(160, 36), (80, 24), (60, 8)] {
+        for (width, height) in [(160, 36), (100, 36), (80, 24), (60, 8)] {
             let mut app = spec_fixture(look);
             let shown = paint(&mut app, width, height);
             assert!(shown.contains("Digest"), "{name} {width}x{height}: {shown}");
         }
+    }
+}
+
+#[test]
+fn spec_panel_keeps_delivery_savings_models_and_timer_at_160_by_36() {
+    let mut app = spec_fixture(crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    for section in ["Delivery", "Saved ·", "Models ·", "Timers", "check status"] {
+        assert!(shown.contains(section), "missing {section}: {shown}");
+    }
+}
+
+#[test]
+fn compressed_activity_keeps_a_mixed_observed_and_missing_pair() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let look = crate::board::home::tests::oracle::looks()
+        .into_iter()
+        .find(|(name, _)| *name == "NO_COLOR")
+        .unwrap()
+        .1;
+    let mut app = spec_fixture(look);
+    let report = super::super::metrics::report(&app).unwrap();
+    let points = &report
+        .seat(MEMBER)
+        .unwrap()
+        .window_series
+        .as_ref()
+        .unwrap()
+        .points;
+    let pair = points
+        .chunks(2)
+        .position(|hours| {
+            hours.iter().any(|hour| hour.complete && hour.tokens > 0)
+                && hours.iter().any(|hour| !hour.complete)
+        })
+        .expect("fixture needs a mixed pair");
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let lines = buffer
+        .content
+        .chunks(160)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let header = lines
+        .iter()
+        .position(|row| row.contains("AGENT") && row.contains("ACTIVITY"))
+        .unwrap();
+    let x = lines[header].find("ACTIVITY").unwrap();
+    let y = (header + 1..lines.len())
+        .find(|y| {
+            buffer.content[*y * 160..*y * 160 + x]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("tui-1")
+        })
+        .unwrap();
+    let symbol = buffer[(x as u16 + pair as u16, y as u16)].symbol();
+    assert!(
+        !matches!(symbol, "·" | " "),
+        "mixed pair must show the observed activity, got {symbol:?}"
+    );
+}
+
+#[test]
+fn spec_fixture_has_a_timer_and_unread_observation() {
+    let app = spec_fixture(crate::look::Look::default());
+    let rows = app.workspace_rows();
+    assert!(
+        rows.iter()
+            .filter_map(super::super::metrics::id)
+            .any(|id| app.unread_count(id).total > 0)
+    );
+    let activity = super::super::metrics::activity(super::super::metrics::report(&app), &[MEMBER]);
+    assert!(
+        activity.iter().any(Option::is_none) && activity.iter().flatten().any(|value| *value > 0),
+        "fixture must contain missing and observed hours"
+    );
+    let percentages = app
+        .labels
+        .digest()
+        .unwrap()
+        .0
+        .members
+        .values()
+        .filter_map(|member| {
+            member
+                .savings
+                .as_ref()?
+                .percent
+                .as_ref()
+                .map(|percent| percent.basis_points)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        percentages.len() > 2,
+        "fixture needs varied saved percentages"
+    );
+    let report = super::super::metrics::report(&app).unwrap();
+    for (id, member) in &app.labels.digest().unwrap().0.members {
+        assert_eq!(
+            member.savings.as_ref().is_some_and(|s| s.percent.is_some()),
+            report.seat(id).is_some(),
+            "{id}"
+        );
+    }
+    assert!(
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row())
+            .iter()
+            .any(|line| line.contains("check status"))
+    );
+    assert!(
+        rows.iter()
+            .filter_map(|row| app.activity_label_at(
+                row,
+                std::time::Instant::now(),
+                1_791_600_000_000
+            ))
+            .any(|label| label.state == "idle" && label.age.is_some()),
+        "fixture needs timed idle states"
+    );
+    assert!(
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row())
+            .iter()
+            .any(|line| line.contains("Timers | 1 on"))
+    );
+    let report = super::super::metrics::report(&app).unwrap();
+    let ids: Vec<_> = rows.iter().filter_map(super::super::metrics::id).collect();
+    let activity = super::super::metrics::activity(Some(report), &ids);
+    assert!(
+        activity.iter().flatten().any(|value| *value > 0),
+        "all must retain sourced activity"
+    );
+    let patterns = report
+        .seats
+        .iter()
+        .filter_map(|seat| seat.window_series.as_ref())
+        .map(|series| {
+            series
+                .points
+                .iter()
+                .map(|point| point.complete)
+                .collect::<Vec<_>>()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(patterns.len() > 1, "members need varied activity coverage");
+}
+
+#[test]
+fn spec_legend_saved_mark_uses_the_chart_accent() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut app = spec_fixture(crate::look::Look::default());
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .find(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("█ used  █ saved")
+        })
+        .unwrap();
+    let marks = row
+        .iter()
+        .filter(|cell| cell.symbol() == "█")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        marks[1].fg,
+        app.look().role(tmt_cli_style::Role::Accent).fg.unwrap()
+    );
+}
+
+#[test]
+fn compact_delivery_shows_summary_and_editor_uses_one_caps_row() {
+    let mut app = spec_fixture(crate::look::Look::default());
+    let shown = paint(&mut app, 100, 36);
+    assert!(
+        shown.contains("Delivery · Auto · held 3 · next eligible"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("mode  Auto"),
+        "mode chips belong to edit: {shown}"
+    );
+    let mut edit = capture_case("digest-inline-mode", crate::look::Look::default())
+        .digest_inline
+        .take()
+        .unwrap();
+    for field in [1, 2] {
+        edit.field = field;
+        let lines = edit.lines();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[1].contains("max hold 5 min ▾") && lines[1].contains("max messages 5 ▾"),
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("↑↓ field")),
+            "{lines:?}"
+        );
     }
 }
 
@@ -766,5 +1045,256 @@ fn exchange_columns_stay_compact_and_keep_a_twelve_cell_row_name() {
     assert!(
         shown.lines().any(|line| line.contains("codex-worker")),
         "{shown}"
+    );
+}
+
+#[test]
+fn spec_exchanges_include_observed_sender_totals() {
+    for (width, height) in [(160, 36), (100, 36)] {
+        let mut app = capture_case("digest-spec", crate::look::Look::default());
+        let shown = paint(&mut app, width, height);
+        let matrix = shown
+            .split_once("from\\to")
+            .expect("matrix header")
+            .1
+            .split_once("Delivery")
+            .expect("delivery section")
+            .0;
+        for column in ["agent-3", "agent-2", "agent-1", "tui-1", "sum"] {
+            assert!(
+                matrix.contains(column),
+                "{width}: missing {column}: {matrix}"
+            );
+        }
+    }
+}
+
+#[test]
+fn direction_a_keeps_all_three_detail_sections_visible_at_100_by_36() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = capture_case("digest-spec", look);
+            let shown = paint(&mut app, 100, 36);
+            for section in ["Delivery", "Saved ·", "Models ·"] {
+                assert!(shown.contains(section), "{name}: missing {section}");
+            }
+            assert!(
+                shown.contains("used ") && shown.contains(" · saved "),
+                "{name}: missing selected savings"
+            );
+            assert!(
+                shown.contains("claude-opus-5-5"),
+                "{name}: missing selected model"
+            );
+        }
+    });
+}
+
+#[test]
+fn direction_a_uses_a_quiet_agents_rule_at_160_by_36() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = capture_case("digest-spec", look);
+            let shown = paint(&mut app, 160, 36);
+            assert!(shown.contains("Agents by TOK"), "{name}");
+            assert!(
+                shown.contains("/ Search"),
+                "{name}: missing list search hint"
+            );
+            assert!(
+                !shown.contains("┏━ ▸ Agents by TOK"),
+                "{name}: heavy frame remains"
+            );
+        }
+    });
+}
+
+#[test]
+fn inline_editor_is_visible_and_usable_in_the_real_detail_panel() {
+    let mut app = capture_case("digest-inline-mode", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    assert!(
+        app.digest_inline
+            .as_ref()
+            .is_some_and(|edit| edit.visible.get()),
+        "{shown}"
+    );
+    assert_eq!(
+        shown.matches("max hold").count(),
+        1,
+        "the editor must reuse the visible caps: {shown}"
+    );
+    let effect = app.key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Right,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(effect, Effect::None);
+    assert_eq!(app.digest_inline.as_ref().unwrap().mode, 1);
+}
+
+#[test]
+fn spec_saved_panel_has_distinct_used_and_saved_series() {
+    let app = capture_case("digest-spec", crate::look::Look::default());
+    let lines =
+        super::super::details::panel_text(&app, crate::status::now_ms(), app.selected_row());
+    assert!(lines.iter().any(|line| line.starts_with("used trend ")));
+    assert!(lines.iter().any(|line| line.starts_with("saved trend ")));
+}
+
+#[test]
+fn spec_models_use_a_proportion_bar_for_observed_model_totals() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 50);
+    let model = shown.split_once("claude-opus-5-5").expect("model row").1;
+    assert!(
+        model.chars().take(55).any(|c| c == '█'),
+        "model needs a gauge: {model}"
+    );
+}
+
+#[test]
+fn spec_list_names_activity_window_and_missing_sources() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    assert!(shown.contains("ACTIVITY · last 1d"), "{shown}");
+    assert!(shown.contains("rows ·"), "{shown}");
+    assert!(
+        !shown.contains("more ↓ · · ="),
+        "duplicate footer separator: {shown}"
+    );
+    assert!(
+        !shown.contains("75 he…"),
+        "aggregate held must fit as a number: {shown}"
+    );
+    let all_rows = paint(&mut app, 160, 50);
+    assert!(all_rows.contains("no usage source"), "{all_rows}");
+}
+
+#[test]
+fn spec_summary_has_unit_choices_and_one_compact_allowance_row() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = capture_case("digest-spec", crate::look::Look::default());
+        let shown = paint(&mut app, 160, 36);
+        for expected in [
+            "Digest ● on",
+            "TOK    $",
+            "Allowance Claude 65%",
+            "runs out",
+            "saved = context",
+        ] {
+            assert!(shown.contains(expected), "missing {expected}: {shown}");
+        }
+        let allowance = shown
+            .split_once("Allowance ")
+            .unwrap()
+            .1
+            .split_once("saved = context")
+            .unwrap()
+            .0;
+        assert!(
+            !allowance.contains('…'),
+            "160-column provider summaries must fit: {allowance}"
+        );
+    });
+}
+
+#[test]
+fn selected_panel_contains_exchanges_below_the_member_title() {
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let shown = paint(&mut app, 160, 36);
+    let member = shown.find("tui-1 · 1d").expect("selected member title");
+    let exchanges = shown.find("Exchanges").expect("exchanges section");
+    assert!(
+        member < exchanges,
+        "member panel must contain exchanges: {shown}"
+    );
+    assert!(
+        shown.contains("┬─"),
+        "the selected panel needs its divider: {shown}"
+    );
+}
+
+#[test]
+fn direction_a_compact_details_keep_every_original_value_scrollable() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let app = capture_case("digest-spec", crate::look::Look::default());
+        let original =
+            super::super::details::panel_text(&app, 1_791_600_000_000, app.selected_row());
+        let compact =
+            super::super::render::detail_lines(&app, 94, 5, 1_791_600_000_000, app.selected_row())
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+        for expected in original.iter().filter(|line| {
+            !line.starts_with("── ")
+                && !line.starts_with("Status observed:")
+                && !line.starts_with("mode Auto")
+                && !line.starts_with("held ")
+        }) {
+            assert!(
+                compact.join(" ").contains(expected),
+                "lost {expected:?}: {compact:?}"
+            );
+        }
+        for (index, heading) in ["Delivery", "Saved ·", "Models ·"].iter().enumerate() {
+            assert!(compact[index].contains(heading), "{compact:?}");
+        }
+        assert!(
+            compact[0].contains("held 3") && compact[0].contains("next eligible"),
+            "{compact:?}"
+        );
+        assert!(
+            compact
+                .iter()
+                .any(|line| line.contains("last 11:39 (8 → 2)")),
+            "{compact:?}"
+        );
+        assert!(
+            compact.iter().any(|line| line.contains("held")),
+            "no held value: {compact:?}"
+        );
+    });
+}
+
+#[test]
+fn aggregate_chart_keeps_observed_buckets_when_members_have_no_source() {
+    use crate::board::usage_report::Delivery;
+
+    let mut app = capture_case("digest-spec", crate::look::Look::default());
+    let rows = app.workspace_rows();
+    let ids: Vec<_> = rows.iter().filter_map(super::super::metrics::id).collect();
+    let buckets = super::super::summary::capture_buckets(&app, &ids);
+    assert!(
+        buckets
+            .iter()
+            .any(|bucket| bucket.used.is_some_and(|n| n > 0)),
+        "members without a source must not erase observed chart buckets"
+    );
+    let total = super::super::metrics::token_text(super::super::metrics::tokens(
+        super::super::metrics::report(&app),
+        &ids,
+    ));
+    assert!(
+        total.starts_with('≥'),
+        "partial total must be marked: {total}"
+    );
+    let shown = paint(&mut app, 160, 36);
+    assert!(shown.contains("█ used  █ saved"), "chart legend: {shown}");
+
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    report.seats.clear();
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report),
+    });
+    let buckets = super::super::summary::capture_buckets(&app, &ids);
+    assert_eq!(
+        buckets.len(),
+        24,
+        "all-absent day must retain its time buckets"
+    );
+    assert!(
+        buckets.iter().all(|bucket| bucket.used.is_none()),
+        "all-absent buckets must remain unknown"
     );
 }

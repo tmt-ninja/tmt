@@ -184,15 +184,15 @@ pub(in crate::board) fn digest_props(
         area,
         traffic,
         Options {
-            limit: 5,
-            sum: false,
+            limit: 4,
+            sum: true,
         },
     );
     let rows = participants(ranked, selected, slots);
     if rows.is_empty() {
         return None;
     }
-    let value_limit = value_cells(area.width, name_cap, rows.len(), 0, minimum).saturating_sub(1);
+    let value_limit = value_cells(area.width, name_cap, rows.len(), 1, minimum).saturating_sub(1);
     let numbered = labels_need_numbers(&rows, usize::from(value_limit));
     let label = |index: usize, name: &str| numbered_label(numbered, index, name);
     use unicode_width::UnicodeWidthStr;
@@ -221,6 +221,18 @@ pub(in crate::board) fn digest_props(
             right_aligned: true,
         }
     }));
+    let sum_width = rows
+        .iter()
+        .map(|row| traffic.map_or(1, |traffic| sent(traffic, &row.id).to_string().len()))
+        .max()
+        .unwrap_or(1)
+        .max(3) as u16;
+    columns.push(ds::TotalsColumn {
+        header: "sum".into(),
+        width: sum_width,
+        role: ds::Token(Role::Text),
+        right_aligned: true,
+    });
     let values = rows
         .iter()
         .enumerate()
@@ -242,6 +254,10 @@ pub(in crate::board) fn digest_props(
                     )
                 }
             }));
+            values.push(traffic.map_or_else(
+                || "—".into(),
+                |traffic| sent(traffic, &sender.id).to_string(),
+            ));
             ds::TotalsRow {
                 values,
                 selected: false,

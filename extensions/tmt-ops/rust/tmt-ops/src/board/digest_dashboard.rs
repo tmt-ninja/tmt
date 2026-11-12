@@ -3,7 +3,7 @@
 mod allowance;
 mod details;
 mod metrics;
-mod model;
+pub(in crate::board) mod model;
 mod render;
 mod summary;
 pub(in crate::board) use allowance::Scroll as AllowanceScroll;

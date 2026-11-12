@@ -19,8 +19,12 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn height(_app: &App, _width: u16, available: u16) -> u16 {
-    if available >= 18 { 8 } else { 3.min(available) }
+pub(super) fn height(_app: &App, width: u16, available: u16) -> u16 {
+    if available >= 18 {
+        if width >= 120 { 6 } else { 7 }
+    } else {
+        3.min(available)
+    }
 }
 
 /// One unit's amount without its coverage: a conflict names itself, missing is `—`.
@@ -47,8 +51,32 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
         .iter()
         .find_map(|id| report.seat(id)?.window_series.as_ref())
     else {
-        return Vec::new();
+        let count = match app.digest_window() {
+            crate::config::DigestWindow::Day => 24,
+            crate::config::DigestWindow::Week => 7,
+            crate::config::DigestWindow::Month => 30,
+        };
+        return vec![
+            Bucket {
+                used: None,
+                saved: None
+            };
+            count
+        ];
     };
+    if ids
+        .iter()
+        .filter_map(|id| report.seat(id)?.window_series.as_ref())
+        .any(|series| !super::metrics::series_aligned(series, first))
+    {
+        return vec![
+            Bucket {
+                used: None,
+                saved: None
+            };
+            first.points.len()
+        ];
+    }
     let status = app
         .labels
         .digest()
@@ -57,19 +85,26 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
     (0..first.points.len())
         .map(|i| {
             let from = first.from_ms + i as u64 * first.bucket_ms;
-            let mut used = Some(0u64);
-            let mut saved = Some(0u64);
+            let mut used = None;
+            let mut saved = None;
+            let (mut used_overflow, mut saved_overflow) = (false, false);
             for id in ids {
+                // No usage source contributes nothing; the aggregate's coverage
+                // marker still makes that missing evidence visible.
+                if report.seat(id).is_none() {
+                    continue;
+                }
                 let point = report
                     .seat(id)
                     .and_then(|seat| seat.window_series.as_ref())
-                    .filter(|series| {
-                        series.from_ms == first.from_ms && series.bucket_ms == first.bucket_ms
-                    })
+                    .filter(|series| super::metrics::series_aligned(series, first))
                     .and_then(|series| series.points.get(i));
-                used = used
-                    .zip(point.filter(|p| p.complete))
-                    .and_then(|(sum, p)| sum.checked_add(p.tokens));
+                if let Some(point) = point.filter(|point| point.complete) {
+                    match used.unwrap_or(0u64).checked_add(point.tokens) {
+                        Some(sum) => used = Some(sum),
+                        None => used_overflow = true,
+                    }
+                }
                 let value = status
                     .and_then(|status| status.members.get(*id))
                     .and_then(|member| member.savings.as_ref());
@@ -81,15 +116,21 @@ pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
                             point.from_ms == from && point.to_ms == from + first.bucket_ms
                         })
                     });
-                saved = saved
-                    .zip(
-                        value
-                            .filter(|point| point.complete)
-                            .and_then(|point| point.tokens),
-                    )
-                    .and_then(|(sum, n)| sum.checked_add(n));
+                if let Some(value) = value
+                    .filter(|_| point.is_some_and(|point| point.complete))
+                    .filter(|point| point.complete)
+                    .and_then(|point| point.tokens)
+                {
+                    match saved.unwrap_or(0u64).checked_add(value) {
+                        Some(sum) => saved = Some(sum),
+                        None => saved_overflow = true,
+                    }
+                }
             }
-            Bucket { used, saved }
+            Bucket {
+                used: if used_overflow { None } else { used },
+                saved: if saved_overflow { None } else { saved },
+            }
         })
         .collect()
 }
@@ -129,23 +170,38 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     };
-    if area.height < 8 {
+    if area.height < 6 {
         line(frame, 1, totals, Role::Text);
         return;
     }
-    line(
-        frame,
-        1,
-        format!(
-            "█ used TOK  ▄ saved input (estimate) · {}",
-            if app.digest_cost {
-                "$ window totals; chart stays TOK"
-            } else {
-                "TOK"
-            }
-        ),
-        Role::Muted,
-    );
+    {
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let legend = Rect::new(area.x, area.y + 1, area.width, 1);
+        super::paint_grid(frame, app, legend, |grid| {
+            let span = |text: &str, role| ds::TextSpan {
+                text: text.into(),
+                role: ds::Token(role),
+                bold: false,
+            };
+            ds::Text::render(
+                &ds::TextProps {
+                    spans: vec![
+                        span("█ used  ", Role::Muted),
+                        span("█", Role::Accent),
+                        span(" saved", Role::Muted),
+                    ],
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: legend.width,
+                    height: 1,
+                },
+                grid,
+            );
+        });
+    }
     let buckets = super::chart_buckets(app);
     let each = app.digest_each.max(1);
     let each = if buckets.len().is_multiple_of(each) {
@@ -180,28 +236,45 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         app.look(),
     );
     if side > 0 {
-        let texts = [
-            format!(
-                "used {}",
-                metrics::token_text(metrics::tokens(metrics::report(app), &ids))
-            ),
-            format!(
-                "saved {} · {}",
-                amount(&sum, SavingsUnit::Tokens),
-                sum.percent
-                    .value
-                    .map_or("unavailable".into(), crate::board::savings::percent_text)
-            ),
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let table = Rect::new(area.right() - side, area.y + 1, side, 3);
+        let columns = [("TOK", 8), ("saved", 8), ("saved %", 8), ("≈ $ saved", 12)]
+            .into_iter()
+            .map(|(header, width)| ds::TotalsColumn {
+                header: header.into(),
+                width,
+                role: ds::Token(Role::Text),
+                right_aligned: true,
+            })
+            .collect();
+        let values = vec![
+            metrics::token_text(metrics::tokens(metrics::report(app), &ids)),
+            amount(&sum, SavingsUnit::Tokens),
+            sum.percent
+                .value
+                .map_or("—".into(), crate::board::savings::percent_text),
+            amount(&sum, SavingsUnit::Cost),
         ];
-        for (i, text) in texts.into_iter().enumerate() {
-            paint_text(
-                frame,
-                app,
-                Rect::new(area.right() - side, area.y + 2 + i as u16, side, 1),
-                text,
-                Role::Text,
+        super::paint_grid(frame, app, table, |grid| {
+            ds::TotalsTable::render(
+                &ds::TotalsTableProps {
+                    columns,
+                    rows: vec![ds::TotalsRow {
+                        values,
+                        selected: false,
+                        id: None,
+                    }],
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: table.width,
+                    height: table.height,
+                },
+                grid,
             );
-        }
+        });
     }
     let chart_width = area.width - side - u16::from(side > 0);
     let (start, middle) = match app.digest_window() {
@@ -229,14 +302,40 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    line(frame, 5, totals, Role::Text);
-    super::allowance::paint_inline(frame, app, Rect::new(area.x, area.y + 6, area.width, 1));
-    line(
+    if side == 0 && area.height > 6 {
+        line(frame, 5, totals, Role::Text);
+    }
+    let definition = "saved = context the agents did not reread (estimate, list price)";
+    let definition_width = definition.width() as u16;
+    let allowance_width = if area.width >= 140 {
+        area.width.saturating_sub(definition_width + 2)
+    } else {
+        area.width
+    };
+    super::allowance::paint_inline(
         frame,
-        7,
-        "Saved = avoided input · estimate, not a bill".into(),
-        Role::Muted,
+        app,
+        Rect::new(
+            area.x,
+            area.y + if side > 0 { 5 } else { 6 },
+            allowance_width,
+            1,
+        ),
     );
+    if allowance_width < area.width {
+        paint_text(
+            frame,
+            app,
+            Rect::new(
+                area.right() - definition_width,
+                area.y + if side > 0 { 5 } else { 6 },
+                definition_width,
+                1,
+            ),
+            definition.into(),
+            Role::Muted,
+        );
+    }
 }
 fn paint_text(frame: &mut Frame, app: &App, area: Rect, text: String, role: Role) {
     use ds::Component;
@@ -270,7 +369,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
         "d"
     };
     let each = format!("{}{} per bar ▾", app.digest_each.max(1), native);
-    let unit = if app.digest_cost { "$ ▾" } else { "TOK ▾" };
+    let unit = "TOK    $";
     let right = "Range ".width() as u16 + chip(&window) + chip(&each) + chip(unit) + 4;
     let start = area.right().saturating_sub(right).max(area.x);
     let mut x = start;
@@ -300,7 +399,56 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     button(frame, &mut x, &window, Choice::DigestWindowMenu);
     x = x.saturating_add(3);
     button(frame, &mut x, &each, Choice::DigestBarsMenu);
-    button(frame, &mut x, unit, Choice::SavingsUnit);
+    {
+        use ds::Component;
+        use tmt_tui::components::design_system as ds;
+        let unit_area = Rect::new(x, area.y, area.right().saturating_sub(x), 1);
+        let mut hits = Vec::new();
+        super::paint_grid(frame, app, unit_area, |grid| {
+            hits = ds::ChipRow::render(
+                &ds::ChipRowProps {
+                    label: String::new(),
+                    chips: vec![
+                        ds::Chip {
+                            id: 0,
+                            label: "TOK".into(),
+                            gap: "  ".into(),
+                            enabled: true,
+                        },
+                        ds::Chip {
+                            id: 1,
+                            label: "$".into(),
+                            gap: String::new(),
+                            enabled: true,
+                        },
+                    ],
+                    selected: Some(usize::from(app.digest_cost)),
+                    cursor: None,
+                    active: false,
+                },
+                ds::Rect {
+                    x: 0,
+                    y: 0,
+                    width: unit_area.width,
+                    height: 1,
+                },
+                grid,
+            );
+        });
+        for (rect, id) in hits {
+            if (id == 1) != app.digest_cost {
+                app.workspace_strip_hits.borrow_mut().push((
+                    Rect::new(
+                        unit_area.x + rect.x,
+                        unit_area.y + rect.y,
+                        rect.width,
+                        rect.height,
+                    ),
+                    Choice::SavingsUnit,
+                ));
+            }
+        }
+    }
 
     let left = Rect::new(area.x, area.y, start.saturating_sub(area.x + 2), 1);
     let mut parts: Vec<(String, Role, Option<Choice>)> = Vec::new();
@@ -330,7 +478,22 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
             parts.push(("stale".into(), Role::Waiting, None));
         }
         if let Some(global) = status.global.as_ref() {
-            parts.push((global.text.clone(), Role::Text, None));
+            let text = global
+                .text
+                .trim_start_matches("Digest:")
+                .trim_start_matches("Digest ")
+                .trim();
+            let ascii = matches!(
+                app.cron_glyphs,
+                crate::board::overview::cron_counts::GlyphSet::Ascii
+            );
+            let mark = match (global.enabled, ascii) {
+                (true, false) => "●",
+                (false, false) => "○",
+                (true, true) => "*",
+                (false, true) => "o",
+            };
+            parts.push((format!("{mark} {text}"), Role::Text, None));
         }
         parts.push((format!("{} held", super::held_text(app)), Role::Text, None));
         if let Some(tick) = status.tick {
@@ -343,7 +506,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     let named = parts
         .iter()
         .any(|(text, _, choice)| choice.is_some() && text.starts_with("Digest"));
-    let lead = if named { "" } else { "Digest: " };
+    let lead = if named { "" } else { "Digest " };
     let mut spans = vec![Span::styled(lead, strong(app))];
     let mut used = lead.width();
     let mut first = true;

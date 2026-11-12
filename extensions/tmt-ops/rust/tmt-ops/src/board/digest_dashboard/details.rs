@@ -15,6 +15,74 @@ use tmt_tui::{
 pub(super) const METHOD: &str =
     "Method: saved = context each message would have reread if delivered alone";
 
+#[derive(Clone, Debug)]
+pub(super) enum PanelRow {
+    Rule {
+        title: String,
+        note: Option<String>,
+    },
+    ModeChips {
+        text: String,
+        selected: Option<usize>,
+        cursor: Option<usize>,
+    },
+    Trend {
+        saved: bool,
+        total: String,
+    },
+    Model {
+        name: String,
+        amount: u128,
+        total: u128,
+        partial: bool,
+    },
+    Text(String),
+}
+
+impl std::fmt::Display for PanelRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rule { title, note } => write!(
+                f,
+                "── {title}{} ──",
+                note.as_ref().map_or(String::new(), |n| format!(" | {n}"))
+            ),
+            Self::ModeChips { text, .. } | Self::Text(text) => f.write_str(text),
+            Self::Trend { saved, total } => {
+                write!(f, "{} trend {total}", if *saved { "saved" } else { "used" })
+            }
+            Self::Model {
+                name,
+                amount,
+                total,
+                partial,
+            } => write!(
+                f,
+                "{name} · {}% · {}{}",
+                amount * 100 / total,
+                crate::source::tokens(*amount),
+                if *partial { " · partial" } else { "" }
+            ),
+        }
+    }
+}
+
+struct Panel(Vec<PanelRow>);
+impl Panel {
+    fn push(&mut self, text: String) {
+        self.0.push(PanelRow::Text(text));
+    }
+    fn row(&mut self, row: PanelRow) {
+        self.0.push(row);
+    }
+    fn extend(&mut self, texts: impl IntoIterator<Item = String>) {
+        self.0.extend(texts.into_iter().map(PanelRow::Text));
+    }
+    fn contains(&self, text: &str) -> bool {
+        self.0.iter().any(|row| row.to_string() == text)
+    }
+}
+
 /// The selected row and the identities it stands for.
 struct Selection<'a> {
     all: bool,
@@ -48,7 +116,7 @@ pub(super) fn title(app: &App) -> String {
         .iter()
         .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
         .map_or("none".into(), |row| row.title.clone());
-    format!("Details · {name} · {}", app.digest_window().label())
+    format!("{name} · {}", app.digest_window().label())
 }
 
 /// What the supplier holds now: modes, held messages and its own clocks.
@@ -207,6 +275,10 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
         );
     }
     if let Some((status, _)) = app.labels.digest() {
+        text.push(format!(
+            "Status observed: {}",
+            model::observation_time(Some(status.observed_at_ms), now_ms, &zone)
+        ));
         text.extend(model::pricing_details(status));
     }
     text.push(METHOD.into());
@@ -231,26 +303,53 @@ pub(super) fn links(app: &App) -> Vec<String> {
 }
 
 /// The single agent panel shares the held status/report, never acquires on paint.
-pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
+pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<PanelRow> {
     let rows = app.workspace_rows();
     let selected = selection(&rows, app, row);
-    let mut lines = vec!["── Delivery ──".into()];
-    if app.labels.digest().is_none() {
-        lines.push("Digest not available · Install: tmt extension install digest".into());
-    }
+    let mut lines = Panel(vec![PanelRow::Rule {
+        title: "Delivery".into(),
+        note: None,
+    }]);
     if let Some(id) = selected.id {
         if let Some((status, stale)) = app.labels.digest() {
             if let Some(member) = status.members.get(id) {
-                lines.push(format!(
-                    "{} · {}",
-                    metrics::mode(app, Some(id)),
-                    if member.setting_source == crate::labels::digest::SettingSource::Default {
-                        "inherited from workspace"
-                    } else {
-                        "member override"
+                let inline = app
+                    .digest_inline
+                    .as_ref()
+                    .filter(|edit| Some(&edit.target) == app.workspace.selected.as_ref());
+                let edit_lines = inline.map(|edit| edit.lines());
+                if let Some(edit) = &edit_lines {
+                    if let Some(mode) = edit.first() {
+                        lines.row(PanelRow::ModeChips {
+                            text: mode.clone(),
+                            selected: inline.map(|edit| edit.mode),
+                            cursor: inline.filter(|edit| edit.field == 0).map(|edit| edit.mode),
+                        });
                     }
-                ));
-                lines.push(format!(
+                } else {
+                    lines.row(PanelRow::ModeChips {
+                        text: "mode Auto Interval Off Use default".into(),
+                        selected: Some(match member.mode {
+                            crate::labels::digest::Mode::Auto => 0,
+                            crate::labels::digest::Mode::Interval => 1,
+                            crate::labels::digest::Mode::Off => 2,
+                        }),
+                        cursor: None,
+                    });
+                }
+                lines.0[0] = PanelRow::Rule {
+                    title: "Delivery".into(),
+                    note: Some(format!(
+                        "{} · {}",
+                        metrics::mode(app, Some(id)),
+                        if member.setting_source == crate::labels::digest::SettingSource::Default {
+                            "inherited from workspace"
+                        } else {
+                            "member override"
+                        }
+                    )),
+                };
+                let mut delivery = format!(
                     "held {} · next eligible {}",
                     member
                         .held_count
@@ -264,16 +363,19 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                                 "now".into()
                             }
                         })
-                ));
+                );
                 if let Some(last) = &member.last_delivery {
-                    lines.push(format!(
-                        "last {} ({} → {})",
+                    delivery.push_str(&format!(
+                        " · last {} ({} → {})",
                         model::observation_clock(Some(last.settled_at_ms), now_ms, &zone(app)),
                         last.messages,
                         last.batches
                     ));
                 }
-                if let Some((wait, count)) = member.auto_caps {
+                lines.push(delivery);
+                if let Some(edit) = &edit_lines {
+                    lines.extend(edit.iter().skip(1).cloned());
+                } else if let Some((wait, count)) = member.auto_caps {
                     lines.push(format!(
                         "max hold {} ▾ · max messages {count} ▾",
                         model::human_duration(wait)
@@ -286,23 +388,42 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
                 lines.push("Delivery unavailable".into());
             }
         } else {
-            lines.extend(
-                model::delivery(&app.labels, id, now_ms, &zone(app), |id| {
-                    metrics::name(app, Some(id))
-                })
-                .into_iter()
-                .map(|line| line.replace(" ▾", "")),
-            );
+            let fields = model::delivery(&app.labels, id, now_ms, &zone(app), |id| {
+                metrics::name(app, Some(id))
+            });
+            let (unavailable, labels) =
+                fields.split_last().expect("delivery includes availability");
+            if !labels.is_empty() {
+                lines.push(labels.join(" · ").replace(" ▾", ""));
+            }
+            lines.push("Digest not available".into());
+            lines.push("tmt extension install digest".into());
+            lines.push(unavailable.clone());
         }
     } else {
+        if app.labels.digest().is_none() {
+            lines.push("Digest not available".into());
+            lines.push("tmt extension install digest".into());
+        }
         lines.extend(delivery(app, now_ms, row));
     }
-    if let Some(inline) = app
+    if let Some(edit) = app
         .digest_inline
         .as_ref()
-        .filter(|inline| Some(&inline.target) == app.workspace.selected.as_ref())
+        .filter(|edit| Some(&edit.target) == app.workspace.selected.as_ref())
     {
-        lines.extend(inline.lines());
+        let mut edit_lines = edit.lines();
+        if edit_lines
+            .first()
+            .is_some_and(|first| !lines.contains(first))
+        {
+            lines.row(PanelRow::ModeChips {
+                text: edit_lines.remove(0),
+                selected: Some(edit.mode),
+                cursor: (edit.field == 0).then_some(edit.mode),
+            });
+            lines.extend(edit_lines);
+        }
     }
     if !selected.all
         && let Some((status, _)) = app.labels.digest()
@@ -320,32 +441,40 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     {
         lines.push(format!("Usage unavailable: {error}"));
     }
-    lines.push(format!("── Saved · {} ──", app.digest_window().label()));
     let sum = if selected.all {
         super::savings(app)
     } else {
         std::rc::Rc::new(metrics::savings(app, &selected.ids))
     };
+    let percent = sum.percent.value;
+    lines.row(PanelRow::Rule {
+        title: format!("Saved · {}", app.digest_window().label()),
+        note: Some(percent.map_or("saved % unavailable".into(), |value| {
+            format!("{} of input", crate::board::savings::percent_text(value))
+        })),
+    });
+    lines.row(PanelRow::Trend {
+        saved: false,
+        total: metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids)),
+    });
+    lines.row(PanelRow::Trend {
+        saved: true,
+        total: super::table::saved(&sum, crate::config::SavingsUnit::Tokens),
+    });
+    if percent.is_some() && sum.percent.included < sum.total {
+        lines.push(format!(
+            "SAVED % covers {} of {} agents",
+            sum.percent.included, sum.total
+        ));
+    }
     lines.push(format!(
-        "used {} · saved {}",
-        metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids)),
-        super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
+        "{} at list price · messages/batches unavailable",
+        super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $")
     ));
-    lines.push(format!(
-        "saved % {} ({}/{} agents)",
-        sum.percent
-            .value
-            .map_or("unavailable".into(), model::detail_percent),
-        sum.percent.included,
-        sum.total
-    ));
-    lines.push(format!(
-        "List-price equivalent: {} ({}/{} agents)",
-        super::table::saved(&sum, crate::config::SavingsUnit::Cost),
-        sum.cost.included,
-        sum.total
-    ));
-    lines.push(format!("── Models · {} ──", app.digest_window().label()));
+    lines.row(PanelRow::Rule {
+        title: format!("Models · {}", app.digest_window().label()),
+        note: Some("by TOK".into()),
+    });
     let mut models = BTreeMap::<String, u128>::new();
     let mut missing = false;
     for id in &selected.ids {
@@ -366,18 +495,35 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     let total = reading.map_or(0, |(total, _)| total);
     if let Some(total) = std::num::NonZeroU128::new(total) {
         for (name, value) in models {
-            lines.push(format!(
-                "{name} · {}% · {}{}",
-                value * 100 / total.get(),
-                crate::source::tokens(value),
-                if missing { " · partial" } else { "" }
-            ));
+            lines.row(PanelRow::Model {
+                name,
+                amount: value,
+                total: total.get(),
+                partial: missing,
+            });
         }
     }
     if total == 0 || missing && models_empty {
         lines.push("Model distribution unavailable".into());
     }
-    lines.push("── Timers ──".into());
+    let timer_note = app.cron.cron.as_ref().map(|cron| {
+        cron.jobs
+            .iter()
+            .filter(|job| {
+                (selected.all
+                    || job
+                        .job
+                        .owner_id
+                        .as_deref()
+                        .is_some_and(|id| selected.ids.contains(&id)))
+                    && job.state_label() == "on"
+            })
+            .count()
+    });
+    lines.row(PanelRow::Rule {
+        title: "Timers".into(),
+        note: timer_note.map(|count| format!("{count} on")),
+    });
     if let Some(cron) = app.cron.cron.as_ref() {
         let jobs = cron
             .jobs
@@ -396,23 +542,36 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
         }
         for job in jobs {
             lines.push(format!(
-                "{} · {} · {} · {} · {}",
+                "{} {} {} {} {}{}",
                 job.job.id(),
                 job.squad,
-                job.state_label(),
+                crate::cron_service::schedule_text(&job.job.schedule),
                 job.next_ms.first().map_or("next unavailable".into(), |at| {
                     crate::board::cronboard::countdown(
                         *at,
                         i64::try_from(now_ms).unwrap_or(i64::MAX),
                     )
                 }),
-                crate::board::notes::single_line(&job.job.message)
+                crate::board::notes::single_line(&job.job.message),
+                if job.state_label() == "on" {
+                    ""
+                } else {
+                    " · paused"
+                }
             ));
         }
     } else {
         lines.push("Timers unavailable".into());
     }
-    lines
+    lines.0
+}
+
+#[cfg(test)]
+pub(super) fn panel_text(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
+    panel(app, now_ms, row)
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 const FILE: &str = "digest.estimate-basis.xml";

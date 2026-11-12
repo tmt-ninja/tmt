@@ -820,7 +820,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("saved 18.2k"), "{shown}");
+    assert!(shown.contains("18.2k"), "{shown}");
 }
 
 #[test]
@@ -998,8 +998,8 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     assert!(
-        super::details::panel(&app, 121_000, app.selected_row())
-            .contains(&"saved % 18% (1/1 agents)".into())
+        super::details::panel_text(&app, 121_000, app.selected_row())
+            .contains(&"── Saved · 1d | 18% of input ──".into())
     );
     app.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut app, 200, 60);
@@ -1243,7 +1243,12 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 60);
-    assert!(shown.contains("saved —"), "{shown}");
+    assert!(
+        super::details::panel_text(&app, 121_000, app.selected_row())
+            .iter()
+            .any(|line| line == "saved trend —"),
+        "{shown}"
+    );
     assert!(
         !shown.contains("saved 18.2k"),
         "old-window estimate cannot become a new-window value"
@@ -1778,14 +1783,7 @@ fn the_summary_keeps_its_tok_chart_totals_and_allowance_at_each_width() {
     let selected = app.workspace.selected.clone();
     for (width, height) in [(160, 50), (120, 40), (100, 32)] {
         let shown = paint(&mut app, width, height);
-        for text in [
-            "Range",
-            "1d ▾",
-            "used TOK",
-            "saved 18.2k",
-            "Allowance",
-            "Saved = avoided input",
-        ] {
+        for text in ["Range", "1d ▾", "█ used  █ saved", "18.2k", "Allowance"] {
             assert!(shown.contains(text), "{text}: {shown}");
         }
         assert_eq!(app.workspace.selected, selected);

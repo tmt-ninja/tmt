@@ -86,16 +86,28 @@ fn words(row: &str) -> Vec<&str> {
 fn row_of(rows: &[String], source: &str) -> Vec<String> {
     rows.iter()
         .filter_map(|row| row.split_once("Allowance ").map(|(_, row)| row))
-        .flat_map(|row| row.split(" · "))
+        .filter_map(|row| row.find(source).map(|start| &row[start..]))
         .map(words)
-        .find(|row| row.first() == Some(&source))
-        .map(|row| row.into_iter().map(str::to_owned).collect())
+        .next()
+        .map(|row| {
+            row.into_iter()
+                .filter(|word| *word != "·")
+                .take_while(|word| {
+                    *word == source
+                        || !matches!(*word, "Claude" | "Openai" | "Muse" | "Codex" | "saved")
+                })
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_else(|| panic!("no {source} in {}", rows.join("\n")))
 }
 
 #[test]
 fn a_row_shows_left_the_worst_projection_and_the_reset() {
     let mut app = digest(vec![claude()]);
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let frame = buffer(&mut app, 240, 40);
     let rows = rows(&frame);
     assert!(
@@ -106,9 +118,7 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
     // 1.0 pt/h over the last 3 h empties it first, at Su 04:40; it resets Su 18:40.
     assert_eq!(
         row_of(&rows, "Claude"),
-        [
-            "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
-        ]
+        ["Claude", "26%", "✗", "runs", "out", "Su", "04:40"]
     );
     assert!(
         !rows.iter().any(|row| row.contains("NEED")),
@@ -125,11 +135,16 @@ fn a_row_shows_left_the_worst_projection_and_the_reset() {
             .modifier
             .contains(ratatui::style::Modifier::BOLD)
     );
+    // The spaces around the separator inherit the board foreground.
+    for column in [x + 3, x + 5] {
+        let separator = &frame[(column as u16, y as u16)];
+        assert_eq!(separator.fg, ratatui::style::Color::Reset);
+        assert!(!separator.modifier.contains(ratatui::style::Modifier::BOLD));
+    }
     assert_eq!(
-        frame[((x + 3) as u16, y as u16)].fg,
-        ratatui::style::Color::Reset
+        frame[(239, y as u16)].fg,
+        app.look().role(tmt_cli_style::Role::Muted).fg.unwrap()
     );
-    assert_eq!(frame[(239, y as u16)].fg, ratatui::style::Color::Reset);
 }
 
 #[test]
@@ -161,7 +176,7 @@ fn only_a_window_that_runs_out_takes_the_attention_colour() {
             let row = &rows[y];
             let start = row.find(source).unwrap() as u16;
             let end = row[usize::from(start)..]
-                .find(" · ")
+                .find("  resets")
                 .map_or(buffer.area.width, |end| start + end as u16);
             start..end
         }
@@ -267,9 +282,13 @@ fn a_narrow_frame_keeps_allowance_to_one_line_under_the_window_totals() {
             .iter()
             .position(|row| row.starts_with("Allowance "))
             .unwrap();
-        assert!(rows[at - 1].starts_with("TOK "));
+        if width < 120 {
+            assert!(rows[at - 1].starts_with("TOK "));
+        } else {
+            assert!(rows.iter().any(|row| row.contains("≈ $ saved")));
+        }
         assert!(rows[at].contains("Claude") && rows[at].contains("26%"));
-        assert!(rows[at + 1].starts_with("Saved = avoided input"));
+        assert!(!rows[at].contains("r…"), "reset label must not be cut");
     }
 }
 
@@ -301,11 +320,9 @@ fn claude_row(app: &mut App) -> Vec<String> {
 /// so each empties it at Su 18:40) when the worst projection runs out at `at`.
 fn row_running_out(at: &str) -> Vec<String> {
     let (day, time) = at.split_once(' ').unwrap();
-    [
-        "Claude", "20%", "✗", "runs", "out", day, time, "resets", "Su", "18:40",
-    ]
-    .map(str::to_owned)
-    .to_vec()
+    ["Claude", "20%", "✗", "runs", "out", day, time]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 #[test]
@@ -338,5 +355,51 @@ fn the_tokens_line_is_unknown_without_a_usable_report_or_complete_cells() {
     ] {
         let mut app = claude_with_tokens([1_000; 24], complete, ends_ago);
         assert_eq!(claude_row(&mut app), row_running_out("Su 18:40"), "{label}");
+    }
+}
+
+#[test]
+fn direction_a_narrow_allowance_never_clips_resets_mid_word() {
+    crate::status::with_now_ms(NOW, || {
+        for (name, look) in crate::board::home::tests::oracle::looks() {
+            let mut app = super::impact::capture_case("digest-spec", look);
+            let screen = rows(&buffer(&mut app, 100, 36));
+            let row = screen
+                .iter()
+                .find(|row| row.starts_with("Allowance "))
+                .unwrap();
+            let codex = row.split_once("Codex").unwrap().1.trim_end();
+            assert!(
+                codex.ends_with('…') || codex.contains("runs out"),
+                "{name}: {row}"
+            );
+            assert!(!codex.ends_with("r…"), "{name}: partial reset label: {row}");
+        }
+    });
+}
+
+#[test]
+fn direction_a_allowance_has_at_most_one_ellipsis_at_each_width() {
+    for (name, look) in crate::board::home::tests::oracle::looks() {
+        for width in [160, 100, 80] {
+            let mut app =
+                crate::board::app::workspace::tests::capture_case("digest-allowance", look);
+            app.view.as_mut().unwrap().look = look;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .squad_looks
+                .clear();
+            let screen = rows(&buffer(&mut app, width, 36));
+            let row = screen
+                .iter()
+                .find(|row| row.starts_with("Allowance "))
+                .unwrap();
+            assert!(!row.contains("……"), "{name} {width}: {row}");
+        }
     }
 }
