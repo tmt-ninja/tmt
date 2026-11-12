@@ -43,6 +43,8 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 安裝程式會把 `tmt` 放進 `~/.local/bin`，並在終端機中接著執行 `tmt setup`：找出你的 agent，提供 Ops、Remote、Colab、Digest 及其附帶 skill。檢查選取的擴充套件與預計進行的 agent 變更，再一次核准。之後隨時可執行 `tmt setup` 補齊缺少的項目；setup 不會升級正常的已安裝擴充套件。[設定詳情 →](/working#tmt-setup) 如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。
 
+安裝、升級和擴充套件下載只使用 GitHub。如果你的網路限制對外連線，請允許 `github.com`、`raw.githubusercontent.com`、`release-assets.githubusercontent.com` 和 `objects.githubusercontent.com`。
+
 <Mdx.h3 id="update-before-setting-up-firestore">設定 Firestore 前先更新</Mdx.h3>
 
 TMT 還在早期 alpha 階段。開始下方設定前，請先更新到 alpha channel：
