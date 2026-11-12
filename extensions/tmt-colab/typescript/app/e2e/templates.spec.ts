@@ -181,15 +181,41 @@ test('a template shows its rules above their blocks to its owner only, and drops
   await expect(frame.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(tags.first().locator('span')).toHaveCSS('background-color', 'rgb(234, 242, 236)');
 
-  // A tag is the frame's: a quote or the Source never holds it, and a source edit redraws them.
+  // A tag is the frame's: selecting or copying the page leaves it out.
+  const selected = await page
+    .frameLocator('iframe')
+    .locator('body')
+    .evaluate(() => {
+      getSelection()!.selectAllChildren(document.body);
+      const text = getSelection()!.toString();
+      getSelection()!.removeAllRanges();
+      return text;
+    });
+  expect(selected).toContain('Shipped work.');
+  expect(selected).not.toContain('rule 1');
+
+  // The Source, and the source a save writes (what a read, page check or export sees), hold none;
+  // an in-place update redraws or removes them, and so does a remount.
   await (await pageAction(page, 'Source')).click();
   const editor = page.locator('#source-edit:visible');
   await expect(editor).not.toHaveValue(/rule 1 ·/);
-  await editor.fill(
-    '<!-- rule: the week in one line -->\n<h1>Metadata page</h1>\n<p>Shipped work.</p>',
-  );
-  await page.getByRole('button', { name: 'Save source', exact: true }).click();
+  const save = async (source: string) => {
+    await editor.fill(source);
+    await page.getByRole('button', { name: 'Save source', exact: true }).click();
+    await expect.poll(() => command(page, 'storedSource')).toBe(source);
+  };
+  const shown = await page.locator('iframe').elementHandle();
+  await save('<!-- rule: the week in one line -->\n<h1>Metadata page</h1>\n<p>Shipped work.</p>');
   await expect(tags).toHaveText(['rule 1 · the week in one line']);
+  await save('<h1>Metadata page</h1>\n<p>Shipped work.</p>');
+  await expect(tags).toHaveCount(0);
+  expect(await shown!.evaluate((node) => node.isConnected)).toBe(true);
+  await save(
+    '<!-- rule: after a remount -->\n<h1>Metadata page</h1>\n<p>Shipped work.</p><script>document.body.dataset.ran = ""</script>',
+  );
+  await expect.poll(() => shown!.evaluate((node) => node.isConnected)).toBe(false);
+  await expect(tags).toHaveText(['rule 1 · after a remount']);
+  expect(String(await command(page, 'storedSource'))).not.toContain('data-colab-rule');
   await page.keyboard.press('Escape');
 
   // Removing the template takes the tags away without a reload.
@@ -198,6 +224,26 @@ test('a template shows its rules above their blocks to its owner only, and drops
   await remove.getByRole('button', { name: 'Remove template', exact: true }).click();
   await expect(page.locator('.template-badge[data-kind="template"]')).toHaveCount(0);
   await expect(tags).toHaveCount(0);
+});
+
+test('a reader of a template, editor or viewer, sees no rules (#6333)', async ({ page }) => {
+  const fixture = '/test/reader-metadata-browser.tsx';
+  await page.goto('/');
+  for (const role of ['editor', 'viewer'] as const) {
+    await page.evaluate(
+      async ({ fixture, role }) => {
+        const module = await import(fixture);
+        await module.mount(role);
+        module.template();
+      },
+      { fixture, role },
+    );
+    const frame = page.frameLocator('#reader-metadata-fixture iframe');
+    await expect(frame.locator('html[data-colab-layout="column"]')).toHaveCount(1);
+    await expect(frame.getByText('Shipped work.')).toBeVisible();
+    await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1);
+    await expect(frame.locator('[data-colab-rule]')).toHaveCount(0);
+  }
 });
 
 test('a template shows no rules to someone who may not edit it (#6333)', async ({ page }) => {

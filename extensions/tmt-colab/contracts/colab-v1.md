@@ -3006,8 +3006,9 @@ input/textarea/select/contenteditable/textbox targets, with all modifiers, handl
 IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-selection",renderId`;
 the parent enables it only for the admitted comment surface. Its bound port projection is
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). The same port carries
-`type:"colab.render.template-rules",renderId,show` (boolean) for a template's rule tags
-([Templates in the browser](#templates-in-the-browser-5076-5077)), equally cosmetic. Mode is cosmetic:
+`type:"colab.render.template-rules",renderId,show` (boolean) for a template's rule tags, sent after
+each mount and `show:false` when the page is archived, loses metadata authority or stops being a
+template ([Templates in the browser](#templates-in-the-browser-5076-5077)); equally cosmetic. Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
 the same bounded quote owner opens the existing anchored discussion. A click inside an
 element marked `data-ds-example` (a design-system example, #5866) targets that whole element,
@@ -6735,16 +6736,19 @@ default` writes (below); it is that machine's default, not a space-wide value. A
   write commits, so two pages never both take one name.
 - Rule tags (#6333): while the open page has `meta.template`, the viewer holds owner metadata
   authority and the page is not archived, the parent sends
-  `{type:"colab.render.template-rules",renderId,show:true}` on the render port, and `show:false`
-  when any of these stops holding; a frame that receives nothing shows none. No rule text crosses:
-  the frame numbers the non-empty comments of its own body in document order, whitespace collapsed
-  to one line (the numbering `template show` uses), and draws `rule N · TEXT` (a leading `rule:`
-  dropped) as an `aria-hidden` frame node marked `data-colab-rule` before each top-level block that a
-  comment directly precedes (only whitespace between). A nested comment or one before no block counts
-  but draws nothing. The node is the frame's, as a marker is: an in-place update never compares or
-  moves it, quotes and selection skip it, and it never reaches the source, a save, an export or a
-  read. Readers, share readers and pages made from the template have no `meta.template` authority to
-  show, so they draw none.
+  `{type:"colab.render.template-rules",renderId,show:true}` on the frame's bound `MessagePort`
+  (exactly these three keys, `show` a boolean, the current `renderId`), again after each mount of the
+  frame. It sends `show:false` as soon as any condition stops holding: the page is archived, the
+  viewer loses metadata authority, or `meta.template` is removed. A frame that receives nothing shows
+  none. No rule text crosses: the frame numbers the non-empty comments of its own body in document
+  order, whitespace collapsed to one line (the numbering `template show` uses), and draws
+  `rule N · TEXT` (a leading `rule:` dropped) as an `aria-hidden` frame node marked `data-colab-rule`
+  before each top-level block that a comment directly precedes (only whitespace between). A nested
+  comment or one before no block counts but draws nothing. The node is the frame's, as a marker is:
+  an in-place update never compares or moves it, each resolve redraws or removes it, quotes and
+  selection skip it, and it never reaches the source, a save, page check, an export or a read. Its
+  colours follow the scheme the page paints. Readers and share readers never send the message, and a
+  page made from the template has no `meta.template`, so neither draws tags.
 
 `tmt colab template` commands, each with `--json`:
 

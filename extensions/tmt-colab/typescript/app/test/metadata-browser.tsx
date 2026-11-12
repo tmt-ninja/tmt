@@ -133,6 +133,10 @@ const binding: PageBinding = {
   },
   close() {},
 };
+/** The source the page holds now: what a read, a page check or an export of it sees (#6333). */
+export function storedSource() {
+  return view.source;
+}
 export function setMode(next: typeof mode) {
   mode = next;
 }
