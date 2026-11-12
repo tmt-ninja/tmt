@@ -8,6 +8,40 @@ import { text } from '../../src/strings.js';
 import type { Door, PairedBrowser } from './browser.js';
 import type { AcceptanceWorld, Agent } from './world.js';
 
+/** Project only closed state names and relative times; never serialize records or request bytes. */
+export function deliveryDiagnostic(
+  start: number,
+  end: number,
+  calls: readonly { operation: string | null; atMs?: number }[],
+  states: readonly string[],
+  marks: readonly {
+    event: 'send_clicked' | 'attachments_visible' | 'agent_received';
+    atMs: number;
+  }[],
+  agentCount: number,
+) {
+  const known = new Set(['dispatching', 'held', 'accepted', 'uncertain', 'refused', 'failed']);
+  const knownMarks = new Set(['send_clicked', 'attachments_visible', 'agent_received']);
+  const within = (atMs: unknown): atMs is number =>
+    typeof atMs === 'number' && Number.isSafeInteger(atMs) && atMs >= start && atMs <= end;
+  const timeline = [
+    ...marks.filter((mark) => knownMarks.has(mark.event) && within(mark.atMs)),
+    ...calls.flatMap((call) =>
+      call.operation === 'dispatch.create' && within(call.atMs)
+        ? [{ event: 'dispatch' as const, atMs: call.atMs }]
+        : [],
+    ),
+  ]
+    .sort((a, b) => a.atMs - b.atMs)
+    .slice(0, 32)
+    .map(({ event, atMs }) => ({ event, elapsedMs: atMs - start }));
+  return {
+    timeline,
+    states: states.slice(0, 8).map((state) => (known.has(state) ? state : 'other')),
+    agentReceived: agentCount > 0,
+  };
+}
+
 /** Run a real binary with the world's environment; fails with its output. */
 export function run(
   world: AcceptanceWorld,
@@ -309,7 +343,8 @@ export async function annotationInput(container: Locator, _agent?: string) {
   const input = container.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
   // Directory readiness is status-only. No hidden recipient selection is made here.
-  await expect(container.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
+  const composer = input.locator('xpath=ancestor::section[@data-testid="annotation-compose"][1]');
+  await expect(composer.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
   return input;
 }
 

@@ -1,5 +1,43 @@
 import { expect, test, type Page } from '@playwright/test';
+import { annotationInput, deliveryDiagnostic } from '../acceptance/harness/ask.js';
 const fixture = '/test/chat-input-browser.tsx';
+
+test('delivery diagnostic keeps only bounded known states and timestamps', () => {
+  expect(
+    deliveryDiagnostic(
+      1000,
+      5000,
+      [{ operation: 'dispatch.create', atMs: 2000 }],
+      ['accepted', 'private page text'],
+      [{ event: 'send_clicked', atMs: 1200 }],
+      1,
+    ),
+  ).toEqual({
+    timeline: [
+      { event: 'send_clicked', elapsedMs: 200 },
+      { event: 'dispatch', elapsedMs: 1000 },
+    ],
+    states: ['accepted', 'other'],
+    agentReceived: true,
+  });
+});
+
+test('directory readiness ignores an independent observation warning', async ({ page }) => {
+  await page.setContent(`
+    <section data-testid="chat-panel">
+      <p class="annotation-hint" role="status">Could not observe agent results. Check again to resume.</p>
+      <section data-testid="annotation-compose">
+        <div class="annotation-hint" role="status">Comment only, no agent is asked</div>
+        <div role="combobox" aria-label="Message" contenteditable="true"></div>
+      </section>
+    </section>
+  `);
+  const panel = page.getByTestId('chat-panel');
+  await expect(await annotationInput(panel)).toBeVisible();
+  await expect(
+    panel.getByText('Could not observe agent results. Check again to resume.'),
+  ).toBeVisible();
+});
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
     async ({ fixture, method, argument }) => (await import(fixture))[method](argument),

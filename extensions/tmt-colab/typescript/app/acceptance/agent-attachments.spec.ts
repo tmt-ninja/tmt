@@ -5,7 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Locator } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { composeChat, createPage, freePort, openChat, openPage, run } from './harness/ask.js';
+import {
+  composeChat,
+  createPage,
+  deliveryDiagnostic,
+  freePort,
+  openChat,
+  openPage,
+  run,
+} from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -145,9 +153,43 @@ test('an agent sees the files of a Chat message in its request and reads them by
       await give(compose, 'drop', 'notes "v2".txt', 'text/plain', notes.toString('base64'));
       await give(compose, 'paste', 'dot.png', 'image/png', PNG.toString('base64'));
       await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
-      await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
-      await until(() => agent.received().length === 1, 'the turn reached the agent');
+      const started = Date.now();
+      const marks: {
+        event: 'send_clicked' | 'attachments_visible' | 'agent_received';
+        atMs: number;
+      }[] = [];
+      try {
+        await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+        marks.push({ event: 'send_clicked', atMs: Date.now() });
+        await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
+        marks.push({ event: 'attachments_visible', atMs: Date.now() });
+        await until(() => agent.received().length === 1, 'the turn reached the agent');
+        marks.push({ event: 'agent_received', atMs: Date.now() });
+      } catch (error) {
+        try {
+          const states = await panel
+            .getByTestId('ask-entry')
+            .evaluateAll((nodes) =>
+              nodes.slice(0, 8).map((node) => node.getAttribute('data-ledger-state') ?? ''),
+            );
+          const diagnostic = deliveryDiagnostic(
+            started,
+            Date.now(),
+            world.coreCalls(),
+            states,
+            marks,
+            agent.received().length,
+          );
+          const body = JSON.stringify(diagnostic);
+          console.log(`colab-agent-delivery ${body}`);
+          await test
+            .info()
+            .attach('colab-agent-delivery', { body, contentType: 'application/json' });
+        } catch {
+          // Missing evidence must not replace the test failure.
+        }
+        throw error;
+      }
       const request = composed.delivered();
 
       // The request lists both files by metadata only, in order, saying they came with this Chat

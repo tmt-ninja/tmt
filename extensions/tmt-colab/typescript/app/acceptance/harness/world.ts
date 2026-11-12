@@ -628,7 +628,7 @@ export class AcceptanceWorld {
     fs.rmSync(path.join(this.barrierDirectory, 'barrier.json'), { force: true });
   }
   /** Every real core launch by Remote/Colab children, in order. */
-  coreCalls(): Array<{ operation: string | null; operationId: string | null }> {
+  coreCalls(): Array<{ operation: string | null; operationId: string | null; atMs?: number }> {
     const file = path.join(this.barrierDirectory, 'calls.jsonl');
     return fs.existsSync(file)
       ? fs
