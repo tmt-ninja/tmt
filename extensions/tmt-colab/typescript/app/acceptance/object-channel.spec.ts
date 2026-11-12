@@ -41,15 +41,42 @@ test('object channel: first demand and replacement use live discovery', async ({
         objectChannels: { extension: string; state: string }[];
       };
     let firstDemand: number | undefined;
+    // Remote starts each Local channel itself and retries a failed or lost one with backoff (1 s
+    // doubling to 30 s), with no page demand (#6311). Wait, bounded, until the channel is ready
+    // with a discovery after `since`; never accept a page demand doing the setup instead (#6321).
+    const ready = async (since: number) => {
+      await expect
+        .poll(
+          () => {
+            const colab = status().objectChannels.find((channel) => channel.extension === 'colab');
+            return discovery().length > since && colab?.state === 'ready'
+              ? 'ready'
+              : `status ${JSON.stringify(colab)}, ${discovery().length - since} discoveries`;
+          },
+          { timeout: 60_000, intervals: [100, 250, 500, 1000] },
+        )
+        .toBe('ready');
+    };
     try {
       const door = await startDoor(world);
-      expect(status().objectChannels).toContainEqual({
-        extension: 'colab',
-        state: 'unavailable',
-        reason: 'setup',
-      });
+      // Right after start the channel is in one of the startup states: its first attempt failed
+      // while Colab was not accepting yet (recovery queued), an attempt is running, or recovery
+      // already brought it up (#6311). Any other state is a failure.
+      expect([
+        { extension: 'colab', state: 'unavailable', reason: 'setup' },
+        { extension: 'colab', state: 'starting' },
+        { extension: 'colab', state: 'ready' },
+      ]).toContainEqual(status().objectChannels.find((channel) => channel.extension === 'colab'));
       const created = createPage(world, 'Storage route', '<p id="storage-route">Routed source</p>');
       const browser = await pairBrowser(world, 'storage-owner');
+      // The failed startup activation comes back through Remote's own recovery, with no page open.
+      await ready(0);
+      const recovered = discovery().at(-1)!;
+      expect(recovered.code).toBe(0);
+      expect(recovered.signal).toBeNull();
+      // The Remote handshake itself enforces 250 ms. This measures its live discovery child,
+      // not OS cold first-exec qualification, and does not renew that product deadline.
+      expect(recovered.elapsedMs).toBeLessThan(250);
       const before = discovery().length;
       firstDemand = before;
       // Chromium can send a handshake the page opened just before closing after the restart
@@ -69,15 +96,9 @@ test('object channel: first demand and replacement use live discovery', async ({
       await expect(page.frameLocator('iframe').locator('#storage-route')).toHaveText(
         'Routed source',
       );
-      // No success after a hidden retry: one demand setup, already ready when sync serves data.
-      expect(discovery().length - before).toBe(1);
+      // The first page uses the recovered live channel: its demand performs no setup (#6321).
+      expect(discovery().length - before).toBe(0);
       expect(status().objectChannels).toContainEqual({ extension: 'colab', state: 'ready' });
-      const first = discovery().at(-1)!;
-      expect(first.code).toBe(0);
-      expect(first.signal).toBeNull();
-      // The Remote handshake itself enforces 250 ms. This measures its live discovery child,
-      // not OS cold first-exec qualification, and does not renew that product deadline.
-      expect(first.elapsedMs).toBeLessThan(250);
 
       // A socket opened from here on stays in the browser; one opened before has settled: a
       // first frame, a close or an error.
@@ -85,13 +106,19 @@ test('object channel: first demand and replacement use live discovery', async ({
       await expect.poll(() => handshakes.size).toBe(0);
       browser.context.off('page', track);
       await page.close();
+      const lostAt = discovery().length;
       await restartColab(world, door);
+      // The lost channel comes back through recovery, again with no page demand.
+      await ready(lostAt);
+      const replaced = discovery().at(-1)!;
+      expect(replaced.code).toBe(0);
+      expect(replaced.signal).toBeNull();
       const replacementBefore = discovery().length;
       const replacement = await openPage(door, browser, created);
       await expect(replacement.frameLocator('iframe').locator('#storage-route')).toHaveText(
         'Routed source',
       );
-      expect(discovery().length - replacementBefore).toBe(1);
+      expect(discovery().length - replacementBefore).toBe(0);
       expect(status().objectChannels).toContainEqual({ extension: 'colab', state: 'ready' });
     } finally {
       await info.attach('discovery-timing.json', {
