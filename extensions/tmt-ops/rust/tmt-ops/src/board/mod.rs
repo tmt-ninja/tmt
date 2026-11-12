@@ -1625,6 +1625,8 @@ fn session(
                         submit(app, lane::Job::Open(lane::Opening::ThemePicker(squad)));
                     }
                     Effect::SaveTheme => {
+                        let selected_room =
+                            app.workspace_squad().map(|squad| squad.room_id.clone());
                         if let Some(picker) = &mut app.theme_picker {
                             match picker.save() {
                                 Ok(changed) => {
@@ -1636,6 +1638,11 @@ fn session(
                                     let look = picker.preview(depth);
                                     if let Some(view) = &mut app.view {
                                         view.look = look;
+                                        if let (Some(room), Some(home)) =
+                                            (selected_room, &mut view.home)
+                                        {
+                                            home.workspace.squad_looks.insert(room, look);
+                                        }
                                     }
                                     app.theme_picker = None;
                                     app.finished(Ok(message));
@@ -2743,6 +2750,10 @@ mod tests {
             |_| {},
             |job| match job {
                 lane::Job::Open(opening) => {
+                    assert!(
+                        matches!(opening, lane::Opening::ThemePicker(_)),
+                        "unexpected opening: {opening:?}"
+                    );
                     reads.set(reads.get() + 1);
                     let config = Config::read(path.clone()).map_err(|error| error.message);
                     events

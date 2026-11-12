@@ -1705,11 +1705,62 @@ fn check_oracle_part(part: usize) {
         .flat_map(|(_, range)| frames[range].iter().cloned())
         .collect();
     let expected = json!({"styles": expected["styles"], "frames": selected});
+    let actual = resolved_frames(&captured);
+    let expected = resolved_frames(&expected);
     assert_eq!(
-        resolved_frames(&captured),
-        resolved_frames(&expected),
-        "oracle partition {part}"
+        actual.len(),
+        expected.len(),
+        "oracle partition {part}: frame count"
     );
+    for (actual, expected) in actual.iter().zip(&expected) {
+        if actual == expected {
+            continue;
+        }
+        let key = format!(
+            "{} / {} / {}x{}",
+            expected["state"], expected["look"], expected["width"], expected["height"]
+        );
+        let fields = actual
+            .as_object()
+            .unwrap()
+            .keys()
+            .chain(expected.as_object().unwrap().keys());
+        for field in fields {
+            if actual.get(field) == expected.get(field) {
+                continue;
+            }
+            if let (Some(a), Some(b)) = (actual[field].as_array(), expected[field].as_array()) {
+                let index = a
+                    .iter()
+                    .zip(b)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(a.len().min(b.len()));
+                let brief = |value: Option<&Value>| {
+                    value.map_or_else(
+                        || "<missing>".into(),
+                        |v| v.to_string().chars().take(800).collect::<String>(),
+                    )
+                };
+                panic!(
+                    "oracle partition {part}, {key}, {field}[{index}]: actual {} expected {}",
+                    brief(a.get(index)),
+                    brief(b.get(index))
+                );
+            }
+            let brief = |value: Option<&Value>| {
+                value.map_or_else(
+                    || "<missing>".into(),
+                    |v| v.to_string().chars().take(800).collect::<String>(),
+                )
+            };
+            panic!(
+                "oracle partition {part}, {key}, {field}: actual {} expected {}",
+                brief(actual.get(field)),
+                brief(expected.get(field))
+            );
+        }
+        unreachable!("different frames have a different field");
+    }
     assert_no_home_frame_stacks_two_rules(&captured);
 }
 

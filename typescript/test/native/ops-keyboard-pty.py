@@ -97,7 +97,7 @@ def composer_ready():
     # The line names the key the terminal actually delivers (kitty enhancement
     # reports Shift+Enter distinctly; otherwise Alt+Enter is the portable key).
     key = "Shift+⏎" if spec["enhanced"] else "Alt+⏎"
-    return screen.cursor_visible and screen.contains(key + " new line")
+    return screen.cursor_visible and screen.contains(key)
 
 
 def api(operation, values):

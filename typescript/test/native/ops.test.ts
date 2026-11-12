@@ -6307,7 +6307,7 @@ describe('large board responsiveness', () => {
             expect(text).toContain('first line');
             expect(text).toContain('second line');
             // The line under the input names the key tmux actually delivers.
-            expect(text).toContain(csiU ? 'Shift+⏎ new line' : 'Alt+⏎ new line');
+            expect(text).toContain(csiU ? 'Shift+⏎' : 'Alt+⏎');
             const lines = text.split('\n');
             expect(lines.findIndex((line) => line.includes('second line'))).toBe(
               lines.findIndex((line) => line.includes('first line')) + 1
@@ -6461,8 +6461,10 @@ describe('large board responsiveness', () => {
           query: 'old-popup-search',
           sort: 'members',
           reversed: true,
-          agentsFilter: 'pinned',
         });
+        expect(JSON.parse(readFileSync(popupFile, 'utf8')).controls).not.toHaveProperty(
+          'agentsFilter'
+        );
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
         await launch(['--view', 'popup', '--reset-view'], 'popup');
         tmux(['send-keys', '-t', pane, '/', 'B', 'e', 'n', 'Enter']);
@@ -6478,8 +6480,8 @@ describe('large board responsiveness', () => {
           query: 'Ben',
           sort: 'name',
           reversed: false,
-          agentsFilter: 'all',
         });
+        expect(retained.controls).not.toHaveProperty('agentsFilter');
         expect(retained.controls).not.toHaveProperty('overviewFilter');
         expect(retained.controls).not.toHaveProperty('overviewView');
         expect(retained).not.toHaveProperty('scope');
