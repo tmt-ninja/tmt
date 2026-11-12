@@ -45,6 +45,33 @@ pub(super) fn render(
             look,
         ),
     );
+    if *y < area.bottom() {
+        let label = squad
+            .idle_alert
+            .and_then(|alert| alert.label(usize::from(area.width)))
+            .unwrap_or_else(|| "—".into());
+        let text = format!(" Idle alert  {label}");
+        let width = unicode_width::UnicodeWidthStr::width(text.as_str());
+        let cell = Rect::new(area.x, *y, area.width, 1);
+        strip::paint_left(
+            frame.buffer_mut(),
+            cell,
+            neutral(
+                crate::board::view::fit(&text, usize::from(area.width)),
+                look,
+            ),
+        );
+        if squad.idle_alert.is_some()
+            && app.workspace_selection_visible()
+            && width <= usize::from(area.width)
+        {
+            app.workspace_strip_hits.borrow_mut().push((
+                Rect::new(area.x, *y, width as u16, 1),
+                super::super::app::Choice::IdleAlert(squad.room_id.clone()),
+            ));
+        }
+        *y += 1;
+    }
     blank(area, y);
     if *y < area.bottom() {
         let label = app.notes.room_label(&squad.room_id);

@@ -623,7 +623,7 @@ mod header {
     }
 
     #[test]
-    fn rows_show_only_known_positive_todos_and_keep_the_model_alert_header_whole() {
+    fn rows_show_only_known_positive_todos_and_keep_the_activity_header_whole() {
         let mut app = board();
         let key = select_member(&mut app);
         for result in [
@@ -651,9 +651,13 @@ mod header {
                 .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect();
             let member = rows.iter().find(|line| line.contains("└ worker")).unwrap();
-            assert_eq!(member.contains("todo"), positive, "{member}");
+            assert_eq!(
+                member.contains("working 2") || member.contains("working · 2 todo"),
+                positive,
+                "{member}"
+            );
             assert!(
-                rows.iter().any(|line| line.contains("MODEL / ALERT")),
+                rows.iter().any(|line| line.contains("ACTIVITY 1h")),
                 "{rows:#?}"
             );
         }

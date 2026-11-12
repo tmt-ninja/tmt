@@ -94,6 +94,10 @@ impl Counter {
             .map(|animation| animation.next.saturating_duration_since(now))
     }
 
+    pub(super) fn displayed(&self) -> Option<u128> {
+        self.target.map(|_| self.displayed.round() as u128)
+    }
+
     pub(super) fn digits(&self, partial: bool) -> String {
         self.target.map_or_else(
             || "–".into(),

@@ -286,3 +286,110 @@ fn a_zero_height_header_cannot_keep_hidden_animation_alive() {
     assert_eq!(state.wait(now), None);
     assert!(!state.tick(now + Duration::from_secs(1)));
 }
+
+fn live_frame(
+    state: &mut Counters,
+    value: Option<Reading>,
+    reduced: bool,
+    visible: bool,
+    now: Instant,
+) -> (String, bool) {
+    state.begin();
+    let shown = state.live_digits("member:room:minute".into(), value, reduced, now);
+    if visible {
+        state.visible(
+            "member:room:minute",
+            Rect::new(4, 7, 7, 1),
+            String::new(),
+            Align::Right,
+            true,
+        );
+    }
+    state.finish(None, false);
+    shown
+}
+
+#[test]
+fn live_change_remains_emphasized_for_two_seconds_and_expires_once() {
+    let start = Instant::now();
+    let mut state = Counters::default();
+    assert_eq!(
+        live_frame(&mut state, reading(100, false), false, true, start),
+        ("100".into(), false)
+    );
+    let changed = start + Duration::from_secs(1);
+    assert_eq!(
+        live_frame(&mut state, reading(400, false), false, true, changed),
+        ("100".into(), true)
+    );
+    for elapsed in [250, 500, 600] {
+        state.tick(changed + Duration::from_millis(elapsed));
+    }
+    let settled = changed + Duration::from_millis(600);
+    assert_eq!(
+        live_frame(&mut state, reading(400, false), false, true, settled),
+        ("400".into(), true)
+    );
+    assert_eq!(state.wait(settled), Some(Duration::from_millis(1400)));
+    assert!(
+        state.tick(changed + Duration::from_secs(2)),
+        "expiry schedules one clearing draw"
+    );
+    assert_eq!(
+        live_frame(
+            &mut state,
+            reading(400, false),
+            false,
+            true,
+            changed + Duration::from_secs(2)
+        ),
+        ("400".into(), false)
+    );
+    assert_eq!(state.wait(changed + Duration::from_secs(2)), None);
+    assert!(!state.tick(changed + Duration::from_secs(3)));
+}
+
+#[test]
+fn live_emphasis_is_suppressed_for_reduced_motion_or_hidden_cells() {
+    let now = Instant::now();
+    let mut state = Counters::default();
+    live_frame(&mut state, reading(100, false), true, true, now);
+    assert!(!live_frame(&mut state, reading(400, false), true, true, now).1);
+    assert_eq!(state.wait(now), None);
+    live_frame(&mut state, reading(500, false), false, false, now);
+    assert_eq!(state.wait(now), None);
+}
+
+#[test]
+fn live_cost_rolls_and_keeps_the_two_second_change_emphasis() {
+    let now = Instant::now();
+    let mut counters = Counters::default();
+    let mut frame = |value, when| {
+        counters.begin();
+        let result = counters.live_money("cost".into(), Some((value, false)), false, when);
+        counters.visible(
+            "cost",
+            Rect::new(0, 0, 7, 1),
+            String::new(),
+            Align::Right,
+            true,
+        );
+        counters.finish(None, false);
+        result
+    };
+    assert_eq!(frame(1_000_000, now), ("≈$1.00".into(), false));
+    assert_eq!(
+        frame(2_000_000, now + Duration::from_secs(1)),
+        ("≈$1.00".into(), true)
+    );
+    assert!(counters.tick(now + Duration::from_millis(1250)));
+    assert_eq!(
+        counters.live_money(
+            "cost".into(),
+            Some((2_000_000, false)),
+            false,
+            now + Duration::from_millis(1250)
+        ),
+        ("≈$1.80".into(), true)
+    );
+}

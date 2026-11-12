@@ -141,7 +141,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
   {
     slug: 'table',
     title: 'Table and columns',
-    lead: 'Aligns observed values into the squad tree’s named columns.',
+    lead: 'Aligns state, activity, token rates and the selected range in the squad tree.',
     section: 'lists',
     anatomy: sample('agents', [8, 15]),
     parts: [

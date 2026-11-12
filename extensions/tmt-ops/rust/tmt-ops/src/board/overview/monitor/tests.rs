@@ -311,12 +311,12 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     let mut app = board();
 
     let squads = text(&paint(&mut app, 103, 51));
-    for required in ["Squads", "SQUAD / AGENT", "TOK 1h", "MODEL", "/  Search"] {
+    for required in ["Squads", "SQUAD / AGENT", "TOK 1h", "/  Search"] {
         assert!(squads.contains(required), "{required}");
     }
 
     let agents = text(&paint(&mut app, 103, 51));
-    for required in ["AGENT", "SQUAD", "STATE", "TOK 1h", "MODEL"] {
+    for required in ["AGENT", "SQUAD", "STATE", "TOK 1h"] {
         assert!(agents.contains(required), "{required}");
     }
     for retired in [

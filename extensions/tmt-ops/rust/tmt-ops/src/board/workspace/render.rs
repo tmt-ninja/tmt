@@ -445,9 +445,26 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     .is_some_and(|agent| agent.plain_program().is_some()),
                 _ => false,
             };
-            let tokens = if plain {
-                "—".into()
-            } else if app.tok_money() {
+            let token_reading = if plain || app.tok_money() {
+                None
+            } else {
+                match &row.target {
+                    OpsTarget::Member { identity_id, .. } => app.overview_member_usage(identity_id),
+                    OpsTarget::Squad(room) => snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| &squad.room_id == room)
+                        .and_then(|squad| app.overview_squad_usage(squad))
+                        .map(|(tokens, partial)| crate::board::rate::Reading {
+                            tokens,
+                            partial,
+                            span: 0,
+                        }),
+                    _ => None,
+                }
+            };
+            let money_reading = if !plain && app.tok_money() {
                 let members: std::collections::BTreeSet<&str> = match &row.target {
                     OpsTarget::Squad(room) => snapshot
                         .roster
@@ -459,43 +476,38 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Member { identity_id, .. } => {
                         std::iter::once(identity_id.as_str()).collect()
                     }
-                    OpsTarget::Pool
-                    | OpsTarget::DigestAll
-                    | OpsTarget::Hidden
-                    | OpsTarget::Terminal { .. } => Default::default(),
+                    _ => Default::default(),
                 };
-                app.tok_money_text(&members.into_iter().collect::<Vec<_>>())
+                app.tok_money_reading(&members.into_iter().collect::<Vec<_>>())
             } else {
-                match &row.target {
-                    OpsTarget::Squad(room) => snapshot
-                        .roster
-                        .squads
-                        .iter()
-                        .find(|squad| &squad.room_id == room)
-                        .and_then(|squad| app.overview_squad_usage(squad)),
-                    OpsTarget::Member { identity_id, .. } => app
-                        .overview_member_usage(identity_id)
-                        .map(|reading| (reading.tokens, reading.partial)),
-                    OpsTarget::Pool
-                    | OpsTarget::DigestAll
-                    | OpsTarget::Hidden
-                    | OpsTarget::Terminal { .. } => None,
-                }
-                .map_or_else(
+                None
+            };
+            let tokens = if plain {
+                "—".into()
+            } else if app.tok_money() {
+                money_reading.map_or_else(
                     || "—".into(),
-                    |(tokens, partial)| {
+                    |(value, partial)| {
+                        let text = crate::board::savings::usd_compact(value);
+                        if partial {
+                            format!("~{}", text.trim_start_matches('≈'))
+                        } else {
+                            text
+                        }
+                    },
+                )
+            } else {
+                token_reading.map_or_else(
+                    || "—".into(),
+                    |reading| {
                         format!(
                             "{}{}",
-                            if partial { "~" } else { "" },
-                            crate::source::tokens(tokens)
+                            if reading.partial { "~" } else { "" },
+                            crate::source::tokens(reading.tokens)
                         )
                     },
                 )
             };
-            let model_width = slots
-                .iter()
-                .find(|(field, _)| *field == Field::Model)
-                .map_or(0, |(_, rect)| usize::from(rect.width));
             let state_width = slots
                 .iter()
                 .find(|(field, _)| *field == Field::State)
@@ -613,48 +625,137 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Pool => app.workspace.pool_expanded,
                     _ => false,
                 };
-            let model: String = match &row.target {
-                OpsTarget::Member { identity_id, .. } => {
-                    let agent = app.references.agents.get(identity_id);
-                    columns::dense_model(
-                        agent.and_then(|agent| agent.plain_program()),
-                        agent.and_then(|agent| agent.runtime.as_deref()),
-                        agent.and_then(|agent| agent.model.as_deref()),
-                    )
-                }
-                // A squad's idle alert, else what it is doing now.
-                OpsTarget::Squad(room) => snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| &squad.room_id == room)
-                    .map(|squad| {
-                        squad
-                            .idle_alert
-                            .and_then(|alert| alert.label(model_width))
-                            .unwrap_or_else(|| {
-                                // The tree never discloses a waiting preview.
-                                let (now, pending) =
-                                    crate::board::overview::monitor::squad_now(snapshot, squad);
-                                if pending {
-                                    "—".into()
-                                } else {
-                                    crate::board::workspace::render::safe(&now)
-                                }
-                            })
-                    })
-                    .unwrap_or_default(),
-                OpsTarget::Pool
-                | OpsTarget::DigestAll
-                | OpsTarget::Hidden
-                | OpsTarget::Terminal { .. } => String::new(),
-            };
             // Decided once per row: focus in this agent's conversation.
             let in_conversation = selected
                 && matches!(row.target, OpsTarget::Member { .. })
                 && app.focused() == Pane::Replies;
             app.conversation_tinted
                 .set(app.conversation_tinted.get() || in_conversation);
+            let (tokens, tokens_bold) = if !plain {
+                if let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Tokens) {
+                    let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
+                    let reading = token_reading;
+                    if cell.is_empty() {
+                        (tokens, false)
+                    } else {
+                        let reduced = look.depth == tmt_cli_style::Depth::None
+                            || app
+                                .view
+                                .as_ref()
+                                .and_then(|view| view.home.as_ref())
+                                .is_some_and(|home| home.reduced_motion);
+                        let key = format!(
+                            "agents:{:?}:range:{}",
+                            row.target,
+                            app.tok_range().argument()
+                        );
+                        let mut counters = app.home_counters.borrow_mut();
+                        let (digits, bold) = if app.tok_money() {
+                            counters.live_money(
+                                format!("{key}:money"),
+                                money_reading,
+                                reduced,
+                                std::time::Instant::now(),
+                            )
+                        } else {
+                            counters.live_digits(
+                                key.clone(),
+                                reading,
+                                reduced,
+                                std::time::Instant::now(),
+                            )
+                        };
+                        let key = if app.tok_money() {
+                            format!("{key}:money")
+                        } else {
+                            key
+                        };
+                        let available = if app.tok_money() {
+                            money_reading.is_some()
+                        } else {
+                            reading.is_some()
+                        };
+                        let fits = available
+                            && unicode_width::UnicodeWidthStr::width(digits.as_str())
+                                <= usize::from(cell.width);
+                        if fits {
+                            counters.visible(
+                                &key,
+                                cell,
+                                String::new(),
+                                tmt_cli_style::grid::Align::Right,
+                                true,
+                            );
+                        }
+                        (
+                            if available {
+                                counters.admitted_digits(&key, cell.width)
+                            } else {
+                                "—".into()
+                            },
+                            bold && fits,
+                        )
+                    }
+                } else {
+                    (tokens, false)
+                }
+            } else {
+                (tokens, false)
+            };
+            let minute_reading = match &row.target {
+                OpsTarget::Member { identity_id, .. } => app
+                    .agents_live_usage
+                    .get(identity_id)
+                    .and_then(|usage| usage.minute),
+                OpsTarget::Squad(room) => app.agents_squad_minutes.get(room).copied(),
+                _ => None,
+            }
+            .filter(|_| !plain);
+            let (minute, minute_bold) = if let Some((_, slot)) =
+                slots.iter().find(|(field, _)| *field == Field::PerMinute)
+            {
+                let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
+                if cell.is_empty() {
+                    ("—".into(), false)
+                } else {
+                    let reduced = look.depth == tmt_cli_style::Depth::None
+                        || app
+                            .view
+                            .as_ref()
+                            .and_then(|view| view.home.as_ref())
+                            .is_some_and(|home| home.reduced_motion);
+                    let key = format!("agents:{:?}:minute", row.target);
+                    let mut counters = app.home_counters.borrow_mut();
+                    let (digits, bold) = counters.live_digits(
+                        key.clone(),
+                        minute_reading,
+                        reduced,
+                        std::time::Instant::now(),
+                    );
+                    let fits = minute_reading.is_some()
+                        && unicode_width::UnicodeWidthStr::width(digits.as_str())
+                            <= usize::from(cell.width);
+                    if fits {
+                        counters.visible(
+                            &key,
+                            cell,
+                            String::new(),
+                            tmt_cli_style::grid::Align::Right,
+                            true,
+                        );
+                    }
+                    (
+                        if minute_reading.is_some() {
+                            counters.admitted_digits(&key, cell.width)
+                        } else {
+                            "—".into()
+                        },
+                        bold && fits,
+                    )
+                }
+            } else {
+                ("—".into(), false)
+            };
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -669,13 +770,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     state_primary_width,
                     state_attention,
                     tokens,
+                    tokens_bold,
+                    minute,
+                    minute_bold,
                     session: match &row.target {
                         OpsTarget::Member { identity_id, .. } => {
                             safe(&app.member_session_evidence(identity_id).compact())
                         }
                         _ => String::new(),
                     },
-                    model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
                     unread: app.unread_target(&row.target).total > 0,
@@ -684,6 +787,57 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look,
             );
+            if let OpsTarget::Member { identity_id, .. } = &row.target
+                && let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Activity)
+            {
+                use tmt_tui::components::design_system::{self as ds, Component};
+                let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
+                if !cell.is_empty() {
+                    let values = app
+                        .agents_live_usage
+                        .get(identity_id)
+                        .map_or([None; 12], |usage| usage.activity);
+                    let values = values
+                        .into_iter()
+                        .map(|value| match value {
+                            Some(value) if value.is_finite() && value > 0.0 => {
+                                Some((value.round() as u64).max(1))
+                            }
+                            Some(0.0) => None, // Component's missing glyph is the observed-empty dot.
+                            _ => Some(0), // Component's zero glyph is blank for unobserved buckets.
+                        })
+                        .collect();
+                    let mut grid = ds::CellGrid::new(ds::Size {
+                        width: cell.width,
+                        height: 1,
+                    });
+                    ds::ActivityCells::render(
+                        &ds::ActivityCellsProps { values, selected },
+                        ds::Rect {
+                            x: 0,
+                            y: 0,
+                            width: cell.width,
+                            height: 1,
+                        },
+                        &mut grid,
+                    );
+                    if selected && look.depth == tmt_cli_style::Depth::None {
+                        for x in 0..cell.width {
+                            if let Some(mut value) = grid.get(x, 0).cloned() {
+                                value.underlay = Some(tmt_cli_style::Role::Selection);
+                                grid.set(x, 0, value);
+                            }
+                        }
+                    }
+                    tmt_tui::components::design_system_ratatui::paint(
+                        &grid,
+                        cell,
+                        frame.buffer_mut(),
+                        &look.theme,
+                        look.depth,
+                    );
+                }
+            }
             if let Some(hit) = checklist_hit {
                 app.workspace_strip_hits.borrow_mut().push(hit);
             }
@@ -697,26 +851,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     app,
                     crate::board::app::RowTarget::Workspace(row.target.clone()),
                     area,
-                );
-            }
-            // A squad's "now" line can name a member.
-            if matches!(row.target, OpsTarget::Squad(_))
-                && let Some(area) = painted.model
-            {
-                if let OpsTarget::Squad(room) = &row.target
-                    && snapshot
-                        .roster
-                        .squads
-                        .iter()
-                        .any(|s| &s.room_id == room && s.idle_alert.is_some())
-                {
-                    app.workspace_strip_hits
-                        .borrow_mut()
-                        .push((area, Choice::IdleAlert(room.clone())));
-                }
-                let displayed = crate::board::view::fit(&model, usize::from(area.width));
-                crate::board::member_links::paint_plain_hits(
-                    frame, app, area, &model, &displayed, false,
                 );
             }
             if let Some(area) = painted.state {

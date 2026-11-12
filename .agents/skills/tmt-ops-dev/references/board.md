@@ -592,6 +592,11 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   An active status form retains its typed applied/unknown outcome and frozen
   notification retry without claiming delivery; acquired request data is unchanged.
 
+The Agents tree displays a retained one-hour activity strip and a one-minute token
+rate alongside the selected TOK range. Its rate stays in tokens when the range is
+shown as cost. The selected squad's detail owns the Idle alert control; narrow
+list layouts drop HOST, activity and rate columns in that order.
+
 ## Overlays and offline validation
 
 `App::overlay_event` synchronizes help/settings/theme/cron/checklist/discovery

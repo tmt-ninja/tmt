@@ -31,6 +31,13 @@ pub struct RateView {
     pub history: Option<super::rate::history::Seeds>,
 }
 
+/// Sample-time projections for the Agents activity and per-minute tracks.
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::board) struct AgentsLiveUsage {
+    pub minute: Option<super::rate::Reading>,
+    pub activity: [Option<f64>; 12],
+}
+
 /// Raw observations for tiles and headers; formatting belongs to the caller.
 #[derive(Debug)]
 pub(super) struct HomeUsage<'a> {
@@ -851,6 +858,8 @@ pub struct App {
     pub(in crate::board) cron_review_generation: u64,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
+    pub(in crate::board) agents_live_usage: BTreeMap<String, AgentsLiveUsage>,
+    pub(in crate::board) agents_squad_minutes: BTreeMap<String, super::rate::Reading>,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
@@ -1236,6 +1245,15 @@ impl App {
         super::rate::resume_model(view.home_rate.get(squad)?.input.resumes.get(id)?)
     }
 
+    #[cfg(test)]
+    pub(in crate::board) fn seed_home_meter_for_test(
+        &mut self,
+        squad: &str,
+        meter: super::meter::Meter,
+    ) {
+        self.meters.insert(squad.to_owned(), meter);
+    }
+
     pub(in crate::board) fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
         let rate = self.view.as_ref()?.home_rate.get(squad)?;
         self.meters
@@ -1293,6 +1311,82 @@ impl App {
             })
             .max_by_key(|(_, reading, evidence)| (*evidence, reading.span, !reading.partial))
             .map(|(meter, reading, _)| (meter, reading))
+    }
+
+    /// Build per-identity tracks once when a meter receipt lands, never during row paint.
+    fn rebuild_agents_live_usage(&mut self, now: Instant) {
+        let mut best = BTreeMap::new();
+        if let Some(view) = &self.view {
+            for (squad, rate) in &view.home_rate {
+                let Some(meter) = self.home_meter(squad).filter(|_| rate.settings.enabled) else {
+                    continue;
+                };
+                for id in rate.input.resumes.keys() {
+                    let Some((hour, evidence)) =
+                        meter.observation(id, crate::config::TokenWindow::HOUR, now)
+                    else {
+                        continue;
+                    };
+                    let rank = (evidence, hour.span, !hour.partial);
+                    if best.get(id).is_some_and(|(previous, _)| *previous >= rank) {
+                        continue;
+                    }
+                    let minute = meter
+                        .observation(id, crate::config::TokenWindow::MINUTE, now)
+                        .map(|(reading, _)| reading);
+                    let activity = meter.member_trend(id, now);
+                    best.insert(id.clone(), (rank, AgentsLiveUsage { minute, activity }));
+                }
+            }
+        }
+        self.agents_live_usage = best
+            .into_iter()
+            .map(|(id, (_, usage))| (id, usage))
+            .collect();
+        self.rebuild_agents_squad_minutes();
+    }
+
+    /// Project each squad once per receipt, counting each admitted identity once.
+    pub(in crate::board) fn rebuild_agents_squad_minutes(&mut self) {
+        use super::workspace::OpsObservation;
+        let mut squads = BTreeMap::new();
+        if let Some(snapshot) = self.workspace_snapshot() {
+            for squad in &snapshot.roster.squads {
+                let mut seen = std::collections::BTreeSet::new();
+                let mut total = 0u128;
+                let mut span = u64::MAX;
+                let mut known = false;
+                let mut partial = squad.observation != OpsObservation::Complete;
+                for id in &squad.members {
+                    if !seen.insert(id) {
+                        continue;
+                    }
+                    if let Some(reading) = self
+                        .agents_live_usage
+                        .get(id)
+                        .and_then(|usage| usage.minute)
+                    {
+                        total = total.saturating_add(reading.tokens);
+                        span = span.min(reading.span);
+                        partial |= reading.partial;
+                        known = true;
+                    } else {
+                        partial = true;
+                    }
+                }
+                if known {
+                    squads.insert(
+                        squad.room_id.clone(),
+                        super::rate::Reading {
+                            tokens: total,
+                            partial,
+                            span,
+                        },
+                    );
+                }
+            }
+        }
+        self.agents_squad_minutes = squads;
     }
 
     /// The same HOUR readings and per-room UUID de-duplication supply both tables.
@@ -1550,6 +1644,7 @@ impl App {
         }
         if sampled {
             self.usage_chart.get_mut().invalidate_data();
+            self.rebuild_agents_live_usage(now);
         }
         sampled
     }
@@ -1861,6 +1956,7 @@ impl App {
                         .legacy(actor, &home.workspace.read_markers);
                 }
                 let previous = self.view.replace(view);
+                self.rebuild_agents_live_usage(now);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
                 if let (Some(previous), Some(name)) = (previous, previous_squad)
@@ -6244,6 +6340,27 @@ mod token_window_tests {
                 "{mismatch}"
             );
         }
+    }
+
+    #[test]
+    fn home_sample_retains_live_member_tracks_without_reloading_the_view() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let before = app.view.as_ref().unwrap().document.clone();
+        let at = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        let reading = app.agents_live_usage.get("a").expect("sampled identity");
+        assert_eq!(reading.minute.unwrap().tokens, 150);
+        assert!(reading.activity.iter().flatten().any(|value| *value > 0.0));
+        assert_eq!(
+            app.view.as_ref().unwrap().document,
+            before,
+            "receipt does not reload the view"
+        );
+        let at = now + Duration::from_secs(75);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        assert_eq!(app.agents_live_usage["a"].minute.unwrap().tokens, 0);
+        assert_eq!(app.view.as_ref().unwrap().document, before);
     }
 
     #[test]

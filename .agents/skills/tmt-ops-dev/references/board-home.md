@@ -474,7 +474,7 @@ identities list as `idle_source`, so no presence is read), `OpsMembershipState::
 `OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
 reads idle) makes `columns::activity_spans`, `team_strip::line` and the squad team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
-The squad row's MODEL / ALERT cell shows `◷ 30m` or `○ off` from that observation;
+The selected squad detail's Idle alert control shows `◷ 30m` or `○ off` from that observation;
 `idle_alert_editor` owns its clipped hit, effective `i` entry, scoped chooser and disposable
 form. It uses shared Modal/ChipGroup/Editor/input styles. The action lane loads Config and
 validates both settings before writing changed keys through `set_setting` (After, then enabled).
@@ -565,7 +565,10 @@ delivery update the cached header total, so paint does not scan every list.
 An admitted room-modal observation updates its room summary and fences older quiet reads.
 Shared completion counts treat references as attributes, including linked open items.
 `columns::todo_span` adds the whole suffix after the existing state/task, only for
-a known positive count; the state and unread words keep their width first.
-The shared track solver keeps header, row and hit geometry aligned and admits
-MODEL / ALERT only when its whole header fits. Pending/unavailable counts stay
+a known positive count; the state and unread words keep their width first. When the full
+`N todo` suffix does not fit, a whole compact count is used if there is room.
+The shared track solver keeps header, row and hit geometry aligned. The Agents tree
+shows twelve five-minute activity cells and a token-per-minute column alongside the
+selected TOK range; narrow layouts drop HOST, activity, then TOK/min. TOK/min remains
+token-based in cost mode. Pending/unavailable counts stay
 distinct from known zero in the global header; none adds a row suffix.
