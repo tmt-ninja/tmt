@@ -380,7 +380,7 @@ fn core_limits(core: &CoreClient, stop: &AtomicBool) -> Result<usize, RemoteErro
         })
 }
 
-/// A failed object candidate never changes the door's readiness or starts a retry.
+/// A failed object candidate never changes the door's readiness.
 #[derive(Debug, PartialEq, Eq)]
 struct ObjectSetupFailure {
     extension: &'static str,
@@ -724,6 +724,9 @@ fn foreground_with_native(
                     );
                 }
             }
+        }
+        if let Some(reactivation) = &reactivation {
+            reactivation.recover_startup();
         }
         fence(stop)?;
         store

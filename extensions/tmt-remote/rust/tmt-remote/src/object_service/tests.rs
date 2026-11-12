@@ -1125,3 +1125,169 @@ mod namespace;
 mod upload;
 
 mod native;
+
+/// Wake the existing worker after advancing only its injected scheduler clock.
+fn recovery_until(hook: &Reactivation, condition: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !condition() {
+        assert!(
+            Instant::now() < deadline,
+            "recovery did not reach the expected boundary"
+        );
+        hook.recovery();
+        thread::yield_now();
+    }
+}
+
+#[test]
+fn startup_recovery_activates_a_late_extension_and_recovers_its_reexec_without_mount_demand() {
+    let env = Env::new();
+    let mounts = env.mounts(&ALPHA);
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    let elapsed = Arc::new(AtomicUsize::new(0));
+    let clock = elapsed.clone();
+    let base = Instant::now();
+    let hook = activation::Reactivation::new(
+        &service,
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(move || base + Duration::from_secs(clock.load(Ordering::Acquire) as u64)),
+    );
+    assert_eq!(
+        service.activate_until(
+            &mounts,
+            "alpha",
+            Instant::now() + limits::OBJECT_REACTIVATION
+        ),
+        Err(ActivateError::Connect(io::ErrorKind::NotFound))
+    );
+    assert_eq!(service.readiness().snapshot()[0]["reason"], "setup");
+    hook.recover_startup();
+    let peer = Peer::start(&env, "alpha", Answer::Expect);
+    service.with_reactivation(&hook, &mounts, || {
+        elapsed.store(1, Ordering::Release);
+        recovery_until(&hook, || service.active("alpha").is_some() && hook.idle());
+        peer.established(1);
+        let first = service.active("alpha").unwrap();
+        assert_eq!(service.readiness().snapshot()[0]["state"], "ready");
+        assert_eq!(peer.connections(), 1);
+        assert_eq!(
+            hook.recovery()[0],
+            (None, None),
+            "healthy slots have no scheduled work"
+        );
+        let bus = peer.buses.lock().unwrap().remove(0);
+        bus.close();
+        recovery_until(&hook, || {
+            service.ended("alpha").is_some() && hook.recovery()[0].1.is_some()
+        });
+        assert_eq!(service.readiness().snapshot()[0]["reason"], "channel-ended");
+        elapsed.store(2, Ordering::Release);
+        recovery_until(&hook, || {
+            service
+                .active("alpha")
+                .is_some_and(|generation| generation != first)
+                && hook.idle()
+        });
+        assert_eq!(peer.established(1), 1);
+        assert_eq!(peer.connections(), 2);
+        assert_eq!(service.readiness().snapshot()[0]["state"], "ready");
+        assert_eq!(hook.recovery()[0], (None, None));
+    });
+    service.shutdown();
+    assert!(peer.saw_close(0));
+}
+
+#[test]
+fn startup_recovery_backs_off_to_its_cap_and_stops_at_shutdown() {
+    use crate::mount::ActivationSink;
+    let env = Env::new();
+    let mounts = env.mounts(&ALPHA);
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let elapsed = Arc::new(AtomicUsize::new(0));
+    let clock = elapsed.clone();
+    let base = Instant::now();
+    let (seen, observed) = mpsc::channel();
+    let hook = activation::Reactivation::new(
+        &service,
+        stop.clone(),
+        Arc::new(move || {
+            let time = clock.load(Ordering::Acquire);
+            if thread::current().name() == Some("remote-object-setup") {
+                let _ = seen.send(time);
+            }
+            base + Duration::from_millis(time as u64)
+        }),
+    );
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    service.set_hook(Some(Arc::new(move |point, _| {
+        if point == Pause::BeforeSetup {
+            count.fetch_add(1, Ordering::AcqRel);
+        }
+    })));
+    assert!(service.activate(&mounts, "alpha").is_err());
+    hook.recover_startup();
+    let mut peer = None;
+    service.with_reactivation(&hook, &mounts, || {
+        let mut due = 1000;
+        let mut count = 1;
+        for delay in [2000, 4000, 8000, 16000, 30000, 30000] {
+            elapsed.store(due - 1, Ordering::Release);
+            hook.recovery();
+            // Wait for this worker to evaluate the early clock, proving no early attempt.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let value = observed
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .unwrap();
+                if value == due - 1 {
+                    break;
+                }
+            }
+            assert!(hook.idle(), "backoff cannot start a flight early");
+            assert_eq!(attempts.load(Ordering::Acquire), count);
+            elapsed.store(due, Ordering::Release);
+            recovery_until(&hook, || {
+                hook.idle()
+                    && hook.recovery()[0].0
+                        == Some(base + Duration::from_millis((due + delay) as u64))
+            });
+            count += 1;
+            assert_eq!(attempts.load(Ordering::Acquire), count);
+            assert_eq!(
+                hook.recovery()[0].1,
+                Some(Duration::from_millis(delay as u64))
+            );
+            due += delay;
+        }
+        peer = Some(Peer::start(&env, "alpha", Answer::Expect));
+        let peer = peer.as_ref().unwrap();
+        // The failed-demand cooldown is over, but automatic recovery still has
+        // 29 seconds left. A real mount demand must not wait for that backoff.
+        elapsed.store(due - 30000 + 1000, Ordering::Release);
+        assert!(hook.prepare("alpha", Instant::now() + limits::OBJECT_REACTIVATION));
+        recovery_until(&hook, || hook.idle());
+        assert_eq!(attempts.load(Ordering::Acquire), 8);
+        assert_eq!(peer.established(1), 1);
+        assert_eq!(peer.connections(), 1);
+        assert_eq!(
+            hook.recovery()[0],
+            (None, None),
+            "demand success clears recovery"
+        );
+        peer.buses.lock().unwrap().remove(0).close();
+        recovery_until(&hook, || {
+            service.ended("alpha").is_some() && hook.recovery()[0].1.is_some()
+        });
+        stop.store(true, Ordering::Release);
+        elapsed.store(due + 30000, Ordering::Release);
+        hook.recovery();
+    }); // close wakes and joins the single worker, even with recovery outstanding.
+    assert_eq!(attempts.load(Ordering::Acquire), 8);
+    hook.recover_startup();
+    hook.channel_ended("alpha");
+    assert_eq!(peer.as_ref().unwrap().connections(), 1);
+    assert!(service.active("alpha").is_none());
+    service.shutdown();
+}

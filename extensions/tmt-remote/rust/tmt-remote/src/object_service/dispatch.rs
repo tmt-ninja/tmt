@@ -17,12 +17,10 @@ use crate::{
     mount::Sessions,
     objects::{LocalObjectReader, LocalObjectWriter},
 };
-#[cfg(test)]
-use std::sync::Weak;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
-        Arc, Condvar, Mutex, MutexGuard,
+        Arc, Condvar, Mutex, MutexGuard, Weak,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -61,6 +59,7 @@ pub(super) type Hook = ();
 
 /// Everything a channel needs to start besides its bus.
 pub(super) struct Launch<'a> {
+    pub(super) recovery: Weak<super::Reactivation>,
     pub(super) source: ConfigSource,
     pub(super) bounds: &'a ServiceBounds,
     pub(super) hook: Hook,
@@ -135,6 +134,7 @@ pub(super) struct Hub {
     first_request: Mutex<Option<Duration>>,
     pub(super) stop: AtomicBool,
     ended: Mutex<Option<ChannelEnd>>,
+    recovery: Weak<super::Reactivation>,
     queue: Mutex<VecDeque<Work>>,
     queued: Condvar,
     /// Decisions delivered by the dispatcher and not yet taken by their worker.
@@ -151,11 +151,19 @@ impl Hub {
         // Every origin of this channel is gone with it, so none can reach a successor; this
         // happens before the end is visible, so whoever sees the end sees no origins.
         self.origins.detach(&self.extension, self.generation);
-        locked(&self.ended).get_or_insert(why);
+        let first = {
+            let mut ended = locked(&self.ended);
+            let first = ended.is_none();
+            ended.get_or_insert(why);
+            first
+        };
         self.stop.store(true, Ordering::Release);
         self.queued.notify_all();
         self.decided.notify_all();
         self.events.wake();
+        if first && let Some(recovery) = self.recovery.upgrade() {
+            recovery.channel_ended(&self.extension);
+        }
         if let Some(native) = &self.native {
             native.close();
         }
@@ -175,6 +183,7 @@ impl Running {
     /// Start the dispatcher and workers of an established `bus`.
     pub(super) fn start(bus: Bus, launch: Launch<'_>) -> Result<Self, Fault> {
         let Launch {
+            recovery,
             source,
             bounds,
             hook,
@@ -188,11 +197,18 @@ impl Running {
             writer,
             native,
         } = launch;
+        // Native channels keep their explicit project/factory activation semantics.
+        let recovery = if native.is_none() {
+            recovery
+        } else {
+            Weak::new()
+        };
         let native = native.map(|registration| {
             Arc::new(super::sync::Bindings::new(registration, bus.generation()))
         });
         let extra = usize::from(native.is_some());
         let hub = Arc::new(Hub {
+            recovery,
             generation: bus.generation(),
             extension: extension.to_owned(),
             origins: origins.clone(),

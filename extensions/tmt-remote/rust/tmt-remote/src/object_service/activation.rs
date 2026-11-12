@@ -1,4 +1,4 @@
-//! A mount demand joins one bounded setup, never a retry loop or another service owner.
+//! Startup recovery and mount demands share one bounded setup worker and single flight.
 use super::{ActivateError, ObjectService, State};
 use crate::{
     limits,
@@ -10,7 +10,7 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 struct ActivationAttempt {
@@ -42,10 +42,15 @@ impl ActivationAttempt {
         *done
     }
 }
+struct Recovery {
+    at: Instant,
+    delay: Duration,
+}
 struct ActivationDemand {
     name: &'static str,
     flight: Option<Arc<ActivationAttempt>>,
     retry_at: Option<Instant>,
+    recovery: Option<Recovery>,
 }
 struct ActivationQueue {
     closed: bool,
@@ -76,9 +81,10 @@ impl Reactivation {
                 name: s.name,
                 flight: None,
                 retry_at: None,
+                recovery: None,
             })
             .collect();
-        Arc::new(Self {
+        let hook = Arc::new(Self {
             state: Arc::clone(&service.state),
             queue: Mutex::new(ActivationQueue {
                 closed: false,
@@ -89,7 +95,52 @@ impl Reactivation {
             stop,
             clock,
             capacity: service.bounds.buses,
-        })
+        });
+        *service.recovery.lock().unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(&hook);
+        hook
+    }
+    /// Register startup outcomes for recovery without another thread or control surface.
+    /// Capacity refusals and stopped storage are not extension-readiness failures.
+    pub fn recover_startup(&self) {
+        let names: Vec<_> = {
+            let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.stopped || self.stop.load(Ordering::Acquire) {
+                return;
+            }
+            state
+                .slots
+                .iter()
+                .filter(|slot| {
+                    !slot.running()
+                        && slot.failure.is_some_and(|failure| {
+                            !matches!(failure, ActivateError::Capacity | ActivateError::Stopped)
+                        })
+                })
+                .map(|slot| slot.name)
+                .collect()
+        };
+        for name in names {
+            self.channel_ended(name);
+        }
+    }
+    /// Hub reports channel loss once; stale loss events cannot replace a healthy channel.
+    pub(super) fn channel_ended(&self, name: &str) {
+        if self.stop.load(Ordering::Acquire) {
+            return;
+        }
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        if queue.closed {
+            return;
+        }
+        if let Some(slot) = queue.slots.iter_mut().find(|slot| slot.name == name)
+            && slot.recovery.is_none()
+        {
+            slot.recovery = Some(Recovery {
+                at: (self.clock)() + limits::OBJECT_REACTIVATION_COOLDOWN,
+                delay: limits::OBJECT_REACTIVATION_COOLDOWN,
+            });
+        }
+        self.changed.notify_one();
     }
     fn healthy(&self, name: &str) -> bool {
         self.state
@@ -108,7 +159,55 @@ impl Reactivation {
             if let Some(next) = queue.pending.pop_front() {
                 return Some(next);
             }
-            queue = self.changed.wait(queue).unwrap_or_else(|p| p.into_inner());
+            let now = (self.clock)();
+            let available =
+                queue.slots.iter().filter(|s| s.flight.is_some()).count() < self.capacity;
+            for index in 0..queue.slots.len() {
+                let slot = &mut queue.slots[index];
+                if slot.recovery.is_none()
+                    || slot.flight.is_some()
+                    || slot
+                        .recovery
+                        .as_ref()
+                        .is_some_and(|recovery| recovery.at > now)
+                {
+                    continue;
+                }
+                if self.healthy(slot.name) {
+                    slot.recovery = None;
+                } else if available {
+                    let attempt = Arc::new(ActivationAttempt {
+                        deadline: Instant::now() + limits::OBJECT_REACTIVATION,
+                        native: false,
+                        done: Mutex::new(None),
+                        changed: Condvar::new(),
+                    });
+                    slot.flight = Some(Arc::clone(&attempt));
+                    return Some((slot.name, attempt));
+                }
+            }
+            // Only outstanding recovery work has a timer. Healthy channels sleep until
+            // Hub reports loss. Timed recovery waits also observe the shared stop flag.
+            if queue.slots.iter().any(|slot| slot.recovery.is_some()) {
+                let delay = queue
+                    .slots
+                    .iter()
+                    .filter_map(|slot| {
+                        slot.recovery
+                            .as_ref()
+                            .map(|recovery| recovery.at.saturating_duration_since(now))
+                    })
+                    .min()
+                    .unwrap_or(limits::OBJECT_REACTIVATION_COOLDOWN)
+                    .min(limits::OBJECT_REACTIVATION_COOLDOWN);
+                queue = self
+                    .changed
+                    .wait_timeout(queue, delay)
+                    .unwrap_or_else(|p| p.into_inner())
+                    .0;
+            } else {
+                queue = self.changed.wait(queue).unwrap_or_else(|p| p.into_inner());
+            }
         }
     }
     fn run(&self, service: &ObjectService<'_>, mounts: &Mounts) {
@@ -136,12 +235,39 @@ impl Reactivation {
                 .find(|s| s.name == name)
                 .expect("declared demand");
             if failed && !attempt.native {
-                slot.retry_at = Some((self.clock)() + limits::OBJECT_REACTIVATION_COOLDOWN);
+                let now = (self.clock)();
+                // Preserve the existing failed-demand cooldown. Automatic backoff
+                // never delays an otherwise-admissible fresh mount demand.
+                slot.retry_at = Some(now + limits::OBJECT_REACTIVATION_COOLDOWN);
+                if let Some(recovery) = &mut slot.recovery {
+                    recovery.delay =
+                        (recovery.delay * 2).min(limits::OBJECT_REACTIVATION_BACKOFF_MAX);
+                    recovery.at = now + recovery.delay;
+                }
+            } else if !failed {
+                slot.recovery = None;
+                slot.retry_at = None;
             }
             // Publish completion before making a new flight possible.
             attempt.finish(outcome);
             slot.flight = None;
         }
+    }
+    #[cfg(test)]
+    pub(super) fn recovery(&self) -> Vec<(Option<Instant>, Option<Duration>)> {
+        self.changed.notify_one();
+        self.queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .slots
+            .iter()
+            .map(|slot| {
+                (
+                    slot.recovery.as_ref().map(|r| r.at),
+                    slot.recovery.as_ref().map(|r| r.delay),
+                )
+            })
+            .collect()
     }
     #[cfg(test)]
     pub(super) fn queued(&self) -> usize {

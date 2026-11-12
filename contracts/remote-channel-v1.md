@@ -2356,11 +2356,15 @@ The static production registry enables only Colab; no other extension declares o
 or user action enables them. Serve may open an empty ledger, but without a Colab adapter's current admission every
 object operation is refused before a ledger effect. Transport-only negative fixtures do not establish Colab routed
 acceptance: #1852 still requires Colab's upload/read proof on shipped binaries. Serve attempts each Local declaration
-before door readiness. Subsequently, a validated Local websocket upgrade with an absent or ended channel joins one
-bounded reactivation attempt; healthy channels are unchanged.
+before door readiness. Failed startup setup and subsequent Local channel-loss events enter the same joined
+reactivation queue without a browser demand. Failed recovery attempts back off from 1 s to a maximum of 30 s,
+with the existing per-attempt deadline and capacity fences; success clears the timer, and shutdown stops and joins
+recovery. Retries do not replay object operations or produce repeated warnings. Subsequently, a validated Local
+websocket upgrade with an absent or ended channel joins one bounded reactivation attempt; healthy channels are unchanged.
 Failure forwards the upgrade without an origin, preserving page sync; an extension that needs objects on such a
-connection may reconnect after the 1 s cool-down, and each new upgrade joins a fresh bounded attempt. Channel end, assets and status never trigger
-setup. New generations inherit no old origins; no object operation is replayed. On an opened channel it answers `config` after current `acquire` and `disclose`
+connection may reconnect after the 1 s cool-down, and each new upgrade joins a fresh bounded attempt. Assets and
+status never trigger setup. New generations inherit no old origins; no object operation is replayed. On an opened
+channel it answers `config` after current `acquire` and `disclose`
 admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
 limits, whether or not an owner session is bound). It also answers observational original-ID `status` and bounded raw-byte
 `read` after fresh acquire and disclose admissions, with an exact current-context, metadata, cancellation and absolute
