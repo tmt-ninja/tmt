@@ -608,17 +608,19 @@ pub(in crate::board) fn capture_case(
         app::workspace::tests::{MEMBER, ROOM},
         workspace::OpsTarget,
     };
-    let mut f = fixture(
+    // This capture needs the fixture config, but not fixture()'s settings app:
+    // that app would be constructed and opened only to be discarded.
+    let (root, path, _) = fixture_file(
         &format!("binding-capture-{}", crate::id::new_v4().unwrap()),
         "[bind]\nj='jump'\n\".\"='copy {row:/fields/task}'\n[bind.tmux]\n\".\"='copy {name}'\n",
     );
-    f.app = crate::board::app::workspace::tests::board();
-    f.app.workspace.selected = Some(OpsTarget::Member {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.workspace.selected = Some(OpsTarget::Member {
         room_id: Some(ROOM.into()),
         identity_id: MEMBER.into(),
     });
-    let target = f.app.workspace.selected.clone().unwrap();
-    let view = f.app.view.as_mut().unwrap();
+    let target = app.workspace.selected.clone().unwrap();
+    let view = app.view.as_mut().unwrap();
     view.look = look;
     let workspace = &mut view.home.as_mut().unwrap().workspace;
     for saved in workspace.squad_looks.values_mut() {
@@ -628,16 +630,15 @@ pub(in crate::board) fn capture_case(
     row["fields"]["task"] = json!("Review literal $(id); two words");
     row["pane"] =
         json!({"id":"%3", "location":{"host":"tmux", "session":"work", "window":"board"}});
-    f.app.references.agents.insert(MEMBER.into(), crate::board::inventory::Agent {parameters: json!({"runningDriver":"codex", "driverSupport":"full", "resume":{"observedModel":{"model":"gpt-6.1-sol", "observedAtMs":1791600000000u64}}}), ..Default::default()});
-    let selection = f.app.host_action_selection();
-    f.app
-        .open_host_action(
-            Config::read(f.path.clone()).unwrap(),
-            selection,
-            Some("%9".into()),
-        )
-        .unwrap();
-    let overlay = f.app.settings.as_mut().unwrap();
+    app.references.agents.insert(MEMBER.into(), crate::board::inventory::Agent {parameters: json!({"runningDriver":"codex", "driverSupport":"full", "resume":{"observedModel":{"model":"gpt-6.1-sol", "observedAtMs":1791600000000u64}}}), ..Default::default()});
+    let selection = app.host_action_selection();
+    app.open_host_action(
+        Config::read(path.clone()).unwrap(),
+        selection,
+        Some("%9".into()),
+    )
+    .unwrap();
+    let overlay = app.settings.as_mut().unwrap();
     overlay.display_path = "/fixture/ops.toml".into();
     match state {
         "bindings-list" => {}
@@ -669,25 +670,24 @@ pub(in crate::board) fn capture_case(
         _ => unreachable!("known binding fixture"),
     }
     if state == "bindings-inventory-scrolled" {
-        f.app
-            .settings
+        app.settings
             .as_mut()
             .unwrap()
             .key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
-            .draw(|frame| crate::board::view::render(frame, &f.app))
+            .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
         assert!(matches!(
-            f.app
-                .settings
+            app.settings
                 .as_mut()
                 .unwrap()
                 .key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)),
             Input::Preview
         ));
     }
-    std::mem::replace(&mut f.app, crate::board::app::App::new(None))
+    std::fs::remove_dir_all(root).unwrap();
+    app
 }
 
 #[test]

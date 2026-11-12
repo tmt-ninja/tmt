@@ -1690,7 +1690,7 @@ pub(in crate::board) mod tests {
             std::fs::remove_dir_all(&self.root).unwrap();
         }
     }
-    fn fixture(name: &str, extra: &str) -> Fixture {
+    fn fixture_file(name: &str, extra: &str) -> (std::path::PathBuf, std::path::PathBuf, String) {
         let root =
             std::env::temp_dir().join(format!("tmt-settings-editor-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -1699,6 +1699,11 @@ pub(in crate::board) mod tests {
             "# preserve comments\nunknown = 'opaque'\n[squad.product]\nlayout = 'crew'\n[squad.product.board]\npanes = ['rows', 'notes']\nsizes = [60, 40]\n{extra}"
         ).replace("{marker}", root.join("unexpected").to_str().unwrap());
         std::fs::write(&path, &original).unwrap();
+        (root, path, original)
+    }
+
+    fn fixture(name: &str, extra: &str) -> Fixture {
+        let (root, path, original) = fixture_file(name, extra);
         let config = Config::read(path.clone()).unwrap();
         let mut app = crate::board::app::App::new(Some("product".into()));
         let mut snapshot = crate::board::app::tests::snapshot(
