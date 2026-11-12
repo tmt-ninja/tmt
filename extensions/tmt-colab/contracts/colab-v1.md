@@ -4718,11 +4718,15 @@ Browser discovery caps the complete serialized metadata response at 2 MiB.
 
 The owner list also carries `listToken`, 64 lowercase hex digits: a digest of every listed page's
 store fingerprint, opaque to the browser. Each row may carry `revision`, the page's revision token
-exactly as `page read` returns it (`v1:` and 64 hex digits); a page whose epoch an equivocating
-stream froze has none, and the list still names it. Both move when a page's head does.
-Because the token includes the membership head, a membership change (another page created, shared
-or archived) moves every page's revision; a draft follower then recompiles once, coalesced like any
-other burst. A page whose fingerprint did not change adds no traffic.
+exactly as `page read` returns it (`v1:` and 64 hex digits), with `contentRevision`, 64 lowercase
+hex digits; a page whose epoch an equivocating stream froze has neither, and the list still names
+it. A row carries both or neither. `revision` and `listToken` move when a page's head does. Because
+the revision token includes the membership head, a membership change (another page created, shared
+or archived) moves every page's revision. `contentRevision` is a digest of the page's progress
+(its epoch and content counts, the fingerprint without the membership head), so it moves only when
+the page's own content does ([#6179](https://github.com/tmt-ninja/tmt/issues/6179)). It is opaque,
+never a write fence, and only says which pages a follower must read again. A page whose fingerprint
+did not change adds no traffic.
 
 `GET /api/pages/after/<listToken>` is the same owner-only read held open: it answers with the full
 list as soon as the list's token is no longer `<listToken>`, and otherwise after the hold with
@@ -4745,8 +4749,9 @@ so a held read in every tab would queue behind each other and starve the origin.
 Web Lock `colab-page-list:<mount>` reads the list once, holds with its token and holds again after
 each answer; it posts each list's revisions on the BroadcastChannel of the same name, and answers a
 new tab's `hello` with the latest. The other tabs only listen: a message that is not exactly
-`{v:1,type:"hello"}` or `{v:1,type:"revisions",listToken,revisions:[[pageId,revision],…]}` (a
-canonical list token, at most 1,000 canonical page IDs and revision tokens) is ignored, and a valid
+`{v:1,type:"hello"}` or `{v:1,type:"revisions",listToken,revisions:[[pageId,revision,contentRevision],…]}`
+(a canonical list token, at most 1,000 canonical page IDs, revision tokens and content revisions)
+is ignored, and a valid
 one is only a hint that pages moved, since every tab compiles from its own verified page reads. The
 hint also decides whether a page open may reuse the last verified owner list (below), so a forged
 same-origin broadcast can at worst open a page from a stale but authentic verified list. A
@@ -5934,11 +5939,12 @@ compiles a followed draft from the root page's config and each component page's 
 compiles them; a page that follows it redraws when one of those pages changes (edits settle for
 500 ms, so a burst is one recompile, and a newer recompile replaces an older one's frame). While a
 page follows, only the root stays subscribed, so a follow holds one page connection whatever the
-system's size: component changes come from the [live page list](#live-page-list)'s revisions, and a
-component page is opened only for the compile itself. A temporarily unavailable root is retried
+system's size: component changes come from the [live page list](#live-page-list)'s content
+revisions, and a component page is opened only for the compile itself. A temporarily unavailable root is retried
 with the same bounded page-open policy used by the compiler. A compile reuses each component's block read
-at the revision the live list still names, kept for the session across every page that follows the
-system, so the next open page reads only the pages that moved; a follow's first compile waits up to
+at the content revision the live list still names, kept for the session across every page that follows the
+system, so the next open page reads only the pages that moved, and a membership change elsewhere in
+the space recompiles nothing; a follow's first compile waits up to
 1 s for the list's first revisions so its reads can be kept. If the first list arrives only after an
 untracked compile starts, that draft is invalidated and recompiled against the list. A component
 change while the watched root opens is compared with the draft's list baseline once the root names

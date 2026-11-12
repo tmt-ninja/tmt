@@ -118,9 +118,16 @@ impl Fixture {
             assert_eq!(page["stateError"], "page-unavailable");
             page.as_object_mut().unwrap().remove("state");
             page.as_object_mut().unwrap().remove("stateError");
-            // The browser's list also carries each page's revision token for its live list.
+            // The browser's list also carries each page's revision token and content revision
+            // for its live list (#6179).
             let revision = page.as_object_mut().unwrap().remove("revision").unwrap();
             assert!(revision.as_str().is_some_and(|r| r.starts_with("v1:")));
+            let content = page
+                .as_object_mut()
+                .unwrap()
+                .remove("contentRevision")
+                .unwrap();
+            assert!(content.as_str().is_some_and(|c| c.len() == 64));
         }
         // The CLI catalog also says when each page is archived (#2600); the browser's does not, and
         // everything else is the same verified projection.

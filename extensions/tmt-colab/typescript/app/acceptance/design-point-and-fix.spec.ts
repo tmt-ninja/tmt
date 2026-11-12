@@ -24,8 +24,11 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const page = await browser.context.newPage();
     // Open page connections (Colab sync sockets), as the door sees them.
     const sync = new Set<WebSocket>();
+    // Page connections opened so far: each is one page read (a component compile opens each page).
+    let syncOpened = 0;
     page.on('websocket', (socket) => {
       if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
+      syncOpened++;
       sync.add(socket);
       socket.on('close', () => sync.delete(socket));
     });
@@ -34,6 +37,8 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const inFlight = new Map<number, number>();
     const detached = new Map<number, number>();
     let measuringEdit = false;
+    // Held list reads answered so far, across tabs: one answers after each change to the list.
+    let heldAnswers = 0;
     const held = {
       by: new Set<number>(),
       get now() {
@@ -52,7 +57,9 @@ test('an @agent comment on a design-system example becomes a live patch of that 
         held.by.add(tab);
       });
       const done = (request: { url(): string }) => {
-        if (isHeld(request.url())) inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
+        if (!isHeld(request.url())) return;
+        inFlight.set(tab, (inFlight.get(tab) ?? 1) - 1);
+        heldAnswers++;
       };
       target.on('requestfinished', done);
       target.on('requestfailed', done);
@@ -113,6 +120,43 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       )
       .toBe(true);
     expect(sync.size).toBe(2);
+
+    // A membership change elsewhere in the space (a new page) moves every page's revision but no
+    // component's content revision: the follow reads no component page for it (#6179). The next
+    // component edit then reads only that page and the root.
+    const answered = heldAnswers;
+    const connectionsBefore = syncOpened;
+    const membershipAt = Date.now();
+    createPage(world, 'sample-lead elsewhere', '<h1>Elsewhere</h1>');
+    await expect.poll(() => heldAnswers, { timeout: 30_000 }).toBeGreaterThan(answered);
+    run(world, world.binaries.colab, [
+      'page',
+      'patch',
+      cardId,
+      '--find',
+      '"css": "',
+      '--replace',
+      '"css": ".zz-live-6179{outline:0}',
+      '--json',
+    ]);
+    const editAt = Date.now();
+    await expect
+      .poll(
+        () =>
+          frame
+            .locator('style')
+            .evaluateAll((nodes) =>
+              nodes.some((node) => node.textContent?.includes('.zz-live-6179')),
+            ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    // The measurement #6179 reports.
+    console.log(
+      `after a membership change the follow drew a component edit ${Date.now() - editAt} ms after it (${Date.now() - membershipAt} ms after the change), opening ${syncOpened - connectionsBefore} page connections`,
+    );
+    expect(syncOpened - connectionsBefore).toBeLessThanOrEqual(2);
+    await expect.poll(() => sync.size, { timeout: 30_000 }).toBe(2);
 
     // Selection mode, then a click anywhere in the example quotes the whole example.
     await frame.locator('h1').click();

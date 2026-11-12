@@ -10,10 +10,12 @@ import { AdmissionRefusedError } from '../src/registration.js';
 
 const PAGE_A = '10000000-0000-4000-8000-00000000000a';
 const token = (n: number) => n.toString(16).padStart(64, '0');
-const changed = (n: number, revision: string): PageListChange => ({
+/** A moved list: the page's revision follows the list, and listeners hear its content revision. */
+const changed = (n: number, content: string): PageListChange => ({
   unchanged: false,
   listToken: token(n),
-  revisions: new Map([[PAGE_A, revision]]),
+  revisions: new Map([[PAGE_A, `v1:${token(n)}`]]),
+  contents: new Map([[PAGE_A, content]]),
 });
 
 describe('the live page list (#6162)', () => {
@@ -106,7 +108,13 @@ describe('the page-list vector (#6162)', async () => {
       else {
         const read = listRevisions(reply);
         expect(
-          read.unchanged ? read : { ...read, revisions: Object.fromEntries(read.revisions) },
+          read.unchanged
+            ? read
+            : {
+                ...read,
+                revisions: Object.fromEntries(read.revisions),
+                contents: Object.fromEntries(read.contents),
+              },
         ).toEqual(result);
       }
     });
@@ -204,7 +212,7 @@ function serve() {
   let n = 1;
   const waiting = new Set<() => void>();
   const inFlight = { held: 0, max: 0 };
-  const current = (): PageListChange => changed(n, `v1:${n.toString(16).padStart(64, '0')}`);
+  const current = (): PageListChange => changed(n, n.toString(16).padStart(64, '0'));
   return {
     inFlight,
     reads: () => ({
@@ -250,9 +258,7 @@ describe('one held read per browser (#6162)', () => {
     expect(tabs.holder()).toBe(0);
     server.move();
     await vi.waitFor(() =>
-      expect(
-        [...heard.values()].every((list) => list.at(-1) === `v1:${'2'.padStart(64, '0')}`),
-      ).toBe(true),
+      expect([...heard.values()].every((list) => list.at(-1) === '2'.padStart(64, '0'))).toBe(true),
     );
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
     // The holder leaves: another tab takes the lock and holds.
@@ -260,10 +266,49 @@ describe('one held read per browser (#6162)', () => {
     await vi.waitFor(() => expect(tabs.holder()).toBe(1));
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
     server.move();
-    await vi.waitFor(() => expect(heard.get(4)!.at(-1)).toBe(`v1:${'3'.padStart(64, '0')}`));
+    await vi.waitFor(() => expect(heard.get(4)!.at(-1)).toBe('3'.padStart(64, '0')));
     expect(server.inFlight.max).toBe(1);
     for (const stop of stops.slice(1)) stop();
     await vi.waitFor(() => expect(server.inFlight.held).toBe(0));
+  });
+
+  it('a membership move changes every revision but no content revision, in the holder and the listening tabs (#6179)', async () => {
+    const tabs = browser();
+    let n = 1;
+    let membership = 0;
+    const waiting = new Set<() => void>();
+    const current = (): PageListChange => ({
+      unchanged: false,
+      listToken: token(n),
+      revisions: new Map([[PAGE_A, `v1:${token(1000 + membership)}`]]),
+      contents: new Map([[PAGE_A, 'c'.repeat(64)]]),
+    });
+    const reads = () => ({
+      list: async () => current(),
+      held: (after: string, signal: AbortSignal) =>
+        new Promise<PageListChange>((resolve, reject) => {
+          if (after !== token(n)) return resolve(current());
+          const done = () => resolve(current());
+          waiting.add(done);
+          signal.addEventListener('abort', () => waiting.delete(done) && reject(signal.reason));
+        }),
+    });
+    const feeds = [0, 1].map((index) => new PageListFeed(reads(), tabs.tab(index)));
+    const heard: string[][] = [[], []];
+    const stops = feeds.map((feed, index) =>
+      feed.watch((latest) => heard[index]!.push(latest.get(PAGE_A)!)),
+    );
+    await vi.waitFor(() => expect(feeds[1]!.revision(PAGE_A)).toBe(`v1:${token(1000)}`));
+    // Another page is shared: the list and every page's revision move, the page's content does not.
+    membership++;
+    n++;
+    const answers = [...waiting];
+    waiting.clear();
+    for (const done of answers) done();
+    for (const feed of feeds)
+      await vi.waitFor(() => expect(feed.revision(PAGE_A)).toBe(`v1:${token(1001)}`));
+    for (const list of heard) expect(new Set(list)).toEqual(new Set(['c'.repeat(64)]));
+    for (const stop of stops) stop();
   });
 
   it('a closed feed lets the lock go even while a follower still listens', async () => {
@@ -297,7 +342,7 @@ describe('one held read per browser (#6162)', () => {
     await vi.waitFor(() => expect(tabs.holder()).toBe(1));
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
     server.move();
-    await vi.waitFor(() => expect(heard.at(-1)).toBe(`v1:${'2'.padStart(64, '0')}`));
+    await vi.waitFor(() => expect(heard.at(-1)).toBe('2'.padStart(64, '0')));
     // The stolen holder cancels its read as the new holder starts one: they overlap at most once.
     expect(server.inFlight.max).toBeLessThanOrEqual(2);
     // The broadcast named the list's token: the new holder held on it, with no whole-list read.
@@ -324,7 +369,7 @@ describe('one held read per browser (#6162)', () => {
     }
     await vi.waitFor(() => expect(server.inFlight.held).toBe(1));
     server.move();
-    const moved = `v1:${'2'.padStart(64, '0')}`;
+    const moved = '2'.padStart(64, '0');
     await vi.waitFor(() =>
       expect([...heard.entries()].filter(([, list]) => list.at(-1) !== moved)).toEqual([]),
     );
@@ -349,28 +394,49 @@ describe('one held read per browser (#6162)', () => {
         v: 1,
         type: 'revisions',
         listToken: '0'.repeat(64),
-        revisions: [['page-a', 'v1:' + '0'.repeat(64)]],
+        revisions: [['page-a', 'v1:' + '0'.repeat(64), '0'.repeat(64)]],
       },
       // A list without its token, or with one the serve never makes.
       {
         v: 1,
         type: 'revisions',
-        revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
+        revisions: [
+          ['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64), '0'.repeat(64)],
+        ],
       },
       {
         v: 1,
         type: 'revisions',
         listToken: 'A'.repeat(64),
+        revisions: [
+          ['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64), '0'.repeat(64)],
+        ],
+      },
+      {
+        v: 1,
+        type: 'revisions',
+        listToken: '0'.repeat(64),
+        revisions: [
+          ['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64), '0'.repeat(64)],
+        ],
+        extra: 1,
+      },
+      { v: 2, type: 'revisions', listToken: '0'.repeat(64), revisions: [] },
+      // A page without its content revision (the shape before #6179), or with a malformed one.
+      {
+        v: 1,
+        type: 'revisions',
+        listToken: '0'.repeat(64),
         revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
       },
       {
         v: 1,
         type: 'revisions',
         listToken: '0'.repeat(64),
-        revisions: [['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64)]],
-        extra: 1,
+        revisions: [
+          ['10000000-0000-4000-8000-000000000001', 'v1:' + '0'.repeat(64), 'v1:' + '0'.repeat(64)],
+        ],
       },
-      { v: 2, type: 'revisions', listToken: '0'.repeat(64), revisions: [] },
     ])
       tabs.post(data);
     await new Promise((resolve) => setTimeout(resolve, 10));

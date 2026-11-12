@@ -159,7 +159,7 @@ export const DRAFT_SETTLE_MS = 500;
 export const DRAFT_LIST_WAIT_MS = 1000;
 
 /** One followed system: its root's subscription, the component pages its root names and their
- * last revisions from the live page list, and the draft compiled since the last change. */
+ * last content revisions from the live page list, and the draft compiled since the last change. */
 interface Follow {
   readonly listeners: Set<() => void>;
   readonly stops: (() => void)[];
@@ -167,11 +167,11 @@ interface Follow {
   root?: string;
   /** The component page IDs the root names now. */
   components: ReadonlySet<string>;
-  /** Each component page's revision when the list last named it. */
+  /** Each component page's content revision when the list last named it. */
   readonly revisions: Map<string, string>;
   /** The list at draft start; null means compilation started without a list. */
   draftBaseline?: ReadonlyMap<string, string> | null;
-  /** The live list's latest revisions, so components the root names later start from them. */
+  /** The live list's latest content revisions, so components the root names later start from them. */
   latest?: ReadonlyMap<string, string>;
   /** Settles when the live list first names revisions. */
   readonly listed: Promise<void>;
@@ -182,9 +182,10 @@ interface Follow {
   stopped?: boolean;
 }
 
-/** Component docs read at a revision the live list named, by transport and page. Each open page
- * makes its own source; the next page of the same system, or a follow that starts again, then
- * reads only the pages that moved. */
+/** Component docs read at a content revision the live list named, by transport and page. Each
+ * open page makes its own source; the next page of the same system, or a follow that starts again,
+ * then reads only the pages whose content moved. A membership change elsewhere in the space (a new
+ * page, a share or an archive) moves no content revision, so it reads none (#6179). */
 const readDocs = new WeakMap<
   PageTransport,
   Map<string, { revision: string; doc: Promise<ComponentDoc | undefined> }>
@@ -288,7 +289,7 @@ export function pageDesignSystems(
       if (revision !== undefined && !state.revisions.has(id)) state.revisions.set(id, revision);
     }
   };
-  // A component page whose revision moved since the list last named it changes the draft.
+  // A component page whose content revision moved since the list last named it changes the draft.
   const revisions = (state: Follow, latest: ReadonlyMap<string, string>) => {
     if (!state.latest && state.draftBaseline === null && state.draft) notify(state);
     state.latest = latest;
