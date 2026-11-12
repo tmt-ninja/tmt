@@ -34,6 +34,8 @@ import {
   admitPartition,
   aggregatePartitions,
   partitionCases,
+  partitionFilterset,
+  loadWorkspaceWeights,
   NEXTEST_VERSION,
   type WorkspaceManifest,
   type PartitionResult,
@@ -221,12 +223,91 @@ describe('nextest terminal status evidence', () => {
   });
 });
 
+describe('workspace measured binary weights', () => {
+  const weights = { defaultSeconds: 5, binaries: { heavy: 20, medium: 10, light: 6, stale: 999 } };
+  const cases = ['heavy', 'medium', 'light', 'new', 'constructor'].flatMap((binary) => [
+    { binary, name: 'one', ignored: false },
+    { binary, name: 'two', ignored: false },
+    { binary, name: 'ignored', ignored: true },
+  ]);
+
+  it.each([2, 3])(
+    'assigns all active cases once in whole binaries for K=%s, including unknown names',
+    (total) => {
+      const groups = Array.from({ length: total }, (_, i) =>
+        partitionCases(cases, i + 1, total, weights)
+      );
+      expect(
+        groups.flat().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      ).toEqual(
+        cases
+          .filter((test) => !test.ignored)
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      );
+      for (const binary of ['heavy', 'medium', 'light', 'new', 'constructor'])
+        expect(groups.filter((group) => group.some((test) => test.binary === binary))).toHaveLength(
+          1
+        );
+      const withoutStale = { ...weights, binaries: { heavy: 20, medium: 10, light: 6 } };
+      for (let i = 1; i <= total; i++) {
+        expect(partitionCases(cases, i, total, withoutStale)).toEqual(groups[i - 1]);
+        expect(partitionCases([...cases].reverse(), i, total, weights)).toEqual(
+          [...groups[i - 1]].reverse()
+        );
+      }
+    }
+  );
+
+  it('uses measured work instead of case counts, with deterministic lexical ties', () => {
+    expect(
+      [1, 2, 3].map((index) => [
+        ...new Set(partitionCases(cases, index, 3, weights).map((test) => test.binary)),
+      ])
+    ).toEqual([['heavy'], ['medium', 'new'], ['light', 'constructor']]);
+  });
+
+  it('escapes exact binary IDs as data and retains discovery, including an empty partition', () => {
+    const binary = 'crate::bin/name), | all() \\*';
+    const strange = [{ binary, name: 'literal', ignored: false }];
+    expect(partitionFilterset(strange, 1, 2, weights)).toBe(
+      'binary_id(=crate::bin/name\\u{29}\\u{2c}\\u{20}\\u{7c}\\u{20}all\\u{28}\\u{29}\\u{20}\\u{5c}\\u{2a}) | not test(/.*/)'
+    );
+    expect(partitionFilterset(strange, 2, 2, weights)).toBe('not test(/.*/)');
+    expect(
+      partitionFilterset(
+        [
+          { binary: 'a', name: 'x', ignored: false },
+          { binary: 'aa', name: 'x', ignored: false },
+        ],
+        1,
+        2,
+        weights
+      )
+    ).toBe('binary_id(=a) | not test(/.*/)');
+  });
+
+  it('loads positive measured/default weights and rejects malformed values', () => {
+    expect(loadWorkspaceWeights(JSON.stringify(weights))).toEqual(weights);
+    expect(loadWorkspaceWeights().defaultSeconds).toBe(5);
+    for (const value of [0, -1, null, '5']) {
+      expect(() =>
+        loadWorkspaceWeights(JSON.stringify({ ...weights, defaultSeconds: value }))
+      ).toThrow();
+      expect(() =>
+        loadWorkspaceWeights(JSON.stringify({ ...weights, binaries: { a: value } }))
+      ).toThrow();
+    }
+    for (const binaries of [null, [], 3])
+      expect(() => loadWorkspaceWeights(JSON.stringify({ ...weights, binaries }))).toThrow();
+  });
+});
+
 describe('compiled workspace partitions', () => {
   const cases = [
     { binary: 'suite', name: 'a', ignored: false },
-    { binary: 'suite', name: 'b', ignored: false },
+    { binary: 'z-other', name: 'b', ignored: false },
     { binary: 'suite', name: 'c', ignored: false },
-    { binary: 'suite', name: 'd', ignored: false },
+    { binary: 'z-other', name: 'd', ignored: false },
     { binary: 'suite', name: 'ignored', ignored: true },
   ];
   const identity = { source: 'a'.repeat(40), run: '123', attempt: '1' };
@@ -261,32 +342,37 @@ describe('compiled workspace partitions', () => {
       };
     });
   const inventory = (index: number) => ({
-    'rust-suites': {
-      suite: {
-        'binary-path': '/target/test',
-        'binary-id': 'suite',
-        testcases: Object.fromEntries(
-          cases.map((test) => [
-            test.name,
-            {
-              ignored: test.ignored,
-              'filter-match': test.ignored
-                ? { status: 'mismatch', reason: 'ignored' }
-                : partitionCases(cases, index, 2).some((selected) => selected.name === test.name)
-                  ? { status: 'matches' }
-                  : { status: 'mismatch', reason: 'partition' },
-            },
-          ])
-        ),
-      },
-    },
+    'rust-suites': Object.fromEntries(
+      ['suite', 'z-other'].map((binary) => [
+        binary,
+        {
+          'binary-path': '/target/test',
+          'binary-id': binary,
+          testcases: Object.fromEntries(
+            cases
+              .filter((test) => test.binary === binary)
+              .map((test) => [
+                test.name,
+                {
+                  ignored: test.ignored,
+                  'filter-match': test.ignored
+                    ? { status: 'mismatch', reason: 'ignored' }
+                    : partitionCases(cases, index, 2).includes(test)
+                      ? { status: 'matches' }
+                      : { status: 'mismatch', reason: 'expression' },
+                },
+              ])
+          ),
+        },
+      ])
+    ),
   });
   const success = { producer: 'success', consumers: 'success' };
 
-  it('uses a stable case slice and refuses invalid or duplicate independent identities', () => {
-    expect(partitionCases([...cases].reverse(), 1, 2).map((test) => test.name)).toEqual(['d', 'b']);
+  it('uses stable whole-binary assignments and refuses invalid or duplicate independent identities', () => {
+    expect(partitionCases([...cases].reverse(), 1, 2).map((test) => test.name)).toEqual(['c', 'a']);
     expect(partitionCases(cases, 2, 2).map((test) => test.name)).toEqual(['b', 'd']);
-    expect(partitionCases(cases, 3, 3).map((test) => test.name)).toEqual(['c']);
+    expect(partitionCases(cases, 3, 3).map((test) => test.name)).toEqual([]);
     for (const [index, total] of [
       [0, 2],
       [3, 2],
@@ -308,15 +394,15 @@ describe('compiled workspace partitions', () => {
 
   it('admits pinned-tool partition listings only when the exact selected identities match', () => {
     expect(admitPartition(cases, inventory(1), 1, 2)).toEqual(partitionCases(cases, 1, 2));
-    expect(() => admitPartition(cases, inventory(2), 1, 2)).toThrow('slice assignment differs');
+    expect(() => admitPartition(cases, inventory(2), 1, 2)).toThrow('weighted assignment differs');
     const filtered = inventory(1);
-    filtered['rust-suites'].suite.testcases.b['filter-match'] = {
+    filtered['rust-suites'].suite.testcases.c['filter-match'] = {
       status: 'mismatch',
-      reason: 'expression',
+      reason: 'partition',
     };
     expect(() => admitPartition(cases, filtered, 1, 2)).toThrow('unexpected partition filter');
     const missing = inventory(1);
-    delete missing['rust-suites'].suite.testcases.b;
+    delete missing['rust-suites'].suite.testcases.c;
     expect(() => admitPartition(cases, missing, 1, 2)).toThrow('omitted inventory case');
     const unknown = inventory(1);
     unknown['rust-suites'].suite.testcases.other = unknown['rust-suites'].suite.testcases.a;
@@ -745,10 +831,9 @@ it('gives the isolated consumer a real Cargo executable without changing its par
   }
 });
 
-// Contiguous six-active-case excerpt from producer artifact 12084071416, run 38987924215.
-// Original active offset 1930 is even. Pinned nextest orders bin/tmt before tmt-cli-style;
-// raw string sorting reverses those suites and changes every selected identity here.
-it('preserves the real nextest 0.9.148 slice order across binary-id punctuation', () => {
+// Six captured identities from producer artifact 12084071416, run 38987924215.
+// Preserve their punctuation while replacing the obsolete position-based assignment.
+it('keeps captured identities whole across binary-id punctuation and inventory order', () => {
   const listing = {
     'rust-suites': {
       'tmt-cli::bin/tmt': {
@@ -838,31 +923,28 @@ it('preserves the real nextest 0.9.148 slice order across binary-id punctuation'
   for (const suite of Object.values(full['rust-suites']))
     for (const test of Object.values(suite.testcases)) test['filter-match'] = { status: 'matches' };
   const cases = compareInventories(cargo, full);
-  const selected = admitPartition(cases, listing, 1, 2);
-  expect(selected.map((test) => [test.binary, test.name])).toEqual([
-    [
-      'tmt-cli::bin/tmt',
-      'workspace_restore_command::tests::recorded_board_arguments_remain_literal_and_use_this_executable',
-    ],
-    [
-      'tmt-cli::bin/tmt',
-      'workspace_restore_command::tests::stale_missing_renamed_and_replaced_identities_never_get_a_launch_command',
-    ],
-    ['tmt-cli-style', 'audit::hidden_tests::a_double_underscore_command_must_be_hidden'],
-  ]);
-  expect(partitionCases(cases, 2, 2)).toEqual(cases.filter((_, i) => i % 2 === 1));
-  const sorted = [...cases].sort((a, b) =>
-    a.binary < b.binary
-      ? -1
-      : a.binary > b.binary
-        ? 1
-        : a.name < b.name
-          ? -1
-          : a.name > b.name
-            ? 1
-            : 0
-  );
-  expect(() => admitPartition(sorted, listing, 1, 2)).toThrow('slice assignment differs');
+  const assignments = [1, 2].map((index) => partitionCases(cases, index, 2));
+  expect(assignments.flat()).toHaveLength(cases.length);
+  expect(new Set(assignments.flat().map((test) => JSON.stringify(test))).size).toBe(cases.length);
+  for (const binary of Object.keys(listing['rust-suites'])) {
+    expect(
+      assignments.filter((tests) => tests.some((test) => test.binary === binary))
+    ).toHaveLength(1);
+  }
+  for (const index of [1, 2]) {
+    const selected = partitionCases(cases, index, 2);
+    const reordered = partitionCases([...cases].reverse(), index, 2);
+    expect(reordered).toEqual([...selected].reverse());
+    const filtered = structuredClone(full);
+    for (const suite of Object.values(filtered['rust-suites']))
+      for (const [name, test] of Object.entries(suite.testcases))
+        test['filter-match'] = selected.some(
+          (item) => item.binary === suite['binary-id'] && item.name === name
+        )
+          ? { status: 'matches' }
+          : { status: 'mismatch', reason: 'expression' };
+    expect(admitPartition(cases, filtered, index, 2)).toEqual(selected);
+  }
 });
 
 it('archives a test-enabled example standalone once and excludes its test-profile harness', () => {
