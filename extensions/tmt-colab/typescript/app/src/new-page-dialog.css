@@ -103,9 +103,10 @@
   border-color: var(--tmt-ui-color-accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tmt-ui-color-accent) 18%, transparent);
 }
+/* Keyboard focus on the list recolours the chosen card's own border (one focus frame, #3998). */
 .new-page-cards:focus-visible .new-page-card[aria-selected='true'] {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  border-color: var(--tmt-ui-color-focus);
+  box-shadow: 0 0 0 var(--tmt-ui-focus-width) var(--tmt-ui-color-focus);
 }
 .new-page-card-name {
   display: flex;
