@@ -378,6 +378,18 @@ export async function openChat(page: Page) {
   await toggle.click();
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
+/**
+ * Nothing is sent until the composer asks the named agent (#6349). A directory that settles
+ * without the agent leaves the draft a plain comment, which would only fail later as a delivery
+ * timeout; this fails at the cause instead. Call it again right before a send that follows other
+ * edits (attachments), since the composer re-decides its recipients on every change.
+ */
+export async function expectAsks(panel: Locator, agent: string) {
+  await expect(
+    panel.locator('.annotation-hint[role="status"]'),
+    `the composer does not ask ${agent}: the agent directory did not list it`,
+  ).toContainText(new RegExp(`^Asks .*${agent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+}
 /** Compose the visible mention and question, with no effect before Enter. */
 export async function composeChat(
   page: Page,
@@ -391,6 +403,7 @@ export async function composeChat(
   const draft = `@${agent.name} ${question}`;
   await input.fill(draft);
   await expect.poll(() => composerText(input)).toBe(draft);
+  await expectAsks(panel, agent.name);
   const turn = agent.received().length;
   return {
     delivered() {

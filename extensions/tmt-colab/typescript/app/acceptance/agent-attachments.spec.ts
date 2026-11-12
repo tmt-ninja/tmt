@@ -9,6 +9,7 @@ import {
   composeChat,
   createPage,
   deliveryDiagnostic,
+  expectAsks,
   freePort,
   openChat,
   openPage,
@@ -69,6 +70,7 @@ test('PDF and UTF-8 attachments earn byte-derived CLI extensions despite mislead
         await give(compose, 'drop', file.name, file.declared, file.bytes.toString('base64'));
       await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
       await expect(panel.getByTestId('attachment-chip').locator('img')).toHaveCount(0);
+      await expectAsks(panel, agent.name);
       await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
       await until(() => agent.received().length === 1, 'typed files reached the agent');
@@ -159,6 +161,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
         atMs: number;
       }[] = [];
       try {
+        await expectAsks(panel, agent.name);
         await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
         marks.push({ event: 'send_clicked', atMs: Date.now() });
         await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
