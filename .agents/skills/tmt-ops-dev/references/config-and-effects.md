@@ -142,22 +142,22 @@ projection and providers stay on the shared fetcher path.
 ## Views (pane arrangements)
 
 The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
-room-UUID pins and optional hidden room UUIDs, written by the existing
+optional hidden room UUIDs, written by the existing
 Config CAS owner. Authored sort/reverse values are cold defaults; interactive
-sort, filters, committed search, authored chart range/time per bar, quota-window choice and pane scroll belong to the selected
+sort, committed search, authored chart range/time per bar, quota-window choice and pane scroll belong to the selected
 [view-state layer](board.md#workspace-and-retained-identity). `workspace.hidden` is a unique array of at most 1,024 canonical
 lowercase room UUIDs. An absent key means none; an empty saved set removes the key.
 Unknown/deleted room IDs remain stored without pruning and do not inflate the
-live hidden count. Pins remain independent. Session launch scope/reveal belongs
+live hidden count. Session launch scope/reveal belongs
 to App and ephemeral reload carry, never Config or retained view hints.
 The chart's time per bar is an aggregation interval, not a Digest member mode or
 delivery delay. Automatic resolution follows the chart width; the layer retains
 the automatic choice rather than that resolved interval. Shared `workspace.tok_range`
 is independent of these chart controls and is reloaded through Config on restart.
-`workspace.overview_sort` names an existing identity sort field;
-`workspace.overview_reverse` reverses its initial direction; optional
-`workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents
-precede the regular flat Agents order and appear in the Agents Pinned tree.
+`workspace.overview_sort` and `workspace.overview_reverse` are accepted with any
+value, ignored, and never written or removed. Retired
+`workspace.pinned` and `workspace.agent_pins` are accepted with any value, ignored,
+and never written or removed by workspace preference saves.
 `workspace.digest_window` is accepted with any value and ignored, and never written: the
 Digest window is view state ([board reference](board.md)), and Config seeds nothing from it.
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) selects the estimate unit
@@ -190,14 +190,15 @@ controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
 move actions. Digest retains independently movable panels.
 Authored `overview`, `overview-view` and `overview-filter` actions receive a located
-retirement notice. Their text stays intact and is not applied; the `agents-filter`
-(`f`) and `talk-measure` (`M`) actions replace them.
+retirement notice. Their text stays intact and is not applied. `pin`, `agents-filter`
+and `talk-measure` follow the existing unknown-action error; `pane-talk` and
+`pane-measure` select the right pane directly.
 
 The explicit `all-timers` action opens the all-room read context and is the
 default `c` when nothing is selected. Authored `timers` keeps the selected scope, and compatible global,
 host and section overrides retain their normal precedence. The preview advertises
 only a key that actually resolves to `all-timers`.
-The flat list and reader factory defaults resolve Enter to `reply`. The internal
+Agents list Enter opens Talk; reader factory defaults resolve Enter to `reply`. The internal
 reader context inherits reader scrolling before the existing authored
 key merge. Authored global, host and section overrides keep their meaning;
 Agents/Digest reader defaults remain independent. The filled input advertises the
@@ -242,7 +243,7 @@ membership target; unsupported legacy actions are reported rather than remapped.
   `board::theme_picker`. The session reads its Config at opening and keeps that baseline
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
-  switches board/squad scope (the flat list and Common pool have board scope only; a masking squad base is
+  switches board/squad scope (Common pool has board scope only; a masking squad base is
   named). Pickers open in all-boards scope, even when a squad override masks it;
   the notice directs an intentional this-squad edit. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
@@ -449,7 +450,6 @@ acceptance removes it; uncertain acceptance retains it for manual inspection.
 One `dispatch.show` read can recover lost output. There is no automatic resend or wake retry. An explicit status notification retry first recovers uncertain acceptance; after the owned invocation has closed and a definitive missing receipt, it may create only the same frozen operation/intent again. Confirmed acceptance is never created again. Feedback distinguishes each recipient's queued or
 unavailable acceptance without claiming delivery or processing.
 
-The per-layer view-state controls store the list choice as `agentsFilter`
-(`all`, `agents` or `pinned`). A file written with the removed `overviewView` or
-`overviewFilter` keeps its committed query, sort and scroll controls and ignores those
-keys. A present invalid choice is refused by the existing control decoder. Config remains unchanged.
+The Agents list shows the squad tree. Older layer state may contain `agentsFilter`;
+restoring it selects the tree while keeping the committed query, sort and scroll controls.
+Config remains unchanged.

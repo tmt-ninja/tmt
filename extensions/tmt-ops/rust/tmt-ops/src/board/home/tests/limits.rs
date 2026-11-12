@@ -18,7 +18,7 @@ fn app(usage_enabled: bool) -> App {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     let view = app.view.as_mut().unwrap();
     view.home_rate.insert(
         "product".into(),
@@ -228,7 +228,7 @@ fn help_explains_the_row_only_where_it_can_show() {
     hidden.shell.tab = crate::board::shell::OpsTab::Digest;
     assert!(section(&hidden).is_some());
     hidden.shell.tab = crate::board::shell::OpsTab::Agents;
-    hidden.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     hidden.set_limits(Vec::new());
     assert!(section(&hidden).is_none());
 }
@@ -236,9 +236,20 @@ fn help_explains_the_row_only_where_it_can_show() {
 /// The quota Details modal in the local zone: a reset two days out and one five days out.
 pub(in crate::board) const QUOTA_SCENES: &[&str] = &["quota-details", "quota-details-week"];
 
+#[test]
+fn quota_scene_uses_the_requested_look_for_the_selected_squad() {
+    for (_, look) in super::oracle::looks() {
+        let app = quota_case("quota-details", look);
+        assert_eq!(app.look(), look);
+    }
+}
+
 pub(in crate::board) fn quota_case(scene: &str, look: crate::look::Look) -> App {
     let mut app = app(true);
-    app.view.as_mut().unwrap().look = look;
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    // The selected squad otherwise overrides the scene look with environment-detected depth.
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     let mut held = standings();
     if scene == "quota-details-week" {

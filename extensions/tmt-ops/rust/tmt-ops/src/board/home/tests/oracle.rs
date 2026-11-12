@@ -431,7 +431,6 @@ fn base_frames(styles: &mut Styles) -> Vec<Value> {
         for state in [
             "overview",
             "agents",
-            "agents-sorted",
             "agents-state-sorted",
             "agents-header-hover",
             "digest",
@@ -577,7 +576,7 @@ fn settings_menu_frames(styles: &mut Styles) -> Vec<Value> {
 fn measure_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
-        for scene in ["measure-agent", "measure-squad", "measure-agents-chip"] {
+        for scene in ["measure-agent", "measure-squad"] {
             for width in [160, 100] {
                 let mut app = crate::board::app::workspace::tests::populated_board(1, 24);
                 app.view.as_mut().unwrap().look = look;
@@ -596,11 +595,6 @@ fn measure_frames(styles: &mut Styles) -> Vec<Value> {
                 let room = workspace.roster.squads[0].room_id.clone();
                 app.shell.tab = crate::board::shell::OpsTab::Agents;
                 app.right_tab = crate::board::shell::RightTab::Measure;
-                app.workspace.filter = if scene == "measure-agents-chip" {
-                    crate::board::workspace::AgentsFilter::Agents
-                } else {
-                    crate::board::workspace::AgentsFilter::All
-                };
                 crate::board::overview::capture::populate_lower_band(&mut app, "digest-rows");
                 crate::board::overview::capture::populate_final(&mut app, "digest-rows");
                 app.workspace.expanded.insert(room.clone());
@@ -623,12 +617,7 @@ fn measure_frames(styles: &mut Styles) -> Vec<Value> {
 fn search_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
-        for mode in [
-            "overview-agents",
-            "overview-squads",
-            "agents-all",
-            "agents-pinned",
-        ] {
+        for mode in ["tree"] {
             for state in ["matches", "empty"] {
                 for width in [160, 100, 80] {
                     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
@@ -638,21 +627,7 @@ fn search_frames(styles: &mut Styles) -> Vec<Value> {
                     for squad in &workspace.roster.squads {
                         workspace.squad_looks.insert(squad.room_id.clone(), look);
                     }
-                    if mode == "agents-pinned" {
-                        workspace
-                            .preferences
-                            .pinned
-                            .insert(workspace.roster.squads[7].room_id.clone());
-                        app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
-                    }
                     app.shell.tab = crate::board::shell::OpsTab::Agents;
-                    if mode != "agents-pinned" {
-                        app.workspace.filter = if mode == "overview-squads" {
-                            crate::board::workspace::AgentsFilter::All
-                        } else {
-                            crate::board::workspace::AgentsFilter::Agents
-                        };
-                    }
                     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
                     app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
                     app.paste(if state == "matches" {
@@ -1225,12 +1200,12 @@ const NOW: u64 = 1_791_600_000_000;
 // silently escape the partition that records it.
 macro_rules! oracle_groups {
     ($group:ident, $styles:expr) => {
-        $group!(0, 1888, base_frames($styles));
+        $group!(0, 1856, base_frames($styles));
         $group!(0, 160, chart_frames($styles));
         $group!(1, 224, bindings_frames($styles));
         $group!(6, 80, settings_menu_frames($styles));
-        $group!(7, 24, measure_frames($styles));
-        $group!(7, 96, search_frames($styles));
+        $group!(7, 16, measure_frames($styles));
+        $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
@@ -1241,7 +1216,7 @@ macro_rules! oracle_groups {
         $group!(7, 96, conversation_refresh_frames($styles));
         $group!(7, 16, markdown_frames($styles));
         $group!(7, 12, selection_frames($styles));
-        $group!(8, 544, member_session_frames($styles));
+        $group!(8, 448, member_session_frames($styles));
         $group!(7, 24, checklist_chip_frames($styles));
         $group!(7, 80, add_note_frames($styles));
         $group!(7, 32, checklist_overlay_frames($styles));
@@ -1253,10 +1228,10 @@ macro_rules! oracle_groups {
             560,
             switch_frames(crate::board::switch_tool::tests::captures::SCENES, $styles,)
         );
-        $group!(2, 128, idle_alert_frames_for_look($styles, Some(0)));
-        $group!(3, 128, idle_alert_frames_for_look($styles, Some(1)));
-        $group!(4, 128, idle_alert_frames_for_look($styles, Some(2)));
-        $group!(5, 128, idle_alert_frames_for_look($styles, Some(3)));
+        $group!(2, 120, idle_alert_frames_for_look($styles, Some(0)));
+        $group!(3, 120, idle_alert_frames_for_look($styles, Some(1)));
+        $group!(4, 120, idle_alert_frames_for_look($styles, Some(2)));
+        $group!(5, 120, idle_alert_frames_for_look($styles, Some(3)));
         $group!(
             8,
             416,
@@ -1730,11 +1705,62 @@ fn check_oracle_part(part: usize) {
         .flat_map(|(_, range)| frames[range].iter().cloned())
         .collect();
     let expected = json!({"styles": expected["styles"], "frames": selected});
+    let actual = resolved_frames(&captured);
+    let expected = resolved_frames(&expected);
     assert_eq!(
-        resolved_frames(&captured),
-        resolved_frames(&expected),
-        "oracle partition {part}"
+        actual.len(),
+        expected.len(),
+        "oracle partition {part}: frame count"
     );
+    for (actual, expected) in actual.iter().zip(&expected) {
+        if actual == expected {
+            continue;
+        }
+        let key = format!(
+            "{} / {} / {}x{}",
+            expected["state"], expected["look"], expected["width"], expected["height"]
+        );
+        let fields = actual
+            .as_object()
+            .unwrap()
+            .keys()
+            .chain(expected.as_object().unwrap().keys());
+        for field in fields {
+            if actual.get(field) == expected.get(field) {
+                continue;
+            }
+            if let (Some(a), Some(b)) = (actual[field].as_array(), expected[field].as_array()) {
+                let index = a
+                    .iter()
+                    .zip(b)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(a.len().min(b.len()));
+                let brief = |value: Option<&Value>| {
+                    value.map_or_else(
+                        || "<missing>".into(),
+                        |v| v.to_string().chars().take(800).collect::<String>(),
+                    )
+                };
+                panic!(
+                    "oracle partition {part}, {key}, {field}[{index}]: actual {} expected {}",
+                    brief(a.get(index)),
+                    brief(b.get(index))
+                );
+            }
+            let brief = |value: Option<&Value>| {
+                value.map_or_else(
+                    || "<missing>".into(),
+                    |v| v.to_string().chars().take(800).collect::<String>(),
+                )
+            };
+            panic!(
+                "oracle partition {part}, {key}, {field}: actual {} expected {}",
+                brief(actual.get(field)),
+                brief(expected.get(field))
+            );
+        }
+        unreachable!("different frames have a different field");
+    }
     assert_no_home_frame_stacks_two_rules(&captured);
 }
 

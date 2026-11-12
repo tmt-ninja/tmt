@@ -5,22 +5,16 @@
 //! sends or acts on a row. Hit areas join the painted strip hits, so the
 //! pointer and the published hit list share one source.
 
-use ratatui::{
-    layout::Rect,
-    style::Style,
-    text::{Line, Span},
-};
+use ratatui::{layout::Rect, style::Style, text::Span};
 use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 use super::{overview::cron_counts::GlyphSet, view_state::Order, workspace::columns::TokHeading};
-use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
+use crate::config::{OpsSort, OverviewDirection};
 
-/// A header that sorts: a column of the flat Agents list, or the squad order a
-/// column of the Squads tree stands for.
+/// A sortable squad-tree header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Header {
-    Overview(OverviewColumn),
     Squads(OpsSort),
 }
 
@@ -29,13 +23,6 @@ impl Header {
     /// opposite one when the column already is the order.
     pub(in crate::board) fn clicked(self, order: Order) -> Order {
         match self {
-            Self::Overview(column) => Order {
-                overview: Some(match order.overview {
-                    Some(current) if current.column == column => current.reverse(),
-                    _ => OverviewSort::initial(column),
-                }),
-                ..order
-            },
             Self::Squads(sort) if order.agents == sort => Order {
                 reversed: !order.reversed,
                 ..order
@@ -43,7 +30,6 @@ impl Header {
             Self::Squads(sort) => Order {
                 agents: sort,
                 reversed: false,
-                ..order
             },
         }
     }
@@ -52,10 +38,6 @@ impl Header {
     fn direction(self, order: &Order) -> Option<OverviewDirection> {
         use OverviewDirection::{Ascending, Descending};
         match self {
-            Self::Overview(column) => order
-                .overview
-                .filter(|sort| sort.column == column)
-                .map(|sort| sort.direction),
             Self::Squads(sort) => (order.agents == sort).then(|| {
                 // Names run A to Z; attention runs most first.
                 match (sort == OpsSort::Name, order.reversed) {
@@ -175,21 +157,6 @@ impl Marks {
         }
         Some(TokCell { spans, parts })
     }
-
-    /// A header word with its mark one cell after it.
-    pub(in crate::board) fn word(
-        &self,
-        header: Header,
-        word: &str,
-        base: Style,
-        look: crate::look::Look,
-    ) -> Span<'static> {
-        let text = match self.mark(header) {
-            Some(mark) => format!("{word} {mark}"),
-            None => word.to_owned(),
-        };
-        Span::styled(text, self.style(header, base, look))
-    }
 }
 
 /// The TOK caption painted as spans, with the offset, width and control of each part.
@@ -201,82 +168,6 @@ pub(in crate::board) struct TokCell {
 /// The painted width of a header word with its mark cell.
 pub(in crate::board) fn hit_width(word: &str) -> u16 {
     word.width() as u16 + 2
-}
-
-/// The flat list's header line, painted cell by cell so each sortable word can
-/// carry its own style, with the hit areas of those words.
-pub(in crate::board) struct Row<'a> {
-    marks: &'a Marks,
-    look: crate::look::Look,
-    base: Style,
-    slot: Rect,
-    used: u16,
-    spans: Vec<Span<'static>>,
-    hits: Vec<(Rect, Control)>,
-}
-
-impl<'a> Row<'a> {
-    pub(in crate::board) fn new(
-        slot: Rect,
-        marks: &'a Marks,
-        look: crate::look::Look,
-        base: Style,
-    ) -> Self {
-        Self {
-            marks,
-            look,
-            base,
-            slot,
-            used: 0,
-            spans: Vec::new(),
-            hits: Vec::new(),
-        }
-    }
-
-    /// Text that does not sort.
-    pub(in crate::board) fn plain(&mut self, text: &str) {
-        self.used += text.width() as u16;
-        self.spans.push(Span::styled(text.to_owned(), self.base));
-    }
-
-    /// A sortable word in a `width`-cell column, mark after it.
-    pub(in crate::board) fn word(&mut self, header: Header, word: &str, width: u16) {
-        let span = self.marks.word(header, word, self.base, self.look);
-        let pad = usize::from(width).saturating_sub(span.content.width());
-        self.hit(Control::Sort(header), self.used, hit_width(word));
-        self.used += span.content.width() as u16;
-        self.spans.push(span);
-        self.plain(&" ".repeat(pad));
-    }
-
-    /// The TOK caption of a right-aligned `width`-cell column; see `Marks::tokens`.
-    /// A caption with no room for its mark is plain text.
-    pub(in crate::board) fn tokens(&mut self, header: Header, heading: TokHeading, width: u16) {
-        let Some(cell) = self
-            .marks
-            .tokens(Some(header), heading, width, self.base, self.look)
-        else {
-            self.plain(heading.caption());
-            return;
-        };
-        for (from, size, control) in cell.parts {
-            self.hit(control, self.used + from, size);
-        }
-        self.used += width;
-        self.spans.extend(cell.spans);
-    }
-
-    fn hit(&mut self, control: Control, from: u16, width: u16) {
-        let area = Rect::new(self.slot.x.saturating_add(from), self.slot.y, width, 1)
-            .intersection(self.slot);
-        if area.width > 0 {
-            self.hits.push((area, control));
-        }
-    }
-
-    pub(in crate::board) fn finish(self) -> (Line<'static>, Vec<(Rect, Control)>) {
-        (Line::from(self.spans), self.hits)
-    }
 }
 
 /// The hit area of a tree header word starting `lead` cells into its slot.
@@ -296,30 +187,6 @@ mod tests {
     use super::*;
     use OverviewDirection::{Ascending, Descending};
 
-    fn flat(column: OverviewColumn, direction: OverviewDirection) -> Order {
-        Order {
-            overview: Some(OverviewSort { column, direction }),
-            ..Order::default()
-        }
-    }
-
-    #[test]
-    fn a_flat_header_starts_in_its_own_direction_and_reverses_on_a_second_click() {
-        let tok = Header::Overview(OverviewColumn::TokensPerHour);
-        let order = tok.clicked(Order::default());
-        assert_eq!(order, flat(OverviewColumn::TokensPerHour, Descending));
-        assert_eq!(
-            tok.clicked(order),
-            flat(OverviewColumn::TokensPerHour, Ascending)
-        );
-        let name = Header::Overview(OverviewColumn::Agent);
-        assert_eq!(
-            name.clicked(order),
-            flat(OverviewColumn::Agent, Ascending),
-            "another column starts over"
-        );
-    }
-
     #[test]
     fn a_tree_header_picks_its_squad_order_and_reverses_on_a_second_click() {
         let state = Header::Squads(OpsSort::Attention);
@@ -327,7 +194,6 @@ mod tests {
         let by_name = name.clicked(Order {
             agents: OpsSort::Attention,
             reversed: true,
-            ..Order::default()
         });
         assert_eq!((by_name.agents, by_name.reversed), (OpsSort::Name, false));
         let reversed = name.clicked(by_name);
@@ -337,11 +203,7 @@ mod tests {
 
     #[test]
     fn a_tree_names_run_up_and_attention_runs_down() {
-        let order = |agents, reversed| Order {
-            agents,
-            reversed,
-            ..Order::default()
-        };
+        let order = |agents, reversed| Order { agents, reversed };
         let name = Header::Squads(OpsSort::Name);
         let state = Header::Squads(OpsSort::Attention);
         assert_eq!(

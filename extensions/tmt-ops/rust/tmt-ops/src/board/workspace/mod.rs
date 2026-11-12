@@ -9,10 +9,7 @@ pub(crate) mod observe;
 pub(crate) mod rename_member;
 pub(crate) mod render;
 
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OpsObservation {
@@ -184,31 +181,7 @@ pub struct OpsWorkspace {
     pub pool_expanded: bool,
     pub query: String,
     pub(in crate::board) order: Option<crate::board::view_state::Order>,
-    pub filter: AgentsFilter,
     pub visibility: OpsVisibility,
-}
-
-/// Session-local tree scope; it never changes membership or saved preferences.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum AgentsFilter {
-    /// The Squads chip: the whole squad/member tree.
-    #[default]
-    All,
-    /// The Agents chip: Overview's flat attention list of agents.
-    Agents,
-    /// The Pinned chip: pinned squads and individually pinned agents.
-    Pinned,
-}
-
-impl AgentsFilter {
-    /// `f` cycles Squads, Agents, Pinned.
-    pub fn next(self) -> Self {
-        match self {
-            Self::All => Self::Agents,
-            Self::Agents => Self::Pinned,
-            Self::Pinned => Self::All,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,39 +349,6 @@ impl OpsRoster {
     }
 }
 
-/// One row per identity, independent of squad expansion and duplicate membership.
-/// Retain a real squad occurrence for the existing management admission lane.
-pub(in crate::board) fn identity_rows(
-    snapshot: &observe::OpsWorkspaceSnapshot,
-    query: &str,
-    preferred: Option<&OpsTarget>,
-    visibility: &OpsVisibility,
-) -> Vec<OpsTreeRow> {
-    identity_rows_matching(snapshot, query, preferred, visibility, |_| true)
-}
-
-/// Apply a destination's evidence predicate before choosing one UUID occurrence.
-/// An ineligible preferred membership cannot hide another eligible occurrence.
-pub(in crate::board) fn identity_rows_matching(
-    snapshot: &observe::OpsWorkspaceSnapshot,
-    query: &str,
-    preferred: Option<&OpsTarget>,
-    visibility: &OpsVisibility,
-    admit: impl Fn(&OpsTreeRow) -> bool,
-) -> Vec<OpsTreeRow> {
-    let mut rows = admitted_identity_rows(snapshot, query, preferred, visibility, admit);
-    rows.sort_by(|a, b| {
-        a.title
-            .to_lowercase()
-            .cmp(&b.title.to_lowercase())
-            .then(a.target.cmp(&b.target))
-    });
-    if snapshot.preferences.reversed {
-        rows.reverse();
-    }
-    rows
-}
-
 /// Project admitted UUID occurrences without imposing a destination's display
 /// order. Digest ranks by TOK and must not first sort the same rows by name.
 pub(in crate::board) fn admitted_identity_rows(
@@ -457,17 +397,6 @@ pub(in crate::board) fn admitted_identity_rows(
 }
 
 impl OpsWorkspace {
-    /// Toggle a squad pin; member UUID pins use the same Config preferences lane.
-    pub fn toggle_pin(&self, preferences: &mut OpsPreferences) -> bool {
-        let Some(OpsTarget::Squad(id)) = &self.selected else {
-            return false;
-        };
-        if !preferences.pinned.remove(id) {
-            preferences.pinned.insert(id.clone());
-        }
-        true
-    }
-
     pub fn toggle_expanded(&mut self, target: &OpsTarget) -> bool {
         match target {
             OpsTarget::Pool => self.pool_expanded = !self.pool_expanded,
@@ -513,7 +442,6 @@ impl OpsWorkspace {
         // A complete, unrestricted All view admits every acquired identity,
         // including the proven Common pool; no membership scan is needed.
         if query.is_empty()
-            && self.filter == AgentsFilter::All
             && roster.complete()
             && self.visibility.unrestricted(roster, preferences)
         {
@@ -529,9 +457,7 @@ impl OpsWorkspace {
         };
         if self.visibility.scope.is_empty() {
             let group_matches = "common pool".contains(&query);
-            for member in roster.pool().filter(|member| {
-                self.filter != AgentsFilter::Pinned || preferences.agent_pins.contains(&member.id)
-            }) {
+            for member in roster.pool() {
                 admit(member, group_matches);
             }
         }
@@ -541,11 +467,7 @@ impl OpsWorkspace {
                 || self.visibility.shows_squad(&squad.room_id, preferences)
         }) {
             let group_matches = squad.name.to_lowercase().contains(&query);
-            for member in roster.members(squad).filter(|member| {
-                self.filter != AgentsFilter::Pinned
-                    || preferences.pinned.contains(&squad.room_id)
-                    || preferences.agent_pins.contains(&member.id)
-            }) {
+            for member in roster.members(squad) {
                 admit(member, group_matches);
             }
         }
@@ -567,20 +489,11 @@ impl OpsWorkspace {
         expand: bool,
     ) -> Vec<OpsTreeRow> {
         let query = query.to_lowercase();
-        let matches = |name: &str| name.to_lowercase().contains(&query);
-        let pool: Vec<_> = roster
-            .pool()
-            .filter(|member| {
-                self.filter != AgentsFilter::Pinned || preferences.agent_pins.contains(&member.id)
-            })
-            .collect();
+        let matches = |name: &str| crate::board::search_field::matches_query(name, &query);
+        let pool: Vec<_> = roster.pool().collect();
         // Keep an unfiltered unknown/empty pool, but search only shows matching
         // identities and their containing group.
         let show_pool = self.visibility.scope.is_empty()
-            && match self.filter {
-                AgentsFilter::All | AgentsFilter::Agents => true,
-                AgentsFilter::Pinned => !pool.is_empty(),
-            }
             && (query.is_empty()
                 || matches("Common pool")
                 || pool.iter().any(|member| matches(&member.name)));
@@ -605,12 +518,7 @@ impl OpsWorkspace {
                 },
             });
         }
-        if show_pool
-            && (expand
-                || self.pool_expanded
-                || !query.is_empty()
-                || self.filter == AgentsFilter::Pinned)
-        {
+        if show_pool && (expand || self.pool_expanded || !query.is_empty()) {
             let mut pool = pool;
             pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
             for member in pool
@@ -639,13 +547,6 @@ impl OpsWorkspace {
             .filter(|squad| grouped && preferences.hidden.contains(&squad.room_id))
             .collect();
         let order = |a: &&OpsSquad, b: &&OpsSquad| {
-            let pinned = preferences
-                .pinned
-                .contains(&b.room_id)
-                .cmp(&preferences.pinned.contains(&a.room_id));
-            if pinned != Ordering::Equal {
-                return pinned;
-            }
             let order = match self
                 .order
                 .unwrap_or_else(|| crate::board::view_state::Order::from(preferences))
@@ -671,20 +572,9 @@ impl OpsWorkspace {
         // One squad row and its shown members, `depth` levels in.
         let squad_rows = |squad: &OpsSquad, depth: u8| -> Vec<OpsTreeRow> {
             let mut rows = Vec::new();
-            let squad_pinned = preferences.pinned.contains(&squad.room_id);
             let mut members: Vec<_> = roster.members(squad).collect();
             let mut seen = BTreeSet::new();
             members.retain(|member| seen.insert(&member.id));
-            let agent_pinned = members
-                .iter()
-                .any(|member| preferences.agent_pins.contains(&member.id));
-            if self.filter == AgentsFilter::Pinned {
-                if !squad_pinned && !agent_pinned {
-                    return rows;
-                }
-                members
-                    .retain(|member| squad_pinned || preferences.agent_pins.contains(&member.id));
-            }
             let squad_matches = matches(&squad.name);
             if !squad_matches && !members.iter().any(|member| matches(&member.name)) {
                 return rows;
@@ -712,11 +602,7 @@ impl OpsWorkspace {
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
             });
-            if expand
-                || self.expanded.contains(&squad.room_id)
-                || !query.is_empty()
-                || self.filter == AgentsFilter::Pinned && agent_pinned
-            {
+            if expand || self.expanded.contains(&squad.room_id) || !query.is_empty() {
                 let unknown = OpsMembershipState::default();
                 members.sort_by(|a, b| {
                     (squad.lead.as_deref() != Some(&a.id))
@@ -747,7 +633,7 @@ impl OpsWorkspace {
         // The Hidden group closes the list. Unfolded (`reveal_hidden`), its squads sit
         // one level in; search and the Pinned filter keep it only for what matches.
         if !hidden.is_empty() {
-            let narrowed = !query.is_empty() || self.filter == AgentsFilter::Pinned;
+            let narrowed = !query.is_empty();
             // A folded group builds no rows for what it holds.
             let children: Vec<_> = if expand || self.visibility.reveal_hidden || narrowed {
                 hidden

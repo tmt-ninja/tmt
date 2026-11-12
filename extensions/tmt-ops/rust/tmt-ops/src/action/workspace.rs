@@ -39,14 +39,13 @@ pub enum OpsUiAction {
     Quit,
     Sort,
     ReverseSort,
-    AgentsFilter,
-    TalkMeasure,
+    PaneTalk,
+    PaneMeasure,
     Timers,
     AllTimers,
     WorkspaceSnapshots,
     OpenWeb,
     DiscoverAgents,
-    Pin,
     HideSquad,
     ShowSquad,
     RevealHidden,
@@ -199,13 +198,6 @@ const SPECS: &[OpsUiSpec] = &[
         24
     ),
     spec!(
-        AgentsFilter,
-        "agents-filter",
-        "filter",
-        "cycle Agents through all and pinned squads",
-        11
-    ),
-    spec!(
         MonitorDetails,
         "monitor-details",
         "details",
@@ -341,12 +333,13 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(Search, "search", "search", "search the current list", 15),
     spec!(Help, "help", "help", "show effective scoped bindings", 25),
     spec!(Quit, "quit", "quit", "close the board", 26),
-    spec!(Sort, "sort", "sort", "cycle the flat Agents sort", 10),
+    spec!(Sort, "sort", "sort", "cycle the squad tree sort", 10),
+    spec!(PaneTalk, "pane-talk", "Talk", "show the Talk pane", 11),
     spec!(
-        TalkMeasure,
-        "talk-measure",
-        "talk/measure",
-        "switch the right column between Talk and Measure",
+        PaneMeasure,
+        "pane-measure",
+        "Measure",
+        "show the Measure pane",
         11
     ),
     spec!(
@@ -398,7 +391,6 @@ const SPECS: &[OpsUiSpec] = &[
         "clear this session's launch scope",
         12
     ),
-    spec!(Pin, "pin", "pin", "pin or unpin the selected squad", 5),
     spec!(
         WorkspaceSnapshots,
         "workspace-snapshots",
@@ -556,7 +548,7 @@ impl OpsUiAction {
     }
     /// Strip controls already carry their configured key beside the control.
     pub fn footer_hint(self) -> bool {
-        !matches!(self, Self::AgentsFilter | Self::TalkMeasure)
+        !matches!(self, Self::PaneTalk | Self::PaneMeasure)
     }
     pub fn strip_actions() -> impl Iterator<Item = Self> {
         SPECS

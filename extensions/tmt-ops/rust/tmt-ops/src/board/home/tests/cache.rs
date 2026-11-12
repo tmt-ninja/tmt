@@ -152,46 +152,6 @@ fn current_workspace_frames_match_after_discarding_held_header_strips() {
 }
 
 #[test]
-fn selection_does_not_rebuild_unchanged_overview_summary_strips() {
-    let mut app = board();
-    app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    capture(&app, 160);
-    let initial = builds(&app);
-    assert!(initial > 0);
-    capture(&app, 160);
-    assert_eq!(builds(&app), initial, "steady frames retain strips");
-    for index in 0..app.workspace_rows().len() {
-        app.select(index);
-        capture(&app, 160);
-        assert_eq!(
-            builds(&app),
-            initial,
-            "selection does not change aggregate data"
-        );
-    }
-    let held = capture(&app, 160);
-    forget(&app);
-    assert_eq!(held, capture(&app, 160));
-}
-
-#[test]
-fn header_width_and_look_are_part_of_the_admitted_cache_key() {
-    let mut app = board();
-    app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    capture(&app, 160);
-    let first = builds(&app);
-    capture(&app, 100);
-    assert!(builds(&app) > first, "new width must rebuild the strip");
-    let before = builds(&app);
-    app.view.as_mut().unwrap().look.theme = Theme::new(Base::TmtLight);
-    capture(&app, 100);
-    assert!(builds(&app) > before, "new look must rebuild the strip");
-    agrees(&app, 100, "changed look and width");
-}
-
-#[test]
 fn held_header_usage_matches_uncached_formatting_and_invalidates_on_observation_change() {
     let app = board();
     let mut usage = super::interaction::header_usage();

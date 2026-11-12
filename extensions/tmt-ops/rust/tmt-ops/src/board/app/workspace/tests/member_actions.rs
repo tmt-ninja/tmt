@@ -92,7 +92,7 @@ fn agents_shortcuts_keep_named_rename_and_close_with_honest_keys() {
 fn agents_shortcuts_right_click_selects_the_fresh_row_and_opens_actions() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     let mut app = member_actions_with_lead();
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     paint(&app, 160, 40);
     let row = app.workspace_rows().iter().position(|row| {
         matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id != MEMBER)
@@ -125,8 +125,9 @@ fn agents_shortcuts_right_click_selects_the_fresh_row_and_opens_actions() {
 fn agents_shortcuts_keep_tab_hints_out_of_the_whole_footer() {
     let app = member_actions_with_lead();
     let text = paint(&app, 160, 40).join("\n");
-    assert!(text.contains("f  Squads"), "{text}");
-    assert!(text.contains("M  Talk   Measure"), "{text}");
+    assert!(!text.contains("f  Squads"), "{text}");
+    assert!(text.contains("T  Talk"), "{text}");
+    assert!(text.contains("M  Measure"), "{text}");
     let footer = crate::board::view::footer::agents_hints(&app, 1000).unwrap();
     assert!(!footer.contains("M talk/measure"), "{footer}");
     assert!(!footer.contains("f filter"), "{footer}");
@@ -138,7 +139,7 @@ fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
         for reader in [false, true] {
             let mut app = member_actions_with_authored_note();
             app.shell.tab = tab;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
             paint(&app, 160, 36);
             if reader {
                 app.focus = app
@@ -203,7 +204,7 @@ fn member_note_placeholder_names_the_lead_and_keeps_the_subject_in_the_send_owne
         for width in [160, 60] {
             let mut app = member_actions_with_authored_note();
             app.shell.tab = tab;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
             app.perform(&Action::parse("annotate lead").unwrap());
             let lines = paint(&app, width, 36);
             assert!(
@@ -291,7 +292,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
         reference_inventory(&mut app);
         if surface == "squad" {
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
             app.workspace_reconcile();
         }
@@ -416,7 +417,7 @@ fn agents_shortcuts_right_click_rejects_stale_loading_overlay_and_empty_hits() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     for state in ["stale", "loading", "overlay", "empty", "search"] {
         let mut app = member_actions_with_lead();
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         paint(&app, 160, 40);
         let hit = app
             .hits
@@ -487,11 +488,31 @@ fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
 }
 
 #[test]
+fn agents_pane_keys_are_direct_and_enter_from_list_returns_to_talk() {
+    use crate::board::shell::RightTab;
+    let mut app = board();
+    app.right_tab = RightTab::Talk;
+    key(&mut app, KeyCode::Char('M'));
+    assert_eq!(app.right_tab, RightTab::Measure);
+    key(&mut app, KeyCode::Char('M'));
+    assert_eq!(
+        app.right_tab,
+        RightTab::Measure,
+        "M is direct, not a toggle"
+    );
+    key(&mut app, KeyCode::Char('T'));
+    assert_eq!(app.right_tab, RightTab::Talk);
+    app.right_tab = RightTab::Measure;
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.right_tab, RightTab::Talk);
+}
+
+#[test]
 fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     for state in ["loading", "overlay", "search", "input"] {
         let mut app = configured_member(
-            "[bind]\nf='copy'\nF='agents-filter'\nM='copy'\nt='talk-measure'\n",
+            "[bind]\nM='copy'\nt='pane-measure'\n",
             json!({"id":MEMBER,"name":"worker"}),
         );
         paint(&app, 160, 40);
@@ -513,25 +534,17 @@ fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
         }
         let text = paint(&app, 160, 40).join("\n");
         assert_eq!(
-            crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f").as_deref(),
-            Some("F"),
-            "{state}"
-        );
-        assert_eq!(
-            crate::board::keycap::key(&app, OpsUiAction::TalkMeasure, "M").as_deref(),
+            crate::board::keycap::key(&app, OpsUiAction::PaneMeasure, "M").as_deref(),
             Some("t"),
             "{state}"
         );
         if state != "overlay" {
-            assert!(text.contains("F  Squads"), "{state}: {text}");
-            assert!(text.contains("t  Talk"), "{state}: {text}");
+            assert!(text.contains("t  Measure"), "{state}: {text}");
         }
         let disabled =
             crate::board::keycap::control_span(&app, "w", OpsUiAction::WorkspaceSnapshots).style;
-        for (key, ui) in [
-            ("F", OpsUiAction::AgentsFilter),
-            ("t", OpsUiAction::TalkMeasure),
-        ] {
+        {
+            let (key, ui) = ("t", OpsUiAction::PaneMeasure);
             assert_eq!(
                 crate::board::keycap::control_span(&app, key, ui).style,
                 disabled,
@@ -542,11 +555,10 @@ fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
             !app.workspace_strip_hits
                 .borrow()
                 .iter()
-                .any(|(_, choice)| matches!(choice, Choice::RightTab(_) | Choice::AgentsFilter(_))),
+                .any(|(_, choice)| matches!(choice, Choice::RightTab(_))),
             "{state}"
         );
         let tab = app.right_tab;
-        let filter = app.workspace.filter;
         app.mouse(
             MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -557,19 +569,15 @@ fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
             Instant::now(),
         );
         assert_eq!(app.right_tab, tab, "{state}");
-        assert_eq!(app.workspace.filter, filter, "{state}");
     }
 }
 
 #[test]
 fn agents_shortcuts_reader_keeps_configured_labels_and_unbound_controls_honest() {
     for (config, expected) in [
-        ("", Some(("f", "M"))),
-        (
-            "[bind]\nf='help'\nM='copy'\nF='agents-filter'\nt='talk-measure'\n",
-            Some(("F", "t")),
-        ),
-        ("[bind]\nf='help'\nM='copy'\n", None),
+        ("", Some("M")),
+        ("[bind]\nM='copy'\nt='pane-measure'\n", Some("t")),
+        ("[bind]\nM='copy'\n", None),
     ] {
         let mut app = configured_member(config, json!({"id":MEMBER,"name":"worker"}));
         paint(&app, 160, 40);
@@ -579,30 +587,14 @@ fn agents_shortcuts_reader_keeps_configured_labels_and_unbound_controls_honest()
             .position(|pane| *pane == Pane::Replies)
             .unwrap();
         assert!(app.workspace_scope().is_reader());
-        let text = paint(&app, 160, 40).join("\n");
-        let f = crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f");
-        let m = crate::board::keycap::key(&app, OpsUiAction::TalkMeasure, "M");
-        assert_eq!(f.as_deref(), expected.map(|keys| keys.0));
-        assert_eq!(m.as_deref(), expected.map(|keys| keys.1));
-        if let Some((f, m)) = expected {
-            assert!(text.contains(&format!("{f}  Squads")), "{text}");
-            assert!(text.contains(&format!("{m}  Talk")), "{text}");
-            let help = crate::board::help::model(&app);
-            for key in [f, m] {
-                assert!(
-                    help.sections
-                        .iter()
-                        .any(|section| section.entries.iter().any(|entry| entry.keys == key)),
-                    "{key}"
-                );
-            }
-        }
-        let before = app.workspace.filter;
-        app.perform(&Action::parse("agents-filter").unwrap());
         assert_eq!(
-            app.workspace.filter, before,
-            "Reader filter shortcut remains ineligible"
+            crate::board::keycap::key(&app, OpsUiAction::PaneMeasure, "M").as_deref(),
+            expected
         );
+        if let Some(key) = expected {
+            let text = paint(&app, 160, 40).join("\n");
+            assert!(text.contains(&format!("{key}  Measure")), "{text}");
+        }
     }
 }
 

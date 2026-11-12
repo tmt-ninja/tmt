@@ -97,8 +97,8 @@ export const patternDocs: PatternDoc[] = [
       'Treat no matches as a valid empty result. Keep it separate from unavailable or stale data, and provide the documented clear or exit action.',
     ],
     samples: [
-      { label: 'Query with a matching identity', sample: { state: 'search-agents-all-matches' } },
-      { label: 'Valid query with no matching rows', sample: { state: 'search-agents-all-empty' } },
+      { label: 'Query with a matching identity', sample: { state: 'search-tree-matches' } },
+      { label: 'Valid query with no matching rows', sample: { state: 'search-tree-empty' } },
     ],
     links: [
       { slug: 'text-field', title: 'Text field' },

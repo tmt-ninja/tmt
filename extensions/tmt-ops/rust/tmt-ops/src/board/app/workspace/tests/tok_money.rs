@@ -10,7 +10,6 @@ use crate::{
             Delivery, Report,
             model::{HourlySeries, Seat, Who},
         },
-        workspace::AgentsFilter,
     },
     config::{SavingsUnit, TokRange},
 };
@@ -90,23 +89,19 @@ fn report_for_member(app: &mut App) {
     });
 }
 
-fn lists() -> [(&'static str, AgentsFilter); 2] {
-    [
-        ("squads", AgentsFilter::All),
-        ("agents", AgentsFilter::Agents),
-    ]
+fn lists() -> [&'static str; 1] {
+    ["squads"]
 }
 
 #[test]
 fn a_click_on_a_tok_figure_asks_for_the_other_unit_and_selects_nothing() {
-    for (name, filter) in lists() {
+    for name in lists() {
         for (held, wanted) in [
             (SavingsUnit::Tokens, SavingsUnit::Cost),
             (SavingsUnit::Percent, SavingsUnit::Cost),
             (SavingsUnit::Cost, SavingsUnit::Tokens),
         ] {
             let mut app = board();
-            app.workspace.filter = filter;
             hold(&mut app, held);
             paint(&app, 160, 40);
             let area = *figures(&app)
@@ -132,9 +127,8 @@ fn a_click_on_a_tok_figure_asks_for_the_other_unit_and_selects_nothing() {
 
 #[test]
 fn tokens_stay_the_default_and_the_heading_names_the_unit() {
-    for (name, filter) in lists() {
+    for name in lists() {
         let mut app = board();
-        app.workspace.filter = filter;
         let tokens = paint(&app, 160, 40).join("\n");
         assert!(tokens.contains("TOK 1h"), "{name}: {tokens}");
         assert!(!tokens.contains("≈$"), "{name}: {tokens}");
@@ -148,12 +142,17 @@ fn tokens_stay_the_default_and_the_heading_names_the_unit() {
 #[test]
 fn money_is_the_list_price_of_the_input_tokens_or_a_dash_never_a_partial_sum() {
     let mut app = valued_board();
-    app.workspace.filter = AgentsFilter::Agents;
+
     hold(&mut app, SavingsUnit::Cost);
     // Until a complete report arrives the figure is unknown, not zero.
     let before = paint(&app, 160, 40).join("\n");
     assert!(!before.contains("≈$2"), "{before}");
-    assert!(before.contains("working          —"), "{before}");
+    assert!(
+        before
+            .lines()
+            .any(|line| line.contains("worker") && line.contains("working") && line.contains("—")),
+        "{before}"
+    );
     report_for_member(&mut app);
     let after = paint(&app, 160, 40).join("\n");
     assert!(after.contains("≈$2.00"), "{after}");
@@ -192,7 +191,7 @@ fn money_is_the_list_price_of_the_input_tokens_or_a_dash_never_a_partial_sum() {
 #[test]
 fn the_squads_tree_sums_the_members_money_the_same_way() {
     let mut app = valued_board();
-    app.workspace.filter = AgentsFilter::All;
+
     hold(&mut app, SavingsUnit::Cost);
     report_for_member(&mut app);
     let shown = paint(&app, 160, 40).join("\n");
@@ -280,7 +279,7 @@ fn partial_prices_use_only_complete_attributed_hours_and_keep_unknowns_unknown()
 #[ignore = "read-only visual capture for #6083"]
 fn capture_agents_cost_cells_at_160_columns() {
     let mut app = valued_board();
-    app.workspace.filter = AgentsFilter::Agents;
+
     hold(&mut app, SavingsUnit::Cost);
     report_for_member(&mut app);
     let original = app

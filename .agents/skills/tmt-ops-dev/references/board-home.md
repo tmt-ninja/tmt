@@ -23,12 +23,11 @@ distinct. Per-squad rank/state never becomes a global identity state.
 
 `workspace::OpsWorkspace` owns expansion, filtering and the exact selected
 `OpsTarget`: pool, room UUID, or room/identity UUID pair. It derives the tree from
-one snapshot. Pool remains first outside a launch scope; pinned squads precede the
-selected sort order. Session visibility holds resolved launch room UUIDs and the
+one snapshot. Pool remains first outside a launch scope; squads follow the selected tree sort order. Session visibility holds resolved launch room UUIDs and the
 explicit hidden-room reveal. Scope wins saved hiding. Hidden memberships never
 become Common pool members. Outside a scope, hidden squads leave the tree for the
 `OpsTarget::Hidden` group that closes it; `reveal_hidden` is that group's fold state,
-and unfolded (or under search and the Pinned filter) it lists them one level in. The
+and unfolded (or under search) it lists them one level in. The
 group only selects, folds and counts; it is never a recipient or room. Saved hiding
 filters Agents; launch scope applies across destinations and shows as the scope chip
 (`view::scope_chip`) at the right end of the tab strip on both tabs; there is
@@ -38,32 +37,16 @@ it omits absent attention and drops the count while unfolded. The
 acquired roster and global shell attention remain unchanged.
 Attention ordering uses each squad's worst observed child state; its tree strip
 shows the admitted members once each, with the observed lead first.
-Refresh, sorting and pinning preserve the anchor; a hidden or removed
+Refresh and sorting preserve the anchor; a hidden or removed
 anchor disables actions rather than selecting its neighbour. A confirmed explicit
 Hide of the currently visible squad intentionally selects the next visible row;
-a failed save or unrelated preference change cannot transfer that authority. The session-local
-Agents filter selects All or Pinned without saving preferences. All keeps Common
-pool first; Pinned shows pinned squads with their members, plus individually pinned
-agents under their squad or Common pool. Individually pinned children are shown
-without changing saved expansion. UUID agent pins and squad pins share the existing
-Config preference save lane; hidden/scope and search fences still apply. Retained `needs-you` view state
-loads as All; an authored `agents-filter needs-you` binding gets a located
-retirement notice without rewriting its text or falling through to a default key.
+a failed save or unrelated preference change cannot transfer that authority.
 Waiting agents remain visible through their state marks. Search keeps matching
 ancestors and temporarily reveals matching children; clearing expands the
 selected occurrence's group when needed to keep that row visible. Group totals remain unfiltered room totals. Empty filtered results are
 non-interactive; retained hidden targets grant no action authority.
 
-The Agents list rule carries the FilterBar chips (Squads, Agents, Pinned) and the
-always-visible search field; `f` cycles the chips from either pane for any selected
-row (a selected squad hands over to its lead when the flat list opens);
-authored bindings retain precedence. `p` pins or unpins the selected visible
-agent or squad in either tab, and the effective footer reflects its saved state.
-Pinned names carry a Muted `▪` mark in both lists. The flat list reserves its two-cell
-name slot; the Agents tree uses its leading gutter. An unpinned row keeps the same
-name and numeric tracks, and NO_COLOR keeps the glyph.
-Selected chips keep their fill while search owns input; hover and activation
-eligibility remain independent.
+The Agents tree rule carries the always-visible search field.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
 move through filtered rows while typing; opening search moves focus to the list.
 Enter keeps the filter and returns list keys; Escape clears and closes from typing
@@ -74,7 +57,7 @@ Up/Down then move among its matches. Clearing retains the current exact row and
 squad occurrence, expands its group when needed, and scrolls it into view. A
 subsequent Escape uses the normal list behavior. No matches leave the previous
 pane visible as a read-only preview, without hidden-row actions, revealing hidden
-rooms or bypassing scope or the Pinned filter.
+rooms or bypassing scope.
 While editing, match counts live on section rules. Committing moves the count
 into the shared field (`/ foo  3 of 23  ×`); × clears and closes through the same
 transition as Escape. The shared field reports distinct clipped clear geometry;
@@ -111,14 +94,11 @@ StateCell supplies `● N unread` in place of the glyph and activity words
 (working/idle/ended/stale/`?`); the member's task state still follows, as
 `● N unread · <task>`, and clips first in a narrow cell. Only the activity form
 leaves out a task that repeats its activity word; the unread form keeps it. One owner,
-`columns::activity_spans`, paints it in the tree, roster and flat rows.
+`columns::activity_projection`, supplies the tree and other admitted row surfaces.
 Only the glyph uses the canonical `unread` role, with neutral count/words and
 unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
-whole labels or its existing overflow mark. A visible unread squad reserves a
-14-cell TEAM column for a full two-digit lower-bound label and overflow mark;
-the shared header and TOK/NOW columns move together. With no visible unread
-squad, the existing ten-cell TEAM column remains. Unread members sort first in the flat list
-and within Agents tree sibling groups without rewriting raw state or waiting
+whole labels or its existing overflow mark. Unread members sort first within tree
+sibling groups without rewriting raw state or waiting
 permission. Acknowledgment/page updates invalidate the existing row cache and reconcile
 the retained selected UUID. TopBar sums the global workspace independently of
 scope, hiding and the active tab, beside its waiting count. At narrow widths the
@@ -149,15 +129,13 @@ preview/apply and partial-result wording ([lead data](data-and-state.md#membersh
 
 `board::shell` owns Agents and Digest selection, with one inactive destination
 anchor kept only for the board session. First ordinary Digest entry selects `all`;
-explicit named-view and exec restores retain their UUID. Agents uses one list with three
-chips (`AgentsFilter`: Squads tree, Agents flat list, Pinned) and one right column
-(`RightTab`: Talk, Measure). The shared FilterBar paints the chips and the
-in-place search field on the left rule and `talk_measure` paints its control on the
-right rule; the totals sit at the bottom right of the list. `f` and `t` switch them
-through the effective binding table; active searches show matching squads or
-agents out of that mode's admitted unsearched total. Agents counts deduplicate
-identities across memberships and include collapsed matching children, without
-building or sorting display rows. Binding resolution shares the existing immutable
+explicit named-view and exec restores retain their UUID. Agents uses the squad tree
+and a right column for Talk and Measure. The tree rule carries search and the right
+rule carries the pane controls; totals sit at the bottom right of the list. T and M
+open their respective panes, and C opens Checklist. Search selects and counts matching
+rows within the admitted tree. Agents counts deduplicate identities across memberships
+and include collapsed matching children.
+Binding resolution shares the existing immutable
 row scope and releases it before any input or model change. Explicit authored keys
 win; App retains the only search query and editing state.
 While focus is in a conversation, the selected agent's row takes the
@@ -173,13 +151,9 @@ acquisition. Shell attention and provider quota remain global.
 
 Squads use lead-first, UUID-deduplicated team strips, the existing HOUR readings
 and per-room sum for TOK 1h. Task/model cells never disclose pending question bodies. Missing
-readings remain unavailable and incomplete sums stay partial. The Agents view
-contains all admitted identities, with unread agents first, followed by waiting agents: proven oldest request
-first, unknown request times last, then name/UUID. Authored sort operates within
-unread/waiting/other groups in Agents. Squads keeps TOK 1h ordering; its sort hints
-are hidden, and an authored sort key explains how to switch to Agents without
-changing that view's retained order. No waiting duration is rendered, and blocked state alone
-does not manufacture waiting. Pins retain their existing owners.
+readings remain unavailable and incomplete sums stay partial. The tree orders unread
+and waiting members within sibling groups. No waiting duration is rendered, and
+blocked state alone does not manufacture waiting.
 
 Each painted row grants only its current target and clipped hit. Selected agents
 retain their acquired membership; a selected squad can address only its currently
@@ -254,7 +228,7 @@ note to a different UUID cannot borrow the selected agent's question. The fill k
 and the right hint ends one cell before the fill edge. The same geometry owns
 editor cursors and send hits. The input has no section rule or frame, uses the
 existing UUID draft/editor/quote owners, and publishes only its clipped input and
-send geometry. The flat list and reader defaults use Reply on Enter; authored
+send geometry. The reader default uses Reply on Enter; authored
 bindings merge afterward without a rewrite. Paint, action admission and host-key
 provenance share the selected exact membership or the squad's observed current lead.
 Short columns drop optional static
@@ -361,8 +335,7 @@ labels escape sanitized display text without promoting names to target identitie
 Clipped controls publish no action authority.
 
 `workspace::manage::Draft` freezes typed operations, UUIDs/revisions and observed
-timer impact for review. Agents uses the exact selected squad; the flat list, Digest
-and Common-pool members resolve memberships only from a Complete roster. One
+timer impact for review. Agents uses the exact selected squad; Digest and Common-pool members resolve memberships only from a Complete roster. One
 membership supplies context; several require the existing Menu's explicit room
 choice; none reports no membership rather than incomplete data. Choice rechecks
 the visible member UUID, current membership and Complete room before freezing

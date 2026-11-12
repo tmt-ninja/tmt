@@ -54,6 +54,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Jump if app.selected_built_in() => "full screen",
         Verb::Jump => "host",
         Verb::Menu => "menu",
+        Verb::Talk | Verb::Reply if app.shell.tab == crate::board::shell::OpsTab::Agents => "talk",
         Verb::Talk | Verb::Reply => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
@@ -62,13 +63,6 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
-        Verb::Ui(crate::action::OpsUiAction::Pin) => {
-            if app.workspace_is_pinned() == Some(true) {
-                "unpin"
-            } else {
-                "pin"
-            }
-        }
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "hidden",
         Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
@@ -101,9 +95,6 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         && app.workspace_message_target().is_none()
     {
         return false;
-    }
-    if action.verb == Verb::Ui(crate::action::OpsUiAction::Pin) {
-        return app.workspace_is_pinned().is_some();
     }
     if action.verb == Verb::Ui(crate::action::OpsUiAction::MemberBack) {
         return app.framed();
@@ -208,6 +199,27 @@ fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
         .iter()
         .position(|(_, word)| word == "note")
         .map(|at| (at, hints.remove(at)));
+    // Keep Checklist where it fits by yielding the redundant Talk key, then Measure.
+    // If neither makes enough room, retain the usual right-to-left drop order.
+    if hints.iter().any(|(_, word)| word == "checklist")
+        && hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width
+    {
+        let mut compact = hints.clone();
+        for word in ["talk", "measure"] {
+            if let Some(at) = compact
+                .iter()
+                .position(|(key, label)| label == word && key != "⏎")
+            {
+                compact.remove(at);
+                if hint_text(&compact.iter().chain(&tail).cloned().collect::<Vec<_>>()).width()
+                    <= width
+                {
+                    hints = compact;
+                    break;
+                }
+            }
+        }
+    }
     while hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width {
         if hints.pop().is_none() {
             return tail
@@ -387,6 +399,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
             (Ui::MoveMembership, "m", "move"),
             (Ui::RemoveMember, "x", "close"),
             (Ui::MemberSession, "R", "resume"),
+            (Ui::PaneTalk, "T", "talk"),
+            (Ui::PaneMeasure, "M", "measure"),
             (Ui::MemberNotes, "C", "checklist"),
         ]
     } else {
@@ -623,12 +637,7 @@ fn help_only(verb: crate::action::Verb) -> bool {
             | Verb::Jump
             | Verb::Open
             | Verb::Ui(
-                Ui::WorkspaceSnapshots
-                    | Ui::Unread
-                    | Ui::RevealHidden
-                    | Ui::Pin
-                    | Ui::Timers
-                    | Ui::AllTimers
+                Ui::WorkspaceSnapshots | Ui::Unread | Ui::RevealHidden | Ui::Timers | Ui::AllTimers
             )
     )
 }
@@ -1036,7 +1045,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
@@ -1088,6 +1097,19 @@ mod tests {
     }
 
     #[test]
+    fn hundred_column_member_footer_yields_talk_before_checklist() {
+        use crate::board::app::workspace::tests::{MEMBER, ROOM};
+        let app = selected(crate::board::workspace::OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        let line = agents_hints(&app, 100).unwrap();
+        assert!(line.contains("C checklist"), "{line}");
+        assert!(!line.contains("T talk"), "{line}");
+        assert!(line.contains("⏎ talk"), "{line}");
+    }
+
+    #[test]
     fn narrow_footers_drop_row_keys_from_the_right_and_keep_search_help_and_quit() {
         use crate::board::app::workspace::tests::{MEMBER, ROOM};
         let app = selected(crate::board::workspace::OpsTarget::Member {
@@ -1103,9 +1125,14 @@ mod tests {
                 "{width}: {line}"
             );
             let kept = line.trim_end_matches("/ search  ? help  q quit");
+            let ordered = kept.replace("C checklist  ", "");
+            let original = whole
+                .replace("T talk  ", "")
+                .replace("M measure  ", "")
+                .replace("C checklist  ", "");
             assert!(
-                whole.starts_with(kept),
-                "{width}: a prefix of the row keys: {line}"
+                whole.starts_with(kept) || original.starts_with(&ordered),
+                "{width}: row keys retain display order: {line}"
             );
         }
         assert_eq!(agents_hints(&app, 160).unwrap(), whole);
@@ -1139,7 +1166,7 @@ mod tests {
             );
         let line = agents_hints(&app, 1000).unwrap();
         assert!(
-            line.starts_with("up previous  down next  → expand  ⏎ chat"),
+            line.starts_with("up previous  down next  → expand  ⏎ talk"),
             "{line}"
         );
         assert!(line.contains("  K resume  "), "{line}");
@@ -1186,7 +1213,6 @@ mod tests {
             Verb::Ui(Ui::WorkspaceSnapshots),
             Verb::Ui(Ui::Unread),
             Verb::Ui(Ui::RevealHidden),
-            Verb::Ui(Ui::Pin),
             Verb::Ui(Ui::Timers),
             Verb::Ui(Ui::AllTimers),
         ];

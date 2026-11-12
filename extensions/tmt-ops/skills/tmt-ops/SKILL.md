@@ -304,11 +304,10 @@ The board opens one `OPS / UI` shell: `1 Agents`, `2 Digest`.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
-limits) above two columns. The left column lists squads, agents or pinned ones; the
-right column shows the selected target as Talk (the conversation) or Measure (TOK in the saved range,
-STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
-whom). `f` cycles the left chips Squads / Agents / Pinned and `M` toggles Talk / Measure;
-both controls sit on their pane's top rule. The shell attention bar stays global.
+limits) above two columns. The left column is the squad/member tree; the right
+column shows the selected target as Talk or Measure. `T` opens Talk, `M` opens
+Measure, and `C` opens the selected member's Checklist; controls sit on the
+pane's top rule. The shell attention bar stays global.
 Digest first opens on `all`. Switching destinations remembers each selection for
 this board session; explicit named views and reload restores keep their selected UUID.
 Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.
@@ -345,13 +344,10 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2` as input.
 
-The left list's rule carries the Squads / Agents / Pinned chips and the shared search
-field; the totals sit at the bottom right of the list. Squads is the tree: a squad row
-shows its lead-first TEAM strip in STATE, TOK 1h from existing HOUR readings, and its
-now text when admitted; pending request previews are never disclosed in the tree.
-Agents is the flat list of AGENT, SQUAD, STATE, TOK 1h and MODEL. Unread agents come first, then waiting agents, ordered
-by oldest proven request, then unknown age and name/UUID; no waiting duration is
-shown. Blocked state alone does not imply waiting. A squad selection messages its
+The left list's rule carries the shared search field; totals sit at the bottom
+right of the squad tree. A squad row shows its lead-first TEAM strip in STATE,
+TOK 1h from existing HOUR readings, and its now text when admitted; pending
+request previews are never disclosed in the tree. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
 anchors. `e` edits the selected agent or squad. `r` opens that same form with
@@ -515,15 +511,12 @@ model, falling back to the session-start model, only with a running driver; a le
 before TOK 1h; long models end in `…`. Member token values and squad sums use
 the same observed hour. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
-appear in selection-driven focus. Only attention glyphs carry state colour; a member task state is red only when blocked;
-selected rows use a full neutral background at normal weight, or the existing
-NO_COLOR reverse cue. The All/Pinned chips and search remain above the list;
-ordinary totals belong to the Squads rule.
-All keeps Common pool first, then pinned squads and the selected sort order.
-`f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
-pinned squads and individually pinned agents with their containing group. `p`
-pins or unpins a visible agent or squad in Agents. `v` opens the reply reader; `f` cycles
-the Squads / Agents / Pinned chips from either pane.
+appear in selection-driven focus. Working has a green mark and bright text; idle
+rows are dim. Unread, idle-alert and blocked marks retain their colours. Selected
+rows keep the neutral selection background or NO_COLOR reverse cue. Search sits
+above the squad tree; Common pool comes first, then the selected sort order.
+The optional HOST column shows the observed host and host session. The member
+session dialog keeps remembered-session details. `v` opens the reply reader.
 `/` edits the retained query and filters live; Up/Down move between matches.
 Enter keeps the filter and returns keyboard control to the list. The committed
 field shows the query, matching/total count and a clickable ×. Esc clears and
@@ -538,8 +531,7 @@ hide it from Agents. Hidden squads move into the last row of the list,
 for this session and lists the hidden squads one level in, ← or `h` folds it. While
 folded it shows blocked counts from hidden squads in their state colour; search
 finds their members under it. Select a hidden squad and
-use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Pins
-are retained independently, and hidden squads still contribute to global shell
+use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Hidden squads still contribute to global shell
 attention. Explicit Hide moves the selection only after the save succeeds;
 search and missing targets retain their UUID anchors.
 Expand a squad to see its members; the lead is marked and included once in
@@ -568,17 +560,14 @@ These defaults are the same on every host (tmux, Herdr or unknown); a
 the default of a host without one.
 Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
-claimed the key. The compatible `p` action retains saved identity pins
-without changing waiting order. Keyboard sort is opt-in: bind `sort` or
+claimed the key. Keyboard sort is opt-in: bind `sort` or
 `reverse-sort` in the usual binding table. Column headers sort without a binding:
 the pointer turns a header word accent with `↕` (`~` in ASCII), a click sorts by it
-(TOK starts with the most tokens) and a second click reverses it. The flat Agents
-list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AGENT`
-(name) and STATE (attention). The sorted word shows `↑` or `↓` (`^`, `v` in ASCII);
+(TOK starts with the most tokens) and a second click reverses it. The squad tree
+sorts by `SQUAD / AGENT` (name) and STATE (attention). The sorted word shows `↑` or `↓` (`^`, `v` in ASCII);
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
-In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
+In Agents, `n` opens New member on any row. `N` creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
 delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
 row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit`.
@@ -627,7 +616,9 @@ values. `e` does not open that reader.
 A squad member's Checklist chip follows Talk / Measure on the pane's tab row: `Checklist 2`
 with the open todo count (`Checklist` with none, `✗ Checklist` when the list cannot be read),
 led by its key as a keycap like the tab labels (` C  Checklist 2`; no keycap when the key is
-unbound). A narrow pane leaves the chip out. `C` or a click on the chip opens the list,
+unbound). A narrow pane leaves the chip out. `C` or a click on the chip opens the list.
+When chat input has focus, `Ctrl+L` opens it and Esc returns to the same draft and
+caret; the strip and input hint show `^L` only when that target has Checklist. The list is
 as wide as the board: one list in stored order, links and todos mixed, two lines per item. The first
 line is `○` and the whole title; the second is `↗` and the whole link (a GitHub issue or pull reads
 `owner/repo#N`, any other address in full without its scheme), then who added the item and how long
@@ -685,8 +676,8 @@ Remote's result line. That browser gets
 Remote's one-time read-only connection offer, which is Remote's behaviour of the
 command, not a pairing Ops starts. When Remote is missing or stopped, the status line
 names the command to run (`tmt extension install remote`, or the one Remote
-suggests); Ops never installs, starts or pairs anything itself. The default `f` cycles Squads / Agents / Pinned and `t` toggles
-Talk / Measure. An authored `overview`, `overview-view` or `overview-filter` binding gets a
+suggests); Ops never installs, starts or pairs anything itself. `T` and `M` select
+Talk and Measure directly. An authored `overview`, `overview-view` or `overview-filter` binding gets a
 located retirement notice and is not applied.
 Default `j` jumps through the observed tmux binding only from a tmux invoker; on a
 built-in member it opens that member full screen instead, and Ctrl-g leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
@@ -800,7 +791,7 @@ Esc and Ctrl-C cannot be authored as bindings.
 Default `q` quits the board body, closes or backs out of an overlay, and types in
 an editor; Ctrl-C quits globally. Rename, remove, annotate and view-reply have no
 default `r`, `d`, `a` or `v` binding; authored bindings can still use those actions.
-The configurable `f` and `M` hints live on their tab strips rather than in the
+The configurable `T` and `M` hints live on the pane strip rather than in the
 footer. A shortcut unavailable in the current scope stays visible and disabled;
 loading, overlays, active search and typing disable the strip controls as well.
 Reader focus keeps mouse tab selection available. Explicitly unbound shortcuts
@@ -1073,7 +1064,7 @@ visible across tabs. The todo total includes each squad room list and deduplicat
 exact room/member conversation lists, independent of search or viewport; a Common-pool member has no room list.
 Complete totals read `○ N todo`, including `○ 0 todo`; a partially observed total
 reads `○ N todo · partial`. No answer yet reads `○ … todo`, and unavailable
-observations read `○ — todo`, rather than a false zero. Search, pinning, sorting, expansion,
+observations read `○ — todo`, rather than a false zero. Search, sorting, expansion,
 refresh and reload retain exact room/identity selection. A hidden or removed
 selected target cannot redirect an operation to an adjacent row.
 
@@ -1169,13 +1160,12 @@ These keys are the defaults of the tab's own key scope, so `?` lists them and a
 
 The Agents section's Timers control opens all observed rooms without retargeting
 selection. `c` or the selected squad's Timers control opens the shared job list, scoped by
-room UUID. Member counts show active/total jobs: the flat list uses that owner across
-rooms, the tree uses the current room, and squad counts include orphan jobs. Counts
+room UUID. Member counts show active/total jobs for the current room, and squad
+counts include orphan jobs. Counts
 remain unknown after a failed read. Clicking a complete count freezes its room
 and owner UUIDs; the list filters to that exact scope. Its title names the scope
 even when empty; a removed room is not treated as all rooms. A selected member
-prefills its owner when creating a job. The flat list and
-Common pool do not invent a room; choose a real squad for a new job. Read failures
+prefills its owner when creating a job. Common pool does not invent a room; choose a real squad for a new job. Read failures
 retain prior jobs and their reason. `no clock` means due slots are not sent;
 `clock: checking…` is the first read. A running clock shows its holder's
 `session:window` when available, otherwise its pane ID.
@@ -1447,7 +1437,7 @@ later.
 Press `,`, choose the **Actions** settings row after the layout/Theme/Token window rows, then
 **Checklist**. A configured
 `menu` binding opens the same action menu. A visible selected squad or its member
-in Agents or Digest uses its exact room; the flat list, Common pool and hidden/missing targets
+in Agents or Digest uses its exact room; Common pool and hidden/missing targets
 ask you to choose a room explicitly. Opening
 Checklist does not select or assign a member. Esc from the action menu returns
 directly to the board. Esc during an update hides Checklist; the update goes on and the

@@ -74,6 +74,10 @@ Content keeps full contrast. Panes under six rows keep only the top rule, and th
 leaves the divider column between two framed panes blank (the drag handle stays). The Agents tab
 has no boxes: `pane_chrome::mark_focused_rule` makes the focused column's control rule heavy and
 bright with a leading bold `▸`, and its `▸` counts as part of the rule for the resize hit.
+The Agents list is a squad tree without filter chips or pins. `T`, `M` and `C`
+open Talk, Measure and the selected member's Checklist. In a chat editor with a
+Checklist target, Ctrl+L opens Checklist without losing the draft or caret; Esc
+returns to the editor. The strip and input hint name Ctrl+L only for that target.
 A retained list selection keeps its cursor but loses the active highlight
 and dims while content has focus. App's effective table owns Tab/backtab pane
 switching; text and modal owners handle their raw events first. The same
@@ -439,7 +443,7 @@ after terminal restoration; pane-kill keeps the last published hint. Active
 search drafts do not publish; only committed search is retained. Composer drafts,
 launch scope and hidden-room reveal stay session-only. In-place reload carries
 the layer and controls through the same App seam, preserving scope and explicit
-hidden/missing action refusal. Pins, hidden squads, panels, keys, theme and the
+hidden/missing action refusal. Hidden squads, panels, keys, theme and the
 startup-tab default remain shared Config preferences. Authored Config sort is a
 cold default; interactive sort changes only the current layer.
 
@@ -726,7 +730,7 @@ member-row admission; no selected member exposes only context actions. Workspace
 `checklist::{controller,forms,surface,load}` owns one centered square modal and its
 room chooser, independent filters, item selection, authored fields and exact
 confirmation. A visible selected squad or its member in Agents/Digest freezes
-the acquired room UUID; the flat list, Common pool and hidden/missing targets require an explicit
+the acquired room UUID; Common pool and hidden/missing targets require an explicit
 room choice. Closing retains workspace UUID selection and focus without legacy
 row-index restoration. Lists and their assignment-filtered choices contain only open,
 nonarchived items, with no completion or archived-inclusion toggle. Item Enter opens

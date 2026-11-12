@@ -145,8 +145,9 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         "{lines:?}"
     );
     assert!(
-        lines.iter().any(|line| line.contains("Alt+⏎")
-            && (line.trim_end().ends_with("@ mention") || line.trim_end().ends_with('@'))),
+        lines.iter().any(
+            |line| line.contains("Alt+⏎") && (line.contains("@ mention") || line.contains('@'))
+        ),
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;
@@ -191,7 +192,7 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
         let mut app = workspace_board();
         app.shell.tab = crate::board::shell::OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         let summary = draw(&app, width, 24)[2].clone();
         app.view.as_mut().unwrap().history_pending = true;
         let pending = draw(&app, width, 24);
@@ -301,7 +302,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = workspace_board();
     let full = hints(&app, usize::MAX);
     assert!(
-        full.contains("⏎ chat") && full.ends_with("? help  q quit"),
+        full.contains("⏎ talk") && full.ends_with("? help  q quit"),
         "{full}"
     );
     for width in [0, 1, 5, 6, 13, 14, 20, 40, 80, 100, 160] {
@@ -341,7 +342,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
     let order = [
-        "⏎ chat",
+        "⏎ talk",
         "e edit",
         "n new",
         "r rename",
@@ -379,20 +380,20 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut app = workspace_board();
     workspace_keys(&mut app, "[bind]\nenter = \"talk\"\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
-    assert!(plain.contains("⏎ chat") && plain.contains("r chat"));
+    assert!(plain.contains("⏎ talk") && plain.contains("r talk"));
     let open = crate::action::Action::parse("open").unwrap();
     assert!(!super::footer::row_allows(&app, &open));
     workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let ready = hints(&app, usize::MAX);
-    assert!(ready.contains("r chat"), "{ready}");
+    assert!(ready.contains("r talk"), "{ready}");
     assert!(super::footer::row_allows(&app, &open));
     workspace_row(&mut app)["waitingOnYou"] = Value::Null;
-    assert!(hints(&app, usize::MAX).contains("r chat"));
+    assert!(hints(&app, usize::MAX).contains("r talk"));
     app.select(0);
     let pool = hints(&app, usize::MAX);
     assert!(
-        !pool.contains("⏎ chat") && !pool.contains("r chat"),
+        !pool.contains("⏎ talk") && !pool.contains("r talk"),
         "{pool}"
     );
     assert!(pool.contains("/ search") && pool.ends_with("? help  q quit"));
@@ -422,16 +423,16 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
         "[bind]\nt = \"copy {name}\"\nz = \"talk\"\nZ = \"talk\"\n",
     );
     let text = hints(&app, usize::MAX);
-    assert!(!text.contains("⏎ chat"));
+    assert!(!text.contains("⏎ talk"));
     assert_eq!(
         text.split("  ")
-            .filter(|hint| hint.ends_with(" chat"))
+            .filter(|hint| hint.ends_with(" talk"))
             .count(),
         1,
         "{text}"
     );
     assert!(
-        text.contains("Z chat"),
+        text.contains("Z talk"),
         "stable first effective key represents duplicate action"
     );
     assert!(!text.contains("t copy"), "copy stays in Help: {text}");

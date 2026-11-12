@@ -16,7 +16,6 @@ pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222"
 
 /// Literal attention evidence and the agent-list mode for member-action scenarios.
 pub(in crate::board) fn observe_waiting_member(app: &mut App) {
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     for squad in &mut snapshot.roster.squads {
@@ -211,7 +210,7 @@ clipboard = ["clipboard", "--input"]
 [bind]
 o = "open {link}"
 f2 = "copy {name}"
-enter = "menu"
+f8 = "menu"
 "#,
         json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.test/pr"}}),
     );
@@ -248,7 +247,7 @@ enter = "menu"
             .contains("Only http(s) links open")
     );
     assert_eq!(app.workspace.selected, selected);
-    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::F(8)), Effect::None);
     let menu = app.menu.as_ref().unwrap();
     assert_eq!(menu.title, "worker");
     assert!(
@@ -260,7 +259,7 @@ enter = "menu"
         !menu
             .entries
             .iter()
-            .any(|entry| ["click", "double-click", "enter"].contains(&entry.key.as_str()))
+            .any(|entry| ["click", "double-click", "f8"].contains(&entry.key.as_str()))
     );
     assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
     assert!(
@@ -269,7 +268,7 @@ enter = "menu"
     );
     assert_eq!(key(&mut app, KeyCode::F(2)), copy);
     assert!(app.menu.is_none());
-    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::F(8));
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert!(app.menu.is_none());
     assert_eq!(app.workspace.selected, selected);
@@ -361,11 +360,11 @@ o = "run code {name} --task={task}"
 fn configured_host_actions_use_published_coordinates_and_refuse_missing_fields() {
     let text = r#"
 [bind]
-enter = "run flat {name}"
+f8 = "run flat {name}"
 [bind.tmux]
-enter = "run tmux switch-client -t {pane} {host} {session} {window}"
+f8 = "run tmux switch-client -t {pane} {host} {session} {window}"
 [bind.herdr]
-enter = "run herdr pane focus {pane} {session}"
+f8 = "run herdr pane focus {pane} {session}"
 "#;
     for (pane, expected) in [
         (
@@ -389,7 +388,7 @@ enter = "run herdr pane focus {pane} {session}"
     ] {
         let mut app = configured_member(text, json!({"id":MEMBER,"name":"worker","pane":pane}));
         let selected = app.workspace.selected.clone();
-        let effect = key(&mut app, KeyCode::Enter);
+        let effect = key(&mut app, KeyCode::F(8));
         if let Some(args) = expected {
             assert_eq!(
                 effect,
@@ -404,6 +403,19 @@ enter = "run herdr pane focus {pane} {session}"
         }
         assert_eq!(app.workspace.selected, selected);
     }
+}
+
+#[test]
+fn enter_on_a_member_opens_talk_even_when_an_authored_binding_names_another_action() {
+    let mut app = configured_member(
+        "[bind]\nenter='menu'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert!(app.input.is_some());
+    assert!(app.menu.is_none());
 }
 
 #[test]
@@ -438,20 +450,20 @@ fn configured_section_keeps_unoverridden_host_actions_for_the_same_membership() 
     let mut app = configured_member(
         r#"
 [bind]
-enter = "run flat {name}"
+f8 = "run flat {name}"
 [bind.tmux]
-enter = "run host {pane}"
+f8 = "run host {pane}"
 o = "run host-o {pane}"
 [[squad.product.section]]
 title = "Tasks"
 filter = "task"
 [squad.product.section.bind]
-enter = "run section {name}"
+f8 = "run section {name}"
 "#,
         json!({"id":MEMBER,"name":"worker","fields":{"task":"ship"},"pane":{"id":"%1","location":{"host":"tmux"}}}),
     );
     assert_eq!(
-        key(&mut app, KeyCode::Enter),
+        key(&mut app, KeyCode::F(8)),
         Effect::Act(Request::Run(vec!["section".into(), "worker".into()]))
     );
     assert_eq!(
@@ -1223,11 +1235,7 @@ fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
         .find(|section| section.id == "bindings")
         .unwrap();
     for (key, action) in app.bindings() {
-        let expected = if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
-            "pin or unpin the selected agent or squad".into()
-        } else {
-            action.description()
-        };
+        let expected = action.description();
         assert!(
             bindings
                 .entries
@@ -1596,31 +1604,14 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
         .retain(|target, _| *target == OpsTarget::Pool);
     app.workspace.selected = Some(OpsTarget::Pool);
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
     app.workspace_reconcile();
     assert_eq!(
         app.workspace_rows().len(),
         1,
         "only the Common pool row is left in the tree"
     );
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    app.workspace_reconcile();
-    assert!(app.workspace_rows().is_empty());
-    let empty = paint(&app, 80, 24);
-    assert!(empty.last().unwrap().starts_with(' '));
-    assert!(
-        paint(&app, 80, 24)
-            .iter()
-            .any(|line| line.starts_with(" No agents yet."))
-    );
-    app.workspace.query = "missing".into();
-    assert!(
-        paint(&app, 80, 24)
-            .iter()
-            .any(|line| line.starts_with(" No matching agents"))
-    );
-    app.workspace.query.clear();
-    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
     assert_eq!(key(&mut app, KeyCode::Char('N')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
@@ -1629,21 +1620,13 @@ fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions
     let mut app = board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     assert_eq!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
-    assert!(
-        app.moving.is_none(),
-        "the flat Agents view has no squads to carry it between"
-    );
-    assert!(
-        app.notice
-            .as_deref()
-            .is_some_and(|notice| notice.contains("Show squads"))
-    );
+    assert!(app.moving.is_some(), "tree membership can be moved");
 }
 #[test]
 fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab() {
@@ -1822,7 +1805,7 @@ fn in_place_reload_keeps_shell_expansion_and_exact_selection_without_new_recipie
     let resume = app.resume().unwrap();
     let mut replacement = board();
     replacement.shell.tab = OpsTab::Agents;
-    replacement.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     replacement.workspace.expanded.clear();
     replacement.workspace.pool_expanded = false;
     replacement.workspace.selected = Some(OpsTarget::Pool);
@@ -1882,9 +1865,9 @@ fn squad_theme_scope_is_observed_in_agents_and_digest_while_overview_keeps_the_s
         assert_eq!(app.workspace_squad().unwrap().name, "product");
     }
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    assert_ne!(app.look().theme.base.name(), "tmt-light");
-    assert!(app.workspace_squad().is_none());
+
+    assert_eq!(app.look().theme.base.name(), "tmt-light");
+    assert_eq!(app.workspace_squad().unwrap().name, "product");
 }
 
 #[test]
@@ -2242,8 +2225,18 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         key(&mut app, KeyCode::Enter);
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Alt+⏎")
-            && (line.trim_end().ends_with("@ mention") || line.trim_end().ends_with('@'))));
+        assert!(
+            lines.iter().any(|line| line.contains("^L")),
+            "{width}: {lines:?}"
+        );
+        if width >= 100 {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains("Alt+⏎") && line.contains('@')),
+                "{width}: {lines:?}"
+            );
+        }
         assert_eq!(
             lines.last().unwrap().trim(),
             "",
@@ -2274,7 +2267,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         let mut app = board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
         app.perform(&crate::action::Action::parse("talk").unwrap());
@@ -2298,7 +2291,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
 fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.set_body_width(160);
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
@@ -2308,12 +2301,12 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     app.set_body_width(160);
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    assert_eq!(app.bindings()["j"].text, "jump");
     app.set_body_width(80);
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     paint(&app, 80, 36);
-    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    assert_eq!(app.bindings()["j"].text, "jump");
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -2812,10 +2805,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     }
     match scene {
         "overview" => app.shell.tab = OpsTab::Agents,
-        "agents-sorted" | "agents-header-hover" => {
-            app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        }
+        "agents-header-hover" => app.shell.tab = OpsTab::Agents,
         "agents-state-sorted" => app.shell.tab = OpsTab::Agents,
         "named-layer" => app.view_layer = crate::board::ViewLayer::parse("popup").unwrap(),
         "named-layer-long" => {
@@ -2947,7 +2937,6 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             idle_alert::populate(home);
             if scene == "idle-alert-overview" {
                 app.shell.tab = OpsTab::Agents;
-                app.workspace.filter = crate::board::workspace::AgentsFilter::All;
             }
         }
         "partial" => {
@@ -2955,7 +2944,6 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             home.workspace.roster.membership_complete = false;
             home.workspace.roster.squads[0].observation = OpsObservation::Partial;
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         }
         "stale" => {
             home.workspace.roster.observation = OpsObservation::Stale;
@@ -2967,14 +2955,6 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     snapshot.shell_counts = snapshot.roster.shell_counts();
     app.workspace_reconcile();
     match scene {
-        "agents-sorted" => {
-            app.workspace.order = Some(crate::board::view_state::Order {
-                overview: Some(crate::config::OverviewSort::initial(
-                    crate::config::OverviewColumn::TokensPerHour,
-                )),
-                ..Default::default()
-            })
-        }
         "digest-allowance-tokens" => {
             // claude: 45 000 tokens in the day, 3 000 in the last 3 h (a slow day) and it lasts;
             // codex: 39 000 in the day, 18 000 in the last 3 h (a burst) and it runs out.
@@ -2998,7 +2978,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         "agents-header-hover" => {
             app.header_hover = Some(crate::board::header_sort::Control::Sort(
-                crate::board::header_sort::Header::Overview(crate::config::OverviewColumn::Squad),
+                crate::board::header_sort::Header::Squads(crate::config::OpsSort::Name),
             ))
         }
         "member-links" | "member-links-menu" => {
@@ -3160,11 +3140,10 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         if scene == "unread-waiting" {
             observe_waiting_member(&mut app);
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         }
         if scene == "unread-squads" {
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
             app.view
                 .as_mut()
                 .unwrap()
@@ -3293,7 +3272,7 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
     for squads in [0, 8, 36] {
         let mut app = populated_board(squads, 150);
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         let complete = paint(&app, 160, 36).join("\n");
         assert!(complete.contains("● 150 online"), "{complete}");
         assert!(complete.contains("✗ 1 blocked"), "{complete}");
@@ -3562,6 +3541,8 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                         cell.fg,
                                         look.role(if in_task {
                                             tmt_cli_style::Role::Blocked
+                                        } else if cell.symbol() == "●" {
+                                            tmt_cli_style::Role::Working
                                         } else {
                                             tmt_cli_style::Role::Text
                                         })
@@ -3591,56 +3572,13 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
 }
 
 #[test]
-fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting() {
-    use crate::board::workspace::AgentsFilter;
+fn agents_list_has_no_filter_chips_or_default_cycle_key() {
     let mut app = board();
     let selected = app.workspace.selected.clone();
-    let expansion = app.workspace.expanded.clone();
-    let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     paint(&app, 160, 44);
+    assert!(!paint(&app, 160, 44).join("\n").contains("Pinned"));
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-    assert_eq!(app.workspace.filter, AgentsFilter::Agents);
-    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-    assert_eq!(app.workspace.filter, AgentsFilter::Pinned);
-    assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
     assert_eq!(app.workspace.selected, selected);
-    assert_eq!(app.workspace.expanded, expansion);
-    assert!(
-        app.workspace_strip_hits.borrow().is_empty(),
-        "filter invalidates stale controls"
-    );
-    paint(&app, 160, 44);
-    let all = app
-        .workspace_strip_hits
-        .borrow()
-        .iter()
-        .find(|(_, choice)| *choice == Choice::AgentsFilter(AgentsFilter::All))
-        .unwrap()
-        .0;
-    assert_eq!(
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: all.x,
-                row: all.y,
-                modifiers: KeyModifiers::NONE
-            },
-            Instant::now()
-        ),
-        Effect::None
-    );
-    assert_eq!(app.workspace.filter, AgentsFilter::All);
-    assert_eq!(app.workspace_selection_state(), SelectionState::Visible);
-    assert_eq!(app.workspace.selected, selected);
-    assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
-    paint(&app, 160, 44);
-    assert!(
-        app.workspace_strip_hits
-            .borrow()
-            .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_) | Choice::TokMoney | Choice::TokUnit | Choice::SortBy(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots | crate::action::OpsUiAction::OpenWeb)))),
-        "Agents paints filter/search/estimate controls, the TOK unit, window and figures, column sorts, Talk/Measure and the global Snapshots and Web actions"
-    );
 }
 
 #[test]
@@ -3839,6 +3777,8 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                         terminal.backend().buffer()[(x, hit.y)].fg,
                         look.role(match role {
                             Some(role) if in_task => role,
+                            _ if terminal.backend().buffer()[(x, hit.y)].symbol() == "●" =>
+                                Role::Working,
                             _ if selected => Role::Text,
                             _ if x == 52 => {
                                 assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
@@ -3886,9 +3826,13 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
     assert_eq!(app.workspace_rows().len(), 2);
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.workspace_reconcile();
-    assert!(app.workspace_rows().is_empty());
+    assert!(
+        app.workspace_rows()
+            .iter()
+            .all(|row| !matches!(row.target, OpsTarget::Member { .. }))
+    );
     assert_eq!(
         crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
             .summary
@@ -3989,7 +3933,6 @@ fn show_is_a_saved_removal_and_common_pool_has_no_hide_action() {
     app.workspace.visibility.reveal_hidden = true;
     let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
     preferences.hidden.insert(ROOM.into());
-    preferences.pinned.insert(ROOM.into());
     app.finished_workspace_preferences(preferences, "Saved".into());
     let Effect::Act(Request::WorkspacePreferences { next, .. }) =
         app.workspace_action(OpsUiAction::ShowSquad)
@@ -3997,7 +3940,6 @@ fn show_is_a_saved_removal_and_common_pool_has_no_hide_action() {
         panic!("Show must save");
     };
     assert!(next.hidden.is_empty());
-    assert!(next.pinned.contains(ROOM));
     app.workspace.selected = Some(OpsTarget::Pool);
     app.workspace_reconcile();
     assert!(!app.workspace_bindings().values().any(|action| matches!(
@@ -4026,10 +3968,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
             ),
             (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
         ] {
-            for filter in [
-                crate::board::workspace::AgentsFilter::All,
-                crate::board::workspace::AgentsFilter::Agents,
-            ] {
+            {
                 for mode in ["hidden", "scoped", "revealed"] {
                     let mut app = populated_board(2, 4);
                     let view = app.view.as_mut().unwrap();
@@ -4063,7 +4002,6 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                         other
                     }));
                     app.shell.tab = OpsTab::Agents;
-                    app.workspace.filter = filter;
                     app.workspace_reconcile();
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     terminal
@@ -4089,7 +4027,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                         };
                         assert!(text.contains(chip), "{width} {mode} {text}");
                     }
-                    let all = filter == crate::board::workspace::AgentsFilter::All && width == 160;
+                    let all = width == 160;
                     if all && mode == "hidden" {
                         let (y, line) = lines
                             .iter()
@@ -4119,7 +4057,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     if mode == "hidden" {
                         assert!(rows.iter().all(|row| !matches!(&row.target,OpsTarget::Squad(id) if id.ends_with("000000000000"))));
                     }
-                    if filter == crate::board::workspace::AgentsFilter::All {
+                    {
                         assert!(text.contains(if mode == "revealed" {
                             "2 squads ·"
                         } else {
@@ -4154,7 +4092,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     let control = app.workspace_strip_hits.borrow().iter().find(|(_,choice)| matches!(choice,Choice::Action(action) if matches!(action.verb,Verb::Ui(OpsUiAction::ClearScope | OpsUiAction::RevealHidden)))).cloned();
                     // Only the scope chip's × is a strip control; the group is a row.
                     assert_eq!(control.is_some(), mode == "scoped", "{width} {mode}");
-                    captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{:?}", OpsTab::Agents),"filter":format!("{filter:?}"),"mode":mode,"lines":lines,
+                    captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{:?}", OpsTab::Agents),"filter":"squads","mode":mode,"lines":lines,
                         "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
                         "selected":format!("{before:?}"),"hits":format!("{:?}",app.hits.borrow())}));
                     if let Some((area, choice)) = control {
@@ -4182,7 +4120,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
             }
         }
     }
-    assert_eq!(captures.len(), 54);
+    assert_eq!(captures.len(), 27);
     if let Some(output) = output {
         std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
     }
@@ -4471,11 +4409,11 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
         depth: tmt_cli_style::Depth::TrueColor,
     };
     let mut app = supplied_label_fixture(look);
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.overview_rows.borrow_mut().clear();
     app.workspace_reconcile();
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -4556,7 +4494,7 @@ fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
     let tab = OpsTab::Agents;
     let mut app = populated_board(8, 28);
     app.shell.tab = tab;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
     let original = OpsTarget::Squad(
         app.workspace_snapshot().unwrap().roster.squads[0]
             .room_id
@@ -4633,8 +4571,8 @@ fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
 }
 
 #[test]
-fn empty_search_preview_still_respects_room_visibility_scope_and_pinned_mode() {
-    for restriction in ["hidden", "scope", "pinned"] {
+fn empty_search_preview_still_respects_room_visibility_and_scope() {
+    for restriction in ["hidden", "scope"] {
         let mut app = board();
         key(&mut app, KeyCode::Char('/'));
         app.paste("no-match");
@@ -4653,7 +4591,7 @@ fn empty_search_preview_still_respects_room_visibility_scope_and_pinned_mode() {
                     .insert(ROOM.into());
             }
             "scope" => app.workspace.visibility.scope = vec!["another-room".into()],
-            _ => app.workspace.filter = AgentsFilter::Pinned,
+            _ => unreachable!(),
         }
         app.workspace_reconcile();
         assert!(
@@ -4692,6 +4630,19 @@ fn changing_a_query_restarts_at_the_first_match_but_arrows_keep_their_selection(
         Some(first),
         "an edited query starts at its first match even if the prior row still matches"
     );
+}
+
+#[test]
+fn tree_search_selects_a_matching_member_not_its_context_squad() {
+    let mut app = populated_board(8, 28);
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("agent-00007");
+    assert!(
+        matches!(&app.workspace.selected, Some(OpsTarget::Member { identity_id, .. }) if app.workspace_rows().iter().any(|row| &row.target == app.workspace.selected.as_ref().unwrap() && row.title == "agent-00007" && !identity_id.is_empty()))
+    );
+    key(&mut app, KeyCode::Enter);
+    let text = paint(&app, 160, 36).join("\n");
+    assert!(text.contains("1 of 1"), "{text}");
 }
 
 #[test]
@@ -4802,7 +4753,7 @@ fn clearing_search_keeps_exact_occurrence_and_reveals_it_in_the_full_list() {
         for clear in ["editing-esc", "committed-esc", "click"] {
             let mut app = populated_board(8, 56);
             app.shell.tab = tab;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
             let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
             let id = "66666666-6666-4666-8666-000000000055";
             let duplicate_room = snapshot.roster.squads[6].room_id.clone();
@@ -5076,84 +5027,14 @@ fn capture_search_notice_packet() {
 }
 
 #[test]
-fn pin_view_agents_and_squads_share_saved_preferences_in_both_tabs() {
-    for tab in [OpsTab::Agents] {
-        for member in [false, true] {
-            let mut app = board();
-            app.shell.tab = tab;
-            app.workspace.filter = if member {
-                crate::board::workspace::AgentsFilter::Agents
-            } else {
-                crate::board::workspace::AgentsFilter::All
-            };
-            app.workspace.selected = Some(if member {
-                OpsTarget::Member {
-                    room_id: Some(ROOM.into()),
-                    identity_id: MEMBER.into(),
-                }
-            } else {
-                OpsTarget::Squad(ROOM.into())
-            });
-            app.workspace_reconcile();
-            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
-                key(&mut app, KeyCode::Char('p'))
-            else {
-                panic!("{tab:?} member={member}: p must save the selected target pin");
-            };
-            assert_eq!(next.agent_pins.contains(MEMBER), member);
-            assert_eq!(next.pinned.contains(ROOM), !member);
-            app.finished_workspace_preferences(next, "Pinned target".into());
-            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
-                key(&mut app, KeyCode::Char('p'))
-            else {
-                panic!("the same key must unpin");
-            };
-            assert!(next.agent_pins.is_empty() && next.pinned.is_empty());
-        }
-    }
-}
-
-#[test]
-fn individually_pinned_agents_keep_read_only_no_match_previews_and_dynamic_hints() {
-    let mut app = board();
-    let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
-    preferences.agent_pins.insert(MEMBER.into());
-    app.finished_workspace_preferences(preferences, "Pinned worker".into());
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
-    app.workspace.expanded.clear();
-    app.workspace_reconcile();
-    assert!(app.workspace_selection_visible());
-    assert_eq!(
-        crate::board::view::footer::hint_word(&app, &Action::parse("pin").unwrap()),
-        "unpin"
-    );
-    key(&mut app, KeyCode::Char('/'));
-    app.paste("no-match");
-    assert!(app.workspace_rows().is_empty());
-    assert!(app.workspace_retained_search_target().is_some());
-    assert!(
-        app.workspace_is_pinned().is_none(),
-        "preview never admits pin on a hidden row"
-    );
-    assert!(app.workspace_action_hits.borrow().is_empty());
-    assert!(app.input.is_none());
-    key(&mut app, KeyCode::Esc);
-    assert!(app.workspace_is_pinned() == Some(true));
-}
-
-#[test]
 fn keycaps_follow_authored_bindings_without_inventing_unbound_keys() {
     use crate::action::OpsUiAction;
     let mut app = configured_member(
-        "[bind]\nv = 'agents-filter'\nf = 'help'\n'1' = 'help'\nf2 = 'agents'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+        "[bind]\nf = 'help'\n'1' = 'help'\nf2 = 'agents'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
         json!({"id":MEMBER,"name":"worker"}),
     );
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    assert_eq!(
-        crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f").as_deref(),
-        Some("v")
-    );
+
     assert_eq!(
         crate::board::keycap::key(&app, OpsUiAction::Agents, "1").as_deref(),
         Some("f2")
@@ -5170,11 +5051,7 @@ fn keycaps_follow_authored_bindings_without_inventing_unbound_keys() {
         json!({"id":MEMBER,"name":"worker"}),
     );
     unbound.shell.tab = OpsTab::Agents;
-    unbound.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    assert_eq!(
-        crate::board::keycap::key(&unbound, OpsUiAction::AgentsFilter, "f"),
-        None
-    );
+
     assert_eq!(
         crate::board::keycap::key(&unbound, OpsUiAction::WorkspaceSnapshots, "w"),
         None
@@ -5221,7 +5098,7 @@ fn capture_keycaps_packet() {
                     ] {
                         let mut app = match scene {
                             "custom" => configured_member(
-                                "[bind]\nv = 'agents-filter'\nf = 'help'\nM = 'copy'\nt = 'talk-measure'\nf2 = 'agents'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+                                "[bind]\nf = 'help'\nM = 'copy'\nt = 'pane-measure'\nf2 = 'agents'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
                                 json!({"id":MEMBER,"name":"worker"}),
                             ),
                             "unbound" => configured_member(
@@ -5286,283 +5163,6 @@ fn capture_keycaps_packet() {
     });
     assert_eq!(captures.len(), 256);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
-}
-
-#[test]
-#[ignore = "explicit agent pin and view-mode evidence export"]
-fn capture_agent_pin_packet() {
-    let output = std::env::var("TMT_AGENT_PIN_CAPTURE").expect("task-owned evidence path");
-    let mut captures = Vec::new();
-    crate::status::with_now_ms(1_791_600_000_000, || {
-        let _no_commands = crate::runner::forbid_commands();
-        for tab in [OpsTab::Agents] {
-            for scene in [
-                "default",
-                "agent-pinned",
-                "squad-pinned",
-                "typing",
-                "no-match",
-                "view-toggle",
-            ] {
-                if tab == OpsTab::Agents && scene == "view-toggle" {
-                    continue;
-                }
-                for width in [103, 148] {
-                    for (base, depth) in [
-                        ("tmt", tmt_cli_style::Depth::TrueColor),
-                        ("tmt-light", tmt_cli_style::Depth::TrueColor),
-                        ("tmt", tmt_cli_style::Depth::None),
-                    ] {
-                        let mut app = populated_board(4, 12);
-                        app.shell.tab = tab;
-                        app.focus = 0;
-                        app.view.as_mut().unwrap().look = crate::look::Look {
-                            theme: tmt_cli_style::Theme::new(
-                                tmt_cli_style::Base::parse(base).unwrap(),
-                            ),
-                            depth,
-                        };
-                        let (room, identity) = {
-                            let roster = &app.workspace_snapshot().unwrap().roster;
-                            let squad = &roster.squads[1];
-                            (squad.room_id.clone(), squad.members[0].clone())
-                        };
-                        app.workspace.selected = Some(OpsTarget::Member {
-                            room_id: Some(room.clone()),
-                            identity_id: identity.clone(),
-                        });
-                        app.workspace_reconcile();
-                        if scene != "default" && scene != "view-toggle" {
-                            if scene == "squad-pinned" {
-                                app.workspace.selected = Some(OpsTarget::Squad(room));
-                                app.workspace.filter = crate::board::workspace::AgentsFilter::All;
-                                app.workspace_reconcile();
-                            }
-                            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
-                                key(&mut app, KeyCode::Char('p'))
-                            else {
-                                panic!("pin must use the preferences lane")
-                            };
-                            app.finished_workspace_preferences(next, "Pinned selection".into());
-                            if tab == OpsTab::Agents {
-                                app.workspace.filter =
-                                    crate::board::workspace::AgentsFilter::Pinned;
-                                app.workspace.expanded.clear();
-                                app.workspace_reconcile();
-                            }
-                        }
-                        if matches!(scene, "typing" | "no-match") {
-                            key(&mut app, KeyCode::Char('/'));
-                            app.paste(if scene == "typing" {
-                                "agent-00001"
-                            } else {
-                                "no-matching-agent"
-                            });
-                        }
-                        if scene == "view-toggle" {
-                            assert_eq!(
-                                app.workspace.filter,
-                                crate::board::workspace::AgentsFilter::All
-                            );
-                            key(&mut app, KeyCode::Char('f'));
-                            assert_eq!(
-                                app.workspace.filter,
-                                crate::board::workspace::AgentsFilter::Agents
-                            );
-                        }
-                        let mut terminal = Terminal::new(TestBackend::new(width, 51)).unwrap();
-                        terminal
-                            .draw(|frame| {
-                                crate::board::view::prepare(&mut app, frame.area());
-                                crate::board::view::render(frame, &app);
-                            })
-                            .unwrap();
-                        let buffer = terminal.backend().buffer();
-                        let cells = buffer.content.iter().map(|cell| json!({ "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg), "modifier":format!("{:?}",cell.modifier) })).collect::<Vec<_>>();
-                        let lines = buffer
-                            .content
-                            .chunks(usize::from(width))
-                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-                            .collect::<Vec<_>>();
-                        let pin = Action::parse("pin").unwrap();
-                        captures.push(json!({ "tab":format!("{tab:?}"), "scene":scene, "width":width,"height":51,"theme":base,"depth":format!("{depth:?}"),"cells":cells,"lines":lines,
-                            "selected":format!("{:?}",app.workspace.selected),"filter":format!("{:?}",app.workspace.filter),
-                            "pinState":app.workspace_is_pinned(),"pinHint":crate::board::view::footer::hint_word(&app,&pin),"bindings":app.bindings().iter().map(|(key,action)| (key.clone(),action.text.clone())).collect::<std::collections::BTreeMap<_,_>>(),
-                            "rows":app.workspace_rows().iter().map(|row| format!("{:?}",row.target)).collect::<Vec<_>>(), "hits":format!("{:?}",app.hits.borrow()),"actions":format!("{:?}",app.workspace_action_hits.borrow()),"searching":app.searching,"query":app.search.as_str(),"hasComposer":app.input.is_some() }));
-                    }
-                }
-            }
-        }
-    });
-    assert_eq!(captures.len(), 66);
-    std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
-}
-
-#[test]
-fn member_pin_failure_and_cap_leave_the_current_saved_state_intact() {
-    let tab = OpsTab::Agents;
-    let mut app = board();
-    app.shell.tab = tab;
-    app.workspace_reconcile();
-    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
-        key(&mut app, KeyCode::Char('p'))
-    else {
-        panic!("pin must use the save lane")
-    };
-    assert!(expected.agent_pins.is_empty());
-    assert!(next.agent_pins.contains(MEMBER));
-    assert_eq!(
-        app.workspace_snapshot().unwrap().preferences,
-        expected,
-        "requesting a write does not commit it"
-    );
-    app.finished(Err("Preference write refused".into()));
-    assert_eq!(app.workspace_snapshot().unwrap().preferences, expected);
-    let mut full = expected;
-    full.agent_pins = (0..1024)
-        .map(|n| format!("77777777-7777-4777-8777-{n:012}"))
-        .collect();
-    app.finished_workspace_preferences(full.clone(), "Pins loaded".into());
-    assert_eq!(key(&mut app, KeyCode::Char('p')), Effect::None);
-    assert_eq!(
-        app.workspace_snapshot().unwrap().preferences,
-        full,
-        "refusal never truncates the existing UUID set"
-    );
-}
-
-#[test]
-fn pinned_filter_disclosure_matches_temporarily_shown_children() {
-    for pool in [false, true] {
-        let mut app = populated_board(usize::from(!pool), 1);
-        let identity = app
-            .workspace_snapshot()
-            .unwrap()
-            .roster
-            .members
-            .keys()
-            .next()
-            .unwrap()
-            .clone();
-        let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
-        preferences.agent_pins.insert(identity);
-        app.finished_workspace_preferences(preferences, "Pinned agent".into());
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
-        app.workspace.expanded.clear();
-        app.workspace.pool_expanded = false;
-        app.workspace_reconcile();
-        let lines = paint(&app, 103, 51);
-        let group = if pool { "Common pool" } else { "squad-00" };
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.contains(&format!("▾ {group}"))),
-            "{lines:?}"
-        );
-        assert!(app.workspace.expanded.is_empty() && !app.workspace.pool_expanded);
-    }
-}
-
-#[test]
-fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
-    use crate::board::workspace::AgentsFilter;
-    for (tab, member) in [(OpsTab::Agents, true), (OpsTab::Agents, false)] {
-        for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
-            let mut app = board();
-            app.shell.tab = tab;
-            app.workspace.filter = if member {
-                AgentsFilter::Agents
-            } else {
-                AgentsFilter::All
-            };
-            app.view.as_mut().unwrap().look.depth = depth;
-            let target = if member {
-                OpsTarget::Member {
-                    room_id: Some(ROOM.into()),
-                    identity_id: MEMBER.into(),
-                }
-            } else {
-                OpsTarget::Squad(ROOM.into())
-            };
-            app.workspace.selected = Some(target.clone());
-            app.workspace_reconcile();
-            let capture = |app: &App| {
-                let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
-                terminal
-                    .draw(|frame| crate::board::view::render(frame, app))
-                    .unwrap();
-                let index = app
-                    .workspace_rows()
-                    .iter()
-                    .position(|row| row.target == target)
-                    .unwrap();
-                let y = app
-                    .hits
-                    .borrow()
-                    .iter()
-                    .find_map(|hit| (hit.target == HitTarget::Row(index)).then_some(hit.y))
-                    .unwrap();
-                let state_x = app
-                    .workspace_state_cells
-                    .borrow()
-                    .iter()
-                    .find(|cell| cell.y == y)
-                    .unwrap()
-                    .x;
-                (terminal.backend().buffer().clone(), y, state_x)
-            };
-            app.workspace.selected = None;
-            let (before, before_y, before_state_x) = capture(&app);
-            app.workspace.selected = Some(target.clone());
-            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
-                key(&mut app, KeyCode::Char('p'))
-            else {
-                panic!("pin save lane")
-            };
-            app.finished_workspace_preferences(next, "Pinned target".into());
-            app.workspace.selected = None;
-            let (after, after_y, after_state_x) = capture(&app);
-            assert_eq!(
-                before_state_x, after_state_x,
-                "pin must not shift later columns"
-            );
-            let name = if member { "worker" } else { "product" };
-            let name_x = |buffer: &ratatui::buffer::Buffer, y| {
-                (0..148)
-                    .find(|&x| {
-                        buffer[(x, y)].symbol() == &name[..1]
-                            && (0..name.len())
-                                .all(|n| buffer[(x + n as u16, y)].symbol() == &name[n..n + 1])
-                    })
-                    .unwrap()
-            };
-            let x = name_x(&after, after_y);
-            assert!(x >= 2, "name must reserve two cells for its pin mark");
-            let pin_x = if app.flat_agents() { x - 2 } else { 0 };
-            assert_eq!(after[(pin_x, after_y)].symbol(), "▪");
-            let pinned_row = (0..148)
-                .map(|column| after[(column, after_y)].symbol())
-                .collect::<String>();
-            assert_eq!(crate::board::glyph_guard::glyph_error(&pinned_row), None);
-            assert_eq!(after[(x - 1, after_y)].symbol(), " ");
-            assert_eq!(
-                name_x(&before, before_y),
-                x,
-                "unpinned names reserve the same two cells"
-            );
-            assert_eq!(before[(pin_x, before_y)].symbol(), " ");
-            assert_eq!(
-                after[(pin_x, after_y)].fg,
-                app.look()
-                    .role(tmt_cli_style::Role::Muted)
-                    .fg
-                    .unwrap_or_default()
-            );
-            for column in before_state_x..148 {
-                assert_eq!(before[(column, before_y)], after[(column, after_y)]);
-            }
-        }
-    }
 }
 
 #[test]
@@ -5691,7 +5291,7 @@ fn counters_state_and_status_turn_stale_together() {
     app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
     let overview = |app: &mut App| {
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
         // Squads view: a frame that shows the counters but no member STATE cell.
         let screen = paint(app, 160, 36).join("\n");
         let summary = monitor::scene(app, app.workspace_snapshot().unwrap())
@@ -5812,7 +5412,7 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
             "focus keeps the full state"
         );
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         let overview = paint(&app, 160, 36).join("\n");
         assert!(overview.contains(words), "overview: {overview}");
         // Counters follow core activity, never the task or the request.
@@ -5854,126 +5454,12 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
                     .map(|x| y * 160 + x)
             })
             .unwrap();
-        let glyph_role = Role::Text;
+        let glyph_role = Role::Working;
         assert_eq!(buffer.content[glyph].fg, look.role(glyph_role).fg.unwrap());
         assert_eq!(
             buffer.content[glyph + 2].fg,
             look.role(Role::Text).fg.unwrap()
         );
-    }
-}
-
-#[test]
-fn overview_state_keeps_the_task_by_width_and_without_colour() {
-    for (depth, width, words) in [
-        (tmt_cli_style::Depth::TrueColor, 110, "● working · blocked"),
-        (tmt_cli_style::Depth::TrueColor, 82, "● working "),
-        (tmt_cli_style::Depth::TrueColor, 60, "● working "),
-        (tmt_cli_style::Depth::None, 110, "● working · blocked"),
-    ] {
-        let look = crate::look::Look {
-            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
-            depth,
-        };
-        let mut app = disagreeing_board(false, look);
-        app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        let screen = paint(&app, width, 36);
-        // The list row alone: the selected agent's header repeats its task.
-        let row = screen
-            .iter()
-            .find(|line| line.contains("worker") && line.contains("product"))
-            .unwrap_or_else(|| panic!("{depth:?} {width}: {screen:#?}"));
-        assert!(row.contains(words), "{depth:?} {width}: {row}");
-        if width < 110 {
-            assert!(
-                !row.contains("· bl"),
-                "a narrow row drops the whole task, never part of it: {row}"
-            );
-        }
-    }
-}
-
-/// Measure STATE up to the next admitted column, excluding its gap and any token pad.
-fn overview_state_width(screen: &[String]) -> usize {
-    let header = screen
-        .iter()
-        .find(|line| line.contains("STATE") && line.contains("TOK 1h"))
-        .expect("the agents header");
-    let (next, gap) = header
-        .find("HOST / SESSION")
-        .map_or((header.find("TOK 1h").unwrap(), 2), |at| (at, 1));
-    next - header.find("STATE").unwrap() - gap
-}
-
-/// The STATE column is as wide as the widest cell of the list that fits whole, at least 12
-/// cells and within the row's room after the tokens and 16 NOW cells (at most 32).
-/// The optional Host / Session column comes next; TOK and NOW retain their gaps.
-#[test]
-fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
-    let long = "reviewing-the-release-plan-now";
-    for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
-        let look = crate::look::Look {
-            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
-            depth,
-        };
-        for (task, width, expected, words) in [
-            // A short label keeps the 12-cell minimum.
-            (None, 110, 12, "● working"),
-            // A longer label widens to its own width, not to the room.
-            (Some("blocked"), 110, 19, "● working · blocked"),
-            (Some("blocked"), 300, 19, "● working · blocked"),
-            // The room bounds the column; a label that does not fit it whole is dropped from the cell.
-            (Some("blocked"), 82, 18, "● working "),
-            (Some("blocked"), 60, 12, "● working "),
-            // A label that does not fit the 32-cell cap whole is dropped, so the column stays at 12.
-            (Some(long), 110, 12, "● working "),
-            (Some(long), 90, 12, "● working "),
-        ] {
-            let mut app = match task {
-                None => board(),
-                Some(_) => disagreeing_board(false, look),
-            };
-            app.view.as_mut().unwrap().look = look;
-            crate::board::conversation_checklist::tests::admit_empty(&mut app);
-            if let Some(task) = task.filter(|task| *task != "blocked") {
-                let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-                snapshot.roster.squads[0]
-                    .member_states
-                    .get_mut(MEMBER)
-                    .unwrap()
-                    .state = Some(task.into());
-                let target = OpsTarget::Member {
-                    room_id: Some(ROOM.into()),
-                    identity_id: MEMBER.into(),
-                };
-                snapshot.rows.get_mut(&target).unwrap()["state"] = json!(task);
-                app.workspace_reconcile();
-            }
-            app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-            let screen = paint(&app, width, 36);
-            let case = format!("{depth:?} {task:?} {width}");
-            assert_eq!(
-                overview_state_width(&screen),
-                expected,
-                "{case}: {screen:#?}"
-            );
-            // The next admitted column starts after STATE and its one gap.
-            let row = screen
-                .iter()
-                .find(|line| line.contains(words) && line.contains("product"))
-                .unwrap_or_else(|| panic!("{case}: {screen:#?}"));
-            let state = row.find("● ").unwrap();
-            let after = row[state..].chars().skip(expected).collect::<String>();
-            let session_shown = screen.iter().any(|line| line.contains("HOST / SESSION"));
-            let next = if session_shown {
-                " — · unavailable"
-            } else {
-                "       —   "
-            };
-            assert!(after.starts_with(next), "{case}: {row:?}");
-        }
     }
 }
 
@@ -6000,7 +5486,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
             .workspace
             .read_at = read;
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
         let screen = paint(&app, 160, 36).join("\n");
         let team = screen
             .lines()
@@ -6211,7 +5697,7 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
             "focus keeps full unread/task words"
         );
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         for (width, words) in [
             (160, "● 2 unread · blocked"),
             // The row's room drops the whole task first.
@@ -6325,7 +5811,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         let roster = paint(&app, 160, 44).join("\n");
         assert!(roster.contains(&unread), "{word} roster: {roster}");
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         app.workspace.selected = Some(target);
         app.workspace_reconcile();
         // The narrower Overview layout drops the whole task at 80 columns.

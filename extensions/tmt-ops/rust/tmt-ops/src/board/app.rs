@@ -341,8 +341,7 @@ pub enum Choice {
         path: String,
         anchor: ratatui::layout::Rect,
     },
-    AgentsFilter(super::workspace::AgentsFilter),
-    /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
+    /// A click on a Talk/Measure chip selects that pane; T and M open their respective panes.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
@@ -3223,7 +3222,6 @@ impl App {
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
             Choice::FileCopy(path) => self.link_copy(path.to_string()),
             Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
-            Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
                 if self
@@ -4283,6 +4281,28 @@ impl App {
             && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
         {
             return self.perform(&action);
+        }
+        // An explicitly bound chord retains its action while the composer owns input.
+        if self.input.is_some()
+            && key.code == KeyCode::Char('l')
+            && key.modifiers == KeyModifiers::CONTROL
+            && self.conversation_checklist_key().is_some()
+            && self
+                .composer_projection()
+                .is_some_and(|projection| projection.focused)
+            && let Some(action) = self.bindings().remove("ctrl-l")
+        {
+            return self.perform(&action);
+        }
+        if self.input.is_some()
+            && key.code == KeyCode::Char('l')
+            && key.modifiers == KeyModifiers::CONTROL
+            && self.conversation_checklist_key().is_some()
+            && self
+                .composer_projection()
+                .is_some_and(|projection| projection.focused)
+        {
+            return self.open_notes_from_input();
         }
         if self.input.is_some() {
             self.update_mentions();

@@ -255,32 +255,21 @@ pub(super) fn model(app: &App) -> KeyHelp {
         .bindings()
         .into_iter()
         .map(|(key, action)| {
-            let description =
-                if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
-                    match app.workspace.selected {
-                        Some(crate::board::workspace::OpsTarget::Member { .. }) => {
-                            "pin or unpin the selected agent".into()
-                        }
-                        Some(crate::board::workspace::OpsTarget::Squad(_)) => {
-                            "pin or unpin the selected squad".into()
-                        }
-                        _ => "pin or unpin the selected agent or squad".into(),
+            let description = if app.workspace_snapshot().is_some()
+                && action.verb == crate::action::Verb::Annotate
+                && action.args.first().and_then(|arg| arg.literal()) != Some("member")
+            {
+                match app.workspace.selected {
+                    Some(crate::board::workspace::OpsTarget::Squad(_)) => {
+                        "write a note to the selected squad's lead".into()
                     }
-                } else if app.workspace_snapshot().is_some()
-                    && action.verb == crate::action::Verb::Annotate
-                    && action.args.first().and_then(|arg| arg.literal()) != Some("member")
-                {
-                    match app.workspace.selected {
-                        Some(crate::board::workspace::OpsTarget::Squad(_)) => {
-                            "write a note to the selected squad's lead".into()
-                        }
-                        _ => "write a note to the selected agent's lead".into(),
-                    }
-                } else if app.workspace_snapshot().is_some() {
-                    action.workspace_description()
-                } else {
-                    action.description()
-                };
+                    _ => "write a note to the selected agent's lead".into(),
+                }
+            } else if app.workspace_snapshot().is_some() {
+                action.workspace_description()
+            } else {
+                action.description()
+            };
             entry(&format!("binding-{key}"), &key, description)
         })
         .collect();

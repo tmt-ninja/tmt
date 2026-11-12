@@ -12,8 +12,8 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT │ lead — · — · room product",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure  ── product ──────────────────────────────────── 1 member ──",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT │ lead — · — · room product",
       " ▸ Common pool                                      —    —                 │",
       " ▾ product                ●                         —    —   —             │ Checklist",
       "   └ worker               ● working                 —    —   —             │── Board ───────────────────────────────────────────────────────────────────────────",
@@ -44,10 +44,10 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                                              —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                        1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -76,10 +76,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                         —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -108,8 +108,8 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure    C  Checklist ── worker ──────────────────────── ● working ──",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT │ product · member · — · — · tmux",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure   C  Checklist ── worker ────────────────────── ● working ──",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT │ product · member · — · — · tmux",
       " ▸ Common pool                                      —    —                 │",
       " ▾ product                ●                         —    —   —             │── Conversation ────────────────────────────────────────────────────────────────────",
       "   └ worker               ● working                 —    —   —             │ worker → Owner                                                          20743d ago",
@@ -124,7 +124,7 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -140,10 +140,10 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
-      "   └ worker               ● working           — · unavailable            —    —   —",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
+      "   └ worker               ● working           —                          —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────────────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
@@ -156,7 +156,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -172,10 +172,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       "   └ worker               ● working                 —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
@@ -188,7 +188,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  / search  ? help  q quit"
     ]
   },
   {
@@ -204,8 +204,8 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT │ lead — · — · room product",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure  ── product ──────────────────────────────────── 1 member ──",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT │ lead — · — · room product",
       " ▸ Common pool                                      —    —                 │",
       " ▾ product                ●                         —    —   —             │ Checklist",
       "   └ worker               ● working                 —    —   —             │── Board ───────────────────────────────────────────────────────────────────────────",
@@ -236,7 +236,7 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  M  Talk   Measure  ── product ─────── 1 member ──",
+      "▸━ Squads ━━  /  Search                       ━┬─  T  Talk   M  Measure  ── product ──── 1 member ──",
       "  SQUAD / AGENT ↑            STATE             │ lead — · — · room product",
       " ▸ Common pool                                 │",
       " ▾ product                   ●                 │ Checklist",
@@ -268,10 +268,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                         —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -300,8 +300,8 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure    C  Checklist ── worker ──────────────────────── ● working ──",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT │ product · member · — · — · tmux",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure   C  Checklist ── worker ────────────────────── ● working ──",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT │ product · member · — · — · tmux",
       " ▸ Common pool                                      —    —                 │",
       " ▾ product                ●                         —    —   —             │── Conversation ────────────────────────────────────────────────────────────────────",
       "   └ worker               ● working                 —    —   —             │ worker → Owner                                                          20743d ago",
@@ -316,7 +316,7 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -332,7 +332,7 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  M  Talk   Measure  ── worker ─────── ● working ──",
+      "▸━ Squads ━━  /  Search                       ━┬─  T  Talk   M  Measure  ── worker ──── ● working ──",
       "  SQUAD / AGENT ↑            STATE             │ product · member · — · — · tmux",
       " ▸ Common pool                                 │",
       " ▾ product                   ●                 │── Conversation ────────────────────────────────────",
@@ -348,7 +348,7 @@
       "                                               │",
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -364,10 +364,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       "   └ worker               ● working                 —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
@@ -380,7 +380,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  / search  ? help  q quit"
     ]
   },
   {
@@ -396,10 +396,10 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                                              —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                                                                                    1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -428,10 +428,10 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                                              —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                        1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -460,10 +460,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       " ▾ product                ●                         —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  T  Talk   M  Measure  ── product ──────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       " Checklist",
@@ -492,10 +492,10 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
-      "   └ worker               ● working           — · unavailable            —    —   —",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
+      "   └ worker               ● working           —                          —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────────────────────────────────────────────────────────────────────────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────────────────────────────────────────────────────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -508,7 +508,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -524,10 +524,10 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE               HOST / SESSION        TOK 1h   ◷    MODEL / ALERT",
-      "   └ worker               ● working           — · unavailable            —    —   —",
+      "  SQUAD / AGENT ↑         STATE               HOST                  TOK 1h    ◷   MODEL / ALERT",
+      "   └ worker               ● working           —                          —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────────────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
@@ -540,7 +540,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -556,10 +556,10 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
-      "  SQUAD / AGENT ↑         STATE                TOK 1h   ◷    MODEL / ALERT",
+      "  SQUAD / AGENT ↑         STATE                TOK 1h    ◷   MODEL / ALERT",
       "   └ worker               ● working                 —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  M  Talk   Measure    C  Checklist ── worker ──────────────────── ● working ──",
+      "─  T  Talk   M  Measure   C  Checklist ── worker ────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       "── Conversation ────────────────────────────────────────────────────────────────",
@@ -572,7 +572,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  / search  ? help  q quit"
     ]
   }
 ]

@@ -41,7 +41,6 @@ pub struct Scrolls {
 enum Indicator {
     Overflow(Look),
     Table(Look),
-    List(Look),
     Exchange(Look, Option<String>),
 }
 
@@ -276,19 +275,6 @@ impl Scrolls {
         self.paint_viewport(frame, pane, area, content, Indicator::Overflow(look), paint)
     }
 
-    /// List overflow uses the same position and viewport owner, with a left caption.
-    pub fn show_list(
-        &self,
-        frame: &mut Frame,
-        pane: Pane,
-        area: Rect,
-        content: usize,
-        look: Look,
-        paint: impl FnOnce(&mut Frame, Rect, usize),
-    ) -> (usize, usize) {
-        self.paint_viewport(frame, pane, area, content, Indicator::List(look), paint)
-    }
-
     pub fn show_table(
         &self,
         frame: &mut Frame,
@@ -310,11 +296,10 @@ impl Scrolls {
         indicator: Indicator,
         paint: impl FnOnce(&mut Frame, Rect, usize),
     ) -> (usize, usize) {
-        let (look, table, list, exchange) = match indicator {
-            Indicator::Overflow(look) => (look, false, false, None),
-            Indicator::Table(look) => (look, true, false, None),
-            Indicator::List(look) => (look, false, true, None),
-            Indicator::Exchange(look, key) => (look, false, false, Some(key)),
+        let (look, table, exchange) = match indicator {
+            Indicator::Overflow(look) => (look, false, None),
+            Indicator::Table(look) => (look, true, None),
+            Indicator::Exchange(look, key) => (look, false, Some(key)),
         };
         let viewport = if table {
             Self::table_viewport(area)
@@ -380,30 +365,6 @@ impl Scrolls {
                     frame.buffer_mut(),
                     indicator,
                     Line::styled(text.join(" · "), look.role(Role::Dim)),
-                );
-            } else if list {
-                let text = if below > 0 {
-                    tmt_tui::components::design_system::MoreHint::label(
-                        below as u64,
-                        tmt_tui::components::design_system::MoreDirection::Down,
-                        false,
-                    )
-                } else {
-                    tmt_tui::components::design_system::MoreHint::label(
-                        above as u64,
-                        tmt_tui::components::design_system::MoreDirection::Up,
-                        false,
-                    )
-                };
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(
-                        indicator.x.saturating_add(1),
-                        indicator.y,
-                        indicator.width.saturating_sub(1),
-                        1,
-                    ),
-                    Line::styled(text, look.role(Role::Dim)),
                 );
             } else if table {
                 let end = content.min(offset.saturating_add(viewport));

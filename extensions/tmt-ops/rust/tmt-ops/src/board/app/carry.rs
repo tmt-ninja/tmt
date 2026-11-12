@@ -449,7 +449,6 @@ mod tests {
         use crate::board::{
             app::workspace::tests::{ROOM, board},
             view_state::{Layer, Order},
-            workspace::AgentsFilter,
         };
         let mut first = board();
         first.view_layer = Layer::parse("popup").unwrap();
@@ -460,9 +459,8 @@ mod tests {
         first.workspace.order = Some(Order {
             agents: crate::config::OpsSort::Attention,
             reversed: true,
-            overview: None,
         });
-        first.workspace.filter = AgentsFilter::Pinned;
+
         let arrived = arrive(&first.resume().unwrap());
         let mut next = board();
         next.carry(arrived);
@@ -471,6 +469,5 @@ mod tests {
         assert_eq!(next.workspace_order(), first.workspace_order());
         assert_eq!(next.search, "worker");
         assert_eq!(next.workspace.visibility, first.workspace.visibility);
-        assert_eq!(next.workspace.filter, first.workspace.filter);
     }
 }

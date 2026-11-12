@@ -22,14 +22,15 @@ pub(in crate::board) struct Row<'a> {
     pub last: bool,
     /// A member that owns terminals folds them: `▾`/`▸` before its name.
     pub folds: bool,
-    pub pinned: bool,
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
+    pub state_attention: Vec<bool>,
     pub tokens: String,
     pub session: String,
     pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
+    pub unread: bool,
     /// Focus is in this agent's conversation: the row takes the conversation tint and a bold name.
     pub in_conversation: bool,
     pub query: &'a str,
@@ -44,8 +45,23 @@ pub(in crate::board) struct Painted {
     pub tokens: Option<Rect>,
 }
 
-fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
-    if row.in_conversation {
+fn style(look: Look, row: &Row<'_>, value: Style, attention: bool) -> Style {
+    let idle = row
+        .source
+        .activity
+        .as_ref()
+        .is_some_and(|member| member.activity.phase == crate::board::activity::Phase::Idle);
+    let value = if idle
+        && !row.selected
+        && !row.unread
+        && !attention
+        && (value == look.role(Role::Text) || value == look.role(Role::Muted))
+    {
+        look.role(Role::Dim)
+    } else {
+        value
+    };
+    let result = if row.in_conversation {
         let mut style = look
             .conversation()
             .patch(look.row_span(true, value, false))
@@ -55,6 +71,11 @@ fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
         style
     } else {
         selection(look, row.selected, value)
+    };
+    if idle && !row.selected && !row.unread && attention {
+        result.remove_modifier(Modifier::DIM)
+    } else {
+        result
     }
 }
 
@@ -182,7 +203,7 @@ pub(in crate::board) fn paint(
     row: &Row<'_>,
     look: Look,
 ) -> Painted {
-    let base = style(look, row, look.role(Role::Text));
+    let base = style(look, row, look.role(Role::Text), false);
     for y in area.y..area.bottom() {
         strip::paint_left(
             buffer,
@@ -223,9 +244,9 @@ pub(in crate::board) fn paint(
                 let branch = format!("{indent}{branch}");
                 let name_width = usize::from(cell.width)
                     .saturating_sub(1 + branch.width() + usize::from(row.source.lead));
-                // The leading gutter carries the pin without moving name tracks.
+                // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
-                    Span::styled(if row.pinned { "▪" } else { " " }, look.role(Role::Muted)),
+                    Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
                     Span::styled(
                         if row.source.lead { "*" } else { "" },
@@ -297,9 +318,11 @@ pub(in crate::board) fn paint(
                 Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
             }
         };
-        line.style = style(look, row, line.style);
-        for span in &mut line.spans {
-            span.style = style(look, row, span.style);
+        line.style = style(look, row, line.style, false);
+        for (index, span) in line.spans.iter_mut().enumerate() {
+            let attention = matches!(field, AgentsField::State)
+                && row.state_attention.get(index).copied().unwrap_or(false);
+            span.style = style(look, row, span.style, attention);
         }
         if row.in_conversation
             && matches!(field, AgentsField::Agent)
@@ -319,6 +342,120 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_rows_preserve_attention_and_selected_styles() {
+        use crate::board::activity::Phase;
+        use crate::board::app::workspace::tests::{MEMBER, board};
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let mut app = board();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .members
+                .get_mut(MEMBER)
+                .unwrap()
+                .activity
+                .phase = Phase::Idle;
+            let rows = app.workspace_rows();
+            let source = rows.iter().find(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
+            let look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            for (selected, unread, role) in [
+                (false, false, Role::Muted),
+                (false, false, Role::Waiting),
+                (false, false, Role::Blocked),
+                (false, true, Role::Unread),
+                (true, false, Role::Muted),
+            ] {
+                let row = Row {
+                    source,
+                    expanded: false,
+                    last: true,
+                    folds: false,
+                    state: Line::from(vec![
+                        Span::styled("!", look.role(role)),
+                        Span::styled(" blocked", look.role(Role::Blocked)),
+                    ]),
+                    state_primary_width: Some(1),
+                    state_attention: vec![
+                        matches!(role, Role::Waiting | Role::Blocked | Role::Unread),
+                        true,
+                    ],
+                    tokens: "1".into(),
+                    session: String::new(),
+                    model: String::new(),
+                    timers: None,
+                    selected,
+                    unread,
+                    in_conversation: false,
+                    query: "",
+                };
+                let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 1));
+                paint(
+                    &mut buffer,
+                    Rect::new(0, 0, 30, 1),
+                    &[
+                        (AgentsField::Agent, Rect::new(0, 0, 15, 1)),
+                        (AgentsField::State, Rect::new(15, 0, 15, 1)),
+                    ],
+                    &row,
+                    look,
+                );
+                let mark = &buffer[(15, 0)];
+                assert_eq!(
+                    mark.fg,
+                    style(
+                        look,
+                        &row,
+                        look.role(role),
+                        matches!(role, Role::Waiting | Role::Blocked | Role::Unread)
+                    )
+                    .fg
+                    .unwrap_or_default(),
+                    "{base:?} {role:?}"
+                );
+                if role == Role::Muted && !selected && depth == tmt_cli_style::Depth::Ansi16 {
+                    assert!(
+                        mark.modifier.contains(Modifier::DIM),
+                        "plain idle: {base:?}"
+                    );
+                } else {
+                    assert!(!mark.modifier.contains(Modifier::DIM), "{base:?} {role:?}");
+                }
+                if !selected && !unread {
+                    assert!(
+                        !buffer[(17, 0)].modifier.contains(Modifier::DIM),
+                        "blocked word: {base:?}"
+                    );
+                }
+                if selected || unread {
+                    assert_eq!(
+                        buffer[(5, 0)].fg,
+                        style(look, &row, look.role(Role::Text), false)
+                            .fg
+                            .unwrap_or_default(),
+                        "{base:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn lead_mark_uses_the_name_budget_and_model_text_is_muted_and_ellipsized() {
@@ -347,41 +484,40 @@ mod tests {
             (AgentsField::Agent, Rect::new(0, 0, 25, 1)),
             (AgentsField::Model, Rect::new(26, 0, 8, 1)),
         ];
-        for pinned in [false, true] {
-            let mut buffer = Buffer::empty(area);
-            paint(
-                &mut buffer,
-                area,
-                &slots,
-                &Row {
-                    source: &source,
-                    expanded: false,
-                    last: false,
-                    folds: false,
-                    pinned,
-                    state: Line::default(),
-                    state_primary_width: None,
-                    tokens: "—".into(),
-                    session: String::new(),
-                    model: "gpt-6.1-sol".into(),
-                    timers: None,
-                    selected: false,
-                    in_conversation: false,
-                    query: "",
-                },
-                look,
-            );
-            assert_eq!(buffer[(5, 0)].symbol(), "*");
-            assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
-            assert_eq!(buffer[(24, 0)].symbol(), "…");
-            assert_eq!(buffer[(25, 0)].symbol(), " ");
-            assert_eq!(buffer[(33, 0)].symbol(), "…");
-            assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
-        }
+        let mut buffer = Buffer::empty(area);
+        paint(
+            &mut buffer,
+            area,
+            &slots,
+            &Row {
+                source: &source,
+                expanded: false,
+                last: false,
+                folds: false,
+                state: Line::default(),
+                state_primary_width: None,
+                state_attention: Vec::new(),
+                tokens: "—".into(),
+                session: String::new(),
+                model: "gpt-6.1-sol".into(),
+                timers: None,
+                selected: false,
+                unread: false,
+                in_conversation: false,
+                query: "",
+            },
+            look,
+        );
+        assert_eq!(buffer[(5, 0)].symbol(), "*");
+        assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
+        assert_eq!(buffer[(24, 0)].symbol(), "…");
+        assert_eq!(buffer[(25, 0)].symbol(), " ");
+        assert_eq!(buffer[(33, 0)].symbol(), "…");
+        assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
     }
 
     #[test]
-    fn pins_do_not_move_fields_and_selected_rows_fill_every_cell_without_bold_words() {
+    fn selected_rows_fill_every_cell_without_bold_words() {
         let app = crate::board::app::workspace::tests::board();
         let rows = app.workspace_rows();
         let source = rows
@@ -399,49 +535,45 @@ mod tests {
             (AgentsField::Tokens, Rect::new(43, 0, 7, 1)),
             (AgentsField::Cron, Rect::new(53, 0, 3, 1)),
         ];
-        let mut unpinned = None;
-        for pinned in [false, true] {
-            let mut buffer = Buffer::empty(area);
-            let painted = paint(
-                &mut buffer,
-                area,
-                &slots,
-                &Row {
-                    source,
-                    expanded: false,
-                    last: true,
-                    folds: false,
-                    pinned,
-                    state: crate::board::state_cell::unread(
-                        crate::board::unread::Count {
-                            total: 2,
-                            more: false,
-                        },
-                        look,
-                    )
-                    .unwrap(),
-                    state_primary_width: Some(10),
-                    tokens: "12.3K".into(),
-                    session: String::new(),
-                    model: "gpt-6.1-sol".into(),
-                    timers: Some(0),
-                    selected: true,
-                    in_conversation: false,
-                    query: "",
-                },
-                look,
-            );
-            look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
-            for cell in &buffer.content {
-                assert_eq!(cell.bg, look.selection().bg.unwrap());
-                assert!(!cell.modifier.contains(Modifier::BOLD));
-            }
-            assert_eq!(buffer[(26, 0)].fg, look.role(Role::Unread).fg.unwrap());
-            assert_eq!(buffer[(54, 0)].symbol(), "0");
-            let fields = buffer.content[26..70].to_vec();
-            assert_eq!(*unpinned.get_or_insert(fields.clone()), fields);
-            assert_eq!(buffer[(0, 0)].symbol(), if pinned { "▪" } else { " " });
+        let mut buffer = Buffer::empty(area);
+        let painted = paint(
+            &mut buffer,
+            area,
+            &slots,
+            &Row {
+                source,
+                expanded: false,
+                last: true,
+                folds: false,
+                state: crate::board::state_cell::unread(
+                    crate::board::unread::Count {
+                        total: 2,
+                        more: false,
+                    },
+                    look,
+                )
+                .unwrap(),
+                state_primary_width: Some(10),
+                state_attention: vec![true, false],
+                tokens: "12.3K".into(),
+                session: String::new(),
+                model: "gpt-6.1-sol".into(),
+                timers: Some(0),
+                selected: true,
+                unread: false,
+                in_conversation: false,
+                query: "",
+            },
+            look,
+        );
+        look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
+        for cell in &buffer.content {
+            assert_eq!(cell.bg, look.selection().bg.unwrap());
+            assert!(!cell.modifier.contains(Modifier::BOLD));
         }
+        assert_eq!(buffer[(26, 0)].fg, look.role(Role::Unread).fg.unwrap());
+        assert_eq!(buffer[(54, 0)].symbol(), "0");
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
     }
 
     #[test]
@@ -481,7 +613,6 @@ mod tests {
                         expanded: false,
                         last: true,
                         folds: false,
-                        pinned: false,
                         state: crate::board::state_cell::unread(
                             crate::board::unread::Count {
                                 total: 2,
@@ -491,11 +622,13 @@ mod tests {
                         )
                         .unwrap(),
                         state_primary_width: Some(10),
+                        state_attention: vec![true, false],
                         tokens: "—".into(),
                         session: String::new(),
                         model: String::new(),
                         timers: None,
                         selected,
+                        unread: false,
                         in_conversation,
                         query: "",
                     },

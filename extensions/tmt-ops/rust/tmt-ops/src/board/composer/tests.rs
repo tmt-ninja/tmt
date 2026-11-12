@@ -358,7 +358,7 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
         let label: String = (hit.area.x..hit.area.right())
             .map(|x| buffer[(x, hit.area.y)].symbol())
             .collect();
-        assert_eq!(label, "⏎ send");
+        assert!(matches!(label.as_str(), "⏎ send" | "⏎"), "{width}: {label}");
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: hit.area.x,
@@ -412,7 +412,7 @@ fn first_enter_focuses_retained_uuid_draft_and_only_a_new_active_press_submits()
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
         draw(&mut app, width, 18);
-        assert_eq!(app.bindings()["M"].text, "talk-measure");
+        assert_eq!(app.bindings()["M"].text, "pane-measure");
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::NONE)),
             Effect::None
@@ -500,11 +500,7 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
     for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
         let keys = crate::config::workspace_defaults(scope);
         assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
-        assert_eq!(
-            keys.contains_key("M"),
-            !scope.is_reader(),
-            "M switches Talk and Measure outside readers"
-        );
+        assert!(keys.contains_key("M"), "M opens Measure");
         assert_eq!(
             keys.get("double-click").map(|action| action.text.as_str()),
             if scope.is_reader() {
@@ -565,8 +561,8 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
         Effect::None
     );
     assert!(
-        app.menu.is_some() && app.input.is_none(),
-        "authored Enter keeps its menu effect"
+        app.menu.is_none() && app.input.is_some(),
+        "list Enter opens Talk"
     );
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));

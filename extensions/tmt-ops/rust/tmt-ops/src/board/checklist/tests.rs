@@ -340,14 +340,10 @@ fn workspace_checklist_reads_the_visible_room_uuid_and_keeps_its_selection_on_cl
 
 #[test]
 fn workspace_checklist_requires_a_room_choice_without_visible_squad_authority() {
-    use crate::board::{app::workspace::tests as workspace, shell::OpsTab, workspace::OpsTarget};
-    for context in ["overview", "pool", "hidden", "missing"] {
+    use crate::board::{app::workspace::tests as workspace, workspace::OpsTarget};
+    for context in ["pool", "hidden", "missing"] {
         let mut app = workspace::board();
         match context {
-            "overview" => {
-                app.shell.tab = OpsTab::Agents;
-                app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-            }
             "pool" => app.workspace.selected = Some(OpsTarget::Pool),
             "hidden" => app.workspace.query = "no matching identity".into(),
             "missing" => {

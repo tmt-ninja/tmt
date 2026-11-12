@@ -29,7 +29,7 @@ fn saved() -> ViewState {
 fn cold() -> App {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.workspace.expanded.clear();
     app.workspace.pool_expanded = false;
     app.workspace.selected = None;
@@ -483,15 +483,12 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     let untouched = saved().bytes().unwrap();
     write(&default, &saved());
     let mut first = board();
-    first.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
+
     first.search = "committed".into();
     first.workspace.query = first.search.to_string();
     first.workspace.order = Some(Order {
         agents: crate::config::OpsSort::Members,
         reversed: true,
-        overview: Some(crate::config::OverviewSort::initial(
-            crate::config::OverviewColumn::Cron,
-        )),
     });
     first.scrolls.restore([(crate::config::Pane::Rows, 9)]);
     let mut session = Session::load(popup.clone(), false, false);
@@ -506,7 +503,6 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     let mut reopened = Session::load(Layer::parse("popup").unwrap().path(&scratch), false, false);
     assert!(reopened.tick(&mut second, Instant::now()).0);
     assert_eq!(second.search, "committed");
-    assert_eq!(second.workspace.filter, first.workspace.filter);
     assert_eq!(second.workspace_order(), first.workspace_order());
     assert_eq!(second.scrolls.offset(crate::config::Pane::Rows), 9);
     reset(&popup).unwrap();
@@ -572,7 +568,6 @@ fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
     let value: Value = serde_json::from_slice(&bytes).unwrap();
     for (key, bad) in [
         ("query", json!("a".repeat(4097))),
-        ("agentsFilter", json!("invented")),
         ("reversed", json!(1)),
         ("sort", json!("random")),
     ] {
@@ -580,6 +575,9 @@ fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
         corrupt["controls"][key] = bad;
         assert!(ViewState::decode(&corrupt).is_none(), "{key}");
     }
+    let mut retired = value.clone();
+    retired["controls"]["agentsFilter"] = json!("invented");
+    assert!(ViewState::decode(&retired).is_some());
     for bad in [
         json!([["Rows", 1], ["Rows", 2]]),
         json!([["invented", 1]]),
@@ -611,25 +609,17 @@ fn original_reset_flag_is_never_replayed_after_exec_and_reset_errors_preserve_by
 fn replaced_overview_filter_does_not_erase_other_layer_controls() {
     let mut app = board();
     app.search = "committed".into();
-    app.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
+
     let mut encoded = Controls::capture(&app).json();
     encoded["overviewFilter"] = json!("needs-you");
-    let decoded =
-        Controls::decode(&encoded).expect("old controls retain query, sort and Agents filter");
+    let decoded = Controls::decode(&encoded).expect("old controls retain query and sort");
     assert_eq!(decoded.query, "committed");
-    assert_eq!(
-        decoded.agents_filter,
-        super::super::workspace::AgentsFilter::Pinned
-    );
     let current = decoded.json();
     assert!(current.get("overviewView").is_none());
     assert!(current.get("overviewFilter").is_none());
-    // The Overview tab's saved Squads/Agents mode is ignored; the chip is `agentsFilter`.
+    // Retired modes do not change the surviving controls.
     encoded["overviewView"] = json!("squads");
-    assert_eq!(
-        Controls::decode(&encoded).unwrap().agents_filter,
-        super::super::workspace::AgentsFilter::Pinned
-    );
+    assert_eq!(Controls::decode(&encoded).unwrap().query, "committed");
 }
 
 #[test]
@@ -639,12 +629,8 @@ fn retired_agents_attention_filter_loads_as_all_without_discarding_other_control
     let mut value = Controls::capture(&app).json();
     value["agentsFilter"] = json!("needs-you");
     let controls = Controls::decode(&value).unwrap();
-    assert_eq!(
-        controls.agents_filter,
-        super::super::workspace::AgentsFilter::All
-    );
     assert_eq!(controls.query, "worker");
-    assert_eq!(controls.json()["agentsFilter"], "all");
+    assert!(controls.json().get("agentsFilter").is_none());
 }
 
 #[test]
@@ -751,7 +737,7 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
     use crate::board::limits::QuotaWindow;
     let mut app = board();
     app.search = "worker".into();
-    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
     app.usage_chart
         .borrow_mut()
         .restore_quota_window(QuotaWindow::Short);
@@ -855,7 +841,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             "saved Agents tab cannot override fixed startup"
         );
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         app.workspace_reconcile();
         assert_eq!(app.shell.tab, OpsTab::Agents, "startup is consumed once");
     }
@@ -1067,20 +1053,20 @@ fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
 }
 
 fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
-    use crate::board::{BoardEvent, app::WorkspaceStartup, lane, workspace::AgentsFilter};
+    use crate::board::{BoardEvent, app::WorkspaceStartup, lane};
     use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use std::cell::Cell;
     use std::sync::{atomic::AtomicUsize, mpsc::channel};
     let scratch = Scratch::missing("view-state");
     let mut prior = board();
-    prior.workspace.filter = AgentsFilter::All;
+
     prior.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     prior.search = query.into();
     prior.workspace_reconcile();
     write(&view_file(&scratch), &ViewState::capture(&prior).unwrap());
     let mut state = Session::load(view_file(&scratch), false, explicit);
     let mut app = board();
-    app.workspace.filter = AgentsFilter::All;
+
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     if explicit {
         app.workspace.visibility.scope = [ROOM.into()].into();
@@ -1384,7 +1370,7 @@ fn pending_hint_does_not_restore_squad_or_pool_expansion_after_navigation() {
             let result = std::panic::catch_unwind(|| {
                 let scratch = Scratch::missing("view-state");
                 let mut app = board();
-                app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
                 app.workspace.selected = Some(if pool {
                     OpsTarget::Pool
                 } else {

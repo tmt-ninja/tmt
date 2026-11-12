@@ -22,17 +22,6 @@ impl Column {
             Self::Model => "Model",
         }
     }
-
-    pub fn minimum(self) -> u16 {
-        match self {
-            Self::Agent => 12,
-            Self::Squad | Self::State => 10,
-            Self::TokensPerHour => 7,
-            Self::Digest => 11, // The longest supplied primary mode plus its choice mark fits whole.
-            Self::Runtime | Self::Model => 8,
-            Self::Cron => 10,
-        }
-    }
 }
 
 /// Both host profiles materialize their tracks through this one TUI solver.
@@ -109,7 +98,7 @@ impl AgentsField {
             Self::Agent => "SQUAD / AGENT",
             Self::Model => "MODEL / ALERT",
             Self::State => "STATE",
-            Self::Session => "HOST / SESSION",
+            Self::Session => "HOST",
             Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
@@ -361,6 +350,8 @@ pub fn paint_agents_header(
         };
         let align = if *field == AgentsField::Tokens {
             tmt_cli_style::grid::Align::Right
+        } else if *field == AgentsField::Cron {
+            tmt_cli_style::grid::Align::Center
         } else {
             tmt_cli_style::grid::Align::Left
         };
@@ -652,6 +643,10 @@ pub(in crate::board) fn activity_projection(
             symbol.to_owned(),
             if over.is_some() {
                 Role::Waiting
+            } else if label.state == "working"
+                && app.shell.tab == crate::board::shell::OpsTab::Agents
+            {
+                Role::Working
             } else {
                 activity_role(label.state)
             },
@@ -769,8 +764,6 @@ pub struct WorkspaceColumnValues {
     pub model: Option<String>,
     /// A basic driver observes no runtime: say `basic` where the runtime is blank.
     pub basic: bool,
-    /// The plain program the member runs instead of an agent; it is also `model` (#5769).
-    pub plain: Option<String>,
 }
 
 /// Dense model cells use the acquired model only while its driver is running.
@@ -880,11 +873,8 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         digest,
         cron: input.timers,
         runtime: input.agent.and_then(|agent| agent.runtime.clone()),
-        model: plain
-            .clone()
-            .or_else(|| input.agent.and_then(|agent| agent.model.clone())),
+        model: plain.or_else(|| input.agent.and_then(|agent| agent.model.clone())),
         basic: input.agent.is_some_and(|agent| agent.basic),
-        plain,
     })
 }
 
@@ -967,6 +957,32 @@ mod tests {
                 .iter()
                 .any(|(field, _)| *field == AgentsField::Tokens)
         );
+    }
+
+    #[test]
+    fn timer_header_matches_the_timer_value_column() {
+        let look = crate::look::Look::default();
+        let slot = Rect::new(0, 0, 4, 1);
+        let mut buffer = ratatui::buffer::Buffer::empty(slot);
+        paint_agents_header(
+            &mut buffer,
+            slot,
+            &[(AgentsField::Cron, slot)],
+            look,
+            Default::default(),
+            Default::default(),
+            &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
+        );
+        let x = (0..slot.width)
+            .find(|&x| buffer[(x, 0)].symbol() == "◷")
+            .unwrap();
+        let value = tmt_tui::text::fit_line(
+            "1",
+            slot.width,
+            tmt_tui::style::TextFlow::Truncate,
+            tmt_cli_style::grid::Align::Center,
+        );
+        assert_eq!(usize::from(x), value.find('1').unwrap());
     }
 
     #[test]
@@ -1068,13 +1084,11 @@ mod tests {
         };
         let (agent, tree_model) = cells(serde_json::json!({"id": "a", "name": "w",
             "runningDriver": "codex", "resume": {"model": "gpt-6.1-sol"}}));
-        assert_eq!(agent.plain, None);
         assert_eq!(agent.text(Column::Model, row), "gpt-6.1-sol");
         assert_eq!(agent.text(Column::TokensPerHour, row), "1.2k");
         assert_eq!(tree_model, "gpt-6.1-sol");
         let (plain, tree_model) =
             cells(serde_json::json!({"id": "a", "name": "w", "plainProgram": "zsh"}));
-        assert_eq!(plain.plain.as_deref(), Some("zsh"));
         assert_eq!(plain.text(Column::Model, row), "zsh");
         assert_eq!(plain.text(Column::TokensPerHour, row), "—");
         assert_eq!(plain.text(Column::Digest, row), "—");
@@ -1158,7 +1172,6 @@ mod tests {
             runtime: runtime.map(str::to_owned),
             model: None,
             basic,
-            plain: None,
         };
         assert_eq!(values(None, true).text(Column::Runtime, &row), "basic");
         assert_eq!(values(None, false).text(Column::Runtime, &row), "—");

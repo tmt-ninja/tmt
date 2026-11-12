@@ -15,7 +15,6 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "idle-editor-loading",
     "idle-editor-unavailable",
     "idle-editor-pool",
-    "idle-editor-chooser",
     "idle-editor-unknown",
 ];
 pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
@@ -26,7 +25,6 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
             | "idle-editor-list-off"
             | "idle-editor-hover"
             | "idle-editor-pool"
-            | "idle-editor-chooser"
             | "idle-editor-loading"
             | "idle-editor-unavailable"
     ) {
@@ -76,25 +74,6 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         }
         "idle-editor-pool" => {
             app.workspace.selected = Some(OpsTarget::Pool);
-            app.open_idle_alert(None);
-        }
-        "idle-editor-chooser" => {
-            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-            let squad = &snapshot.roster.squads[0];
-            snapshot
-                .roster
-                .squads
-                .push(crate::board::workspace::OpsSquad {
-                    room_id: "99999999-9999-4999-8999-999999999999".into(),
-                    name: "platform".into(),
-                    members: squad.members.clone(),
-                    lead: None,
-                    member_states: squad.member_states.clone(),
-                    observation: squad.observation,
-                    idle_alert: squad.idle_alert,
-                });
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-            app.workspace_reconcile();
             app.open_idle_alert(None);
         }
         _ => {

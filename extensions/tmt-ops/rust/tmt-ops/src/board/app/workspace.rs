@@ -4,8 +4,7 @@ use super::*;
 use crate::board::{
     shell::OpsTab,
     workspace::{
-        AgentsFilter, OpsTarget, OpsTreeRow, SelectionState, manage::Kind,
-        observe::OpsWorkspaceSnapshot,
+        OpsTarget, OpsTreeRow, SelectionState, manage::Kind, observe::OpsWorkspaceSnapshot,
     },
 };
 use crate::{
@@ -404,27 +403,12 @@ impl App {
             width,
         )
     }
-    /// The Agents chip is active: the left pane is Overview's flat attention list of agents.
-    pub(in crate::board) fn flat_agents(&self) -> bool {
-        self.shell.tab == OpsTab::Agents
-            && self.workspace.filter == crate::board::workspace::AgentsFilter::Agents
-    }
-    /// The flat list keeps its token header whole; the tree yields earlier.
     pub(in crate::board) fn agents_list_min_columns(&self) -> u16 {
-        if self.flat_agents() {
-            crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
-        } else {
-            crate::board::conversation::layout::LIST_MIN_COLUMNS
-        }
+        crate::board::conversation::layout::LIST_MIN_COLUMNS
     }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
-        }
-        if self.flat_agents()
-            && let Some(snapshot) = self.workspace_snapshot()
-        {
-            return crate::board::overview::monitor::rows(self, snapshot);
         }
         if self.shell.tab == OpsTab::Digest
             && let Some(snapshot) = self.workspace_snapshot()
@@ -478,7 +462,7 @@ impl App {
             && let Some(target) = self.workspace.selected.as_ref()
         {
             // An empty search keeps the last explicit pane target. Query text
-            // cannot reveal a hidden/scoped-out room or bypass the Pinned mode.
+            // cannot reveal a hidden or scoped-out room.
             let room = match target {
                 OpsTarget::Squad(room)
                 | OpsTarget::Member {
@@ -487,10 +471,6 @@ impl App {
                 } => Some(room),
                 _ => None,
             };
-            let pinned = self.shell.tab != OpsTab::Agents
-                || self.workspace.filter != AgentsFilter::Pinned
-                || room.is_some_and(|room| snapshot.preferences.pinned.contains(room))
-                || matches!(target, OpsTarget::Member { identity_id, .. } if snapshot.preferences.agent_pins.contains(identity_id));
             let visible = room.map_or_else(
                 || self.workspace.visibility.scope.is_empty(),
                 |room| {
@@ -499,29 +479,12 @@ impl App {
                         .shows_squad(room, &snapshot.preferences)
                 },
             );
-            if pinned && visible {
+            if visible {
                 return Some(target);
             }
         }
         None
     }
-    pub(in crate::board) fn workspace_is_pinned(&self) -> Option<bool> {
-        if !matches!(self.shell.tab, OpsTab::Agents) || !self.workspace_selection_visible() {
-            return None;
-        }
-        let preferences = &self.workspace_snapshot()?.preferences;
-        match self.workspace.selected.as_ref()? {
-            OpsTarget::Member { identity_id, .. } => {
-                Some(preferences.agent_pins.contains(identity_id))
-            }
-            OpsTarget::Squad(room) => Some(preferences.pinned.contains(room)),
-            OpsTarget::Pool
-            | OpsTarget::DigestAll
-            | OpsTarget::Hidden
-            | OpsTarget::Terminal { .. } => None,
-        }
-    }
-
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
         let target_shown = match self.shell.tab {
             OpsTab::Agents => self
@@ -533,9 +496,6 @@ impl App {
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
     pub(in crate::board) fn workspace_squad(&self) -> Option<&crate::board::workspace::OpsSquad> {
-        if self.flat_agents() {
-            return None;
-        }
         let id = match self.workspace.selected.as_ref()? {
             OpsTarget::Squad(id)
             | OpsTarget::Member {
@@ -688,8 +648,7 @@ impl App {
                 !matches!(
                     action.verb,
                     Verb::Ui(
-                        OpsUiAction::AgentsFilter
-                            | OpsUiAction::IdleAlert
+                        OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
                             | OpsUiAction::Edit
                             | OpsUiAction::Rename
@@ -761,7 +720,6 @@ impl App {
                         .workspace_snapshot()
                         .is_some_and(|snapshot| snapshot.hidden_count > 0)
             }
-            Verb::Ui(OpsUiAction::Pin) => self.workspace_is_pinned().is_some(),
             // Back from a full-screen terminal, or from typing into one in the right panel.
             Verb::Ui(OpsUiAction::MemberBack) => {
                 self.framed() || self.workspace_row_scope() == OpsKeyScope::Terminal
@@ -858,17 +816,11 @@ impl App {
             }
         }
         if self.shell.tab == OpsTab::Agents
-            && !self.flat_agents()
             && let Some(target) = self.workspace_message_target()
         {
-            let pending = self
-                .workspace_snapshot()
-                .and_then(|snapshot| snapshot.rows.get(&target))
-                .is_some_and(crate::attention::waits_on_you);
             keys.insert(
                 "enter".into(),
-                Action::parse(if pending { "reply" } else { "talk" })
-                    .expect("factory message action"),
+                Action::parse("talk").expect("factory message action"),
             );
             if let Some(action) = self.workspace_factory_j(Some(&target)) {
                 keys.insert("j".into(), action);
@@ -876,9 +828,9 @@ impl App {
         }
         keys
     }
-    /// The tree's factory j follows its recipient; the flat list keeps its scope default.
+    /// The tree's factory j follows its recipient.
     pub(super) fn workspace_factory_j(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
-        if self.shell.tab == OpsTab::Agents && !self.flat_agents() && recipient.is_some() {
+        if self.shell.tab == OpsTab::Agents && recipient.is_some() {
             Some(Action::parse("jump").expect("factory host action"))
         } else {
             crate::config::workspace_defaults(self.workspace_scope()).remove("j")
@@ -982,18 +934,6 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
-        if self.flat_agents()
-            && let Some(OpsTarget::Member { identity_id, .. }) = self.workspace.selected.as_ref()
-            && self.workspace_snapshot().is_some_and(|snapshot|
-                self.workspace.selected.as_ref().is_some_and(|target| snapshot.roster.contains(target)))
-            && let Some(row) = rows.iter().find(|row|
-                matches!(&row.target, OpsTarget::Member { identity_id: id, .. } if id == identity_id))
-        {
-            // Overview has one stable occurrence per identity. Entering it from
-            // another visible membership keeps the UUID; vanished targets stay
-            // missing and never acquire a replacement membership automatically.
-            self.workspace.selected = Some(row.target.clone());
-        }
         if self.shell.tab == OpsTab::Digest
             && self.workspace.selected.as_ref().is_some_and(|target| {
                 !matches!(target, OpsTarget::Member { .. } | OpsTarget::DigestAll)
@@ -1007,7 +947,9 @@ impl App {
         if query_changed
             && selects_matches
             && !self.search.is_empty()
-            && let Some(first) = rows.first()
+            && let Some(first) = rows
+                .iter()
+                .find(|row| crate::board::search_field::matches_query(&row.title, &self.search))
         {
             self.workspace.selected = Some(first.target.clone());
         }
@@ -1248,14 +1190,13 @@ impl App {
                 }
                 return self.workspace_save(next);
             }
-            AgentsFilter if self.shell.tab == OpsTab::Agents => {
-                return self.agents_filter(self.workspace.filter.next());
+            PaneTalk if self.shell.tab == OpsTab::Agents => {
+                return self.select_right_tab(super::super::shell::RightTab::Talk);
             }
-            AgentsFilter => return Effect::None,
-            TalkMeasure if self.shell.tab == OpsTab::Agents => {
-                return self.select_right_tab(self.right_tab.next());
+            PaneMeasure if self.shell.tab == OpsTab::Agents => {
+                return self.select_right_tab(super::super::shell::RightTab::Measure);
             }
-            TalkMeasure => return Effect::None,
+            PaneTalk | PaneMeasure => return Effect::None,
             MonitorDetails if self.shell.tab == OpsTab::Digest => {
                 let Some(snapshot) = self.workspace_snapshot() else {
                     return Effect::None;
@@ -1350,94 +1291,15 @@ impl App {
             }
             Sort | ReverseSort => {
                 let mut order = self.workspace_order();
-                match (action, self.flat_agents()) {
-                    (Sort, true) => {
-                        order.overview = Some(order.overview.map_or_else(
-                            || {
-                                crate::config::OverviewSort::initial(
-                                    crate::config::OverviewColumn::Agent,
-                                )
-                            },
-                            |value| value.next(),
-                        ))
-                    }
-                    (ReverseSort, true) => {
-                        order.overview = Some(
-                            order
-                                .overview
-                                .unwrap_or_else(|| {
-                                    crate::config::OverviewSort::initial(
-                                        crate::config::OverviewColumn::Agent,
-                                    )
-                                })
-                                .reverse(),
-                        )
-                    }
-                    (Sort, _) => order.agents = order.agents.next(),
-                    _ => order.reversed = !order.reversed,
+                if action == Sort {
+                    order.agents = order.agents.next();
+                } else {
+                    order.reversed = !order.reversed;
                 }
                 return self.changed_view_order(order);
             }
-            Pin => {
-                if self.workspace_is_pinned().is_none() {
-                    return self.say("Select a visible agent or squad to pin.");
-                }
-                let Some(snapshot) = self.workspace_snapshot() else {
-                    return Effect::None;
-                };
-                let mut next = snapshot.preferences.clone();
-                match action {
-                    Pin if matches!(self.workspace.selected, Some(OpsTarget::Member { .. })) => {
-                        if !self.workspace_selection_visible() {
-                            return self.say("Select a visible agent to pin.");
-                        }
-                        let Some(OpsTarget::Member { identity_id, .. }) =
-                            self.workspace.selected.as_ref()
-                        else {
-                            return self.say("Select a visible agent to pin.");
-                        };
-                        let unpinned = next.agent_pins.remove(identity_id);
-                        if !unpinned {
-                            if next.agent_pins.len() >= 1024 {
-                                return self
-                                    .say("Agent pin limit reached (1024); unpin an agent first.");
-                            }
-                            next.agent_pins.insert(identity_id.clone());
-                        }
-                        let row = self
-                            .workspace_rows()
-                            .iter()
-                            .find(|row| Some(&row.target) == self.workspace.selected.as_ref())
-                            .map(|row| row.title.clone())
-                            .expect("visible pin target");
-                        let name: String = crate::board::notes::sanitize(&row)
-                            .chars()
-                            .filter(|c| !c.is_control())
-                            .take(200)
-                            .collect();
-                        return Effect::Act(Request::WorkspacePreferences {
-                            expected: snapshot.preferences.clone(),
-                            next,
-                            saved: Some(format!(
-                                "{} {name}",
-                                if unpinned { "Unpinned" } else { "Pinned" }
-                            )),
-                        });
-                    }
-                    _ if !self.workspace_selection_visible()
-                        || !self.workspace.toggle_pin(&mut next) =>
-                    {
-                        return self.say("Select a visible squad to pin.");
-                    }
-                    _ => {}
-                }
-                return self.workspace_save(next);
-            }
             AllTimers => return self.workspace_owner_timers(None, None),
             Timers => {
-                if self.flat_agents() && self.workspace.selected.is_none() {
-                    return self.workspace_owner_timers(None, None);
-                }
                 if !self.workspace_selection_visible() {
                     return self.say("Select a visible timer scope explicitly.");
                 }
@@ -1446,14 +1308,7 @@ impl App {
                     Some(OpsTarget::Member {
                         room_id,
                         identity_id,
-                    }) => (
-                        if self.flat_agents() {
-                            None
-                        } else {
-                            room_id.clone()
-                        },
-                        Some(identity_id.clone()),
-                    ),
+                    }) => (room_id.clone(), Some(identity_id.clone())),
                     _ => (None, None),
                 };
                 return self.workspace_owner_timers(room, owner);
@@ -1472,44 +1327,6 @@ impl App {
         Effect::None
     }
 
-    pub(in crate::board) fn agents_filter(
-        &mut self,
-        filter: crate::board::workspace::AgentsFilter,
-    ) -> Effect {
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
-            return Effect::None;
-        }
-        self.workspace.filter = filter;
-        // The flat list has no squad rows: a selected squad hands over to its
-        // lead, else to its first agent, else to the first row.
-        if self.flat_agents()
-            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.clone()
-        {
-            let lead = self.workspace_snapshot().and_then(|snapshot| {
-                snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| squad.room_id == room)
-                    .and_then(|squad| squad.lead.clone())
-            });
-            let rows = self.workspace_rows();
-            let member_of = |lead: Option<&String>| {
-                rows.iter().find(|row| {
-                    matches!(&row.target, OpsTarget::Member { room_id, identity_id }
-                        if room_id.as_ref() == Some(&room)
-                            && lead.is_none_or(|lead| lead == identity_id))
-                })
-            };
-            if let Some(row) = member_of(lead.as_ref()).or_else(|| member_of(None)) {
-                self.workspace.selected = Some(row.target.clone());
-            }
-        }
-        self.workspace_reconcile();
-        self.invalidate_frame_geometry();
-        self.follow = true;
-        Effect::None
-    }
     pub(super) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
@@ -1580,7 +1397,16 @@ impl App {
         if key.modifiers.contains(KeyModifiers::SHIFT)
             && matches!(key.code, KeyCode::Left | KeyCode::Right)
         {
-            return self.say("Squad tab reorder is retired; pin or sort squads in the workspace.");
+            return self.say("Squad tab reorder is retired; sort squads in the workspace.");
+        }
+        if self.shell.tab == OpsTab::Agents
+            && self.focused_pane() != Some(Pane::Replies)
+            && key.code == KeyCode::Enter
+            && key.modifiers.is_empty()
+            && self.workspace_selected_member().is_some()
+        {
+            self.select_right_tab(super::super::shell::RightTab::Talk);
+            return self.perform(&Action::parse("talk").expect("factory Talk action"));
         }
         if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name)) {
             return self.perform(&action);
@@ -1636,16 +1462,13 @@ impl App {
                             choice: Choice::WorkspaceBegin(kind),
                         });
                     }
-                    for (label, action) in [
-                        ("Pin/unpin", OpsUiAction::Pin),
-                        ("Timers", OpsUiAction::Timers),
-                    ] {
-                        entries.push(MenuEntry {
-                            key: String::new(),
-                            label: label.into(),
-                            choice: Choice::Action(Action::parse(action.spec().name).unwrap()),
-                        });
-                    }
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: "Timers".into(),
+                        choice: Choice::Action(
+                            Action::parse(OpsUiAction::Timers.spec().name).unwrap(),
+                        ),
+                    });
                 }
                 entries.push(MenuEntry {
                     key: String::new(),

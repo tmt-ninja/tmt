@@ -356,17 +356,6 @@ impl App {
             RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => id.as_str(),
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
-        // The flat list discusses the acquired request the member is waiting on,
-        // not an unrelated newer response to one of our outgoing messages.
-        let flat = self.workspace_snapshot().is_some() && self.flat_agents();
-        if flat && let Some(question) = self.pending_question(target, None) {
-            detail.reply = Some(question);
-            return Some(detail.additional(visible));
-        }
-        if flat {
-            // A board decision without an observed request is not a transcript.
-            return Some(detail.additional(visible));
-        }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
         // An agent answers by sending the user a new request as often as by replying to one
         // of the user's, so every open request of the agent belongs in the thread at the time

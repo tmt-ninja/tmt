@@ -1,5 +1,5 @@
 //! The Measure column of the Agents tab: Overview's lower modules for the selected squad, or for
-//! all agents when the Agents chip is active. Each section is painted only when it fits whole.
+//! the current member. Each section is painted only when it fits whole.
 use crate::board::{
     app::App, digest_matrix, overview::digest, overview::matrix, section_rule, workspace::OpsTarget,
 };
@@ -39,7 +39,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         // The target the cells describe: the selected agent or squad, else every agent.
         let title = match app.workspace.selected.as_ref() {
-            Some(_) if app.flat_agents() => "All agents".to_owned(),
             Some(target @ OpsTarget::Member { .. }) => app
                 .target_row(&crate::board::app::RowTarget::Workspace(target.clone()))
                 .and_then(|row| row["name"].as_str().map(str::to_owned))
@@ -96,7 +95,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let timers = super::lower::Band::timers(app);
     // An agent selected in the tree gets its own cells; everything else gets the aggregate.
     let member = match app.workspace.selected.as_ref() {
-        Some(target @ OpsTarget::Member { room_id, .. }) if !app.flat_agents() => app
+        Some(target @ OpsTarget::Member { room_id, .. }) => app
             .target_row(&crate::board::app::RowTarget::Workspace(target.clone()))
             .map(|row| {
                 let squad = snapshot

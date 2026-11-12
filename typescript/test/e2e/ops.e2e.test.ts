@@ -300,7 +300,7 @@ function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
 async function selectHostWorker(fixture: E2EFixture, board: string) {
   await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter']);
-  await fixture.waitForCapture((screen) => /\/[ \t]+worker[ \t]+1 of 2[ \t]+×/.test(screen), board);
+  await fixture.waitForCapture((screen) => /\/[ \t]+worker[ \t]+1 of 1[ \t]+×/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, 'End']);
   await fixture.waitForCapture((screen) => screen.includes('⏎ to message worker'), board);
 }
@@ -987,32 +987,24 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
-      // Select the flat Agents list explicitly; startup-tab preferences do not own this scenario.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'f']);
+      // The Agents list is the squad tree; expand Common pool only after it renders.
       await fixture.waitForCapture(
-        (screen) =>
-          screen.includes('OPS / UI') &&
-          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL\b/m.test(screen) &&
-          /^   Ben[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
-          /^   worker[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
-          /f[ \t]+Squads[ \t]+Agents[ \t]+Pinned[ \t─━]+\/[ \t]+Search/.test(screen),
+        (screen) => screen.includes('OPS / UI') && /^[ \t]*[▸▾] Common pool\b/m.test(screen),
         shell.pane
       );
-      // The flat list selects an agent; return to the Squads tree (f cycles through Pinned),
-      // then select the visible Common pool before expanding it.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'f', 'f', 'Home', 'Right']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
-        const rule = screen.split('\n').find((line) => line.includes('f  Squads '));
-        // The 160-cell frame gives the list 75 cells. Its controls rule shares
-        // the Talk/Measure title with a one-cell divider; columns stay one row below.
+        const rule = screen
+          .split('\n')
+          .find((line) => line.includes('Squads') && line.includes('Search'));
         return (
           header !== undefined &&
           rule !== undefined &&
           /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ ALERT[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
-          /Talk[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
+          /Talk[ \t]+M[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
           /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );

@@ -247,9 +247,6 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
             },
             json!({"id":id,"name":name,"state":state,"presence":"active"}),
         );
-        if ordinal <= 2 {
-            home.workspace.preferences.agent_pins.insert(id);
-        }
     }
     home.summary.members = 6;
     home.summary.working = 3;
@@ -326,12 +323,7 @@ fn capture_squads_packet(output: &str) {
                 ] {
                     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
                     app.shell.tab = crate::board::shell::OpsTab::Agents;
-                    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-                    app.workspace.filter = if scene.starts_with("agents") {
-                        crate::board::workspace::AgentsFilter::Agents
-                    } else {
-                        crate::board::workspace::AgentsFilter::All
-                    };
+
                     let view = app.view.as_mut().unwrap();
                     view.look = crate::look::Look {
                         theme: tmt_cli_style::Theme::new(

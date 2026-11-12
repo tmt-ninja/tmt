@@ -262,13 +262,12 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_after_core_ack() {
         identity_id: other.into(),
     };
     snapshot.rows.insert(other_target.clone(), json!({"id":other,"name":"aaa-waiting","state":"working","waitingOnYou":[{"requestId":"waiting","preparedAtMs":50}]}));
-    snapshot.preferences.agent_pins.insert(other.into());
     for tab in [
         crate::board::shell::OpsTab::Agents,
         crate::board::shell::OpsTab::Agents,
     ] {
         app.shell.tab = tab;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();
         let rows = app.workspace_rows();

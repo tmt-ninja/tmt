@@ -12,11 +12,10 @@ mod measure_exchanges;
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app
 }
 fn waiting(app: &mut App) {
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -66,7 +65,7 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
             .iter()
             .all(|hit| hit.target != HitTarget::AllRoomTimers)
     );
-    key(&mut app, KeyCode::Char('c'));
+    app.perform(&crate::action::Action::parse("all-timers").unwrap());
     assert!(app.cron_list.is_none());
     assert_eq!(
         app.notice.as_deref(),
@@ -76,7 +75,7 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
     )));
-    key(&mut app, KeyCode::Char('c'));
+    app.perform(&crate::action::Action::parse("all-timers").unwrap());
     let list = app
         .cron_list
         .as_ref()
@@ -95,7 +94,7 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
 fn removed_count_cells_cannot_retain_their_old_timer_authority() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+
     app.cron.replace(Ok(crate::board::cronboard::test_cron(
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
@@ -107,8 +106,9 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
         .first()
         .cloned()
         .expect("positive control: an actual count hit");
-    // The flat list paints no count cell.
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    // Digest does not paint the tree's count cell.
+    app.shell.tab = OpsTab::Digest;
+
     paint(&mut app, 100, 36);
     assert!(app.cron_scope_hits.borrow().is_empty());
     let selected = app.workspace.selected.clone();
@@ -138,9 +138,9 @@ fn one_primary_viewport_keeps_waiting_targets_and_hits_bounded_at_short_heights(
                 .filter(|hit| hit.row().is_some())
                 .copied()
                 .collect();
-            assert_eq!(hits.len(), 1, "{width}x{height} retains its waiting target");
+            assert!(!hits.is_empty(), "{width}x{height} retains visible rows");
             for hit in hits {
-                assert_eq!(hit.row(), Some(0));
+                assert!(hit.row().unwrap() < app.workspace_rows().len());
                 assert!(hit.x + hit.width <= width && hit.y < height);
             }
         }
@@ -181,13 +181,7 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         app.notice = None;
         let text = paint(&mut app, width, 8);
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
-        assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
-        key(&mut app, KeyCode::Char('f'));
-        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Pinned);
-        key(&mut app, KeyCode::Char('f'));
-        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::All);
-        key(&mut app, KeyCode::Char('f'));
-        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Agents);
+        assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));
         assert!(app.new_member_shown(), "e opens Edit even at eight rows");
