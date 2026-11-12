@@ -57,7 +57,7 @@ main() {
   verify "$stage/dist-manifest.json" @@MANIFEST_SIZE@@ '@@MANIFEST_HASH@@'
   download "$base/$archive" "$stage/$archive" "$archive_size"
   verify "$stage/$archive" "$archive_size" "$archive_hash"
-  step done 'Downloaded and verified archive'
+  step ok 'Downloaded and verified archive'
 
   # Do not extract archive paths into the filesystem. The generator has checked
   # the complete archive inventory; its digest binds this one selected stream.
@@ -98,14 +98,14 @@ main() {
   # Elsewhere (CI, no terminal, --no-setup), install skills as before.
   if [ "$setup" = yes ] && [ "$skill" = yes ] && [ -z "${CI:-}" ] && interactive; then
     if (unset GH_TOKEN GITHUB_TOKEN; PATH="$prefix/bin:$PATH" exec "$prefix/bin/tmt" setup) </dev/tty; then
-      step done 'Setup finished'
+      step ok 'Setup finished'
     else
       setup_pending=yes
       step warning 'Setup did not finish; tmt is installed. Run tmt setup again when ready.' >&2
     fi
   elif [ "$skill" = yes ]; then
     if (unset GH_TOKEN GITHUB_TOKEN; exec "$prefix/bin/tmt" install) > "$stage/skills.log"; then
-      step done 'Installed agent skills'
+      step ok 'Installed agent skills'
       show_skill_report "$stage/skills.log"
     else
       show_diagnostic "$stage/skills.log"
@@ -127,7 +127,7 @@ main() {
 # Check the destination stream, independently of stdin and the other output stream.
 step() {
   case "$1" in
-    done) mark='✓'; color=32 ;;
+    ok) mark='✓'; color=32 ;;
     warning) mark='!'; color=33 ;;
     failed) mark='✗'; color=31 ;;
   esac
@@ -154,12 +154,12 @@ render_native_status() {
   case "$native_status" in '✓ '*) native_status=${native_status#'✓ '} ;; esac
   if [ "$native_extra" = no ]; then
     case "$native_status" in
-      'Installed tmt '?*' at '?*) step done "$native_status"; return ;;
+      'Installed tmt '?*' at '?*) step ok "$native_status"; return ;;
       'Current tmt '?*' at '?*)
         native_current=${native_status#'Current tmt '}
         native_version=${native_current%%' at '*}
         native_path=${native_current#*' at '}
-        step done "tmt $native_version is already current at $native_path"
+        step ok "tmt $native_version is already current at $native_path"
         return ;;
     esac
   fi
