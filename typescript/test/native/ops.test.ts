@@ -6307,7 +6307,7 @@ describe('large board responsiveness', () => {
             expect(text).toContain('first line');
             expect(text).toContain('second line');
             // The line under the input names the key tmux actually delivers.
-            expect(text).toContain(csiU ? 'Shift+⏎' : 'Alt+⏎');
+            expect(text).toContain(csiU ? 'Shift+⏎ new line' : 'Alt+⏎ new line');
             const lines = text.split('\n');
             expect(lines.findIndex((line) => line.includes('second line'))).toBe(
               lines.findIndex((line) => line.includes('first line')) + 1
