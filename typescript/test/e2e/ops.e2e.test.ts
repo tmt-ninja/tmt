@@ -1865,7 +1865,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           (screen) =>
             !screen.includes('Enter apply or open') &&
             screen.includes('Checklist · 0 todo') &&
-            /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) &&
+            /^[ \t]*[▸▾] product[ \t]+—[ \t]+—[ \t]+0\b/m.test(screen) &&
             screen.includes('0 members'),
           shell.pane
         );
