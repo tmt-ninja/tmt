@@ -82,6 +82,16 @@ impl PreparedDeploy {
     pub fn plan(&self) -> &deploy_run::DeployPlan {
         &self.plan
     }
+    pub fn with_storage(
+        mut self,
+        storage: crate::deploy_storage::StoragePlan,
+    ) -> Result<Self, DeployCommandError> {
+        self.plan = self
+            .plan
+            .with_storage(storage)
+            .map_err(DeployCommandError::Refused)?;
+        Ok(self)
+    }
     pub fn record(&self) -> &DeployRecord {
         &self.record
     }
@@ -208,6 +218,25 @@ fn render(
         plan.view().index_configs,
         &plan.digest()[..12]
     );
+    if let Some(storage) = &plan.view().storage {
+        writeln!(
+            human,
+            "Paid Storage: bucket {}; location {}; {}\n{}",
+            storage.bucket,
+            storage.location,
+            if storage.intent.bucket == "default" {
+                "provision/re-link default"
+            } else {
+                "adopt linked bucket"
+            },
+            crate::deploy_storage::DISCLOSURE
+        )
+        .expect("String write");
+        writeln!(human, "Storage metadata: {}", storage.bucket_metadata).expect("String write");
+        if let Some(replaced) = &storage.replaced_policy_digest {
+            writeln!(human, "DESTRUCTIVE: deny-all replaces bucket policy {}; all current object access will be blocked.", &replaced[..12]).expect("String write");
+        }
+    }
     if let Some(replaced) = &plan.view().rules.replaced_digest {
         writeln!(human, "DESTRUCTIVE: Replace the live Rules for project {}. This affects every tenant using its Rules.\nExisting Rules fingerprint: {}", input.project, &replaced[..12]).expect("String write");
         if hint {
@@ -359,11 +388,17 @@ fn render(
         }
         describe_record(&mut human, record, &store.record_path());
     } else if hint {
-        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
+        writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with{} --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, if plan.view().storage.is_some() { " --accept-paid-storage" } else { "" }, &plan.digest()[..12]).expect("String write");
     }
-    if authorized && let Ok(link) = crate::remote_link::from_record(record) {
+    if authorized && let Ok(publication) = crate::remote_link::publication(record) {
+        let link = publication["remoteLink"]
+            .as_str()
+            .expect("typed public link");
         writeln!(human, "Remote link: {link}").expect("String write");
-        json["remoteLink"] = Value::String(link);
+        json["remoteLink"] = Value::String(link.to_owned());
+        if let Some(storage) = publication.get("storage") {
+            json["storage"] = storage.clone();
+        }
     }
     DeployCommandOutput { json, human }
 }
@@ -538,6 +573,7 @@ mod tests {
     fn known_building_composite_names_its_ordinal_and_rerun() {
         let mut record = DeployRecord::new("fixture");
         record.run = Some(Run {
+            storage: None,
             plan_digest: "a".repeat(64),
             account: "fixture".into(),
             authorized_at_ms: 0,
@@ -612,6 +648,7 @@ mod tests {
     fn human_progress_collapses_uploads_and_names_the_original_create_exit() {
         let mut record = DeployRecord::new("fixture");
         record.run = Some(Run {
+            storage: None,
             plan_digest: "a".repeat(64),
             account: "fixture".into(),
             authorized_at_ms: 0,

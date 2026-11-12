@@ -220,6 +220,9 @@ pub const RULES_FRAGMENT_DEPTH: usize = 8;
 /// Nesting of one condition (parentheses, arguments, lists, ternaries).
 pub const RULES_FRAGMENT_NESTING: usize = 32;
 
+/// Captured paid Storage metadata and exact policy parser bounds.
+pub const DEPLOY_STORAGE_METADATA_BYTES: usize = 8 * 1024;
+pub const DEPLOY_STORAGE_POLICY_BYTES: usize = 8 * 1024;
 /// Maximum private deployment record and abandoned staging-file size.
 pub const DEPLOY_RECORD_BYTES: usize = 1024 * 1024;
 

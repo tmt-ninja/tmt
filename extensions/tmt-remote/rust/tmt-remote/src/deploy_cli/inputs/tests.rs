@@ -23,6 +23,11 @@ fn args() -> FirestoreArgs {
         authorize: None,
         json: true,
         details: false,
+        storage: None,
+        bucket: None,
+        bucket_location: None,
+        accept_paid_storage: false,
+        agent: false,
     }
 }
 fn parse(argv: &[&str]) -> Result<FirestoreArgs, DeployCliError> {

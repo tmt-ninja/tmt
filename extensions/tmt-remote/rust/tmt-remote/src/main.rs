@@ -505,7 +505,7 @@ fn link_command(
     let link = tmt_remote::remote_link::from_record(&record)?;
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        writeln!(output, "{}", json!({"version":1,"remoteLink":link}))?;
+        writeln!(output, "{}", tmt_remote::remote_link::publication(&record)?)?;
     } else {
         writeln!(output, "Remote link: {link}")?;
     }
@@ -515,7 +515,7 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
     use tmt_remote::{deploy_cli, deploy_discovery, deploy_firestore, deploy_tools};
     let (_, matches) = matches.subcommand().expect("required backend");
     // Grammar/authorization shape is checked before tool discovery or provider setup.
-    let args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest."))?;
+    let mut args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest."))?;
     let stop = Arc::new(AtomicBool::new(false));
     let _signals = [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]
         .into_iter()
@@ -538,11 +538,21 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         output
             .flush()
             .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))?;
-        confirm_deploy(&mut std::io::stdin(), &mut output, &stop)
-            .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))
+        if preview.json["paidStorageConsent"] == true {
+            confirm_terminal(
+                &mut std::io::stdin(),
+                &mut output,
+                &stop,
+                tmt_remote::deploy_storage::PAID_PROMPT,
+            )
+        } else {
+            confirm_deploy(&mut std::io::stdin(), &mut output, &stop)
+        }
+        .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))
     };
     let interaction = Interaction::detect(args.json);
     let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+    args.agent = agent;
     let ci = std::env::var_os("CI").is_some();
     let live = deploy_cli::progress::enabled(interaction, agent, ci);
     let progress = deploy_cli::progress::Progress::stderr(live, stop.clone());

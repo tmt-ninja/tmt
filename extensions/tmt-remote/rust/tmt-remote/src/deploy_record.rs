@@ -97,6 +97,32 @@ fn valid(record: &DeployRecord) -> bool {
         {
             return false;
         }
+        if let Some(storage) = &run.storage {
+            let project = record
+                .inputs
+                .as_ref()
+                .map(|i| i.project.as_str())
+                .or_else(|| record.binding.as_ref().map(|b| b.project.as_str()));
+            if project.is_none_or(|project| !storage.valid(project))
+                || (run.state == RunState::Complete
+                    && (!storage.verified
+                        || [
+                            "storage:eligibility",
+                            "storage:bucket",
+                            "storage:ruleset",
+                            "storage:release",
+                        ]
+                        .iter()
+                        .any(|id| {
+                            !run.steps.iter().any(|s| {
+                                s.id == *id
+                                    && matches!(s.state, StepState::Done | StepState::Adopted)
+                            })
+                        })))
+            {
+                return false;
+            }
+        }
         if let Some(hosting) = &run.hosting {
             let Ok(view) =
                 serde_json::from_value::<deploy_run::DeployView>(hosting.envelope.clone())

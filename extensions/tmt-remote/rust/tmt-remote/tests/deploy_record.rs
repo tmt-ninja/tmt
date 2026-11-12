@@ -67,6 +67,7 @@ fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_byt
         DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let mut record = DeployRecord::new(ID);
     record.run = Some(Run {
+        storage: None,
         plan_digest: "a".repeat(64),
         account: "owner@example.test".into(),
         authorized_at_ms: 1,

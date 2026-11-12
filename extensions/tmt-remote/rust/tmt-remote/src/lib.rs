@@ -27,6 +27,7 @@ pub mod deploy_permissions;
 pub mod deploy_plan;
 pub mod deploy_record;
 pub mod deploy_run;
+pub mod deploy_storage;
 pub mod deploy_tools;
 pub mod devices;
 pub mod error;

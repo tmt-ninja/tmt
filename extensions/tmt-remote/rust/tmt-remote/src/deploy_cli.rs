@@ -22,6 +22,12 @@ pub struct FirestoreArgs {
     pub web_app: Option<String>,
     pub site: Option<String>,
     pub defaults: bool,
+    pub storage: Option<String>,
+    pub bucket: Option<String>,
+    pub bucket_location: Option<String>,
+    pub accept_paid_storage: bool,
+    /// Invocation evidence supplied by the binary, never a user-controlled CLI flag.
+    pub agent: bool,
     pub authorize: Option<String>,
     pub json: bool,
     pub details: bool,
@@ -58,6 +64,18 @@ fn retry_command(args: &FirestoreArgs) -> String {
     if args.defaults {
         command.push_str(" --defaults");
     }
+    for (flag, value) in [
+        ("storage", &args.storage),
+        ("bucket", &args.bucket),
+        ("bucket-location", &args.bucket_location),
+    ] {
+        if let Some(value) = value {
+            command.push_str(&format!(" --{flag}={}", quote(value)));
+        }
+    }
+    if args.accept_paid_storage {
+        command.push_str(" --accept-paid-storage");
+    }
     if let Some(digest) = &args.authorize {
         command.push_str(&format!(" --authorize {}", quote(digest)));
     }
@@ -85,6 +103,15 @@ pub trait FirestoreCommandPort: DeployPort {
     fn prepare_hosting(&mut self, _content: &crate::hosting::HostingComposition) {}
     /// Supply private layout only; preview never signs in or registers a machine.
     fn prepare_owner(&mut self, _layout: &crate::state::Layout) {}
+    fn storage_inventory(
+        &mut self,
+        _project: &str,
+        _intent: &crate::deploy_storage::StorageIntent,
+        _original: Option<&crate::deploy_storage::StorageCheckpoint>,
+    ) -> Result<crate::deploy_storage::StoragePlan, crate::deploy_firestore::DeployPreflightError>
+    {
+        Err(crate::deploy_run::DeployProviderError::Unknown.into())
+    }
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
     fn check_permissions(
         &mut self,
@@ -114,6 +141,15 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
     const SUPPORTS_HOSTING: bool = true;
     fn prepare_hosting(&mut self, content: &crate::hosting::HostingComposition) {
         self.prepare_content(content);
+    }
+    fn storage_inventory(
+        &mut self,
+        project: &str,
+        intent: &crate::deploy_storage::StorageIntent,
+        original: Option<&crate::deploy_storage::StorageCheckpoint>,
+    ) -> Result<crate::deploy_storage::StoragePlan, crate::deploy_firestore::DeployPreflightError>
+    {
+        self.storage_inventory(project, intent, original)
     }
     fn prepare_owner(&mut self, layout: &crate::state::Layout) {
         self.prepare_owner_access(layout);
@@ -155,12 +191,14 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --defaults --json", note: "Read the exact plan with explicit project and region" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same unfinished approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
-    }), inputs::manifest())
+        details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same unfinished approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Storage is off by default. --storage blaze requires an explicitly selected bucket, paid consent and exact-plan authorization; TMT never changes billing. Identified agents may preview paid Storage but require a person to authorize it.",
+    }), &inputs::registration_manifest())
         .mut_arg("sign-in", |argument| argument
                 .value_delimiter(',')
                 .action(ArgAction::Append)
         )
+        .arg(Arg::new("accept-paid-storage").long("accept-paid-storage").action(ArgAction::SetTrue)
+            .help("Explicit paid Storage consent; also requires exact-plan authorization. Identified agents remain preview-only."))
         .arg(Arg::new("authorize").long("authorize"))
         .arg(Arg::new("details").long("details").action(ArgAction::SetTrue).help("Show the full plan (fingerprints, extension resources and indexes) before asking."))
 }
@@ -201,6 +239,11 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
         web_app: matches.get_one::<String>("web-app").cloned(),
         site: matches.get_one::<String>("site").cloned(),
         defaults: matches.get_flag("defaults"),
+        storage: matches.get_one::<String>("storage").cloned(),
+        bucket: matches.get_one::<String>("bucket").cloned(),
+        bucket_location: matches.get_one::<String>("bucket-location").cloned(),
+        accept_paid_storage: matches.get_flag("accept-paid-storage"),
+        agent: false,
         authorize,
         json: matches.get_flag("json"),
         details: matches.get_flag("details"),
@@ -262,8 +305,13 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         (!args.project.is_empty()).then_some(args.project.as_str()),
     )
     .map_err(DeployCliError::Local)?;
-    let requirements =
+    let mut requirements =
         inputs::permission_requirements(&discovered.extensions, discovered.hosting.is_some());
+    inputs::include_storage(
+        &mut requirements,
+        args.storage.is_some(),
+        args.bucket.as_deref().is_none_or(|b| b == "default"),
+    );
     let Some(project) = project else {
         return inputs::resolve(args, None, &Default::default(), &requirements)
             .map(|_| unreachable!("project is required"));
@@ -279,6 +327,11 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
             recorded.remove(input);
         }
     }
+    inputs::include_storage(
+        &mut requirements,
+        recorded.contains_key("storage"),
+        recorded.get("bucket").is_some_and(|b| b == "default"),
+    );
     let resources = inputs::resolve(args, Some(&project), &recorded, &requirements)?;
     inputs::validate_hosted_sign_in(&resources, discovered.hosting.is_some())?;
     let region = resources.region.clone();
@@ -294,6 +347,11 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         web_app: Some(resources.web_app),
         site: Some(resources.site),
         defaults: args.defaults,
+        storage: resources.storage.as_ref().map(|_| "blaze".into()),
+        bucket: resources.storage.as_ref().map(|s| s.bucket.clone()),
+        bucket_location: resources.storage.as_ref().and_then(|s| s.location.clone()),
+        accept_paid_storage: args.accept_paid_storage,
+        agent: args.agent,
         authorize: args.authorize.clone(),
         json: args.json,
         details: args.details,
@@ -355,7 +413,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
     store: &mut DeployRecordStore,
     now_ms: u64,
     record_path: &std::path::Path,
-    confirmation: Option<&mut PlanConfirmation<'_>>,
+    mut confirmation: Option<&mut PlanConfirmation<'_>>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
     let database_present = provider
         .check_index_budget(&args.project, &discovered.extensions)
@@ -458,8 +516,67 @@ fn execute_prepared<P: FirestoreCommandPort>(
         live_rules: live_rules.as_deref(),
     };
     let map = |error| DeployCliError::Command(error, record_path.to_path_buf());
-    let prepared = deploy_command::prepare_with_hosting(&input, store, provider, hosting.as_ref())
-        .map_err(map)?;
+    let mut prepared =
+        deploy_command::prepare_with_hosting(&input, store, provider, hosting.as_ref())
+            .map_err(map)?;
+    if let Some(bucket) = &args.bucket {
+        let intent = crate::deploy_storage::StorageIntent {
+            bucket: bucket.clone(),
+            location: args.bucket_location.clone(),
+        };
+        let storage = provider
+            .storage_inventory(
+                &args.project,
+                &intent,
+                prepared
+                    .record()
+                    .run
+                    .as_ref()
+                    .filter(|r| r.state != crate::deploy_run::RunState::Complete)
+                    .and_then(|r| r.storage.as_ref()),
+            )
+            .map_err(DeployCliError::Provider)?;
+        prepared = prepared.with_storage(storage).map_err(map)?;
+    }
+    let paid = if prepared.plan().view().storage.is_some() {
+        let mut preview = prepared
+            .preview(&input, store, hosting.as_ref())
+            .map_err(map)?;
+        let continuing = prepared.record().run.as_ref().is_some_and(|run| {
+            run.state != crate::deploy_run::RunState::Complete
+                && run.plan_digest == prepared.plan().digest()
+        });
+        if args.agent || (args.authorize.is_some() && !args.accept_paid_storage && !continuing) {
+            let mut person = args.clone();
+            person.accept_paid_storage = true;
+            person.authorize = Some(prepared.plan().digest()[..12].to_owned());
+            return Err(DeployCliError::Local(
+                crate::error::RemoteError::paid_storage_required(
+                    preview.json,
+                    &format!(
+                        "{}\nA person must review and run: {}",
+                        preview.human,
+                        retry_command(&person)
+                    ),
+                ),
+            ));
+        }
+        if continuing || args.accept_paid_storage {
+            true
+        } else if let Some(confirm) = confirmation.as_mut().filter(|_| !args.json) {
+            preview.json["paidStorageConsent"] = json!(true);
+            if !confirm(&preview)? {
+                preview.human = format!("{DECLINED}\n");
+                preview.json["declined"] = json!(true);
+                return Ok(preview);
+            }
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let mut continuing = false;
     let authorization = if let Some(typed) = args.authorize.as_deref() {
         Some(
@@ -521,7 +638,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
     let mut output = deploy_command::execute_prepared(
         &input,
         prepared,
-        authorization,
+        authorization.map(|approval| approval.with_paid_storage(paid)),
         store,
         provider,
         now_ms,
@@ -718,6 +835,11 @@ mod retry_tests {
             authorize: Some("a".repeat(12)),
             json: true,
             details: true,
+            storage: None,
+            bucket: None,
+            bucket_location: None,
+            accept_paid_storage: false,
+            agent: false,
         };
         assert_eq!(
             retry_command(&args),

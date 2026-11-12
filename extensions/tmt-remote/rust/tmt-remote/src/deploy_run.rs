@@ -49,6 +49,8 @@ pub enum DeployRefusal {
     AccountChanged,
     AccountUnreadable,
     HostingUnavailable,
+    StorageUnavailable,
+    PaidStorageConsentRequired,
     PreviousCreateUnconfirmed,
     PreviousVersionStaged,
 }
@@ -63,6 +65,8 @@ impl DeployRefusal {
             Self::AccountChanged => "REMOTE_DEPLOY_ACCOUNT_CHANGED",
             Self::AccountUnreadable => "REMOTE_DEPLOY_ACCOUNT_UNREADABLE",
             Self::HostingUnavailable => "REMOTE_DEPLOY_HOSTING_UNAVAILABLE",
+            Self::StorageUnavailable => "REMOTE_DEPLOY_STORAGE_UNAVAILABLE",
+            Self::PaidStorageConsentRequired => "REMOTE_DEPLOY_PAID_STORAGE_CONSENT_REQUIRED",
             Self::PreviousCreateUnconfirmed => "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
             Self::PreviousVersionStaged => "REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED",
         }
@@ -108,8 +112,16 @@ pub enum StepKind {
     /// Explicit project-owner admission, never a side effect of Verify.
     OwnerAccess,
     Rules,
+    Storage(StorageStep),
     /// Reads back every other step; the last gate before a binding.
     Verify,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageStep {
+    Eligibility,
+    Bucket,
+    Ruleset,
+    Release,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployStep {
@@ -138,6 +150,8 @@ pub struct DeployView {
     pub destructive: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hosting: Option<crate::hosting::HostingDeploymentView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<crate::deploy_storage::StoragePlan>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -167,6 +181,54 @@ pub struct DeployPlan {
 impl DeployPlan {
     pub fn view(&self) -> &DeployView {
         &self.view
+    }
+    pub fn with_storage(
+        mut self,
+        storage: crate::deploy_storage::StoragePlan,
+    ) -> Result<Self, DeployRefusal> {
+        if !storage.valid() {
+            return Err(DeployRefusal::StorageUnavailable);
+        }
+        self.steps
+            .retain(|step| !matches!(step.kind, StepKind::Storage(_)));
+        self.steps.insert(
+            0,
+            step(
+                "storage:eligibility",
+                StepKind::Storage(StorageStep::Eligibility),
+            ),
+        );
+        let index = self
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::Rules)
+            .expect("Rules step");
+        for (offset, (id, kind)) in [
+            ("storage:bucket", StorageStep::Bucket),
+            ("storage:ruleset", StorageStep::Ruleset),
+            ("storage:release", StorageStep::Release),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            self.steps
+                .insert(index + offset, step(id, StepKind::Storage(kind)));
+        }
+        self.view
+            .destructive
+            .retain(|value| !value.starts_with("replaces-storage-policy:"));
+        if let Some(digest) = &storage.replaced_policy_digest
+            && digest != &storage.policy_digest
+        {
+            self.view
+                .destructive
+                .push(format!("replaces-storage-policy:{digest}"));
+        }
+        self.view.steps = self.steps.iter().map(|s| s.id.clone()).collect();
+        self.view.storage = Some(storage);
+        self.bytes = serde_json::to_vec(&self.view).expect("deploy view serializes");
+        self.digest = sha256_hex(&self.bytes);
+        Ok(self)
     }
     pub fn digest(&self) -> &str {
         &self.digest
@@ -366,6 +428,7 @@ pub fn prepare_with_hosting(
         extension_plan_digest: plan.digest().to_owned(),
         destructive,
         hosting: hosting.cloned(),
+        storage: None,
     };
     if let Some(hosting) = hosting {
         if !crate::hosting::site_id_ok(&hosting.site)
@@ -409,8 +472,13 @@ fn step(id: &str, kind: StepKind) -> DeployStep {
 pub struct Authorization {
     plan_digest: String,
     abandon_unreleased_hosting: bool,
+    paid_storage: bool,
 }
 impl Authorization {
+    pub fn with_paid_storage(mut self, accepted: bool) -> Self {
+        self.paid_storage = accepted;
+        self
+    }
     pub(crate) fn interactive(&self) -> bool {
         self.abandon_unreleased_hosting
     }
@@ -424,6 +492,7 @@ pub fn authorize(plan: &DeployPlan, typed_digest: &str) -> Result<Authorization,
     Ok(Authorization {
         plan_digest: plan.digest.clone(),
         abandon_unreleased_hosting: false,
+        paid_storage: false,
     })
 }
 
@@ -443,6 +512,8 @@ pub enum DeployFault {
     RulesForeign,
     /// The read-back did not match what was applied.
     VerifyFailed,
+    BillingDisabled,
+    StorageMismatch,
 }
 impl DeployFault {
     pub fn code(self) -> &'static str {
@@ -455,6 +526,8 @@ impl DeployFault {
             Self::DatabaseMismatch => "REMOTE_DEPLOY_DATABASE_MISMATCH",
             Self::RulesForeign => "REMOTE_DEPLOY_RULES_FOREIGN",
             Self::VerifyFailed => "REMOTE_DEPLOY_VERIFY_FAILED",
+            Self::BillingDisabled => "REMOTE_DEPLOY_STORAGE_BILLING_DISABLED",
+            Self::StorageMismatch => "REMOTE_DEPLOY_STORAGE_MISMATCH",
         }
     }
 }
@@ -684,6 +757,10 @@ pub trait DeployPort {
 
     /// The account the credential resolves to. Read-only.
     fn account(&mut self) -> Result<String, DeployProviderError>;
+    fn restore_storage(&mut self, _checkpoint: &crate::deploy_storage::StorageCheckpoint) {}
+    fn storage_checkpoint(&self) -> Option<crate::deploy_storage::StorageCheckpoint> {
+        None
+    }
     fn observe(
         &mut self,
         plan: &DeployPlan,
@@ -761,6 +838,8 @@ pub struct Run {
     pub steps: Vec<StepRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosting: Option<HostingCheckpoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<crate::deploy_storage::StorageCheckpoint>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -806,6 +885,14 @@ impl DeployRecord {
             self.binding.as_ref()
         }
     }
+    pub fn verified_storage(&self) -> Option<crate::deploy_storage::StorageCapability> {
+        let run = self.run.as_ref()?;
+        if run.state != RunState::Complete || self.usable_binding()?.plan_digest != run.plan_digest
+        {
+            return None;
+        }
+        run.storage.as_ref()?.capability()
+    }
     /// A consumer may publish a link only from the atomically completed joint result.
     pub fn verified_publication(&self) -> Option<&VerifiedHostingPublication> {
         let run = self.run.as_ref()?;
@@ -828,10 +915,13 @@ pub struct ResourceInputs {
     pub web_app: String,
     pub site: String,
     pub sign_in: Vec<SignInProvider>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<crate::deploy_storage::StorageIntent>,
 }
 impl ResourceInputs {
     pub(crate) fn valid(&self) -> bool {
-        project_ok(&self.project)
+        self.storage.as_ref().is_none_or(|s| s.valid())
+            && project_ok(&self.project)
             && location_ok(&self.region)
             && self.database == DATABASE
             && (self.web_app == "new" || crate::hosting::app_id_ok(&self.web_app))
@@ -861,6 +951,11 @@ pub fn run(
     sink: &mut dyn DeploySink,
     now_ms: u64,
 ) -> Result<DeployRecord, DeployError> {
+    if plan.view.storage.is_some() && !authorization.paid_storage {
+        return Err(DeployError::Refused(
+            DeployRefusal::PaidStorageConsentRequired,
+        ));
+    }
     // A declared Hosting plan cannot fall through to a Rules-only adapter.
     if plan.view.hosting.is_some() && !port.supports_hosting() {
         return Err(DeployError::Refused(DeployRefusal::HostingUnavailable));
@@ -882,6 +977,9 @@ pub fn run(
     }
     begin(&mut record, plan, now_ms);
     save(sink, &record)?;
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").storage {
+        port.restore_storage(checkpoint);
+    }
     if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
         port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
     }
@@ -1007,6 +1105,11 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
         authorized_at_ms: now_ms,
         state: RunState::Applying,
         rules_attempted: false,
+        storage: plan
+            .view
+            .storage
+            .clone()
+            .map(crate::deploy_storage::StorageCheckpoint::new),
         hosting: plan.view.hosting.as_ref().map(|hosting| HostingCheckpoint {
             envelope: serde_json::to_value(&plan.view).expect("view serializes"),
             app_id: hosting.web_app.clone(),
@@ -1036,6 +1139,9 @@ fn advance(
     port: &mut dyn DeployPort,
     sink: &mut dyn DeploySink,
 ) -> Result<bool, DeployError> {
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").storage {
+        port.restore_storage(checkpoint);
+    }
     if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
         port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
     }
@@ -1106,6 +1212,7 @@ fn advance(
     if matches!(
         step.kind,
         StepKind::Hosting(HostingStep::WebAppCreate | HostingStep::VersionCreate)
+            | StepKind::Storage(_)
     ) && record.run.as_ref().expect("begun").steps[index].state == StepState::Unknown
     {
         // Absence after an ambiguous mutation is not proof it did not happen.
@@ -1119,12 +1226,20 @@ fn advance(
         return Ok(false);
     }
     // Recorded before the call, so a crash or a lost answer leaves `unknown`, never a gap.
+    if step.kind == StepKind::Storage(StorageStep::Bucket)
+        && let Some(storage) = &mut run_of(record).storage
+    {
+        storage.bucket_attempted = true;
+    }
     if step.kind == StepKind::Rules {
         run_of(record).rules_attempted = true;
     }
     run_of(record).steps[index].cause = matches!(step.kind, StepKind::Hosting(_))
         .then(|| StepCause::new(CauseCode::CallIncomplete, CausePhase::Mutation));
     set(record, sink, index, StepState::Unknown)?;
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").storage {
+        port.restore_storage(checkpoint);
+    }
     if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
         port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
     }
@@ -1190,6 +1305,12 @@ fn finish(
                 .hosting
                 .as_ref()
                 .is_some_and(|h| h.publication.as_ref().is_some_and(|p| p.matches(plan))));
+    let complete = complete
+        && (plan.view.storage.is_none()
+            || run_of(&mut record)
+                .storage
+                .as_ref()
+                .is_some_and(|s| s.verified && Some(&s.plan) == plan.view.storage.as_ref()));
     run_of(&mut record).state = if complete {
         RunState::Complete
     } else {
@@ -1435,6 +1556,9 @@ impl VerifiedHostingPublication {
     }
 }
 fn capture_checkpoint(record: &mut DeployRecord, port: &dyn DeployPort) {
+    if let Some(checkpoint) = port.storage_checkpoint() {
+        run_of(record).storage = Some(checkpoint);
+    }
     if let Some(checkpoint) = port.hosting_checkpoint() {
         run_of(record).hosting = Some(checkpoint);
     }
@@ -1518,6 +1642,9 @@ pub fn supersession_refusal(plan: &DeployPlan, record: &DeployRecord) -> Option<
                 | "hosting-site:create"
                 | "hosting-site:configure"
                 | "hosting:stage:create"
+                | "storage:bucket"
+                | "storage:ruleset"
+                | "storage:release"
         ) && (step.state == StepState::Unknown
             || (step.id == "web-app:create" && step.state == StepState::Building))
     }) {
@@ -1568,6 +1695,7 @@ pub fn authorize_interactive(
     Ok(Authorization {
         plan_digest: plan.digest.clone(),
         abandon_unreleased_hosting: true,
+        paid_storage: false,
     })
 }
 pub fn interactive_supersession_refusal(
@@ -1578,7 +1706,12 @@ pub fn interactive_supersession_refusal(
     if previous.steps.iter().any(|step| {
         matches!(
             step.id.as_str(),
-            "web-app:create" | "hosting-site:create" | "hosting-site:configure"
+            "web-app:create"
+                | "hosting-site:create"
+                | "hosting-site:configure"
+                | "storage:bucket"
+                | "storage:ruleset"
+                | "storage:release"
         ) && (step.state == StepState::Unknown
             || (step.id == "web-app:create" && step.state == StepState::Building))
     }) {
