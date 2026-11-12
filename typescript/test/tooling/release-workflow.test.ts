@@ -2158,14 +2158,8 @@ describe('Node 26 userland Corepack acquisition', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
-  it('uses the same version and byte verifier in every direct Node image before install/enable', () => {
-    const images = [
-      'typescript/test/e2e/Dockerfile',
-      'typescript/test/native/artifact.Dockerfile',
-      'typescript/test/native/runtime.Dockerfile',
-      'extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile',
-      'extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile',
-    ];
+  it('uses the same version and byte verifier in every pnpm-using Node image before install/enable', () => {
+    const images = ['typescript/test/e2e/Dockerfile', 'typescript/test/native/artifact.Dockerfile'];
     for (const file of images) {
       const source = read(file);
       expect(source).toContain(
