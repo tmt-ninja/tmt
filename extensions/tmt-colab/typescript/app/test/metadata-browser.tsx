@@ -35,9 +35,15 @@ const comment = {
   sequence: '1',
   questionId: q(2),
 };
+// A template page with rules (#6333): comments before blocks, one nested, one before nothing.
+const rules = new URLSearchParams(location.search).has('rules');
+const ruleSource = `<!-- layout: column -->\n<h1>Metadata page</h1>\n<!-- rule: one row per\n  merged item -->\n<p data-gap="loose">Shipped work.</p>\n<section><!-- nested rule --><p>Open work.</p></section>\n<!-- rule: next week -->\n<p>Next week.</p>\n<!-- no block follows -->`;
 let view: PageView = {
   title: 'Metadata page',
-  source,
+  source: rules ? ruleSource : source,
+  ...(rules
+    ? { layout: 'column' as const, template: { name: 'weekly-plan', description: 'A plan' } }
+    : {}),
   originalAuthor: 'Original author',
   creator: { agent: { id: id(6), name: 'First creator' }, attribution },
   questions: registry,

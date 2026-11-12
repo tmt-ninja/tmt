@@ -104,6 +104,45 @@
       > [data-colab-block-slot] {
         margin-block-start: -16px !important;
       }
+
+      /* A rule tag (#6333) takes its block's gap above it and sits 6px over the block. */
+      > [data-colab-rule] {
+        margin-block-end: -10px !important;
+
+        &[data-gap='tight'] {
+          margin-block-end: -2px !important;
+        }
+        &[data-gap='loose'] {
+          margin-block-end: -34px !important;
+        }
+      }
+    }
+  }
+  /* A template rule the frame draws above its block (#6333), only for someone who may edit the
+     page. The frame owns the node; the author's CSS cannot restyle it. Its colours follow the
+     scheme the page paints, which the frame sets on it as `data-scheme` (generate-renderer-style.mjs
+     projects the working mint per scheme). */
+  [data-colab-rule] {
+    display: block !important;
+    margin: 0 0 6px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: none !important;
+    pointer-events: none !important;
+    user-select: none !important;
+
+    > span {
+      all: initial !important;
+      display: inline-block !important;
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+      padding: 2px 8px !important;
+      border-radius: 4px !important;
+      background: var(--colab-rule-surface) !important;
+      color: var(--colab-rule-ink) !important;
+      font: 500 11px/16px var(--tmt-ui-font-mono, ui-monospace, monospace) !important;
+      overflow-wrap: anywhere !important;
+      user-select: none !important;
     }
   }
   /* The visible band (#6090). The page frame is as tall as its page, so its own viewport is the

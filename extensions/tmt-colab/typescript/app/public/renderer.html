@@ -518,7 +518,7 @@
           if (framed) document.documentElement.dataset.colabLayout = layout;
           const utf8 = new TextEncoder();
           const excluded =
-            'head,script,style,template,noscript,tmt-thread-ref,[hidden],[data-colab-highlight],[data-colab-image]';
+            'head,script,style,template,noscript,tmt-thread-ref,[hidden],[data-colab-highlight],[data-colab-image],[data-colab-rule]';
           const validQuote = (v) =>
             v &&
             typeof v === 'object' &&
@@ -867,6 +867,8 @@
               document.documentElement.dataset.colabScheme = next;
             if (next === scheme) return;
             scheme = next;
+            for (const tag of document.querySelectorAll('[data-colab-rule]'))
+              tag.setAttribute('data-scheme', scheme);
             parent.postMessage({ type: 'colab.render.scheme', renderId, scheme }, '*');
           }
           const scheduleScheme = () => {
@@ -992,7 +994,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            '@layer colab-frame{:root{--tmt-ui-surface-annotation-highlight:#efedea;--tmt-ui-surface-annotation-highlight-hover:#e3e1dc;--tmt-ui-surface-annotation-highlight-selected:#cfccc6;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#141414;--tmt-ui-surface-annotation-action:#cfccc6;--tmt-ui-color-annotation-on-action:#141414;--tmt-ui-surface-sheet:#f7f6f4;--tmt-ui-color-text:#141414;--tmt-ui-surface-rule:#e3e1dc;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1f1f1f;--tmt-ui-surface-annotation-highlight-hover:#262626;--tmt-ui-surface-annotation-highlight-selected:#3a3a3a;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#f2efe9;--tmt-ui-surface-annotation-action:#3a3a3a;--tmt-ui-color-annotation-on-action:#f2efe9;--tmt-ui-surface-sheet:#141414;--tmt-ui-color-text:#f2efe9;--tmt-ui-surface-rule:#262626;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#efedea;--tmt-ui-surface-annotation-highlight-hover:#e3e1dc;--tmt-ui-surface-annotation-highlight-selected:#cfccc6;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#141414;--tmt-ui-surface-annotation-action:#cfccc6;--tmt-ui-color-annotation-on-action:#141414;--tmt-ui-surface-sheet:#f7f6f4;--tmt-ui-color-text:#141414;--tmt-ui-surface-rule:#e3e1dc;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1f1f1f;--tmt-ui-surface-annotation-highlight-hover:#262626;--tmt-ui-surface-annotation-highlight-selected:#3a3a3a;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#f2efe9;--tmt-ui-surface-annotation-action:#3a3a3a;--tmt-ui-color-annotation-on-action:#f2efe9;--tmt-ui-surface-sheet:#141414;--tmt-ui-color-text:#f2efe9;--tmt-ui-surface-rule:#262626;}}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }tmt-thread-ref { font-size: 0; } tmt-thread-ref > :not([data-colab-ref-chip]) { display: none !important; } .colab-thread-ref-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; max-width: 100%; padding: 0 8px; border: 1px solid var(--tmt-ui-color-annotation-rule); border-radius: 999px; background: var(--tmt-ui-surface-annotation-highlight); color: var(--tmt-ui-color-annotation-rule-selected); font: 600 12px/20px system-ui, sans-serif; overflow-wrap: anywhere; } button.colab-thread-ref-chip { cursor: pointer; } .colab-thread-ref-chip[data-missing] { border-color: var(--tmt-ui-surface-rule); background: transparent; color: var(--tmt-ui-color-text); opacity: 0.65; font-weight: 400; } .colab-thread-ref-chip tmt-icon { width: 14px; height: 14px; flex: none; }';
+            '@layer colab-frame{:root{--tmt-ui-surface-annotation-highlight:#efedea;--tmt-ui-surface-annotation-highlight-hover:#e3e1dc;--tmt-ui-surface-annotation-highlight-selected:#cfccc6;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#141414;--tmt-ui-surface-annotation-action:#cfccc6;--tmt-ui-color-annotation-on-action:#141414;--tmt-ui-surface-sheet:#f7f6f4;--tmt-ui-color-text:#141414;--tmt-ui-surface-rule:#e3e1dc;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1f1f1f;--tmt-ui-surface-annotation-highlight-hover:#262626;--tmt-ui-surface-annotation-highlight-selected:#3a3a3a;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#f2efe9;--tmt-ui-surface-annotation-action:#3a3a3a;--tmt-ui-color-annotation-on-action:#f2efe9;--tmt-ui-surface-sheet:#141414;--tmt-ui-color-text:#f2efe9;--tmt-ui-surface-rule:#262626;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#efedea;--tmt-ui-surface-annotation-highlight-hover:#e3e1dc;--tmt-ui-surface-annotation-highlight-selected:#cfccc6;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#141414;--tmt-ui-surface-annotation-action:#cfccc6;--tmt-ui-color-annotation-on-action:#141414;--tmt-ui-surface-sheet:#f7f6f4;--tmt-ui-color-text:#141414;--tmt-ui-surface-rule:#e3e1dc;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1f1f1f;--tmt-ui-surface-annotation-highlight-hover:#262626;--tmt-ui-surface-annotation-highlight-selected:#3a3a3a;--tmt-ui-color-annotation-rule:#8f8b84;--tmt-ui-color-annotation-rule-selected:#f2efe9;--tmt-ui-surface-annotation-action:#3a3a3a;--tmt-ui-color-annotation-on-action:#f2efe9;--tmt-ui-surface-sheet:#141414;--tmt-ui-color-text:#f2efe9;--tmt-ui-surface-rule:#262626;}[data-colab-rule]{--colab-rule-surface:#eaf2ec;--colab-rule-ink:#2f7a4f;}[data-colab-rule][data-scheme="dark"]{--colab-rule-surface:#18221b;--colab-rule-ink:#7fb894;}}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }tmt-thread-ref { font-size: 0; } tmt-thread-ref > :not([data-colab-ref-chip]) { display: none !important; } .colab-thread-ref-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; max-width: 100%; padding: 0 8px; border: 1px solid var(--tmt-ui-color-annotation-rule); border-radius: 999px; background: var(--tmt-ui-surface-annotation-highlight); color: var(--tmt-ui-color-annotation-rule-selected); font: 600 12px/20px system-ui, sans-serif; overflow-wrap: anywhere; } button.colab-thread-ref-chip { cursor: pointer; } .colab-thread-ref-chip[data-missing] { border-color: var(--tmt-ui-surface-rule); background: transparent; color: var(--tmt-ui-color-text); opacity: 0.65; font-weight: 400; } .colab-thread-ref-chip tmt-icon { width: 14px; height: 14px; flex: none; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE UI
           const pageUi =
@@ -1004,7 +1006,7 @@
           // END GENERATED PAGE ICONS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-block-slot] { margin-block-start: -16px !important; } } } :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, [data-slot="dialog-overlay"], [data-slot="sheet-overlay"]):not( [data-tmt-ds-scope] * ), :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, .tmt-ui-drawer):not([data-tmt-ds-scope] *)::backdrop { inset: var(--tmt-ui-viewport-top) 0 calc(100% - var(--tmt-ui-viewport-top) - var(--tmt-ui-viewport-height)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-dialog:not([data-tmt-ds-scope] *) { max-height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-space-l)) !important; } :root[data-tmt-ui-viewport] .tmt-block-menu[data-placement="sheet"]:not([data-tmt-ds-scope] *) { max-height: calc(0.6 * var(--tmt-ui-viewport-height, 100vh)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-shell:not([data-tmt-ds-scope] *) { min-height: var(--tmt-ui-viewport-height, 100vh) !important; } :root[data-tmt-ui-viewport] .tmt-ui-rail:not([data-tmt-ds-scope] *) { height: var(--tmt-ui-viewport-height, 100vh) !important; } :root[data-tmt-ui-viewport] .tmt-ui-drawer:not([data-tmt-ds-scope] *) { top: calc(var(--tmt-ui-viewport-top) + var(--tmt-ui-drawer-gutter)) !important; bottom: auto !important; height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-drawer-gutter)) !important; } }';
+            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-block-slot] { margin-block-start: -16px !important; } > [data-colab-rule] { margin-block-end: -10px !important; &[data-gap="tight"] { margin-block-end: -2px !important; } &[data-gap="loose"] { margin-block-end: -34px !important; } } } } [data-colab-rule] { display: block !important; margin: 0 0 6px !important; padding: 0 !important; border: 0 !important; background: none !important; pointer-events: none !important; user-select: none !important; > span { all: initial !important; display: inline-block !important; box-sizing: border-box !important; max-width: 100% !important; padding: 2px 8px !important; border-radius: 4px !important; background: var(--colab-rule-surface) !important; color: var(--colab-rule-ink) !important; font: 500 11px/16px var(--tmt-ui-font-mono, ui-monospace, monospace) !important; overflow-wrap: anywhere !important; user-select: none !important; } } :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, [data-slot="dialog-overlay"], [data-slot="sheet-overlay"]):not( [data-tmt-ds-scope] * ), :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, .tmt-ui-drawer):not([data-tmt-ds-scope] *)::backdrop { inset: var(--tmt-ui-viewport-top) 0 calc(100% - var(--tmt-ui-viewport-top) - var(--tmt-ui-viewport-height)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-dialog:not([data-tmt-ds-scope] *) { max-height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-space-l)) !important; } :root[data-tmt-ui-viewport] .tmt-block-menu[data-placement="sheet"]:not([data-tmt-ds-scope] *) { max-height: calc(0.6 * var(--tmt-ui-viewport-height, 100vh)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-shell:not([data-tmt-ds-scope] *) { min-height: var(--tmt-ui-viewport-height, 100vh) !important; } :root[data-tmt-ui-viewport] .tmt-ui-rail:not([data-tmt-ds-scope] *) { height: var(--tmt-ui-viewport-height, 100vh) !important; } :root[data-tmt-ui-viewport] .tmt-ui-drawer:not([data-tmt-ds-scope] *) { top: calc(var(--tmt-ui-viewport-top) + var(--tmt-ui-drawer-gutter)) !important; bottom: auto !important; height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-drawer-gutter)) !important; } }';
           // END GENERATED PAGE FRAME
           const accent = 'var(--tmt-ui-color-annotation-rule-selected)';
           const accentTint = (percent) => `color-mix(in srgb,${accent} ${percent}%,transparent)`;
@@ -2154,6 +2156,62 @@
               referenceChips.set(node, { key, chip });
             }
           }
+          // A template's rules (#6333): each HTML comment of the page, numbered in document order as
+          // `template show` numbers them (whitespace collapsed to one line), drawn as a tag above the
+          // top-level block it directly precedes. Only while the parent shows them, to someone who
+          // may edit the page; the tags are frame nodes, so they never reach the source.
+          let showRules = false;
+          const ruleTags = new Map();
+          function resolveRules() {
+            const wanted = new Map();
+            if (showRules) {
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT);
+              let number = 0;
+              for (let comment; (comment = walker.nextNode());) {
+                const text = comment.data.split(/\s+/).filter(Boolean).join(' ');
+                if (!text) continue;
+                number++;
+                if (comment.parentNode !== document.body) continue;
+                let block = comment.nextSibling;
+                while (
+                  block &&
+                  ((block.nodeType === 3 && !block.data.trim()) ||
+                    (block.nodeType === 1 && ruleTags.get(comment)?.tag === block))
+                )
+                  block = block.nextSibling;
+                if (block?.nodeType !== 1 || frameNodes.has(block) || block.matches(excluded))
+                  continue;
+                wanted.set(comment, {
+                  block,
+                  label: `rule ${number} · ${text.replace(/^rule:\s*/i, '')}`,
+                });
+              }
+            }
+            for (const [comment, { tag }] of ruleTags)
+              if (!wanted.has(comment)) {
+                tag.remove();
+                ruleTags.delete(comment);
+              }
+            for (const [comment, { block, label }] of wanted) {
+              let entry = ruleTags.get(comment);
+              if (!entry) {
+                const tag = frameNode('div');
+                tag.setAttribute('data-colab-rule', '');
+                tag.setAttribute('aria-hidden', 'true');
+                if (scheme) tag.setAttribute('data-scheme', scheme);
+                tag.append(frameNode('span'));
+                entry = { tag };
+                ruleTags.set(comment, entry);
+              }
+              const { tag } = entry;
+              if (tag.firstChild.textContent !== label) tag.firstChild.textContent = label;
+              const gap = block.getAttribute('data-gap');
+              if (gap === 'tight' || gap === 'loose') {
+                if (tag.getAttribute('data-gap') !== gap) tag.setAttribute('data-gap', gap);
+              } else if (tag.hasAttribute('data-gap')) tag.removeAttribute('data-gap');
+              if (tag.nextSibling !== block) block.before(tag);
+            }
+          }
           let parentPageViews = [];
           function resolveParentPageViews() {
             if (stopped || !parentPageViews.length) return;
@@ -2178,6 +2236,7 @@
             port.postMessage({ type: 'colab.render.parent-page-views', renderId, positions });
           }
           function resolve() {
+            resolveRules();
             resolveThreadReferences();
             resolveSlots();
             resolveParentPageViews();
@@ -2841,6 +2900,21 @@
               v &&
               typeof v === 'object' &&
               !Array.isArray(v) &&
+              Object.keys(v).length === 3 &&
+              v.type === 'colab.render.template-rules' &&
+              v.renderId === renderId &&
+              typeof v.show === 'boolean'
+            ) {
+              if (stopped || showRules === v.show) return;
+              showRules = v.show;
+              resolveRules();
+              scheduleHeight();
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
               Object.keys(v).length === 4 &&
               v.type === 'colab.render.slots' &&
               v.renderId === renderId &&
@@ -3112,10 +3186,14 @@
                   !(
                     m.target instanceof Element && m.target.hasAttribute('data-colab-block-slot')
                   ) &&
+                  !(m.target instanceof Element && m.target.closest('[data-colab-rule]')) &&
                   !(
                     m.type === 'childList' &&
                     [...m.addedNodes, ...m.removedNodes].every(
-                      (n) => n.nodeType === 1 && n.hasAttribute('data-colab-highlight'),
+                      (n) =>
+                        n.nodeType === 1 &&
+                        (n.hasAttribute('data-colab-highlight') ||
+                          n.hasAttribute('data-colab-rule')),
                     )
                   ),
               )
