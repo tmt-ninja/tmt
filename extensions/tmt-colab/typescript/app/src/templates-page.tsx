@@ -119,7 +119,7 @@ export function TemplatesPage() {
                   <>
                     <BrowserAction
                       type="button"
-                      variant="secondary"
+                      variant="primary"
                       presentation="compact"
                       label={`${t.use} ${tpl.name}`}
                       visibleLabel={t.use}
@@ -128,7 +128,7 @@ export function TemplatesPage() {
                     />
                     <BrowserAction
                       type="button"
-                      variant="ghost"
+                      variant="secondary"
                       presentation="compact"
                       label={`${tpl.id ? t.open : t.preview} ${tpl.name}`}
                       visibleLabel={tpl.id ? t.open : t.preview}

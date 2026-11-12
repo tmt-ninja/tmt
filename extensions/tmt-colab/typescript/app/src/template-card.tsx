@@ -33,7 +33,14 @@ export function TemplateThumbnail({ layout }: { layout: TemplateEntry['layout'] 
 }
 
 /** Default (amber), TMT (grey) or the author; the same marks on every template surface. */
-export function TemplateBadges({ template }: { template: TemplateEntry }) {
+export function TemplateBadges({
+  template,
+  source = true,
+}: {
+  template: TemplateEntry;
+  /** Mark TMT's templates; off where the line under the name already names the source. */
+  source?: boolean;
+}) {
   return (
     <>
       {template.default && (
@@ -41,7 +48,7 @@ export function TemplateBadges({ template }: { template: TemplateEntry }) {
           {t.defaultBadge}
         </span>
       )}
-      {template.source === 'builtIn' && (
+      {source && template.source === 'builtIn' && (
         <span className="template-badge" data-kind="tmt">
           {t.tmt}
         </span>
@@ -74,7 +81,7 @@ export function TemplateCard({
       <div className="template-card-body">
         <h3 className="template-card-name">
           <span>{template.name}</span>
-          <TemplateBadges template={template} />
+          <TemplateBadges template={template} source={false} />
         </h3>
         <p className="template-card-meta">{templateMeta(template)}</p>
         <div className="template-card-actions">{actions}</div>

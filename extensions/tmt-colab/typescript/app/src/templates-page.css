@@ -1,7 +1,9 @@
-.templates-page {
+.home.templates-page {
   display: grid;
   gap: var(--tmt-ui-space-m);
   min-width: 0;
+  max-width: none;
+  padding: 33px 36px 32px;
 }
 .templates-head {
   display: flex;
@@ -67,6 +69,9 @@
   }
 }
 @media (max-width: 600px) {
+  .home.templates-page {
+    padding: 18px 16px 24px;
+  }
   .templates-grid {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import type { ManagementPort } from './management.js';
 import { useTemplateListing } from './templates-page.js';
 import { catalogOrder } from './templates.js';
@@ -84,7 +85,7 @@ export function TemplateSettings({ management }: { management: ManagementPort | 
         </thead>
         <tbody>
           {[...builtIn, ...own].map((tpl) => (
-            <tr key={tpl.name} aria-current={tpl.default || undefined}>
+            <tr key={tpl.name}>
               <td data-label={t.columns.default}>
                 <input
                   type="radio"
@@ -111,31 +112,22 @@ export function TemplateSettings({ management }: { management: ManagementPort | 
                   </span>
                 )}
               </td>
-              <td data-label={t.columns.usedBy}>
+              <td data-label={t.columns.usedBy} data-empty={tpl.source === 'builtIn' || undefined}>
                 {tpl.source === 'builtIn' ? '—' : t.usedBy(tpl.usedBy)}
               </td>
               <td>
-                {tpl.id ? (
-                  <button
-                    type="button"
-                    className="template-settings-link"
-                    aria-label={`${t.open} ${tpl.name}`}
-                    onClick={() =>
-                      void router.navigate({ to: '/pages/$pageId', params: { pageId: tpl.id! } })
-                    }
-                  >
-                    {t.open}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="template-settings-link"
-                    aria-label={`${t.preview} ${tpl.name}`}
-                    onClick={() => void router.navigate({ to: '/templates' })}
-                  >
-                    {t.preview}
-                  </button>
-                )}
+                <BrowserAction
+                  type="button"
+                  variant="secondary"
+                  presentation="compact"
+                  label={`${tpl.id ? t.open : t.preview} ${tpl.name}`}
+                  visibleLabel={tpl.id ? t.open : t.preview}
+                  onActivate={() =>
+                    void (tpl.id
+                      ? router.navigate({ to: '/pages/$pageId', params: { pageId: tpl.id } })
+                      : router.navigate({ to: '/templates' }))
+                  }
+                />
               </td>
             </tr>
           ))}
