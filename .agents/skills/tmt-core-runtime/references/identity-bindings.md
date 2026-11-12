@@ -421,8 +421,13 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   A bounded `BindingSessionState::start_refusal` records that refusal without changing
   admission or preferences; the binding/session/preferences CAS fences it. An admitted
   start clears it atomically; a replacement binding or retirement removes it. The
-  nullable `session.unbound` and message-state reason are stored projections, never
-  read-time process probes; missing activity alone is not a refusal.
+  nullable `session.unbound`, `session.startRefusal` reason and message-state reason are
+  stored projections, never read-time process probes; missing activity alone is not a
+  refusal. Named and full listings share the session projection. A verified private
+  provider’s first prompt or non-interrupted Stop can admit the first session on an
+  already-bound pane only if its binding session is entirely unobserved and preferences
+  contain no remembered or retained session. The full binding/preferences CAS preserves incumbents
+  and never revives ended sessions; shared and unverified callers remain excluded.
 - Explicit `this`/`name`/`add` attempts exact caller-session completion after its bind
   commits, using the synchronous hook admission allowance; optional post-output
   discovery keeps its separate 500 ms allowance. Its target binding is fenced before discovery can write, so a command

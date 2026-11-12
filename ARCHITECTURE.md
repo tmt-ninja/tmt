@@ -110,7 +110,9 @@ Core's SQLite store owns identities, bindings, requests and finals, jobs and
 orchestration; one adapter holds the connection and every write goes through a Core
 service. An extension owns only its `<dataRoot>/<extension>` area and its disposable
 caches, reaches Core state through the public interfaces above, and never writes Core
-storage. User-owned configuration is changed only by the person or by a consented,
+storage. A verified provider hook may admit a first session only through the existing
+binding and preferences fences; provider data alone does not create identity authority.
+User-owned configuration is changed only by the person or by a consented,
 compare-and-swap Core command, never by an agent directly. Delivery is uncertain once
 input may have reached a terminal, and uncertainty never authorizes replay.
 

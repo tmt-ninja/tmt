@@ -724,6 +724,23 @@ fn first_hook_adoption_requires_the_main_native_provider() {
     }
 }
 
+#[test]
+fn first_hook_adoption_rejects_incomplete_codex_channel_coordinates() {
+    register();
+    let fixture = Fixture::new("first-hook-incomplete-channel");
+    bind(&fixture, fixture.approve());
+    let mut agent = SteppedProvider::start(&fixture, "codex", "agent-steps");
+    let before = stored_rows(&fixture);
+    let output = agent.hook_with_env(
+        codex_event("UserPromptSubmit", Some("turn-a")),
+        &[("TMT_CODEX_CHANNEL_BINDING", b"incomplete")],
+    );
+    assert_eq!(output.0, 0, "{output:?}");
+    assert_eq!(stored_rows(&fixture), before);
+    drop(agent);
+    assert_drivers_ended(&fixture);
+}
+
 /// A prompt/Stop may fill only a never-observed binding. It neither swaps
 /// conversations nor revives one whose SessionEnd was already admitted.
 #[test]

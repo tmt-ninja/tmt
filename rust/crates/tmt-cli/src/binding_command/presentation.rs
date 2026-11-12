@@ -127,7 +127,7 @@ pub(super) fn document(report: &Report) -> Value {
         Report::Listed { rows, detected, .. } => {
             let mut document = json!({"identities": rows.iter().map(|row| {
             let mut value = presence_document(&row.presence);
-            value["session"] = json!({"activity":row.activity,"unbound":row.unbound,"learning":row.learning.as_ref().map(crate::session_learning::document)});
+            value["session"] = json!({"activity":row.activity,"unbound":row.unbound,"learning":row.learning.as_ref().map(crate::session_learning::document),"startRefusal":row.presence.binding.as_ref().and_then(|binding| binding.session.start_refusal.as_ref()).map(|refusal| refusal.reason.as_str())});
             if let Some(resume) = &row.resume {
                 value["resume"] = resume.clone();
             }
@@ -166,12 +166,12 @@ pub(super) fn document(report: &Report) -> Value {
             row,
             remembered,
             learning,
+            activity,
+            unbound,
         } => {
             let mut value = json!({"target": target, "identity": identity_document(&row.identity),
             "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)});
-            if let Some(learning) = learning {
-                value["session"] = json!({"unbound":learning.unbound,"learning":crate::session_learning::document(learning)});
-            }
+            value["session"] = json!({"activity":activity,"unbound":unbound,"learning":learning.as_deref().map(crate::session_learning::document),"startRefusal":row.binding.as_ref().and_then(|binding| binding.session.start_refusal.as_ref()).map(|refusal| refusal.reason.as_str())});
             with_address(value, address(row, remembered.as_ref()))
         }
         Report::Pane {

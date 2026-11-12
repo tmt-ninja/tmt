@@ -18,14 +18,18 @@ fn named_listing_exposes_stored_session_learning_without_changing_its_address() 
     let row = running_row("codex", CODEX);
     let before = document(&Report::Named {
         target: "worker".into(),
-        row: row.presence.clone(),
+        row: Box::new(row.presence.clone()),
         remembered: row.remembered.clone(),
         learning: None,
+        activity: row.activity.clone(),
+        unbound: None,
     });
     let mut after = document(&Report::Named {
         target: "worker".into(),
-        row: row.presence,
+        row: Box::new(row.presence),
         remembered: row.remembered,
+        activity: row.activity,
+        unbound: Some(true),
         learning: Some(Box::new(crate::session_learning::LearningView {
             step: "provider_verification",
             reason: "budget_timeout",
@@ -47,7 +51,50 @@ fn named_listing_exposes_stored_session_learning_without_changing_its_address() 
             .contains("tmt resume")
     );
     after.as_object_mut().unwrap().remove("session");
+    let mut before = before;
+    before.as_object_mut().unwrap().remove("session");
     assert_eq!(after, before);
+}
+
+#[test]
+fn named_and_full_listings_share_unbound_and_start_refusal_projection() {
+    use tmt_core::binding::session::{StartRefusal, StartRefusalReason};
+    for unbound in [None, Some(false), Some(true)] {
+        let mut row = running_row("claude", CLAUDE);
+        row.unbound = unbound;
+        if unbound == Some(true) {
+            row.presence.binding.as_mut().unwrap().session.start_refusal = Some(StartRefusal {
+                harness: HarnessId::new("claude").unwrap(),
+                session: ProviderSessionId::new(CLAUDE).unwrap(),
+                reason: StartRefusalReason::PreviousSessionLive,
+                observed_at_ms: 1,
+            });
+        }
+        let named = document(&Report::Named {
+            target: "worker".into(),
+            row: Box::new(row.presence.clone()),
+            remembered: row.remembered.clone(),
+            learning: None,
+            activity: row.activity.clone(),
+            unbound,
+        });
+        let listed = document(&Report::Listed {
+            rows: vec![row],
+            scope: ListScope::default(),
+            bound: Vec::new(),
+            detected: None,
+        });
+        assert_eq!(named["session"], listed["identities"][0]["session"]);
+        assert_eq!(named["session"]["unbound"], json!(unbound));
+        assert_eq!(
+            named["session"]["startRefusal"],
+            if unbound == Some(true) {
+                json!("previous_session_live")
+            } else {
+                Value::Null
+            }
+        );
+    }
 }
 
 fn identity(name: &str, lifetime: Lifetime) -> Identity {
@@ -412,7 +459,7 @@ fn json_rows_gain_address_driver_and_activity() {
         let driver = object.remove("driver").unwrap();
         assert_eq!(
             object.remove("session").unwrap(),
-            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}, "unbound":null,"learning":null})
+            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}, "unbound":null,"learning":null,"startRefusal":null})
         );
         assert_eq!(row, original.take());
         assert_eq!(

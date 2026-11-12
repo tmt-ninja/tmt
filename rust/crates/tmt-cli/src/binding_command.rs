@@ -66,7 +66,7 @@ struct ResolvedPane {
 }
 
 enum Report {
-    Bound(BoundIdentity),
+    Bound(Box<BoundIdentity>),
     Caller {
         pane: String,
         /// How the user names the pane (`pane` on tmux, `wN:pM` on Herdr).
@@ -102,9 +102,11 @@ enum Report {
     },
     Named {
         target: String,
-        row: IdentityPresence,
+        row: Box<IdentityPresence>,
         remembered: Option<RememberedSession>,
         learning: Option<Box<crate::session_learning::LearningView>>,
+        activity: serde_json::Value,
+        unbound: Option<bool>,
     },
     Pane {
         target: String,
@@ -492,6 +494,65 @@ fn cosmetic_cleanup(error: tmt_adapters::host::HostError) -> Failure {
     .caused_by(error)
 }
 
+/// One stored/session observation drives both named and full-list projections.
+struct SessionObservation {
+    activity: serde_json::Value,
+    unbound: Option<bool>,
+    learning: Option<crate::session_learning::LearningView>,
+    runtime: RuntimeState,
+}
+
+fn session_observation(
+    storage: &Storage,
+    endpoint: &mut BindingSession<'_, tmt_adapters::process::UnixCommandRunner>,
+    row: &IdentityPresence,
+    preferences: &tmt_core::binding::session::SessionPreferences,
+    registry: &tmt_adapters::runtime::RuntimeRegistry,
+) -> Result<SessionObservation, Failure> {
+    let learning =
+        crate::session_learning::view(storage, row.binding.as_ref(), &row.identity, preferences)
+            .map_err(|error| {
+                Failure::new(
+                    "IDENTITY_ERROR",
+                    "Could not read session learning diagnostics.",
+                    1,
+                )
+                .caused_by(error)
+            })?;
+    let unbound = if learning.as_ref().is_some_and(|value| value.unbound) {
+        Some(true)
+    } else {
+        row.binding
+            .as_ref()
+            .and_then(|binding| binding.session.unbound(preferences))
+    };
+    let runtime = row
+        .binding
+        .as_ref()
+        .filter(|_| row.presence == tmt_core::binding::Presence::Active)
+        .and_then(|binding| {
+            // Activity ended requires a process fact, not a stored SessionEnd hook.
+            let mut observed = binding.clone();
+            if observed.session.state == RuntimeState::Ended {
+                observed.session.state = RuntimeState::Unknown;
+            }
+            endpoint.observed_runtime(&observed).ok()
+        })
+        .unwrap_or(RuntimeState::Unknown);
+    let activity = crate::output::activity_document(
+        row.binding.as_ref(),
+        preferences.remembered.as_ref(),
+        runtime,
+        registry,
+    );
+    Ok(SessionObservation {
+        activity,
+        unbound,
+        learning,
+        runtime,
+    })
+}
+
 fn operation(
     storage: &mut Storage,
     endpoint: &mut BindingSession<'_, tmt_adapters::process::UnixCommandRunner>,
@@ -512,10 +573,10 @@ fn operation(
                     binding::name_auto_identity(storage, endpoint, pane, &name, save)
                         .map_err(binding_failure)?
             {
-                return Ok(Report::Bound(bound));
+                return Ok(Report::Bound(Box::new(bound)));
             }
             binding::bind_identity_with_creation(storage, endpoint, pane, &name, save)
-                .map(Report::Bound)
+                .map(|bound| Report::Bound(Box::new(bound)))
                 .map_err(binding_failure)
         }
         Invocation::BindMarked { name, save } => {
@@ -528,7 +589,7 @@ fn operation(
                 &name,
                 save,
             )
-            .map(Report::Bound)
+            .map(|bound| Report::Bound(Box::new(bound)))
             .map_err(binding_failure)
         }
         Invocation::Whoami => {
@@ -641,29 +702,12 @@ fn operation(
                                 )
                                 .caused_by(error)
                             })?;
-                    let learning = crate::session_learning::view(
-                        storage,
-                        row.binding.as_ref(),
-                        &row.identity,
-                        &preferences,
-                    )
-                    .map_err(|error| {
-                        Failure::new(
-                            "IDENTITY_ERROR",
-                            "Could not read session learning diagnostics.",
-                            1,
-                        )
-                        .caused_by(error)
-                    })?;
-                    let unbound = row
-                        .binding
-                        .as_ref()
-                        .and_then(|b| b.session.unbound(&preferences));
-                    let unbound = if learning.as_ref().is_some_and(|l| l.unbound) {
-                        Some(true)
-                    } else {
-                        unbound
-                    };
+                    let SessionObservation {
+                        activity,
+                        unbound,
+                        learning,
+                        runtime,
+                    } = session_observation(storage, endpoint, &row, &preferences, &registry)?;
                     let sampled =
                         storage
                             .sampled_rate_account(&row.identity.id)
@@ -677,25 +721,6 @@ fn operation(
                             })?;
                     let resume =
                         crate::output::resume_document(&preferences, &registry, sampled.as_ref());
-                    let runtime = row
-                        .binding
-                        .as_ref()
-                        .filter(|_| row.presence == tmt_core::binding::Presence::Active)
-                        .and_then(|binding| {
-                            // Activity ended requires a process fact, not a stored SessionEnd hook.
-                            let mut observed = binding.clone();
-                            if observed.session.state == RuntimeState::Ended {
-                                observed.session.state = RuntimeState::Unknown;
-                            }
-                            endpoint.observed_runtime(&observed).ok()
-                        })
-                        .unwrap_or(RuntimeState::Unknown);
-                    let activity = crate::output::activity_document(
-                        row.binding.as_ref(),
-                        preferences.remembered.as_ref(),
-                        runtime,
-                        &registry,
-                    );
                     let running_driver = presentation::running_driver(
                         &row,
                         preferences.remembered.as_ref(),
@@ -752,30 +777,28 @@ fn operation(
             } else {
                 let row =
                     binding::name_presence(storage, endpoint, &target).map_err(binding_failure)?;
-                let remembered = remembered_session(storage, &row.identity)?;
-                let learning = crate::session_learning::identity_view(
-                    storage,
-                    &row.identity,
-                    &storage
+                let preferences =
+                    storage
                         .session_preferences(&row.identity.id)
                         .map_err(|error| {
                             Failure::new("IDENTITY_ERROR", "Could not read session preferences.", 1)
                                 .caused_by(error)
-                        })?,
-                )
-                .map_err(|error| {
-                    Failure::new(
-                        "IDENTITY_ERROR",
-                        "Could not read session learning diagnostics.",
-                        1,
-                    )
-                    .caused_by(error)
-                })?;
+                        })?;
+                let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+                let SessionObservation {
+                    activity,
+                    unbound,
+                    learning,
+                    ..
+                } = session_observation(storage, endpoint, &row, &preferences, &registry)?;
+                let remembered = preferences.remembered;
                 Ok(Report::Named {
                     target,
-                    row,
+                    row: Box::new(row),
                     remembered,
                     learning: learning.map(Box::new),
+                    activity,
+                    unbound,
                 })
             }
         }

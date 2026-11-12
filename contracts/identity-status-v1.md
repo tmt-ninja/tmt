@@ -252,12 +252,17 @@ removes only the current cue, and reply attention wins without modifying status.
 
 ## Session binding observation
 
-Each `tmt ls --json` row and bound `tmt whoami --json` result includes
-`session.unbound`: `true` when the binding's
+Each `tmt ls --json` row, named `tmt ls <name> --json` result, and bound
+`tmt whoami --json` result includes `session.unbound`: `true` when the binding's
 latest refused SessionStart is newer than its admitted session, `false` when an
 exact current session has been admitted, and `null` when neither is known. The
-field is a stored observation, not liveness or delivery authority. It adds no
-read-time probe. A missing activity sample does not imply unbound.
+field is a stored observation, not liveness or delivery authority. A missing activity
+sample does not imply unbound. Named and full listings expose the same `session` fields: `activity`, `unbound`,
+`learning`, and `startRefusal` (the bounded stored reason code or `null`). Its
+codes are `driver_mismatch`, `previous_session_live`, `previous_session_unknown`,
+`private_process_unverified`, `shared_runtime`, `pane_process`, `admission_refused`,
+and `session_not_learned`. The refusal projection performs no read-time process
+probe; activity retains its existing runtime observation.
 
 A refused SessionStart in an existing bound pane records only the driver, provider
 session ID, bounded reason code and observation time, fenced to the exact binding.
@@ -268,8 +273,12 @@ exact-session shared-host routing is unchanged. A hand
 resume may complete that existing binding only for the same recorded driver (or
 none), after the old session ended or its exact process is conclusively gone,
 and with the new private main process verified under that pane by PID/start.
-Unknown evidence refuses adoption. Hooks still require the user's installed,
-trusted setup; missing hooks cannot supply an observation.
+Unknown evidence refuses adoption. A verified private main provider's first prompt or
+non-interrupted Stop may admit an initial session on an already-bound pane only while
+the binding session is entirely unobserved and no remembered or retained session exists.
+It rechecks the exact binding and preferences atomically and never replaces an observed
+or ended session. Nested, shared and unverified providers remain refused. Hooks still
+require the user's installed, trusted setup; missing hooks cannot supply an observation.
 
 ### Managed launch session learning
 
@@ -305,8 +314,9 @@ unresolved launch observation, an admitted launch's missing-start Stop diagnosti
 or its `digest_stop:` detail,
 otherwise `{step,reason,nextStep}` plus `detail` when the step recorded what it
 stopped on.
-`tmt identity show --json` and named `tmt ls <name> --json` add `session` only
-when such an observation or detail exists. Steps are `input`, `decode`, `driver_admission`,
+`tmt identity show --json` adds `session` only when such an observation or detail exists;
+named and full `tmt ls --json` always include the session block. Steps are `input`,
+`decode`, `driver_admission`,
 `host_discovery`, `pane_snapshot`, `provider_verification`, `storage`, `context`.
 Reasons are `in_progress`, `not_admitted`, `worker_error`, `budget_timeout`,
 `spawn_failed`, `launch_ended`, `conflict`. `detail` is one fixed token, never a
