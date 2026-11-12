@@ -246,7 +246,10 @@ fn boxed(
         let mut spans = vec![Span::styled("│ ", border)];
         let line = body.next().unwrap_or_default();
         let used = line.width();
-        spans.extend(line.spans);
+        spans.extend(line.spans.into_iter().map(|mut span| {
+            span.style = line.style.patch(span.style);
+            span
+        }));
         spans.push(Span::styled(" ".repeat(inner.saturating_sub(used)), fill));
         spans.push(Span::styled(" │", border));
         lines.push(Line::from(spans));
@@ -564,18 +567,36 @@ pub(in crate::board) fn cells(
 #[cfg(test)]
 mod boxed_style_tests {
     use super::*;
-    use ratatui::{backend::TestBackend, style::{Color, Style}, Terminal};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        style::{Color, Style},
+    };
 
     #[test]
     fn boxed_preserves_line_and_span_styles_without_tinting_blank_rows() {
         let mut terminal = Terminal::new(TestBackend::new(30, 6)).unwrap();
-        terminal.draw(|frame| {
-            boxed(frame, Look::default(), Rect::new(0, 0, 30, 6), "Test", vec![
-                Line::styled("selected", Style::default().fg(Color::White).bg(Color::Blue)),
-                Line::from(vec![Span::styled("muted", Style::default().fg(Color::DarkGray))]),
-                Line::default(),
-            ]);
-        }).unwrap();
+        terminal
+            .draw(|frame| {
+                boxed(
+                    frame,
+                    Look::default(),
+                    Rect::new(0, 0, 30, 6),
+                    "Test",
+                    vec![
+                        Line::styled(
+                            "selected",
+                            Style::default().fg(Color::White).bg(Color::Blue),
+                        ),
+                        Line::from(vec![Span::styled(
+                            "muted",
+                            Style::default().fg(Color::DarkGray),
+                        )]),
+                        Line::default(),
+                    ],
+                );
+            })
+            .unwrap();
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(2, 1)].bg, Color::Blue, "line selection background");
         assert_eq!(buffer[(2, 2)].fg, Color::DarkGray, "span foreground");

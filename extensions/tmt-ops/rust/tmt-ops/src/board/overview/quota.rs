@@ -18,6 +18,32 @@ pub(in crate::board) struct Projection {
     pub balance: Option<Window>,
     pub notice: Option<&'static str>,
     pub pace: Pace,
+    /// Original observation time when balance is retained rather than current.
+    pub stale_at: Option<u64>,
+}
+
+fn retained(
+    standing: &crate::board::limits::Standing,
+    kind: QuotaWindow,
+    now: u64,
+) -> Option<(Window, u64)> {
+    use crate::board::limits::Current;
+    let (window, observed) = match &standing.current {
+        Some(Current::Reported(report)) => {
+            let point = report.window(kind)?;
+            (point.balance(), point.observed_at_ms)
+        }
+        Some(_) => return None,
+        None => {
+            let reading = standing.latest.as_ref()?;
+            let window = match kind {
+                QuotaWindow::Weekly => reading.weekly,
+                QuotaWindow::Short => reading.short?,
+            };
+            (window, reading.observed_at_ms)
+        }
+    };
+    (observed <= now).then_some((window, observed))
 }
 
 /// `name` is a row's name on the board: a driver ID (every account of it, or, beside several
@@ -66,7 +92,12 @@ pub(in crate::board) fn projection(
         })
     });
     if let Some(standing) = standing.filter(|standing| standing.current.is_some()) {
-        let balance = standing.window(kind, now);
+        let current = standing.window(kind, now);
+        let retained = current
+            .is_none()
+            .then(|| retained(standing, kind, now))
+            .flatten();
+        let balance = current.or(retained.map(|(window, _)| window));
         let pace = match standing.current.as_ref() {
             Some(crate::board::limits::Current::Reported(current)) => {
                 let mut admitted: Vec<_> = reports
@@ -85,8 +116,13 @@ pub(in crate::board) fn projection(
         };
         return Projection {
             balance,
-            pace,
+            pace: if retained.is_some() {
+                Pace::default()
+            } else {
+                pace
+            },
             notice: standing.notice(),
+            stale_at: retained.map(|(_, at)| at),
         };
     }
     let pace = pace::project(reports.iter().copied(), kind, now);
@@ -116,10 +152,20 @@ pub(in crate::board) fn projection(
     } else {
         pace.latest.map(|point| point.balance())
     };
+    let retained = if balance.is_none() && reports.is_empty() {
+        standing.and_then(|standing| retained(standing, kind, now))
+    } else {
+        None
+    };
     Projection {
-        balance,
-        pace,
+        balance: balance.or(retained.map(|(window, _)| window)),
+        pace: if retained.is_some() {
+            Pace::default()
+        } else {
+            pace
+        },
         notice: None,
+        stale_at: retained.map(|(_, at)| at),
     }
 }
 
@@ -147,6 +193,21 @@ pub(in crate::board) fn usage_row(
         );
     };
     let percent = rules::percent(balance.left);
+    if let Some(observed) = value.stale_at {
+        let age = duration(now.saturating_sub(observed), true);
+        let text = format!(
+            "last {percent} · {age} ago{}",
+            if balance.resets_at_ms <= now {
+                " · reset passed"
+            } else {
+                ""
+            }
+        );
+        return Line::styled(
+            crate::board::view::fit(&text, usize::from(width)),
+            look.role(Role::Muted),
+        );
+    }
     let filled = ((balance.left / 10.0).round().clamp(0.0, 10.0) as usize)
         .max(usize::from(balance.left > 0.0));
     let bar = format!("{}{}", "█".repeat(filled), "░".repeat(10 - filled));
@@ -267,6 +328,7 @@ mod tests {
         let reset = NOW + 6 * 86_400_000;
         Projection {
             notice: None,
+            stale_at: None,
             balance: Some(Window {
                 left,
                 resets_at_ms: reset,
@@ -339,6 +401,23 @@ mod tests {
         known.pace.exhausts_at_ms = Some(NOW + 8 * 86_400_000);
         let row = usage_row(known, NOW, 49, look).to_string();
         assert!(row.contains("on pace") && !row.contains('↑') && !row.contains('◆'));
+    }
+
+    #[test]
+    fn retained_quota_names_its_age_and_a_passed_reset() {
+        let mut projection = value(83.0, Some(0.6), None);
+        projection.stale_at = Some(NOW - 40 * 3_600_000);
+        projection.balance.as_mut().unwrap().resets_at_ms = NOW - 1;
+        let shown = usage_row(projection, NOW, 60, Look::default()).to_string();
+        assert!(shown.contains("last 83%"), "{shown}");
+        assert!(shown.contains("ago"), "{shown}");
+        assert!(shown.contains("reset passed"), "{shown}");
+        assert!(!shown.contains("on pace"), "{shown}");
+        assert!(
+            usage_row(Projection::default(), NOW, 40, Look::default())
+                .to_string()
+                .contains("no limit source")
+        );
     }
     #[test]
     fn an_account_row_reads_its_own_balance_and_the_plain_driver_beside_several_only_the_unnamed() {
@@ -416,8 +495,15 @@ mod tests {
                 QuotaWindow::Weekly,
                 NOW + 7_200_001,
             );
-            assert!(later.balance.is_some(), "old evidence remains a known balance");
-            assert!(usage_row(later, NOW + 7_200_001, 49, Look::default()).to_string().contains("ago"));
+            assert!(
+                later.balance.is_some(),
+                "old evidence remains a known balance"
+            );
+            assert!(
+                usage_row(later, NOW + 7_200_001, 49, Look::default())
+                    .to_string()
+                    .contains("ago")
+            );
             assert_ne!(
                 usage_clock_mark(&app, NOW, 49),
                 usage_clock_mark(&app, NOW + 7_200_001, 49)
