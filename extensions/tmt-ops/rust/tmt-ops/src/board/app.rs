@@ -860,6 +860,8 @@ pub struct App {
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
     pub(in crate::board) agents_live_usage: RefCell<BTreeMap<String, AgentsLiveUsage>>,
     agents_live_missing: RefCell<std::collections::BTreeSet<String>>,
+    agents_live_seen: RefCell<std::collections::BTreeSet<String>>,
+    agents_squad_seen: RefCell<std::collections::BTreeSet<String>>,
     agents_live_at: std::cell::Cell<Option<Instant>>,
     agents_live_generation: RefCell<Vec<(u64, u64)>>,
     agents_squad_minutes: RefCell<BTreeMap<String, Option<super::rate::Reading>>>,
@@ -1347,6 +1349,25 @@ impl App {
         now
     }
 
+    pub(in crate::board) fn begin_agents_live_frame(&self) {
+        self.agents_live_seen.borrow_mut().clear();
+        self.agents_squad_seen.borrow_mut().clear();
+    }
+
+    pub(in crate::board) fn finish_agents_live_frame(&self) {
+        let seen = self.agents_live_seen.borrow();
+        self.agents_live_usage
+            .borrow_mut()
+            .retain(|id, _| seen.contains(id));
+        self.agents_live_missing
+            .borrow_mut()
+            .retain(|id| seen.contains(id));
+        let squads = self.agents_squad_seen.borrow();
+        self.agents_squad_minutes
+            .borrow_mut()
+            .retain(|id, _| squads.contains(id));
+    }
+
     /// Compute each requested member once per generation, without any Core reads.
     pub(in crate::board) fn agents_live_usage(&self, id: &str) -> Option<AgentsLiveUsage> {
         let now = self.refresh_agents_live_generation();
@@ -1354,6 +1375,7 @@ impl App {
     }
 
     fn agents_live_usage_cached(&self, id: &str, now: Instant) -> Option<AgentsLiveUsage> {
+        self.agents_live_seen.borrow_mut().insert(id.to_owned());
         if let Some(value) = self.agents_live_usage.borrow().get(id) {
             return Some(value.clone());
         }
@@ -1399,7 +1421,19 @@ impl App {
     /// Sum only a requested squad, once per generation, preserving missing evidence.
     pub(in crate::board) fn agents_squad_minute(&self, room: &str) -> Option<super::rate::Reading> {
         let now = self.refresh_agents_live_generation();
+        self.agents_squad_seen.borrow_mut().insert(room.to_owned());
         if let Some(value) = self.agents_squad_minutes.borrow().get(room) {
+            if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
+                snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == room)
+            }) {
+                self.agents_live_seen
+                    .borrow_mut()
+                    .extend(squad.members.iter().cloned());
+            }
             return *value;
         }
         let value = self.workspace_snapshot().and_then(|snapshot| {

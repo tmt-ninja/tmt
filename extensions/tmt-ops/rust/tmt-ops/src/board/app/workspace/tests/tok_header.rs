@@ -82,6 +82,62 @@ fn live_projection_only_visits_painted_members_and_painted_squads() {
     assert_eq!(*app.agents_live_missing.borrow(), attempted);
 }
 
+#[test]
+fn live_projection_retains_only_the_last_painted_rows_and_their_squads() {
+    use crate::board::workspace::OpsTarget;
+    use std::collections::BTreeSet;
+
+    let mut app = populated_board(36, 10_000);
+    let rooms: Vec<_> = app
+        .workspace_snapshot()
+        .unwrap()
+        .roster
+        .squads
+        .iter()
+        .map(|squad| squad.room_id.clone())
+        .collect();
+    for room in &rooms {
+        app.workspace.visibility.scope = vec![room.clone()];
+        app.workspace_reconcile();
+        app.invalidate_frame_geometry();
+        frame(&app, 160);
+    }
+    let rows = app.workspace_rows();
+    let mut allowed = BTreeSet::new();
+    for hit in app.hits.borrow().iter() {
+        let Some(row) = hit.row().and_then(|index| rows.get(index)) else {
+            continue;
+        };
+        match &row.target {
+            OpsTarget::Member { identity_id, .. } => {
+                allowed.insert(identity_id.clone());
+            }
+            OpsTarget::Squad(room) => {
+                if let Some(squad) = app
+                    .workspace_snapshot()
+                    .unwrap()
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| &squad.room_id == room)
+                {
+                    allowed.extend(squad.members.iter().cloned());
+                }
+            }
+            _ => {}
+        }
+    }
+    let missing = app.agents_live_missing.borrow();
+    let live = app.agents_live_usage.borrow();
+    assert!(
+        missing
+            .iter()
+            .chain(live.keys())
+            .all(|id| allowed.contains(id)),
+        "memo retained identities outside the last painted frame"
+    );
+}
+
 fn area_of(app: &App, wanted: impl Fn(&Choice) -> bool) -> Option<Rect> {
     app.workspace_strip_hits
         .borrow()

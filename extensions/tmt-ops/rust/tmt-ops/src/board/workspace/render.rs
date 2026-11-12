@@ -130,6 +130,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    app.begin_agents_live_frame();
     if matches!(app.shell.tab, OpsTab::Agents) {
         crate::board::overview::chart::host::render_panel(
             frame,
@@ -139,6 +140,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
     let Some(placement) = app.workspace_placement(area) else {
+        app.finish_agents_live_frame();
         return;
     };
     use crate::action::ResizeBoundary as Boundary;
@@ -197,6 +199,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(list) = placement.list {
         tree(frame, app, list);
     }
+    app.finish_agents_live_frame();
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
         if app.shell.tab == OpsTab::Agents
