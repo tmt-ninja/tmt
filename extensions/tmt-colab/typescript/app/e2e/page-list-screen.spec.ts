@@ -210,17 +210,25 @@ test('New page names the chosen agent as creator and offers it next time (#5076)
   await opener.click();
   const dialog = page.getByRole('dialog', { name: 'New page' });
   const creator = dialog.getByRole('combobox', { name: 'Creator' });
-  // This machine's agents through Remote; No agent until one is chosen.
+  // This machine's agents through Remote, in the design system's Select; No agent until one is chosen.
   await expect(creator).toBeEnabled();
-  await expect(creator.locator('option')).toHaveText([
+  await expect(creator).toHaveText('No agent');
+  await expect(dialog).not.toContainText('Agents could not be listed');
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 43');
+  await creator.click();
+  // The Select's list is the one listbox while it is open (the rest of the page is hidden).
+  const agents = page
+    .getByRole('listbox')
+    .filter({ has: page.getByRole('option', { name: 'No agent' }) });
+  await expect(agents.getByRole('option')).toHaveText([
     'No agent',
     'tmt-gui-lead · My machine',
     'gui-4 · My machine',
   ]);
-  await expect(creator).toHaveValue('');
-  await expect(dialog).not.toContainText('Agents could not be listed');
-  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 43');
-  await creator.selectOption('agent-gui-4');
+  await agents.getByRole('option', { name: 'gui-4 · My machine' }).click();
+  await expect(agents).toHaveCount(0);
+  await expect(creator).toHaveText('gui-4 · My machine');
+  await expect(creator).toBeFocused();
   await dialog.getByRole('button', { name: 'Create page' }).click();
   await expect(dialog).toHaveCount(0);
   expect((await page.evaluate(() => window.__newPages))[0]!.creator).toEqual({
@@ -230,13 +238,14 @@ test('New page names the chosen agent as creator and offers it next time (#5076)
   await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
   await page.goBack();
   await opener.click();
-  await expect(creator).toHaveValue('agent-gui-4');
+  await expect(creator).toHaveText('gui-4 · My machine');
   await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
   // Without Remote's list the creator stays No agent and says why; the page is still created.
   await page.evaluate(() => (window.__agentsUnavailable = true));
   await opener.click();
   await expect(creator).toBeDisabled();
-  await expect(creator).toHaveValue('');
+  await expect(creator).toHaveText('No agent');
   await expect(creator).toHaveAccessibleDescription(
     'Agents could not be listed; the page is created without one.',
   );

@@ -1,11 +1,29 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from 'react';
 import {
   BrowserAction,
   BrowserDialog,
   BrowserDisclosure,
   BrowserField,
 } from '@tmt/browser-ui/react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  UiTheme,
+} from '@tmt/browser-ui/ui';
+import '@tmt/browser-ui/ui.css';
 import { Plus } from 'lucide-react';
+import { getTheme, subscribeTheme } from './theme.js';
 import { CopyCommand } from './copy-command.js';
 import { ManagementError, type ManagementPort } from './management.js';
 import { TemplateBadges, templateMeta } from './template-card.js';
@@ -22,6 +40,8 @@ import './new-page-dialog.css';
 const t = text.templates;
 /** The filter field and source chips appear once the list is longer than this. */
 const FILTER_FROM = 6;
+/** The Creator's No agent item; the design system's Select reserves the empty value. */
+const NO_AGENT = 'none';
 const RECENT_KEY = 'colab-recent-templates';
 const CREATOR_KEY = 'colab-new-page-creator';
 
@@ -101,6 +121,7 @@ function NewPage({
   const [source, setSource] = useState<Source>('all');
   const [agents, setAgents] = useState<Agents>({ state: 'loading' });
   const [creator, setCreator] = useState<string>(() => stored(CREATOR_KEY) ?? '');
+  const theme = useSyncExternalStore(subscribeTheme, getTheme);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [titleError, setTitleError] = useState(false);
@@ -414,20 +435,28 @@ function NewPage({
             descriptionId={`${ids}-creator-note`}
             description={agents.state === 'failed' ? t.agentsUnavailable : undefined}
             renderControl={(props) => (
-              <select
-                {...props}
-                value={creatorAgent ? creator : ''}
-                disabled={agents.state !== 'ready'}
-                onChange={(event) => setCreator(event.target.value)}
-              >
-                <option value="">{t.noAgent}</option>
-                {agents.state === 'ready' &&
-                  agents.agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name} · {t.myMachine}
-                    </option>
-                  ))}
-              </select>
+              // The design system's Select, as the page view's Group by (#6292); it opens in this
+              // dialog's own layer.
+              <UiTheme theme={theme}>
+                <Select
+                  value={creatorAgent ? creator : NO_AGENT}
+                  disabled={agents.state !== 'ready'}
+                  onValueChange={(value) => setCreator(value === NO_AGENT ? '' : value)}
+                >
+                  <SelectTrigger {...props} className="tmt:w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_AGENT}>{t.noAgent}</SelectItem>
+                    {agents.state === 'ready' &&
+                      agents.agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.name} · {t.myMachine}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </UiTheme>
             )}
           />
         )}
