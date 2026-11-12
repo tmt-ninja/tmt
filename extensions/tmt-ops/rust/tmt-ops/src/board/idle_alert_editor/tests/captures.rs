@@ -93,7 +93,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
                     observation: squad.observation,
                     idle_alert: squad.idle_alert,
                 });
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
             app.workspace_reconcile();
             app.open_idle_alert(None);
         }

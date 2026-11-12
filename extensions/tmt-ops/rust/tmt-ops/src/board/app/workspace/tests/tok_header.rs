@@ -6,7 +6,6 @@ use crate::{
     board::{
         app::{Choice, Request},
         header_sort::Header,
-        workspace::AgentsFilter,
     },
     config::{OverviewColumn, SavingsUnit},
 };
@@ -31,10 +30,9 @@ fn hold(app: &mut App, unit: SavingsUnit) {
         .savings_unit = unit;
 }
 
-fn open(filter: AgentsFilter, unit: SavingsUnit) -> App {
+fn open(unit: SavingsUnit) -> App {
     let mut app = board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = filter;
     hold(&mut app, unit);
     app
 }
@@ -107,20 +105,17 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
             .unwrap_or_default()
 }
 
-const LISTS: [(&str, AgentsFilter); 2] = [
-    ("squads", AgentsFilter::All),
-    ("agents", AgentsFilter::Agents),
-];
+const LISTS: [&str; 1] = ["squads"];
 
 #[test]
 fn a_click_on_the_unit_word_switches_every_row_and_selects_nothing() {
-    for (name, filter) in LISTS {
+    for name in LISTS {
         for (held, wanted) in [
             (SavingsUnit::Tokens, SavingsUnit::Cost),
             (SavingsUnit::Percent, SavingsUnit::Cost),
             (SavingsUnit::Cost, SavingsUnit::Tokens),
         ] {
-            let mut app = open(filter, held);
+            let mut app = open(held);
             paint(&app, 160, 40);
             let unit = parts(&app).unit;
             let (selected, order) = (app.workspace.selected.clone(), app.workspace_order());
@@ -142,8 +137,8 @@ fn a_click_on_the_unit_word_switches_every_row_and_selects_nothing() {
 #[test]
 fn each_tok_part_lights_up_alone_under_the_pointer() {
     for width in [120, 80] {
-        for (name, filter) in LISTS {
-            let mut app = open(filter, SavingsUnit::Tokens);
+        for name in LISTS {
+            let mut app = open(SavingsUnit::Tokens);
             // This assertion compares colours, independent of ambient NO_COLOR.
             let view = app.view.as_mut().unwrap();
             view.look = crate::look::Look::default();
@@ -163,7 +158,7 @@ fn each_tok_part_lights_up_alone_under_the_pointer() {
             }
             assert_eq!(
                 at.mark.is_some(),
-                filter == AgentsFilter::Agents,
+                false,
                 "{name} {width}: only the flat list sorts by tokens"
             );
             for (part, area) in &controls {
@@ -190,12 +185,12 @@ fn each_tok_part_lights_up_alone_under_the_pointer() {
 
 #[test]
 fn hovering_the_unit_word_names_the_other_unit_and_the_hit_stays_put() {
-    for (name, filter) in LISTS {
+    for name in LISTS {
         for (held, now, other) in [
             (SavingsUnit::Tokens, "TOK", "≈$"),
             (SavingsUnit::Cost, "≈$", "TOK"),
         ] {
-            let mut app = open(filter, held);
+            let mut app = open(held);
             paint(&app, 160, 40);
             let at = parts(&app);
             assert_eq!(text(&frame(&app, 160), at.unit), now, "{name} {held:?}");
@@ -215,17 +210,8 @@ fn hovering_the_unit_word_names_the_other_unit_and_the_hit_stays_put() {
 }
 
 #[test]
-fn the_sort_mark_keeps_sorting_and_the_window_keeps_cycling() {
-    let mut app = open(AgentsFilter::Agents, SavingsUnit::Tokens);
-    paint(&app, 160, 40);
-    let at = parts(&app);
-    let mark = at.mark.expect("the flat list sorts by tokens");
-    let order = app.workspace_order();
-    assert!(matches!(
-        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), mark),
-        Effect::None
-    ));
-    assert_ne!(app.workspace_order(), order, "the mark cell sorts");
+fn the_window_keeps_cycling() {
+    let mut app = open(SavingsUnit::Tokens);
     paint(&app, 160, 40);
     let window = parts(&app).window;
     let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =

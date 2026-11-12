@@ -560,7 +560,18 @@ impl App {
     }
 
     pub(in crate::board) fn open_notes(&mut self) -> Effect {
-        if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
+        self.open_notes_with_input(false)
+    }
+
+    pub(in crate::board) fn open_notes_from_input(&mut self) -> Effect {
+        self.open_notes_with_input(true)
+    }
+
+    fn open_notes_with_input(&mut self, keep_input: bool) -> Effect {
+        if (self.input.is_some() && !keep_input)
+            || self.searching
+            || self.modal_open() && self.menu.is_none()
+        {
             return self.say("Close the current input or overlay before opening the checklist.");
         }
         let Some(key) = self.conversation_checklist_key() else {

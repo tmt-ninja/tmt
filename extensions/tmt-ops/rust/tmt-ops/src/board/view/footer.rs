@@ -62,13 +62,6 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
-        Verb::Ui(crate::action::OpsUiAction::Pin) => {
-            if app.workspace_is_pinned() == Some(true) {
-                "unpin"
-            } else {
-                "pin"
-            }
-        }
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "hidden",
         Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
@@ -101,9 +94,6 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         && app.workspace_message_target().is_none()
     {
         return false;
-    }
-    if action.verb == Verb::Ui(crate::action::OpsUiAction::Pin) {
-        return app.workspace_is_pinned().is_some();
     }
     if action.verb == Verb::Ui(crate::action::OpsUiAction::MemberBack) {
         return app.framed();
@@ -623,12 +613,7 @@ fn help_only(verb: crate::action::Verb) -> bool {
             | Verb::Jump
             | Verb::Open
             | Verb::Ui(
-                Ui::WorkspaceSnapshots
-                    | Ui::Unread
-                    | Ui::RevealHidden
-                    | Ui::Pin
-                    | Ui::Timers
-                    | Ui::AllTimers
+                Ui::WorkspaceSnapshots | Ui::Unread | Ui::RevealHidden | Ui::Timers | Ui::AllTimers
             )
     )
 }
@@ -1186,7 +1171,6 @@ mod tests {
             Verb::Ui(Ui::WorkspaceSnapshots),
             Verb::Ui(Ui::Unread),
             Verb::Ui(Ui::RevealHidden),
-            Verb::Ui(Ui::Pin),
             Verb::Ui(Ui::Timers),
             Verb::Ui(Ui::AllTimers),
         ];

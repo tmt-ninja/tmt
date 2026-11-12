@@ -22,7 +22,6 @@ pub(in crate::board) struct Row<'a> {
     pub last: bool,
     /// A member that owns terminals folds them: `▾`/`▸` before its name.
     pub folds: bool,
-    pub pinned: bool,
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
     pub tokens: String,
@@ -45,6 +44,16 @@ pub(in crate::board) struct Painted {
 }
 
 fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
+    let idle = row
+        .source
+        .activity
+        .as_ref()
+        .is_some_and(|member| member.activity.phase == crate::board::activity::Phase::Idle);
+    let value = if idle && (value == look.role(Role::Text) || value == look.role(Role::Muted)) {
+        look.role(Role::Dim)
+    } else {
+        value
+    };
     if row.in_conversation {
         let mut style = look
             .conversation()
@@ -223,9 +232,9 @@ pub(in crate::board) fn paint(
                 let branch = format!("{indent}{branch}");
                 let name_width = usize::from(cell.width)
                     .saturating_sub(1 + branch.width() + usize::from(row.source.lead));
-                // The leading gutter carries the pin without moving name tracks.
+                // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
-                    Span::styled(if row.pinned { "▪" } else { " " }, look.role(Role::Muted)),
+                    Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
                     Span::styled(
                         if row.source.lead { "*" } else { "" },
@@ -347,41 +356,38 @@ mod tests {
             (AgentsField::Agent, Rect::new(0, 0, 25, 1)),
             (AgentsField::Model, Rect::new(26, 0, 8, 1)),
         ];
-        for pinned in [false, true] {
-            let mut buffer = Buffer::empty(area);
-            paint(
-                &mut buffer,
-                area,
-                &slots,
-                &Row {
-                    source: &source,
-                    expanded: false,
-                    last: false,
-                    folds: false,
-                    pinned,
-                    state: Line::default(),
-                    state_primary_width: None,
-                    tokens: "—".into(),
-                    session: String::new(),
-                    model: "gpt-6.1-sol".into(),
-                    timers: None,
-                    selected: false,
-                    in_conversation: false,
-                    query: "",
-                },
-                look,
-            );
-            assert_eq!(buffer[(5, 0)].symbol(), "*");
-            assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
-            assert_eq!(buffer[(24, 0)].symbol(), "…");
-            assert_eq!(buffer[(25, 0)].symbol(), " ");
-            assert_eq!(buffer[(33, 0)].symbol(), "…");
-            assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
-        }
+        let mut buffer = Buffer::empty(area);
+        paint(
+            &mut buffer,
+            area,
+            &slots,
+            &Row {
+                source: &source,
+                expanded: false,
+                last: false,
+                folds: false,
+                state: Line::default(),
+                state_primary_width: None,
+                tokens: "—".into(),
+                session: String::new(),
+                model: "gpt-6.1-sol".into(),
+                timers: None,
+                selected: false,
+                in_conversation: false,
+                query: "",
+            },
+            look,
+        );
+        assert_eq!(buffer[(5, 0)].symbol(), "*");
+        assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
+        assert_eq!(buffer[(24, 0)].symbol(), "…");
+        assert_eq!(buffer[(25, 0)].symbol(), " ");
+        assert_eq!(buffer[(33, 0)].symbol(), "…");
+        assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
     }
 
     #[test]
-    fn pins_do_not_move_fields_and_selected_rows_fill_every_cell_without_bold_words() {
+    fn selected_rows_fill_every_cell_without_bold_words() {
         let app = crate::board::app::workspace::tests::board();
         let rows = app.workspace_rows();
         let source = rows
@@ -399,49 +405,43 @@ mod tests {
             (AgentsField::Tokens, Rect::new(43, 0, 7, 1)),
             (AgentsField::Cron, Rect::new(53, 0, 3, 1)),
         ];
-        let mut unpinned = None;
-        for pinned in [false, true] {
-            let mut buffer = Buffer::empty(area);
-            let painted = paint(
-                &mut buffer,
-                area,
-                &slots,
-                &Row {
-                    source,
-                    expanded: false,
-                    last: true,
-                    folds: false,
-                    pinned,
-                    state: crate::board::state_cell::unread(
-                        crate::board::unread::Count {
-                            total: 2,
-                            more: false,
-                        },
-                        look,
-                    )
-                    .unwrap(),
-                    state_primary_width: Some(10),
-                    tokens: "12.3K".into(),
-                    session: String::new(),
-                    model: "gpt-6.1-sol".into(),
-                    timers: Some(0),
-                    selected: true,
-                    in_conversation: false,
-                    query: "",
-                },
-                look,
-            );
-            look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
-            for cell in &buffer.content {
-                assert_eq!(cell.bg, look.selection().bg.unwrap());
-                assert!(!cell.modifier.contains(Modifier::BOLD));
-            }
-            assert_eq!(buffer[(26, 0)].fg, look.role(Role::Unread).fg.unwrap());
-            assert_eq!(buffer[(54, 0)].symbol(), "0");
-            let fields = buffer.content[26..70].to_vec();
-            assert_eq!(*unpinned.get_or_insert(fields.clone()), fields);
-            assert_eq!(buffer[(0, 0)].symbol(), if pinned { "▪" } else { " " });
+        let mut buffer = Buffer::empty(area);
+        let painted = paint(
+            &mut buffer,
+            area,
+            &slots,
+            &Row {
+                source,
+                expanded: false,
+                last: true,
+                folds: false,
+                state: crate::board::state_cell::unread(
+                    crate::board::unread::Count {
+                        total: 2,
+                        more: false,
+                    },
+                    look,
+                )
+                .unwrap(),
+                state_primary_width: Some(10),
+                tokens: "12.3K".into(),
+                session: String::new(),
+                model: "gpt-6.1-sol".into(),
+                timers: Some(0),
+                selected: true,
+                in_conversation: false,
+                query: "",
+            },
+            look,
+        );
+        look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
+        for cell in &buffer.content {
+            assert_eq!(cell.bg, look.selection().bg.unwrap());
+            assert!(!cell.modifier.contains(Modifier::BOLD));
         }
+        assert_eq!(buffer[(26, 0)].fg, look.role(Role::Unread).fg.unwrap());
+        assert_eq!(buffer[(54, 0)].symbol(), "0");
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
     }
 
     #[test]
@@ -481,7 +481,6 @@ mod tests {
                         expanded: false,
                         last: true,
                         folds: false,
-                        pinned: false,
                         state: crate::board::state_cell::unread(
                             crate::board::unread::Count {
                                 total: 2,

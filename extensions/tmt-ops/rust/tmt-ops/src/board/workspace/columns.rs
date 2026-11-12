@@ -109,7 +109,7 @@ impl AgentsField {
             Self::Agent => "SQUAD / AGENT",
             Self::Model => "MODEL / ALERT",
             Self::State => "STATE",
-            Self::Session => "HOST / SESSION",
+            Self::Session => "HOST",
             Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
@@ -361,6 +361,8 @@ pub fn paint_agents_header(
         };
         let align = if *field == AgentsField::Tokens {
             tmt_cli_style::grid::Align::Right
+        } else if *field == AgentsField::Cron {
+            tmt_cli_style::grid::Align::Center
         } else {
             tmt_cli_style::grid::Align::Left
         };
@@ -652,6 +654,10 @@ pub(in crate::board) fn activity_projection(
             symbol.to_owned(),
             if over.is_some() {
                 Role::Waiting
+            } else if label.state == "working"
+                && app.shell.tab == crate::board::shell::OpsTab::Agents
+            {
+                Role::Working
             } else {
                 activity_role(label.state)
             },
@@ -967,6 +973,32 @@ mod tests {
                 .iter()
                 .any(|(field, _)| *field == AgentsField::Tokens)
         );
+    }
+
+    #[test]
+    fn timer_header_matches_the_timer_value_column() {
+        let look = crate::look::Look::default();
+        let slot = Rect::new(0, 0, 4, 1);
+        let mut buffer = ratatui::buffer::Buffer::empty(slot);
+        paint_agents_header(
+            &mut buffer,
+            slot,
+            &[(AgentsField::Cron, slot)],
+            look,
+            Default::default(),
+            Default::default(),
+            &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
+        );
+        let x = (0..slot.width)
+            .find(|&x| buffer[(x, 0)].symbol() == "◷")
+            .unwrap();
+        let value = tmt_tui::text::fit_line(
+            "1",
+            slot.width,
+            tmt_tui::style::TextFlow::Truncate,
+            tmt_cli_style::grid::Align::Center,
+        );
+        assert_eq!(usize::from(x), value.find('1').unwrap());
     }
 
     #[test]

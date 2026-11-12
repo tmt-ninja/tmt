@@ -7,7 +7,6 @@ use crate::{
         app::{Choice, Request},
         header_sort::Header,
         shell::OpsTab,
-        workspace::AgentsFilter,
     },
     config::TokRange,
 };
@@ -56,20 +55,16 @@ fn painted(app: &App, area: Rect) -> String {
         .collect()
 }
 
-fn lists() -> [(&'static str, AgentsFilter); 2] {
-    [
-        ("squads", AgentsFilter::All),
-        ("agents", AgentsFilter::Agents),
-    ]
+fn lists() -> [&'static str; 1] {
+    ["squads"]
 }
 
 #[test]
 fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
-    for (name, filter) in lists() {
+    for name in lists() {
         for range in TokRange::ALL {
             let mut app = board();
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = filter;
             hold(&mut app, range);
             let rows = paint(&app, 160, 40);
             let area = chip(&app).unwrap_or_else(|| panic!("{name} {range:?}: no chip hit"));
@@ -115,11 +110,10 @@ fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
 
 #[test]
 fn a_click_on_the_window_word_requests_only_the_next_range() {
-    for (name, filter) in lists() {
+    for name in lists() {
         for range in TokRange::ALL {
             let mut app = board();
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = filter;
             hold(&mut app, range);
             paint(&app, 160, 40);
             let area = chip(&app).unwrap();

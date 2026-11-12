@@ -22,7 +22,7 @@ fn capture_model_columns() {
                     };
                     let mut app = populated_board(2, 4);
                     app.shell.tab = tab;
-                    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
                     let view = app.view.as_mut().unwrap();
                     view.look = look;
                     let workspace = &mut view.home.as_mut().unwrap().workspace;
@@ -41,7 +41,6 @@ fn capture_model_columns() {
                         }));
                     }
                     let first = workspace.roster.squads[0].members[0].clone();
-                    workspace.preferences.agent_pins.insert(first.clone());
                     app.workspace.selected = Some(crate::board::workspace::OpsTarget::Member {
                         room_id: Some(workspace.roster.squads[0].room_id.clone()),
                         identity_id: first,

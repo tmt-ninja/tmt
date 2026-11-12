@@ -137,7 +137,7 @@ fn stale_completion_is_ignored_and_new_draft_survives_partial_save() {
     );
 }
 #[test]
-fn flat_multi_squad_member_chooses_explicitly_and_scoped_member_does_not() {
+fn tree_member_with_multiple_memberships_uses_the_selected_squad() {
     let mut app = board();
     let roster = &mut app
         .view
@@ -158,19 +158,14 @@ fn flat_multi_squad_member_chooses_explicitly_and_scoped_member_does_not() {
         observation: s.observation,
         idle_alert: s.idle_alert,
     });
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.workspace.selected = Some(OpsTarget::Member {
         room_id: Some(ROOM.into()),
         identity_id: MEMBER.into(),
     });
     app.workspace_reconcile();
-    assert_eq!(app.open_idle_alert(None), Effect::None);
-    assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
-    assert!(app.idle_alert_editor.is_none());
-    assert!(matches!(
-        app.open_idle_alert(Some(ROOM.into())),
-        Effect::IdleAlert(_)
-    ));
+    assert!(matches!(app.open_idle_alert(None), Effect::IdleAlert(_)));
+    assert!(app.menu.is_none());
 }
 #[test]
 fn form_geometry_never_admits_a_clipped_save_or_retains_old_hits() {

@@ -54,21 +54,10 @@ impl Evidence {
         self.error.is_none() && self.unbound == Some(true)
     }
     pub fn compact(&self) -> String {
-        if self.is_unbound() {
-            return format!(
-                "{} unbound · {}",
-                tmt_cli_style::mark::Mark::Warning.symbol(),
-                self.host.as_deref().unwrap_or("—")
-            );
-        }
         format!(
             "{} · {}",
             self.host.as_deref().unwrap_or("—"),
-            if self.remembered() {
-                "remembered"
-            } else {
-                "unavailable"
-            }
+            self.host_session.as_deref().unwrap_or("—"),
         )
     }
     pub fn lines(&self, now_ms: u64, last_ms: Option<u64>) -> Vec<String> {

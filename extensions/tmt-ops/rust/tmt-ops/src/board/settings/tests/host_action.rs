@@ -17,13 +17,13 @@ fn bindings_inventory_shows_the_measure_default_the_terminal_t_and_preserves_aut
     // On a member row `t` opens an extra terminal (#5991); an authored binding replaces it.
     for (bindings, expected_t) in [
         ("", Some(json!("terminal-new"))),
-        ("[bind]\nt='talk-measure'\n", Some(json!("talk-measure"))),
+        ("[bind]\nt='pane-measure'\n", Some(json!("pane-measure"))),
     ] {
         let mut f = fixture("measure-bindings", bindings);
         open(&mut f, Some("%9"));
         let entries = &f.app.settings.as_ref().unwrap().settings.entries;
         let measure = entries.iter().find(|entry| entry.key == "bind.M").unwrap();
-        assert_eq!(measure.value, json!("talk-measure"));
+        assert_eq!(measure.value, json!("pane-measure"));
         assert_eq!(measure.source, "workspace default");
         assert_eq!(
             entries
@@ -368,10 +368,9 @@ fn a_retired_lead_binding_uses_the_effective_default_without_rewriting_the_file(
 
 #[test]
 fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner() {
-    for (index, retired, effective) in [
-        (0, "agents-filter needs-you", None),
-        (1, "jump lead", Some("jump")),
-    ] {
+    for (index, retired, effective) in
+        [(0, "overview-filter", None), (1, "jump lead", Some("jump"))]
+    {
         let mut f = fixture(
             &format!("host-retired-{index}"),
             &format!("[bind]\no='open {{pr_link}}'\n[bind.tmux]\nj='{retired}'\n"),

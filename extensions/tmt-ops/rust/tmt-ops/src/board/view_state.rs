@@ -88,7 +88,6 @@ impl From<&crate::config::OpsPreferences> for Order {
 pub(super) struct Controls {
     ratios: super::pane_resize::Ratios,
     query: String,
-    agents_filter: super::workspace::AgentsFilter,
     quota_window: super::limits::QuotaWindow,
     digest_window: crate::config::DigestWindow,
     chart: (u32, super::overview::chart::model::Each),
@@ -99,7 +98,6 @@ impl Controls {
         Self {
             ratios: app.pane_resize.ratios(),
             query: app.search.to_string(),
-            agents_filter: app.workspace.filter,
             quota_window: app.usage_chart.borrow().quota_window(),
             digest_window: app.digest_window,
             chart: app.usage_chart.borrow().chart_controls(),
@@ -110,7 +108,6 @@ impl Controls {
         app.pane_resize.restore(self.ratios.clone());
         app.search = self.query.clone().into();
         app.workspace.query = self.query.clone();
-        app.workspace.filter = self.agents_filter;
         app.digest_window = self.digest_window;
         app.usage_chart
             .borrow_mut()
@@ -122,10 +119,8 @@ impl Controls {
         app.overview_rows.borrow_mut().clear();
     }
     pub(super) fn json(&self) -> Value {
-        use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewDirection};
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
-            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Agents => "agents", AgentsFilter::Pinned => "pinned" },
             "quotaWindow": self.quota_window.key(),
             "digestWindow": self.digest_window.label(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
@@ -134,7 +129,6 @@ impl Controls {
             "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
     }
     pub(super) fn decode(value: &Value) -> Option<Self> {
-        use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
         let query = value["query"].as_str()?;
         if query.len() > super::search_field::MAX_BYTES || query.chars().any(char::is_control) {
@@ -143,13 +137,6 @@ impl Controls {
         Some(Self {
             ratios: super::pane_resize::ratios_decode(value.get("paneRatios"))?,
             query: query.into(),
-            agents_filter: match value["agentsFilter"].as_str()? {
-                "all" => AgentsFilter::All,
-                "needs-you" => AgentsFilter::All,
-                "agents" => AgentsFilter::Agents,
-                "pinned" => AgentsFilter::Pinned,
-                _ => return None,
-            },
             chart: decode_chart(&value["chart"])
                 .unwrap_or((60, super::overview::chart::model::Each::Auto)),
             quota_window: value

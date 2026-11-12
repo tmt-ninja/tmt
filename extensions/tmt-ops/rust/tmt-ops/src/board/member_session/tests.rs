@@ -10,6 +10,19 @@ use ratatui::{
 };
 use serde_json::json;
 
+#[test]
+fn host_column_shows_observed_host_and_host_session() {
+    let app = remembered();
+    let evidence = app.member_session_evidence(MEMBER);
+    assert_eq!(evidence.compact(), "tmux · work");
+    assert!(
+        evidence
+            .lines(crate::status::now_ms(), None)
+            .iter()
+            .any(|line| line.contains("Session remembered"))
+    );
+}
+
 fn remembered() -> App {
     let mut app = board();
     app.references = Inventory::from_listed(&Ok(json!({"identities":[{
@@ -107,12 +120,8 @@ fn unbound_field_is_explicit_and_host_neutral_in_rows_and_dialog() {
             Some(json!("true")),
         ] {
             let unbound = value == Some(json!(true));
-            let expected = if unbound {
-                format!("! unbound · {host}")
-            } else {
-                format!("{host} · remembered")
-            };
-            for scene in ["session-rows-flat", "session-rows-tree"] {
+            let expected = format!("{host} · work");
+            for scene in ["session-rows-tree"] {
                 let mut app = capture_case(scene, crate::look::Look::default());
                 binding_observation(&mut app, host, value.clone());
                 assert_eq!(app.member_session_evidence(MEMBER).compact(), expected);
@@ -225,23 +234,23 @@ fn unbound_flag_changes_fence_copy_and_legacy_confirmations() {
 }
 
 #[test]
-fn unbound_mark_and_word_survive_a_clipped_host_name() {
-    for scene in ["session-rows-flat", "session-rows-tree"] {
+fn host_column_clips_a_long_host_without_session_status() {
+    for scene in ["session-rows-tree"] {
         let mut app = capture_case(scene, crate::look::Look::default());
         let host = "a-host-name-longer-than-the-session-track";
         binding_observation(&mut app, host, Some(json!(true)));
         let text = paint(&app, 160, 36);
-        assert!(text.contains("! unbound"), "{text}");
+        assert!(!text.contains("! unbound"), "{text}");
         assert!(
             !text.contains(host),
-            "the track clips the host, not the diagnostic: {text}"
+            "the host track clips the long host: {text}"
         );
     }
 }
 
 #[test]
 fn unbound_row_projection_refreshes_from_the_public_inventory() {
-    for scene in ["session-rows-flat", "session-rows-tree"] {
+    for scene in ["session-rows-tree"] {
         let mut app = capture_case(scene, crate::look::Look::default());
         for unbound in [false, true, false] {
             let mut row = app.references.agents[MEMBER].parameters.clone();
@@ -254,12 +263,8 @@ fn unbound_row_projection_refreshes_from_the_public_inventory() {
             snapshot.view = Ok(app.view.take().unwrap());
             app.apply(snapshot);
             let text = paint(&app, 160, 36);
-            assert_eq!(text.contains("! unbound"), unbound, "{scene}: {text}");
-            assert_eq!(
-                text.contains("tmux · remembered"),
-                !unbound,
-                "{scene}: {text}"
-            );
+            assert_eq!(app.member_session_evidence(MEMBER).is_unbound(), unbound);
+            assert!(text.contains("tmux · work"), "{scene}: {text}");
         }
     }
 }
@@ -279,10 +284,7 @@ fn missing_activity_does_not_imply_an_unbound_session() {
         .get_mut(MEMBER)
         .unwrap()
         .activity = Default::default();
-    assert_eq!(
-        app.member_session_evidence(MEMBER).compact(),
-        "tmux · remembered"
-    );
+    assert_eq!(app.member_session_evidence(MEMBER).compact(), "tmux · work");
     load(&mut app);
     let text = paint(&app, 160, 36);
     assert!(
@@ -531,13 +533,10 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "session-unknown-host",
     "session-resume",
     "session-move",
-    "session-rows-flat",
     "session-rows-tree",
     "session-unbound",
     "session-unbound-external",
-    "session-rows-unbound-flat",
     "session-rows-unbound-tree",
-    "session-rows-unbound-external-flat",
     "session-rows-unbound-external-tree",
 ];
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
@@ -626,9 +625,6 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             .workspace
             .preferences
             .overview_panels = Some(crate::config::PanelSetting::configured(policy));
-        if scene.ends_with("-flat") {
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        }
         return app;
     }
     if scene == "session-loading" {
@@ -820,14 +816,14 @@ fn copied_shell_metacharacters_remain_one_literal_word_per_argument() {
 }
 
 #[test]
-fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped() {
-    use crate::board::{app::Choice, shell::OpsTab, workspace::AgentsFilter};
+fn tree_token_click_follows_the_painted_cell_when_host_is_admitted_or_dropped() {
+    use crate::board::{app::Choice, shell::OpsTab};
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     use std::time::Instant;
     for (width, has_session) in [(110, true), (82, false)] {
         let mut app = remembered();
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = AgentsFilter::Agents;
+
         let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
@@ -840,13 +836,13 @@ fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped
             .iter()
             .find(|line| line.contains("STATE") && line.contains("TOK 1h"))
             .unwrap();
-        assert_eq!(header.contains("HOST / SESSION"), has_session);
+        assert_eq!(header.contains("HOST"), has_session);
         let unit_at = header.find("TOK 1h").unwrap();
         // The last heading cell and the right-aligned figure share this column.
         let figure_x = unicode_width::UnicodeWidthStr::width(&header[..unit_at]) as u16 + 5;
         let row_y = lines
             .iter()
-            .position(|line| line.contains("worker") && line.contains("product"))
+            .position(|line| line.contains("worker"))
             .unwrap() as u16;
         assert_eq!(buffer[(figure_x, row_y)].symbol(), "—");
         let hit = app
@@ -875,7 +871,7 @@ fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped
         };
         if has_session {
             let row = &lines[usize::from(row_y)];
-            let at = row.find("tmux · remembered").unwrap();
+            let at = row.find("tmux · work").unwrap();
             let session_x = unicode_width::UnicodeWidthStr::width(&row[..at]) as u16;
             assert!(
                 !matches!(

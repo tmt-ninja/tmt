@@ -1071,7 +1071,7 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     let shown = paint(&mut app, 160, 44);
     assert!(!shown.contains("$ unit"), "{shown}");
     assert!(
@@ -1081,12 +1081,12 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     // Measure paints the estimate, and the hint is advertised with it.
     let mut measure = valued_board();
     measure.shell.tab = crate::board::shell::OpsTab::Agents;
-    measure.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     measure.right_tab = crate::board::shell::RightTab::Measure;
     let shown = paint(&mut measure, 160, 44);
     assert_eq!(
         shown.contains("$ unit"),
-        shown.contains("≈1d") || shown.contains("Est. ctx avoided"),
+        shown.contains("Est. ctx avoided"),
         "unit={} est={} ctx={}",
         shown.contains("$ unit"),
         shown.contains("≈1d"),
@@ -1096,7 +1096,7 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     // one: the key still works, but nothing advertises it.
     let mut narrow = valued_board();
     narrow.shell.tab = crate::board::shell::OpsTab::Agents;
-    narrow.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     let shown = paint(&mut narrow, 60, 44);
     assert!(!shown.contains("Est."), "{shown}");
     assert!(!shown.contains("$ unit"), "{shown}");
@@ -1173,7 +1173,7 @@ fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = savings_board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     let summary = |app: &crate::board::app::App| {
         crate::board::overview::monitor::scene(app, app.workspace_snapshot().unwrap())
             .summary

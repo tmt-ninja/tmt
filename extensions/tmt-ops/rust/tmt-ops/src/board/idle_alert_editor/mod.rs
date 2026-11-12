@@ -274,9 +274,6 @@ impl App {
                 }
                 match &self.workspace.selected {
                     Some(OpsTarget::Squad(id)) => &s.room_id == id,
-                    Some(OpsTarget::Member { identity_id, .. }) if self.flat_agents() => {
-                        s.members.contains(identity_id)
-                    }
                     Some(OpsTarget::Member {
                         room_id: Some(id), ..
                     }) => &s.room_id == id,

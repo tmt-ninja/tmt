@@ -29,22 +29,6 @@ fn continues(rows: &[super::OpsTreeRow], from: usize, depth: u8) -> bool {
         .is_some_and(|row| row.depth == depth)
 }
 
-/// Fixed name-cell slot: pin state never changes table column geometry.
-pub(in crate::board) fn pin_mark(
-    target: &OpsTarget,
-    preferences: &super::OpsPreferences,
-    look: crate::look::Look,
-) -> Span<'static> {
-    let pinned = match target {
-        OpsTarget::Squad(room) => preferences.pinned.contains(room),
-        OpsTarget::Member { identity_id, .. } => preferences.agent_pins.contains(identity_id),
-        OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden | OpsTarget::Terminal { .. } => {
-            false
-        }
-    };
-    Span::styled(if pinned { "▪ " } else { "  " }, look.role(Role::Muted))
-}
-
 fn member_noun(count: Option<usize>) -> &'static str {
     if count == Some(1) {
         "member"
@@ -211,11 +195,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
     if let Some(list) = placement.list {
-        if app.flat_agents() {
-            crate::board::overview::composition::render(frame, app, list);
-        } else {
-            tree(frame, app, list);
-        }
+        tree(frame, app, list);
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
@@ -274,12 +254,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 app.workspace
                     .visibility
                     .shows_squad(&squad.room_id, &snapshot.preferences)
-                    && (app.workspace.filter != super::AgentsFilter::Pinned
-                        || snapshot.preferences.pinned.contains(&squad.room_id)
-                        || squad
-                            .members
-                            .iter()
-                            .any(|id| snapshot.preferences.agent_pins.contains(id)))
             })
             .count();
         let (_, agents) = app
@@ -622,16 +596,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Pool => app.workspace.pool_expanded,
                     _ => false,
                 };
-            let pinned = match &row.target {
-                OpsTarget::Squad(room) => snapshot.preferences.pinned.contains(room),
-                OpsTarget::Member { identity_id, .. } => {
-                    snapshot.preferences.agent_pins.contains(identity_id)
-                }
-                OpsTarget::Pool
-                | OpsTarget::DigestAll
-                | OpsTarget::Hidden
-                | OpsTarget::Terminal { .. } => false,
-            };
             let model: String = match &row.target {
                 OpsTarget::Member { identity_id, .. } => {
                     let agent = app.references.agents.get(identity_id);
@@ -684,7 +648,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     last: !continues(&rows, index + 1, row.depth),
                     folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
                         if !app.terminals.rows(identity_id).is_empty()),
-                    pinned,
                     state,
                     state_primary_width,
                     tokens,
@@ -883,7 +846,6 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
         area.width.saturating_sub(2),
         1,
     );
-    use super::AgentsFilter;
     let search_count = app
         .workspace_snapshot()
         .filter(|_| !app.search.is_empty() && !app.searching)
@@ -891,7 +853,6 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
             let (matched, total) = app
                 .workspace
                 .search_counts(&snapshot.roster, &snapshot.preferences);
-            // A partial observation counts approximately, as the shell counts do.
             let mark = if snapshot.roster.observation == super::OpsObservation::Complete {
                 ""
             } else {
@@ -899,33 +860,45 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
             };
             format!("{mark}{matched} of {mark}{total}")
         });
-    for hit in crate::board::filter_bar::paint(
+    let title_width = inside.width.min(8);
+    tmt_tui::components::strip::paint_left(
         frame.buffer_mut(),
-        inside,
-        &[
-            ("all", "Squads"),
-            ("agents", "Agents"),
-            ("pinned", "Pinned"),
-        ],
-        match app.workspace.filter {
-            AgentsFilter::All => 0,
-            AgentsFilter::Agents => 1,
-            AgentsFilter::Pinned => 2,
-        },
-        app,
-        crate::action::OpsUiAction::AgentsFilter,
-        search_count.as_deref(),
-    ) {
-        let choice = match hit.id.as_str() {
-            "all" => Choice::AgentsFilter(AgentsFilter::All),
-            "agents" => Choice::AgentsFilter(AgentsFilter::Agents),
-            "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
-            "clear-search" => Choice::ClearSearch,
-            _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
+        Rect::new(inside.x, inside.y, title_width, inside.height),
+        Line::styled(" Squads ", look.role(Role::Text)),
+    );
+    let search_width = inside.width.saturating_sub(title_width + 2).min(34);
+    if search_width > 0 {
+        let search = Rect::new(
+            inside.right() - 1 - search_width,
+            inside.y,
+            search_width,
+            inside.height.min(1),
+        );
+        let search_key = crate::board::keycap::key(app, crate::action::OpsUiAction::Search, "/");
+        let clear = crate::board::search_field::paint(
+            frame.buffer_mut(),
+            search,
+            &app.search,
+            app.searching,
+            search_key.as_deref(),
+            look,
+            search_count.as_deref(),
+        );
+        if let Some(area) = clear {
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((area, Choice::ClearSearch));
+        }
+        let search = Rect {
+            width: clear.map_or(search.width, |clear| clear.x - search.x),
+            ..search
         };
-        app.workspace_strip_hits
-            .borrow_mut()
-            .push((hit.area, choice));
+        if search.width >= 3 {
+            app.workspace_strip_hits.borrow_mut().push((
+                search,
+                Choice::Action(crate::action::Action::parse("search").unwrap()),
+            ));
+        }
     }
 }
 
@@ -1050,10 +1023,6 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
                 ("Add member", Choice::WorkspaceBegin(Kind::Add)),
                 ("Set/clear lead", Choice::WorkspaceBegin(Kind::Lead)),
                 ("Rename", Choice::WorkspaceBegin(Kind::RenameSquad)),
-                (
-                    "Pin",
-                    Choice::Action(Action::parse(OpsUiAction::Pin.spec().name).unwrap()),
-                ),
                 (
                     "Timers",
                     Choice::Action(Action::parse(OpsUiAction::Timers.spec().name).unwrap()),

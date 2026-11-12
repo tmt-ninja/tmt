@@ -71,7 +71,7 @@ fn flat_list_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = crate::board::shell::OpsTab::Agents;
-    app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
+
     draw(&mut app, 160, 36);
     app.perform(&crate::action::Action::parse("talk").unwrap());
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Agents);

@@ -22,7 +22,6 @@ mod divider;
 mod empty_state;
 mod exchange_matrix;
 mod exchange_view;
-mod filter_bar;
 #[cfg(test)]
 pub(crate) mod glyph_guard;
 mod header_sort;
@@ -2138,8 +2137,7 @@ mod tests {
         let mut app = app::workspace::tests::board();
         app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = shell::OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        app.workspace.filter = workspace::AgentsFilter::Agents;
+
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app
             .view

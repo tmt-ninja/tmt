@@ -1,4 +1,4 @@
-//! `M` switches the Agents tab's right column between Talk and Measure.
+//! Direct Talk and Measure controls on the Agents tab.
 use super::*;
 use crate::board::shell::RightTab;
 use ratatui::crossterm::event::{
@@ -11,7 +11,7 @@ fn press(app: &mut App, code: KeyCode) -> Effect {
 }
 
 #[test]
-fn measure_key_switches_both_scopes_and_t_stays_inert() {
+fn measure_and_talk_keys_directly_select_both_scopes() {
     for target in [
         OpsTarget::Squad(ROOM.into()),
         OpsTarget::Member {
@@ -35,13 +35,15 @@ fn measure_key_switches_both_scopes_and_t_stays_inert() {
         assert!(measure.contains("STATE"), "{measure}");
         assert!(measure.contains("Timers"), "{measure}");
         app.key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+        assert_eq!(app.right_tab, RightTab::Measure);
+        press(&mut app, KeyCode::Char('T'));
         assert_eq!(app.right_tab, RightTab::Talk);
     }
 }
 
 #[test]
 fn measure_hints_and_help_follow_defaults_and_authored_keys() {
-    for (bindings, key) in [("", "M"), ("[bind]\nM='copy'\nt='talk-measure'\n", "t")] {
+    for (bindings, key) in [("", "M"), ("[bind]\nM='copy'\nt='pane-measure'\n", "t")] {
         let mut app = board();
         let path = std::env::temp_dir().join(format!(
             "ops-measure-key-{}.toml",
@@ -60,7 +62,7 @@ fn measure_hints_and_help_follow_defaults_and_authored_keys() {
             .unwrap();
         std::fs::remove_file(path).unwrap();
         let text = paint(&app, 160, 40).join("\n");
-        assert!(text.contains(&format!("{key}  Talk   Measure")), "{text}");
+        assert!(text.contains(&format!("{key}  Measure")), "{text}");
         let hints = crate::board::view::footer::agents_hints(&app, 500).unwrap();
         assert!(!hints.contains("talk/measure"), "{hints}");
         let help = crate::board::help::model(&app).value();
@@ -71,10 +73,7 @@ fn measure_hints_and_help_follow_defaults_and_authored_keys() {
             .find(|entry| entry["id"] == format!("binding-{key}"))
             .unwrap();
         assert_eq!(entry["keys"], key);
-        assert_eq!(
-            entry["description"],
-            "switch the right column between Talk and Measure"
-        );
+        assert_eq!(entry["description"], "show the Measure pane");
         press(&mut app, KeyCode::Char(key.chars().next().unwrap()));
         assert_eq!(app.right_tab, RightTab::Measure);
     }

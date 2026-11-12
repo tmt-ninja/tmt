@@ -44,7 +44,6 @@ fn hidden_squads_do_not_leak_members_into_pool_or_search_and_keep_global_attenti
     let counts = roster.shell_counts();
     let preferences = OpsPreferences {
         hidden: ["room".into(), "deleted-room".into()].into(),
-        pinned: ["room".into()].into(),
         ..Default::default()
     };
     let mut workspace = OpsWorkspace {
@@ -84,7 +83,6 @@ fn hidden_squads_do_not_leak_members_into_pool_or_search_and_keep_global_attenti
     assert_eq!(roster.shell_counts(), counts);
     assert_eq!(counts.waiting, 1);
     assert_eq!(counts.blocked, 1);
-    assert!(preferences.pinned.contains("room"));
 }
 
 #[test]
@@ -228,46 +226,6 @@ fn shell_counts_deduplicate_memberships_and_keep_attention_independent_of_state(
 }
 
 #[test]
-fn agents_filters_preserve_targets_expansion_and_saved_preferences() {
-    let mut roster = roster();
-    roster.squads[0].member_states.insert(
-        "one".into(),
-        OpsMembershipState {
-            state: Some("blocked".into()),
-            ..Default::default()
-        },
-    );
-    let selected = target(Some("room"), "one");
-    let mut workspace = OpsWorkspace {
-        selected: Some(selected.clone()),
-        ..Default::default()
-    };
-    workspace.expanded.insert("room".into());
-    let mut preferences = OpsPreferences::default();
-    let original = preferences.clone();
-    let rows = workspace.rows(&roster, &preferences);
-    assert_eq!(rows.len(), 4);
-    assert_eq!(rows[1].target, OpsTarget::Squad("room".into()));
-    assert_eq!(rows[1].count, Some(2));
-    assert_eq!(
-        workspace.selection_state(&roster, &rows),
-        SelectionState::Visible
-    );
-    workspace.filter = AgentsFilter::Pinned;
-    assert!(workspace.rows(&roster, &preferences).is_empty());
-    assert_eq!(
-        workspace.selection_state(&roster, &[]),
-        SelectionState::Hidden
-    );
-    assert_eq!(preferences, original);
-    preferences.pinned.insert("room".into());
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 3);
-    assert_eq!(workspace.expanded, BTreeSet::from(["room".into()]));
-    assert_eq!(workspace.selected, Some(selected));
-    assert_eq!(AgentsFilter::All.next().next().next(), AgentsFilter::All);
-}
-
-#[test]
 fn search_reveals_matching_members_without_changing_expansion_or_group_count() {
     let roster = roster();
     let mut workspace = OpsWorkspace {
@@ -350,7 +308,7 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                 ..Default::default()
             },
         ] {
-            for filter in [AgentsFilter::All, AgentsFilter::Pinned] {
+            {
                 for (squad_pin, hide_room) in
                     [(false, false), (false, true), (true, false), (true, true)]
                 {
@@ -360,12 +318,6 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                         } else {
                             Default::default()
                         },
-                        pinned: if squad_pin {
-                            ["second".into()].into()
-                        } else {
-                            Default::default()
-                        },
-                        agent_pins: ["lead".into(), "free".into()].into(),
                         ..Default::default()
                     };
                     for query in [
@@ -380,7 +332,6 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                         let workspace = OpsWorkspace {
                             query: query.into(),
                             visibility: visibility.clone(),
-                            filter,
                             ..Default::default()
                         };
                         let identities = |query| {
@@ -397,7 +348,7 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                         assert_eq!(
                             workspace.search_counts(&roster, &preferences),
                             (identities(query), identities("")),
-                            "{observation:?} {visibility:?} {filter:?} pin={squad_pin} hidden={hide_room} query={query}"
+                            "{observation:?} {visibility:?} pin={squad_pin} hidden={hide_room} query={query}"
                         );
                     }
                 }
@@ -442,9 +393,8 @@ fn virtual_pool_is_first_and_contains_only_zero_membership_identities() {
         pool_expanded: true,
         ..Default::default()
     };
-    let mut preferences = OpsPreferences::default();
+    let preferences = OpsPreferences::default();
     workspace.selected = Some(OpsTarget::Pool);
-    assert!(!workspace.toggle_pin(&mut preferences));
     let rows = workspace.rows(&roster, &preferences);
     assert_eq!(rows[0].target, OpsTarget::Pool);
     assert_eq!(rows[0].count, Some(1));
@@ -631,51 +581,13 @@ fn renamed_names_and_membership_in_another_squad_keep_distinct_anchors() {
 }
 
 #[test]
-fn pinned_squads_stay_before_unpinned_in_both_sort_directions() {
-    let mut roster = roster();
-    roster.squads.push(OpsSquad {
-        room_id: "pinned".into(),
-        name: "z".into(),
-        members: vec![],
-        lead: None,
-        member_states: BTreeMap::new(),
-        observation: OpsObservation::Complete,
-        idle_alert: None,
-    });
-    let workspace = OpsWorkspace {
-        selected: Some(OpsTarget::Squad("pinned".into())),
-        ..Default::default()
-    };
-    let mut preferences = OpsPreferences::default();
-    assert!(workspace.toggle_pin(&mut preferences));
-    for sort in [OpsSort::Name, OpsSort::Attention, OpsSort::Members] {
-        for reversed in [false, true] {
-            preferences.sort = sort;
-            preferences.reversed = reversed;
-            let rows = workspace.rows(&roster, &preferences);
-            assert_eq!(rows[0].target, OpsTarget::Pool);
-            assert_eq!(rows[1].target, OpsTarget::Squad("pinned".into()));
-            assert_eq!(
-                workspace.selection_state(&roster, &rows),
-                SelectionState::Visible
-            );
-        }
-    }
-    assert!(workspace.toggle_pin(&mut preferences));
-    assert!(preferences.pinned.is_empty());
-}
-
-#[test]
-fn member_and_virtual_pool_cannot_mutate_pin_preferences_or_expand() {
+fn member_and_virtual_pool_do_not_expand() {
     let mut workspace = OpsWorkspace {
         selected: Some(target(None, "free")),
         ..Default::default()
     };
-    let mut preferences = OpsPreferences::default();
-    assert!(!workspace.toggle_pin(&mut preferences));
     assert!(!workspace.toggle_expanded(&target(None, "free")));
     workspace.selected = None;
-    assert!(!workspace.toggle_pin(&mut preferences));
     assert_eq!(
         workspace.selection_state(&roster(), &[]),
         SelectionState::None
@@ -891,56 +803,6 @@ fn hidden_attention_reuses_shell_evidence_and_deduplicates_room_memberships() {
     assert_eq!(roster.shell_counts().blocked, 2);
     roster.observation = OpsObservation::Partial;
     assert!(!roster.hidden_counts(&hidden).complete);
-}
-
-#[test]
-fn pinned_agents_keep_their_groups_without_revealing_unpinned_children() {
-    let roster = roster();
-    let mut preferences = OpsPreferences {
-        agent_pins: ["one".into(), "free".into()].into(),
-        ..Default::default()
-    };
-    let mut workspace = OpsWorkspace {
-        filter: AgentsFilter::Pinned,
-        ..Default::default()
-    };
-    let rows = workspace.rows(&roster, &preferences);
-    assert_eq!(
-        rows.iter()
-            .map(|row| row.target.clone())
-            .collect::<Vec<_>>(),
-        [
-            OpsTarget::Pool,
-            OpsTarget::Member {
-                room_id: None,
-                identity_id: "free".into()
-            },
-            OpsTarget::Squad("room".into()),
-            OpsTarget::Member {
-                room_id: Some("room".into()),
-                identity_id: "one".into()
-            },
-        ]
-    );
-    assert!(workspace.expanded.is_empty() && !workspace.pool_expanded);
-    workspace.query = "Lead".into();
-    assert!(
-        workspace.rows(&roster, &preferences).is_empty(),
-        "an unpinned match cannot reveal its group"
-    );
-    workspace.query = "Alice".into();
-    assert_eq!(workspace.search_counts(&roster, &preferences), (1, 2));
-    workspace.query.clear();
-    preferences.hidden.insert("room".into());
-    // The pinned Alice keeps the Hidden group, its squad and her row.
-    assert_eq!(workspace.rows(&roster, &preferences).len(), 5);
-    workspace.visibility.scope = vec!["other".into()];
-    assert!(workspace.rows(&roster, &preferences).is_empty());
-    workspace.visibility.scope.clear();
-    preferences.hidden.clear();
-    preferences.pinned.insert("room".into());
-    let rows = workspace.rows(&roster, &preferences);
-    assert!(rows.iter().any(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "lead")), "a pinned squad retains its full membership");
 }
 
 #[test]

@@ -45,7 +45,6 @@ pub(in crate::board) fn span(key: &str, selected: bool, look: Look) -> Span<'sta
 pub(in crate::board) fn control_span(app: &App, key: &str, action: OpsUiAction) -> Span<'static> {
     let mut cap = span(key, false, app.look());
     if !app.workspace_strip_enabled()
-        || (action == OpsUiAction::AgentsFilter && app.workspace_scope().is_reader())
         || !app
             .workspace_bindings()
             .values()

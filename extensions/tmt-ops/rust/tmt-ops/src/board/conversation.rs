@@ -781,9 +781,7 @@ fn render_target(
         .or_else(|| row["fields"]["model"].as_str())
         .unwrap_or("–");
     let room = match &target {
-        RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. })
-            if !app.flat_agents() =>
-        {
+        RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. }) => {
             room_id.as_deref()
         }
         _ => None,

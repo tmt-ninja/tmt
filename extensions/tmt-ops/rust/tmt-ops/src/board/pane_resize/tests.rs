@@ -567,7 +567,7 @@ fn the_usage_rule_is_the_only_horizontal_resize_target_of_the_flat_list() {
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         paint(&mut app, width, 51);
         let ids: Vec<_> = app
             .pane_resize
@@ -733,7 +733,7 @@ fn growing_usage_never_hides_the_existing_list() {
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
         app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         let original = paint(&mut app, width, 51);
         let text = |buffer: &Buffer| {
             buffer
@@ -910,7 +910,7 @@ fn pointer_events_clear_a_drag_hover_on_terminals_without_motion_events() {
 fn minimum_column_widths_keep_required_table_fields_whole() {
     use crate::board::shell::OpsTab;
     let mut app = populated_app(OpsTab::Agents, crate::look::Look::default());
-    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
     app.pane_resize.restore([(Id::AgentsColumns, 0)].into());
     let buffer = paint(&mut app, 148, 51);
     let list_width = app
@@ -933,12 +933,12 @@ fn minimum_column_widths_keep_required_table_fields_whole() {
         .find(|line| line.contains("AGENT"))
         .expect("the actual painted table header");
     assert!(
-        header.contains("TOK 1h") && !header.contains("MODEL") && !header.contains("NOW"),
+        header.contains("SQUAD / AGENT") && header.contains("STATE"),
         "{header}"
     );
     assert_eq!(
         list_width,
-        crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
+        crate::board::conversation::layout::LIST_MIN_COLUMNS
     );
 }
 

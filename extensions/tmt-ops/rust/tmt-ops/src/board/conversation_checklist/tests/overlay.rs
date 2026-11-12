@@ -51,6 +51,37 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
     (app, key)
 }
 
+#[test]
+fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
+    let (mut app, _) = read_with(vec![todo(1)]);
+    press(&mut app, KeyCode::Enter);
+    assert!(app.input.is_some(), "Talk opens the editor");
+    type_text(&mut app, "draft words");
+    press(&mut app, KeyCode::Left);
+    let before = app.input.as_ref().unwrap().text.to_string();
+    let caret = app.input.as_ref().unwrap().text.cursor();
+    assert!(paint(&app).contains("^L checklist"));
+    press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+    assert!(app.notes_overlay.is_some(), "Ctrl+L opens member Checklist");
+    press(&mut app, KeyCode::Esc);
+    let input = app.input.as_ref().expect("Esc returns to the editor");
+    assert_eq!(input.text.to_string(), before);
+    assert_eq!(input.text.cursor(), caret);
+}
+
+#[test]
+fn ctrl_l_is_not_advertised_or_consumed_without_a_checklist_target() {
+    let (mut app, _) = read_with(vec![todo(1)]);
+    press(&mut app, KeyCode::Enter);
+    type_text(&mut app, "draft");
+    app.workspace.selected = Some(OpsTarget::Pool);
+    assert!(!paint(&app).contains("^L"));
+    let before = app.input.as_ref().unwrap().text.to_string();
+    press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+    assert!(app.notes_overlay.is_none());
+    assert_eq!(app.input.as_ref().unwrap().text.to_string(), before);
+}
+
 fn opened(items: Vec<ItemView>) -> (App, Key) {
     let (mut app, key) = read_with(items);
     press(&mut app, KeyCode::Char('C'));

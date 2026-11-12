@@ -8,7 +8,6 @@ use crate::board::app::workspace::tests::MEMBER;
 fn every_open_request_from_the_agent_is_in_the_squads_thread_by_send_time() {
     crate::status::with_now_ms(3_600_000, || {
         let mut app = workspace_fixture();
-        assert!(!app.flat_agents(), "the Squads chip is the default");
         app.view.as_mut().unwrap().replies = vec![
             json!({
                 "recipientId":MEMBER,"requestId":"older-request",

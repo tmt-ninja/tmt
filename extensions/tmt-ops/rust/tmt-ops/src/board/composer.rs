@@ -130,6 +130,9 @@ impl App {
         super::input_field::Info {
             name: projection.recipient,
             newline: self.newline_key(),
+            checklist: projection.focused
+                && !self.modal_open()
+                && self.conversation_checklist_key().is_some(),
             unread: identity.map_or_else(Default::default, |id| self.unread_count(id)),
             open: row
                 .and_then(|row| row["waitingOnYou"].as_array())

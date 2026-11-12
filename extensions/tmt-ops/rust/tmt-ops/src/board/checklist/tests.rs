@@ -346,7 +346,6 @@ fn workspace_checklist_requires_a_room_choice_without_visible_squad_authority() 
         match context {
             "overview" => {
                 app.shell.tab = OpsTab::Agents;
-                app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             }
             "pool" => app.workspace.selected = Some(OpsTarget::Pool),
             "hidden" => app.workspace.query = "no matching identity".into(),

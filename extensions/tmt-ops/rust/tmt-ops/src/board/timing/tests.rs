@@ -187,10 +187,10 @@ fn navigation_is_file_only_and_off_without_a_path() {
 #[test]
 fn navigation_records_end_ownership_and_action() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM, board};
-    use crate::board::workspace::{AgentsFilter, OpsTarget};
+    use crate::board::workspace::OpsTarget;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = board();
-    app.workspace.filter = AgentsFilter::Agents;
+
     app.workspace.expanded.insert(ROOM.into());
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     app.workspace_reconcile();

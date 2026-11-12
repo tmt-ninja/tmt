@@ -74,7 +74,6 @@ pub(in crate::board) struct Cache {
 }
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
-    pub matching_agents: usize,
     pub summary: super::summary::Summary,
 }
 /// What a squad is doing now: its lead's (else any member's) open request,
@@ -167,7 +166,6 @@ pub(super) fn waits(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow) -> bool {
 struct Key {
     order: Option<crate::config::OverviewSort>,
     query: String,
-    pins: std::collections::BTreeSet<String>,
     hidden: std::collections::BTreeSet<String>,
     digest_window: crate::config::DigestWindow,
     savings_unit: crate::config::SavingsUnit,
@@ -181,15 +179,10 @@ impl Cache {
     }
 }
 
-pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[OpsTreeRow]> {
-    Rc::clone(&scene(app, snapshot).rows)
-}
-
 pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<Scene> {
     let key = Key {
         order: app.workspace_order().overview,
         query: app.workspace.query.clone(),
-        pins: snapshot.preferences.agent_pins.clone(),
         hidden: snapshot.preferences.hidden.clone(),
         digest_window: app.digest_window(),
         savings_unit: snapshot.preferences.savings_unit,
@@ -232,10 +225,6 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
             (row, v)
         })
         .collect();
-    let pinned = |row: &OpsTreeRow| {
-        matches!(&row.target,
-        OpsTarget::Member { identity_id, .. } if key.pins.contains(identity_id))
-    };
     let unread = app.unread_identities();
     let has_unread = |row: &OpsTreeRow| {
         matches!(&row.target,
@@ -244,7 +233,6 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     projected.sort_by(|(a, av), (b, bv)| {
         has_unread(b)
             .cmp(&has_unread(a))
-            .then_with(|| pinned(b).cmp(&pinned(a)))
             .then_with(|| waits(snapshot, b).cmp(&waits(snapshot, a)))
             .then_with(|| match key.order {
                 Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
@@ -266,9 +254,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         .map(|(row, _)| row)
         .collect::<Vec<_>>()
         .into();
-    let matching_agents = agents.len();
     let scene = Rc::new(Scene {
-        matching_agents,
         rows: agents,
         summary: super::summary::project(
             snapshot,

@@ -1,8 +1,6 @@
 //! The Agents list body and the Measure column, with Usage above both.
 pub(in crate::board) mod lower;
 pub(in crate::board) mod measure;
-mod render;
-pub(in crate::board) use render::render;
 #[cfg(test)]
 mod tests;
 

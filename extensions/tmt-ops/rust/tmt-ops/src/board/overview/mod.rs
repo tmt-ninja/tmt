@@ -12,7 +12,6 @@ pub(super) mod quota;
 pub(super) mod sort;
 pub(super) mod summary;
 pub(super) mod timers;
-pub(super) mod view;
 
 #[cfg(test)]
 pub(in crate::board) mod capture;

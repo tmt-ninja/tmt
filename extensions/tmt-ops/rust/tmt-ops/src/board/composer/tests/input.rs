@@ -41,7 +41,9 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
         let editor = app.input_viewport.get().unwrap().0;
         assert_eq!(editor.height, 1);
         assert_eq!(editor.bottom(), idle_view.bottom());
-        assert_eq!(band_text(&focused, info), info_before);
+        let info_focused = band_text(&focused, info);
+        assert!(info_focused.contains("worker"));
+        assert!(info_focused.contains("^L checklist"));
         for (text, rows) in [
             ("first\nsecond\nthird\nfourth\nfifth", 5),
             ("\nsixth\nseventh\neighth", 6),
@@ -59,7 +61,7 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
             assert_eq!(viewport.height, rows);
             assert_eq!(viewport.bottom(), idle_view.bottom());
             let info_now = Rect::new(grown.x, grown.bottom() - 1, grown.width, 1);
-            assert_eq!(band_text(&typed, info_now), info_before);
+            assert_eq!(band_text(&typed, info_now), info_focused);
             let shown = band_text(&typed, grown);
             assert!(
                 !shown.contains("as you")

@@ -38,20 +38,21 @@ pub(in crate::board) fn paint(
     keep: usize,
 ) -> Rect {
     let look = app.look();
-    let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "M");
-    let cap = key
-        .as_deref()
-        .map(|key| keycap::control_span(app, key, crate::action::OpsUiAction::TalkMeasure));
     let enabled = app.workspace_strip_enabled();
-    let cap_width = cap.as_ref().map_or(0, Span::width);
-    let chips = OPTIONS
+    let controls = OPTIONS.map(|(id, label, tab)| {
+        let (action, preferred) = match tab {
+            RightTab::Talk => (crate::action::OpsUiAction::PaneTalk, "T"),
+            RightTab::Measure => (crate::action::OpsUiAction::PaneMeasure, "M"),
+        };
+        let cap =
+            keycap::key(app, action, preferred).map(|key| keycap::control_span(app, &key, action));
+        (id, label, tab, cap)
+    });
+    let width: usize = controls
         .iter()
-        .map(|(_, label, _)| label.width() + 3)
-        .sum::<usize>();
-    let width = (cap_width + chips) as u16;
-    // The control leads the rule, right after the divider: `┬─ M  Talk  Measure ── worker ──`.
-    // Keep room for a short title after it.
-    if rule.height == 0 || rule.width < width + LEAD + MIN_TITLE as u16 {
+        .map(|(_, label, _, cap)| cap.as_ref().map_or(0, Span::width) + label.width() + 3)
+        .sum();
+    if rule.height == 0 || usize::from(rule.width) < width + usize::from(LEAD) + MIN_TITLE {
         return rule;
     }
     strip::paint_left(
@@ -59,34 +60,43 @@ pub(in crate::board) fn paint(
         Rect::new(rule.x, rule.y, LEAD, 1),
         Line::styled("─ ", look.role(Role::Dim)),
     );
-    let area = Rect::new(rule.x + LEAD, rule.y, width, 1);
-    if let Some(cap) = cap {
-        strip::paint_left(buffer, area, Line::from(vec![cap]));
-    }
-    let groups = [chip_group::ChipGroup {
-        label: String::new(),
-        choices: OPTIONS
-            .iter()
-            .map(|(id, label, tab)| chip_group::Choice {
-                id: (*id).into(),
+    let mut used = LEAD;
+    for (id, label, tab, cap) in controls {
+        if let Some(cap) = cap {
+            let width = cap.width() as u16;
+            strip::paint_left(
+                buffer,
+                Rect::new(rule.x + used, rule.y, width, 1),
+                Line::from(vec![cap]),
+            );
+            used += width;
+        }
+        let width = (label.width() + 3) as u16;
+        let groups = [chip_group::ChipGroup {
+            label: String::new(),
+            choices: vec![chip_group::Choice {
+                id: id.into(),
                 actionable: true,
                 text: format!(" {label} "),
                 gap: " ".into(),
-                selected: *tab == app.right_tab,
+                selected: tab == app.right_tab,
                 disabled: !enabled,
                 cursor: false,
-            })
-            .collect(),
-    }];
-    let rect = Rect::new(area.x + cap_width as u16, area.y, chips as u16, 1);
-    for hit in chip_group::paint(buffer, rect, &groups, app, None) {
-        if let Some((_, _, tab)) = OPTIONS.iter().find(|(id, _, _)| *id == hit.id) {
+            }],
+        }];
+        for hit in chip_group::paint(
+            buffer,
+            Rect::new(rule.x + used, rule.y, width, 1),
+            &groups,
+            app,
+            None,
+        ) {
             app.workspace_strip_hits
                 .borrow_mut()
-                .push((hit.area, Choice::RightTab(*tab)));
+                .push((hit.area, Choice::RightTab(tab)));
         }
+        used += width;
     }
-    let mut used = LEAD + width;
     if let Some(target) = target
         && let Some(width) = checklist(
             keep,
@@ -114,7 +124,15 @@ fn checklist(
     let key = conversation_checklist::Key::of(target)?;
     let look = app.look();
     let action = crate::action::OpsUiAction::MemberNotes;
-    let cap = keycap::key(app, action, "C").map(|key| keycap::control_span(app, &key, action));
+    let cap = if !app.modal_open()
+        && app
+            .composer_projection()
+            .is_some_and(|projection| projection.focused)
+    {
+        Some(keycap::control_span(app, "^L", action))
+    } else {
+        keycap::key(app, action, "C").map(|key| keycap::control_span(app, &key, action))
+    };
     // A state too wide for the rule even without the chip is not shown either way.
     let keep = if usize::from(rest.width) >= keep {
         keep

@@ -145,8 +145,9 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         "{lines:?}"
     );
     assert!(
-        lines.iter().any(|line| line.contains("Alt+⏎")
-            && (line.trim_end().ends_with("@ mention") || line.trim_end().ends_with('@'))),
+        lines.iter().any(
+            |line| line.contains("Alt+⏎") && (line.contains("@ mention") || line.contains('@'))
+        ),
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;
@@ -191,7 +192,7 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
         let mut app = workspace_board();
         app.shell.tab = crate::board::shell::OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
         let summary = draw(&app, width, 24)[2].clone();
         app.view.as_mut().unwrap().history_pending = true;
         let pending = draw(&app, width, 24);

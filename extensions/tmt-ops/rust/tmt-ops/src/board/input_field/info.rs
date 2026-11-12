@@ -9,6 +9,7 @@ pub(in crate::board) struct Info<'a> {
     pub name: &'a str,
     /// The new-line key the board names, the same source as the footer caption.
     pub newline: crate::board::app::NewlineKey,
+    pub checklist: bool,
     pub unread: Count,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
@@ -79,10 +80,15 @@ impl Info<'_> {
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
         let newline = self.newline.glyph();
         let full = format!(
-            "⏎ send  {newline} new line  {} mention",
-            crate::board::mentions::PRIMARY_TRIGGER
+            "⏎ send  {newline} new line  {} mention{}",
+            crate::board::mentions::PRIMARY_TRIGGER,
+            if self.checklist { "  ^L checklist" } else { "" }
         );
-        let keys = format!("⏎  {newline}  {}", crate::board::mentions::PRIMARY_TRIGGER);
+        let keys = format!(
+            "⏎ send  {newline}  {}{}",
+            crate::board::mentions::PRIMARY_TRIGGER,
+            if self.checklist { "  ^L checklist" } else { "" }
+        );
         let (full, keys) = (full.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
         let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
@@ -100,6 +106,12 @@ impl Info<'_> {
                 left,
                 if keys.width() + 2 <= usize::from(line.width) {
                     keys
+                } else if self.checklist
+                    && "⏎ send  ^L checklist".width() + 2 <= usize::from(line.width)
+                {
+                    "⏎ send  ^L checklist"
+                } else if "⏎ send".width() <= usize::from(line.width) {
+                    "⏎ send"
                 } else {
                     "⏎"
                 },
@@ -148,6 +160,7 @@ mod tests {
         let look = Look::default();
         let mut info = Info {
             name: "worker",
+            checklist: false,
             newline: crate::board::app::NewlineKey::Alt,
             unread: Count::default(),
             open: Some(0),
@@ -187,6 +200,7 @@ mod tests {
         for key in [NewlineKey::Alt, NewlineKey::Shift] {
             let info = Info {
                 name: "worker-1",
+                checklist: false,
                 newline: key,
                 unread: Count::default(),
                 open: Some(0),
@@ -216,6 +230,7 @@ mod tests {
         for (key, named) in [(NewlineKey::Alt, "Alt+⏎"), (NewlineKey::Shift, "Shift+⏎")] {
             let info = Info {
                 name: "worker",
+                checklist: false,
                 newline: key,
                 unread: Count::default(),
                 open: Some(0),

@@ -169,9 +169,6 @@ pub(in crate::board) fn paint_placeholder(buffer: &mut Buffer, area: Rect, app: 
 impl App {
     /// `m` on an agent row lifts that membership.
     pub(in crate::board) fn begin_move(&mut self) -> Effect {
-        if self.flat_agents() {
-            return self.say("Show squads (f) to move an agent between them.");
-        }
         let Some(OpsTarget::Member {
             room_id,
             identity_id,

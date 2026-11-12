@@ -493,7 +493,7 @@ mod tests {
             let mut app = crate::board::app::workspace::tests::board();
             crate::board::app::workspace::tests::observe_waiting_member(&mut app);
             app.shell.tab = crate::board::shell::OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+
             let view = app.view.as_mut().unwrap();
             view.look = Look {
                 theme: config.theme("").unwrap().0,
@@ -531,6 +531,7 @@ mod tests {
                 ),
                 now,
             );
+            app.workspace.selected = Some(crate::board::workspace::OpsTarget::Pool);
             app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
             for _ in 0..3 {
                 app.key(key(KeyCode::Down));

@@ -204,9 +204,7 @@ impl TokRange {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
-    pub pinned: BTreeSet<String>,
     pub hidden: BTreeSet<String>,
-    pub agent_pins: BTreeSet<String>,
     pub sort: OpsSort,
     pub reversed: bool,
     /// None retains the monitor's needs-you ordering until an explicit sort.
@@ -320,8 +318,9 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("C", "member-checklist"),
+            ("T", "pane-talk"),
+            ("M", "pane-measure"),
             ("ctrl-g", "member-back"),
-            ("p", "pin"),
         ]
     } else {
         vec![
@@ -348,7 +347,8 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("ctrl-g", "member-back"),
             (",", "settings"),
             ("c", "timers"),
-            ("M", "talk-measure"),
+            ("T", "pane-talk"),
+            ("M", "pane-measure"),
             ("u", "unread"),
             ("esc", "clear-scope"),
             ("h", "reveal-hidden"),
@@ -362,14 +362,12 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("D", "digest"),
-            ("p", "pin"),
             ("m", "manage"),
             ("N", "create-squad"),
             ("H", "hide-squad"),
             ("S", "show-squad"),
         ]),
         OpsKeyScope::Member => entries.extend([
-            ("p", "pin"),
             ("e", "edit"),
             ("r", "rename"),
             ("enter", "talk"),
@@ -396,7 +394,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     ) {
         entries.push(("n", "new-member"));
         entries.push(("s", "discover-agents"));
-        entries.push(("f", "agents-filter"));
     }
     if scope != OpsKeyScope::Orchestration {
         entries.extend([
@@ -420,16 +417,11 @@ pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError
     if let Verb::Retired(name) = action.verb {
         let instead = match name {
             "overview" => "the Overview tab was merged into Agents; use 'agents'",
-            "overview-view" => "the Squads/Agents switch is now 'agents-filter'",
-            _ => "choose 'agents-filter' for Squads/Agents/Pinned explicitly",
+            "overview-view" => "Agents now shows the squad tree",
+            _ => "Agents now shows the squad tree",
         };
         return Err(invalid(format!(
             "`{path}`: '{name}' is retired; {instead}. The authored binding is preserved for migration."
-        )));
-    }
-    if action.verb == Verb::Ui(OpsUiAction::AgentsFilter) && !action.args.is_empty() {
-        return Err(invalid(format!(
-            "`{path}`: 'agents-filter needs-you' is retired; 'agents-filter' now cycles between All and Pinned. The authored binding is preserved for migration."
         )));
     }
     if matches!(
@@ -559,21 +551,8 @@ impl Config {
                 }
                 "overview_panels" => result.overview_panels = Some(PanelSetting::observe(item)),
                 "digest_panels" => result.digest_panels = Some(PanelSetting::observe(item)),
-                "pinned" => {
-                    let pins = item.as_array().ok_or_else(|| {
-                        invalid("`workspace.pinned` must be an array of room UUIDs.")
-                    })?;
-                    for value in pins {
-                        let id = value.as_str().filter(|id| uuid_like(id)).ok_or_else(|| {
-                            invalid("`workspace.pinned` requires canonical room UUIDs.")
-                        })?;
-                        if !result.pinned.insert(id.into()) {
-                            return Err(invalid(
-                                "`workspace.pinned` contains a repeated room UUID.",
-                            ));
-                        }
-                    }
-                }
+                // Retired pin preferences remain untouched in user-owned TOML.
+                "pinned" | "agent_pins" => {}
                 "hidden" => {
                     let hidden = item.as_array().ok_or_else(|| {
                         invalid("`workspace.hidden` must be an array of room UUIDs.")
@@ -591,26 +570,6 @@ impl Config {
                         if !result.hidden.insert(id.into()) {
                             return Err(invalid(
                                 "`workspace.hidden` contains a repeated room UUID.",
-                            ));
-                        }
-                    }
-                }
-                "agent_pins" => {
-                    let pins = item.as_array().ok_or_else(|| {
-                        invalid("`workspace.agent_pins` must be an array of identity UUIDs.")
-                    })?;
-                    if pins.len() > 1024 {
-                        return Err(invalid(
-                            "`workspace.agent_pins` allows at most 1024 identities.",
-                        ));
-                    }
-                    for value in pins {
-                        let id = value.as_str().filter(|id| uuid_like(id)).ok_or_else(|| {
-                            invalid("`workspace.agent_pins` requires canonical identity UUIDs.")
-                        })?;
-                        if !result.agent_pins.insert(id.into()) {
-                            return Err(invalid(
-                                "`workspace.agent_pins` contains a repeated identity UUID.",
                             ));
                         }
                     }
@@ -709,17 +668,9 @@ impl Config {
                 "Workspace preferences changed; reload before saving.",
             ));
         }
-        if next.pinned.iter().any(|id| !uuid_like(id)) {
-            return Err(invalid("Workspace pins must be room UUIDs."));
-        }
         if next.hidden.len() > 1024 || next.hidden.iter().any(|id| !canonical_room_id(id)) {
             return Err(invalid(
                 "Hidden squads require canonical room UUIDs, at most 1024.",
-            ));
-        }
-        if next.agent_pins.len() > 1024 || next.agent_pins.iter().any(|id| !uuid_like(id)) {
-            return Err(invalid(
-                "Agent pins require canonical identity UUIDs, at most 1024.",
             ));
         }
         validate_panel_save(&expected.overview_panels, &next.overview_panels)?;
@@ -740,11 +691,6 @@ impl Config {
                 &expected.digest_panels,
                 &next.digest_panels,
             );
-            let mut pins = toml_edit::Array::new();
-            for id in &next.pinned {
-                pins.push(id.as_str());
-            }
-            document["workspace"]["pinned"] = value(pins);
             if !next.hidden.is_empty() {
                 let mut hidden = toml_edit::Array::new();
                 for id in &next.hidden {
@@ -753,15 +699,6 @@ impl Config {
                 document["workspace"]["hidden"] = value(hidden);
             } else if let Some(table) = document["workspace"].as_table_like_mut() {
                 table.remove("hidden");
-            }
-            if !next.agent_pins.is_empty() {
-                let mut pins = toml_edit::Array::new();
-                for id in &next.agent_pins {
-                    pins.push(id.as_str());
-                }
-                document["workspace"]["agent_pins"] = value(pins);
-            } else if let Some(table) = document["workspace"].as_table_like_mut() {
-                table.remove("agent_pins");
             }
             document["workspace"]["sort"] = value(match next.sort {
                 OpsSort::Name => "name",
@@ -955,10 +892,7 @@ impl Config {
             }
             if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
-                if matches!(
-                    action.verb,
-                    Verb::Retired(_) | Verb::Ui(OpsUiAction::AgentsFilter)
-                ) {
+                if matches!(action.verb, Verb::Retired(_)) {
                     effective.remove(&key);
                     sources.remove(&key);
                 }
@@ -1133,7 +1067,7 @@ mod tests {
         let config = config("[bind]\nf='search'\n[bind.tmux]\nf='talk'\n");
         let section: Bindings = [("f".into(), Action::parse("run /usr/bin/true").unwrap())].into();
         for scope in [OpsKeyScope::Squad, OpsKeyScope::Member, OpsKeyScope::Pool] {
-            assert_eq!(defaults(scope)["f"].text, "agents-filter");
+            assert!(!defaults(scope).contains_key("f"));
             for (host, section, expected, source) in [
                 (None, None, "search", "bind.f"),
                 (Some("tmux"), None, "talk", "bind.tmux.f"),
@@ -1159,11 +1093,7 @@ mod tests {
             OpsKeyScope::Squad,
             OpsKeyScope::Pool,
         ] {
-            if scope.is_reader() {
-                assert!(!defaults(scope).contains_key("f"));
-            } else {
-                assert_eq!(defaults(scope)["f"].text, "agents-filter");
-            }
+            assert!(!defaults(scope).contains_key("f"));
         }
         for scope in [
             OpsKeyScope::Reader,
@@ -1266,19 +1196,8 @@ mod tests {
                 (scope == OpsKeyScope::Member).then_some("terminal-new"),
                 "{scope:?}"
             );
-            let measure_keys: Vec<_> = factory
-                .bindings
-                .iter()
-                .filter(|(_, action)| action.text == "talk-measure")
-                .map(|(key, _)| key.as_str())
-                .collect();
-            if scope.is_reader() {
-                assert!(!factory.bindings.contains_key("M"), "{scope:?}");
-                assert!(measure_keys.is_empty(), "{scope:?}");
-            } else {
-                assert_eq!(factory.bindings["M"].text, "talk-measure", "{scope:?}");
-                assert_eq!(measure_keys, ["M"], "{scope:?}");
-            }
+            assert_eq!(factory.bindings["T"].text, "pane-talk", "{scope:?}");
+            assert_eq!(factory.bindings["M"].text, "pane-measure", "{scope:?}");
         }
     }
 
@@ -1333,7 +1252,7 @@ mod tests {
         ] {
             assert_eq!(plain.bindings[event].text, name);
         }
-        assert_eq!(plain.bindings["p"].text, "pin");
+        assert!(!plain.bindings.contains_key("p"));
         for key in ["left", "right", "s", "t", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
@@ -1585,7 +1504,7 @@ mod tests {
             .unwrap()
             .bindings;
         assert_eq!(squad["N"].text, "create-squad");
-        assert_eq!(squad["p"].text, "pin");
+        assert!(!squad.contains_key("p"));
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let keys = config.workspace_keys(scope, None, None).unwrap().bindings;
             assert_eq!(keys["C"].text, "member-checklist", "{scope:?}");
@@ -1706,9 +1625,12 @@ mod tests {
             let keys = config
                 .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
                 .unwrap();
-            assert!(keys.notices.iter().any(
-                |notice| notice.contains("overview-filter") && notice.contains("agents-filter")
-            ));
+            assert!(
+                keys.notices
+                    .iter()
+                    .any(|notice| notice.contains("overview-filter")
+                        && notice.contains("squad tree"))
+            );
             assert!(!keys.bindings.contains_key("f"));
             assert_eq!(config.document.to_string(), before);
             assert!(
@@ -1794,9 +1716,7 @@ mod tests {
         let mut config = fixture.config();
         let expected = config.workspace_preferences().unwrap();
         let next = OpsPreferences {
-            pinned: ["11111111-1111-4111-8111-111111111111".into()].into(),
             hidden: BTreeSet::new(),
-            agent_pins: BTreeSet::new(),
             sort: OpsSort::Attention,
             reversed: true,
             layout: OpsLayout::Stack,
@@ -2065,7 +1985,7 @@ mod tests {
         assert_eq!(fs::read(first.path()).unwrap(), before);
     }
     #[test]
-    fn hidden_squads_round_trip_unknown_ids_and_clear_without_removing_pins() {
+    fn hidden_squads_round_trip_unknown_ids_and_clear() {
         let fixture = FileFixture::new();
         let mut cfg = fixture.config();
         let untouched = fs::read(cfg.path()).unwrap();
@@ -2077,7 +1997,6 @@ mod tests {
         let id = "11111111-1111-4111-8111-111111111111";
         let unknown = "22222222-2222-4222-8222-222222222222";
         let mut next = original.clone();
-        next.pinned.insert(id.into());
         next.hidden.extend([id.into(), unknown.into()]);
         cfg.save_workspace_preferences(&original, &next).unwrap();
         assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
@@ -2096,7 +2015,6 @@ mod tests {
         let cfg = fixture.config();
         assert_eq!(cfg.workspace_preferences().unwrap(), next);
         assert!(cfg.document["workspace"].get("hidden").is_none());
-        assert!(next.pinned.contains(id));
     }
 
     #[test]
@@ -2197,95 +2115,53 @@ mod tests {
     }
 
     #[test]
-    fn member_defaults_keep_pin_without_a_view_reply_duplicate() {
-        assert!(!defaults(OpsKeyScope::Member).contains_key("v"));
-        assert_eq!(defaults(OpsKeyScope::Member)["p"].text, "pin");
+    fn retired_pin_preferences_are_ignored_and_preserved_on_unrelated_save() {
+        let fixture = FileFixture::new();
+        let path = fixture.0.join("ops.toml");
+        let saved = "[workspace]\npinned = 'legacy rooms' # keep rooms\nagent_pins = { invalid = true } # keep agents\n";
+        fs::write(&path, saved).unwrap();
+        let mut config = fixture.config();
+        let original = config.workspace_preferences().unwrap();
+        let mut changed = original.clone();
+        changed.reversed = !changed.reversed;
+        config
+            .save_workspace_preferences(&original, &changed)
+            .unwrap();
+        let result = fs::read_to_string(&path).unwrap();
+        assert!(result.contains("pinned = 'legacy rooms' # keep rooms\n"));
+        assert!(result.contains("agent_pins = { invalid = true } # keep agents\n"));
     }
 
     #[test]
-    fn agent_pins_round_trip_clear_and_leave_unrelated_content() {
-        let fixture = FileFixture::new();
-        let mut cfg = fixture.config();
-        let original = cfg.workspace_preferences().unwrap();
-        let mut next = original.clone();
-        next.agent_pins
-            .insert("11111111-1111-4111-8111-111111111111".into());
-        cfg.save_workspace_preferences(&original, &next).unwrap();
-        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
-        let bytes = fs::read_to_string(cfg.path()).unwrap();
-        assert!(bytes.contains("[squad.other]\nlayout='crew'"));
-        let pinned = next.clone();
-        next.agent_pins.clear();
-        cfg.save_workspace_preferences(&pinned, &next).unwrap();
-        assert!(
-            !fs::read_to_string(cfg.path())
-                .unwrap()
-                .contains("agent_pins")
-        );
-        next.reversed = true;
-        let before = cfg.workspace_preferences().unwrap();
-        cfg.save_workspace_preferences(&before, &next).unwrap();
-        assert!(
-            !fs::read_to_string(cfg.path())
-                .unwrap()
-                .contains("agent_pins")
-        );
-    }
-    #[test]
-    fn agent_pin_validation_and_concurrent_edit_are_not_truncated() {
-        let id = "11111111-1111-4111-8111-111111111111";
-        for pins in [
-            "[42]".to_owned(),
-            "['not-an-id']".into(),
-            format!("['{id}', '{id}']"),
-            format!(
-                "[{}]",
-                (0..1025)
-                    .map(|n| format!("'{n:08x}-1111-4111-8111-111111111111'"))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-        ] {
-            assert!(
-                config(&format!("[workspace]\nagent_pins={pins}"))
-                    .workspace_preferences()
-                    .is_err()
+    fn removed_actions_follow_unknown_action_behavior() {
+        for action in ["pin", "agents-filter", "talk-measure"] {
+            assert_eq!(
+                Action::parse(action).unwrap_err(),
+                format!("'{action}' is not an action")
             );
         }
-        assert!(
-            config("[workspace]\nfuture='unknown'")
-                .workspace_preferences()
-                .unwrap_err()
-                .message
-                .contains("is not a supported preference")
-        );
-        let fixture = FileFixture::new();
-        let mut first = fixture.config();
-        let original = first.workspace_preferences().unwrap();
-        let mut second = fixture.config();
-        let mut pinned = original.clone();
-        pinned.agent_pins.insert(id.into());
-        second
-            .save_workspace_preferences(&original, &pinned)
-            .unwrap();
-        let after = fs::read(first.path()).unwrap();
-        assert!(
-            first
-                .save_workspace_preferences(&original, &pinned)
-                .is_err()
-        );
-        assert_eq!(fs::read(first.path()).unwrap(), after);
-        let mut too_many = pinned.clone();
-        too_many.agent_pins = (0..1025)
-            .map(|n| format!("{n:08x}-1111-4111-8111-111111111111"))
-            .collect();
-        assert!(
-            second
-                .save_workspace_preferences(&pinned, &too_many)
-                .is_err()
-        );
-        assert_eq!(fs::read(second.path()).unwrap(), after);
     }
+
+    #[test]
+    fn agent_and_squad_defaults_do_not_offer_pin_or_filter() {
+        for scope in [OpsKeyScope::Member, OpsKeyScope::Squad] {
+            let bindings = defaults(scope);
+            assert!(!bindings.contains_key("p"), "{scope:?}");
+            assert!(
+                !bindings
+                    .values()
+                    .any(|binding| binding.text == "agents-filter"),
+                "{scope:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn member_defaults_have_no_pin_or_view_reply_duplicate() {
+        assert!(!defaults(OpsKeyScope::Member).contains_key("v"));
+        assert!(!defaults(OpsKeyScope::Member).contains_key("p"));
+    }
+
     #[test]
     fn overview_sort_keys_are_authored_only() {
         let cfg = config("[bind]\ns='sort'\nS='reverse-sort'");
@@ -2317,7 +2193,7 @@ mod tests {
             );
             assert!(preferences.digest_panels.is_none());
         }
-        for field in ["sort = 5", "unknown = true", "agent_pins = true"] {
+        for field in ["sort = 5", "unknown = true"] {
             assert!(
                 config(&format!("[workspace]\noverview_panels=5\n{field}\n"))
                     .workspace_preferences()
@@ -2447,24 +2323,18 @@ mod tests {
         );
     }
     #[test]
-    fn retired_named_agents_mode_reports_a_located_notice_without_default_retargeting() {
-        for text in [
-            "[bind]\nf = 'agents-filter needs-you'",
-            "[bind.tmux]\nf = 'agents-filter needs-you'",
-        ] {
-            let config = config(text);
-            let before = config.document.to_string();
-            let keys = config
-                .workspace_keys(OpsKeyScope::Squad, Some("tmux"), None)
+    fn removed_bindings_follow_the_existing_unknown_action_error() {
+        for action in ["pin", "agents-filter", "talk-measure"] {
+            let cfg = config(&format!("[bind]\nf = '{action}'"));
+            let error = cfg
+                .workspace_keys(OpsKeyScope::Member, None, None)
+                .err()
                 .unwrap();
-            assert!(keys.notices.iter().any(|notice| notice.contains("bind.f")
-                && notice.contains("retired")
-                && notice.contains("All and Pinned")));
             assert!(
-                !keys.bindings.contains_key("f"),
-                "a retired explicit choice must not fall through to the new cycle"
+                error.message.contains("is not an action"),
+                "{}",
+                error.message
             );
-            assert_eq!(config.document.to_string(), before);
         }
     }
 }

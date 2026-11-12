@@ -904,7 +904,7 @@ impl App {
         self.searching = false;
         self.search.clear();
         self.workspace.query.clear();
-        self.workspace.filter = super::workspace::AgentsFilter::All;
+
         self.workspace.visibility.scope.clear();
         self.workspace.visibility.reveal_hidden = true;
         self.shell.tab = super::shell::OpsTab::Agents;

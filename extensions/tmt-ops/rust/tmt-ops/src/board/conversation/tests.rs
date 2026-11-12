@@ -823,8 +823,8 @@ fn returning_to_agents_keeps_uuid_and_link_while_only_observed_questions_are_dis
             );
             assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
-                !text.contains("worker line 089"),
-                "an unrelated outgoing result is not the incoming question"
+                text.contains("worker line 089"),
+                "Talk retains the observed conversation"
             );
             assert_eq!(
                 app.workspace_bindings()["o"].verb,
