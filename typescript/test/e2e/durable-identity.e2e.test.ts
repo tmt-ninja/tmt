@@ -1,13 +1,13 @@
-import { describe, expect, it } from "vite-plus/test";
-import { expectJsonResult, unknownActivity, withoutAddress } from "./cli-assertions.js";
-import { withE2EFixture, type E2EFixture } from "./harness.js";
-import { durableState } from "./identity-state-oracle.js";
+import { describe, expect, it } from 'vite-plus/test';
+import { expectJsonResult, unknownActivity, withoutAddress } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
+import { durableState } from './identity-state-oracle.js';
 
 interface PublicIdentity {
   id: string;
   name: string;
   canonicalName: string;
-  lifetime: "temporary" | "saved";
+  lifetime: 'temporary' | 'saved';
 }
 
 interface IdentityResult {
@@ -16,87 +16,87 @@ interface IdentityResult {
 }
 
 interface ListedIdentity extends PublicIdentity {
-  presence: "active" | "offline" | "unknown";
+  presence: 'active' | 'offline' | 'unknown';
   pane: string | null;
   command: string;
 }
 
 async function showStoredProfile(fixture: E2EFixture, name: string): Promise<string> {
   const result = await fixture.runJsonCli<{ identity: PublicIdentity; role: { content: string } }>(
-    ["role", "show", "--identity", name],
-    { withoutTmux: true },
+    ['role', 'show', '--identity', name],
+    { withoutTmux: true }
   );
   return expectJsonResult(result).role.content;
 }
 
-describe("durable identity lifecycle", { concurrent: false }, () => {
-  it("creates offline, binds, restarts, and rebinds one identity without losing its profile", async () => {
+describe('durable identity lifecycle', { concurrent: false }, () => {
+  it('creates offline, binds, restarts, and rebinds one identity without losing its profile', async () => {
     await withE2EFixture(async (fixture) => {
       // Fullwidth Latin and ASCII spellings are intentionally equivalent after
       // Unicode normalization, while the first spelling remains the display name.
-      const name = "Ａｌｉｃｅ";
-      const equivalentName = "alice";
-      const profile = "Keep this profile across a tmux restart: 世界.";
-      const preamble = "Use the durable profile for this pane.";
+      const name = 'Ａｌｉｃｅ';
+      const equivalentName = 'alice';
+      const profile = 'Keep this profile across a tmux restart: 世界.';
+      const preamble = 'Use the durable profile for this pane.';
 
       // Creation is deliberately outside tmux: durable identity storage is not
       // contingent on a currently reachable pane.
       const created = expectJsonResult(
-        await fixture.runJsonCli<IdentityResult>(["identity", "create", name], {
+        await fixture.runJsonCli<IdentityResult>(['identity', 'create', name], {
           withoutTmux: true,
-        }),
+        })
       );
       expect(created.created).toBe(true);
       expect(created.identity).toMatchObject({
         name,
-        canonicalName: "alice",
-        lifetime: "saved",
+        canonicalName: 'alice',
+        lifetime: 'saved',
       });
       expect(created.identity.id).toMatch(/^[0-9a-f-]{36}$/);
 
       expect(
         expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity }>(
-            ["identity", "show", equivalentName],
-            { withoutTmux: true },
-          ),
-        ),
+            ['identity', 'show', equivalentName],
+            { withoutTmux: true }
+          )
+        )
       ).toEqual({ identity: created.identity });
       expect(
         expectJsonResult(
-          await fixture.runJsonCli<{ identities: PublicIdentity[] }>(["identity", "list"], {
+          await fixture.runJsonCli<{ identities: PublicIdentity[] }>(['identity', 'list'], {
             withoutTmux: true,
-          }),
-        ),
+          })
+        )
       ).toEqual({ identities: [created.identity] });
 
       expect(
         expectJsonResult(
-          await fixture.runJsonCli(["role", "set", profile, "--identity", name], {
+          await fixture.runJsonCli(['role', 'set', profile, '--identity', name], {
             withoutTmux: true,
-          }),
-        ),
+          })
+        )
       ).toMatchObject({ identity: created.identity, role: { content: profile } });
       expect(
         expectJsonResult(
-          await fixture.runJsonCli(["preamble", "set", name, preamble], { withoutTmux: true }),
-        ),
-      ).toEqual({ agent: name, preamble, status: "set" });
+          await fixture.runJsonCli(['preamble', 'set', name, preamble], { withoutTmux: true })
+        )
+      ).toEqual({ agent: name, preamble, status: 'set' });
 
       const firstBinding = expectJsonResult<{
         bound: true;
         id: string;
         name: string;
         pane: string;
-        lifetime: "temporary" | "saved";
-      }>(await fixture.runJsonCli(["name", name]));
+        lifetime: 'temporary' | 'saved';
+      }>(await fixture.runJsonCli(['name', name]));
       expect(firstBinding).toEqual({
         bound: true,
         session: { unbound: null },
         id: created.identity.id,
         name,
         pane: fixture.pane,
-        lifetime: "saved",
+        lifetime: 'saved',
       });
       const stateBeforeRepeat = durableState(fixture);
       expect(stateBeforeRepeat.identities).toHaveLength(1);
@@ -106,9 +106,9 @@ describe("durable identity lifecycle", { concurrent: false }, () => {
       expect(stateBeforeRepeat.profiles).toHaveLength(1);
 
       const repeated = expectJsonResult(
-        await fixture.runJsonCli<IdentityResult>(["identity", "create", equivalentName], {
+        await fixture.runJsonCli<IdentityResult>(['identity', 'create', equivalentName], {
           withoutTmux: true,
-        }),
+        })
       );
       expect(repeated).toEqual({ identity: created.identity, created: false });
       expect(durableState(fixture)).toEqual(stateBeforeRepeat);
@@ -117,38 +117,38 @@ describe("durable identity lifecycle", { concurrent: false }, () => {
 
       const activeBeforeRestart = expectJsonResult<{
         identities: ListedIdentity[];
-      }>(withoutAddress(await fixture.runJsonCli(["list"])));
+      }>(withoutAddress(await fixture.runJsonCli(['list'])));
       expect(activeBeforeRestart.identities).toEqual([
         expect.objectContaining({
           id: created.identity.id,
           name,
-          canonicalName: "alice",
-          lifetime: "saved",
-          presence: "active",
+          canonicalName: 'alice',
+          lifetime: 'saved',
+          presence: 'active',
           pane: fixture.pane,
         }),
       ]);
 
       const preambleBeforeRestart = expectJsonResult<{ agent: string; preamble: string }>(
-        await fixture.runJsonCli(["preamble", "show", equivalentName], { withoutTmux: true }),
+        await fixture.runJsonCli(['preamble', 'show', equivalentName], { withoutTmux: true })
       );
       expect(preambleBeforeRestart).toEqual({ agent: name, preamble });
 
-      expect(expectJsonResult(await fixture.runJsonCli(["unbind"]))).toEqual({
+      expect(expectJsonResult(await fixture.runJsonCli(['unbind']))).toEqual({
         unbound: true,
         id: created.identity.id,
         name,
         pane: fixture.pane,
-        lifetime: "saved",
+        lifetime: 'saved',
         retired: false,
       });
-      expect(expectJsonResult(withoutAddress(await fixture.runJsonCli(["list"])))).toEqual({
+      expect(expectJsonResult(withoutAddress(await fixture.runJsonCli(['list'])))).toEqual({
         identities: [
           {
             ...created.identity,
-            presence: "offline",
+            presence: 'offline',
             pane: null,
-            command: "",
+            command: '',
             session: {
               activity: unknownActivity,
               unbound: null,
@@ -165,37 +165,37 @@ describe("durable identity lifecycle", { concurrent: false }, () => {
         id: string;
         name: string;
         pane: string;
-        lifetime: "temporary" | "saved";
-      }>(await fixture.runJsonCli(["name", equivalentName]));
+        lifetime: 'temporary' | 'saved';
+      }>(await fixture.runJsonCli(['name', equivalentName]));
       expect(rebound).toEqual({
         bound: true,
         session: { unbound: null },
         id: created.identity.id,
         name,
         pane: restarted.pane,
-        lifetime: "saved",
+        lifetime: 'saved',
       });
       expect(await showStoredProfile(fixture, name)).toBe(profile);
       expect(
         expectJsonResult(
           await fixture.runJsonCli<{ agent: string; preamble: string }>(
-            ["preamble", "show", name],
-            { withoutTmux: true },
-          ),
-        ),
+            ['preamble', 'show', name],
+            { withoutTmux: true }
+          )
+        )
       ).toEqual({ agent: name, preamble });
       expect(
         expectJsonResult<{ identities: ListedIdentity[] }>(
-          withoutAddress(await fixture.runJsonCli(["list"])),
-        ),
+          withoutAddress(await fixture.runJsonCli(['list']))
+        )
       ).toEqual({
         identities: [
           expect.objectContaining({
             id: created.identity.id,
             name,
-            canonicalName: "alice",
-            lifetime: "saved",
-            presence: "active",
+            canonicalName: 'alice',
+            lifetime: 'saved',
+            presence: 'active',
             pane: restarted.pane,
           }),
         ],

@@ -1,14 +1,14 @@
-import { unknownActivity, withoutAddress } from "./cli-assertions.js";
-import { describe, expect, it } from "vite-plus/test";
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
-import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from "./harness.js";
+import { unknownActivity, withoutAddress } from './cli-assertions.js';
+import { describe, expect, it } from 'vite-plus/test';
+import Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
+import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from './harness.js';
 import {
   durableIdentity,
   durableState,
   withoutVerificationTimestamp,
-} from "./identity-state-oracle.js";
+} from './identity-state-oracle.js';
 
 interface Identity {
   name: string;
@@ -27,22 +27,22 @@ interface CommandError {
 }
 
 function json<T>(result: CliResult<T>): T {
-  expect(result.stdout.trim()).not.toBe("");
+  expect(result.stdout.trim()).not.toBe('');
   expect(() => JSON.parse(result.stdout)).not.toThrow();
-  expect(result.stderr).toBe("");
+  expect(result.stderr).toBe('');
   expect(result.json).toBeDefined();
   return result.json as T;
 }
 
 async function listIdentities(fixture: E2EFixture): Promise<IdentityListItem[]> {
   const result = withoutAddress(
-    await fixture.runJsonCli<{ identities: IdentityListItem[] }>(["list"]),
+    await fixture.runJsonCli<{ identities: IdentityListItem[] }>(['list'])
   );
   expect(result.code).toBe(0);
   return json(result).identities;
 }
 
-function boundProjection(fixture: E2EFixture, name: string, pane: string, lifetime = "temporary") {
+function boundProjection(fixture: E2EFixture, name: string, pane: string, lifetime = 'temporary') {
   const row = durableIdentity(fixture, name);
   expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
   expect(row.lifetime).toBe(lifetime);
@@ -55,9 +55,9 @@ function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> 
 
 function eventCount(
   fixture: E2EFixture,
-  event: "request" | "submitted",
+  event: 'request' | 'submitted',
   pid: number,
-  message: string,
+  message: string
 ): number {
   return fixture
     .events()
@@ -70,7 +70,7 @@ async function talkToIdentity(
   name: string,
   pid: number,
   otherPids: number[],
-  message: string,
+  message: string
 ): Promise<void> {
   const before = fixture.events();
   const result = await fixture.runJsonCli<{
@@ -79,202 +79,202 @@ async function talkToIdentity(
     identity: Identity;
     status: string;
     response: string;
-  }>(["talk", name, message, "--timeout", "10"]);
+  }>(['talk', name, message, '--timeout', '10']);
   expect(result.code).toBe(0);
   const output = json(result);
-  expect(output).toMatchObject({ target: name, identity: { name }, status: "completed" });
+  expect(output).toMatchObject({ target: name, identity: { name }, status: 'completed' });
   expect(output.response).toContain(`mock-agent response: ${message}`);
   await fixture.waitForEvent(
-    (entry) => entry.event === "submitted" && entry.pid === pid && entry.message === message,
+    (entry) => entry.event === 'submitted' && entry.pid === pid && entry.message === message
   );
 
   const after = fixture.events();
   const beforeRequest = before.filter(
-    (entry) => entry.event === "request" && entry.pid === pid && entry.message === message,
+    (entry) => entry.event === 'request' && entry.pid === pid && entry.message === message
   ).length;
   const beforeSubmitted = before.filter(
-    (entry) => entry.event === "submitted" && entry.pid === pid && entry.message === message,
+    (entry) => entry.event === 'submitted' && entry.pid === pid && entry.message === message
   ).length;
-  expect(eventCount(fixture, "request", pid, message) - beforeRequest).toBe(1);
-  expect(eventCount(fixture, "submitted", pid, message) - beforeSubmitted).toBe(1);
+  expect(eventCount(fixture, 'request', pid, message) - beforeRequest).toBe(1);
+  expect(eventCount(fixture, 'submitted', pid, message) - beforeSubmitted).toBe(1);
   for (const otherPid of otherPids) {
     expect(
       after.filter(
         (entry) =>
-          (entry.event === "request" || entry.event === "submitted") &&
+          (entry.event === 'request' || entry.event === 'submitted') &&
           entry.pid === otherPid &&
-          entry.message === message,
-      ),
+          entry.message === message
+      )
     ).toHaveLength(0);
   }
 }
 
-describe("global identity lifecycle", { concurrent: false }, () => {
-  it("runs the real name/this/whoami/unbind lifecycle with human and JSON contracts", async () => {
+describe('global identity lifecycle', { concurrent: false }, () => {
+  it('runs the real name/this/whoami/unbind lifecycle with human and JSON contracts', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.pane;
-      const peer = await fixture.createMockPane("peer");
-      const peerBinding = await fixture.runJsonCli(["add", peer.pane, "Peer"]);
+      const peer = await fixture.createMockPane('peer');
+      const peerBinding = await fixture.runJsonCli(['add', peer.pane, 'Peer']);
       expect(peerBinding.code).toBe(0);
       const peerMetadata = fixture.paneMetadata(peer.pane);
       const peerList = await listIdentities(fixture);
 
-      const initial = await fixture.runJsonCli<{ bound: false; pane: string }>(["whoami"]);
+      const initial = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(initial.code).toBe(0);
       expect(json(initial)).toEqual({
         bound: false,
         pane,
-        interfaceKind: "container",
-        sessionState: "unknown",
+        interfaceKind: 'container',
+        sessionState: 'unknown',
       });
 
-      const initialHuman = await fixture.runCli(["whoami"]);
+      const initialHuman = await fixture.runCli(['whoami']);
       expect(initialHuman.code).toBe(0);
       expect(initialHuman.stdout).toContain(`Pane ${pane} is unbound`);
-      expect(initialHuman.stderr).toBe("");
+      expect(initialHuman.stderr).toBe('');
 
       const namedJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "name",
-        "Lifecycle",
+        'name',
+        'Lifecycle',
       ]);
       expect(namedJson.code).toBe(0);
-      const initialBinding = boundProjection(fixture, "Lifecycle", pane);
+      const initialBinding = boundProjection(fixture, 'Lifecycle', pane);
       expect(json(namedJson)).toEqual(initialBinding);
 
-      const namedHuman = await fixture.runCli(["name", "Lifecycle"]);
+      const namedHuman = await fixture.runCli(['name', 'Lifecycle']);
       expect(namedHuman.code).toBe(0);
       expect(namedHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
-      expect(namedHuman.stderr).toBe("");
+      expect(namedHuman.stderr).toBe('');
 
-      const whoamiHuman = await fixture.runCli(["whoami"]);
+      const whoamiHuman = await fixture.runCli(['whoami']);
       expect(whoamiHuman.code).toBe(0);
       expect(whoamiHuman.stdout).toBe(`Lifecycle (temporary) on pane ${pane}\n`);
-      expect(whoamiHuman.stderr).toBe("");
+      expect(whoamiHuman.stderr).toBe('');
 
       const whoamiJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "whoami",
+        'whoami',
       ]);
       expect(whoamiJson.code).toBe(0);
       expect(json(whoamiJson)).toEqual({
         ...initialBinding,
-        interfaceKind: "container",
-        sessionState: "unknown",
+        interfaceKind: 'container',
+        sessionState: 'unknown',
       });
 
       const unboundJson = await fixture.runJsonCli<{ unbound: true; name: string; pane: string }>([
-        "unbind",
+        'unbind',
       ]);
       expect(unboundJson.code).toBe(0);
       expect(json(unboundJson)).toEqual({
         unbound: true,
         id: initialBinding.id,
-        name: "Lifecycle",
+        name: 'Lifecycle',
         pane,
-        lifetime: "temporary",
+        lifetime: 'temporary',
         retired: true,
       });
 
       const rebound = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "this",
-        "Lifecycle",
+        'this',
+        'Lifecycle',
       ]);
       expect(rebound.code).toBe(0);
-      const reboundBinding = boundProjection(fixture, "Lifecycle", pane);
+      const reboundBinding = boundProjection(fixture, 'Lifecycle', pane);
       expect(json(rebound)).toEqual(reboundBinding);
       expect(reboundBinding.id).not.toBe(initialBinding.id);
-      expect(rebound.stderr).toBe("");
+      expect(rebound.stderr).toBe('');
 
-      const reboundHuman = await fixture.runCli(["this", "Lifecycle"]);
+      const reboundHuman = await fixture.runCli(['this', 'Lifecycle']);
       expect(reboundHuman.code).toBe(0);
       expect(reboundHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
-      expect(reboundHuman.stderr).toBe("");
+      expect(reboundHuman.stderr).toBe('');
 
       const beforeConflictList = await listIdentities(fixture);
       const beforeConflictMetadata = fixture.paneMetadata(pane);
-      const nameConflict = await fixture.runJsonCli<CommandError>(["name", "Conflict"]);
-      const thisConflict = await fixture.runJsonCli<CommandError>(["this", "Conflict"]);
+      const nameConflict = await fixture.runJsonCli<CommandError>(['name', 'Conflict']);
+      const thisConflict = await fixture.runJsonCli<CommandError>(['this', 'Conflict']);
       expect(nameConflict.code).toBe(5);
       expect(thisConflict.code).toBe(nameConflict.code);
       expect(json(nameConflict)).toEqual({
-        error: { code: "PANE_ALREADY_BOUND", message: "Pane is already bound to another name." },
+        error: { code: 'PANE_ALREADY_BOUND', message: 'Pane is already bound to another name.' },
       });
       expect(json(thisConflict)).toEqual(json(nameConflict));
       expect(fixture.paneMetadata(pane)).toBe(beforeConflictMetadata);
       // A refused bind leaves no never-bound temporary identity behind.
       expect(await listIdentities(fixture)).toEqual(beforeConflictList);
 
-      const unboundHuman = await fixture.runCli(["unbind"]);
+      const unboundHuman = await fixture.runCli(['unbind']);
       expect(unboundHuman.code).toBe(0);
       expect(unboundHuman.stdout).toContain(`Unbound 'Lifecycle' from pane ${pane}`);
-      expect(unboundHuman.stderr).toBe("");
+      expect(unboundHuman.stderr).toBe('');
 
-      const repeated = await fixture.runJsonCli<CommandError>(["unbind"]);
+      const repeated = await fixture.runJsonCli<CommandError>(['unbind']);
       expect(repeated.code).toBe(1);
       expect(json(repeated)).toEqual({
-        error: { code: "UNBOUND_PANE", message: "Pane has no active global name." },
+        error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
       });
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
       expect(await listIdentities(fixture)).toEqual(peerList);
 
-      const finalWhoami = await fixture.runJsonCli<{ bound: false; pane: string }>(["whoami"]);
+      const finalWhoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(finalWhoami.code).toBe(0);
       expect(json(finalWhoami)).toEqual({
         bound: false,
         pane,
-        interfaceKind: "container",
-        sessionState: "unknown",
+        interfaceKind: 'container',
+        sessionState: 'unknown',
       });
     });
   }, 30_000);
 
-  it("accepts every pane target form, normalizes names, is idempotent, and preserves failed state", async () => {
+  it('accepts every pane target form, normalizes names, is idempotent, and preserves failed state', async () => {
     await withE2EFixture(async (fixture) => {
-      const alpha = await fixture.createMockPane("alpha");
-      const beta = await fixture.createMockPane("beta");
-      const gamma = await fixture.createMockPane("gamma");
+      const alpha = await fixture.createMockPane('alpha');
+      const beta = await fixture.createMockPane('beta');
+      const gamma = await fixture.createMockPane('gamma');
       const betaTarget = fixture.paneTarget(beta.pane);
       const gammaTarget = fixture.paneTarget(gamma.pane);
 
       const alphaAdd = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "add",
+        'add',
         alpha.pane,
-        "  Alpha  ",
+        '  Alpha  ',
       ]);
       expect(alphaAdd.code).toBe(0);
-      expect(json(alphaAdd)).toEqual(boundProjection(fixture, "Alpha", alpha.pane));
+      expect(json(alphaAdd)).toEqual(boundProjection(fixture, 'Alpha', alpha.pane));
 
       const betaAdd = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "add",
-        betaTarget.slice(betaTarget.indexOf(":") + 1),
-        "Beta",
+        'add',
+        betaTarget.slice(betaTarget.indexOf(':') + 1),
+        'Beta',
       ]);
       expect(betaAdd.code).toBe(0);
-      expect(json(betaAdd)).toEqual(boundProjection(fixture, "Beta", beta.pane));
+      expect(json(betaAdd)).toEqual(boundProjection(fixture, 'Beta', beta.pane));
 
       const gammaAdd = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "add",
+        'add',
         gammaTarget,
-        "Gamma",
+        'Gamma',
       ]);
       expect(gammaAdd.code).toBe(0);
-      expect(json(gammaAdd)).toEqual(boundProjection(fixture, "Gamma", gamma.pane));
+      expect(json(gammaAdd)).toEqual(boundProjection(fixture, 'Gamma', gamma.pane));
 
       expect(metadata(fixture, alpha)).toMatchObject({
         version: 1,
-        globalIdentity: { name: "Alpha", canonicalName: "alpha" },
+        globalIdentity: { name: 'Alpha', canonicalName: 'alpha' },
       });
       expect(metadata(fixture, beta)).toMatchObject({
         version: 1,
-        globalIdentity: { name: "Beta", canonicalName: "beta" },
+        globalIdentity: { name: 'Beta', canonicalName: 'beta' },
       });
       expect(metadata(fixture, gamma)).toMatchObject({
         version: 1,
-        globalIdentity: { name: "Gamma", canonicalName: "gamma" },
+        globalIdentity: { name: 'Gamma', canonicalName: 'gamma' },
       });
 
       const beforeIdempotent = await listIdentities(fixture);
       const beforeMetadata = fixture.paneMetadata(alpha.pane);
-      const idempotent = await fixture.runJsonCli(["add", alpha.pane, " ＡＬＰＨＡ "]);
+      const idempotent = await fixture.runJsonCli(['add', alpha.pane, ' ＡＬＰＨＡ ']);
       expect(idempotent.code).toBe(0);
       expect(json(idempotent)).toEqual(json(alphaAdd));
       expect(fixture.paneMetadata(alpha.pane)).toBe(beforeMetadata);
@@ -287,19 +287,19 @@ describe("global identity lifecycle", { concurrent: false }, () => {
         fixture.paneMetadata(gamma.pane),
         fixture.paneMetadata(fixture.pane),
       ];
-      const paneConflict = await fixture.runJsonCli<CommandError>(["add", alpha.pane, "Other"]);
+      const paneConflict = await fixture.runJsonCli<CommandError>(['add', alpha.pane, 'Other']);
       expect(paneConflict.code).toBe(5);
       expect(json(paneConflict)).toEqual({
-        error: { code: "PANE_ALREADY_BOUND", message: "Pane is already bound to another name." },
+        error: { code: 'PANE_ALREADY_BOUND', message: 'Pane is already bound to another name.' },
       });
       const nameConflict = await fixture.runJsonCli<CommandError>([
-        "add",
+        'add',
         fixture.pane,
-        " ＡＬＰＨＡ ",
+        ' ＡＬＰＨＡ ',
       ]);
       expect(nameConflict.code).toBe(5);
       expect(json(nameConflict)).toEqual({
-        error: { code: "NAME_ALREADY_ACTIVE", message: "Name is already active on another pane." },
+        error: { code: 'NAME_ALREADY_ACTIVE', message: 'Name is already active on another pane.' },
       });
       expect(await listIdentities(fixture)).toEqual(beforeConflictList);
       expect([
@@ -311,23 +311,23 @@ describe("global identity lifecycle", { concurrent: false }, () => {
     });
   }, 30_000);
 
-  it("rejects empty, control-character, and pane-shaped names without side effects", async () => {
+  it('rejects empty, control-character, and pane-shaped names without side effects', async () => {
     await withE2EFixture(async (fixture) => {
       const beforeList = await listIdentities(fixture);
       const beforeMetadata = fixture.paneMetadata(fixture.pane);
       const cases = [
-        ["", "Identity name must not be empty or contain control characters."],
-        ["   ", "Identity name must not be empty or contain control characters."],
-        ["bad\u0001name", "Identity name must not be empty or contain control characters."],
-        ["%99999", "Identity name must not look like a pane target."],
-        ["0.0", "Identity name must not look like a pane target."],
-        ["e2e:0.0", "Identity name must not look like a pane target."],
+        ['', 'Identity name must not be empty or contain control characters.'],
+        ['   ', 'Identity name must not be empty or contain control characters.'],
+        ['bad\u0001name', 'Identity name must not be empty or contain control characters.'],
+        ['%99999', 'Identity name must not look like a pane target.'],
+        ['0.0', 'Identity name must not look like a pane target.'],
+        ['e2e:0.0', 'Identity name must not look like a pane target.'],
       ] as const;
       for (const [invalidName, message] of cases) {
-        const result = await fixture.runJsonCli<CommandError>(["add", fixture.pane, invalidName]);
+        const result = await fixture.runJsonCli<CommandError>(['add', fixture.pane, invalidName]);
         expect(result.code).toBe(1);
         expect(json(result)).toEqual({
-          error: { code: "INVALID_NAME", message },
+          error: { code: 'INVALID_NAME', message },
         });
         expect(await listIdentities(fixture)).toEqual(beforeList);
         expect(fixture.paneMetadata(fixture.pane)).toBe(beforeMetadata);
@@ -335,124 +335,124 @@ describe("global identity lifecycle", { concurrent: false }, () => {
     });
   }, 30_000);
 
-  it("retains bound IDs and routes to the right PID across join, break, and swap", async () => {
+  it('retains bound IDs and routes to the right PID across join, break, and swap', async () => {
     await withE2EFixture(async (fixture) => {
-      const alpha = await fixture.createMockPane("alpha");
-      const beta = await fixture.createMockPane("beta");
-      await fixture.runJsonCli(["add", alpha.pane, "Alpha"]);
-      await fixture.runJsonCli(["add", beta.pane, "Beta"]);
+      const alpha = await fixture.createMockPane('alpha');
+      const beta = await fixture.createMockPane('beta');
+      await fixture.runJsonCli(['add', alpha.pane, 'Alpha']);
+      await fixture.runJsonCli(['add', beta.pane, 'Beta']);
       const alphaMetadata = fixture.paneMetadata(alpha.pane);
       const betaMetadata = fixture.paneMetadata(beta.pane);
       const alphaInitialTarget = fixture.paneTarget(alpha.pane);
       const betaInitialTarget = fixture.paneTarget(beta.pane);
 
-      fixture.tmux(["join-pane", "-s", alpha.pane, "-t", beta.pane]);
+      fixture.tmux(['join-pane', '-s', alpha.pane, '-t', beta.pane]);
       const alphaJoinedTarget = fixture.paneTarget(alpha.pane);
       expect(alphaJoinedTarget).not.toBe(alphaInitialTarget);
       expect(fixture.paneMetadata(alpha.pane)).toBe(alphaMetadata);
       expect(fixture.paneMetadata(beta.pane)).toBe(betaMetadata);
       expect((await listIdentities(fixture)).find((item) => item.pane === alpha.pane)?.target).toBe(
-        alphaJoinedTarget,
+        alphaJoinedTarget
       );
-      await talkToIdentity(fixture, "Alpha", alpha.pid, [beta.pid], "after-join-alpha");
+      await talkToIdentity(fixture, 'Alpha', alpha.pid, [beta.pid], 'after-join-alpha');
 
-      fixture.tmux(["break-pane", "-s", alpha.pane, "-d"]);
+      fixture.tmux(['break-pane', '-s', alpha.pane, '-d']);
       const alphaBrokenTarget = fixture.paneTarget(alpha.pane);
       expect(alphaBrokenTarget).not.toBe(alphaJoinedTarget);
       expect(fixture.paneMetadata(alpha.pane)).toBe(alphaMetadata);
       expect(fixture.paneMetadata(beta.pane)).toBe(betaMetadata);
-      await talkToIdentity(fixture, "Alpha", alpha.pid, [beta.pid], "after-break-alpha");
+      await talkToIdentity(fixture, 'Alpha', alpha.pid, [beta.pid], 'after-break-alpha');
 
       const alphaBeforeSwap = fixture.paneTarget(alpha.pane);
       const betaBeforeSwap = fixture.paneTarget(beta.pane);
-      fixture.tmux(["swap-pane", "-s", alpha.pane, "-t", beta.pane]);
+      fixture.tmux(['swap-pane', '-s', alpha.pane, '-t', beta.pane]);
       expect(fixture.paneTarget(alpha.pane)).toBe(betaBeforeSwap);
       expect(fixture.paneTarget(beta.pane)).toBe(alphaBeforeSwap);
       expect(fixture.paneMetadata(alpha.pane)).toBe(alphaMetadata);
       expect(fixture.paneMetadata(beta.pane)).toBe(betaMetadata);
-      await talkToIdentity(fixture, "Alpha", alpha.pid, [beta.pid], "after-swap-alpha");
-      await talkToIdentity(fixture, "Beta", beta.pid, [alpha.pid], "after-swap-beta");
+      await talkToIdentity(fixture, 'Alpha', alpha.pid, [beta.pid], 'after-swap-alpha');
+      await talkToIdentity(fixture, 'Beta', beta.pid, [alpha.pid], 'after-swap-beta');
 
       expect(fixture.paneTarget(alpha.pane)).not.toBe(alphaInitialTarget);
       expect(fixture.paneTarget(beta.pane)).not.toBe(betaInitialTarget);
     });
   }, 45_000);
 
-  it("distinguishes name and pane disappearance after kill-pane while preserving peers", async () => {
+  it('distinguishes name and pane disappearance after kill-pane while preserving peers', async () => {
     await withE2EFixture(async (fixture) => {
-      const gone = await fixture.createMockPane("gone");
-      const peer = await fixture.createMockPane("peer");
-      await fixture.runJsonCli(["add", gone.pane, "Gone"]);
-      await fixture.runJsonCli(["add", peer.pane, "Peer"]);
+      const gone = await fixture.createMockPane('gone');
+      const peer = await fixture.createMockPane('peer');
+      await fixture.runJsonCli(['add', gone.pane, 'Gone']);
+      await fixture.runJsonCli(['add', peer.pane, 'Peer']);
       const peerMetadata = fixture.paneMetadata(peer.pane);
 
-      fixture.tmux(["kill-pane", "-t", gone.pane]);
+      fixture.tmux(['kill-pane', '-t', gone.pane]);
       await fixture.waitFor(
         () => {
           try {
             return !fixture
-              .tmux(["list-panes", "-a", "-F", "#{pane_id}"])
-              .split("\n")
+              .tmux(['list-panes', '-a', '-F', '#{pane_id}'])
+              .split('\n')
               .includes(gone.pane);
           } catch {
             return true;
           }
         },
         2_000,
-        "killed pane to disappear",
+        'killed pane to disappear'
       );
 
       expect(await listIdentities(fixture)).toEqual([
         {
-          name: "Peer",
-          id: boundProjection(fixture, "Peer", peer.pane).id,
-          lifetime: "temporary",
-          presence: "active",
-          canonicalName: "peer",
+          name: 'Peer',
+          id: boundProjection(fixture, 'Peer', peer.pane).id,
+          lifetime: 'temporary',
+          presence: 'active',
+          canonicalName: 'peer',
           pane: peer.pane,
           target: fixture.paneTarget(peer.pane),
           cwd: peer.workspace,
-          command: "node",
+          command: 'node',
           session: { activity: unknownActivity, unbound: null, learning: null, startRefusal: null },
         },
       ]);
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
 
       const nameNotFound = await fixture.runJsonCli<CommandError>([
-        "talk",
-        "Gone",
-        "must-not-send",
+        'talk',
+        'Gone',
+        'must-not-send',
       ]);
       expect(nameNotFound.code).toBe(3);
       expect(json(nameNotFound)).toEqual({
-        error: { code: "NAME_NOT_FOUND", message: "Identity 'Gone' was not found." },
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'Gone' was not found." },
       });
 
-      const paneNotFound = await fixture.runJsonCli<CommandError>(["check", gone.pane]);
+      const paneNotFound = await fixture.runJsonCli<CommandError>(['check', gone.pane]);
       expect(paneNotFound.code).toBe(3);
       expect(json(paneNotFound)).toEqual({
-        error: { code: "PANE_NOT_FOUND", message: `Pane target '${gone.pane}' was not found.` },
+        error: { code: 'PANE_NOT_FOUND', message: `Pane target '${gone.pane}' was not found.` },
       });
-      await talkToIdentity(fixture, "Peer", peer.pid, [], "peer-still-routes");
+      await talkToIdentity(fixture, 'Peer', peer.pid, [], 'peer-still-routes');
     });
   }, 30_000);
 
-  it("does not resurrect identities after a real tmux-server restart", async () => {
+  it('does not resurrect identities after a real tmux-server restart', async () => {
     await withE2EFixture(async (fixture) => {
       const oldPane = fixture.pane;
       const oldPid = fixture.panePid;
-      const secondary = await fixture.createMockPane("secondary");
-      const bound = await fixture.runJsonCli(["add", oldPane, "BeforeRestart"]);
+      const secondary = await fixture.createMockPane('secondary');
+      const bound = await fixture.runJsonCli(['add', oldPane, 'BeforeRestart']);
       expect(bound.code).toBe(0);
       const secondaryBound = await fixture.runJsonCli([
-        "add",
+        'add',
         secondary.pane,
-        "SecondaryBeforeRestart",
+        'SecondaryBeforeRestart',
       ]);
       expect(secondaryBound.code).toBe(0);
       expect((await listIdentities(fixture)).map(({ name }) => name)).toEqual([
-        "BeforeRestart",
-        "SecondaryBeforeRestart",
+        'BeforeRestart',
+        'SecondaryBeforeRestart',
       ]);
 
       const restarted = await fixture.restartServer();
@@ -461,88 +461,88 @@ describe("global identity lifecycle", { concurrent: false }, () => {
       expect(fixture.serverIsRunning()).toBe(true);
       expect(await listIdentities(fixture)).toEqual([]);
 
-      const whoami = await fixture.runJsonCli<{ bound: false; pane: string }>(["whoami"]);
+      const whoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(whoami.code).toBe(0);
       expect(json(whoami)).toEqual({
         bound: false,
         pane: restarted.pane,
-        interfaceKind: "container",
-        sessionState: "unknown",
+        interfaceKind: 'container',
+        sessionState: 'unknown',
       });
 
-      const stalePane = await fixture.runJsonCli<CommandError>(["check", secondary.pane]);
+      const stalePane = await fixture.runJsonCli<CommandError>(['check', secondary.pane]);
       expect(stalePane.code).toBe(3);
       expect(json(stalePane)).toEqual({
         error: {
-          code: "PANE_NOT_FOUND",
+          code: 'PANE_NOT_FOUND',
           message: `Pane target '${secondary.pane}' was not found.`,
         },
       });
       const staleName = await fixture.runJsonCli<CommandError>([
-        "talk",
-        "BeforeRestart",
-        "must-not-send",
+        'talk',
+        'BeforeRestart',
+        'must-not-send',
       ]);
       expect(staleName.code).toBe(3);
       expect(json(staleName)).toEqual({
-        error: { code: "NAME_NOT_FOUND", message: "Identity 'BeforeRestart' was not found." },
+        error: { code: 'NAME_NOT_FOUND', message: "Identity 'BeforeRestart' was not found." },
       });
 
-      const rebound = await fixture.runJsonCli(["add", restarted.pane, "AfterRestart"]);
+      const rebound = await fixture.runJsonCli(['add', restarted.pane, 'AfterRestart']);
       expect(rebound.code).toBe(0);
       expect(await listIdentities(fixture)).toEqual([
         {
-          name: "AfterRestart",
-          id: boundProjection(fixture, "AfterRestart", restarted.pane).id,
-          lifetime: "temporary",
-          presence: "active",
-          canonicalName: "afterrestart",
+          name: 'AfterRestart',
+          id: boundProjection(fixture, 'AfterRestart', restarted.pane).id,
+          lifetime: 'temporary',
+          presence: 'active',
+          canonicalName: 'afterrestart',
           pane: restarted.pane,
           target: fixture.paneTarget(restarted.pane),
           cwd: restarted.workspace,
-          command: "node",
+          command: 'node',
           session: { activity: unknownActivity, unbound: null, learning: null, startRefusal: null },
         },
       ]);
     });
   }, 30_000);
 
-  it("preserves a durable identity across pane death and a later rebind", async () => {
+  it('preserves a durable identity across pane death and a later rebind', async () => {
     await withE2EFixture(async (fixture) => {
-      const gone = await fixture.createMockPane("durable");
-      const original = await fixture.runJsonCli(["add", gone.pane, "Durable", "-s"]);
+      const gone = await fixture.createMockPane('durable');
+      const original = await fixture.runJsonCli(['add', gone.pane, 'Durable', '-s']);
       expect(original.code).toBe(0);
-      const database = new Database(path.join(fixture.globalDir, "tmt.db"), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       const identity = database
-        .prepare("SELECT id FROM identities WHERE canonical_name = ?")
-        .get("durable") as { id: string };
+        .prepare('SELECT id FROM identities WHERE canonical_name = ?')
+        .get('durable') as { id: string };
       database.close();
       expect(identity.id).toMatch(/^[0-9a-f-]{36}$/);
 
-      fixture.tmux(["kill-pane", "-t", gone.pane]);
+      fixture.tmux(['kill-pane', '-t', gone.pane]);
       await fixture.waitFor(
         () => {
           try {
-            return !fixture.tmux(["list-panes", "-a", "-F", "#{pane_id}"]).includes(gone.pane);
+            return !fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).includes(gone.pane);
           } catch {
             return true;
           }
         },
         2_000,
-        "durable pane to disappear",
+        'durable pane to disappear'
       );
-      expect(withoutAddress(await fixture.runJsonCli(["list"])).json).toEqual({
+      expect(withoutAddress(await fixture.runJsonCli(['list'])).json).toEqual({
         identities: [
           {
             id: identity.id,
-            name: "Durable",
-            canonicalName: "durable",
-            lifetime: "saved",
-            presence: "offline",
+            name: 'Durable',
+            canonicalName: 'durable',
+            lifetime: 'saved',
+            presence: 'offline',
             pane: null,
-            command: "",
+            command: '',
             session: {
               activity: unknownActivity,
               unbound: null,
@@ -553,188 +553,188 @@ describe("global identity lifecycle", { concurrent: false }, () => {
         ],
       });
 
-      const afterDeath = new Database(path.join(fixture.globalDir, "tmt.db"), {
+      const afterDeath = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       expect(
-        afterDeath.prepare("SELECT id FROM identities WHERE canonical_name = ?").get("durable"),
+        afterDeath.prepare('SELECT id FROM identities WHERE canonical_name = ?').get('durable')
       ).toEqual(identity);
-      expect(afterDeath.prepare("SELECT COUNT(*) AS count FROM bindings").get()).toEqual({
+      expect(afterDeath.prepare('SELECT COUNT(*) AS count FROM bindings').get()).toEqual({
         count: 0,
       });
       afterDeath.close();
 
-      const replacement = await fixture.createMockPane("replacement");
-      const rebound = await fixture.runJsonCli(["add", replacement.pane, "durable"]);
+      const replacement = await fixture.createMockPane('replacement');
+      const rebound = await fixture.runJsonCli(['add', replacement.pane, 'durable']);
       expect(rebound.code).toBe(0);
-      const afterRebind = new Database(path.join(fixture.globalDir, "tmt.db"), {
+      const afterRebind = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       expect(
-        afterRebind.prepare("SELECT id FROM identities WHERE canonical_name = ?").get("durable"),
+        afterRebind.prepare('SELECT id FROM identities WHERE canonical_name = ?').get('durable')
       ).toEqual(identity);
       afterRebind.close();
     });
   }, 30_000);
 
-  it("ignores old and malformed pane markers without backfilling, then supports explicit rebinding", async () => {
+  it('ignores old and malformed pane markers without backfilling, then supports explicit rebinding', async () => {
     await withE2EFixture(async (fixture) => {
-      const oldPane = await fixture.createMockPane("legacy-marker");
-      const collidingOldPane = await fixture.createMockPane("legacy-collision");
-      const malformedPane = await fixture.createMockPane("malformed-marker");
+      const oldPane = await fixture.createMockPane('legacy-marker');
+      const collidingOldPane = await fixture.createMockPane('legacy-collision');
+      const malformedPane = await fixture.createMockPane('malformed-marker');
       const healthy = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "name",
-        "Healthy",
+        'name',
+        'Healthy',
       ]);
       expect(healthy.code).toBe(0);
-      const profile = await fixture.runJsonCli(["role", "set", "Keep the healthy profile."]);
+      const profile = await fixture.runJsonCli(['role', 'set', 'Keep the healthy profile.']);
       expect(profile.code).toBe(0);
-      const legacyPath = path.join(fixture.workspace, "tmux-team.json");
+      const legacyPath = path.join(fixture.workspace, 'tmux-team.json');
       const legacyBytes = '{\n  "legacy-file": {"pane": "%999", "remark": "keep"}\n}\n';
       fs.writeFileSync(legacyPath, legacyBytes);
 
       fixture.tmux([
-        "set-option",
-        "-p",
-        "-t",
+        'set-option',
+        '-p',
+        '-t',
         oldPane.pane,
-        "@tmt.agent",
+        '@tmt.agent',
         JSON.stringify({
           version: 1,
-          globalIdentity: { name: "LegacyOnly", canonicalName: "legacyonly" },
+          globalIdentity: { name: 'LegacyOnly', canonicalName: 'legacyonly' },
         }),
       ]);
       fixture.tmux([
-        "set-option",
-        "-p",
-        "-t",
+        'set-option',
+        '-p',
+        '-t',
         collidingOldPane.pane,
-        "@tmt.agent",
+        '@tmt.agent',
         JSON.stringify({
           version: 1,
-          globalIdentity: { name: "LEGACYONLY", canonicalName: "legacyonly" },
+          globalIdentity: { name: 'LEGACYONLY', canonicalName: 'legacyonly' },
         }),
       ]);
       fixture.tmux([
-        "set-option",
-        "-p",
-        "-t",
+        'set-option',
+        '-p',
+        '-t',
         malformedPane.pane,
-        "@tmt.agent",
-        JSON.stringify({ version: 1, globalIdentity: { name: 42, canonicalName: "malformed" } }),
+        '@tmt.agent',
+        JSON.stringify({ version: 1, globalIdentity: { name: 42, canonicalName: 'malformed' } }),
       ]);
 
       const oldMarkerBytes = fixture.paneMetadata(oldPane.pane);
       const collidingOldMarkerBytes = fixture.paneMetadata(collidingOldPane.pane);
       const malformedMarkerBytes = fixture.paneMetadata(malformedPane.pane);
       const before = durableState(fixture);
-      expect(fs.readFileSync(legacyPath, "utf8")).toBe(legacyBytes);
+      expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const listed = await listIdentities(fixture);
         expect(listed).toHaveLength(1);
         expect(listed[0]).toMatchObject({
-          name: "Healthy",
-          canonicalName: "healthy",
+          name: 'Healthy',
+          canonicalName: 'healthy',
           pane: fixture.pane,
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
-          command: "node",
+          command: 'node',
           session: { activity: unknownActivity, unbound: null, learning: null, startRefusal: null },
         });
         expect(fixture.paneMetadata(oldPane.pane)).toBe(oldMarkerBytes);
         expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
         expect(fixture.paneMetadata(malformedPane.pane)).toBe(malformedMarkerBytes);
-        expect(fs.readFileSync(legacyPath, "utf8")).toBe(legacyBytes);
+        expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
       }
 
       const afterLists = durableState(fixture);
       expect(afterLists.identities).toEqual(before.identities);
       expect(withoutVerificationTimestamp(afterLists.bindings)).toEqual(
-        withoutVerificationTimestamp(before.bindings),
+        withoutVerificationTimestamp(before.bindings)
       );
       expect(afterLists.profiles).toEqual(before.profiles);
 
       for (const [name, pid, message] of [
-        ["LegacyOnly", oldPane.pid, "legacy-name-must-not-route"],
-        ["LEGACYONLY", collidingOldPane.pid, "legacy-collision-must-not-route"],
-        ["Malformed", malformedPane.pid, "malformed-marker-must-not-route"],
+        ['LegacyOnly', oldPane.pid, 'legacy-name-must-not-route'],
+        ['LEGACYONLY', collidingOldPane.pid, 'legacy-collision-must-not-route'],
+        ['Malformed', malformedPane.pid, 'malformed-marker-must-not-route'],
       ] as const) {
-        const result = await fixture.runJsonCli<CommandError>(["talk", name, message]);
+        const result = await fixture.runJsonCli<CommandError>(['talk', name, message]);
         expect(result.code).toBe(3);
-        expect(json(result)).toMatchObject({ error: { code: "NAME_NOT_FOUND" } });
+        expect(json(result)).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
         expect(
           fixture
             .events()
             .filter(
               (event) =>
-                (event.event === "request" || event.event === "submitted") &&
+                (event.event === 'request' || event.event === 'submitted') &&
                 event.pid === pid &&
-                event.message === message,
-            ),
+                event.message === message
+            )
         ).toHaveLength(0);
       }
 
       await talkToIdentity(
         fixture,
-        "Healthy",
+        'Healthy',
         fixture.panePid,
         [oldPane.pid, collidingOldPane.pid, malformedPane.pid],
-        "healthy-causal-routing",
+        'healthy-causal-routing'
       );
 
       const explicit = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
-        "add",
+        'add',
         oldPane.pane,
-        "FreshExplicit",
+        'FreshExplicit',
       ]);
       expect(explicit.code).toBe(0);
-      expect(json(explicit)).toEqual(boundProjection(fixture, "FreshExplicit", oldPane.pane));
+      expect(json(explicit)).toEqual(boundProjection(fixture, 'FreshExplicit', oldPane.pane));
       expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
       expect(fixture.paneMetadata(malformedPane.pane)).toBe(malformedMarkerBytes);
-      expect(fs.readFileSync(legacyPath, "utf8")).toBe(legacyBytes);
+      expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
       await talkToIdentity(
         fixture,
-        "FreshExplicit",
+        'FreshExplicit',
         oldPane.pid,
         [fixture.panePid, collidingOldPane.pid, malformedPane.pid],
-        "fresh-explicit-routing",
+        'fresh-explicit-routing'
       );
     });
   }, 45_000);
 
-  it("drops only a binding with malformed durable metadata while retaining its identity, profile, and healthy peer", async () => {
+  it('drops only a binding with malformed durable metadata while retaining its identity, profile, and healthy peer', async () => {
     await withE2EFixture(async (fixture) => {
-      const affectedPane = await fixture.createMockPane("malformed-current");
-      const peerPane = await fixture.createMockPane("healthy-peer");
-      const healthy = await fixture.runJsonCli(["name", "HealthyCurrent"]);
+      const affectedPane = await fixture.createMockPane('malformed-current');
+      const peerPane = await fixture.createMockPane('healthy-peer');
+      const healthy = await fixture.runJsonCli(['name', 'HealthyCurrent']);
       expect(healthy.code).toBe(0);
-      expect((await fixture.runJsonCli(["role", "set", "Healthy current profile."])).code).toBe(0);
-      const peer = await fixture.runJsonCli(["add", peerPane.pane, "HealthyPeer"]);
+      expect((await fixture.runJsonCli(['role', 'set', 'Healthy current profile.'])).code).toBe(0);
+      const peer = await fixture.runJsonCli(['add', peerPane.pane, 'HealthyPeer']);
       expect(peer.code).toBe(0);
       expect(
         (
           await fixture.runJsonCli([
-            "role",
-            "set",
-            "Retain this peer profile.",
-            "--identity",
-            "HealthyPeer",
+            'role',
+            'set',
+            'Retain this peer profile.',
+            '--identity',
+            'HealthyPeer',
           ])
-        ).code,
+        ).code
       ).toBe(0);
-      const affected = await fixture.runJsonCli(["add", affectedPane.pane, "MalformedCurrent"]);
+      const affected = await fixture.runJsonCli(['add', affectedPane.pane, 'MalformedCurrent']);
       expect(affected.code).toBe(0);
       expect(
         (
           await fixture.runJsonCli([
-            "role",
-            "set",
-            "Retain this affected identity profile.",
-            "--identity",
-            "MalformedCurrent",
+            'role',
+            'set',
+            'Retain this affected identity profile.',
+            '--identity',
+            'MalformedCurrent',
           ])
-        ).code,
+        ).code
       ).toBe(0);
       const affectedMetadataObject = metadata(fixture, affectedPane);
       const affectedIdentityMetadata = affectedMetadataObject.globalIdentity as Record<
@@ -743,11 +743,11 @@ describe("global identity lifecycle", { concurrent: false }, () => {
       >;
       affectedIdentityMetadata.name = null;
       fixture.tmux([
-        "set-option",
-        "-p",
-        "-t",
+        'set-option',
+        '-p',
+        '-t',
         affectedPane.pane,
-        "@tmt.agent",
+        '@tmt.agent',
         JSON.stringify(affectedMetadataObject),
       ]);
       const healthyMetadata = fixture.paneMetadata(fixture.pane);
@@ -755,7 +755,7 @@ describe("global identity lifecycle", { concurrent: false }, () => {
       const peerMetadata = fixture.paneMetadata(peerPane.pane);
       const before = durableState(fixture);
       const affectedIdentityId = before.identities.find(
-        (identity) => identity.canonical_name === "malformedcurrent",
+        (identity) => identity.canonical_name === 'malformedcurrent'
       )?.id;
       const expectedHealthyBindingIds = before.bindings
         .filter((binding) => binding.identity_id !== affectedIdentityId)
@@ -765,18 +765,18 @@ describe("global identity lifecycle", { concurrent: false }, () => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const listed = await listIdentities(fixture);
         expect(listed.map(({ name }) => name)).toEqual([
-          "HealthyCurrent",
-          "HealthyPeer",
-          "MalformedCurrent",
+          'HealthyCurrent',
+          'HealthyPeer',
+          'MalformedCurrent',
         ]);
-        expect(listed.find(({ name }) => name === "MalformedCurrent")).toEqual({
+        expect(listed.find(({ name }) => name === 'MalformedCurrent')).toEqual({
           id: affectedIdentityId,
-          name: "MalformedCurrent",
-          canonicalName: "malformedcurrent",
-          lifetime: "temporary",
-          presence: "offline",
+          name: 'MalformedCurrent',
+          canonicalName: 'malformedcurrent',
+          lifetime: 'temporary',
+          presence: 'offline',
           pane: null,
-          command: "",
+          command: '',
           session: { activity: unknownActivity, unbound: null, learning: null, startRefusal: null },
         });
         expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
@@ -789,80 +789,80 @@ describe("global identity lifecycle", { concurrent: false }, () => {
       expect(after.profiles).toEqual(before.profiles);
       expect(withoutVerificationTimestamp(after.bindings)).toEqual(
         withoutVerificationTimestamp(before.bindings).filter(
-          (binding) => binding.identity_id !== affectedIdentityId,
-        ),
+          (binding) => binding.identity_id !== affectedIdentityId
+        )
       );
       expect(after.bindings.map((binding) => binding.identity_id).sort()).toEqual(
-        expectedHealthyBindingIds.sort(),
+        expectedHealthyBindingIds.sort()
       );
 
       // Once reconciliation removes the binding, ordinary talk uses the unbound
       // foreground waiter. Bound this probe instead of awaiting its 180s default.
       const waitingTalk = await fixture.runJsonCli<CommandError & { requestId: string }>([
-        "talk",
-        "MalformedCurrent",
-        "unbound-wait-must-not-route",
-        "--timeout",
-        "20ms",
+        'talk',
+        'MalformedCurrent',
+        'unbound-wait-must-not-route',
+        '--timeout',
+        '20ms',
       ]);
       expect(waitingTalk.code).toBe(4);
       const waitingOutput = json(waitingTalk);
-      expect(waitingOutput).toMatchObject({ status: "timeout", error: { code: "TIMEOUT" } });
+      expect(waitingOutput).toMatchObject({ status: 'timeout', error: { code: 'TIMEOUT' } });
       expect(waitingOutput.error.suggestion).toContain(
-        `tmt inbox --identity '${affectedIdentityId}' --json`,
+        `tmt inbox --identity '${affectedIdentityId}' --json`
       );
       expect(
-        fixture.events().some((event) => event.message === "unbound-wait-must-not-route"),
+        fixture.events().some((event) => event.message === 'unbound-wait-must-not-route')
       ).toBe(false);
 
       // This assertion inspects queue acceptance rather than waiting for a reply.
       const affectedTalk = await fixture.runJsonCli<{ requestId: string }>([
-        "talk",
-        "MalformedCurrent",
-        "affected-must-not-route",
-        "--detach",
+        'talk',
+        'MalformedCurrent',
+        'affected-must-not-route',
+        '--detach',
       ]);
       expect(affectedTalk.code).toBe(0);
-      expect(json(affectedTalk)).toMatchObject({ status: "queued", offline: true });
+      expect(json(affectedTalk)).toMatchObject({ status: 'queued', offline: true });
       expect(json(affectedTalk)).toMatchObject({
         recipientIdentityId: affectedIdentityId,
-        notification: "not_attempted",
-        waitingFor: "recipient_inbox_pull",
+        notification: 'not_attempted',
+        waitingFor: 'recipient_inbox_pull',
       });
-      const database = new Database(path.join(fixture.globalDir, "tmt.db"), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       try {
         const attempt = database.prepare(
-          "SELECT recipient_identity_id, status, wait_active, wake_state FROM request_attempts WHERE request_id = ?",
+          'SELECT recipient_identity_id, status, wait_active, wake_state FROM request_attempts WHERE request_id = ?'
         );
         for (const requestId of [waitingOutput.requestId, json(affectedTalk).requestId]) {
           expect(attempt.get(requestId)).toEqual({
             recipient_identity_id: affectedIdentityId,
-            status: "queued",
+            status: 'queued',
             wait_active: 0,
-            wake_state: "not_attempted",
+            wake_state: 'not_attempted',
           });
         }
       } finally {
         database.close();
       }
-      expect(fixture.events().some((event) => event.message === "affected-must-not-route")).toBe(
-        false,
+      expect(fixture.events().some((event) => event.message === 'affected-must-not-route')).toBe(
+        false
       );
       await talkToIdentity(
         fixture,
-        "HealthyCurrent",
+        'HealthyCurrent',
         fixture.panePid,
         [peerPane.pid, affectedPane.pid],
-        "healthy-peer",
+        'healthy-peer'
       );
       await talkToIdentity(
         fixture,
-        "HealthyPeer",
+        'HealthyPeer',
         peerPane.pid,
         [fixture.panePid, affectedPane.pid],
-        "peer-healthy",
+        'peer-healthy'
       );
     });
   }, 45_000);
