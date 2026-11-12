@@ -339,6 +339,11 @@ export async function mountedTransport(
       const client = managementClient;
       return managed(client, () => client.readTemplates(scopedSignal(signal)));
     },
+    async agents() {
+      const remote = current.remote;
+      if (!remote) throw new Error('Remote is unavailable');
+      return (await remote.listAgents()).map(({ id, name }) => ({ id, name }));
+    },
   };
   clearRecovery(mount);
   const owner = {

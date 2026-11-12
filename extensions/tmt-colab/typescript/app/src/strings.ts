@@ -1269,6 +1269,102 @@ export const text = {
     `${kind === 'single' ? 'Choose one answer' : 'Choose any that apply'}${other ? ', or write your own.' : '.'}`,
   /** The hint on a choice that a digit key picks it. */
   questionKey: (digit: number) => `Press ${digit} to pick`,
+  templates: {
+    /** The Colab menu row and the route's title. */
+    title: 'Templates',
+    intro: 'Start a page from any of these. The default is used when you do not pick one.',
+    all: 'All',
+    tmt: 'TMT',
+    thisSpace: 'This space',
+    filterLabel: 'Show templates from',
+    defaultBadge: 'Default',
+    templateChip: 'Template',
+    use: 'Use',
+    useTemplate: 'Use template',
+    open: 'Open',
+    preview: 'Preview',
+    by: (author: string) => `by ${author}`,
+    usedBy: (n: number) => (n === 0 ? '—' : n === 1 ? '1 page' : `${n} pages`),
+    layouts: { column: 'column', full: 'full', canvas: 'canvas', freeform: 'freeform' } as Record<
+      string,
+      string
+    >,
+    loading: 'Reading templates…',
+    loadFailed: 'Templates could not be read.',
+    retry: 'Retry',
+    none: 'No templates match.',
+    defaultGone: (name: string) =>
+      `The default template ${name} no longer exists, so new pages start from starter.`,
+    // New page (screen 3)
+    newPageTitle: 'New page',
+    titleLabel: 'Title',
+    titlePlaceholder: 'Untitled page',
+    templateLabel: 'Template',
+    filterPlaceholder: 'Filter templates',
+    browseAll: 'Browse all templates',
+    creatorLabel: 'Creator',
+    noAgent: 'No agent',
+    agentsUnavailable: 'Agents could not be listed; the page is created without one.',
+    myMachine: 'My machine',
+    terminal: 'Or create from a terminal',
+    cancel: 'Cancel',
+    create: 'Create page',
+    creating: 'Creating…',
+    titleRequired: 'Give the page a title.',
+    createRefused: (code: string) =>
+      code === 'INVALID'
+        ? 'That template or title was not accepted. Pick another template and try again.'
+        : code === 'TEMPLATE_CHANGED'
+          ? 'The template changed while the page was being made. Try again.'
+          : code === 'DENIED' || code === 'EXPIRED'
+            ? 'This browser can no longer create pages here. Reload and try again.'
+            : 'The page could not be created. Try again; the same request finds the page if it was made.',
+    // Save as template (screen 2) and the template's own menu
+    saveAs: 'Save as template…',
+    settings: 'Template settings…',
+    remove: 'Remove template',
+    saveTitle: 'Save as template',
+    settingsTitle: 'Template settings',
+    nameLabel: 'Name',
+    descriptionLabel: 'Description',
+    saveHelp:
+      'Everyone in this space can create pages from it. Pages you create later copy it; editing this page later never changes them.',
+    rules: (n: number) =>
+      n === 0
+        ? 'No rule comments found.'
+        : `Found ${n} rule comment${n === 1 ? '' : 's'} in this page.`,
+    save: 'Save as template',
+    saveChanges: 'Save',
+    saved: (name: string) => `Saved as template ${name}`,
+    removed: (name: string) => `Removed template ${name}`,
+    nameErrors: {
+      COLAB_TEMPLATE_NAME_TAKEN: 'Another page already has this name.',
+      COLAB_TEMPLATE_NAME_RESERVED: 'This is a TMT template name.',
+      COLAB_TEMPLATE_NAME_INVALID: 'Use 1 to 40 lowercase letters, digits and hyphens.',
+    } as Record<string, string>,
+    suggest: (name: string) => `Try ${name}`,
+    saveRefused: (code: string) =>
+      code === 'COLAB_TEMPLATE_NEEDS_LAYOUT'
+        ? 'This page names no layout, so a page made from it would have none.'
+        : code === 'COLAB_TEMPLATE_UNSUPPORTED'
+          ? 'A dashboard cannot be a template.'
+          : code === 'COLAB_STALE_BASE'
+            ? 'The page changed meanwhile. Try again.'
+            : 'The template could not be saved. Try again.',
+    // Colab settings › Templates (screen 4)
+    settingsHelp:
+      'The default is used when a page is created without --template. TMT templates update with TMT and cannot be edited.',
+    columns: {
+      default: 'Default',
+      template: 'Template',
+      layout: 'Layout',
+      source: 'Source',
+      usedBy: 'Used by',
+    },
+    defaultSet: (name: string) => `Default template: ${name}`,
+    defaultFailed: 'The default could not be changed. Try again.',
+    general: 'General',
+  },
   colabSettings: {
     title: 'Colab settings',
     /** The settings route's segment after the module in the bar's title. */

@@ -61,6 +61,18 @@ export function validateListing(value: unknown): asserts value is TemplateListin
   requireValue(defaults === 1);
 }
 
+/** How many templates the last successful read listed, for the Colab menu's count; the menu reads
+ * nothing itself. */
+let lastCount: number | undefined;
+const countListeners = new Set<() => void>();
+export function templateCount(): number | undefined {
+  return lastCount;
+}
+export function onTemplateCount(listener: () => void): () => void {
+  countListeners.add(listener);
+  return () => countListeners.delete(listener);
+}
+
 /** The owner's template list; any failure is one error for the caller to show. */
 export async function readTemplates(mount: URL, signal?: AbortSignal): Promise<TemplateListing> {
   const response = await fetch(new URL('api/templates', mount), { signal });
@@ -71,6 +83,10 @@ export async function readTemplates(mount: URL, signal?: AbortSignal): Promise<T
   requireValue(text.length <= TEMPLATE_LIST_BYTES);
   const value: unknown = JSON.parse(text);
   validateListing(value);
+  if (lastCount !== value.templates.length) {
+    lastCount = value.templates.length;
+    for (const listener of countListeners) listener();
+  }
   return value;
 }
 

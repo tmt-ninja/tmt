@@ -115,6 +115,8 @@ export interface ManagementPort {
   setDefaultTemplate(template: string | null): Promise<string>;
   /** The owner's templates and the serving machine's default (`GET /api/templates`). */
   readTemplates(signal?: AbortSignal): Promise<TemplateListing>;
+  /** The agents this machine's Remote lists, for a new page's creator; absent without Remote. */
+  agents?(): Promise<{ id: string; name: string }[]>;
 }
 /** A browser's new page: the template and nothing it brings. `operationId` names the page. */
 export interface NewPageRequest {

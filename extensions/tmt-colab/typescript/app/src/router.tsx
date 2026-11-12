@@ -115,6 +115,7 @@ import {
   usePageEnvironment,
 } from './page-environment.js';
 import { ColabSettings } from './colab-settings.js';
+import { TemplatesPage } from './templates-page.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
@@ -1205,6 +1206,11 @@ const colabSettings = createRoute({
   path: '/settings',
   component: () => <ColabSettings />,
 });
+const templates = createRoute({
+  getParentRoute: () => root,
+  path: '/templates',
+  component: TemplatesPage,
+});
 const blocked = createRoute({
   getParentRoute: () => root,
   path: '/blocked',
@@ -1257,7 +1263,9 @@ function Shell() {
                   ? text.openAPage
                   : pathname === '/settings'
                     ? text.colabSettings.section
-                    : text.error
+                    : pathname === '/templates'
+                      ? text.templates.title
+                      : text.error
               }
             />
           )}
@@ -3546,7 +3554,7 @@ export function shellLocation() {
   for (const key of ['read', 'anchor', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
-  if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+  if (/^\/(?:all|settings|templates|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
     history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
 }
 export function createAppRouter(
@@ -3639,6 +3647,7 @@ export function createAppRouter(
       page,
       shortPage,
       colabSettings,
+      templates,
       blocked,
       design,
       designPage,

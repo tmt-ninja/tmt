@@ -1151,6 +1151,12 @@ export function Home() {
       <NewPageDialog
         open={newPage}
         onClose={() => setNewPage(false)}
+        management={port}
+        onCreated={(pageId) => void router.navigate({ to: '/pages/$pageId', params: { pageId } })}
+        onBrowse={() => {
+          setNewPage(false);
+          void router.navigate({ to: '/templates' });
+        }}
         focusFallback={() =>
           section.current?.querySelector<HTMLElement>(
             compact ? '.page-list-compact-create button' : '.page-list-create button',
