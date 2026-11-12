@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdtemp, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
+import { symlink, cp, mkdtemp, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { build } from "vite-plus";
@@ -74,6 +74,7 @@ test("listing and article tags are separate links and RSS categories", async () 
 // Complete synthetic approved posts; no published post is edited by these tests.
 async function taggedWorld(run) {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-tags-"));
+  await symlink(new URL("../node_modules", import.meta.url), join(root, "node_modules"), "dir");
   try {
     for (const path of ["src/blog", "src/shared", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
@@ -135,7 +136,7 @@ test("used tags produce filtered static indexes and sitemap entries at every sit
       assert.match(publicFiles["feed.xml"], /<category>design<\/category>/);
       await assert.rejects(stat(join(output, "tags/engineering/index.html")), { code: "ENOENT" });
       const japanese = await readFile(join(output, "ja/tags/design/index.html"), "utf8");
-      assert.match(japanese, /<html lang="ja">/);
+      assert.match(japanese, /<html lang="ja" data-theme="dark">/);
       assert.match(japanese, /Japanese fixture/);
       assert.doesNotMatch(japanese, /Tagged post|Other post|noindex/);
       for (const page of [html, japanese]) {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { symlink, cp, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build, createServer } from "vite-plus";
@@ -9,6 +9,7 @@ import { verifyDist } from "../src/blog/verify-dist.mjs";
 
 test("Vite bundles complete article HTML and external modules at project and root bases", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-vite-"));
+  await symlink(new URL("../node_modules", import.meta.url), join(root, "node_modules"), "dir");
   try {
     for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
@@ -109,6 +110,7 @@ test("Vite bundles complete article HTML and external modules at project and roo
 
 test("dev serves the file-backed mark and favicon at exactly one site base on index and post pages", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-dev-mark-"));
+  await symlink(new URL("../node_modules", import.meta.url), join(root, "node_modules"), "dir");
   try {
     for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
@@ -156,6 +158,7 @@ test("dev serves the file-backed mark and favicon at exactly one site base on in
 
 test("a production build needs SITE_ORIGIN and its artifact names that origin, not the local one", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-origin-"));
+  await symlink(new URL("../node_modules", import.meta.url), join(root, "node_modules"), "dir");
   const origin = "https://example.com";
   try {
     for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
@@ -201,7 +204,7 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
       ),
     );
     await assert.rejects(verifyDist(dist, { origin }), /Invalid or indexable fallback/);
-    await writeFile(fallbackPath, fallback.replace('<html lang="en">', '<html lang="ja">'));
+    await writeFile(fallbackPath, fallback.replace('<html lang="en"', '<html lang="ja"'));
     await assert.rejects(verifyDist(dist, { origin }), /Wrong HTML language/);
     await writeFile(fallbackPath, fallback);
     await writeFile(fallbackPath, fallback.replace('hreflang="en"', 'hreflang="ja"'));
@@ -220,7 +223,7 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
     await writeFile(feedPath, feed);
     const indexPath = join(dist, "blog/ja/index.html");
     const fallbackIndex = await readFile(indexPath, "utf8");
-    assert.match(fallbackIndex, /<html lang="en">/);
+    assert.match(fallbackIndex, /<html lang="en" data-theme="dark">/);
     assert.ok(fallbackIndex.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
     await writeFile(
       indexPath,
