@@ -750,6 +750,37 @@ describe('native curl bootstrap', () => {
     });
   });
 
+  // The release runs `shellcheck --shell sh` on the generated installer and stops the CLI
+  // cut on any finding (native-release-prepare.yml). Hosted Linux runners ship ShellCheck, so
+  // its absence there is a failure; elsewhere the lint is skipped when the tool is missing.
+  const shellcheck = (process.env.PATH ?? '')
+    .split(path.delimiter)
+    .filter((directory) => path.isAbsolute(directory))
+    .map((directory) => path.join(directory, 'shellcheck'))
+    .find((candidate) => existsSync(candidate));
+  const shellcheckRequired = Boolean(process.env.CI) && process.platform === 'linux';
+  it.skipIf(!shellcheck && !shellcheckRequired)(
+    'generates an installer the release ShellCheck gate accepts',
+    async () => {
+      expect(shellcheck, 'ShellCheck must be installed on hosted Linux runners').toBeTruthy();
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const installer = path.join(sandbox.root, 'tmt-installer.sh');
+        writeFileSync(installer, script, { mode: 0o600 });
+        const result = await runCli(
+          { ...sandbox, cli: { executable: shellcheck!, args: ['--shell', 'sh'] } },
+          [installer]
+        );
+        expect(result.stdout + result.stderr).toBe('');
+        expect(result.status).toBe(0);
+      });
+    }
+  );
+
   it(
     'publishes through __native-install, handles spaces and pinning, and skips skills on request',
     { timeout: 20_000 },
