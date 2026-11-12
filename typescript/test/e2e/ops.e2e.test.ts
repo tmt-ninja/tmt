@@ -1004,7 +1004,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ ALERT[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
-          /Talk[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
+          /Talk[ \t]+M[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
           /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );
