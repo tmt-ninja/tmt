@@ -7756,7 +7756,11 @@ reference, file:{name,mediaType,sizeBytes,sha256}}`; the result lists the direct
 (the written file), size and digest and never the bytes. Authority is the owner-only socket of this data root, not a
 caller-named agent or device: the serve checks the reference against the current page, access
 and epoch, reads the bytes through its established object channel and verifies them before
-answering. With no serve, or no established channel, it refuses as unavailable.
+answering. With no serve, or no established channel, it refuses as unavailable. With no established
+channel the serve's message says so: "Colab attachments are unavailable until a Colab page is opened
+in the browser or Remote restarts." That is Remote's one startup activation having failed with nothing
+asking again ([#6308](https://github.com/tmt-ninja/tmt/issues/6308)); it never names a page write
+([#6307](https://github.com/tmt-ninja/tmt/issues/6307)).
 
 The serve answers `POST /.tmt/colab/local/attachment-read` with body
 `{version:1, page, selector}` (strict fields; the selector as in `--reference`). A request

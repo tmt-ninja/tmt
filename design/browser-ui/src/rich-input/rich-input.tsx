@@ -265,15 +265,22 @@ function Editor(props: RichInputProps) {
   // typing goes on after the chips instead of before them. A pointer places its own caret.
   useEffect(() => {
     let pointer = false;
-    // A press focuses in the same task, so the mark lasts only until the next one.
+    // A press marks the focus it gives as a pointer's until that focus arrives. A mouse focuses in
+    // the press's own task, but a touch focuses only after the finger lifts, several tasks later
+    // (#6164). The gesture's click (wherever a drag ends) or a cancelled press, such as a scroll,
+    // ends the mark when no focus came, so a later keyboard focus is never taken for a pointer's.
+    const release = () => {
+      pointer = false;
+      document.removeEventListener('click', release, true);
+      document.removeEventListener('pointercancel', release, true);
+    };
     const press = () => {
       pointer = true;
-      setTimeout(() => {
-        pointer = false;
-      });
+      document.addEventListener('click', release, true);
+      document.addEventListener('pointercancel', release, true);
     };
     const land = () => {
-      if (pointer) return;
+      if (pointer) return release();
       // After the browser has put its own focus caret in the editor, and only while it is still
       // there: moving the caret of a field the user has left would take focus back.
       setTimeout(() => {
@@ -287,12 +294,16 @@ function Editor(props: RichInputProps) {
         );
       });
     };
-    return editor.registerRootListener((root, previous) => {
+    const unregister = editor.registerRootListener((root, previous) => {
       previous?.removeEventListener('pointerdown', press);
       previous?.removeEventListener('focus', land);
       root?.addEventListener('pointerdown', press);
       root?.addEventListener('focus', land);
     });
+    return () => {
+      unregister();
+      release();
+    };
   }, [editor]);
   // Lexical creates its decorator hosts while ContentEditable attaches; read them again before paint.
   const [, refresh] = useReducer((revision: number) => revision + 1, 0);

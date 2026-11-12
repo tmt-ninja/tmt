@@ -136,3 +136,62 @@ test('a non-chip choice and chip removal notify the list owner without submittin
   await expect(page.locator('[data-removals]')).toHaveAttribute('data-removals', '1');
   expect(await read(page, 'sent')).toEqual([]);
 });
+
+test('a press that gives no focus leaves no mark: the next scripted focus lands after the text (#6164)', async ({
+  page,
+}) => {
+  await search(page).click();
+  await page.keyboard.type('release notes');
+  // A drag that starts in the focused field (no focus event) and ends outside it.
+  const box = (await search(page).getByText('release notes').boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 2, box.y + box.height + 200);
+  await page.mouse.up();
+  await search(page).blur();
+  await search(page).evaluate((node) => {
+    const range = document.createRange();
+    range.setStart(node, 0);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    (node as HTMLElement).focus();
+  });
+  await expect(search(page)).toBeFocused();
+  // A focus that is not a pointer's moves the caret in a task queued at focus; this one runs after it.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
+  await page.keyboard.type(' today');
+  await expect
+    .poll(() => read(page, 'search'))
+    .toEqual({ value: 'release notes today', chips: [] });
+});
+
+// On a touch screen the focus a tap gives arrives in a later task than its press, after the
+// pointerup. The tap still places its own caret: tapping the start of existing text and typing
+// writes before it, not after it (#6164).
+test.describe('touch', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('a tap at the start of existing text puts the caret there', async ({ page }) => {
+    await search(page).click();
+    await page.keyboard.type('release notes');
+    await expect.poll(() => read(page, 'search')).toEqual({ value: 'release notes', chips: [] });
+    await search(page).blur();
+    await expect(search(page)).not.toBeFocused();
+    const text = search(page).getByText('release notes');
+    const box = (await text.boundingBox())!;
+    // A finger rests on the glass for a moment: the press (pointerdown) comes at touchstart and
+    // the focus only after touchend, several tasks later.
+    const touch = await page.context().newCDPSession(page);
+    const point = { x: box.x + 1, y: box.y + box.height / 2 };
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(search(page)).toBeFocused();
+    // A focus that is not a pointer's moves the caret in a task queued at focus; this one runs after it.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
+    await page.keyboard.type('new ');
+    await expect
+      .poll(() => read(page, 'search'))
+      .toEqual({ value: 'new release notes', chips: [] });
+  });
+});
