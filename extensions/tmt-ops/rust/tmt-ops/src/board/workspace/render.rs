@@ -704,10 +704,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             };
             let minute_reading = match &row.target {
                 OpsTarget::Member { identity_id, .. } => app
-                    .agents_live_usage
-                    .get(identity_id)
+                    .agents_live_usage(identity_id)
                     .and_then(|usage| usage.minute),
-                OpsTarget::Squad(room) => app.agents_squad_minutes.get(room).copied(),
+                OpsTarget::Squad(room) => app.agents_squad_minute(room),
                 _ => None,
             }
             .filter(|_| !plain);
@@ -794,8 +793,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
                 if !cell.is_empty() {
                     let values = app
-                        .agents_live_usage
-                        .get(identity_id)
+                        .agents_live_usage(identity_id)
                         .map_or([None; 12], |usage| usage.activity);
                     let values = values
                         .into_iter()

@@ -41,6 +41,47 @@ fn frame(app: &App, width: u16) -> Buffer {
     terminal.backend().buffer().clone()
 }
 
+#[test]
+fn live_projection_only_visits_painted_members_and_painted_squads() {
+    use crate::board::workspace::OpsTarget;
+    use std::collections::BTreeSet;
+
+    let app = populated_board(36, 10_000);
+    frame(&app, 160);
+    let rows = app.workspace_rows();
+    let mut allowed = BTreeSet::new();
+    let mut painted = 0;
+    for hit in app.hits.borrow().iter() {
+        let Some(index) = hit.row() else { continue };
+        let Some(row) = rows.get(index) else { continue };
+        painted += 1;
+        match &row.target {
+            OpsTarget::Member { identity_id, .. } => {
+                allowed.insert(identity_id.clone());
+            }
+            OpsTarget::Squad(room) => {
+                if let Some(squad) = app
+                    .workspace_snapshot()
+                    .unwrap()
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| &squad.room_id == room)
+                {
+                    allowed.extend(squad.members.iter().cloned());
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(painted > 0 && painted <= 36, "painted {painted} rows");
+    let attempted = app.agents_live_missing.borrow().clone();
+    assert!(!attempted.is_empty());
+    assert!(attempted.is_subset(&allowed));
+    frame(&app, 160);
+    assert_eq!(*app.agents_live_missing.borrow(), attempted);
+}
+
 fn area_of(app: &App, wanted: impl Fn(&Choice) -> bool) -> Option<Rect> {
     app.workspace_strip_hits
         .borrow()
@@ -226,7 +267,8 @@ fn sampled_member_row() -> String {
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let mut activity = [Some(0.0); 12];
     activity[11] = Some(120.0);
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {
@@ -267,7 +309,8 @@ fn sampled_member_activity_is_painted_oldest_to_newest() {
 
 fn minute_cell(reading: Option<crate::board::rate::Reading>) -> String {
     let mut app = open(SavingsUnit::Tokens);
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         crate::board::app::AgentsLiveUsage {
             minute: reading,
@@ -351,7 +394,8 @@ fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
     roster.squads[0]
         .members
         .extend([MEMBER.into(), "missing".into()]);
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {
@@ -363,7 +407,7 @@ fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
         },
     );
     app.workspace_reconcile();
-    app.rebuild_agents_squad_minutes();
+    app.agents_squad_minutes.get_mut().clear();
     let buffer = frame(&app, 240);
     let rows: Vec<_> = buffer.content.chunks(240).collect();
     let header = rows
@@ -409,9 +453,13 @@ fn changed_minute_figure_is_bold_in_the_painted_member_row() {
         }),
         activity: [None; 12],
     };
-    app.agents_live_usage.insert(MEMBER.into(), usage(100));
+    app.agents_live_usage
+        .get_mut()
+        .insert(MEMBER.into(), usage(100));
     frame(&app, 240);
-    app.agents_live_usage.insert(MEMBER.into(), usage(400));
+    app.agents_live_usage
+        .get_mut()
+        .insert(MEMBER.into(), usage(400));
     let buffer = frame(&app, 240);
     let rows: Vec<_> = buffer.content.chunks(240).collect();
     let heading = rows
@@ -449,7 +497,8 @@ fn selected_activity_keeps_the_no_color_reverse_cue_on_observed_cells() {
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let mut activity = [None; 12];
     activity[11] = Some(120.0);
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         crate::board::app::AgentsLiveUsage {
             minute: None,
@@ -507,7 +556,8 @@ fn capture_live_agents_widths() {
                     activity[7] = Some(20.0);
                     activity[9] = Some(60.0);
                     activity[11] = Some(120.0);
-                    app.agents_live_usage.insert(
+                    app.refresh_agents_live_generation();
+                    app.agents_live_usage.get_mut().insert(
                         MEMBER.into(),
                         AgentsLiveUsage {
                             minute: Some(Reading {
@@ -518,7 +568,7 @@ fn capture_live_agents_widths() {
                             activity,
                         },
                     );
-                    app.rebuild_agents_squad_minutes();
+                    app.agents_squad_minutes.get_mut().clear();
                     if squad {
                         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
                         app.workspace_reconcile();
@@ -576,7 +626,8 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
             .collect::<String>()
     };
     assert_eq!(activity_text(&app), "            ");
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: None,
@@ -587,6 +638,10 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
     let mut partial = [None; 12];
     partial[9] = Some(0.0);
     partial[11] = Some(120.0);
-    app.agents_live_usage.get_mut(MEMBER).unwrap().activity = partial;
+    app.agents_live_usage
+        .get_mut()
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity = partial;
     assert_eq!(activity_text(&app), "         · █");
 }

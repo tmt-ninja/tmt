@@ -315,7 +315,8 @@ fn cost_mode_keeps_minute_tokens_and_only_range_unit_is_clickable() {
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     hold(&mut app, SavingsUnit::Cost);
     report_for_member(&mut app);
-    app.agents_live_usage.insert(
+    app.refresh_agents_live_generation();
+    app.agents_live_usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {

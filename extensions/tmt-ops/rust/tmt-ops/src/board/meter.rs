@@ -1,7 +1,10 @@
 //! Presentation state, with injected monotonic time and no terminal I/O.
 use super::rate::{Input, Rate, Reading};
 use crate::config::{TokenRate, TokenWindow};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+static EVIDENCE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 const FRAME: Duration = Duration::from_millis(250);
 const DURATION: Duration = Duration::from_millis(600);
@@ -125,6 +128,7 @@ pub struct Meter {
     window: TokenWindow,
     trend: [Option<f64>; 8],
     trend_ms: u64,
+    evidence_generation: u64,
 }
 
 impl Meter {
@@ -145,6 +149,7 @@ impl Meter {
             window: settings.window,
             trend: [None; 8],
             trend_ms: 0,
+            evidence_generation: 0,
         };
         meter.sample(Ok(input), now);
         meter
@@ -152,6 +157,7 @@ impl Meter {
 
     /// Leaving a tab closes continuity; retained buckets remain evidence.
     pub fn suspend(&mut self, now: Instant) {
+        self.evidence_changed();
         self.rate.failed(
             self.milliseconds(now),
             self.settings.every.as_millis() as u64,
@@ -161,6 +167,7 @@ impl Meter {
 
     /// Re-entering a cached tab refreshes time/coverage without a fake receipt.
     pub fn resume(&mut self, window: TokenWindow, now: Instant) {
+        self.evidence_changed();
         let ms = self.milliseconds(now);
         self.rate.failed(ms, self.settings.every.as_millis() as u64);
         self.window = window.available(self.settings.windows);
@@ -194,6 +201,18 @@ impl Meter {
         )
     }
 
+    fn evidence_changed(&mut self) {
+        self.evidence_generation = EVIDENCE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Changes whenever evidence changes or its five-second time bucket advances.
+    pub(in crate::board) fn evidence_key(&self, now: Instant) -> (u64, u64) {
+        (
+            self.evidence_generation,
+            self.milliseconds(now) / super::rate::SLOT_MS,
+        )
+    }
+
     /// The transient API payload is consumed into Rate; cached views retain no copy.
     pub fn seed(
         &mut self,
@@ -202,6 +221,7 @@ impl Meter {
         now: Instant,
         observe: bool,
     ) {
+        self.evidence_changed();
         let ms = self.milliseconds(now);
         self.rate.seed(input, seeds, ms);
         if observe {
@@ -216,6 +236,7 @@ impl Meter {
         seeds: &super::rate::history::rollup::Seeds,
         now: Instant,
     ) {
+        self.evidence_changed();
         let ms = self.milliseconds(now);
         self.rate.seed_retained(input, seeds, ms);
     }
@@ -226,11 +247,13 @@ impl Meter {
         seeds: Option<&super::rate::history::rollup::Seeds>,
         now: Instant,
     ) {
+        self.evidence_changed();
         let ms = self.milliseconds(now);
         self.rate.seed_quota(input, seeds, ms);
     }
 
     pub fn sample(&mut self, input: Result<&Input, ()>, now: Instant) {
+        self.evidence_changed();
         let ms = self.milliseconds(now);
         match input {
             Ok(input) => self.rate.sample(input, ms),
@@ -279,6 +302,7 @@ impl Meter {
         if self.window == window {
             return;
         }
+        self.evidence_changed();
         self.window = window;
         self.settle(now);
     }
@@ -330,6 +354,7 @@ impl Meter {
     }
 
     pub fn retain(&mut self, input: &Input) {
+        self.evidence_changed();
         self.rate.retain(input);
     }
 
