@@ -124,7 +124,11 @@ case "$command" in
     mkdir -p "$prefix/bin"
     ${shellQuote(process.execPath)} ${shellQuote(executableWriter)} --write "$prefix/bin/tmt" 493 < "$0"
     ln -sf tmt "$prefix/bin/tmux-team"
-    printf '%s\\n' "✓ Installed tmt \${TMT_BOOTSTRAP_FIXTURE_VERSION:?} at $prefix/bin/tmt"
+    case "\${TMT_BOOTSTRAP_NATIVE_RESULT-installed}" in
+      current) printf '%s\\n' "Current tmt \${TMT_BOOTSTRAP_FIXTURE_VERSION:?} at $prefix/bin/tmt" ;;
+      unknown) printf '%s' "$TMT_BOOTSTRAP_NATIVE_OUTPUT" ;;
+      *) printf '%s\\n' "✓ Installed tmt \${TMT_BOOTSTRAP_FIXTURE_VERSION:?} at $prefix/bin/tmt" ;;
+    esac
     ;;
   install)
     if [ "\${TMT_BOOTSTRAP_SKILL_FAILURE-}" = 1 ]; then exit 7; fi
@@ -219,6 +223,8 @@ async function runBootstrap(
     readonly mergeOutput?: boolean;
     readonly nativeFailure?: boolean;
     readonly skillNotices?: boolean;
+    readonly nativeResult?: 'current' | 'unknown';
+    readonly nativeOutput?: string;
     readonly auditTokenEnv?: boolean;
     readonly unsupportedPlatform?: boolean;
     readonly endpointOverride?: string;
@@ -277,6 +283,10 @@ async function runBootstrap(
         ...(options.setupFailure ? { TMT_BOOTSTRAP_SETUP_FAILURE: '1' } : {}),
         ...(options.nativeFailure ? { TMT_BOOTSTRAP_NATIVE_FAILURE: '1' } : {}),
         ...(options.skillNotices ? { TMT_BOOTSTRAP_SKILL_NOTICES: '1' } : {}),
+        ...(options.nativeResult ? { TMT_BOOTSTRAP_NATIVE_RESULT: options.nativeResult } : {}),
+        ...(options.nativeOutput !== undefined
+          ? { TMT_BOOTSTRAP_NATIVE_OUTPUT: options.nativeOutput }
+          : {}),
         ...(options.auditTokenEnv
           ? { TMT_BOOTSTRAP_AUDIT_ENV: '1', GH_TOKEN: 'gh-canary', GITHUB_TOKEN: 'github-canary' }
           : {}),
@@ -404,7 +414,7 @@ describe('native curl bootstrap', () => {
       const plain = output.replace(/\x1b\[[0-9;]*m/g, '').replaceAll('\r', '');
       expect(plain).toContain(`Install tmt ${fixture.version} (`);
       expect(plain).toContain('✓ Downloaded and verified archive');
-      expect(plain).toContain('✓ Native tmt is installed at ');
+      expect(plain).toContain(`✓ Installed tmt ${fixture.version} at `);
       expect(plain).not.toContain('{"installed":true}');
       expect(plain.split('Next:\n')[1].trim().split('\n').length).toBeLessThanOrEqual(3);
       if (mode.progress)
@@ -483,12 +493,90 @@ describe('native curl bootstrap', () => {
       expect(commands).toHaveLength(3);
       expect(commands[0]).toMatch(/^export PATH=/);
       expect(commands[1]).toBe('hash -r');
-      expect(commands[2]).toMatch(/ setup$/);
+      expect(commands[2]).toBe(`${shellQuote(path.join(prefix, 'bin/tmt'))} setup`);
       const check = await runCli({ ...sandbox, cli: { executable: '/bin/sh', args: ['-c'] } }, [
         `${commands[0]}; printf '%s' "$PATH"`,
       ]);
       expect(check.status).toBe(0);
       expect(check.stdout).toBe(`${prefix}/bin:${sandbox.env.PATH}`);
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it('reports the captured Installed outcome with version/path and no trailing period', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const run = await runBootstrap(sandbox, script, fixture, ['--no-skill']);
+      expect(run.result.status).toBe(0);
+      expect(run.result.stdout.split('\n')).toContain(
+        `✓ Installed tmt ${fixture.version} at ${run.prefix}/bin/tmt`
+      );
+      expect(run.result.stdout).not.toContain('already current');
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it('reports the captured Current outcome as already current with no trailing period', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], {
+        nativeResult: 'current',
+      });
+      expect(run.result.status).toBe(0);
+      expect(run.result.stdout.split('\n')).toContain(
+        `✓ tmt ${fixture.version} is already current at ${run.prefix}/bin/tmt`
+      );
+      expect(run.result.stdout).not.toContain('✓ Installed tmt');
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it.each([false, true])(
+    'prints unknown native output unchanged without evaluation (multiline=%s)',
+    async (multiline) => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const marker = path.join(sandbox.root, 'must-not-exist');
+        const nativeOutput = multiline
+          ? `Installed tmt ${fixture.version} at /future/path\nAdditional notice $(touch ${marker})\n`
+          : `Unknown native outcome $(touch ${marker})`;
+        const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], {
+          nativeResult: 'unknown',
+          nativeOutput,
+        });
+        expect(run.result.status).toBe(0);
+        expect(run.result.stdout).toContain(nativeOutput);
+        expect(run.result.stdout).not.toContain('✓ Installed tmt');
+        expect(run.result.stdout).not.toContain('already current');
+        expect(existsSync(marker)).toBe(false);
+        expectCleanStage(run.stage);
+      });
+    }
+  );
+
+  it('uses bare Next commands when both published commands are already on PATH', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const prefix = path.join(sandbox.home, '.local');
+      const run = await runBootstrap(sandbox, script, fixture, [], {
+        prefix,
+        systemPath: `${prefix}/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
+      });
+      expect(run.result.status).toBe(0);
+      expect(
+        run.result.stdout
+          .split('Next:\n')[1]
+          .trim()
+          .split('\n')
+          .map((line) => line.trim())
+      ).toEqual(['tmt setup', 'tmt learn --skill', 'tmt upgrade']);
       expectCleanStage(run.stage);
     });
   });
@@ -683,7 +771,9 @@ describe('native curl bootstrap', () => {
 
         expect(run.result.status).toBe(0);
         expect(run.result.stderr).toBe('');
-        expect(run.result.stdout).toContain(`Native tmt is installed at ${prefix}/bin/tmt.`);
+        expect(run.result.stdout.split('\n')).toContain(
+          `✓ Installed tmt ${fixture.version} at ${prefix}/bin/tmt`
+        );
         expect(run.result.stdout).toContain(`${prefix}/bin is not in PATH yet.`);
         expect(run.result.stdout).not.toContain('another installation');
         expect(run.log).toContain('command=__native-install');

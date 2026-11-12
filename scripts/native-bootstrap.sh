@@ -76,7 +76,7 @@ main() {
     return "$status"
   fi
 
-  step done "Native tmt is installed at $prefix/bin/tmt."
+  render_native_status "$stage/install.log"
   path_pending=no
   setup_pending=no
   skill_pending=no
@@ -140,8 +140,37 @@ step() {
 
 fail() { step failed "$*" >&2; exit 1; }
 
-# The native installer's single success line is represented by the wrapper step;
-# failed stdout remains visible alongside the child's untouched stderr.
+# Recognize only the captured child's text; never execute or evaluate it.
+# Preserve unknown/multiline reports rather than inventing an install outcome.
+render_native_status() {
+  native_line=
+  native_next=
+  native_extra=no
+  {
+    IFS= read -r native_line || :
+    if IFS= read -r native_next || [ -n "$native_next" ]; then native_extra=yes; fi
+  } < "$1"
+  native_status=$native_line
+  case "$native_status" in '✓ '*) native_status=${native_status#'✓ '} ;; esac
+  if [ "$native_extra" = no ]; then
+    case "$native_status" in
+      'Installed tmt '?*' at '?*) step done "$native_status"; return ;;
+      'Current tmt '?*' at '?*)
+        native_current=${native_status#'Current tmt '}
+        native_version=${native_current%%' at '*}
+        native_path=${native_current#*' at '}
+        step done "tmt $native_version is already current at $native_path"
+        return ;;
+    esac
+  fi
+  native_detail=
+  while IFS= read -r native_detail; do
+    printf '%s\n' "$native_detail"
+  done < "$1"
+  [ -z "$native_detail" ] || printf '%s' "$native_detail"
+}
+
+# Failed stdout remains visible alongside the child's untouched stderr.
 show_diagnostic() {
   while IFS= read -r diagnostic || [ -n "$diagnostic" ]; do
     printf '%s\n' "$diagnostic" >&2
@@ -184,7 +213,11 @@ next_command() {
 
 next_steps() {
   next_count=0
-  next_tmt=$(quote_command "$prefix/bin/tmt")
+  if [ "$path_pending" = yes ]; then
+    next_tmt=$(quote_command "$prefix/bin/tmt")
+  else
+    next_tmt=tmt
+  fi
   printf 'Next:\n'
   if [ "$path_pending" = yes ]; then
     next_bin=$(quote_command "$prefix/bin")

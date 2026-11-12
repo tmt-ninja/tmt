@@ -75,6 +75,7 @@ try {
     )
   );
   assert(first.includes('✓ Downloaded and verified archive'));
+  assert(first.includes(`✓ Installed tmt ${metadata.version} at ${prefix}/bin/tmt\n`));
   assert(first.includes('Next:'));
   assert(!first.includes('Downloading tmt '), 'Piped verification must not draw download progress');
   assert(!first.includes('\x1b['), 'Piped verification must not emit ANSI');
@@ -100,7 +101,8 @@ try {
   }
   const pointer = layout.current;
   const initial = fs.readlinkSync(pointer);
-  bootstrap();
+  const repeated = bootstrap();
+  assert(repeated.includes(`✓ tmt ${metadata.version} is already current at ${prefix}/bin/tmt\n`));
   assert.equal(fs.readlinkSync(pointer), initial, 'Repeat bootstrap must not create a release');
   assert.equal(run(['learn', '--skill']), fs.readFileSync(values.skill, 'utf8'));
   const installedSkill = path.join(root, '.agents/skills/tmt/SKILL.md');
