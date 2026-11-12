@@ -149,6 +149,12 @@ fn creation_observation_from_reply(reply: &str) -> CreationObservation {
     })();
     parsed.unwrap_or_else(unknown)
 }
+/// The live door for one object-channel handshake. Remote's setup budget (250 ms) covers this
+/// call, so it reads the machine projection, which only asks the running serve, rather than
+/// ordinary status, which also projects sign-in and cloud state (#6274).
+pub fn handshake_lookup() -> Lookup {
+    creation_observation().lookup
+}
 /// A Remote error envelope, `{"error":{"code","message"}}`, shown as Remote wrote it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RemoteFailure {

@@ -3,7 +3,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { build } from 'vite-plus';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocket } from '@playwright/test';
 import { createPage, openPage, revokeMachine, run } from './harness/ask.js';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -52,6 +52,19 @@ test('object channel: first demand and replacement use live discovery', async ({
       const browser = await pairBrowser(world, 'storage-owner');
       const before = discovery().length;
       firstDemand = before;
+      // Chromium can send a handshake the page opened just before closing after the restart
+      // below has ended the old channel. Remote then spends its one bounded setup on a Colab that
+      // does not accept yet, and its cooldown refuses the replacement page's demand (#5605).
+      const handshakes = new Set<WebSocket>();
+      const track = (opened: Page) =>
+        opened.on('websocket', (socket) => {
+          handshakes.add(socket);
+          const settled = () => handshakes.delete(socket);
+          socket.once('framereceived', settled);
+          socket.once('close', settled);
+          socket.once('socketerror', settled);
+        });
+      browser.context.on('page', track);
       const page = await openPage(door, browser, created);
       await expect(page.frameLocator('iframe').locator('#storage-route')).toHaveText(
         'Routed source',
@@ -66,6 +79,11 @@ test('object channel: first demand and replacement use live discovery', async ({
       // not OS cold first-exec qualification, and does not renew that product deadline.
       expect(first.elapsedMs).toBeLessThan(250);
 
+      // A socket opened from here on stays in the browser; one opened before has settled: a
+      // first frame, a close or an error.
+      await page.routeWebSocket(/.*/, (socket) => socket.close());
+      await expect.poll(() => handshakes.size).toBe(0);
+      browser.context.off('page', track);
       await page.close();
       await restartColab(world, door);
       const replacementBefore = discovery().length;

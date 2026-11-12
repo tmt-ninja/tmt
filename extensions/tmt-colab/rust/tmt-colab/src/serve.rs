@@ -574,7 +574,7 @@ fn serve(
                     supervisor::Access::Started { .. } => "started",
                     supervisor::Access::Unavailable { .. } => "unavailable",
                 })
-                .with_object_discovery(|| match crate::door::Door::lookup() {
+                .with_object_discovery(|| match crate::door::handshake_lookup() {
                     crate::door::Lookup::Running(door) => {
                         let host = door.origin().strip_prefix("http://")?.to_owned();
                         let mount = door.url("x/colab/").strip_prefix(door.origin())?.to_owned();
