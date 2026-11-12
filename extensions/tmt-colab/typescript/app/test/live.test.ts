@@ -80,6 +80,9 @@ const asks = vi.hoisted(() => ({
   activation: [] as boolean[],
   instances: [] as { options: LiveAskOptions; close: ReturnType<typeof vi.fn> }[],
 }));
+// The standalone copy has its own tests (export-runtime.test.ts); every page now asks for one
+// (#6077), which needs a browser location and the runtime's files.
+vi.mock('../src/export-runtime.js', () => ({ standaloneRequest: async () => undefined }));
 vi.mock('../src/live-ask.js', () => ({
   LiveAsk: class {
     close = vi.fn();

@@ -6,6 +6,7 @@ const texts = {
   'assets/colab-runtime.css': '@theme { --color-paper: #fff; }',
   'assets/colab-runtime-terminal-3333333333333333.wasm': 'wasm-test-bytes',
   'assets/colab-runtime-base-0000000000000000.js': 'window.base = 1;',
+  'assets/colab-runtime-react-4444444444444444.js': 'window.react = 1;',
   'assets/colab-runtime-ui-1111111111111111.js': 'window.ui = 1;',
   'assets/colab-runtime-docs-2222222222222222.js': 'window.docs = 1;',
 };
@@ -18,6 +19,7 @@ vi.mock('../runtime-pin.json', () => ({
   default: {
     chunks: [
       { name: 'base', ...pinned('assets/colab-runtime-base-0000000000000000.js') },
+      { name: 'react', ...pinned('assets/colab-runtime-react-4444444444444444.js') },
       { name: 'ui', ...pinned('assets/colab-runtime-ui-1111111111111111.js') },
       { name: 'docs', ...pinned('assets/colab-runtime-docs-2222222222222222.js') },
       {
@@ -29,7 +31,7 @@ vi.mock('../runtime-pin.json', () => ({
     theme: pinned('assets/colab-runtime.css'),
   },
 }));
-const { loadRuntime, runtimeUrl } = await import('../src/page-runtime.js');
+const { loadRuntime, runtimeUrl, UTILITIES_ONLY } = await import('../src/page-runtime.js');
 
 afterEach(() => vi.unstubAllGlobals());
 /** Serves the pinned texts, with any overrides by path. */
@@ -58,8 +60,9 @@ test('a chunk sits next to the renderer: mount-relative, or the root on the host
 test('a page loads the base and only its named chunks, each verified once per tab', async () => {
   const fetched = serve();
   const base = 'http://127.0.0.1:4179/r/aaaaaaaaaaaaaaaa/x/colab/';
+  // Without React the theme compiles Tailwind's utilities alone, with no preflight (#6077).
   expect(await loadRuntime(base)).toEqual({
-    style: texts['assets/colab-runtime.css'],
+    style: `${UTILITIES_ONLY}${texts['assets/colab-runtime.css']}`,
     scripts: ['window.base = 1;'],
   });
   expect(fetched.sort()).toEqual([
@@ -68,13 +71,18 @@ test('a page loads the base and only its named chunks, each verified once per ta
   ]);
   fetched.length = 0;
   // Unknown names add nothing; known chunks load in vector order, and the base is not fetched again.
-  expect((await loadRuntime(base, ['docs', 'nope', 'ui'])).scripts).toEqual([
+  // With React the theme is all of Tailwind, as before.
+  const withReact = await loadRuntime(base, ['docs', 'nope', 'ui', 'react']);
+  expect(withReact.scripts).toEqual([
     'window.base = 1;',
+    'window.react = 1;',
     'window.ui = 1;',
     'window.docs = 1;',
   ]);
+  expect(withReact.style).toBe(texts['assets/colab-runtime.css']);
   expect(fetched.sort()).toEqual([
     'assets/colab-runtime-docs-2222222222222222.js',
+    'assets/colab-runtime-react-4444444444444444.js',
     'assets/colab-runtime-ui-1111111111111111.js',
   ]);
 });
@@ -88,8 +96,12 @@ test('a lazy chunk whose bytes differ from the pin is left out; the rest of the 
   expect(runtime.scripts).toEqual(['window.base = 1;', 'window.docs = 1;']);
 });
 
-test('a base or theme that fails to load or verify fails the runtime, and the failure is not kept', async () => {
+test('a base, theme or asked-for React that fails to load or verify fails the runtime, and the failure is not kept', async () => {
   const base = 'http://127.0.0.1:4179/r/cccccccccccccccc/x/colab/';
+  serve({ 'assets/colab-runtime-react-4444444444444444.js': 'window.react = 2;' });
+  await expect(
+    loadRuntime('http://127.0.0.1:4179/r/gggggggggggggggg/x/colab/', ['react']),
+  ).rejects.toThrow('does not match its pin');
   serve({ 'assets/colab-runtime-base-0000000000000000.js': 'window.base = 2;' });
   await expect(loadRuntime(base)).rejects.toThrow('does not match its pin');
   serve({ 'assets/colab-runtime.css': new Response('no', { status: 404 }) });

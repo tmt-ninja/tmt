@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { Downloads, prepareExport } from '../src/export.js';
 import type { ExportAttachment } from '../src/export-attachments.js';
 import { META_POLICY, THEME_SWITCH, standaloneDocument, usesDesign } from '../src/standalone.js';
+import { UTILITIES_ONLY } from '../src/page-runtime.js';
 
 import { fixture, gathered, input } from './export-input.js';
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -272,15 +273,22 @@ it('exports a template page with its rule comments as written and no rule tag (#
   expect(copy).not.toContain('rule 1 ·');
 });
 
-it('adds the standalone copy of a design-system page, and of one that also asks for the runtime, byte for byte like native', async () => {
-  for (const vector of [fixture.standaloneDesign, fixture.standaloneBoth]) {
-    expect(usesDesign(vector.source)).toBe(true);
+it('adds the standalone copy of a plain page, a design-system page and one that also asks for React, byte for byte like native', async () => {
+  // Every page compiles Tailwind's utilities with no preflight unless it asks for React (#6077).
+  expect(UTILITIES_ONLY).toBe(fixture.standalonePlain.utilitiesOnly);
+  for (const vector of [
+    fixture.standalonePlain,
+    fixture.standaloneDesign,
+    fixture.standaloneBoth,
+  ]) {
+    expect(usesDesign(vector.source)).toBe(vector !== fixture.standalonePlain);
+    const design = 'design' in vector ? vector.design : undefined;
     const bundle = await prepareExport({
       ...input(),
       source: vector.source,
       standalone: {
-        ...(vector.runtime ? { runtime: vector.runtime } : {}),
-        design: vector.design,
+        runtime: vector.runtime,
+        ...(design ? { design } : {}),
       },
     });
     const file = await bytes(bundle.blob('page.standalone.html'));

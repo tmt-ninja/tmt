@@ -1,6 +1,6 @@
 import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
-import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
+import { loadRuntime, wantsReact, type PageRuntime } from './page-runtime.js';
 import {
   loadDesignSystem,
   namesDesignSystem,
@@ -1656,18 +1656,23 @@ export async function mountRenderer(
   // Any scroller that moves the frame (the window or a workspace) moves the visible band.
   window.addEventListener('scroll', queueViewport, { capture: true, passive: true });
   options.signal.addEventListener('abort', destroy, { once: true });
-  // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
+  // Every page gets the runtime's base, which compiles Tailwind's utilities (#6077). A page that
+  // asks for React, or runs design-system components, also gets React and the chunks they need.
   const base = rendererBase();
   // A page that pins a design system runs its components on the page runtime, so it loads both.
   const designSystem = loadDesignSystem(source, options.designSystem).catch(() =>
     noticeFrame('unknown-release'),
   );
+  const react = wantsReact(source);
+  const needsRuntime = react || namesDesignSystem(source) || writesDesignSystemTags(source);
   // The base starts loading at once; the chunks follow from the verified design system (#6085).
-  const runtime =
-    wantsRuntime(source) || namesDesignSystem(source) || writesDesignSystemTags(source)
-      ? designSystem.then((ds) => loadRuntime(base, ds?.runtimeChunks))
-      : undefined;
-  if (runtime) void loadRuntime(base).catch(() => {});
+  const runtime = needsRuntime
+    ? designSystem.then((ds) =>
+        loadRuntime(base, [...(react ? ['react'] : []), ...(ds?.runtimeChunks ?? [])]),
+      )
+    : loadRuntime(base);
+  // Awaited when the frame loads; a failure meanwhile is not an unhandled rejection.
+  runtime.catch(() => {});
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
@@ -1686,15 +1691,17 @@ export async function mountRenderer(
     if (stopped) return;
     admittedTags = ds;
     frameDesign = ds;
-    if (runtime) {
-      try {
-        bundle = await runtime;
-      } catch {
+    try {
+      bundle = await runtime;
+    } catch {
+      // A page that needs the runtime cannot run without it. Any other page binds as it did before
+      // Tailwind was the default: its classes stay unstyled (#6077).
+      if (needsRuntime) {
         if (!stopped) stop('failed');
         return;
       }
-      if (stopped) return;
     }
+    if (stopped) return;
     // Parts still to paint: their arrival is not viewport-coupled growth until they settle.
     // A grace timer from an earlier render must not settle this one early.
     if (bundle && ds) {

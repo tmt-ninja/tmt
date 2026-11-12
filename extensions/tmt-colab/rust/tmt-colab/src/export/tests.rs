@@ -378,7 +378,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
     // HTML, and the copy is the frame's document around the exact source.
     let case = &fixture["standalone"];
     let opted = case["source"].as_str().unwrap();
-    assert_eq!(standalone::wants_runtime(opted), Ok(true));
+    assert_eq!(standalone::wants_react(opted), Ok(true));
     assert_eq!(standalone::meta_policy(), case["policy"].as_str().unwrap());
     assert_eq!(
         standalone::THEME_SWITCH,
@@ -391,6 +391,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
                 script: case["runtime"]["script"].as_str().unwrap(),
                 style: case["runtime"]["style"].as_str().unwrap(),
             }),
+            base: None,
             design: None,
             standalone: None,
         },
@@ -410,12 +411,24 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
     let manifest = manifest_of(&derived);
     assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
     assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
-    // A page that uses the design system (#5057) and one that asks for the runtime as well get
-    // their copies, with the design system's style and script written before the runtime's.
-    for key in ["standaloneDesign", "standaloneBoth"] {
+    // Every page gets a copy (#6077): a plain one carries the runtime's base after the
+    // utilities-only prefix; one that uses the design system (#5057), and one that asks for React as
+    // well, get the design system's style and script written before the runtime's.
+    assert_eq!(
+        standalone::UTILITIES_ONLY,
+        fixture["standalonePlain"]["utilitiesOnly"]
+            .as_str()
+            .unwrap()
+    );
+    for key in ["standalonePlain", "standaloneDesign", "standaloneBoth"] {
         let case = &fixture[key];
         let source = case["source"].as_str().unwrap();
-        assert!(standalone::uses_design(source), "{key}");
+        assert_eq!(
+            standalone::uses_design(source),
+            key != "standalonePlain",
+            "{key}"
+        );
+        let react = standalone::wants_react(source).unwrap();
         let part = |name: &str| {
             case.get(name).map(|texts| {
                 (
@@ -424,8 +437,10 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
                 )
             })
         };
+        let runtime = part("runtime").map(|(script, style)| standalone::Runtime { script, style });
         let assets = standalone::Assets {
-            runtime: part("runtime").map(|(script, style)| standalone::Runtime { script, style }),
+            runtime,
+            base: None,
             design: part("design").map(|(script, style)| standalone::Design { script, style }),
             standalone: None,
         };
@@ -444,8 +459,14 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         let manifest = manifest_of(&derived);
         assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
         assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
-        // `derive` makes the same bytes from what the build offers.
-        let offered = standalone::derive(source, &assets, &standalone::NoReleases).unwrap();
+        // `derive` makes the same bytes from what the build offers: React's page takes the whole
+        // runtime, any other the base.
+        let offered = standalone::Assets {
+            runtime: runtime.filter(|_| react),
+            base: runtime.filter(|_| !react),
+            ..assets
+        };
+        let offered = standalone::derive(source, &offered, &standalone::NoReleases).unwrap();
         assert_eq!(offered.file.as_deref(), Some(copy.as_slice()), "{key}");
     }
     // A page that pins a design system (#6157): its blocks inert and escaped, the binder last.
@@ -469,6 +490,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         source,
         &standalone::Assets {
             runtime: None,
+            base: None,
             design: Some(design),
             standalone: None,
         },

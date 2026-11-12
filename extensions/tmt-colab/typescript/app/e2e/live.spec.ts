@@ -2586,6 +2586,8 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   page,
   context,
 }) => {
+  // This app serves no page runtime, so the panel also says the page got no standalone copy (#6077);
+  // the download status is read on its own.
   const source =
     '<h1>Exact export</h1>\r\n<p>λ 😀\0</p><script>parent.postMessage({type:"export"},"*");</script>';
   const f = await wire(context, { source });
@@ -2655,7 +2657,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   }
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
-  await expect(panel.getByRole('status')).toContainText('Some files requested');
+  await expect(panel.getByRole('status').filter({ hasText: 'Some files requested' })).toBeVisible();
   // A separately admitted content update must not replace the frozen download.
   await f.contentUpdate('<h1>New live page</h1>');
   await expect(
@@ -2704,7 +2706,9 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
       })),
     }),
   );
-  await expect(panel.getByRole('status')).toContainText('All downloads requested');
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'All downloads requested' }),
+  ).toBeVisible();
   expect(await download('page.html')).toEqual(html);
   expect(await download('manifest.json')).toEqual(manifestBytes);
   const urlCount = () =>

@@ -247,8 +247,10 @@ test('a page that opts in to the runtime renders in the shell with the runtime f
   await expect(frame).toHaveAttribute('src', /\/colab\/renderer\.html/);
   const inside = await rendererFrame(page);
   await expect(inside.locator('#opted')).toHaveAttribute('data-tmt', 'true');
+  // A React page loads the base and React (#6077) and nothing else.
   expect(fetched.sort()).toEqual([
     expect.stringMatching(/^\/colab\/assets\/colab-runtime-base-[0-9a-f]{16}\.js$/),
+    expect.stringMatching(/^\/colab\/assets\/colab-runtime-react-[0-9a-f]{16}\.js$/),
     '/colab/assets/colab-runtime.css',
   ]);
 });

@@ -5,6 +5,9 @@ import runtime4 from '../../../contracts/vectors/design-runtime-4-ui.json';
 it('exposes the curated icons on window.tmt so a page can write them as htm templates', async () => {
   vi.stubGlobal('window', globalThis);
   await import('../src/runtime/entry.js');
+  // The base carries no React and publishes no `window.tmt`; the react chunk does (#6077).
+  expect('tmt' in globalThis).toBe(false);
+  await import('../src/runtime/chunks/react.ts');
   const tmtBase = (globalThis as unknown as { tmt: { ui: object } }).tmt;
   // The base alone provides no parts; the chunks add theirs until the seal (#6085).
   expect(Object.keys(tmtBase.ui)).toEqual([]);

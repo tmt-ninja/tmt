@@ -952,56 +952,100 @@ test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unk
   ]);
 });
 
-test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
-  page,
-}) => {
+test('a page asks for React exactly as the shared marker vectors say', async ({ page }) => {
   const { cases } = JSON.parse(
     readFileSync(
       new URL('../../../contracts/vectors/runtime-marker-v1.json', import.meta.url),
       'utf8',
     ),
-  ) as { cases: { name: string; source: string; optsIn: boolean }[] };
+  ) as { cases: { name: string; source: string; wantsReact: boolean }[] };
   expect(cases.length).toBeGreaterThan(20);
   await page.goto('/');
   const answers = await page.evaluate(
     async (sources) => {
       const path = '/src/page-runtime.ts';
-      const { wantsRuntime } = await import(path);
-      return sources.map((source: string) => wantsRuntime(source) as boolean);
+      const { wantsReact } = await import(path);
+      return sources.map((source: string) => wantsReact(source) as boolean);
     },
     cases.map(({ source }) => source),
   );
   expect(cases.map(({ name }, index) => [name, answers[index]])).toEqual(
-    cases.map(({ name, optsIn }) => [name, optsIn]),
+    cases.map(({ name, wantsReact }) => [name, wantsReact]),
   );
 });
 
-test('only an opting-in page fetches the runtime, and its frame gets it before the page runs', async ({
+test('every page compiles Tailwind utilities with no reset, and only a React page gets React before it runs', async ({
   page,
 }) => {
   const fetched = await servePageRuntime(page);
   await page.goto('/');
+  // No marker (#6077): the base and the theme, utilities only. The page's own lists keep their
+  // markers, as the frame styles them, and no `window.tmt` exists.
   await mount(
     page,
-    '<p id="plain">No marker</p><script>document.getElementById("plain").dataset.tmt = String(typeof window.tmt)</script>',
+    '<div id="plain" class="flex gap-2 p-4 text-secondary"><span>a</span><span>b</span></div><ul id="list"><li>one</li></ul><script>document.getElementById("plain").dataset.tmt = String(typeof window.tmt)</script>',
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const plain = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
   await expect(plain.locator('#plain')).toHaveAttribute('data-tmt', 'undefined');
-  expect(fetched).toEqual([]);
+  await expect(plain.locator('#plain')).toHaveCSS('display', 'flex');
+  await expect(plain.locator('#plain')).toHaveCSS('padding-top', '16px');
+  await expect(plain.locator('#plain')).toHaveCSS('column-gap', '8px');
+  const secondary = await plain.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--tmt-color-secondary)';
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  await expect(plain.locator('#plain')).toHaveCSS('color', secondary);
+  await expect(plain.locator('#list')).toHaveCSS('list-style-type', 'disc');
+  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css']);
+  // The theme's tokens follow a dark viewer, but a plain page keeps its own canvas: the theme does
+  // not paint it, so its default ink stays readable.
+  await plain.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await expect(plain.locator('#plain')).toHaveCSS(
+    'color',
+    await plain.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--tmt-color-secondary)';
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    }),
+  );
+  expect(
+    await plain.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
+  ).toBe('rgba(0, 0, 0, 0)');
   await page.evaluate(() => {
     (window as unknown as { probe: { controller: AbortController } }).probe.controller.abort();
     document.querySelector('#probe')?.remove();
   });
+  // A React page gets React too, and all of Tailwind as before, preflight included.
   await mount(
     page,
-    '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p><script>document.getElementById("opted").dataset.tmt = String(typeof window.tmt.html === "function")</script>',
+    '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p><ul id="list"><li>one</li></ul><script>document.getElementById("opted").dataset.tmt = String(typeof window.tmt.html === "function")</script>',
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const opted = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
   await expect(opted.locator('#opted')).toHaveAttribute('data-tmt', 'true');
-  // A page without design-system components needs the base alone (#6085).
-  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css']);
+  await expect(opted.locator('#list')).toHaveCSS('list-style-type', 'none');
+  // A page without design-system components needs the base and React alone (#6085, #6077).
+  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css', 'react']);
+});
+
+test('a page without React whose runtime cannot load still renders, with its classes unstyled', async ({
+  page,
+}) => {
+  await servePageRuntime(page, { fail: 'base' });
+  await page.goto('/');
+  await mount(page, '<p id="plain" class="p-4">Plain</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await expect(frame.locator('#plain')).toHaveText('Plain');
+  await expect(frame.locator('#plain')).toHaveCSS('padding-top', '0px');
 });
 
 test('an opting-in page whose runtime cannot load fails visibly instead of rendering half-working', async ({

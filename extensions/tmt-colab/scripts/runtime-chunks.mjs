@@ -25,6 +25,12 @@ const owners = [
     /\/browser-ui\/src\/(ui\/|overlay\.ts$|scoped-modal\.ts$|trusted-activation\.ts$)|radix|floating-ui|cmdk|tailwind-merge|clsx|class-variance-authority|aria-hidden|react-remove-scroll|react-style-singleton|use-callback-ref|use-sidecar|get-nonce|detect-node-es|tslib|\/src\/runtime\/chunks\/ui\.ts$|\/src\/runtime\/terminal-frame\.ts$|\/terminal-frame-assets\/tmt_tui_wasm\.js$/,
   ],
   ['browser', /\/browser-ui\/src\/|\/src\/runtime\/chunks\/browser\.ts$/],
+  // React and what `window.tmt` publishes with it (#6077): the base carries no React. The bundler's
+  // CommonJS interop runtime goes with it, as React is the first CommonJS the chunks load.
+  [
+    'react',
+    /\/node_modules\/(react|react-dom|scheduler|htm|lucide-react)\/|\/src\/runtime\/(chunks\/react|icons|ds-scope)\.ts$|^\0?rolldown\/runtime\.js$/,
+  ],
 ];
 export const chunkOf = (id) => owners.find(([, test]) => test.test(id))?.[0] ?? 'base';
 

@@ -497,6 +497,11 @@ STANDALONE_POLICY = ("default-src 'none'; script-src 'unsafe-inline' 'wasm-unsaf
 STANDALONE_THEME_SWITCH = ("(()=>{const q=matchMedia('(prefers-color-scheme: dark)'),r=document.documentElement,"
                            "s=()=>{r.dataset.theme=q.matches?'dark':'light'};s();"
                            "q.addEventListener('change',s)})()")
+# What a page without React compiles before the runtime theme (#6077): Tailwind's theme and
+# utilities, no preflight, and the canvas the theme paints taken back.
+UTILITIES_ONLY = ('@layer theme, base, components, utilities;@import "tailwindcss/theme.css" layer(theme);'
+                  '@import "tailwindcss/utilities.css" layer(utilities);'
+                  '@layer base{:root{background-color:revert-layer}}\n')
 
 
 def standalone_document(source, runtime=None, design=None, design_system=None):
@@ -591,6 +596,9 @@ def vector():
                     "<p>λ 😀\u0000 & exact</p>")
     runtime = {"script": "window.tmt={};", "style": "@theme inline{}"}
     design = {"script": "window.ui={};", "style": "@layer tmt-ui{}"}
+    # Any other page carries the runtime's base alone and the theme after UTILITIES_ONLY (#6077).
+    base_runtime = {"script": "window.base={};\nwindow.__colabRuntimeSeal?.();",
+                    "style": UTILITIES_ONLY + "@theme inline{}"}
 
     def standalone_case(source_text, runtime_text, design_text, design_system=None):
         file_text = standalone_document(source_text, runtime_text, design_text, design_system)
@@ -616,12 +624,15 @@ def vector():
     standalone = {"source": base["source"], "runtime": base["runtime"], "policy": STANDALONE_POLICY,
                   "themeSwitch": STANDALONE_THEME_SWITCH,
                   **{key: base[key] for key in ("fileUtf8", "fileSha256", "manifestUtf8", "manifestSha256")}}
-    # A page that uses the design system (#5057) gets its copy with the design style and script and no
-    # runtime unless it asks for one; a page that uses both gets both, in the frame's order.
+    # A page that uses the design system (#5057) gets its copy with the design style and script and the
+    # runtime's base unless it asks for React; a page that uses both gets both, in the frame's order.
     design_source = '<section class="tmt-ui-card">λ 😀\u0000 & exact</section>'
     both_source = ('<meta name="tmt-colab-runtime" content="react">\r\n'
                    '<tmt-icon name="check"></tmt-icon><p>λ 😀\u0000 & exact</p>')
-    standalone_design = standalone_case(design_source, None, design)
+    standalone_design = standalone_case(design_source, base_runtime, design)
+    # Every other page gets a copy too: the base, which compiles its Tailwind classes (#6077).
+    plain_source = '<p class="p-4 text-secondary">λ 😀\u0000 & exact</p>'
+    standalone_plain = dict(standalone_case(plain_source, base_runtime, None), utilitiesOnly=UTILITIES_ONLY)
     standalone_both = standalone_case(both_source, runtime, design)
     # A page that pins a design system (#6157) carries its verified bundle and every runtime chunk as
     # inert blocks and the binder; the texts here are tiny stand-ins, and the bundle holds an end tag
@@ -651,6 +662,7 @@ def vector():
         "manifestWorkUtf8": manifest_work,
         "manifestWorkSha256": hashlib.sha256(manifest_work.encode("utf-8")).hexdigest(),
         "standalone": standalone,
+        "standalonePlain": standalone_plain,
         "standaloneDesign": standalone_design,
         "standaloneBoth": standalone_both,
         "standaloneDesignSystem": standalone_design_system,

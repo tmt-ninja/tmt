@@ -45,7 +45,8 @@ export function runtimeChunkNames(
     for (const name of component.requires ?? []) visit(`${prefix}-${name}`);
   };
   for (const tag of tags) visit(tag);
-  const wanted = new Set(['base']);
+  // Design-system components run on React, so a page that writes one also gets it (#6077).
+  const wanted = new Set(['base', 'react']);
   for (const component of used) {
     for (const name of component.uiParts ?? []) {
       const chunk = providerOf.get(`ui:${name}`);

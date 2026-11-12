@@ -10,7 +10,8 @@ import {
   loadDesign,
   loadRuntime,
   loadStandaloneRuntime,
-  wantsRuntime,
+  hasRuntimeMarker,
+  wantsReact,
 } from './page-runtime.js';
 import { usesDesign, type StandaloneDesignSystem, type StandaloneRequest } from './standalone.js';
 
@@ -40,16 +41,17 @@ async function pinnedDesignSystem(
     bundle: JSON.stringify(bundle),
     pin: pin.lock ? `${pin.system}@${pin.lock.version}#${pin.lock.hash}` : pin.system,
     lock: `${bundle.version}#${bundle.hash}`,
-    prose: !wantsRuntime(source),
+    prose: !hasRuntimeMarker(source),
     ...runtime,
   };
 }
 
-/** What the export needs to know about the bundled runtime (#1693) and the design system (#5057,
- * #6157) for one page: what the app was loaded with that the page asks for (an ordinary page that
- * opts in to the runtime, a page that uses the design classes, a page that pins a design system, or
- * a mix), or why there is none. Any other page asks for nothing, so its export stays as it was. The
- * base is the renderer frame's own; `designSystems` is where the page's frame reads its bundle. */
+/** What the export needs to know about the bundled runtime (#1693, #6077) and the design system
+ * (#5057, #6157) for one page: what the app was loaded with that the page needs, or why there is
+ * none. Every page compiles Tailwind's utilities, so every page but a shell gets a copy: the
+ * runtime's base and theme, all of the runtime for a page that asks for React, the design files for
+ * a page that uses the design classes, and a pinned design system with its binder. The base is the
+ * renderer frame's own; `designSystems` is where the page's frame reads its bundle. */
 export async function standaloneRequest(
   page: {
     source: string;
@@ -59,24 +61,23 @@ export async function standaloneRequest(
 ): Promise<StandaloneRequest | undefined> {
   if (page.pageType === 'shell') return undefined;
   const namedDesign = namesDesignSystem(page.source);
-  // A pinned design system brings every chunk, which serves a runtime page as well.
-  const wantsRuntimeBundle = !namedDesign && wantsRuntime(page.source);
+  // A pinned design system brings every chunk, which serves a React page as well.
+  const react = !namedDesign && wantsReact(page.source);
   const wantsDesign = usesDesign(page.source);
-  if (!wantsRuntimeBundle && !wantsDesign && !namedDesign) return undefined;
   const base = rendererBase();
+  // An exported page has no parent to send it chunks: a React page carries all of them, any other
+  // page the base alone, in load order, sealed before its own scripts run (#6085).
+  const names = react ? allRuntimeChunks() : ['base'];
   const [runtime, design, designSystem] = await Promise.allSettled([
-    // An exported page has no parent to send it chunks: it carries all of them, in load order,
-    // sealed before its own scripts run (#6085).
-    wantsRuntimeBundle
-      ? loadRuntime(base, allRuntimeChunks()).then((loaded) => {
-          if (loaded.scripts.length !== allRuntimeChunks().length)
-            throw new Error('Page runtime unavailable');
+    namedDesign
+      ? undefined
+      : loadRuntime(base, names).then((loaded) => {
+          if (loaded.scripts.length !== names.length) throw new Error('Page runtime unavailable');
           return {
             style: loaded.style,
             script: `${loaded.scripts.join('\n')}\nwindow.__colabRuntimeSeal?.();`,
           };
-        })
-      : undefined,
+        }),
     wantsDesign ? loadDesign(base) : undefined,
     namedDesign ? pinnedDesignSystem(page.source, base, designSystems) : undefined,
   ]);

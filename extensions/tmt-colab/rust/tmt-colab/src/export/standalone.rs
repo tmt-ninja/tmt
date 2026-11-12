@@ -20,10 +20,15 @@ use serde_json::Value;
 pub const FILE: &str = "page.standalone.html";
 /// The file it is derived from, as the manifest records it.
 pub const DERIVED_FROM: &str = "page.html";
-/// A marker whose content has any of these space-separated tokens asks for the runtime (the
-/// runtime is one bundle, so either loads all of it); unknown tokens are ignored.
-const TOKENS: [&str; 2] = ["react", "tailwind"];
+/// A marker whose content has this space-separated token asks for React (#6077). Every page gets
+/// Tailwind, so `tailwind` asks for nothing more; unknown tokens are ignored.
+const REACT: &str = "react";
 const MARKER: &str = "tmt-colab-runtime";
+/// What a page without React compiles before the theme (#6077): Tailwind's theme and utilities and
+/// no preflight, and the canvas the theme paints for a React page taken back. With no `@import` of
+/// its own the browser compiler imports all of Tailwind, preflight included, which a React page
+/// keeps. The browser build holds the same text.
+pub const UTILITIES_ONLY: &str = "@layer theme, base, components, utilities;@import \"tailwindcss/theme.css\" layer(theme);@import \"tailwindcss/utilities.css\" layer(utilities);@layer base{:root{background-color:revert-layer}}\n";
 /// The theme follows `data-theme` only, so the copy sets it from the system colour scheme and
 /// follows changes, the way Colab's own pages follow the app theme. The browser build holds the
 /// same text.
@@ -79,7 +84,10 @@ pub struct Standalone<'a> {
 /// What the build has to offer a copy; each is absent when the build lacks its files.
 #[derive(Clone, Copy, Default)]
 pub struct Assets<'a> {
+    /// All of the runtime, for a page that asks for React.
     pub runtime: Option<Runtime<'a>>,
+    /// The base alone and the theme after [`UTILITIES_ONLY`], for any other page (#6077).
+    pub base: Option<Runtime<'a>>,
     pub design: Option<Design<'a>>,
     pub standalone: Option<Standalone<'a>>,
 }
@@ -231,18 +239,21 @@ pub fn explanation(reason: &str) -> &'static str {
     }
 }
 
-/// Whether `source` asks for the runtime: the first `<meta name="tmt-colab-runtime">` in document
-/// order, found by parsing, has a `content` with a known token. The same cases run in the app
+/// Whether `source` asks for React: the first `<meta name="tmt-colab-runtime">` in document
+/// order, found by parsing, has a `content` with the `react` token. The same cases run in the app
 /// (`vectors/runtime-marker-v1.json`).
-pub fn wants_runtime(source: &str) -> Result<bool, page_check::TooDeep> {
+pub fn wants_react(source: &str) -> Result<bool, page_check::TooDeep> {
     if !source.contains(MARKER) {
         return Ok(false);
     }
-    Ok(page_check::runtime_marker(source)?.is_some_and(|content| {
-        content
-            .split_ascii_whitespace()
-            .any(|token| TOKENS.contains(&token))
-    }))
+    Ok(page_check::runtime_marker(source)?
+        .is_some_and(|content| content.split_ascii_whitespace().any(|token| token == REACT)))
+}
+
+/// Whether `source` carries the marker at all, whatever its tokens: the frame keeps the editorial
+/// ramp for a design-system page that did not ask for the runtime itself (#5917).
+fn has_marker(source: &str) -> Result<bool, page_check::TooDeep> {
+    Ok(source.contains(MARKER) && page_check::runtime_marker(source)?.is_some())
 }
 
 pub use crate::page_check::uses_design;
@@ -357,8 +368,9 @@ fn blocks(ds: &DesignSystem, unsafe_in: &dyn Fn(&str, &str) -> bool) -> Option<S
     Some(out)
 }
 
-/// The standalone copy of `source`, or why there is none; `None` for a page that needs none. A page
-/// that pins a design system carries its verified bundle, read from `releases` for a space system.
+/// The standalone copy of `source`, or why there is none. Every page compiles Tailwind's utilities,
+/// so every ordinary page gets one (#6077). A page that pins a design system carries its verified
+/// bundle, read from `releases` for a space system.
 #[must_use]
 pub fn derive(source: &str, assets: &Assets, releases: &dyn Releases) -> Option<Derived> {
     let skipped = |reason| {
@@ -370,20 +382,23 @@ pub fn derive(source: &str, assets: &Assets, releases: &dyn Releases) -> Option<
             file: None,
         })
     };
-    let wants_runtime = match wants_runtime(source) {
-        Ok(wants) => wants,
-        Err(page_check::TooDeep) => return skipped(TOO_DEEP),
+    let (wants_react, marked) = match (wants_react(source), has_marker(source)) {
+        (Ok(react), Ok(marked)) => (react, marked),
+        _ => return skipped(TOO_DEEP),
     };
     let wants_design = uses_design(source);
     let named_design = match page_check::named_design(source) {
         Ok(named) => named,
         Err(page_check::TooDeep) => return skipped(TOO_DEEP),
     };
-    if !wants_runtime && !wants_design && !named_design {
-        return None;
-    }
-    // A pinned design system brings every chunk, which serves a runtime page as well.
-    if wants_runtime && !named_design && assets.runtime.is_none() {
+    // Every page compiles Tailwind's utilities (#6077): a React page carries all of the runtime,
+    // any other page the base. A pinned design system brings every chunk, which serves both.
+    let runtime = if wants_react {
+        assets.runtime
+    } else {
+        assets.base
+    };
+    if !named_design && runtime.is_none() {
         return skipped(NO_RUNTIME);
     }
     if wants_design && assets.design.is_none() {
@@ -418,14 +433,15 @@ pub fn derive(source: &str, assets: &Assets, releases: &dyn Releases) -> Option<
             },
             lock: format!("{version}#{hash}"),
             bundle: text,
-            prose: !wants_runtime,
+            prose: !marked,
             runtime,
         })
     } else {
         None
     };
     let needed = Assets {
-        runtime: assets.runtime.filter(|_| wants_runtime),
+        runtime,
+        base: None,
         design: assets.design.filter(|_| wants_design),
         standalone: None,
     };
@@ -457,16 +473,29 @@ mod tests {
     const DESIGN_PAGE: &str = r#"<section class="tmt-ui-card">λ</section>"#;
     const RUNTIME_ONLY: Assets = Assets {
         runtime: Some(RUNTIME),
+        base: None,
         design: None,
         standalone: None,
     };
     const DESIGN_ONLY: Assets = Assets {
         runtime: None,
+        base: None,
         design: Some(DESIGN),
+        standalone: None,
+    };
+    const BASE: Runtime = Runtime {
+        script: "window.base={};",
+        style: "@layer theme, base, components, utilities;@theme inline{}",
+    };
+    const BASE_ONLY: Assets = Assets {
+        runtime: None,
+        base: Some(BASE),
+        design: None,
         standalone: None,
     };
     const BOTH: Assets = Assets {
         runtime: Some(RUNTIME),
+        base: None,
         design: Some(DESIGN),
         standalone: None,
     };
@@ -479,6 +508,7 @@ mod tests {
     };
     const PINNED_ONLY: Assets = Assets {
         runtime: Some(RUNTIME),
+        base: None,
         design: Some(DESIGN),
         standalone: Some(PINNED),
     };
@@ -612,18 +642,22 @@ mod tests {
                 .reason,
             Some(NO_RUNTIME)
         );
-        assert!(
+        // A pin only in a comment is no pin: the page is an ordinary one, which needs the base.
+        assert_eq!(
             derive(
                 "<!-- <meta name=\"tmt-ds\"> -->",
                 &Assets::default(),
                 &NoReleases
             )
-            .is_none()
+            .unwrap()
+            .outcome
+            .reason,
+            Some(NO_RUNTIME)
         );
     }
 
     #[test]
-    fn the_shared_marker_vectors_decide_the_opt_in() {
+    fn the_shared_marker_vectors_decide_who_gets_react() {
         let vectors: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../contracts/vectors/runtime-marker-v1.json"
         ))
@@ -632,8 +666,8 @@ mod tests {
         assert!(cases.len() >= 29);
         for case in cases {
             assert_eq!(
-                wants_runtime(case["source"].as_str().unwrap()),
-                Ok(case["optsIn"].as_bool().unwrap()),
+                wants_react(case["source"].as_str().unwrap()),
+                Ok(case["wantsReact"].as_bool().unwrap()),
                 "{}",
                 case["name"]
             );
@@ -644,7 +678,7 @@ mod tests {
     fn a_marker_in_markup_that_a_document_parse_hides_still_follows_the_browser() {
         // <noscript> content is markup with scripting off, as in DOMParser; a <template>'s content
         // is a separate fragment that querySelector does not enter.
-        let yes = |source: &str| wants_runtime(source) == Ok(true);
+        let yes = |source: &str| wants_react(source) == Ok(true);
         assert!(yes(
             r#"<noscript><meta name="tmt-colab-runtime" content="react"></noscript>"#
         ));
@@ -653,7 +687,7 @@ mod tests {
         ));
         // A table foster-parents the meta out before the table; it is still the first element.
         assert!(yes(
-            r#"<table><meta name="tmt-colab-runtime" content="tailwind"></table>"#
+            r#"<table><meta name="tmt-colab-runtime" content="react"></table>"#
         ));
     }
 
@@ -661,9 +695,9 @@ mod tests {
     fn a_source_nested_past_the_parse_depth_cannot_be_judged_but_costs_nothing_without_the_marker()
     {
         let deep = "<div>".repeat(crate::limits::PAGE_DEPTH + 50);
-        assert_eq!(wants_runtime(&deep), Ok(false));
+        assert_eq!(wants_react(&deep), Ok(false));
         let marked = format!("{OPTED_IN}{deep}");
-        assert_eq!(wants_runtime(&marked), Err(page_check::TooDeep));
+        assert_eq!(wants_react(&marked), Err(page_check::TooDeep));
         let derived = derive(&marked, &BOTH, &NoReleases).unwrap();
         assert_eq!(derived.outcome.reason, Some(TOO_DEEP));
         assert!(derived.file.is_none());
@@ -707,12 +741,14 @@ mod tests {
         ] {
             let runtime = Assets {
                 runtime: Some(Runtime { script, style }),
+                base: None,
                 design: None,
                 standalone: None,
             };
             assert_eq!(document(OPTED_IN, &runtime), Err(UNUSABLE));
             let design = Assets {
                 runtime: None,
+                base: None,
                 design: Some(Design { script, style }),
                 standalone: None,
             };
@@ -721,8 +757,47 @@ mod tests {
     }
 
     #[test]
-    fn a_page_that_needs_no_copy_has_none_and_one_that_does_gets_a_reason_or_the_file() {
-        assert!(derive("<p>plain</p>", &BOTH, &NoReleases).is_none());
+    fn every_page_gets_a_copy_with_the_runtime_it_needs_or_a_reason() {
+        // A page that does not ask for React carries the base alone and the utilities-only theme
+        // (#6077); the base and the whole runtime are separate assets.
+        let plain = "<p class=\"p-4\">plain</p>";
+        let copy = derive(plain, &BASE_ONLY, &NoReleases).unwrap();
+        assert_eq!(
+            copy.file,
+            document(
+                plain,
+                &Assets {
+                    runtime: Some(BASE),
+                    ..Assets::default()
+                }
+            )
+            .ok()
+        );
+        let file = String::from_utf8(copy.file.unwrap()).unwrap();
+        assert!(file.contains("<style type=\"text/tailwindcss\">@layer theme, base, components, utilities;@theme inline{}</style>"));
+        assert!(file.contains("<script>window.base={};</script>"));
+        let tailwind = r#"<meta name="tmt-colab-runtime" content="tailwind"><p>λ</p>"#;
+        assert!(
+            String::from_utf8(
+                derive(tailwind, &BASE_ONLY, &NoReleases)
+                    .unwrap()
+                    .file
+                    .unwrap()
+            )
+            .unwrap()
+            .contains("<script>window.base={};</script>")
+        );
+        assert_eq!(
+            derive(plain, &BOTH, &NoReleases).unwrap().outcome.reason,
+            Some(NO_RUNTIME)
+        );
+        assert_eq!(
+            derive(OPTED_IN, &BASE_ONLY, &NoReleases)
+                .unwrap()
+                .outcome
+                .reason,
+            Some(NO_RUNTIME)
+        );
         let none = derive(OPTED_IN, &Assets::default(), &NoReleases).unwrap();
         assert_eq!(
             none.outcome,
@@ -739,6 +814,7 @@ mod tests {
                     script: "</script>",
                     style: "",
                 }),
+                base: None,
                 design: None,
                 standalone: None,
             },
@@ -794,11 +870,26 @@ mod tests {
 
     #[test]
     fn only_what_a_page_asks_for_is_written_and_a_missing_part_is_named() {
-        // The runtime page is not given the design system, and the design page is not given the runtime.
-        let runtime = derive(OPTED_IN, &BOTH, &NoReleases).unwrap();
+        // The React page is not given the design system, and the design page gets the runtime's
+        // base, not React (#6077).
+        let all = Assets {
+            base: Some(BASE),
+            ..BOTH
+        };
+        let runtime = derive(OPTED_IN, &all, &NoReleases).unwrap();
         assert_eq!(runtime.file, document(OPTED_IN, &RUNTIME_ONLY).ok());
-        let design = derive(DESIGN_PAGE, &BOTH, &NoReleases).unwrap();
-        assert_eq!(design.file, document(DESIGN_PAGE, &DESIGN_ONLY).ok());
+        let design = derive(DESIGN_PAGE, &all, &NoReleases).unwrap();
+        assert_eq!(
+            design.file,
+            document(
+                DESIGN_PAGE,
+                &Assets {
+                    runtime: Some(BASE),
+                    ..DESIGN_ONLY
+                }
+            )
+            .ok()
+        );
         // A page that asks for both gets both, or the reason of the first part the build lacks.
         let source = format!("{OPTED_IN}{DESIGN_PAGE}");
         assert_eq!(
@@ -820,7 +911,7 @@ mod tests {
             Some(NO_DESIGN)
         );
         assert_eq!(
-            derive(DESIGN_PAGE, &RUNTIME_ONLY, &NoReleases)
+            derive(DESIGN_PAGE, &BASE_ONLY, &NoReleases)
                 .unwrap()
                 .outcome
                 .reason,

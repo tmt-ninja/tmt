@@ -23,15 +23,14 @@ const READ_FIRST: [&str; 3] = ["layout", "components", "page-style"];
 /// The runnable `tmt colab skill` commands to read before filling a new page, by page type. A
 /// dashboard has no author markup (its content is items and summaries written through the
 /// dashboard commands), so it is sent to its own reference only. An HTML page reads the markup
-/// topics, and the runtime too when it draws its own frame (`canvas`) or opts in to the bundled one.
+/// topics, and the runtime too when it draws its own frame (`canvas`) or asks for React.
 pub fn read_first(shell: bool, layout: Option<&PageLayout>, source: &str) -> Vec<String> {
     let topics: Vec<&str> = if shell {
         vec!["dashboard"]
     } else {
         let canvas = layout.is_some_and(|layout| layout.kind == LayoutKind::Canvas);
         // A source too deep to parse is left to the page check; the hint just stays out.
-        let runtime =
-            canvas || tmt_colab::export::standalone::wants_runtime(source).unwrap_or(false);
+        let runtime = canvas || tmt_colab::export::standalone::wants_react(source).unwrap_or(false);
         READ_FIRST
             .into_iter()
             .chain(runtime.then_some("runtime"))

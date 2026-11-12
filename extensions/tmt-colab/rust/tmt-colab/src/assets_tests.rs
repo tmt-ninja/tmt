@@ -226,7 +226,15 @@ fn embedded_and_disk_admission_validate_renderer_entries_and_duplicates() {
 fn runtime_chunks_match_their_vector_names_and_content_hash_only() {
     assert_eq!(
         runtime_chunk_names(),
-        ["base", "ui", "browser", "blocks", "rich-input", "docs"]
+        [
+            "base",
+            "react",
+            "ui",
+            "browser",
+            "blocks",
+            "rich-input",
+            "docs"
+        ]
     );
     for name in runtime_chunk_names() {
         let path = format!("/assets/colab-runtime-{name}-0123456789abcdef.js");
@@ -297,15 +305,31 @@ fn the_runtime_script_joins_every_chunk_in_load_order_then_the_seal() {
     assert_eq!(
         files(&chunks).runtime_script().as_deref(),
         Some(
-            "window.base;\nwindow.ui;\nwindow.browser;\nwindow.blocks;\nwindow.rich_input;\n\
-             window.docs;\nwindow.__colabRuntimeSeal?.();"
+            "window.base;\nwindow.react;\nwindow.ui;\nwindow.browser;\nwindow.blocks;\n\
+             window.rich_input;\nwindow.docs;\nwindow.__colabRuntimeSeal?.();"
         )
     );
     assert_eq!(files(&chunks[1..]).runtime_script(), None);
+    // A page without React carries the base alone, then the seal (#6077).
+    assert_eq!(
+        files(&chunks).base_script().as_deref(),
+        Some("window.base;\nwindow.__colabRuntimeSeal?.();")
+    );
+    let without_base: Vec<_> = chunks
+        .iter()
+        .filter(|(path, _)| !path.contains("-base-"))
+        .cloned()
+        .collect();
+    assert_eq!(files(&without_base).base_script(), None);
     let mut doubled = chunks.clone();
     doubled.push((
         "/assets/colab-runtime-ui-ffffffffffffffff.js".into(),
         "window.ui2;".into(),
     ));
     assert_eq!(files(&doubled).runtime_script(), None);
+    doubled.push((
+        "/assets/colab-runtime-base-ffffffffffffffff.js".into(),
+        "window.base2;".into(),
+    ));
+    assert_eq!(files(&doubled).base_script(), None);
 }

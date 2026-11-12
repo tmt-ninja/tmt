@@ -650,6 +650,10 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let pinned = app
         .as_ref()
         .and_then(tmt_colab::assets::App::standalone_runtime);
+    // Any other page carries the base alone, which compiles Tailwind's utilities (#6077).
+    let base_script = app.as_ref().and_then(tmt_colab::assets::App::base_script);
+    let base_style = text("/assets/colab-runtime.css")
+        .map(|theme| format!("{}{theme}", tmt_colab::export::standalone::UTILITIES_ONLY));
     // The design system's two texts (#5057), one file: `{style, script}`.
     let page_ui = text("/assets/colab-page-ui.json")
         .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
@@ -657,6 +661,10 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         runtime: runtime_script
             .as_deref()
             .zip(text("/assets/colab-runtime.css"))
+            .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style }),
+        base: base_script
+            .as_deref()
+            .zip(base_style.as_deref())
             .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style }),
         design: page_ui
             .as_ref()
