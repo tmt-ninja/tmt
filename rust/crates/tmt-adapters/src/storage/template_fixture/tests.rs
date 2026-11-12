@@ -310,14 +310,30 @@ fn an_intact_template_copy_is_admitted() {
 fn an_existing_destination_or_sidecar_is_refused() {
     let directory = TestDirectory::new();
     let store = store(&directory, Some("destination"));
-    for suffix in ["", "-wal", "-shm"] {
-        let database = directory.path.join(format!("seeded{}.db", suffix.len()));
+    // Each case seeds its own destination, so a file left by an earlier case
+    // cannot cause the refusal; the message must name this case's file.
+    for (name, suffix) in [("main", ""), ("wal", "-wal"), ("shm", "-shm")] {
+        let database = directory.path.join(format!("seeded-{name}.db"));
         let mut existing = database.as_os_str().to_os_string();
         existing.push(suffix);
+        let existing = PathBuf::from(existing);
         fs::write(&existing, b"seeded").unwrap();
         let message = panic_text(catch_unwind(AssertUnwindSafe(|| store.place(&database))));
-        assert!(message.contains("already exists"), "{message}");
+        assert!(
+            message.contains(&format!(
+                "destination {} already exists",
+                existing.display()
+            )),
+            "{message}"
+        );
         assert_eq!(fs::read(&existing).unwrap(), b"seeded");
+        if !suffix.is_empty() {
+            assert!(
+                !database.exists(),
+                "refused case created {}",
+                database.display()
+            );
+        }
     }
 }
 
