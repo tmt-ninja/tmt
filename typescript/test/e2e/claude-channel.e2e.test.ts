@@ -1352,11 +1352,31 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           await fixture.waitForCapture((screen) => /1 of 1/.test(screen), board);
           fixture.tmux(['send-keys', '-t', board, 'End']);
           await fixture.waitForCapture((screen) => screen.includes(`⏎ to message ${name}`), board);
-          const keyEvents = fs
-            .readFileSync(keyTrace, 'utf8')
-            .trim()
-            .split('\n')
-            .map((line): unknown => JSON.parse(line));
+          // The filter already selects the member and opens its chat, so the screen above can
+          // be ready before the board handles End. Wait for the trace to record that key; a
+          // line still being written is not an event yet.
+          const readKeyEvents = (): unknown[] =>
+            fs
+              .readFileSync(keyTrace, 'utf8')
+              .split('\n')
+              .flatMap((line): unknown[] => {
+                try {
+                  return line.trim() ? [JSON.parse(line)] : [];
+                } catch {
+                  return [];
+                }
+              });
+          const handledEnd = (event: unknown): boolean =>
+            typeof event === 'object' &&
+            event !== null &&
+            (event as { event?: unknown }).event === 'key_after' &&
+            (event as { key?: unknown }).key === 'End';
+          await fixture.waitFor(
+            () => readKeyEvents().some(handledEnd),
+            5_000,
+            'the board to finish handling End'
+          );
+          const keyEvents = readKeyEvents();
           expect(keyEvents).toContainEqual(
             expect.objectContaining({
               event: 'key_after',
