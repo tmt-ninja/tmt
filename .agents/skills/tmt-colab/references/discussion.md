@@ -233,8 +233,9 @@ device.` once per failure and keeps the in-tab draft. For paired-owner Chat and 
   the composer starts a best-effort encrypted unconfirmed-send write without delaying publication
   and removes it after a confirmed record. Storage failure or a reload before that write settles
   can still lose the recovery entry. A reload presents any remaining text as possibly sent; it does not
-  create a second send. The page notice opens the relevant panel, where the person can discard
-  the entry. Unconfirmed entries are not evicted to make room for ordinary drafts. Link-reader
+  create a second send. The page notice opens the relevant panel, where the person can return Chat
+  text to the composer or copy comment text, and can dismiss the entry. Unconfirmed entries are
+  not evicted to make room for ordinary drafts. Link-reader
   writers remain memory-only and do not use this recovery store. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
   `ThreadPresentation.status` and awaits one status change (shown only when

@@ -1226,6 +1226,17 @@ test('interrupted Chat send remains visible after reload', async () => {
     await openChat(page);
     await expect(page.getByTestId('chat-panel')).toContainText(body, { timeout: 15_000 });
     await expect(page.getByTestId('chat-panel')).toContainText(text.messageInterrupted);
+    await expect(
+      page.getByTestId('chat-panel').getByText(text.chatEmpty, { exact: true }),
+    ).toHaveCount(0);
+    const restoredInput = await inputFor(page.getByTestId('chat-panel'));
+    await restoredInput.fill('Existing draft');
+    await expect.poll(() => composerText(restoredInput)).toBe('Existing draft');
+    const heldBeforeRestore = held;
+    await page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }).click();
+    await expect.poll(() => composerText(restoredInput)).toBe(`Existing draft\n${body}`);
+    await expect(page.getByTestId('chat-panel')).not.toContainText(text.messageInterrupted);
+    expect(held).toBe(heldBeforeRestore);
   });
 });
 
@@ -1249,6 +1260,14 @@ test('interrupted anchored comment remains visible after reload', async () => {
     });
     const created = createPage(world, 'Reload comment', '<p id="quote">Quoted passage.</p>');
     const page = await openPage(door, author, created);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => sessionStorage.setItem('test-copied-text', value),
+        },
+      });
+    });
     const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
     await mode.click();
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
@@ -1264,6 +1283,14 @@ test('interrupted anchored comment remains visible after reload', async () => {
     await page.reload();
     await expect(page.locator('body')).toContainText(body, { timeout: 15_000 });
     await expect(page.locator('.page-unsent[role="alert"]')).toContainText(text.messageInterrupted);
+    await (await pageAction(page, 'Comments')).click();
+    await page.getByRole('button', { name: text.messageInterruptedCopy, exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => sessionStorage.getItem('test-copied-text')))
+      .toBe(body);
+    await expect(
+      page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }),
+    ).toHaveCount(0);
   });
 });
 

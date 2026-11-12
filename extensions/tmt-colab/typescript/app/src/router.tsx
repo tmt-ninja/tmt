@@ -162,6 +162,7 @@ import { verifiedQuestionStates } from './question-registry.js';
 import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts, unconfirmedDrafts } from './saved-drafts.js';
 import { PendingMessageContext, pendingMessageStore } from './draft-store.js';
+import type { ComposerRecovery } from './components/message-composer-edit.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeSection, usePageSize } from './page-size.js';
 import { SourceDraft } from './use-page-editor.js';
@@ -1822,6 +1823,7 @@ function OpenPage({
   const chatBusy = useRef(false);
   // Chat's composer holds a send that failed before it was recorded (#5870).
   const [chatUnsent, setChatUnsent] = useState(false);
+  const [chatRecovery, setChatRecovery] = useState<ComposerRecovery>();
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -3376,14 +3378,34 @@ function OpenPage({
                 chatBusy.current = busy;
               }}
               onUnsent={setChatUnsent}
+              recovered={chatRecovery}
               onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
               unsaved={draftsUnsaved}
               recovery={
-                <SavedDrafts
-                  drafts={unconfirmedDrafts(drafts.current, 'chat')}
-                  discard={discardDraft}
-                  archived={archived}
-                />
+                unconfirmedDrafts(drafts.current, 'chat').length ? (
+                  <SavedDrafts
+                    drafts={unconfirmedDrafts(drafts.current, 'chat')}
+                    discard={discardDraft}
+                    archived={archived}
+                    restore={
+                      archived
+                        ? undefined
+                        : (key) => {
+                            const edit = drafts.current.get(key);
+                            if (!edit) return;
+                            setChatRecovery({
+                              id: key,
+                              edit: structuredClone(edit),
+                              consumed: () => {
+                                discardDraft(key);
+                                setChatRecovery(undefined);
+                              },
+                            });
+                          }
+                    }
+                    restoreDisabled={chatUnsent}
+                  />
+                ) : undefined
               }
               observationUnavailable={view.askUnavailable}
               threads={view.threads ?? []}

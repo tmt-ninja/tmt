@@ -21,7 +21,11 @@ import { useAgentDirectory } from './agent-directory.js';
 import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import { MessageToolbar } from './components/message-toolbar.js';
-import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
+import type {
+  ComposerActivation,
+  ComposerEdit,
+  ComposerRecovery,
+} from './components/message-composer-edit.js';
 import type { CreatorTarget } from './creator-default.js';
 import { messageRecipient } from './message-recipient.js';
 import {
@@ -61,6 +65,7 @@ export function AnnotationInput({
   initialValue,
   initialEdit,
   activation,
+  recovery,
   onDraft,
   onBusy,
   onFailure,
@@ -86,6 +91,7 @@ export function AnnotationInput({
   initialValue?: string;
   initialEdit?: ComposerEdit;
   activation?: ComposerActivation;
+  recovery?: ComposerRecovery;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports this composer's send in flight; its owner keeps the composer mounted meanwhile. */
@@ -175,6 +181,32 @@ export function AnnotationInput({
   reportUnsent.current = onUnsent;
   useEffect(() => reportUnsent.current?.(!!unsent), [unsent]);
   const focusAfterEdit = useRef(false);
+  const recovered = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!recovery || recovered.current === recovery.id) return;
+    recovered.current = recovery.id;
+    const current = latestEdit.current;
+    const separator = current.value ? '\n' : '';
+    const offset = current.value.length + separator.length;
+    const mentions = [
+      ...(current.mentions ?? []),
+      ...(recovery.edit.mentions ?? []).map((mention) => ({
+        ...mention,
+        range: { start: mention.range.start + offset, end: mention.range.end + offset },
+      })),
+    ];
+    const next: ComposerEdit = {
+      value: current.value + separator + recovery.edit.value,
+      edited: true,
+      ...(mentions.length ? { mentions } : {}),
+    };
+    initialized.current = true;
+    setEdit(next);
+    setResetKey((key) => key + 1);
+    onDraft?.(next.value, next);
+    queueMicrotask(() => section.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus());
+    recovery.consumed();
+  }, [recovery]); // eslint-disable-line react-hooks/exhaustive-deps
   const sending = useRef(false);
   const [error, setError] = useState<{
     reference: MessageSendReference;

@@ -4,6 +4,7 @@ import type { ComposerEdit } from './components/message-composer-edit.js';
 import { persistable } from './draft-store.js';
 import { text } from './strings.js';
 import { validateSelector, type ThreadView } from './thread-records.js';
+import { useState } from 'react';
 
 /** The reserved draft key of the page Chat composer. */
 export const CHAT_DRAFT = 'chat';
@@ -59,11 +60,16 @@ export function SavedDrafts({
   drafts,
   discard,
   archived = false,
+  restore,
+  restoreDisabled = false,
 }: {
   drafts: readonly SavedDraft[];
   discard(key: string): void;
   archived?: boolean;
+  restore?(key: string): void;
+  restoreDisabled?: boolean;
 }) {
+  const [copyFailed, setCopyFailed] = useState<string>();
   if (!drafts.length) return null;
   const unconfirmed = drafts.some((draft) => draft.unconfirmed);
   const heading = unconfirmed
@@ -90,6 +96,31 @@ export function SavedDrafts({
                       ? text.savedDraftQuote
                       : text.savedDraftThreadGone}
                 </p>
+                {draft.unconfirmed && (
+                  <>
+                    <BrowserAction
+                      type="button"
+                      label={restore ? text.messageInterruptedRestore : text.messageInterruptedCopy}
+                      variant="text"
+                      disabled={!!restore && restoreDisabled}
+                      onActivate={(event) => {
+                        if (!event.isTrusted) return;
+                        if (restore) restore(draft.key);
+                        else {
+                          setCopyFailed(undefined);
+                          void (async () => {
+                            try {
+                              await navigator.clipboard.writeText(draft.text);
+                            } catch {
+                              setCopyFailed(draft.key);
+                            }
+                          })();
+                        }
+                      }}
+                    />
+                    {copyFailed === draft.key && <p role="alert">{text.copyDraftFailed}</p>}
+                  </>
+                )}
                 <BrowserAction
                   type="button"
                   label={

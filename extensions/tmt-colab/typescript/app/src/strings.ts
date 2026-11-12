@@ -471,8 +471,10 @@ export const text = {
   unconfirmedMessages: 'Unconfirmed messages',
   draftsAndUnconfirmed: 'Saved drafts and unconfirmed messages',
   messageInterrupted:
-    'This message may have been sent or may still be delivered. Sending it again could create a duplicate.',
+    'This message may have been sent or may still be delivered. Look for it in the thread before sending again; another send could create a duplicate.',
   messageInterruptedDismiss: 'Dismiss notice',
+  messageInterruptedRestore: 'Put back in message',
+  messageInterruptedCopy: 'Copy text',
   savedDraftQuote: 'Select this quote again to continue.',
   savedDraftThreadGone: 'The thread for this draft is no longer available.',
   savedDraftDiscard: 'Discard draft',
