@@ -56,6 +56,7 @@ At a terminal, approve the paid Storage question first, then the ordinary exact-
 No or EOF at either question makes no provider changes. Non-interactive human authorization
 needs both `--accept-paid-storage` and `--authorize <displayed-plan-digest-prefix>`. An identified
 agent receives the preview and a human-consent refusal even if it supplies those flags.
+`TMT_AGENT` identification is a courtesy boundary, not authentication.
 An unchanged unfinished authorized run may resume; a completed run is not evergreen consent.
 
 Keep the private record if a call's outcome is unknown. Rerunning observes the exact original

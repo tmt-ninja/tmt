@@ -4226,7 +4226,8 @@ the paid question first, then the ordinary deployment question; no or EOF at eit
 mutations. Human non-interactive authorization requires `--accept-paid-storage` plus the existing
 `--authorize <single-plan-digest-prefix>`. No second digest or authorization flag is introduced.
 Identified agents always receive a preview and `REMOTE_DEPLOY_PAID_STORAGE_CONSENT_REQUIRED`,
-including when supplying these flags. The standard error envelope carries that preview at
+including when supplying these flags. `TMT_AGENT` identification is a courtesy boundary, not
+authentication. The standard error envelope carries that preview at
 `error.preview`; it is not permission for the agent to execute the printed human command.
 Only the same unfinished authorized plan can reuse its consent; completed consent is not evergreen.
 Changed inputs, account, billing or captured evidence require refusal or a newly reviewed plan.
@@ -4244,10 +4245,18 @@ Storage reuses the authored `firebaserules.*` publisher with operation attributi
 is keyed to the exact bucket. Final joint read-back must confirm the bucket/link/location,
 metadata and exact deny-all policy bytes together with the ordinary deployment verification.
 Only a Complete verified run may publish optional `storage:{version:1,bucket,location}` beside
-`remoteLink` in `tmt remote link --json` and the authorized deploy JSON output. GUI-owned #4992
-reads this sibling declaration from that existing output, not from the pairing URL. Disabled, Partial, unknown or mismatched runs publish
-no Storage capability. Unsupported capability versions and unknown fields refuse. The
-capability is public configuration, not object access, billing evidence or membership authority;
+`remoteLink` in `tmt remote link --json` and the authorized deploy JSON output. Colab reads
+this sibling declaration from that existing output, not from the pairing URL. Disabled,
+Partial, unknown or mismatched runs publish no Storage capability. A consumer that reads an
+unsupported `storage.version` or an unknown field in `storage` treats Storage as unavailable;
+`remoteLink` and the rest of the output stay usable.
+
+The admitted syntax matches `deploy_storage::bucket_ok` and `location_ok`: `bucket` is
+3–222 ASCII bytes from `[a-z0-9._-]`, begins and ends with `[a-z0-9]`, and contains neither
+`..` nor the substring `google`. It must not consist entirely of dot-separated decimal
+components that each parse as an unsigned byte (0–255), including a single component.
+`location` matches `[a-z0-9-]{1,64}` (1–64 ASCII bytes). The capability is public
+configuration, not object access, billing evidence or membership authority;
 private billing account names and fingerprints never enter it. Browsers paired only by link
 do not receive Storage in v1. A later link-format change requires its own version-skew design.
 Colab consumption is separate.
