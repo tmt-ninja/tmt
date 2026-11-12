@@ -104,8 +104,12 @@ export default defineConfig(({ mode }) => ({
         const { pageUiStyle, pageUiScript } = await (
           await import('../../scripts/page-ui.mjs')
         ).buildPageUi();
-        this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.css', source: pageUiStyle });
-        this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.js', source: pageUiScript });
+        // One file holds both texts: the app's file inventory is bounded (APP_FILES).
+        this.emitFile({
+          type: 'asset',
+          fileName: 'assets/colab-page-ui.json',
+          source: JSON.stringify({ style: pageUiStyle, script: pageUiScript }),
+        });
       },
     },
     // The runtime's chunks (#6085): the base carries the prebuilt Tailwind browser compiler as text.
@@ -128,7 +132,7 @@ export default defineConfig(({ mode }) => ({
       apply: () => mode === 'runtime',
       enforce: 'post',
       generateBundle(_options, bundle) {
-        const kept = ['assets/colab-runtime.css', 'assets/colab-page-ui.css'];
+        const kept = ['assets/colab-runtime.css'];
         const copies = Object.keys(bundle).filter(
           (name) => name.endsWith('.css') && !kept.includes(name),
         );

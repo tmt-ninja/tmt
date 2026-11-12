@@ -179,8 +179,8 @@ export async function loadStandaloneRuntime(baseUri: string): Promise<{
 }
 
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
- * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and
- * `colab-page-ui.js`. */
+ * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.json`
+ * (`{style, script}`). */
 export interface PageDesign {
   readonly script: string;
   readonly style: string;
@@ -188,12 +188,15 @@ export interface PageDesign {
 const designs = new Map<string, Promise<PageDesign>>();
 /** Fetched once per origin path; a failure is not cached. Only an export asks for it. */
 export function loadDesign(baseUri: string): Promise<PageDesign> {
-  const key = runtimeUrl(baseUri, 'assets/colab-page-ui.js');
+  const key = runtimeUrl(baseUri, 'assets/colab-page-ui.json');
   let design = designs.get(key);
   if (!design) {
-    design = Promise.all([read(key), read(runtimeUrl(baseUri, 'assets/colab-page-ui.css'))]).then(
-      ([script, style]) => Object.freeze({ script, style }),
-    );
+    design = read(key).then((text) => {
+      const { script, style } = JSON.parse(text) as Partial<Record<keyof PageDesign, unknown>>;
+      if (typeof script !== 'string' || typeof style !== 'string')
+        throw new Error('Page design unavailable');
+      return Object.freeze({ script, style });
+    });
     design.catch(() => designs.delete(key));
     designs.set(key, design);
   }

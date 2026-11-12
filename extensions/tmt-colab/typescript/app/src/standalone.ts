@@ -30,8 +30,8 @@ export interface StandaloneRuntime {
   readonly script: string;
   readonly style: string;
 }
-/** The two texts the design system adds (#5057): the bytes of `assets/colab-page-ui.js` and
- * `assets/colab-page-ui.css` of the same build, which are what the renderer frame carries. */
+/** The two texts the design system adds (#5057): `script` and `style` of the same build's
+ * `assets/colab-page-ui.json`, which are what the renderer frame carries. */
 export interface StandaloneDesign {
   readonly script: string;
   readonly style: string;

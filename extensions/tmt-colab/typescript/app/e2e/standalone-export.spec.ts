@@ -72,7 +72,7 @@ test.beforeAll(() => {
     ['painted', paintedSource],
   ] as const) {
     const withDesign = standaloneDocument(text, {
-      design: { script: textOf('colab-page-ui.js'), style: textOf('colab-page-ui.css') },
+      design: JSON.parse(textOf('colab-page-ui.json')) as { script: string; style: string },
     });
     expect(typeof withDesign).toBe('string');
     designCopies[kind] = join(directory, `design-${kind}.standalone.html`);

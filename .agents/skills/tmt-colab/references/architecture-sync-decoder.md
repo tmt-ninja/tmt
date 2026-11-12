@@ -326,7 +326,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   tree the checker uses, and the design test is a plain text one (`uses_design`). It adds no HTTP route, signing
   capability or core dependency. The browser equivalent is `export.ts`, `export-attachments.ts`,
   `standalone.ts` and `conversations.ts` plus the trusted-parent `export-panel.tsx` (`export-runtime.ts`
-  loads the runtime, and the design files (`colab-page-ui.js` and `.css`), for a page that needs them at
+  loads the runtime, and the design files (`colab-page-ui.json`), for a page that needs them at
   export time from `entry.ts`'s `rendererBase()`, the same base the renderer frame reads, so a standalone
   copy made inside the TMT app finds them), built from a committed
   projection (`own` and `ownSigningKey`), verified head and attachments read through

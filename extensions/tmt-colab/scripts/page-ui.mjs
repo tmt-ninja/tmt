@@ -2,7 +2,7 @@
 // cannot differ: the CSS (the leaf's whole static.css and the page host and base profiles, capped), the
 // bounded Lucide icon nodes, and the `tmt-icon` element's script. The renderer inlines the CSS and the
 // icons as constants (generate-renderer-style.mjs); the runtime build writes the CSS and the script as
-// `assets/colab-page-ui.css` and `assets/colab-page-ui.js`, which the export reads.
+// `assets/colab-page-ui.json` (`{style, script}`), which the export reads.
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 

@@ -7693,8 +7693,8 @@ A page that needs only the runtime gets exactly the bytes it got before the desi
   source beyond the frame's: the policy is unchanged.
 - `{script}` is every runtime chunk of the same build in vector order, each followed by one LF, then
   `window.__colabRuntimeSeal?.();` (a copy has no parent to choose chunks, so it carries them all, #6085);
-  `{style}` is that build's `assets/colab-runtime.css`. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
-  `assets/colab-page-ui.css` of the same build: the design system's CSS and the script that defines
+  `{style}` is that build's `assets/colab-runtime.css`. `{designScript}` and `{designStyle}` are the `script` and `style`
+  strings of the same build's `assets/colab-page-ui.json` (one file, as the app's file count is bounded): the design system's CSS and the script that defines
   `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
   build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text
   that contains `<!--`, or `</script` / `</style` in any ASCII case, is not written (the build already
