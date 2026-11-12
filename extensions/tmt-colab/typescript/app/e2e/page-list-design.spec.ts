@@ -189,7 +189,7 @@ for (const width of [390, 1440])
       await create.click();
       const createDialog = app.getByRole('dialog', { name: 'New page' });
       await expect(createDialog).toContainText('tmt colab page create');
-      await createDialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await createDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(create).toBeFocused();
       const headerBox = (await app.locator('header').first().boundingBox())!;
       const tabList = app.getByRole('tablist', { name: 'Page views' });
