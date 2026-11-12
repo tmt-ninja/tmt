@@ -1,5 +1,5 @@
 import { generatedId } from '@tmt/colab-client';
-import { LIST_TOKEN, type PageListChange } from './bootstrap.js';
+import { CONTENT_REVISION, LIST_TOKEN, type PageListChange } from './bootstrap.js';
 
 /** After a refused or failed held read, how long the reading tab waits before it reads the whole
  * list once and tries a held read again (contract: Live page list). */
@@ -25,9 +25,15 @@ export interface PageListCoordination {
   onVisible(listener: () => void): () => void;
 }
 
+/** One list's pages as a tab hears them: each page's revision and its content revision. */
+interface Listed {
+  readonly revisions: ReadonlyMap<string, string>;
+  readonly contents: ReadonlyMap<string, string>;
+}
+
 type Message =
   | { v: 1; type: 'hello' }
-  | { v: 1; type: 'revisions'; listToken: string; revisions: [string, string][] };
+  | { v: 1; type: 'revisions'; listToken: string; revisions: [string, string, string][] };
 
 /** A broadcast from another tab, or nothing when it is not exactly one of the two messages. It is
  * only a hint that pages moved: a listener compiles from its own verified reads. */
@@ -41,18 +47,19 @@ export function broadcastMessage(data: unknown): Message | undefined {
   if (typeof value.listToken !== 'string' || !LIST_TOKEN.test(value.listToken)) return undefined;
   const list = value.revisions;
   if (!Array.isArray(list) || list.length > BROADCAST_PAGES) return undefined;
-  const revisions: [string, string][] = [];
+  const revisions: [string, string, string][] = [];
   for (const entry of list as unknown[]) {
-    if (!Array.isArray(entry) || entry.length !== 2) return undefined;
-    const [id, revision] = entry as unknown[];
+    if (!Array.isArray(entry) || entry.length !== 3) return undefined;
+    const [id, revision, content] = entry as unknown[];
     if (typeof id !== 'string' || typeof revision !== 'string' || !PAGE_REVISION.test(revision))
       return undefined;
+    if (typeof content !== 'string' || !CONTENT_REVISION.test(content)) return undefined;
     try {
       generatedId(id);
     } catch {
       return undefined;
     }
-    revisions.push([id, revision]);
+    revisions.push([id, revision, content]);
   }
   return { v: 1, type: 'revisions', listToken: value.listToken, revisions };
 }
@@ -67,8 +74,8 @@ export function broadcastMessage(data: unknown): Message | undefined {
  * `PAGE_LIST_BACKOFF_MS`).
  */
 export class PageListFeed {
-  readonly #listeners = new Set<(revisions: ReadonlyMap<string, string>) => void>();
-  #latest?: ReadonlyMap<string, string>;
+  readonly #listeners = new Set<(contents: ReadonlyMap<string, string>) => void>();
+  #latest?: Listed;
   /** The token of the list `#latest` came from. */
   #token?: string;
   #run?: AbortController;
@@ -78,11 +85,13 @@ export class PageListFeed {
     private readonly coordination?: PageListCoordination,
     private readonly backoffMs = PAGE_LIST_BACKOFF_MS,
   ) {}
-  watch(listener: (revisions: ReadonlyMap<string, string>) => void): () => void {
+  /** Hear each list's content revisions by page: they move when a page's own content does, not
+   * when another page is created, shared or archived. */
+  watch(listener: (contents: ReadonlyMap<string, string>) => void): () => void {
     if (this.#closed) return () => {};
     this.#listeners.add(listener);
     const latest = this.#latest;
-    if (latest) queueMicrotask(() => this.#listeners.has(listener) && listener(latest));
+    if (latest) queueMicrotask(() => this.#listeners.has(listener) && listener(latest.contents));
     if (!this.#run) {
       const run = (this.#run = new AbortController());
       if (this.coordination) this.#coordinate(this.coordination, run.signal);
@@ -99,7 +108,7 @@ export class PageListFeed {
   }
   /** The page's revision in the latest list this tab heard; absent while no list is known. */
   revision(page: string): string | undefined {
-    return this.#latest?.get(page);
+    return this.#latest?.revisions.get(page);
   }
   /** End the feed for good: its read, its lock and its channel, whoever still listens. */
   close() {
@@ -110,27 +119,37 @@ export class PageListFeed {
     this.#latest = undefined;
     this.#token = undefined;
   }
-  #publish(revisions: ReadonlyMap<string, string>, token: string) {
-    this.#latest = revisions;
+  #publish(listed: Listed, token: string) {
+    this.#latest = listed;
     this.#token = token;
-    for (const listener of this.#listeners) listener(revisions);
+    for (const listener of this.#listeners) listener(listed.contents);
   }
   #coordinate(coordination: PageListCoordination, signal: AbortSignal) {
     const channel = coordination.channel();
     let holding = false;
-    const broadcast = (revisions: ReadonlyMap<string, string>, listToken: string) =>
+    const broadcast = ({ revisions, contents }: Listed, listToken: string) =>
       channel.postMessage({
         v: 1,
         type: 'revisions',
         listToken,
-        revisions: [...revisions],
+        revisions: [...revisions].flatMap(([id, revision]) => {
+          const content = contents.get(id);
+          return content === undefined ? [] : [[id, revision, content] as [string, string, string]];
+        }),
       } satisfies Message);
     channel.addEventListener('message', (event) => {
       const message = broadcastMessage((event as MessageEvent).data);
       if (!message || signal.aborted) return;
       if (message.type === 'hello') {
         if (holding && this.#latest && this.#token) broadcast(this.#latest, this.#token);
-      } else if (!holding) this.#publish(new Map(message.revisions), message.listToken);
+      } else if (!holding)
+        this.#publish(
+          {
+            revisions: new Map(message.revisions.map(([id, revision]) => [id, revision])),
+            contents: new Map(message.revisions.map(([id, , content]) => [id, content])),
+          },
+          message.listToken,
+        );
     });
     // One lock request at a time: queued behind the holder, or stealing when this tab is visible.
     let current: AbortController | undefined;
@@ -177,7 +196,7 @@ export class PageListFeed {
   }
   async #loop(
     signal: AbortSignal,
-    broadcast?: (revisions: ReadonlyMap<string, string>, listToken: string) => void,
+    broadcast?: (listed: Listed, listToken: string) => void,
     start?: string,
   ) {
     let token = start;
@@ -187,8 +206,8 @@ export class PageListFeed {
         if (signal.aborted) return;
         token = change.listToken;
         if (!change.unchanged) {
-          this.#publish(change.revisions, change.listToken);
-          broadcast?.(change.revisions, change.listToken);
+          this.#publish(change, change.listToken);
+          broadcast?.(change, change.listToken);
         }
       } catch {
         if (signal.aborted) return;

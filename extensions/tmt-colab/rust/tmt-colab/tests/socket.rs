@@ -2046,13 +2046,20 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
         ));
         let mut list: Value =
             serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
-        // The live-list token and each page's revision are opaque digests: shape only here (their
-        // changes are pinned by a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap).
+        // The live-list token and each page's revision and content revision are opaque digests:
+        // shape only here (their changes are pinned by
+        // a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap).
         let token = list.as_object_mut().unwrap().remove("listToken").unwrap();
         assert!(token.as_str().is_some_and(|t| t.len() == 64));
         for page in list["pages"].as_array_mut().unwrap() {
             let revision = page.as_object_mut().unwrap().remove("revision").unwrap();
             assert!(revision.as_str().is_some_and(|r| r.starts_with("v1:")));
+            let content = page
+                .as_object_mut()
+                .unwrap()
+                .remove("contentRevision")
+                .unwrap();
+            assert!(content.as_str().is_some_and(|c| c.len() == 64));
         }
         list
     };
@@ -4942,6 +4949,39 @@ fn a_browser_save_commits_as_the_root_local_writer_fans_out_replays_and_answers_
     assert!(matches!(second.read().unwrap(), Message::Pong(_)));
 }
 
+/// A browser save moves the page's content revision in the owner list, as well as its revision
+/// (#6179): a follower reads the page again. A membership change moves only the revision
+/// (`a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap`).
+#[test]
+fn a_save_moves_the_listed_content_revision() {
+    let (server, _layout, _key, mut first) = publish_fixture();
+    let header = format!("{}\r\n", owner(DEVICE));
+    let listed = || -> (String, String) {
+        let raw = server.request(&Running::get("/api/pages", &header));
+        assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+        let list: Value = serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let row = list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pageId"] == PAGE)
+            .unwrap()
+            .clone();
+        (
+            row["revision"].as_str().unwrap().to_owned(),
+            row["contentRevision"].as_str().unwrap().to_owned(),
+        )
+    };
+    let (revision, content) = listed();
+    let (result, _) = server.save(&mut first, SAVE_ONE, "", "<p>Saved for #6179</p>");
+    assert_eq!(result["state"], "committed", "{result}");
+    let (saved, moved) = listed();
+    assert_ne!(saved, revision);
+    assert_ne!(moved, content);
+    // Reading again with no write names the same content revision.
+    assert_eq!(listed().1, moved);
+}
+
 fn saved_count(server: &Running, operation: &str) -> usize {
     let bytes: Vec<u8> = server
         .oracle()
@@ -7753,6 +7793,18 @@ fn a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap() {
     assert_eq!(token.len(), 64);
     let revision = first["pages"][0]["revision"].as_str().unwrap().to_owned();
     assert!(revision.starts_with("v1:"), "{revision}");
+    // The page's content revision (#6179): 64 hex digits, moved only by the page's own content.
+    let content = first["pages"][0]["contentRevision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        content.len() == 64
+            && content
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+        "{content}"
+    );
     // A non-owner or malformed read is refused before it waits.
     assert!(
         server
@@ -7779,6 +7831,9 @@ fn a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap() {
     assert_ne!(next, token);
     assert_eq!(changed["pages"][0]["sharing"], "link");
     assert_ne!(changed["pages"][0]["revision"].as_str().unwrap(), revision);
+    // A share is a membership change: the revision moves, the content revision does not, so a
+    // follower keeps the docs it read (#6179).
+    assert_eq!(changed["pages"][0]["contentRevision"], content.as_str());
 
     // A write through another store connection (a CLI write under the serve's lifecycle lock, or
     // a worker's own handle) answers a waiting read too: the idle check's write generation moves
@@ -7805,6 +7860,16 @@ fn a_held_page_list_answers_when_a_page_changes_and_refuses_past_its_cap() {
     let elsewhere = body(&elsewhere);
     assert_ne!(elsewhere["listToken"].as_str().unwrap(), next);
     let next = elsewhere["listToken"].as_str().unwrap().to_owned();
+    let row = |list: &Value| {
+        list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pageId"] == PAGE)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(&elsewhere)["contentRevision"], content.as_str());
 
     // Four reads wait at once; a fifth is refused with CAPACITY, never queued. One change
     // answers the four.

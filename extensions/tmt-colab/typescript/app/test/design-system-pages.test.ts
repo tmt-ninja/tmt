@@ -37,6 +37,8 @@ import {
   writePin,
 } from '../src/design-system-pages.js';
 import type { PageBinding, PageTransport } from '../src/transport.js';
+import type { PageListChange } from '../src/bootstrap.js';
+import { PageListFeed } from '../src/page-list-feed.js';
 import templateSections from '../../../../../design/systems/tmt-gui/generated/pages.json';
 
 /** #5821 / epic #5866: design systems as ordinary pages, over an in-memory space whose pages
@@ -58,15 +60,44 @@ function space({ summaries = false }: { summaries?: boolean } = {}) {
   // Live views the way a binding publishes them: every edit reaches the page's subscribers.
   const subscribers = new Map<string, Set<(view: { source: string }) => void>>();
   const open = { count: 0, edits: 0, total: 0 };
-  // The owner's live page list: every page's revision moves on each write, and every watcher
-  // hears the whole map, as the mounted transport's held list read delivers it.
+  // The owner's live page list, read through the browser's own feed as the mounted transport
+  // does: a write moves its page's revision and content revision; a membership change (another
+  // page created, shared or archived) moves every page's revision and no content revision.
   const revisions = new Map<string, number>();
+  let membershipHead = 0;
+  let listToken = 0;
   const listWatchers = new Set<(latest: ReadonlyMap<string, string>) => void>();
-  const listed = () => new Map([...pages.keys()].map((id) => [id, `v1:${revisions.get(id) ?? 0}`]));
+  const listed = (): PageListChange => ({
+    unchanged: false,
+    listToken: listToken.toString(16).padStart(64, '0'),
+    revisions: new Map(
+      [...pages.keys()].map((id) => [id, `v1:${membershipHead}:${revisions.get(id) ?? 0}`]),
+    ),
+    contents: new Map([...pages.keys()].map((id) => [id, `${revisions.get(id) ?? 0}`])),
+  });
+  const heldReads = new Set<() => void>();
+  const feed = new PageListFeed({
+    list: async () => listed(),
+    held: (after) =>
+      new Promise<PageListChange>((resolve) => {
+        if (after !== listed().listToken) return resolve(listed());
+        heldReads.add(() => resolve(listed()));
+      }),
+  });
+  const listMoved = () => {
+    listToken++;
+    const waiting = [...heldReads];
+    heldReads.clear();
+    for (const answer of waiting) answer();
+  };
   const moved = (id: string) => {
     revisions.set(id, (revisions.get(id) ?? 0) + 1);
-    const latest = listed();
-    for (const watcher of listWatchers) watcher(latest);
+    listMoved();
+  };
+  /** A membership change elsewhere in the space: a share, an archive or a new page (#6179). */
+  const membership = () => {
+    membershipHead++;
+    listMoved();
   };
   /** A write no browser binding sees, as `tmt colab page patch` makes on an unopened page. */
   const write = (id: string, source: string) => {
@@ -164,8 +195,11 @@ function space({ summaries = false }: { summaries?: boolean } = {}) {
   const transport = {
     watchPages: (changed: (latest: ReadonlyMap<string, string>) => void) => {
       listWatchers.add(changed);
-      queueMicrotask(() => listWatchers.has(changed) && changed(listed()));
-      return () => listWatchers.delete(changed);
+      const stop = feed.watch(changed);
+      return () => {
+        listWatchers.delete(changed);
+        stop();
+      };
     },
     page: async (id: string) => {
       const page = pages.get(id);
@@ -210,7 +244,7 @@ function space({ summaries = false }: { summaries?: boolean } = {}) {
       },
     },
   } as unknown as PageTransport;
-  return { pages, make, binding, transport, open, write, listWatchers };
+  return { pages, make, binding, transport, open, write, listWatchers, membership };
 }
 
 describe('data blocks', () => {
@@ -1172,6 +1206,35 @@ describe('live draft (#5967)', () => {
     stop();
     expect(open.count).toBe(before);
     expect(listWatchers.size).toBe(0);
+  });
+
+  it('a membership change elsewhere in the space reads no component page, while a component edit still redraws (#6179)', async () => {
+    const { pages, make, transport, open, write, membership } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const source = pageDesignSystems(transport);
+    let changes = 0;
+    const stop = source.watch(rootId, () => changes++);
+    const first = await source.draft(rootId);
+    // A new page, a share and an archive elsewhere: every page's revision moves, no page's content.
+    make('Elsewhere');
+    membership();
+    membership();
+    membership();
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(0);
+    const opensBefore = open.total;
+    expect(await source.draft(rootId)).toBe(first);
+    expect(open.total - opensBefore).toBe(0);
+    // A component edit still redraws, reading only the root and the page that moved.
+    write(button, recolor(pages.get(button)!.source));
+    await vi.waitFor(() => expect(changes).toBe(1), { timeout: DRAFT_SETTLE_MS * 4 });
+    const redrawn = await source.draft(rootId);
+    expect(redrawn.hash).not.toBe(first.hash);
+    expect(open.total - opensBefore).toBe(2);
+    stop();
   });
 
   it('the next open page of a system reuses the docs the last one read, even its first draft (#6177)', async () => {

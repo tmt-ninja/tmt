@@ -190,6 +190,18 @@ fn list_token(
     let digest = crypto::digest(&framing::frame(&parts).map_err(|_| Code::Unavailable)?);
     Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
+/// A listed page's content revision (contract: Live page list): a digest of its progress, the
+/// fingerprint without the membership head, so it moves when the page's own content does and not
+/// when another page is created, shared or archived. Opaque to the browser, and never a write fence.
+fn content_revision(page: &str, progress: &str) -> std::result::Result<String, Code> {
+    let parts: [&[u8]; 3] = [
+        b"tmt-colab-page-content-v1",
+        page.as_bytes(),
+        progress.as_bytes(),
+    ];
+    let digest = crypto::digest(&framing::frame(&parts).map_err(|_| Code::Unavailable)?);
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
 struct CatalogRead {
     catalog: serde_json::Value,
     fingerprints: std::collections::BTreeMap<String, String>,
@@ -198,6 +210,8 @@ struct CatalogRead {
     /// Each listed page's revision token, the one `page read` returns, except a frozen page's
     /// (`page::listed_token`).
     revisions: std::collections::BTreeMap<String, String>,
+    /// Each page's progress (`page_progress`): its fingerprint without the membership head.
+    progress: std::collections::BTreeMap<String, String>,
 }
 
 pub struct Registration {
@@ -306,6 +320,7 @@ impl Registration {
             fingerprints,
             titles,
             revisions,
+            progress,
         } = self.page_catalog_fingerprinted(context)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
@@ -330,6 +345,9 @@ impl Registration {
             };
             if let Some(revision) = revisions.get(&id) {
                 page["revision"] = serde_json::json!(revision);
+                if let Some(progress) = progress.get(&id) {
+                    page["contentRevision"] = serde_json::json!(content_revision(&id, progress)?);
+                }
             }
             let Some(summary) = fresh.get(&id) else {
                 page["state"] = serde_json::Value::Null;
@@ -474,6 +492,7 @@ impl Registration {
                     fingerprints: tx.page_fingerprints()?,
                     titles: tx.page_titles()?,
                     revisions,
+                    progress: tx.page_progress()?,
                 })
             })
             .map_err(map_error)

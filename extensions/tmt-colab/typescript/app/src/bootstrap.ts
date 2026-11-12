@@ -273,10 +273,17 @@ export async function discover(
       ...(page !== null && typeof page === 'object' && 'state' in page ? ['state'] : []),
       ...(page !== null && typeof page === 'object' && 'stateError' in page ? ['stateError'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
-      ...(page !== null && typeof page === 'object' && 'revision' in page ? ['revision'] : []),
+      ...(page !== null && typeof page === 'object' && 'revision' in page
+        ? ['revision', 'contentRevision']
+        : []),
     ]);
     if ('revision' in page)
-      requireValue(typeof page.revision === 'string' && PAGE_REVISION.test(page.revision));
+      requireValue(
+        typeof page.revision === 'string' &&
+          PAGE_REVISION.test(page.revision) &&
+          typeof page.contentRevision === 'string' &&
+          CONTENT_REVISION.test(page.contentRevision),
+      );
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('kind' in page) requireValue(page.kind === 'design-system');
     if ('summary' in page) activity(page.summary);
@@ -423,10 +430,19 @@ const PAGE_REVISION = /^v1:[0-9a-f]{64}$/;
 /** A held list read waits on the serve at most 10 s (`limits::PAGE_LIST_HOLD`); this bound only
  * catches a serve that never answers: past Remote's 15 s mounted-reply deadline plus transit. */
 const HELD_LIST_TIMEOUT_MS = 20_000;
-/** What one held list read learned: the list moved (each page's revision) or did not. */
+/** A listed page's content revision: 64 lowercase hex digits, opaque (contract: Live page list). */
+export const CONTENT_REVISION = /^[0-9a-f]{64}$/;
+/** What one held list read learned: the list moved or did not. A moved list names each page's
+ * revision, the write fence that also moves on any membership change, and its content revision,
+ * which moves only when the page's own content does. */
 export type PageListChange =
   | { unchanged: true; listToken: string }
-  | { unchanged: false; listToken: string; revisions: ReadonlyMap<string, string> };
+  | {
+      unchanged: false;
+      listToken: string;
+      revisions: ReadonlyMap<string, string>;
+      contents: ReadonlyMap<string, string>;
+    };
 /** The pages' revisions from a list reply. Only IDs and opaque tokens are read: the list's display
  * fields stay with `discover`, which validates them for display. */
 export function listRevisions(value: unknown): PageListChange {
@@ -439,16 +455,21 @@ export function listRevisions(value: unknown): PageListChange {
   }
   requireValue(Array.isArray(list.pages) && list.pages.length <= 1000);
   const revisions = new Map<string, string>();
+  const contents = new Map<string, string>();
   for (const page of list.pages as unknown[]) {
     requireValue(page !== null && typeof page === 'object');
-    const { pageId, revision } = page as Record<string, unknown>;
+    const { pageId, revision, contentRevision } = page as Record<string, unknown>;
     requireValue(typeof pageId === 'string');
     generatedId(pageId);
+    // A row names both or neither: a frozen page has no revision and no content revision.
+    requireValue((revision === undefined) === (contentRevision === undefined));
     if (revision === undefined) continue;
     requireValue(typeof revision === 'string' && PAGE_REVISION.test(revision));
+    requireValue(typeof contentRevision === 'string' && CONTENT_REVISION.test(contentRevision));
     revisions.set(pageId, revision);
+    contents.set(pageId, contentRevision);
   }
-  return { unchanged: false, listToken: list.listToken, revisions };
+  return { unchanged: false, listToken: list.listToken, revisions, contents };
 }
 /** One plain owner list read, for its revisions only (the feed's first read and its fallback). */
 export async function pageList(mount: URL, signal: AbortSignal): Promise<PageListChange> {
