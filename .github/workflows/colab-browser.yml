@@ -375,8 +375,11 @@ jobs:
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action != 'unlabeled' &&
+       github.event.action != 'opened' &&
        contains(github.event.pull_request.labels.*.name, 'colab-acceptance') &&
        (github.event.action != 'labeled' || github.event.label.name == 'colab-acceptance'))
+    # A PR created with the label gets `opened` and `labeled` for the same head. Only `labeled`
+    # starts the wave, so that head is tested once (#3054).
     concurrency:
       group: colab-acceptance-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
       # A label edit must never cancel a running acceptance check.
