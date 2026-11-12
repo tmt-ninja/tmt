@@ -354,6 +354,49 @@ describe('prepared Infra tick evidence', () => {
       false
     );
   });
+  it('reports a job stranded in a settled terminal run and refuses a fresh or foreign one', () => {
+    const queuedJob = {
+      ...worker(12, 'Native package matrix'),
+      status: 'queued',
+      conclusion: null,
+    };
+    const stranded = { ...queuedJob, completed_at: null };
+    const failed = (updated_at: string) => run(1, { conclusion: 'failure', updated_at });
+    const report = collectInfraTick(
+      fixture({ runs: [failed('2026-10-18T00:45:00Z')], jobs: [worker(11), stranded] }),
+      options
+    );
+    expect(report.complete).toBe(true);
+    expect(
+      report.anomalies.filter((item) => item.kind === 'job never finished in a terminal run')
+    ).toEqual([
+      expect.objectContaining({
+        run: 1,
+        attempt: 1,
+        jobs: [{ job: 112, name: 'Native package matrix', status: 'queued' }],
+      }),
+    ]);
+    expect(report.failures.map((failure) => failure.worker)).toEqual(['Unit tests']);
+    expect(report.failedRunAttempts).toEqual(['1:1']);
+    expect(renderInfraTick(report)).toContain('job never finished in a terminal run');
+
+    expect(() =>
+      collectInfraTick(
+        fixture({ runs: [failed('2026-10-18T00:45:01Z')], jobs: [worker(11), stranded] }),
+        options
+      )
+    ).toThrow('Incomplete terminal job evidence.');
+
+    const api = fixture({ runs: [failed('2026-10-18T00:45:00Z')], jobs: [worker(11)] });
+    const original = api.get;
+    api.get = (endpoint) => {
+      const data = original(endpoint);
+      return endpoint.includes('/jobs?')
+        ? { ...data, jobs: data.jobs.map((job: object) => ({ ...job, run_attempt: 2 })) }
+        : data;
+    };
+    expect(() => collectInfraTick(api, options)).toThrow('Foreign terminal job evidence.');
+  });
   it('keeps missing logs explicitly unavailable instead of claiming no anomalies', () => {
     const api = fixture({ runs: [run(1, { conclusion: 'failure' })], jobs: [worker(11)] });
     const original = api.get;
