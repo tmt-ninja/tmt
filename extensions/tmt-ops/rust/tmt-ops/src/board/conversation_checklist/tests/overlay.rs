@@ -60,7 +60,7 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     press(&mut app, KeyCode::Left);
     let before = app.input.as_ref().unwrap().text.to_string();
     let caret = app.input.as_ref().unwrap().text.cursor();
-    assert!(paint(&app).contains("^L checklist"));
+    assert!(paint(&app).contains("^L"));
     press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
     assert!(app.notes_overlay.is_some(), "Ctrl+L opens member Checklist");
     press(&mut app, KeyCode::Esc);

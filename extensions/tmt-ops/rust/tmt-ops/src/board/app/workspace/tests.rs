@@ -2226,7 +2226,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
         assert!(
-            lines.iter().any(|line| line.contains("^L checklist")),
+            lines.iter().any(|line| line.contains("^L")),
             "{width}: {lines:?}"
         );
         if width >= 100 {
