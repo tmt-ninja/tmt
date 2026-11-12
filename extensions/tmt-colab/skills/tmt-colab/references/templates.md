@@ -28,3 +28,7 @@ TEXT]`. The name is 1 to 40 of `a-z`, `0-9` and `-`, not one of TMT's. Write rul
 comment before each block, one line each. The page needs a layout and registered questions.
 `template default NAME|ID` and `--reset` choose what a bare HTML create copies; `template remove
 NAME|ID` only stops the page being a template. Errors name the fix (`hint:`).
+
+The user can do the same in the browser: New page picks a template and makes the page on this
+machine, Colab › Templates lists them, a page's More menu saves or removes it as a template, and
+Colab settings › Templates sets the default. The rules and refusals are the CLI's.
