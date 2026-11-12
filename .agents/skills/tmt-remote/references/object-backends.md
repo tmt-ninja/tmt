@@ -26,8 +26,8 @@ a #1852 delivery requirement; a transport-only fixture is not that proof.
 owner above these: it opens `LocalFs` only when a static declaration enables an extension
 (`ObjectService::open` fails when accounting cannot settle and creates
 nothing for an all-Disabled declaration list), keeps at most one active bus and one setup candidate per extension and
-eight buses in all, and opens a channel only on an explicit `activate` (no operation retry or
-polling). The carrier offers version 2 and permits one version-1 fallback only before a complete reply head,
+eight buses in all. Explicit activation, startup recovery and Local channel-loss events use
+one setup worker; none replays object operations. The carrier offers version 2 and permits one version-1 fallback only before a complete reply head,
 within the same setup budget; no downgrade is cached. Link/Bus support gates the new management methods. Version-1 links use the
 [contract's provenance-free restart/upgrade hint](../../../../contracts/remote-channel-v1.md#object-channel-frames),
 not an installed-version comparison. Its extension names come only from the declaration list and it names no
@@ -49,12 +49,17 @@ wait and private setup, clipped by the upgrade's existing deadline; forwarding k
 normal deadline. Failure or a late candidate leaves the upgrade on the existing no-origin
 path, never an object-caused refusal. A failed attempt sets a one-second monotonic cooldown;
 concurrent demands join one flight, and cooldown demands forward immediately without a
-new attempt. Status, assets and channel end alone do not trigger setup, and no polling or
-object-operation replay occurs. Healthy demand is a no-op. Each channel uses the existing
+new attempt. Startup setup failures and each Local Hub's first channel-end event enqueue
+recovery in this same worker. Recovery backs off exponentially from one second to the named
+30-second cap; each attempt retains the 250 ms setup budget. A waiting recovery does not
+extend the failed-demand cooldown: fresh admissible demands may activate immediately,
+and success from either path clears recovery. Status and assets remain observational.
+Healthy channels have no timer; the Hub's weak sink wakes recovery without another registry
+or thread. Native project channels keep explicit activation. Healthy demand is a no-op. Each channel uses the existing
 extension-private `<dataRoot>/<extension>/door.sock`, not a second socket owner.
 
 Static Mounts/HTTP workers cannot retain the lease-borrowed ObjectService. Their hook owns
-only a bounded demand queue and a read-only state view; one scoped worker borrows the same
+only a bounded activation queue and a read-only state view; one scoped worker borrows the same
 service for setup. Site shutdown closes the hook before joining HTTP/tunnel workers, rejects
 late candidates and wakes queued demands. Serve joins the setup worker before explicit
 ObjectService shutdown and before releasing the lease; early paths retain Drop cleanup.

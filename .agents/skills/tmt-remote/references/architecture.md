@@ -65,8 +65,14 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `deploy_run`                                                      | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (CLI composition in `deploy_cli`)                                                                            |
 | `serve::native_factory`                                           | Selected public config and enabled release declarations; one shared Auth/runtime/budget writer and minute checkpoint, project fence and joined final flush; v3 opt-in                                                                               |
 | `activation_cli`                                                  | Hidden host activation protocol through the existing CLI boundary; deadline-bound root lookup and one owner-control exchange, no state creation or provider construction                                                                            |
-| `object_service`                                                  | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; v3 bindings/awaiters share setup and dispatch; serve injects the shared native project factory; production Colab-only Local |
+| `object_service`                                                  | Lease-bound `ObjectService`: single-flight Local setup and recovery, readiness, origins, admitted observation/upload; v3 bindings/awaiters share setup and dispatch; serve injects the shared native project factory; production Colab-only Local   |
 | `tmt-extension-objects` (leaf)                                    | Remote-owned protocol leaf, consumed by Remote `object_service` and Colab `object_channel`: canonical IDs/encodings, object and v3 sync DTOs/bounds, strict JSON and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
+
+Local object recovery stays in `object_service::activation`'s existing scoped worker.
+Failed startup setup seeds its queue; each Local dispatch Hub has a weak sink to the same
+queue for its first end event. Backoff and attempt bounds live in `limits`; healthy channels
+have no scheduled work. Native project activation keeps its existing explicit semantics.
+No control operation, polling thread, second registry or storage opener is added.
 
 `native_sync` bounds COUNT probes and document reads and returns query pages/cursors
 for sealed-document consumers, including Colab. It has no Core authority. Native carrier

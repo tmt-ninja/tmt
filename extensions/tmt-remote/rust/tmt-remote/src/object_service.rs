@@ -6,8 +6,10 @@
 //! An extension has at most one active bus and one setup candidate, and the installation
 //! at most [`ServiceBounds::buses`] buses in all. A channel is opened only by an
 //! explicit [`ObjectService::activate`]; setup permits only the carrier’s one pre-reply
-//! version fallback, with no operation retry or polling. Serve attempts activation once per Local declaration before
-//! door readiness and shuts down the service before releasing its lease. The
+//! version fallback, with no object-operation replay. Serve attempts each Local declaration
+//! before readiness; the joined Reactivation worker retries failed setup and channel-loss
+//! events with bounded backoff. Healthy slots have no timer. Serve shuts down the service
+//! before releasing its lease. The
 //! static mount registry alone chooses enabled extensions; callbacks grant no cached authority.
 //!
 //! Locks are short and never held across I/O, a connect, a handshake or a close.
@@ -161,6 +163,7 @@ struct State {
 /// }
 /// ```
 pub struct ObjectService<'s> {
+    recovery: Mutex<std::sync::Weak<Reactivation>>,
     storage: LocalFs<'s>,
     bounds: ServiceBounds,
     /// Outstanding entries shared by every bus of the installation.
@@ -229,6 +232,7 @@ impl<'s> ObjectService<'s> {
             .collect();
         let restart_reader = slots.first().map(|slot| storage.reader(slot.id.clone()));
         Ok(Some(Self {
+            recovery: Mutex::new(std::sync::Weak::new()),
             storage,
             bounds,
             budget: Budget::new(bounds.installation.requests, bounds.installation.callbacks),
@@ -449,6 +453,11 @@ impl<'s> ObjectService<'s> {
         #[cfg(not(test))]
         let hook = ();
         let launch = Launch {
+            recovery: self
+                .recovery
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
             source,
             bounds: &self.bounds,
             hook,

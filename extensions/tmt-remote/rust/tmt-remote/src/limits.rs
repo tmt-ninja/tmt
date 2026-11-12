@@ -96,6 +96,8 @@ pub const SHELL_WAIT: Duration = Duration::from_millis(300);
 pub const OBJECT_REACTIVATION: Duration = Duration::from_millis(250);
 /// Failed setups cannot turn a reconnect loop into an activation loop.
 pub const OBJECT_REACTIVATION_COOLDOWN: Duration = Duration::from_secs(1);
+/// Startup/re-exec recovery never backs off beyond this delay.
+pub const OBJECT_REACTIVATION_BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// No-progress bound for pending bytes inside an upgraded tunnel.
 pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
 
