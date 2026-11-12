@@ -1,8 +1,8 @@
-import { unknownActivity, withoutAddress } from './cli-assertions.js';
-import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vite-plus/test';
-import path from 'node:path';
-import { E2EFixture, withE2EFixture, type CliProcess, type CliResult } from './harness.js';
+import { unknownActivity, withoutAddress } from "./cli-assertions.js";
+import Database from "better-sqlite3";
+import { describe, expect, it } from "vite-plus/test";
+import path from "node:path";
+import { E2EFixture, withE2EFixture, type CliProcess, type CliResult } from "./harness.js";
 
 interface IdentityListItem {
   name: string;
@@ -32,7 +32,7 @@ interface DurableProfile {
 }
 
 function databaseFile(fixture: E2EFixture): string {
-  return path.join(fixture.globalDir, 'tmt.db');
+  return path.join(fixture.globalDir, "tmt.db");
 }
 
 function durableCounts(fixture: E2EFixture): DurableCounts {
@@ -40,13 +40,13 @@ function durableCounts(fixture: E2EFixture): DurableCounts {
   try {
     return {
       identities: (
-        database.prepare('SELECT COUNT(*) AS count FROM identities').get() as { count: number }
+        database.prepare("SELECT COUNT(*) AS count FROM identities").get() as { count: number }
       ).count,
       bindings: (
-        database.prepare('SELECT COUNT(*) AS count FROM bindings').get() as { count: number }
+        database.prepare("SELECT COUNT(*) AS count FROM bindings").get() as { count: number }
       ).count,
       profiles: (
-        database.prepare('SELECT COUNT(*) AS count FROM role_profiles').get() as { count: number }
+        database.prepare("SELECT COUNT(*) AS count FROM role_profiles").get() as { count: number }
       ).count,
     };
   } finally {
@@ -72,7 +72,7 @@ function durableIdentity(fixture: E2EFixture, canonicalName: string): DurableIde
   const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
   try {
     return database
-      .prepare('SELECT id, name, canonical_name FROM identities WHERE canonical_name = ?')
+      .prepare("SELECT id, name, canonical_name FROM identities WHERE canonical_name = ?")
       .get(canonicalName) as DurableIdentity;
   } finally {
     database.close();
@@ -83,9 +83,9 @@ function identityIsRetired(fixture: E2EFixture, canonicalName: string): boolean 
   const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
   try {
     const row = database
-      .prepare('SELECT retired_at_ms FROM identities WHERE canonical_name = ?')
+      .prepare("SELECT retired_at_ms FROM identities WHERE canonical_name = ?")
       .get(canonicalName) as { retired_at_ms: number | null } | undefined;
-    return typeof row?.retired_at_ms === 'number';
+    return typeof row?.retired_at_ms === "number";
   } finally {
     database.close();
   }
@@ -95,7 +95,7 @@ function durableProfile(fixture: E2EFixture, identityId: string): DurableProfile
   const database = new Database(databaseFile(fixture), { readonly: true, timeout: 0 });
   try {
     return database
-      .prepare('SELECT identity_id, content FROM role_profiles WHERE identity_id = ?')
+      .prepare("SELECT identity_id, content FROM role_profiles WHERE identity_id = ?")
       .get(identityId) as DurableProfile;
   } finally {
     database.close();
@@ -104,14 +104,14 @@ function durableProfile(fixture: E2EFixture, identityId: string): DurableProfile
 
 function writerIsLocked(fixture: E2EFixture): boolean {
   const database = new Database(databaseFile(fixture), { timeout: 0 });
-  database.pragma('busy_timeout = 0');
+  database.pragma("busy_timeout = 0");
   try {
-    database.exec('BEGIN IMMEDIATE');
-    database.exec('ROLLBACK');
+    database.exec("BEGIN IMMEDIATE");
+    database.exec("ROLLBACK");
     return false;
   } catch (error) {
     const code = (error as { code?: unknown }).code;
-    if (code !== 'SQLITE_BUSY' && code !== 'SQLITE_LOCKED') throw error;
+    if (code !== "SQLITE_BUSY" && code !== "SQLITE_LOCKED") throw error;
     return true;
   } finally {
     database.close();
@@ -119,7 +119,7 @@ function writerIsLocked(fixture: E2EFixture): boolean {
 }
 
 function json<T>(result: CliResult<T>): T {
-  expect(result.stderr, result.stdout).toBe('');
+  expect(result.stderr, result.stdout).toBe("");
   expect(result.json, result.stdout).toBeDefined();
   return result.json as T;
 }
@@ -131,96 +131,96 @@ async function waitForSuccess<T>(process: CliProcess<T>): Promise<T> {
 }
 
 async function assertPublished(fixture: E2EFixture, name: string): Promise<void> {
-  const whoami = await fixture.runJsonCli<{ bound: boolean; name?: string }>(['whoami']);
+  const whoami = await fixture.runJsonCli<{ bound: boolean; name?: string }>(["whoami"]);
   expect(whoami.code).toBe(0);
   expect(json(whoami)).toMatchObject({ bound: true, name });
 
-  const list = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
+  const list = withoutAddress(await fixture.runJsonCli<IdentityList>(["list"]));
   expect(list.code).toBe(0);
   expect(json(list).identities).toEqual(
-    expect.arrayContaining([expect.objectContaining({ name, pane: fixture.pane })])
+    expect.arrayContaining([expect.objectContaining({ name, pane: fixture.pane })]),
   );
 
   const message = `publication-${name}`;
   const talk = await fixture.runJsonCli<{ status: string; response: string }>([
-    'talk',
+    "talk",
     name,
     message,
-    '--timeout',
-    '5',
+    "--timeout",
+    "5",
   ]);
   expect(talk.code, talk.stderr || talk.stdout).toBe(0);
   expect(json(talk)).toMatchObject({
-    status: 'completed',
+    status: "completed",
     response: expect.stringContaining(`mock-agent response: ${message}`),
   });
   await fixture.waitForEvent(
     (event) =>
-      event.event === 'submitted' && event.pid === fixture.panePid && event.message === message
+      event.event === "submitted" && event.pid === fixture.panePid && event.message === message,
   );
 }
 
-describe('crash-safe identity publication', { concurrent: false }, () => {
-  it('keeps an unpublished binding offline while an observer and writer proceed', async () => {
+describe("crash-safe identity publication", { concurrent: false }, () => {
+  it("keeps an unpublished binding offline while an observer and writer proceed", async () => {
     await withE2EFixture(
       async (fixture) => {
-        const binder = fixture.runCliProcess(['--json', 'name', 'Published']);
-        await fixture.waitForMetadataBarrier('entered', { child: binder });
+        const binder = fixture.runCliProcess(["--json", "name", "Published"]);
+        await fixture.waitForMetadataBarrier("entered", { child: binder });
         expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 0 });
-        expect(pendingReservationCount(fixture, 'published')).toBe(1);
+        expect(pendingReservationCount(fixture, "published")).toBe(1);
         expect(writerIsLocked(fixture)).toBe(false);
 
         const listed = await waitForSuccess<IdentityList>(
-          fixture.runCliProcess(['--json', 'list'])
+          fixture.runCliProcess(["--json", "list"]),
         );
         expect(listed.identities).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ name: 'Published', presence: 'offline', pane: null }),
-          ])
+            expect.objectContaining({ name: "Published", presence: "offline", pane: null }),
+          ]),
         );
         expect(writerIsLocked(fixture)).toBe(false);
         expect(durableCounts(fixture)).toMatchObject({ bindings: 0 });
         fixture.releaseMetadataBarrier();
         await waitForSuccess(binder);
-        expect(pendingReservationCount(fixture, 'published')).toBe(0);
+        expect(pendingReservationCount(fixture, "published")).toBe(0);
         expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 1 });
-        await assertPublished(fixture, 'Published');
+        await assertPublished(fixture, "Published");
       },
-      { metadataBarrier: { phase: 'before' } }
+      { metadataBarrier: { phase: "before" } },
     );
   }, 12_000);
 
   it.each([
     {
-      label: 'same name on another pane',
-      contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Anchor'],
-      expectedCode: 'RECONCILIATION_FAILED',
+      label: "same name on another pane",
+      contender: (fixture: E2EFixture, pane: string) => ["--json", "add", pane, "Anchor"],
+      expectedCode: "RECONCILIATION_FAILED",
       expectedExit: 1,
       retiredChallenger: false,
       expectedBindings: 1,
       expectedIdentities: 1,
     },
     {
-      label: 'different name on the same pane',
-      contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'Challenger'],
-      expectedCode: 'PANE_ALREADY_BOUND',
+      label: "different name on the same pane",
+      contender: (_fixture: E2EFixture, _pane: string) => ["--json", "name", "Challenger"],
+      expectedCode: "PANE_ALREADY_BOUND",
       expectedExit: 5,
       retiredChallenger: true,
       expectedBindings: 1,
       expectedIdentities: 2,
     },
     {
-      label: 'same canonical name on the same pane',
-      contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'ａｎｃｈｏｒ'],
-      expectedCode: 'PANE_ALREADY_BOUND',
+      label: "same canonical name on the same pane",
+      contender: (_fixture: E2EFixture, _pane: string) => ["--json", "name", "ａｎｃｈｏｒ"],
+      expectedCode: "PANE_ALREADY_BOUND",
       expectedExit: 5,
       retiredChallenger: false,
       expectedBindings: 1,
       expectedIdentities: 1,
     },
     {
-      label: 'different name on another pane',
-      contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Challenger'],
+      label: "different name on another pane",
+      contender: (fixture: E2EFixture, pane: string) => ["--json", "add", pane, "Challenger"],
       expectedCode: undefined,
       expectedExit: undefined,
       retiredChallenger: false,
@@ -228,7 +228,7 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
       expectedIdentities: 2,
     },
   ])(
-    'serializes $label without deleting the winner',
+    "serializes $label without deleting the winner",
     async ({
       contender,
       expectedCode,
@@ -239,9 +239,9 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
     }) => {
       await withE2EFixture(
         async (fixture) => {
-          const peer = await fixture.createMockPane('peer');
-          const binder = fixture.runCliProcess<{ id: string }>(['--json', 'name', 'Anchor']);
-          await fixture.waitForMetadataBarrier('entered', { child: binder });
+          const peer = await fixture.createMockPane("peer");
+          const binder = fixture.runCliProcess<{ id: string }>(["--json", "name", "Anchor"]);
+          await fixture.waitForMetadataBarrier("entered", { child: binder });
           expect(writerIsLocked(fixture)).toBe(false);
 
           const contenderProcess = fixture.runCliProcess(contender(fixture, peer.pane));
@@ -252,13 +252,13 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
             expect(json(earlyResult)).toMatchObject({ error: { code: expectedCode } });
           } else {
             await fixture.waitFor(
-              () => pendingReservationCount(fixture, 'challenger') === 1,
+              () => pendingReservationCount(fixture, "challenger") === 1,
               900,
-              'independent contender to reserve the other pane'
+              "independent contender to reserve the other pane",
             );
           }
           expect(writerIsLocked(fixture)).toBe(false);
-          expect(pendingReservationCount(fixture, 'anchor')).toBe(1);
+          expect(pendingReservationCount(fixture, "anchor")).toBe(1);
           fixture.releaseMetadataBarrier();
           const winner = await waitForSuccess<{ id: string }>(binder);
           const contenderResult = earlyResult ?? (await contenderProcess.result);
@@ -270,139 +270,139 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
             identities: expectedIdentities,
             bindings: expectedBindings,
           });
-          expect(durableIdentity(fixture, 'anchor').id).toBe(winner.id);
+          expect(durableIdentity(fixture, "anchor").id).toBe(winner.id);
           if (retiredChallenger) {
             // The refused contender's separately committed creation is retired.
-            expect(identityIsRetired(fixture, 'challenger')).toBe(true);
+            expect(identityIsRetired(fixture, "challenger")).toBe(true);
           }
-          await assertPublished(fixture, 'Anchor');
+          await assertPublished(fixture, "Anchor");
         },
-        { metadataBarrier: { phase: 'before' } }
+        { metadataBarrier: { phase: "before" } },
       );
     },
-    12_000
+    12_000,
   );
 
-  it('rolls back a killed post-metadata publication while retaining profile state for rebind', async () => {
+  it("rolls back a killed post-metadata publication while retaining profile state for rebind", async () => {
     await withE2EFixture(async (fixture) => {
-      expect((await fixture.runJsonCli(['name', 'Preserved', '-s'])).code).toBe(0);
-      const profile = await fixture.runJsonCli(['role', 'set', 'Keep this profile']);
+      expect((await fixture.runJsonCli(["name", "Preserved", "-s"])).code).toBe(0);
+      const profile = await fixture.runJsonCli(["role", "set", "Keep this profile"]);
       expect(profile.code).toBe(0);
-      expect((await fixture.runJsonCli(['unbind'])).code).toBe(0);
-      const identityBefore = durableIdentity(fixture, 'preserved');
+      expect((await fixture.runJsonCli(["unbind"])).code).toBe(0);
+      const identityBefore = durableIdentity(fixture, "preserved");
       const profileBefore = durableProfile(fixture, identityBefore.id);
-      expect(profileBefore.content).toBe('Keep this profile');
+      expect(profileBefore.content).toBe("Keep this profile");
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });
 
-      fixture.enableMetadataBarrier({ phase: 'after' });
-      const killed = fixture.runCliProcess(['--json', 'name', 'Preserved']);
-      await fixture.waitForMetadataBarrier('applied', { child: killed });
-      expect(fixture.paneMetadata()).toContain('Preserved');
+      fixture.enableMetadataBarrier({ phase: "after" });
+      const killed = fixture.runCliProcess(["--json", "name", "Preserved"]);
+      await fixture.waitForMetadataBarrier("applied", { child: killed });
+      expect(fixture.paneMetadata()).toContain("Preserved");
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });
 
-      killed.kill('SIGKILL');
+      killed.kill("SIGKILL");
       const killedResult = await killed.result;
       expect(killedResult.code).not.toBe(0);
       fixture.releaseMetadataBarrier();
 
-      const whoami = await fixture.runJsonCli<{ bound: boolean }>(['whoami']);
+      const whoami = await fixture.runJsonCli<{ bound: boolean }>(["whoami"]);
       expect(whoami.code).toBe(0);
       expect(json(whoami)).toEqual({
         bound: false,
         pane: fixture.pane,
-        interfaceKind: 'container',
-        sessionState: 'unknown',
+        interfaceKind: "container",
+        sessionState: "unknown",
       });
-      const listAfterKill = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
+      const listAfterKill = withoutAddress(await fixture.runJsonCli<IdentityList>(["list"]));
       expect(listAfterKill.code).toBe(0);
       expect(json(listAfterKill).identities).toEqual([
         {
           id: identityBefore.id,
-          name: 'Preserved',
-          canonicalName: 'preserved',
-          lifetime: 'saved',
-          presence: 'offline',
+          name: "Preserved",
+          canonicalName: "preserved",
+          lifetime: "saved",
+          presence: "offline",
           pane: null,
-          command: '',
-          session: { activity: unknownActivity, unbound: null, learning: null },
+          command: "",
+          session: { activity: unknownActivity, unbound: null, learning: null, startRefusal: null },
         },
       ]);
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });
-      expect(durableIdentity(fixture, 'preserved')).toEqual(identityBefore);
+      expect(durableIdentity(fixture, "preserved")).toEqual(identityBefore);
       expect(durableProfile(fixture, identityBefore.id)).toEqual(profileBefore);
 
-      const restored = await fixture.runJsonCli(['name', 'Preserved']);
+      const restored = await fixture.runJsonCli(["name", "Preserved"]);
       expect(restored.code, restored.stderr || restored.stdout).toBe(0);
       const restoredProfile = await fixture.runJsonCli<{ role: { content: string } }>([
-        'role',
-        'show',
-        '--identity',
-        'Preserved',
+        "role",
+        "show",
+        "--identity",
+        "Preserved",
       ]);
       expect(restoredProfile.code).toBe(0);
-      expect(json(restoredProfile).role.content).toBe('Keep this profile');
-      expect(durableIdentity(fixture, 'preserved')).toEqual(identityBefore);
+      expect(json(restoredProfile).role.content).toBe("Keep this profile");
+      expect(durableIdentity(fixture, "preserved")).toEqual(identityBefore);
       expect(durableProfile(fixture, identityBefore.id)).toEqual(profileBefore);
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 1, profiles: 1 });
     });
   }, 12_000);
 
-  it('keeps a replacement marker when an earlier unbind clear resumes', async () => {
+  it("keeps a replacement marker when an earlier unbind clear resumes", async () => {
     await withE2EFixture(async (fixture) => {
-      expect((await fixture.runJsonCli(['name', 'OldIdentity'])).code).toBe(0);
-      const profile = await fixture.runJsonCli(['role', 'set', 'Retain during replacement']);
+      expect((await fixture.runJsonCli(["name", "OldIdentity"])).code).toBe(0);
+      const profile = await fixture.runJsonCli(["role", "set", "Retain during replacement"]);
       expect(profile.code).toBe(0);
-      const identityBefore = durableIdentity(fixture, 'oldidentity');
+      const identityBefore = durableIdentity(fixture, "oldidentity");
       const profileBefore = durableProfile(fixture, identityBefore.id);
 
-      fixture.enableMetadataBarrier({ phase: 'before', operation: 'clear' });
-      const unbinder = fixture.runCliProcess(['--json', 'unbind']);
-      await fixture.waitForMetadataBarrier('entered', { child: unbinder });
-      expect(fixture.paneMetadata()).toContain('OldIdentity');
+      fixture.enableMetadataBarrier({ phase: "before", operation: "clear" });
+      const unbinder = fixture.runCliProcess(["--json", "unbind"]);
+      await fixture.waitForMetadataBarrier("entered", { child: unbinder });
+      expect(fixture.paneMetadata()).toContain("OldIdentity");
       expect(durableCounts(fixture)).toMatchObject({ bindings: 0, profiles: 1 });
       expect(writerIsLocked(fixture)).toBe(false);
 
-      const replacement = fixture.runCliProcess(['--json', 'name', 'NewIdentity']);
+      const replacement = fixture.runCliProcess(["--json", "name", "NewIdentity"]);
       await waitForSuccess(replacement);
       expect(durableCounts(fixture)).toMatchObject({ bindings: 1, profiles: 1 });
-      expect(fixture.paneMetadata()).toContain('NewIdentity');
+      expect(fixture.paneMetadata()).toContain("NewIdentity");
 
       fixture.releaseMetadataBarrier();
       const unbound = await waitForSuccess(unbinder);
-      expect(unbound).toMatchObject({ unbound: true, name: 'OldIdentity' });
-      expect(fixture.paneMetadata()).toContain('NewIdentity');
+      expect(unbound).toMatchObject({ unbound: true, name: "OldIdentity" });
+      expect(fixture.paneMetadata()).toContain("NewIdentity");
       expect(durableCounts(fixture)).toMatchObject({ bindings: 1, profiles: 1 });
 
-      const whoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(['whoami']);
+      const whoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(["whoami"]);
       expect(whoami.code).toBe(0);
-      expect(json(whoami)).toMatchObject({ bound: true, name: 'NewIdentity' });
-      const list = withoutAddress(await fixture.runJsonCli<IdentityList>(['list']));
+      expect(json(whoami)).toMatchObject({ bound: true, name: "NewIdentity" });
+      const list = withoutAddress(await fixture.runJsonCli<IdentityList>(["list"]));
       expect(list.code).toBe(0);
       expect(json(list).identities).toEqual([
-        expect.objectContaining({ name: 'NewIdentity', pane: fixture.pane }),
+        expect.objectContaining({ name: "NewIdentity", pane: fixture.pane }),
       ]);
-      expect(durableIdentity(fixture, 'oldidentity')).toEqual(identityBefore);
+      expect(durableIdentity(fixture, "oldidentity")).toEqual(identityBefore);
       expect(durableProfile(fixture, identityBefore.id)).toEqual(profileBefore);
-      await assertPublished(fixture, 'NewIdentity');
+      await assertPublished(fixture, "NewIdentity");
     });
   }, 12_000);
 
-  it('cleans a paused CLI process when a scenario throws', async () => {
+  it("cleans a paused CLI process when a scenario throws", async () => {
     const fixture = new E2EFixture();
     let childPid = 0;
     const run = async (): Promise<void> => {
       try {
-        await fixture.start({ metadataBarrier: { phase: 'before' } });
-        const child = fixture.runCliProcess(['--json', 'name', 'Cleanup']);
+        await fixture.start({ metadataBarrier: { phase: "before" } });
+        const child = fixture.runCliProcess(["--json", "name", "Cleanup"]);
         childPid = child.pid;
-        await fixture.waitForMetadataBarrier('entered');
-        throw new Error('intentional scenario failure');
+        await fixture.waitForMetadataBarrier("entered");
+        throw new Error("intentional scenario failure");
       } finally {
         await fixture.stop();
       }
     };
 
-    await expect(run()).rejects.toThrow('intentional scenario failure');
+    await expect(run()).rejects.toThrow("intentional scenario failure");
     expect(() => process.kill(-childPid, 0)).toThrow();
   }, 12_000);
 });
