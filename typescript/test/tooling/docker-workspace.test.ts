@@ -629,6 +629,24 @@ it('admits exact dependency payloads and refuses absent, mismatched, scratch and
   }
 });
 
+it('builds the fixture examples with the package scope the dependency archive cooks', () => {
+  // An unscoped example build resolves features across the workspace, so Cargo rebuilds the
+  // third-party crates the archive already holds (#6302).
+  const image = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const cook = readFileSync(
+    path.join(root, 'typescript/test/e2e/dependency-cache.Dockerfile'),
+    'utf8'
+  );
+  const examples = image
+    .split('\n')
+    .filter((line) => line.includes('cargo build --locked --example '));
+  expect(examples).toHaveLength(1);
+  expect(examples[0]).toMatch(/ -p tmt-adapters \\$/);
+  expect(cook).toContain(
+    'cargo chef cook --locked --recipe-path /recipe.json --examples -p tmt-adapters'
+  );
+});
+
 it('renders only two dependency COPYs while preserving the shipped native/runtime Dockerfile', () => {
   const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
   const inserted =

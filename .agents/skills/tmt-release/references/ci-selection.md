@@ -233,7 +233,8 @@ recording remains disabled. Temporary traces still exist during a test.
 ## Cache ownership
 
 Docker PR/MG shards restore exact main-owned dependency archives; the purpose-specific
-main seed exports Cargo target/debug and registry. Misses build cold; real compiler
+main seed exports Cargo target/debug and registry. The image's Cargo commands keep the
+package scope the seed cooks, or archived dependencies rebuild. Misses build cold; real compiler
 failures never retry cold. Pinned `Swatinem/rust-cache` has one main-ref writer per
 key: workspace for shared dev dependencies, process for its dev/release builds
 (`native-process-rust`), MSRV for its toolchain, each runtime target for its cache.
