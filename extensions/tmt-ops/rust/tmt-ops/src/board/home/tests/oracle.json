@@ -672685,8 +672685,8 @@
         12654,
         12655,
         12656,
-        12663,
-        12664,
+        12657,
+        12658,
         4132,
         4132,
         4132,
@@ -672727,8 +672727,8 @@
         37756,
         37757,
         37758,
-        37764,
-        37765,
+        37759,
+        37760,
         33877,
         33877,
         33877,
@@ -673255,7 +673255,7 @@
         12654,
         12655,
         12656,
-        12663,
+        12657,
         12658,
         4132,
         4132,
@@ -673297,7 +673297,7 @@
         37756,
         37757,
         37758,
-        37764,
+        37759,
         37760,
         33877,
         33877,
@@ -673826,7 +673826,7 @@
         12655,
         12656,
         12657,
-        12664,
+        12658,
         4132,
         4132,
         4132,
@@ -673868,7 +673868,7 @@
         37757,
         37758,
         37759,
-        37765,
+        37760,
         33877,
         33877,
         33877,
@@ -676344,7 +676344,7 @@
         12667,
         12668,
         12669,
-        12696,
+        12883,
         12697,
         977,
         978,
@@ -676382,7 +676382,7 @@
         36793,
         36715,
         37768,
-        37786,
+        38194,
         37787,
         26804,
         26804,
@@ -676426,7 +676426,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 31, width: 82, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 137, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -676442,7 +676442,7 @@
         12088,
         12672,
         12673,
-        12698,
+        12884,
         12699,
         6546,
         11929,
@@ -676480,7 +676480,7 @@
         36697,
         36698,
         36737,
-        37788,
+        38195,
         37789,
         26571,
         33911,
@@ -676524,7 +676524,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 98, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 77, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -676540,7 +676540,7 @@
         12093,
         12676,
         12677,
-        12700,
+        12885,
         12701,
         6548,
         11930,
@@ -676578,7 +676578,7 @@
         36701,
         36702,
         36740,
-        37790,
+        38196,
         37791,
         26574,
         33917,
@@ -676622,7 +676622,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 78, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 57, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -676638,7 +676638,7 @@
         12098,
         12680,
         12681,
-        12702,
+        12886,
         12703,
         1,
         1,
@@ -676676,7 +676676,7 @@
         36705,
         36706,
         36743,
-        37792,
+        36791,
         37793,
         65,
         65,
@@ -676720,7 +676720,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 58, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 37, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
+      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
     },
     {
       "lines": [
@@ -677503,8 +677503,8 @@
         12654,
         12655,
         12656,
-        12663,
-        12664,
+        12657,
+        12658,
         4132,
         4132,
         4132,
@@ -677545,8 +677545,8 @@
         37802,
         37803,
         37804,
-        37810,
-        37811,
+        37805,
+        37806,
         33988,
         33988,
         33988,
@@ -678073,7 +678073,7 @@
         12654,
         12655,
         12656,
-        12663,
+        12657,
         12658,
         4132,
         4132,
@@ -678115,7 +678115,7 @@
         37802,
         37803,
         37804,
-        37810,
+        37805,
         37806,
         33988,
         33988,
@@ -678644,7 +678644,7 @@
         12655,
         12656,
         12657,
-        12664,
+        12658,
         4132,
         4132,
         4132,
@@ -678686,7 +678686,7 @@
         37803,
         37804,
         37805,
-        37811,
+        37806,
         33988,
         33988,
         33988,
@@ -681162,7 +681162,7 @@
         12667,
         12668,
         12669,
-        12696,
+        12883,
         12697,
         977,
         978,
@@ -681200,7 +681200,7 @@
         36915,
         36837,
         37814,
-        37832,
+        38197,
         37833,
         27503,
         27503,
@@ -681244,7 +681244,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 31, width: 82, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 137, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -681260,7 +681260,7 @@
         12088,
         12672,
         12673,
-        12698,
+        12884,
         12699,
         6546,
         11929,
@@ -681298,7 +681298,7 @@
         36819,
         36820,
         36859,
-        37834,
+        38198,
         37835,
         27223,
         34022,
@@ -681342,7 +681342,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 98, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 77, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -681358,7 +681358,7 @@
         12093,
         12676,
         12677,
-        12700,
+        12885,
         12701,
         6548,
         11930,
@@ -681396,7 +681396,7 @@
         36823,
         36824,
         36862,
-        37836,
+        38199,
         37837,
         27229,
         34028,
@@ -681440,7 +681440,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 78, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 57, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -681456,7 +681456,7 @@
         12098,
         12680,
         12681,
-        12702,
+        12886,
         12703,
         1,
         1,
@@ -681494,7 +681494,7 @@
         36827,
         36828,
         36865,
-        37838,
+        36913,
         37839,
         65,
         65,
@@ -681538,7 +681538,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 58, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 37, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
+      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
     },
     {
       "lines": [
@@ -682321,8 +682321,8 @@
         12654,
         12655,
         12656,
-        12663,
-        12664,
+        12657,
+        12658,
         4132,
         4132,
         4132,
@@ -682364,7 +682364,7 @@
         37848,
         37849,
         34098,
-        37853,
+        37850,
         34100,
         34100,
         34100,
@@ -682891,7 +682891,7 @@
         12654,
         12655,
         12656,
-        12663,
+        12657,
         12658,
         4132,
         4132,
@@ -683462,7 +683462,7 @@
         12655,
         12656,
         12657,
-        12664,
+        12658,
         4132,
         4132,
         4132,
@@ -683504,7 +683504,7 @@
         37848,
         37849,
         34098,
-        37853,
+        37850,
         34100,
         34100,
         34100,
@@ -685980,7 +685980,7 @@
         12667,
         12668,
         12669,
-        12696,
+        12883,
         12697,
         977,
         978,
@@ -686062,7 +686062,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 31, width: 82, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 137, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -686078,7 +686078,7 @@
         12088,
         12672,
         12673,
-        12698,
+        12884,
         12699,
         6546,
         11929,
@@ -686160,7 +686160,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 98, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 77, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -686176,7 +686176,7 @@
         12093,
         12676,
         12677,
-        12700,
+        12885,
         12701,
         6548,
         11930,
@@ -686258,7 +686258,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 78, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 57, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -686274,7 +686274,7 @@
         12098,
         12680,
         12681,
-        12702,
+        12886,
         12703,
         1,
         1,
@@ -686356,7 +686356,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 58, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 37, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
+      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
     },
     {
       "lines": [
@@ -687139,8 +687139,8 @@
         12654,
         12655,
         12656,
-        12663,
-        12664,
+        12657,
+        12658,
         4132,
         4132,
         4132,
@@ -687709,7 +687709,7 @@
         12654,
         12655,
         12656,
-        12663,
+        12657,
         12658,
         4132,
         4132,
@@ -688280,7 +688280,7 @@
         12655,
         12656,
         12657,
-        12664,
+        12658,
         4132,
         4132,
         4132,
@@ -690798,7 +690798,7 @@
         12667,
         12668,
         12669,
-        12696,
+        12883,
         12697,
         977,
         978,
@@ -690880,7 +690880,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 31, width: 82, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 137, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 87, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 103, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 40, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 65, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 69, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 64, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 64, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 81, y: 7, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 91, y: 7, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -690896,7 +690896,7 @@
         12088,
         12672,
         12673,
-        12698,
+        12884,
         12699,
         6546,
         11929,
@@ -690978,7 +690978,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 98, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 77, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 27, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 43, y: 0, width: 9, height: 1 }, Action(Action { verb: Ui(OpenWeb), args: [], text: \"open-web\" })), (Rect { x: 65, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 89, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 93, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 88, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 88, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -690994,7 +690994,7 @@
         12093,
         12676,
         12677,
-        12700,
+        12885,
         12701,
         6548,
         11930,
@@ -691076,7 +691076,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 78, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 57, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 25, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 25, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 38, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
+      "stripHits": "[(Rect { x: 45, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 68, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 72, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 25, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 67, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 67, y: 13, width: 7, height: 1 }, TokMoney), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 15, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -691092,7 +691092,7 @@
         12098,
         12680,
         12681,
-        12702,
+        12886,
         12703,
         1,
         1,
@@ -691174,7 +691174,7 @@
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 31, width: 58, height: 4 })",
       "unreadHits": "[Hit { area: Rect { x: 37, y: 0, width: 10, height: 1 }, target: None }, Hit { area: Rect { x: 22, y: 12, width: 10, height: 1 }, target: Some(Squad(\"55555555-5555-4555-8555-000000000001\")) }, Hit { area: Rect { x: 22, y: 13, width: 10, height: 1 }, target: Some(Member { room_id: Some(\"55555555-5555-4555-8555-000000000001\"), identity_id: \"66666666-6666-4666-8666-000000000001\" }) }]",
-      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 35, y: 12, width: 2, height: 1 }, RoomChecklist(\"55555555-5555-4555-8555-000000000001\")), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
+      "stripHits": "[(Rect { x: 25, y: 7, width: 34, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 50, y: 8, width: 3, height: 1 }, TokUnit), (Rect { x: 54, y: 8, width: 2, height: 1 }, TokRange(ThreeHours)), (Rect { x: 2, y: 8, width: 15, height: 1 }, SortBy(Squads(Name))), (Rect { x: 22, y: 8, width: 7, height: 1 }, SortBy(Squads(Attention))), (Rect { x: 49, y: 9, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 10, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 11, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 12, width: 7, height: 1 }, TokMoney), (Rect { x: 49, y: 13, width: 7, height: 1 }, TokMoney)]"
     },
     {
       "lines": [
@@ -868596,7 +868596,11 @@
     "   ├ agent-00020      ● working                       █     ~84     ~84  0 │ cost avoided 1d                                            ≈ $297.57 at list price",
     "   ├ agent-00021      ● working                       █     ~63     ~63  0 │ prices as of                                                            2026-10-14",
     "   ├ agent-00022      ● working                       █     ~42     ~42  0 │",
-    "   └ agent-00023      ● working                       █     ~21     ~21  0 │── Digest by agent ─────────────────────── all + top 11 by TOK · 2 Digest for all ──"
+    "   └ agent-00023      ● working                       █     ~21     ~21  0 │── Digest by agent ─────────────────────── all + top 11 by TOK · 2 Digest for all ──",
+    " ▾ squad-01           ● 1 unread                              —       —  — │── Board ───────────────────────────────────────────────────────────────────────────",
+    " ▾ squad-01              ● 1 unread                                                   —       —  —",
+    " ▾ squad-01              ● 1 unread                              —       —  —",
+    " ▾ squad-01           ● 1 unread               —       —  —"
   ],
   "style_row_dictionary": [
     "0:9=s0 9:8=s1 17:93=s2 110:1=s1 111:3=s3 114:11=s1 125:2=s2 127:33=s1",
@@ -906792,6 +906796,12 @@
     "0:1=s63 1:24=s2 25:1=s71 26:20=s2 46:20=s63 66:1=s2 67:11=s70 78:1=s79 79:17=s2 96:3=s63 99:1=s2",
     "0:28=s70 28:10=s81 38:16=s70 54:1=s79 55:21=s70 76:84=s2",
     "0:1=s63 1:21=s2 22:1=s71 23:20=s2 43:11=s70 54:1=s79 55:17=s2 72:3=s63 75:4=s70 79:16=s63 95:23=s70 118:39=s2 157:3=s70",
-    "0:31=s70 31:10=s81 41:37=s70 78:1=s79 79:21=s70"
+    "0:31=s70 31:10=s81 41:37=s70 78:1=s79 79:21=s70",
+    "0:22=s11 22:1=s30 23:9=s24 32:43=s11 75:4=s8 79:6=s1 85:75=s8",
+    "0:25=s11 25:1=s30 26:9=s24 35:65=s11",
+    "0:25=s11 25:1=s30 26:9=s24 35:45=s11",
+    "0:22=s41 22:1=s60 23:9=s54 32:43=s41 75:4=s38 79:6=s34 85:75=s38",
+    "0:25=s41 25:1=s60 26:9=s54 35:65=s41",
+    "0:25=s41 25:1=s60 26:9=s54 35:45=s41"
   ]
 }
