@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-12",
+  "asOf": "2026-11-13",
   "metrics": [
     {
       "id": "subscriptions",
@@ -8,24 +8,24 @@
     },
     {
       "id": "loop",
-      "value": "795 h",
+      "value": "812 h",
       "label": "autonomous agent loop running"
     },
     {
       "id": "agents",
-      "value": "5,200",
+      "value": "5,300",
       "label": "agent-hours of work"
     },
     {
       "id": "prs",
-      "value": "2,879",
+      "value": "2,911",
       "label": "pull requests merged"
     },
     {
       "id": "code",
-      "value": "1.76M",
+      "value": "1.78M",
       "label": "lines of hand-written code added"
     }
   ],
-  "note": "27 September to 12 November 2026, from our agent session logs and git history. Subscriptions: one Claude and one Codex plan at $200 a month each, $800 paid in total. Loop hours count time with at least one agent active; agent-hours add up every agent. Lockfiles, generated files, fixtures and docs are not counted as code."
+  "note": "27 September to 13 November 2026, from our agent session logs and git history. Subscriptions: one Claude and one Codex plan at $200 a month each, $800 paid in total. Loop hours count time with at least one agent active; agent-hours add up every agent. Lockfiles, generated files, fixtures and docs are not counted as code."
 }
