@@ -21,7 +21,11 @@ import { useAgentDirectory } from './agent-directory.js';
 import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import { MessageToolbar } from './components/message-toolbar.js';
-import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
+import type {
+  ComposerActivation,
+  ComposerEdit,
+  ComposerRecovery,
+} from './components/message-composer-edit.js';
 import type { CreatorTarget } from './creator-default.js';
 import { messageRecipient } from './message-recipient.js';
 import {
@@ -40,6 +44,7 @@ import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
 import { captureConversation } from './thread-store.js';
+import { PendingMessageContext } from './draft-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
@@ -60,6 +65,7 @@ export function AnnotationInput({
   initialValue,
   initialEdit,
   activation,
+  recovery,
   onDraft,
   onBusy,
   onFailure,
@@ -85,6 +91,7 @@ export function AnnotationInput({
   initialValue?: string;
   initialEdit?: ComposerEdit;
   activation?: ComposerActivation;
+  recovery?: ComposerRecovery;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports this composer's send in flight; its owner keeps the composer mounted meanwhile. */
@@ -109,6 +116,7 @@ export function AnnotationInput({
   // With an echo host, the composer clears as the echo appears; a send that fails before it
   // is recorded leaves a failed row that holds the draft until Retry or Edit.
   const echoHost = useContext(MessageEchoContext);
+  const pendingMessages = useContext(PendingMessageContext);
   const creatorPreference = useCreatorDefault();
   const { directory, retry } = useAgentDirectory(binding);
   const agents = directory.state === 'ready' ? directory.agents : undefined;
@@ -173,6 +181,32 @@ export function AnnotationInput({
   reportUnsent.current = onUnsent;
   useEffect(() => reportUnsent.current?.(!!unsent), [unsent]);
   const focusAfterEdit = useRef(false);
+  const recovered = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!recovery || recovered.current === recovery.id) return;
+    recovered.current = recovery.id;
+    const current = latestEdit.current;
+    const separator = current.value ? '\n' : '';
+    const offset = current.value.length + separator.length;
+    const mentions = [
+      ...(current.mentions ?? []),
+      ...(recovery.edit.mentions ?? []).map((mention) => ({
+        ...mention,
+        range: { start: mention.range.start + offset, end: mention.range.end + offset },
+      })),
+    ];
+    const next: ComposerEdit = {
+      value: current.value + separator + recovery.edit.value,
+      edited: true,
+      ...(mentions.length ? { mentions } : {}),
+    };
+    initialized.current = true;
+    setEdit(next);
+    setResetKey((key) => key + 1);
+    onDraft?.(next.value, next);
+    queueMicrotask(() => section.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus());
+    recovery.consumed();
+  }, [recovery]); // eslint-disable-line react-hooks/exhaustive-deps
   const sending = useRef(false);
   const [error, setError] = useState<{
     reference: MessageSendReference;
@@ -325,6 +359,7 @@ export function AnnotationInput({
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
     let echoed: MessageEcho | undefined;
     let failedReference: MessageSendReference | undefined;
+    let retained: Promise<string | undefined> | undefined;
     // With an echo, a failure before the record is reported once, on the failed row.
     const fail = (reference: MessageSendReference) => {
       if (echoed && !origin) failedReference = reference;
@@ -354,6 +389,12 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
+      if (pendingMessages) {
+        // Recovery is best effort: an unavailable or slow local store never holds up Send.
+        retained = pendingMessages
+          .retain(chat ? 'chat' : 'comment', { ...current, edited: true })
+          .catch(() => undefined);
+      }
       if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
@@ -391,6 +432,12 @@ export function AnnotationInput({
         : chat
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
+      if (retained)
+        void retained
+          .then((key) => {
+            if (key) return pendingMessages?.clear(key);
+          })
+          .catch(() => {});
       onRecorded?.();
       stage = 'dispatch';
       if (echoed) {

@@ -1,12 +1,16 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, type ReactNode } from 'react';
 import { ConversationWindow } from './components/conversation-window.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { text } from './strings.js';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
-import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
+import type {
+  ComposerActivation,
+  ComposerEdit,
+  ComposerRecovery,
+} from './components/message-composer-edit.js';
 import type { CreatorTarget } from './creator-default.js';
 import { CommentExchange, MessageEchoTurn, useMessageEcho } from './thread-panel.js';
 import { MessageEchoContext } from './message-echo.js';
@@ -33,6 +37,8 @@ export function ChatPanel({
   onBusy,
   onUnsent,
   unsaved = false,
+  recovery,
+  recovered,
   close,
   escape = close,
 }: {
@@ -55,6 +61,8 @@ export function ChatPanel({
   onUnsent?(unsent: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */
   unsaved?: boolean;
+  recovery?: ReactNode;
+  recovered?: ComposerRecovery;
   close(): void;
   escape?(): void;
 }) {
@@ -186,6 +194,7 @@ export function ChatPanel({
         historyClassName="chat-messages"
         notice={
           <>
+            {recovery}
             {observationUnavailable && (
               <p role="status" className="annotation-hint">
                 {text.askObservationUnavailable}
@@ -214,6 +223,7 @@ export function ChatPanel({
               creationRecipient={creationRecipient}
               initialEdit={initialEdit}
               activation={activation}
+              recovery={recovered}
               onDraft={(_value, edit) => onDraft?.(edit)}
               blocked={blocked || !!own?.deleted}
               recoveryRequired={recoveryRequired && !own?.deleted}
@@ -224,7 +234,7 @@ export function ChatPanel({
           </MessageEchoContext>
         }
       >
-        {!chats.length && !legacy.length && !echoes.length && (
+        {!chats.length && !legacy.length && !echoes.length && !recovery && (
           <div className="chat-empty">
             <span aria-hidden="true">○</span>
             <h3>{text.chatEmpty}</h3>

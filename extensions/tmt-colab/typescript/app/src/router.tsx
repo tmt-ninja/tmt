@@ -160,7 +160,9 @@ import { FilesSurface } from './files-panel.js';
 import { MetadataDialogs } from './metadata-dialogs.js';
 import { verifiedQuestionStates } from './question-registry.js';
 import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
-import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
+import { CHAT_DRAFT, SavedDrafts, savedDrafts, unconfirmedDrafts } from './saved-drafts.js';
+import { PendingMessageContext, pendingMessageStore } from './draft-store.js';
+import type { ComposerRecovery } from './components/message-composer-edit.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeSection, usePageSize } from './page-size.js';
 import { SourceDraft } from './use-page-editor.js';
@@ -1821,6 +1823,7 @@ function OpenPage({
   const chatBusy = useRef(false);
   // Chat's composer holds a send that failed before it was recorded (#5870).
   const [chatUnsent, setChatUnsent] = useState(false);
+  const [chatRecovery, setChatRecovery] = useState<ComposerRecovery>();
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -2829,8 +2832,35 @@ function OpenPage({
           )}
           {/* A first comment that failed after its window closed is said here, never only on the
               quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
-          {(unsentAnnotations.length > 0 || (chatUnsent && panel !== 'chat')) && (
+          {(unsentAnnotations.length > 0 ||
+            (chatUnsent && panel !== 'chat') ||
+            (draftsReady &&
+              ((panel !== 'chat' && unconfirmedDrafts(drafts.current, 'chat').length > 0) ||
+                (panel !== 'comments' &&
+                  unconfirmedDrafts(drafts.current, 'comment').length > 0)))) && (
             <ul className="page-unsent" role="alert">
+              {(['chat', 'comment'] as const).flatMap((kind) =>
+                panel === (kind === 'chat' ? 'chat' : 'comments')
+                  ? []
+                  : unconfirmedDrafts(drafts.current, kind).map((item) => (
+                      <li key={item.key}>
+                        <X aria-hidden="true" className="page-unsent-mark" />
+                        <span>
+                          {text.messageInterrupted} {quoteExcerpt(item.text)}
+                        </span>
+                        <BrowserAction
+                          type="button"
+                          variant="text"
+                          label={text.annotationUnsentOpen}
+                          onActivate={(event) => {
+                            if (!event.isTrusted) return;
+                            if (kind === 'chat') openChat();
+                            else show('comments');
+                          }}
+                        />
+                      </li>
+                    )),
+              )}
               {/* A Chat message that failed after Chat closed is said the same way (#5870). */}
               {chatUnsent && panel !== 'chat' && (
                 <li key="chat">
@@ -3011,7 +3041,14 @@ function OpenPage({
           )}
           <SavedDrafts
             archived={archived}
-            drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
+            drafts={
+              discussionPending
+                ? []
+                : [
+                    ...savedDrafts(drafts.current, view.threads),
+                    ...unconfirmedDrafts(drafts.current, 'comment'),
+                  ]
+            }
             discard={discardDraft}
           />
           {draftsUnsaved && (
@@ -3341,8 +3378,35 @@ function OpenPage({
                 chatBusy.current = busy;
               }}
               onUnsent={setChatUnsent}
+              recovered={chatRecovery}
               onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
               unsaved={draftsUnsaved}
+              recovery={
+                unconfirmedDrafts(drafts.current, 'chat').length ? (
+                  <SavedDrafts
+                    drafts={unconfirmedDrafts(drafts.current, 'chat')}
+                    discard={discardDraft}
+                    archived={archived}
+                    restore={
+                      archived
+                        ? undefined
+                        : (key) => {
+                            const edit = drafts.current.get(key);
+                            if (!edit) return;
+                            setChatRecovery({
+                              id: key,
+                              edit: structuredClone(edit),
+                              consumed: () => {
+                                discardDraft(key);
+                                setChatRecovery(undefined);
+                              },
+                            });
+                          }
+                    }
+                    restoreDisabled={chatUnsent}
+                  />
+                ) : undefined
+              }
               observationUnavailable={view.askUnavailable}
               threads={view.threads ?? []}
               asks={view.asks ?? []}
@@ -3409,7 +3473,13 @@ function OpenPage({
                 </main>
               </section>
             ) : (
-              content
+              <PendingMessageContext
+                value={
+                  transport.drafts ? pendingMessageStore(transport.drafts, snapshot.id) : undefined
+                }
+              >
+                {content}
+              </PendingMessageContext>
             )}
           </AgentActivityProvider>
         </AgentPresentation>

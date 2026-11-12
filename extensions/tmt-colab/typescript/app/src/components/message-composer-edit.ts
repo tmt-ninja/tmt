@@ -14,6 +14,9 @@ export type ComposerEdit = {
 /** One parent request consumed by the mounted editor without resetting its draft. */
 export type ComposerActivation = { id: string; insertMention: boolean; consumed(): void };
 
+/** A person explicitly returned recovered text to the composer; never a send. */
+export type ComposerRecovery = { id: string; edit: ComposerEdit; consumed(): void };
+
 export type MessageComposerProps = {
   edit: ComposerEdit;
   onChange(edit: ComposerEdit): void;

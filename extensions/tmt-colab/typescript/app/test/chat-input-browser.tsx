@@ -7,10 +7,13 @@ import { ConversationTurn } from '../src/components/conversation-turn.js';
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { destination, id } from './ask-fixtures.js';
+import { PendingMessageContext, type PendingMessageStore } from '../src/draft-store.js';
 
 let root: Root | undefined;
 let createChats = 0;
 let selected: string[] = [];
+let releasePending: (() => void) | undefined;
+let pendingCalls = 0;
 
 function host() {
   root?.unmount();
@@ -21,10 +24,12 @@ function host() {
   document.body.append(main);
   createChats = 0;
   selected = [];
+  releasePending = undefined;
+  pendingCalls = 0;
   return main;
 }
 
-export function mountComposer(options: { agents: string[] }) {
+export function mountComposer(options: { agents: string[]; pending?: 'refuse' | 'hold' }) {
   const base = destination();
   const agents = options.agents.map((agentName, index) => ({
     ...base,
@@ -49,21 +54,36 @@ export function mountComposer(options: { agents: string[] }) {
       throw new Error('Counted');
     },
   } as unknown as ThreadBinding;
+  const pending: PendingMessageStore | undefined = options.pending
+    ? {
+        async retain() {
+          pendingCalls++;
+          if (options.pending === 'refuse') return undefined;
+          await new Promise<void>((resolve) => {
+            releasePending = resolve;
+          });
+          return 'unconfirmed:chat:fixture';
+        },
+        async clear() {},
+      }
+    : undefined;
   root = createRoot(host());
   root.render(
-    <ConversationPresentation value="chat">
-      <AnnotationInput
-        binding={binding}
-        discussion={discussion}
-        anchor={null}
-        asks={[]}
-        title="Chat page"
-        initialEdit={{ value: '', edited: true }}
-        blocked={false}
-        cancel={() => {}}
-        committed={() => {}}
-      />
-    </ConversationPresentation>,
+    <PendingMessageContext value={pending}>
+      <ConversationPresentation value="chat">
+        <AnnotationInput
+          binding={binding}
+          discussion={discussion}
+          anchor={null}
+          asks={[]}
+          title="Chat page"
+          initialEdit={{ value: '', edited: true }}
+          blocked={false}
+          cancel={() => {}}
+          committed={() => {}}
+        />
+      </ConversationPresentation>
+    </PendingMessageContext>,
   );
 }
 
@@ -112,5 +132,8 @@ export function mountMenu(options: { tight?: boolean; spaceAbove?: boolean } = {
 }
 
 export function proof() {
-  return { createChats, selected };
+  return { createChats, selected, pendingCalls };
+}
+export function releaseRecovery() {
+  releasePending?.();
 }

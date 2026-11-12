@@ -12,6 +12,24 @@ async function composer(page: Page, options: object) {
   return page.getByRole('combobox', { name: 'Message', exact: true });
 }
 
+test('an owner send proceeds when recovery storage refuses', async ({ page }) => {
+  const input = await composer(page, { agents: ['Solo'], pending: 'refuse' });
+  await input.fill('Keep this message.');
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).pendingCalls).toBe(1);
+  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+});
+
+test('an owner send does not wait for slow recovery storage', async ({ page }) => {
+  const input = await composer(page, { agents: ['Solo'], pending: 'hold' });
+  await input.fill('Wait for storage.');
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).pendingCalls).toBe(1);
+  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+  await run(page, 'releaseRecovery');
+  expect((await run(page, 'proof')).createChats).toBe(1);
+});
+
 test('unknown creator and prior display labels never infer a recipient', async ({ page }) => {
   const input = await composer(page, { agents: ['Solo'] });
   await expect(input).toHaveText('', { useInnerText: true });

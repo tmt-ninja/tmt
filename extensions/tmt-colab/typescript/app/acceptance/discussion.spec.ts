@@ -20,6 +20,7 @@ import {
   createPage,
   freePort,
   openPage,
+  openChat,
   run,
   selectInRenderer,
 } from './harness/ask.js';
@@ -1189,5 +1190,151 @@ test('served non-compact slots hide through nested details without losing drafts
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
+  });
+});
+
+test('interrupted Chat send remains visible after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'reload-chat');
+    let armed = false;
+    let held = 0;
+    await author.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (armed && type === 'append') {
+          held++;
+          return;
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => ws.send(message));
+    });
+    const created = createPage(world, 'Reload chat', '<h1>Reload chat</h1>');
+    const page = await openPage(door, author, created);
+    await openChat(page);
+    const panel = page.getByTestId('chat-panel');
+    const input = await inputFor(panel);
+    const body = 'A pending chat that must remain recoverable';
+    await input.fill(body);
+    armed = true;
+    await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect.poll(() => held, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(panel).toContainText(body);
+    await page.reload();
+    await openChat(page);
+    await expect(page.getByTestId('chat-panel')).toContainText(body, { timeout: 15_000 });
+    await expect(page.getByTestId('chat-panel')).toContainText(text.messageInterrupted);
+    await expect(
+      page.getByTestId('chat-panel').getByText(text.chatEmpty, { exact: true }),
+    ).toHaveCount(0);
+    const restoredInput = await inputFor(page.getByTestId('chat-panel'));
+    await restoredInput.fill('Existing draft');
+    await expect.poll(() => composerText(restoredInput)).toBe('Existing draft');
+    const heldBeforeRestore = held;
+    await page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }).click();
+    await expect.poll(() => composerText(restoredInput)).toBe(`Existing draft\n${body}`);
+    await expect(page.getByTestId('chat-panel')).not.toContainText(text.messageInterrupted);
+    expect(held).toBe(heldBeforeRestore);
+  });
+});
+
+test('interrupted anchored comment remains visible after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'reload-comment');
+    let armed = false;
+    let held = 0;
+    await author.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (armed && type === 'append') {
+          held++;
+          return;
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => ws.send(message));
+    });
+    const created = createPage(world, 'Reload comment', '<p id="quote">Quoted passage.</p>');
+    const page = await openPage(door, author, created);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => sessionStorage.setItem('test-copied-text', value),
+        },
+      });
+    });
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    await mode.click();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.frameLocator('iframe').locator('#quote').click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = await inputFor(dialog);
+    const body = 'A pending comment that must remain recoverable';
+    await input.fill(body);
+    armed = true;
+    await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect.poll(() => held, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(dialog).toContainText(body);
+    await page.reload();
+    await expect(page.locator('body')).toContainText(body, { timeout: 15_000 });
+    await expect(page.locator('.page-unsent[role="alert"]')).toContainText(text.messageInterrupted);
+    await (await pageAction(page, 'Comments')).click();
+    await page.getByRole('button', { name: text.messageInterruptedCopy, exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => sessionStorage.getItem('test-copied-text')))
+      .toBe(body);
+    await expect(
+      page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }),
+    ).toHaveCount(0);
+  });
+});
+
+test('a lost receipt does not publish another Chat copy after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'reload-receipt');
+    let armed = false;
+    let appends = 0;
+    let heldReceipts = 0;
+    await author.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (armed && type === 'append') appends++;
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (armed && appends && type === 'receipt') {
+          heldReceipts++;
+          return;
+        }
+        ws.send(message);
+      });
+    });
+    const created = createPage(world, 'Reload receipt', '<h1>Reload receipt</h1>');
+    const page = await openPage(door, author, created);
+    await openChat(page);
+    const panel = page.getByTestId('chat-panel');
+    const input = await inputFor(panel);
+    const body = 'One committed chat with a lost receipt';
+    await input.fill(body);
+    armed = true;
+    await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect.poll(() => heldReceipts, { timeout: 15_000 }).toBeGreaterThan(0);
+    const sentBeforeReload = appends;
+    await page.reload();
+    await openChat(page);
+    const entries = page
+      .getByTestId('chat-panel')
+      .getByTestId('comment-entry')
+      .filter({ hasText: body });
+    await expect(entries).toHaveCount(1, { timeout: 30_000 });
+    expect(appends).toBe(sentBeforeReload);
   });
 });
