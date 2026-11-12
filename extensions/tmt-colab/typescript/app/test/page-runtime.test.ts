@@ -31,7 +31,8 @@ vi.mock('../runtime-pin.json', () => ({
     theme: pinned('assets/colab-runtime.css'),
   },
 }));
-const { loadRuntime, runtimeUrl, UTILITIES_ONLY } = await import('../src/page-runtime.js');
+const { loadRuntime, runtimeUrl, UTILITIES_ONLY, wantsUtilities } =
+  await import('../src/page-runtime.js');
 
 afterEach(() => vi.unstubAllGlobals());
 /** Serves the pinned texts, with any overrides by path. */
@@ -136,4 +137,23 @@ test('renderer bytes that exceed or differ from the pin are omitted and never ca
   expect((await loadRuntime(base, ['terminal-frame'])).wasm).toBeUndefined();
   serve();
   expect((await loadRuntime(base, ['terminal-frame'])).wasm).toBeDefined();
+});
+
+test('a page may use utilities when it has a class token outside the design system, or a script', () => {
+  for (const source of [
+    '<p class="p-4">a</p>',
+    "<p class='tmt-ui-card flex'>a</p>",
+    '<p class=muted>a</p>',
+    '<p CLASS = "text-secondary">a</p>',
+    '<script>document.body.className = "p-4"</script>',
+    '<button onclick="this.classList.add(\'p-4\')">a</button>',
+  ])
+    expect(wantsUtilities(source), source).toBe(true);
+  for (const source of [
+    '<p>plain</p>',
+    '<section class="tmt-ui-card"><h2 class="tmt-ui-card-title">a</h2></section>',
+    '<p class="">a</p>',
+    '<tmt-icon name="check"></tmt-icon>',
+  ])
+    expect(wantsUtilities(source), source).toBe(false);
 });

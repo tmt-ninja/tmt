@@ -979,6 +979,14 @@ test('every page compiles Tailwind utilities with no reset, and only a React pag
 }) => {
   const fetched = await servePageRuntime(page);
   await page.goto('/');
+  // A page with no utility class and no script loads nothing extra and binds as before (#6077).
+  await mount(page, '<p id="bare">Bare</p><section class="tmt-ui-card">Card</section>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  expect(fetched).toEqual([]);
+  await page.evaluate(() => {
+    (window as unknown as { probe: { controller: AbortController } }).probe.controller.abort();
+    document.querySelector('#probe')?.remove();
+  });
   // No marker (#6077): the base and the theme, utilities only. The page's own lists keep their
   // markers, as the frame styles them, and no `window.tmt` exists.
   await mount(

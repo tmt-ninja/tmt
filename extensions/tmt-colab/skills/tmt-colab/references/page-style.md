@@ -39,7 +39,7 @@ theme cannot express.
 ```
 
 Every page compiles Tailwind's utility classes, with no marker and Colab's theme instead of Tailwind's
-default palette. Colour names are
+default palette (a page with no class outside `tmt-ui-*` and no script skips the compiler). Colour names are
 the TMT roles and follow Colab's light or dark theme by themselves, so a page needs no theme code:
 `bg-paper`, `bg-sheet`, `bg-code`, `bg-command`, `bg-selection`, `bg-disabled`, `text-text`,
 `text-secondary`, `text-link`, `border-edge`, `border-rule`, and the state colours `text-working`,

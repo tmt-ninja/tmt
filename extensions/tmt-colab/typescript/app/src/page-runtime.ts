@@ -15,6 +15,24 @@ export function wantsReact(source: string): boolean {
     .some((token) => token === 'react');
 }
 
+/** A class attribute, quoted or not, found by text: a page's own markup, never parsed. */
+const CLASS_ATTRIBUTE = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+/**
+ * Whether a page may use Tailwind utilities (#6077), so its frame needs the compiler: a class token
+ * that is not the design system's own (`tmt-…`), or a script or inline handler that could add one.
+ * A text test that over-approximates; a false match only loads the compiler. A page with neither
+ * binds as it did before Tailwind was the default, with no compiler to load or run.
+ */
+export function wantsUtilities(source: string): boolean {
+  if (/<script|\bon[a-z]+\s*=/i.test(source)) return true;
+  for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? '';
+    if (value.split(/[ \t\n\f\r]+/).some((token) => token !== '' && !token.startsWith('tmt-')))
+      return true;
+  }
+  return false;
+}
+
 /** Whether the page carries the marker at all, whatever its tokens: the frame keeps the editorial
  * ramp for a design-system page that did not ask for the runtime itself (#5917). */
 export function hasRuntimeMarker(source: string): boolean {

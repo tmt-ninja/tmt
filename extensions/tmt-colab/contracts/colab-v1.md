@@ -2785,8 +2785,11 @@ response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
-**Page runtime (#1693, #6077).** Every page gets the runtime's `base` and theme, so Tailwind utility
-classes from the token theme work with no marker. A page asks for React by its first
+**Page runtime (#1693, #6077).** A page that may use Tailwind utilities gets the runtime's `base` and theme,
+so utility classes from the token theme work with no marker. It may when its source, as plain text, has a
+`<script`, an inline `on…=` handler, or a `class` attribute with a token that does not start with `tmt-`
+(the design system's own); any other page binds as before, with no compiler to load or run, and an edit that
+changes the answer mounts a fresh frame. A page asks for React by its first
 `<meta name="tmt-colab-runtime">` element in document order, found by HTML parsing with scripting off
 (never by text search, so a comment, a `textarea`, a `title`, a `style`, a `template`'s content or a
 script string holding the markup does not count, while `noscript` content is ordinary markup and does).
@@ -2796,7 +2799,8 @@ for nothing more; other tokens are ignored. This rule is stated here once: the a
 and the native standalone export both test against the shared cases in
 [`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift.
 
-The parent chooses the page's chunks (#6085): the `base`; `react` for a page that asks for it or names or
+The parent chooses the page's chunks (#6085): the `base` (for a page that may use utilities, asks for React or
+runs design-system components); `react` for a page that asks for it or names or
 writes design-system components (they run on React); the chunks of the
 [chunk vector](vectors/page-runtime-chunks-v1.json) that provide the `uiParts` and `parts` declared by the
 verified design-system components whose tags the page writes (and the components those `requires`); and every
@@ -2823,8 +2827,8 @@ without taking down unrelated chunks. The cached verified bytes are never transf
 parts and removing the chunk loader's globals) into the trusted head after the acknowledgement and before the
 author's document, so the theme (and, with `react`, `window.tmt`) exist before any page script and each chunk runs
 once per frame. If the base, the theme or an asked-for `react` cannot be fetched or verified, a page that asks for
-React or runs design-system components ends `failed` rather than running half-working; any other page binds with
-no `runtime` field, as it did before Tailwind was the default, and its classes stay unstyled. A later chunk that cannot is left out, and only the components whose declared parts it
+React or runs design-system components ends `failed` rather than running half-working; a page that only may use
+utilities binds with no `runtime` field, as it did before Tailwind was the default, and its classes stay unstyled. A later chunk that cannot is left out, and only the components whose declared parts it
 provides draw a fixed "Part unavailable" status in their place. The same `mountRenderer` serves the owner view and the reader; no capability,
 message type or CSP allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
@@ -7740,8 +7744,9 @@ Archived browser export is not supported; deleted pages remain denied.
 writes `page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work)
 and before `conversations.json`. It is the document the renderer frame builds for the page, with what the
 page needs written into its head, so the page looks and works when the file is opened from disk with no
-Colab and no network. Every page compiles Tailwind's utilities (#6077), so every copy carries the runtime
-(`{script}` and `{style}` below) unless it names a design system; what else it carries:
+Colab and no network. Every copy carries the runtime's compiler (#6077): the copy has no parent to judge a
+page's classes as it changes, and its bytes are written once. So every copy carries the runtime (`{script}`
+and `{style}` below) unless it names a design system; what else it carries:
 
 - It asks for React ([Page runtime](#renderer-and-live-anchors)): the first `<meta name="tmt-colab-runtime">`
   in document order, found by parsing, has a `react` token. The copy carries all of the runtime; any other

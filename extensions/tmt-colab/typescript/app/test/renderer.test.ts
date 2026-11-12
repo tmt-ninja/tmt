@@ -256,6 +256,15 @@ test('the source part of the frame key: script-free pages share a key, any scrip
   expect(sourceFrameKey('<p class="tmt-ui-card">a</p>')).toBe(
     sourceFrameKey('<p class="tmt-ui-card">b</p>'),
   );
+  // A frame binds the Tailwind compiler only for a page that may use utilities (#6077), so an edit
+  // that adds or drops them gets a fresh frame, and edits on either side keep it.
+  expect(sourceFrameKey('<p>a</p>')).not.toBe(sourceFrameKey('<p class="p-4">a</p>'));
+  expect(sourceFrameKey('<p class="p-4">a</p>')).toBe(
+    sourceFrameKey("<p class='flex gap-2'>b</p>"),
+  );
+  expect(sourceFrameKey('<p class="tmt-ui-card p-4">a</p>')).not.toBe(
+    sourceFrameKey('<p class="tmt-ui-card">a</p>'),
+  );
   // A page that may hold a script, an inline handler or the runtime marker is keyed by its whole
   // source, so any edit of it mounts a fresh frame.
   for (const scripted of [
