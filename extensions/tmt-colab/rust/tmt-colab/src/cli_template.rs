@@ -794,6 +794,8 @@ fn commit(
 fn save(args: &ArgMatches) -> Result<()> {
     let json_output = args.get_flag("json");
     let (mut space, lock) = write_space()?;
+    let _saves =
+        template_catalog::save_lock(&space.open.as_ref().ok_or(page::Fault::Missing)?.layout)?;
     let name = args.get_one::<String>("name").expect("required name");
     let operand = args.get_one::<String>("page").expect("required page");
     let catalog = space.catalog()?;

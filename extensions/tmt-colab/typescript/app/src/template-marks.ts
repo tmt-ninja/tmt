@@ -26,14 +26,14 @@ export interface TemplateSource {
 }
 
 /** 1 to 40 characters of `a-z`, `0-9` and `-`. */
-function validName(name: unknown): name is string {
+export function validTemplateName(name: unknown): name is string {
   return typeof name === 'string' && /^[a-z0-9-]{1,40}$/.test(name);
 }
 
 export function validateTemplateMark(value: unknown): asserts value is TemplateMark {
   const mark = keys(value, ['name', 'description']);
   requireValue(
-    validName(mark.name) && !(BUILT_IN_TEMPLATES as readonly string[]).includes(mark.name),
+    validTemplateName(mark.name) && !(BUILT_IN_TEMPLATES as readonly string[]).includes(mark.name),
   );
   plain(mark.description, TEMPLATE_DESCRIPTION_BYTES);
   // One trimmed line: `plain` already refused control characters, so no line break remains.
@@ -42,7 +42,7 @@ export function validateTemplateMark(value: unknown): asserts value is TemplateM
 
 export function validateTemplateSource(value: unknown): asserts value is TemplateSource {
   const source = keys(value, ['name'], ['revision']);
-  requireValue(validName(source.name));
+  requireValue(validTemplateName(source.name));
   if (Object.hasOwn(source, 'revision'))
     requireValue(typeof source.revision === 'string' && /^v1:[0-9a-f]{64}$/.test(source.revision));
 }

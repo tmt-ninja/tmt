@@ -427,6 +427,22 @@ pub fn admit_save(
     Ok(serde_json::json!({"name": name, "description": description}))
 }
 
+/// The lock that orders template saves across pages and processes: a name is unique in the space,
+/// so a save holds it from reading the catalog until its write commits, whether the CLI or the
+/// serve's browser Save as template makes it. Blocking: a second save waits, then finds the name.
+pub fn save_lock(layout: &Layout) -> Result<nix::fcntl::Flock<std::fs::File>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(layout.directory.join("template-saves.lock"))?;
+    nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive)
+        .map_err(|(_, error)| error.into())
+}
+
 /// A description for a page being saved: its title, folded into one trimmed line within the bound.
 pub fn fit_description(title: &str) -> String {
     let line = title

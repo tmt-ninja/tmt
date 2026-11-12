@@ -88,20 +88,22 @@ export function operation(value: string): void {
   requireValue(OPERATIONS.includes(value));
 }
 /** Display-only operations change owner-store state without a log statement; only management
- * requests name them (`page.pin` pins or unpins the page it names, #4356). `page.new` (#5866) is
- * the owner device's new top-level page: the owner makes it at its own head, so it names no revision
- * either. */
+ * requests name them (`page.pin` pins or unpins the page it names, #4356). `page.new` (#5076) is
+ * the owner device's new top-level page from a template, made at the owner's own head, and
+ * `template.default` (#5077) sets the serving machine's default template; neither names a revision
+ * nor is ever a statement. */
 const UNREVISIONED_OPERATIONS = [
   'page.projects',
   'project.manage',
   'page.pin',
   'page.kind',
   'page.new',
+  'template.default',
 ];
-/** The page a space-level request names: the frame binds one page and a project change or a new
- * page has none. Only `project.manage` and `page.new` may name it. */
+/** The page a space-level request names: the frame binds one page and a project change, a new page
+ * or the default template has none. Only those requests may name it. */
 export const SPACE_SCOPE_PAGE = '00000000-0000-4000-8000-000000000000';
-const SPACE_SCOPED_OPERATIONS = ['project.manage', 'page.new'];
+const SPACE_SCOPED_OPERATIONS = ['project.manage', 'page.new', 'template.default'];
 export function managementOperation(value: string): void {
   requireValue(OPERATIONS.includes(value) || UNREVISIONED_OPERATIONS.includes(value));
 }

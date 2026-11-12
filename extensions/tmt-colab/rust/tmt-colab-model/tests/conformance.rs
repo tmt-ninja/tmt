@@ -151,6 +151,13 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
         auth::management_input(&request).is_err(),
         "a new page names the space scope page"
     );
+    // The serving machine's default template (#5077) is the same kind of request.
+    request.operation = "template.default";
+    request.page = auth::SPACE_SCOPE_PAGE;
+    assert!(auth::management_input(&request).is_ok());
+    request.page = page;
+    assert!(auth::management_input(&request).is_err());
+    assert!(auth::operation("template.default").is_err());
     assert!(auth::operation("page.new").is_err());
     assert!(tmt_colab_model::payload::decode("page.new", b"{}").is_err());
     request.page = page;

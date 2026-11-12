@@ -398,7 +398,13 @@ it('signs display-only label requests with an empty revision and log operations 
   await expect(c.managementInput(created)).resolves.toBeInstanceOf(Uint8Array);
   await expect(c.managementInput({ ...created, page: management.page })).rejects.toThrow();
   await expect(c.managementInput({ ...created, expectedRevision: '1' })).rejects.toThrow();
-  for (const name of ['page.kind', 'page.new']) expect(() => c.operation(name)).toThrow();
+  // #5077: the serving machine's default template is space-scoped and names no head.
+  const defaulted = { ...manage, operation: 'template.default' };
+  await expect(c.managementInput(defaulted)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...defaulted, page: management.page })).rejects.toThrow();
+  await expect(c.managementInput({ ...defaulted, expectedRevision: '1' })).rejects.toThrow();
+  for (const name of ['page.kind', 'page.new', 'template.default'])
+    expect(() => c.operation(name)).toThrow();
   // #6049: a pin names its own page and no head, like the project writes the owner accepts.
   const pin = { ...projects, operation: 'page.pin' };
   await expect(c.managementInput(pin)).resolves.toBeInstanceOf(Uint8Array);

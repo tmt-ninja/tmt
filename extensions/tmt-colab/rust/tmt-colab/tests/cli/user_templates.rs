@@ -930,3 +930,62 @@ fn the_browser_and_the_cli_share_one_owner_per_template_rule() {
     assert!(settings(&pilot).get("defaultTemplate").is_none());
     agrees(&pilot);
 }
+
+/// A name is unique in the space, so saves are ordered by one lock across pages and processes: a
+/// save waits while another holds it, and of two pages saving one name back to back the second is
+/// refused.
+#[test]
+fn two_pages_saving_one_name_back_to_back_keep_it_unique() {
+    let pilot = Pilot::new(None);
+    let first = page(&pilot, "Weekly review", TEMPLATE_SOURCE);
+    let second = page(&pilot, "Weekly copy", TEMPLATE_SOURCE);
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let held = tmt_colab::template_catalog::save_lock(&layout).unwrap();
+    let mut waiting = pilot
+        .command()
+        .args([
+            "template",
+            "save",
+            &first,
+            "--name",
+            "weekly-review",
+            "--json",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // While the lock is held the save cannot finish.
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < deadline {
+        assert!(
+            waiting.try_wait().unwrap().is_none(),
+            "the save did not wait"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(held);
+    assert!(waiting.wait_with_output().unwrap().status.success());
+    refused(
+        &pilot,
+        &[
+            "template",
+            "save",
+            &second,
+            "--name",
+            "weekly-review",
+            "--json",
+        ],
+        "COLAB_TEMPLATE_NAME_TAKEN",
+    );
+    assert_eq!(
+        listed(&pilot)["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["name"] == "weekly-review")
+            .count(),
+        1
+    );
+}

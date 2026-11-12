@@ -864,6 +864,15 @@ impl<A: Admission> Server<A> {
         job: &SaveJob,
     ) -> Result<crate::page::save::SaveResult, Code> {
         let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
+        // A browser Save as template holds the space's template-save lock from its name check
+        // until it commits, as `template save` does, so two pages never both take one name.
+        let _saves = match &job.metadata {
+            Some(edit) if edit.action == "template.set" => {
+                let layout = (job.open)().map_err(|_| Code::Denied)?.layout;
+                Some(crate::template_catalog::save_lock(&layout).map_err(|_| Code::Denied)?)
+            }
+            _ => None,
+        };
         let mut evaluations = 0;
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
