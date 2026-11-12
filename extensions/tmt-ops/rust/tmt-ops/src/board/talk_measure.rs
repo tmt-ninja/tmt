@@ -129,7 +129,7 @@ fn checklist(
             .composer_projection()
             .is_some_and(|projection| projection.focused)
     {
-        Some(keycap::control_span(app, "^L", action))
+        (!app.bindings().contains_key("ctrl-l")).then(|| keycap::control_span(app, "^L", action))
     } else {
         keycap::key(app, action, "C").map(|key| keycap::control_span(app, &key, action))
     };

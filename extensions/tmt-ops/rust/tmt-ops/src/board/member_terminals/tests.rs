@@ -475,6 +475,31 @@ mod board {
     }
 
     #[test]
+    fn ctrl_l_reaches_the_selected_terminal_as_input() {
+        use crate::board::terminal_tab::stream::tests::{Fake, size};
+        use tmt_pty_protocol::ClientMessage;
+
+        let peer = Fake::new();
+        let (mut app, member) = listed_board();
+        let mut listed = terminal(3, 30, false);
+        listed.socket = peer.address.socket.clone();
+        app.terminals.finished(
+            Completed::Listed(vec![(MEMBER.into(), List::Terminals(vec![listed]))]),
+            0,
+        );
+        select(&mut app, &member, 3);
+        assert!(app.terminal_sync());
+        let mut socket = peer.accept();
+        socket.attach(size(80, 24), b"");
+        press(&mut app, KeyCode::Enter);
+        assert!(app.terminals.typing().is_some());
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
+        assert!(app.notes_overlay.is_none());
+        assert!(app.terminals.typing().is_some());
+    }
+
+    #[test]
     fn a_terminal_row_has_no_recipient_and_its_stream_drops_when_the_selection_moves() {
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);

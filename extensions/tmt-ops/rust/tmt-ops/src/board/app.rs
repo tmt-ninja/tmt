@@ -4282,6 +4282,18 @@ impl App {
         {
             return self.perform(&action);
         }
+        // An explicitly bound chord retains its action while the composer owns input.
+        if self.input.is_some()
+            && key.code == KeyCode::Char('l')
+            && key.modifiers == KeyModifiers::CONTROL
+            && self.conversation_checklist_key().is_some()
+            && self
+                .composer_projection()
+                .is_some_and(|projection| projection.focused)
+            && let Some(action) = self.bindings().remove("ctrl-l")
+        {
+            return self.perform(&action);
+        }
         if self.input.is_some()
             && key.code == KeyCode::Char('l')
             && key.modifiers == KeyModifiers::CONTROL

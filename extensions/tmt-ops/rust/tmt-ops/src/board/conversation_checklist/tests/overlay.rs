@@ -70,6 +70,36 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
 }
 
 #[test]
+fn authored_ctrl_l_wins_over_checklist_while_composing() {
+    let (mut app, _) = read_with(vec![todo(1)]);
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert(
+            "ctrl-l".into(),
+            crate::action::Action::parse("pane-measure").unwrap(),
+        );
+    }
+    press(&mut app, KeyCode::Enter);
+    type_text(&mut app, "draft");
+    assert!(!paint(&app).contains("^L checklist"));
+    press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+    assert!(
+        app.notes_overlay.is_none(),
+        "authored key must not open Checklist"
+    );
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Measure);
+}
+
+#[test]
 fn ctrl_l_is_not_advertised_or_consumed_without_a_checklist_target() {
     let (mut app, _) = read_with(vec![todo(1)]);
     press(&mut app, KeyCode::Enter);

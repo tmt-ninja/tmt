@@ -42,14 +42,9 @@ fn measure_and_talk_keys_directly_select_both_scopes() {
 }
 
 #[test]
-fn focused_input_keeps_checklist_and_state_on_the_120_column_strip() {
+fn focused_strip_never_clips_the_checklist_chip_at_120_and_shows_both_at_160() {
     let mut app = board();
     press(&mut app, KeyCode::Enter);
-    for width in [80, 100, 120, 130, 140, 150, 160] {
-        let text = paint(&app, width, 36).join("\n");
-        let line = text.lines().find(|line| line.contains("Measure"));
-        eprintln!("width={width} strip={line:?}");
-    }
     let text = paint(&app, 120, 36).join("\n");
     let line = text.lines().find(|line| line.contains("Measure")).unwrap();
     assert!(line.contains("● working"), "{line}");
