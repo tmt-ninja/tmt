@@ -358,7 +358,8 @@ consumers verify restored executable paths before testing.
 Whole binaries use the shared `splitWeightedFiles` largest-first/lightest-bucket
 allocator, selected by pinned nextest exact `binary_id` filtersets. The false
 `not test(/.*/)` arm retains full discovery for strict listing admission. Measured
-case-second weights and their source cohort/date live in
+weights (`ceil(median summed PASS seconds + median max single-case seconds)`
+per binary) and their source cohort/date live in
 `typescript/scripts/workspace-shard-weights.json`; refit them during the weekly
 gate-time check (#3283). New binaries receive the stated default weight and still
 run; stale names are ignored. Neither changes exact identity-union coverage.
