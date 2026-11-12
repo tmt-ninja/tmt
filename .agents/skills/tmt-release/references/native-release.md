@@ -157,6 +157,14 @@ only cargo-about inventories; the ordinary notice/archive modes retain combined 
 Inventories, diagnostics and timings remain under `rust/target/native-notices/verified/` and
 are uploaded as CI evidence. This performs no native compilation and proves notices only.
 
+Colab's default/hosted Vite notice output retains private JSON under
+`rust/target/bundled-notices/`, outside the served and embedded app inventories.
+Code quality evaluates the default build's JSON after `build:bundles` with
+`bundled-license-policy.mjs`; failure names the package at that step, not inside Vite.
+The SPDX allowlist is `rust/about.toml`. The one version/integrity/hash-bound npm
+text clarification lives in `bundled-license-clarification.mjs`; no network fallback exists.
+Other build modes and final release npm-policy enforcement remain pending under #2991.
+
 Install the pinned tools into a chosen directory: cargo-dist 0.32.0 (`cargo install --locked`)
 and cargo-about 0.9.2 (`cargo install --locked --features cli`). Fetch locked dependencies
 before the offline notice step. Crates whose archive omits a license file (taffy 0.7.7, yrs

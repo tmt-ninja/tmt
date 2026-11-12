@@ -2,7 +2,8 @@
 # The HTTPS runtime adds ISC crypto code and CDLA-permissive root-certificate
 # data. Preserve their complete generated texts and copyright notices.
 # Zlib covers Squad's foldhash and the private TUI leaf's slotmap.
-accepted = ["MIT", "Apache-2.0", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Permissive-2.0", "Zlib"]
+# 0BSD covers shipped browser tslib; append it to preserve existing OR-choice preference.
+accepted = ["MIT", "Apache-2.0", "Unicode-3.0", "ISC", "BSD-3-Clause", "CDLA-Permissive-2.0", "Zlib", "0BSD"]
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
 private = { ignore = true }
