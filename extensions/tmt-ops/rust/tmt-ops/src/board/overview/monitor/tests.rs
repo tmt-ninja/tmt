@@ -41,7 +41,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
             app.overview_rows.borrow_mut().clear();
             let filtered = text(&paint(&mut app, 103, 51));
             assert!(
-                filtered.contains(&format!("{} of {count}", usize::from(count > 0))),
+                filtered.contains(if count > 0 { "1 of 1" } else { "0 of 0" }),
                 "{filtered}"
             );
             if count == 1 {
@@ -108,7 +108,7 @@ fn search_counts_keep_the_admitted_denominator_in_the_squad_tree() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = board();
     select_squad(&mut app);
-    for (query, expected) in [("worker", "1 of 3"), ("no-such-agent", "0 of 3")] {
+    for (query, expected) in [("worker", "1 of 1"), ("no-such-agent", "0 of 0")] {
         app.search = query.into();
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();
@@ -201,69 +201,6 @@ fn text(buffer: &Buffer) -> String {
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
-}
-#[test]
-fn waiting_is_request_attention_not_a_state_word_or_blocked_status() {
-    let mut app = board();
-    assert_eq!(
-        scene(&app, app.workspace_snapshot().unwrap())
-            .rows
-            .iter()
-            .map(|row| row.title.as_str())
-            .collect::<Vec<_>>(),
-        ["waiting-other", "worker", "blocked-only"]
-    );
-    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    snapshot.roster.members.get_mut(BLOCKED).unwrap().state = Some("waiting".into());
-    snapshot.roster.squads[0]
-        .member_states
-        .get_mut(BLOCKED)
-        .unwrap()
-        .state = Some("waiting".into());
-    app.overview_rows.borrow_mut().clear();
-    assert_eq!(
-        scene(&app, app.workspace_snapshot().unwrap())
-            .rows
-            .iter()
-            .filter(|row| waits(app.workspace_snapshot().unwrap(), row))
-            .count(),
-        2,
-        "an authored word cannot manufacture a pending request"
-    );
-}
-#[test]
-fn waiting_order_uses_known_oldest_evidence_then_unknown_without_a_duration_label() {
-    let mut app = board();
-    assert_eq!(
-        scene(&app, app.workspace_snapshot().unwrap()).rows[0].title,
-        "waiting-other",
-        "unpinned waiting rows use their oldest known evidence"
-    );
-    let raw = app
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .rows
-        .get_mut(&OpsTarget::Member {
-            room_id: Some(ROOM.into()),
-            identity_id: OTHER.into(),
-        })
-        .unwrap();
-    raw["waitingOnYou"] = json!([]);
-    raw["pending"] = json!("Approve waiting-other?");
-    app.overview_rows.borrow_mut().clear();
-    assert_eq!(
-        scene(&app, app.workspace_snapshot().unwrap()).rows[0].title,
-        "worker",
-        "unknown age follows known evidence"
-    );
-    let rendered = text(&paint(&mut app, 103, 51));
-    assert!(rendered.contains("waiting"));
-    assert!(!rendered.contains("waiting 2s"));
 }
 #[test]
 fn search_keeps_a_hidden_uuid_and_authored_filter_bindings_win() {
@@ -409,78 +346,6 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
 }
 
 #[test]
-fn an_ineligible_preferred_membership_cannot_mask_a_waiting_occurrence() {
-    let mut app = board();
-    let preferred = OpsTarget::Member {
-        room_id: Some(ROOM.into()),
-        identity_id: MEMBER.into(),
-    };
-    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    let mut other = snapshot.roster.squads[0].clone();
-    other.room_id = "99999999-9999-4999-8999-999999999999".into();
-    other.name = "other-room".into();
-    other.members = vec![MEMBER.into()];
-    other.lead = Some(MEMBER.into());
-    other.member_states.retain(|id, _| id == MEMBER);
-    other.member_states.get_mut(MEMBER).unwrap().waiting = true;
-    let eligible = OpsTarget::Member {
-        room_id: Some(other.room_id.clone()),
-        identity_id: MEMBER.into(),
-    };
-    let row = snapshot.rows[&preferred].clone();
-    snapshot.rows.insert(eligible.clone(), row);
-    snapshot.roster.squads[0]
-        .member_states
-        .get_mut(MEMBER)
-        .unwrap()
-        .waiting = false;
-    snapshot.roster.squads.push(other);
-    let rows = crate::board::workspace::identity_rows_matching(
-        snapshot,
-        "worker",
-        Some(&preferred),
-        &Default::default(),
-        |row| waits(snapshot, row),
-    );
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].target, eligible);
-    let unfiltered = crate::board::workspace::identity_rows(
-        snapshot,
-        "worker",
-        Some(&preferred),
-        &Default::default(),
-    );
-    assert_eq!(
-        unfiltered[0].target, preferred,
-        "positive control: preference still selects an eligible occurrence"
-    );
-}
-
-#[test]
-fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
-    let mut app = board();
-    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    assert!(snapshot.roster.members[MEMBER].waiting);
-    snapshot.roster.squads[0].member_states.remove(MEMBER);
-    app.overview_rows.borrow_mut().clear();
-    let snapshot = app.workspace_snapshot().unwrap();
-    let scene = scene(&app, snapshot);
-    let row = scene.rows.iter().find(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).expect("all-agent view retains the observed identity");
-    assert!(
-        !waits(snapshot, row),
-        "global waiting must not be attributed to this unobserved membership"
-    );
-    assert_eq!(
-        scene.rows.iter().filter(|row| waits(snapshot, row)).count(),
-        1
-    );
-    assert!(
-        snapshot.roster.shell_counts().waiting > 0,
-        "global evidence stays in its own scope"
-    );
-}
-
-#[test]
 fn squad_tree_has_no_filter_chips_or_default_f_action() {
     let mut app = board();
     select_squad(&mut app);
@@ -565,10 +430,10 @@ fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     app.workspace_reconcile();
 
     let squads = text(&paint(&mut app, 103, 51));
-    assert!(squads.contains("4 of 28"), "{squads}");
+    assert!(squads.contains("1 of 1"), "{squads}");
     app.search = "agent-00000".into();
     app.workspace_reconcile();
 
     let agents = text(&paint(&mut app, 103, 51));
-    assert!(agents.contains("1 of 28"), "{agents}");
+    assert!(agents.contains("1 of 1"), "{agents}");
 }

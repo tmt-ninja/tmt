@@ -1,6 +1,6 @@
 pub(in crate::board) mod captures;
 use super::*;
-use crate::board::app::workspace::tests::board;
+use crate::board::app::{Choice, workspace::tests::board};
 #[test]
 fn common_pool_never_opens_a_setting_or_starts_io() {
     let _commands = crate::runner::forbid_commands();

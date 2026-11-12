@@ -85,7 +85,7 @@ impl Info<'_> {
             if self.checklist { "  ^L checklist" } else { "" }
         );
         let keys = format!(
-            "⏎ send  {newline}  {}{}",
+            "⏎  {newline}  {}{}",
             crate::board::mentions::PRIMARY_TRIGGER,
             if self.checklist { "  ^L checklist" } else { "" }
         );
@@ -106,12 +106,10 @@ impl Info<'_> {
                 left,
                 if keys.width() + 2 <= usize::from(line.width) {
                     keys
-                } else if self.checklist
-                    && "⏎ send  ^L checklist".width() + 2 <= usize::from(line.width)
-                {
-                    "⏎ send  ^L checklist"
-                } else if "⏎ send".width() <= usize::from(line.width) {
-                    "⏎ send"
+                } else if self.checklist && "⏎  ^L".width() <= usize::from(line.width) {
+                    "⏎  ^L"
+                } else if self.checklist && "^L".width() <= usize::from(line.width) {
+                    "^L"
                 } else {
                     "⏎"
                 },
@@ -143,10 +141,11 @@ impl Info<'_> {
         );
         let send = right.split("  ").next().unwrap_or_default();
         Hits {
-            send: (send.width() <= usize::from(right_area.width)).then_some(Rect {
-                width: send.width() as u16,
-                ..right_area
-            }),
+            send: (send.starts_with('⏎') && send.width() <= usize::from(right_area.width))
+                .then_some(Rect {
+                    width: send.width() as u16,
+                    ..right_area
+                }),
             unread,
         }
     }
@@ -155,6 +154,34 @@ impl Info<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focused_checklist_hint_survives_narrow_widths_without_a_partial_key() {
+        let info = Info {
+            name: "worker",
+            checklist: true,
+            newline: crate::board::app::NewlineKey::Alt,
+            unread: Count::default(),
+            open: Some(0),
+            context: None,
+        };
+        for width in 4..=80 {
+            let area = Rect::new(0, 0, width, 2);
+            let mut buffer = Buffer::empty(area);
+            info.paint(&mut buffer, area, Look::default(), false);
+            let line: String = buffer.content[usize::from(width)..]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(line.contains("^L"), "{width}: {line}");
+            if line.contains("Alt+") && !line.contains("new line") {
+                assert!(
+                    !line.contains("send"),
+                    "keys-only fallback: {width}: {line}"
+                );
+            }
+        }
+    }
     #[test]
     fn context_keeps_known_zero_and_omits_an_unknown_window_and_observation() {
         let look = Look::default();

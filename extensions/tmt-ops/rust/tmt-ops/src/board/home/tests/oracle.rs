@@ -617,7 +617,7 @@ fn measure_frames(styles: &mut Styles) -> Vec<Value> {
 fn search_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
-        for mode in ["agents-all"] {
+        for mode in ["tree"] {
             for state in ["matches", "empty"] {
                 for width in [160, 100, 80] {
                     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
@@ -1228,10 +1228,10 @@ macro_rules! oracle_groups {
             560,
             switch_frames(crate::board::switch_tool::tests::captures::SCENES, $styles,)
         );
-        $group!(2, 128, idle_alert_frames_for_look($styles, Some(0)));
-        $group!(3, 128, idle_alert_frames_for_look($styles, Some(1)));
-        $group!(4, 128, idle_alert_frames_for_look($styles, Some(2)));
-        $group!(5, 128, idle_alert_frames_for_look($styles, Some(3)));
+        $group!(2, 120, idle_alert_frames_for_look($styles, Some(0)));
+        $group!(3, 120, idle_alert_frames_for_look($styles, Some(1)));
+        $group!(4, 120, idle_alert_frames_for_look($styles, Some(2)));
+        $group!(5, 120, idle_alert_frames_for_look($styles, Some(3)));
         $group!(
             8,
             416,

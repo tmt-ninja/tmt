@@ -22,17 +22,6 @@ impl Column {
             Self::Model => "Model",
         }
     }
-
-    pub fn minimum(self) -> u16 {
-        match self {
-            Self::Agent => 12,
-            Self::Squad | Self::State => 10,
-            Self::TokensPerHour => 7,
-            Self::Digest => 11, // The longest supplied primary mode plus its choice mark fits whole.
-            Self::Runtime | Self::Model => 8,
-            Self::Cron => 10,
-        }
-    }
 }
 
 /// Both host profiles materialize their tracks through this one TUI solver.

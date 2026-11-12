@@ -71,14 +71,12 @@ fn reset(path: &Path) -> io::Result<()> {
 pub(in crate::board) struct Order {
     pub agents: crate::config::OpsSort,
     pub reversed: bool,
-    pub overview: Option<crate::config::OverviewSort>,
 }
 impl From<&crate::config::OpsPreferences> for Order {
     fn from(preferences: &crate::config::OpsPreferences) -> Self {
         Self {
             agents: preferences.sort,
             reversed: preferences.reversed,
-            overview: preferences.overview_sort,
         }
     }
 }
@@ -119,17 +117,16 @@ impl Controls {
         app.overview_rows.borrow_mut().clear();
     }
     pub(super) fn json(&self) -> Value {
-        use crate::config::{OpsSort, OverviewDirection};
+        use crate::config::OpsSort;
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
             "quotaWindow": self.quota_window.key(),
             "digestWindow": self.digest_window.label(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
-            "reversed": self.order.reversed,
-            "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
+            "reversed": self.order.reversed })
     }
     pub(super) fn decode(value: &Value) -> Option<Self> {
-        use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
+        use crate::config::OpsSort;
         let query = value["query"].as_str()?;
         if query.len() > super::search_field::MAX_BYTES || query.chars().any(char::is_control) {
             return None;
@@ -157,19 +154,6 @@ impl Controls {
                     _ => return None,
                 },
                 reversed: value["reversed"].as_bool()?,
-                overview: match value.get("overviewSort")? {
-                    Value::Null => None,
-                    order => Some(OverviewSort {
-                        column: OverviewColumn::ALL.into_iter().find(|column| {
-                            column.key() == order["column"].as_str().unwrap_or("")
-                        })?,
-                        direction: if order["descending"].as_bool()? {
-                            OverviewDirection::Descending
-                        } else {
-                            OverviewDirection::Ascending
-                        },
-                    }),
-                },
             },
         })
     }

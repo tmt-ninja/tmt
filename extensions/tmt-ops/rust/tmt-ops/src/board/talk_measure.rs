@@ -142,7 +142,7 @@ fn checklist(
     let room = usize::from(rest.width).saturating_sub(keep.max(MIN_TITLE));
     let full = conversation_checklist::chip(app.notes.summary(&key));
     let line = [full.as_str(), "Checklist"].into_iter().find_map(|text| {
-        let mut spans = vec![Span::raw(" ")];
+        let mut spans = Vec::new();
         spans.extend(cap.clone());
         spans.push(Span::styled(format!(" {text} "), look.role(Role::Muted)));
         let line = Line::from(spans);

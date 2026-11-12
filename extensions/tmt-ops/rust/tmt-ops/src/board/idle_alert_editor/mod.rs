@@ -4,7 +4,7 @@ mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 use super::{
-    app::{App, Choice, Effect, Menu, MenuEntry},
+    app::{App, Effect},
     workspace::OpsTarget,
 };
 use crate::config::Config;
@@ -277,34 +277,11 @@ impl App {
                     Some(OpsTarget::Member {
                         room_id: Some(id), ..
                     }) => &s.room_id == id,
-                    Some(OpsTarget::Member {
-                        room_id: None,
-                        identity_id,
-                    }) => s.members.contains(identity_id),
                     _ => false,
                 }
             })
             .map(|s| (s.room_id.clone(), s.name.clone()))
             .collect();
-        if scopes.len() > 1 {
-            self.menu = Some(Menu {
-                link: None,
-                prefill: String::new(),
-                title: "Idle alert · choose squad".into(),
-                entries: scopes
-                    .into_iter()
-                    .map(|(room, name)| MenuEntry {
-                        key: String::new(),
-                        label: name,
-                        choice: Choice::IdleAlert(room),
-                    })
-                    .collect(),
-                selected: 0,
-                anchor: None,
-                surface: RefCell::new(None),
-            });
-            return Effect::None;
-        }
         let Some((room, name)) = scopes.into_iter().next() else {
             return self.say("Common pool has no squad idle-alert setting.");
         };

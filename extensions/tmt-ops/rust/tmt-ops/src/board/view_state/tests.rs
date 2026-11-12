@@ -489,9 +489,6 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     first.workspace.order = Some(Order {
         agents: crate::config::OpsSort::Members,
         reversed: true,
-        overview: Some(crate::config::OverviewSort::initial(
-            crate::config::OverviewColumn::Cron,
-        )),
     });
     first.scrolls.restore([(crate::config::Pane::Rows, 9)]);
     let mut session = Session::load(popup.clone(), false, false);

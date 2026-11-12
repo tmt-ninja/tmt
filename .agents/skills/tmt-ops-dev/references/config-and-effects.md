@@ -154,8 +154,8 @@ The chart's time per bar is an aggregation interval, not a Digest member mode or
 delivery delay. Automatic resolution follows the chart width; the layer retains
 the automatic choice rather than that resolved interval. Shared `workspace.tok_range`
 is independent of these chart controls and is reloaded through Config on restart.
-`workspace.overview_sort` names an existing identity sort field;
-`workspace.overview_reverse` reverses its initial direction. Retired
+`workspace.overview_sort` and `workspace.overview_reverse` are accepted with any
+value, ignored, and never written or removed. Retired
 `workspace.pinned` and `workspace.agent_pins` are accepted with any value, ignored,
 and never written or removed by workspace preference saves.
 `workspace.digest_window` is accepted with any value and ignored, and never written: the

@@ -10,13 +10,11 @@ use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 use super::{overview::cron_counts::GlyphSet, view_state::Order, workspace::columns::TokHeading};
-use crate::config::{OpsSort, OverviewColumn, OverviewDirection, OverviewSort};
+use crate::config::{OpsSort, OverviewDirection};
 
-/// A header that sorts: a column of the flat Agents list, or the squad order a
-/// column of the Squads tree stands for.
+/// A sortable squad-tree header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Header {
-    Overview(OverviewColumn),
     Squads(OpsSort),
 }
 
@@ -25,13 +23,6 @@ impl Header {
     /// opposite one when the column already is the order.
     pub(in crate::board) fn clicked(self, order: Order) -> Order {
         match self {
-            Self::Overview(column) => Order {
-                overview: Some(match order.overview {
-                    Some(current) if current.column == column => current.reverse(),
-                    _ => OverviewSort::initial(column),
-                }),
-                ..order
-            },
             Self::Squads(sort) if order.agents == sort => Order {
                 reversed: !order.reversed,
                 ..order
@@ -48,10 +39,6 @@ impl Header {
     fn direction(self, order: &Order) -> Option<OverviewDirection> {
         use OverviewDirection::{Ascending, Descending};
         match self {
-            Self::Overview(column) => order
-                .overview
-                .filter(|sort| sort.column == column)
-                .map(|sort| sort.direction),
             Self::Squads(sort) => (order.agents == sort).then(|| {
                 // Names run A to Z; attention runs most first.
                 match (sort == OpsSort::Name, order.reversed) {
@@ -200,30 +187,6 @@ pub(in crate::board) fn hovered(base: Style, look: crate::look::Look) -> Style {
 mod tests {
     use super::*;
     use OverviewDirection::{Ascending, Descending};
-
-    fn flat(column: OverviewColumn, direction: OverviewDirection) -> Order {
-        Order {
-            overview: Some(OverviewSort { column, direction }),
-            ..Order::default()
-        }
-    }
-
-    #[test]
-    fn a_flat_header_starts_in_its_own_direction_and_reverses_on_a_second_click() {
-        let tok = Header::Overview(OverviewColumn::TokensPerHour);
-        let order = tok.clicked(Order::default());
-        assert_eq!(order, flat(OverviewColumn::TokensPerHour, Descending));
-        assert_eq!(
-            tok.clicked(order),
-            flat(OverviewColumn::TokensPerHour, Ascending)
-        );
-        let name = Header::Overview(OverviewColumn::Agent);
-        assert_eq!(
-            name.clicked(order),
-            flat(OverviewColumn::Agent, Ascending),
-            "another column starts over"
-        );
-    }
 
     #[test]
     fn a_tree_header_picks_its_squad_order_and_reverses_on_a_second_click() {

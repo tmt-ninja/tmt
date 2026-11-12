@@ -147,3 +147,60 @@ fn working_and_idle_rows_keep_their_distinct_styles_in_all_looks() {
         );
     }
 }
+
+#[test]
+fn idle_unread_member_stays_bright_and_preserves_the_unread_mark() {
+    use crate::board::activity::Phase;
+    use tmt_cli_style::{Base, Depth, Role, Theme};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let mut app = board();
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        for saved in view
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .values_mut()
+        {
+            *saved = look;
+        }
+        view.home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity
+            .phase = Phase::Idle;
+        with_unread_replies(&mut app);
+        app.workspace.selected = Some(OpsTarget::Pool);
+        let frame = draw(&app);
+        let y = member_row(&frame);
+        let name = name_x(&frame, y);
+        assert_eq!(
+            frame[(name, y)].fg,
+            look.role(Role::Text).fg.unwrap_or_default()
+        );
+        let mark = (name..frame.area.width)
+            .find(|&x| frame[(x, y)].symbol() == "●")
+            .unwrap();
+        assert_eq!(
+            frame[(mark, y)].fg,
+            look.role(Role::Unread).fg.unwrap_or_default()
+        );
+        assert!(!frame[(mark, y)].modifier.contains(Modifier::DIM));
+    }
+}

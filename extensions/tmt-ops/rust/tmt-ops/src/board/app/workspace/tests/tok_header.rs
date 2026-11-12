@@ -3,11 +3,8 @@
 //! pointer; the unit word switches the whole column like a figure does.
 use super::*;
 use crate::{
-    board::{
-        app::{Choice, Request},
-        header_sort::Header,
-    },
-    config::{OverviewColumn, SavingsUnit},
+    board::app::{Choice, Request},
+    config::SavingsUnit,
 };
 use ratatui::{
     Terminal,
@@ -60,9 +57,7 @@ struct Parts {
 
 fn parts(app: &App) -> Parts {
     Parts {
-        mark: area_of(app, |choice| {
-            *choice == Choice::SortBy(Header::Overview(OverviewColumn::TokensPerHour))
-        }),
+        mark: None,
         unit: area_of(app, |choice| *choice == Choice::TokUnit).expect("no unit hit"),
         window: area_of(app, |choice| matches!(choice, Choice::TokRange(_)))
             .expect("no window hit"),

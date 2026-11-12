@@ -5,7 +5,6 @@ use super::*;
 use crate::{
     board::{
         app::{Choice, Request},
-        header_sort::Header,
         shell::OpsTab,
     },
     config::TokRange,
@@ -90,10 +89,7 @@ fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
                 );
                 assert_eq!(
                     other.contains((mark.x, mark.y).into()),
-                    *choice
-                        == Choice::SortBy(Header::Overview(
-                            crate::config::OverviewColumn::TokensPerHour
-                        )),
+                    false,
                     "{name} {range:?}: {choice:?} on the mark cell"
                 );
             }

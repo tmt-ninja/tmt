@@ -459,7 +459,6 @@ mod tests {
         first.workspace.order = Some(Order {
             agents: crate::config::OpsSort::Attention,
             reversed: true,
-            overview: None,
         });
 
         let arrived = arrive(&first.resume().unwrap());

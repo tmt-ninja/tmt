@@ -61,11 +61,12 @@ impl Evidence {
                 self.host.as_deref().unwrap_or("—")
             );
         }
-        format!(
-            "{} · {}",
-            self.host.as_deref().unwrap_or("—"),
-            self.host_session.as_deref().unwrap_or("—"),
-        )
+        match (self.host.as_deref(), self.host_session.as_deref()) {
+            (Some(host), Some(session)) => format!("{host} · {session}"),
+            (Some(host), None) => host.to_owned(),
+            (None, Some(session)) => format!("— · {session}"),
+            (None, None) => "—".to_owned(),
+        }
     }
     pub fn lines(&self, now_ms: u64, last_ms: Option<u64>) -> Vec<String> {
         let mut lines = vec![format!(

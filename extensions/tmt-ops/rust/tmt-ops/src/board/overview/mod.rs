@@ -9,7 +9,6 @@ pub(super) mod detail;
 pub(super) mod digest;
 pub(super) mod monitor;
 pub(super) mod quota;
-pub(super) mod sort;
 pub(super) mod summary;
 pub(super) mod timers;
 

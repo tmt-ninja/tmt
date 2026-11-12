@@ -42,6 +42,30 @@ fn measure_and_talk_keys_directly_select_both_scopes() {
 }
 
 #[test]
+fn focused_input_keeps_checklist_and_state_on_the_120_column_strip() {
+    let mut app = board();
+    press(&mut app, KeyCode::Enter);
+    for width in [80, 100, 120, 130, 140, 150, 160] {
+        let text = paint(&app, width, 36).join("\n");
+        let line = text.lines().find(|line| line.contains("Measure"));
+        eprintln!("width={width} strip={line:?}");
+    }
+    let text = paint(&app, 120, 36).join("\n");
+    let line = text.lines().find(|line| line.contains("Measure")).unwrap();
+    assert!(line.contains("● working"), "{line}");
+    assert!(
+        !line.contains("^L  Check"),
+        "the chip never paints partially: {line}"
+    );
+    let wide = paint(&app, 160, 36).join("\n");
+    let line = wide.lines().find(|line| line.contains("Measure")).unwrap();
+    assert!(
+        line.contains("Measure   ^L") && line.contains("● working"),
+        "{line}"
+    );
+}
+
+#[test]
 fn measure_hints_and_help_follow_defaults_and_authored_keys() {
     for (bindings, key) in [("", "M"), ("[bind]\nM='copy'\nt='pane-measure'\n", "t")] {
         let mut app = board();

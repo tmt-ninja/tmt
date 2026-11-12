@@ -54,6 +54,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Jump if app.selected_built_in() => "full screen",
         Verb::Jump => "host",
         Verb::Menu => "menu",
+        Verb::Talk | Verb::Reply if app.shell.tab == crate::board::shell::OpsTab::Agents => "talk",
         Verb::Talk | Verb::Reply => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
@@ -377,6 +378,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
             (Ui::MoveMembership, "m", "move"),
             (Ui::RemoveMember, "x", "close"),
             (Ui::MemberSession, "R", "resume"),
+            (Ui::PaneTalk, "T", "talk"),
+            (Ui::PaneMeasure, "M", "measure"),
             (Ui::MemberNotes, "C", "checklist"),
         ]
     } else {
@@ -1021,7 +1024,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
@@ -1124,7 +1127,7 @@ mod tests {
             );
         let line = agents_hints(&app, 1000).unwrap();
         assert!(
-            line.starts_with("up previous  down next  → expand  ⏎ chat"),
+            line.starts_with("up previous  down next  → expand  ⏎ talk"),
             "{line}"
         );
         assert!(line.contains("  K resume  "), "{line}");

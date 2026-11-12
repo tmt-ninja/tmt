@@ -660,6 +660,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
+                    unread: app.unread_target(&row.target).total > 0,
                     in_conversation,
                     query: &app.workspace.query,
                 },
@@ -850,9 +851,17 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
         .workspace_snapshot()
         .filter(|_| !app.search.is_empty() && !app.searching)
         .map(|snapshot| {
-            let (matched, total) = app
-                .workspace
-                .search_counts(&snapshot.roster, &snapshot.preferences);
+            let query = app.search.to_lowercase();
+            let rows = app.workspace_rows();
+            let matches: Vec<_> = rows
+                .iter()
+                .filter(|row| row.title.to_lowercase().contains(&query))
+                .collect();
+            let matched = matches
+                .iter()
+                .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+                .map_or(0, |index| index + 1);
+            let total = matches.len();
             let mark = if snapshot.roster.observation == super::OpsObservation::Complete {
                 ""
             } else {

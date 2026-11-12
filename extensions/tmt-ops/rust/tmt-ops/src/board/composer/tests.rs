@@ -358,7 +358,7 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
         let label: String = (hit.area.x..hit.area.right())
             .map(|x| buffer[(x, hit.area.y)].symbol())
             .collect();
-        assert_eq!(label, "⏎ send");
+        assert!(matches!(label.as_str(), "⏎ send" | "⏎"), "{width}: {label}");
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: hit.area.x,

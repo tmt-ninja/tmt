@@ -1,5 +1,5 @@
 //! One identity row over the existing acquired workspace and label/meter owners.
-use super::{columns::Column, cron_counts, sort};
+use super::{columns::Column, cron_counts};
 use crate::board::{
     app::App,
     workspace::{OpsTarget, OpsTreeRow, observe::OpsWorkspaceSnapshot},
@@ -17,22 +17,6 @@ impl std::ops::Deref for Values {
     }
 }
 impl Values {
-    fn order<'a>(&'a self, row: &'a OpsTreeRow) -> sort::Row<'a> {
-        let OpsTarget::Member { identity_id, .. } = &row.target else {
-            unreachable!("monitor identity")
-        };
-        sort::Row {
-            id: identity_id,
-            agent: &row.title,
-            squad: self.squad.as_deref(),
-            state: row.state.as_deref(),
-            tokens_per_hour: self.tokens,
-            digest: self.digest.as_deref(),
-            cron: self.cron.map(|c| (c.active, c.total)),
-            runtime: self.runtime.as_deref(),
-            model: self.model.as_deref(),
-        }
-    }
     pub fn text(&self, column: Column, row: &OpsTreeRow) -> String {
         if column == Column::Cron {
             cron_counts::label(self.cron, false)
@@ -73,7 +57,6 @@ pub(in crate::board) struct Cache {
     held: Option<(Key, Rc<Scene>)>,
 }
 pub(in crate::board) struct Scene {
-    pub rows: Rc<[OpsTreeRow]>,
     pub summary: super::summary::Summary,
 }
 /// What a squad is doing now: its lead's (else any member's) open request,
@@ -126,46 +109,8 @@ fn pending(row: &serde_json::Value) -> Option<&str> {
             })
         })
 }
-pub(super) fn waiting_since(
-    snapshot: &OpsWorkspaceSnapshot,
-    row: &OpsTreeRow,
-    now: u64,
-) -> Option<u64> {
-    snapshot.rows.get(&row.target)?["waitingOnYou"]
-        .as_array()?
-        .iter()
-        .filter_map(|request| request["preparedAtMs"].as_u64())
-        .filter(|at| *at > 0 && *at <= now)
-        .min()
-}
-pub(super) fn waits(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow) -> bool {
-    let OpsTarget::Member {
-        room_id,
-        identity_id,
-    } = &row.target
-    else {
-        return false;
-    };
-    if let Some(room) = room_id {
-        snapshot
-            .roster
-            .squads
-            .iter()
-            .find(|squad| &squad.room_id == room)
-            .and_then(|squad| squad.member_states.get(identity_id))
-            .is_some_and(|member| member.waiting)
-    } else {
-        snapshot
-            .roster
-            .members
-            .get(identity_id)
-            .is_some_and(|member| member.waiting)
-    }
-}
 #[derive(PartialEq, Eq)]
 struct Key {
-    order: Option<crate::config::OverviewSort>,
-    query: String,
     hidden: std::collections::BTreeSet<String>,
     digest_window: crate::config::DigestWindow,
     savings_unit: crate::config::SavingsUnit,
@@ -181,8 +126,6 @@ impl Cache {
 
 pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<Scene> {
     let key = Key {
-        order: app.workspace_order().overview,
-        query: app.workspace.query.clone(),
         hidden: snapshot.preferences.hidden.clone(),
         digest_window: app.digest_window(),
         savings_unit: snapshot.preferences.savings_unit,
@@ -195,67 +138,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     {
         return Rc::clone(scene);
     }
-    // Choose a deterministic admitted membership occurrence for each UUID.
-    // Cursor movement must not change row facts, ordering or rebuild this scene.
-    // The existing projection owns pool/partial-roster admission.
-    let waiting_rows = crate::board::workspace::identity_rows_matching(
-        snapshot,
-        &app.workspace.query,
-        None,
-        &key.visibility,
-        |row| waits(snapshot, row),
-    );
-    let all_rows = crate::board::workspace::identity_rows(
-        snapshot,
-        &app.workspace.query,
-        None,
-        &key.visibility,
-    );
-    let mut seen = std::collections::BTreeSet::new();
-    let rows = waiting_rows.into_iter().chain(all_rows).filter(|row| {
-        let OpsTarget::Member { identity_id, .. } = &row.target else {
-            return false;
-        };
-        seen.insert(identity_id.clone())
-    });
-    let now = crate::status::now_ms();
-    let mut projected: Vec<_> = rows
-        .map(|row| {
-            let v = values(app, snapshot, &row);
-            (row, v)
-        })
-        .collect();
-    let unread = app.unread_identities();
-    let has_unread = |row: &OpsTreeRow| {
-        matches!(&row.target,
-        OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))
-    };
-    projected.sort_by(|(a, av), (b, bv)| {
-        has_unread(b)
-            .cmp(&has_unread(a))
-            .then_with(|| waits(snapshot, b).cmp(&waits(snapshot, a)))
-            .then_with(|| match key.order {
-                Some(order) => sort::compare(&av.order(a), &bv.order(b), order),
-                None => match (
-                    waiting_since(snapshot, a, now),
-                    waiting_since(snapshot, b, now),
-                ) {
-                    (Some(a), Some(b)) => a.cmp(&b),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => std::cmp::Ordering::Equal,
-                }
-                .then_with(|| a.title.cmp(&b.title))
-                .then_with(|| av.order(a).id.cmp(bv.order(b).id)),
-            })
-    });
-    let agents: Rc<[OpsTreeRow]> = projected
-        .into_iter()
-        .map(|(row, _)| row)
-        .collect::<Vec<_>>()
-        .into();
     let scene = Rc::new(Scene {
-        rows: agents,
         summary: super::summary::project(
             snapshot,
             &app.labels,

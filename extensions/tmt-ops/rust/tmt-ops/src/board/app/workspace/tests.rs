@@ -4633,6 +4633,19 @@ fn changing_a_query_restarts_at_the_first_match_but_arrows_keep_their_selection(
 }
 
 #[test]
+fn tree_search_selects_a_matching_member_not_its_context_squad() {
+    let mut app = populated_board(8, 28);
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("agent-00007");
+    assert!(
+        matches!(&app.workspace.selected, Some(OpsTarget::Member { identity_id, .. }) if app.workspace_rows().iter().any(|row| &row.target == app.workspace.selected.as_ref().unwrap() && row.title == "agent-00007" && !identity_id.is_empty()))
+    );
+    key(&mut app, KeyCode::Enter);
+    let text = paint(&app, 160, 36).join("\n");
+    assert!(text.contains("1 of 1"), "{text}");
+}
+
+#[test]
 fn clearing_search_keeps_current_selection_when_the_previous_target_disappears() {
     let mut app = populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;

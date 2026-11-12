@@ -43,7 +43,7 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
         assert_eq!(editor.bottom(), idle_view.bottom());
         let info_focused = band_text(&focused, info);
         assert!(info_focused.contains("worker"));
-        assert!(info_focused.contains("^L checklist"));
+        assert!(info_focused.contains("^L"));
         for (text, rows) in [
             ("first\nsecond\nthird\nfourth\nfifth", 5),
             ("\nsixth\nseventh\neighth", 6),

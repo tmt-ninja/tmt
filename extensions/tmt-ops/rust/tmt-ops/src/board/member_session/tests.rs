@@ -26,9 +26,9 @@ fn host_column_shows_observed_host_and_host_session() {
 #[test]
 fn host_column_marks_missing_host_and_session_without_guessing() {
     let mut evidence = model::Evidence::default();
-    assert_eq!(evidence.compact(), "— · —");
+    assert_eq!(evidence.compact(), "—");
     evidence.host = Some("tmux".into());
-    assert_eq!(evidence.compact(), "tmux · —");
+    assert_eq!(evidence.compact(), "tmux");
     evidence.host = None;
     evidence.host_session = Some("work".into());
     assert_eq!(evidence.compact(), "— · work");

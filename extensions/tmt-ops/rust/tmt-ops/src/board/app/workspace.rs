@@ -947,7 +947,11 @@ impl App {
         if query_changed
             && selects_matches
             && !self.search.is_empty()
-            && let Some(first) = rows.first()
+            && let Some(first) = rows.iter().find(|row| {
+                row.title
+                    .to_lowercase()
+                    .contains(&self.search.to_lowercase())
+            })
         {
             self.workspace.selected = Some(first.target.clone());
         }

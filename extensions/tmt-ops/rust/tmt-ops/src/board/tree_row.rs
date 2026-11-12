@@ -29,6 +29,7 @@ pub(in crate::board) struct Row<'a> {
     pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
+    pub unread: bool,
     /// Focus is in this agent's conversation: the row takes the conversation tint and a bold name.
     pub in_conversation: bool,
     pub query: &'a str,
@@ -49,7 +50,11 @@ fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
         .activity
         .as_ref()
         .is_some_and(|member| member.activity.phase == crate::board::activity::Phase::Idle);
-    let value = if idle && (value == look.role(Role::Text) || value == look.role(Role::Muted)) {
+    let value = if idle
+        && !row.selected
+        && !row.unread
+        && (value == look.role(Role::Text) || value == look.role(Role::Muted))
+    {
         look.role(Role::Dim)
     } else {
         value
@@ -310,6 +315,18 @@ pub(in crate::board) fn paint(
         for span in &mut line.spans {
             span.style = style(look, row, span.style);
         }
+        if matches!(field, AgentsField::State) && !row.selected && !row.unread {
+            if let Some(mark) = line.spans.first_mut() {
+                mark.style = mark.style.remove_modifier(Modifier::DIM);
+            }
+            for span in &mut line.spans {
+                if span.style.fg == look.role(Role::Blocked).fg
+                    && look.role(Role::Blocked).fg.is_some()
+                {
+                    span.style = span.style.remove_modifier(Modifier::DIM);
+                }
+            }
+        }
         if row.in_conversation
             && matches!(field, AgentsField::Agent)
             && let Some(name) = line.spans.get_mut(NAME_SPAN)
@@ -328,6 +345,101 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_rows_preserve_attention_and_selected_styles() {
+        use crate::board::activity::Phase;
+        use crate::board::app::workspace::tests::{MEMBER, board};
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let mut app = board();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .members
+                .get_mut(MEMBER)
+                .unwrap()
+                .activity
+                .phase = Phase::Idle;
+            let rows = app.workspace_rows();
+            let source = rows.iter().find(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
+            let look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            for (selected, unread, role) in [
+                (false, false, Role::Waiting),
+                (false, false, Role::Blocked),
+                (false, true, Role::Unread),
+                (true, false, Role::Muted),
+            ] {
+                let row = Row {
+                    source,
+                    expanded: false,
+                    last: true,
+                    folds: false,
+                    state: Line::from(vec![
+                        Span::styled("!", look.role(role)),
+                        Span::styled(" blocked", look.role(Role::Blocked)),
+                    ]),
+                    state_primary_width: Some(1),
+                    tokens: "1".into(),
+                    session: String::new(),
+                    model: String::new(),
+                    timers: None,
+                    selected,
+                    unread,
+                    in_conversation: false,
+                    query: "",
+                };
+                let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 1));
+                paint(
+                    &mut buffer,
+                    Rect::new(0, 0, 30, 1),
+                    &[
+                        (AgentsField::Agent, Rect::new(0, 0, 15, 1)),
+                        (AgentsField::State, Rect::new(15, 0, 15, 1)),
+                    ],
+                    &row,
+                    look,
+                );
+                let mark = &buffer[(15, 0)];
+                assert_eq!(
+                    mark.fg,
+                    style(look, &row, look.role(role)).fg.unwrap_or_default(),
+                    "{base:?} {role:?}"
+                );
+                assert!(!mark.modifier.contains(Modifier::DIM), "{base:?} {role:?}");
+                if !selected && !unread {
+                    assert!(
+                        !buffer[(17, 0)].modifier.contains(Modifier::DIM),
+                        "blocked word: {base:?}"
+                    );
+                }
+                if selected || unread {
+                    assert_eq!(
+                        buffer[(5, 0)].fg,
+                        style(look, &row, look.role(Role::Text))
+                            .fg
+                            .unwrap_or_default(),
+                        "{base:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn lead_mark_uses_the_name_budget_and_model_text_is_muted_and_ellipsized() {
@@ -373,6 +485,7 @@ mod tests {
                 model: "gpt-6.1-sol".into(),
                 timers: None,
                 selected: false,
+                unread: false,
                 in_conversation: false,
                 query: "",
             },
@@ -429,6 +542,7 @@ mod tests {
                 model: "gpt-6.1-sol".into(),
                 timers: Some(0),
                 selected: true,
+                unread: false,
                 in_conversation: false,
                 query: "",
             },
@@ -495,6 +609,7 @@ mod tests {
                         model: String::new(),
                         timers: None,
                         selected,
+                        unread: false,
                         in_conversation,
                         query: "",
                     },
