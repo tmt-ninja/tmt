@@ -4557,6 +4557,9 @@ describe('required CI gate', () => {
     expect(acceptance).toContain(
       "github.event_name == 'pull_request' && github.event.action != 'unlabeled'"
     );
+    // A PR created with the label gets `opened` and `labeled` for one head; only `labeled`
+    // may start a wave, or the same head is tested twice in series (#3054).
+    expect(acceptance).toContain("github.event.action != 'opened' &&");
     expect(acceptance).toContain(
       "contains(github.event.pull_request.labels.*.name, 'colab-acceptance')"
     );

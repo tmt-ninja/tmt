@@ -321,7 +321,9 @@ on failure, the action retains proof test-results and two demo-emulator logs for
 three days. The wrapper copies only those logs before removing its private world.
 
 Real-binary acceptance runs weekly/manually or on `colab-acceptance` PRs. Only adding
-that exact label triggers acceptance; removing it never does. Label edits skip
+that exact label triggers acceptance; removing it never does. Opening a PR never does:
+a PR created with the label also gets its `labeled` event, which starts the one wave for
+that head. Pushes and reopening a labelled PR start a wave. Label edits skip
 selector/interop; job concurrency prevents cancelling in-flight checks. Three shards
 use `fail-fast: false`, separate concurrency/artifacts and whole-file duration
 weights (`colab-acceptance-shards.mjs`, `acceptance/shard-weights.json`), exactly once
