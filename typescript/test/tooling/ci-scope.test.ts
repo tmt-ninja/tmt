@@ -2102,11 +2102,15 @@ describe('remote Rust retains full CI coverage', () => {
         `#!/usr/bin/env node
 const inventory = ${JSON.stringify(suites)};
 const args = process.argv.slice(2);
-const slice = args[args.indexOf('--partition') + 1];
-const selected = args.includes('--partition') ? (slice === 'slice:1/2' ? 'a' : 'b') : null;
+const expression = args.includes('--filterset') ? args[args.indexOf('--filterset') + 1] : null;
+if (args.includes('--partition') || (expression !== null &&
+    !['binary_id(=fixture) | not test(/.*/)', 'not test(/.*/)'].includes(expression)))
+  throw new Error('unexpected workspace selection arguments');
+require('node:fs').appendFileSync(process.env.NEXTEST_CALLS, JSON.stringify(args) + '\\n');
+const selected = expression === null || expression === 'binary_id(=fixture) | not test(/.*/)';
 for (const [name,test] of Object.entries(inventory['rust-suites'].fixture.testcases)) {
   test['filter-match'] = test.ignored ? {status:'mismatch',reason:'ignored'} :
-    selected === null || name === selected ? {status:'matches'} : {status:'mismatch',reason:'partition'};
+    selected ? {status:'matches'} : {status:'mismatch',reason:'expression'};
 }
 console.log(JSON.stringify(inventory));
 `,
@@ -2133,6 +2137,7 @@ esac
             ...process.env,
             PATH: `${root}:${process.env.PATH}`,
             CALLS: path.join(root, 'calls'),
+            NEXTEST_CALLS: path.join(root, 'nextest-calls'),
             BUILD: build,
             EXAMPLES: examples,
             RUNNER_TEMP: path.join(root, 'temp'),
@@ -2150,6 +2155,15 @@ esac
         expected.push('test --locked --workspace --no-run --message-format=json');
       if (fixture.status === 0) {
         expected.push('build --locked --workspace --examples --message-format=json');
+        const nextestCalls = readFileSync(path.join(root, 'nextest-calls'), 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as string[]);
+        expect(
+          nextestCalls.map((args) =>
+            args.includes('--filterset') ? args[args.indexOf('--filterset') + 1] : null
+          )
+        ).toEqual([null, 'binary_id(=fixture) | not test(/.*/)', 'not test(/.*/)']);
         expect(
           JSON.parse(
             readFileSync(path.join(root, 'temp/workspace-proof/runtime-files.json'), 'utf8')
