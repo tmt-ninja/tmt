@@ -124,8 +124,8 @@ async function ops(sandbox: Sandbox, args: string[]) {
   return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
 }
 
-async function identity(sandbox: Sandbox, name: string): Promise<string> {
-  const result = await runCli(sandbox, ['identity', 'create', name, '--json']);
+async function identity(sandbox: Sandbox, name: string, deadlineMs?: number): Promise<string> {
+  const result = await runCli(sandbox, ['identity', 'create', name, '--json'], { deadlineMs });
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout).identity.id;
 }
@@ -189,7 +189,8 @@ function readOpsConfig(file: string): string {
 /** Cache setup shared only by the context invocation and deadline scenarios. */
 async function reminderFixture(sandbox: Sandbox) {
   installSquad(sandbox);
-  const lead = await identity(sandbox, 'Sol');
+  // Fixture setup is not part of the hook's deliberately short deadlines.
+  const lead = await identity(sandbox, 'Sol', 30_000);
   expect((await squad(sandbox, ['init', 'product', '--me', 'Sol'])).status).toBe(0);
   expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
   const config = path.join(sandbox.globalDir, 'ops.toml');
@@ -250,7 +251,10 @@ describe('squad extension', () => {
     await withSandbox(async (sandbox) => {
       const direct = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
       sandbox.env.TMT_EXECUTABLE = sandbox.cli.executable;
-      const normal = await runCli(direct, ['squad', 'config', 'show', '--json']);
+      // The ordinary setup lookup is outside the launcher behavior being tested.
+      const normal = await runCli(direct, ['squad', 'config', 'show', '--json'], {
+        deadlineMs: 30_000,
+      });
       expect(normal.status, normal.stdout + normal.stderr).toBe(0);
       expect(parseWholeStdout(normal).path).toBe(path.join(sandbox.globalDir, 'ops.toml'));
 
@@ -278,7 +282,7 @@ describe('squad extension', () => {
       expect(again.status, again.stdout + again.stderr).toBe(0);
       expect(readFileSync(calls, 'utf8')).toBe('1:config show --json\n');
     });
-  });
+  }, 90_000);
 
   it('checks layout files offline without core, configuration or board startup', async () => {
     await withSandbox(async (sandbox) => {
