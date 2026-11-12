@@ -16,9 +16,17 @@ impl Core {
         let root = PathBuf::from(format!("/tmp/t1055-c-{}", uuid_v4().unwrap()));
         fs::create_dir(&root).unwrap();
         fs::write(root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
-        fs::write(root.join("core.py"),r#"import sys,json,pathlib,uuid
+        fs::write(root.join("core.py"),r#"import sys,json,pathlib,uuid,socket
 root=pathlib.Path(__file__).parent
 args=sys.argv[1:]
+def observation_gate():
+    path=root/'observation.sock'
+    if path.exists():
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as gate:
+            gate.settimeout(10)
+            gate.connect(str(path))
+            gate.sendall(b'r')
+            assert gate.recv(1)==b'x'
 if args[0]=='reply':
     assert len(args)==6 and args[2]=='--receipt' and args[4:]==['--stdin','--json']
     body=sys.stdin.buffer.read()
@@ -31,6 +39,7 @@ if args[0]=='reply':
     print(json.dumps({'status':'submitted','requestId':args[1],'bodyBytes':len(body),'submittedAtMs':1}));sys.exit(0)
 if args[0] in ('list','check','identity'):
     with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
+    observation_gate()
 if args[0]=='list':
     print((root/'agents').read_text());sys.exit(0)
 if args[:3]==['identity','show','--json'] and args[3].startswith('--expect-name='):
@@ -61,6 +70,8 @@ if args[0]=='check':
 wire=json.load(sys.stdin)
 receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
+if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show'):
+    observation_gate()
 if wire['operation']=='storage.root':
     print(json.dumps({'dataRoot':(root/'storage-root').read_text()}));sys.exit(0)
 if wire['operation']=='dispatch.show':

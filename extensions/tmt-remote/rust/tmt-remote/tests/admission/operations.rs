@@ -2700,3 +2700,6 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
     assert!(reply.get("error").is_some(), "{reply}");
     assert!(core.calls().is_empty(), "Core was not called");
 }
+
+#[path = "observation_fence.rs"]
+mod observation_fence;
