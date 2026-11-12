@@ -267,17 +267,21 @@ function Editor(props: RichInputProps) {
     let pointer = false;
     // A press marks the focus it gives as a pointer's until that focus arrives. A mouse focuses in
     // the press's own task, but a touch focuses only after the finger lifts, several tasks later
-    // (#6164). The gesture's click (wherever a drag ends) or a cancelled press, such as a scroll,
-    // ends the mark when no focus came, so a later keyboard focus is never taken for a pointer's.
+    // (#6164). When no focus comes, whatever happens first ends the mark: the gesture's click
+    // (wherever a drag ends), a cancelled press such as a scroll, the field losing focus, or any
+    // key (a keyboard focus starts with one; a press released outside the window has no click).
+    // So a later keyboard focus is never taken for a pointer's.
     const release = () => {
       pointer = false;
       document.removeEventListener('click', release, true);
       document.removeEventListener('pointercancel', release, true);
+      document.removeEventListener('keydown', release, true);
     };
     const press = () => {
       pointer = true;
       document.addEventListener('click', release, true);
       document.addEventListener('pointercancel', release, true);
+      document.addEventListener('keydown', release, true);
     };
     const land = () => {
       if (pointer) return release();
@@ -297,8 +301,10 @@ function Editor(props: RichInputProps) {
     const unregister = editor.registerRootListener((root, previous) => {
       previous?.removeEventListener('pointerdown', press);
       previous?.removeEventListener('focus', land);
+      previous?.removeEventListener('blur', release);
       root?.addEventListener('pointerdown', press);
       root?.addEventListener('focus', land);
+      root?.addEventListener('blur', release);
     });
     return () => {
       unregister();

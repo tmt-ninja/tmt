@@ -165,6 +165,28 @@ test('a press that gives no focus leaves no mark: the next scripted focus lands 
     .toEqual({ value: 'release notes today', chips: [] });
 });
 
+// A press released outside the window has no click and no pointercancel. Its mark still ends: on
+// the field's blur when the field had focus, or on the key that starts a keyboard focus (#6164).
+for (const field of ['focused', 'unfocused'] as const)
+  test(`a press on the ${field} field that never becomes a click leaves no mark: a later Shift+Tab focus lands after the text (#6164)`, async ({
+    page,
+  }) => {
+    await search(page).click();
+    await page.keyboard.type('release notes');
+    if (field === 'unfocused') await message(page).focus();
+    await search(page).dispatchEvent('pointerdown', { pointerType: 'mouse', isPrimary: true });
+    // Keyboard focus from the field after it: Shift+Tab puts the caret at the start of the text.
+    await message(page).focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(search(page)).toBeFocused();
+    // A focus that is not a pointer's moves the caret in a task queued at focus; this one runs after it.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve)));
+    await page.keyboard.type(' today');
+    await expect
+      .poll(() => read(page, 'search'))
+      .toEqual({ value: 'release notes today', chips: [] });
+  });
+
 // On a touch screen the focus a tap gives arrives in a later task than its press, after the
 // pointerup. The tap still places its own caret: tapping the start of existing text and typing
 // writes before it, not after it (#6164).

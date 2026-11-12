@@ -38,10 +38,10 @@
     },
     {
       "name": "rich-input",
-      "path": "assets/colab-runtime-rich-input-63f13ebeacd7af92.js",
-      "sha256": "63f13ebeacd7af92a03bdcc02a0dd7de6bb8059041877f3417337d834355d938",
-      "length": 224451,
-      "gzip": 70751
+      "path": "assets/colab-runtime-rich-input-be87750a6e84c941.js",
+      "sha256": "be87750a6e84c9418815ea41a65b8b121006e8886c60e18e2f764deb68c26b96",
+      "length": 224601,
+      "gzip": 70775
     },
     {
       "name": "docs",
