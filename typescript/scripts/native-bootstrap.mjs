@@ -11,10 +11,10 @@ import {
 // This maps uname evidence, not a second release inventory. Only artifacts in
 // the verified cargo-dist manifest are emitted into the generated installer.
 const hosts = {
-  'aarch64-apple-darwin': 'Darwin:arm64|Darwin:aarch64',
-  'x86_64-apple-darwin': 'Darwin:x86_64',
-  'aarch64-unknown-linux-musl': 'Linux:aarch64|Linux:arm64',
-  'x86_64-unknown-linux-musl': 'Linux:x86_64',
+  'aarch64-apple-darwin': { pattern: 'Darwin:arm64|Darwin:aarch64', label: 'macOS arm64' },
+  'x86_64-apple-darwin': { pattern: 'Darwin:x86_64', label: 'macOS x64' },
+  'aarch64-unknown-linux-musl': { pattern: 'Linux:aarch64|Linux:arm64', label: 'Linux arm64' },
+  'x86_64-unknown-linux-musl': { pattern: 'Linux:x86_64', label: 'Linux x64' },
 };
 
 /** Release tooling only: verify local artifacts before generating executable code. */
@@ -64,8 +64,14 @@ export async function generateNativeBootstrap(manifestFile, archiveDirectory, pl
     assert.equal(metadata.version, version, 'Bootstrap artifacts must share one version');
     await withNativeArtifact(archive, metadata, () => undefined);
     const size = readBoundedFile(archive, 64 * 1024 * 1024).length;
+    const displaySize =
+      size < 1000
+        ? `${size} B`
+        : size < 1_000_000
+          ? `${(size / 1000).toFixed(1)} kB`
+          : `${(size / 1_000_000).toFixed(1)} MB`;
     cases.push(
-      `    ${hosts[target]}) archive='${name}'; archive_hash='${metadata.sha256}'; archive_size=${size} ;;`
+      `    ${hosts[target].pattern}) archive='${name}'; archive_hash='${metadata.sha256}'; archive_size=${size}; platform='${hosts[target].label}'; archive_display_size='${displaySize}' ;;`
     );
   }
   assert(

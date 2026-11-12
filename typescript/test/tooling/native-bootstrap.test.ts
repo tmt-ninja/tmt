@@ -116,15 +116,27 @@ for argument do
 done
 case "$command" in
   __native-install)
+    if [ "\${TMT_BOOTSTRAP_NATIVE_FAILURE-}" = 1 ]; then
+      printf '%s' 'native failure detail'
+      printf '%s\\n' 'native stderr detail' >&2
+      exit 9
+    fi
     mkdir -p "$prefix/bin"
     ${shellQuote(process.execPath)} ${shellQuote(executableWriter)} --write "$prefix/bin/tmt" 493 < "$0"
-    printf '%s\\n' '{"installed":true}'
+    ln -sf tmt "$prefix/bin/tmux-team"
+    printf '%s\\n' "✓ Installed tmt \${TMT_BOOTSTRAP_FIXTURE_VERSION:?} at $prefix/bin/tmt"
     ;;
   install)
     if [ "\${TMT_BOOTSTRAP_SKILL_FAILURE-}" = 1 ]; then exit 7; fi
-    printf '%s\\n' '{"installed":true}'
+    if [ "\${TMT_BOOTSTRAP_SKILL_NOTICES-}" = 1 ]; then
+      printf '%s\\n' 'Recoverable backup: /private/fixture/backup' 'Warning: fixture safety notice' 'Picker action: install the optional picker before choosing it.'
+    fi
+    printf '%s\\n' "Installed shared skill 'tmt' at $HOME/.agents/skills/tmt" \
+      "Installed shared skill 'tmt-inbox' at $HOME/.agents/skills/tmt-inbox" \
+      'hint: reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill'
     ;;
   setup)
+    if [ "\${TMT_BOOTSTRAP_SETUP_FAILURE-}" = 1 ]; then exit 8; fi
     if [ -t 0 ]; then printf 'stdin=terminal\\n' >> "$log"; fi
     printf 'path=%s\\n' "$(command -v tmt)" >> "$log"
     ;;
@@ -140,9 +152,11 @@ set -eu
 printf '%s\\n' "$@" >> "$TMT_BOOTSTRAP_CURL_LOG.args"
 output=
 url=
+progress=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output|-o) output=$2; shift 2 ;;
+    --progress-bar|-\#) progress=yes; shift ;;
     --proto|--proto-redir|--max-redirs|--connect-timeout|--max-time|--max-filesize) shift 2 ;;
     --disable|--fail|--silent|--show-error|--location|--tlsv1.2|-f|-s|-S|-L|-fsSL|-sSfL) shift ;;
     *) url=$1; shift ;;
@@ -167,6 +181,7 @@ if [ "\${TMT_BOOTSTRAP_INTERRUPT-}" = 1 ]; then
   exit 143
 fi
 cp "$source" "$output"
+if [ "$progress" = yes ]; then printf '######################################################################## 100.0%%\\r\\n' >&2; fi
 if [ "\${TMT_BOOTSTRAP_SHORT-}" = 1 ]; then : > "$output"; fi
 if [ "\${TMT_BOOTSTRAP_CORRUPT-}" = manifest ] && printf '%s' "$url" | grep -q dist-manifest; then
   printf 'X' | dd of="$output" bs=1 count=1 conv=notrunc 2>/dev/null
@@ -195,6 +210,15 @@ async function runBootstrap(
     readonly interrupted?: boolean;
     readonly shortDownload?: boolean;
     readonly skillFailure?: boolean;
+    readonly setupFailure?: boolean;
+    readonly noColor?: string;
+    readonly ci?: string;
+    readonly pipeScript?: boolean;
+    readonly pipeStdout?: boolean;
+    readonly pipeStderr?: boolean;
+    readonly mergeOutput?: boolean;
+    readonly nativeFailure?: boolean;
+    readonly skillNotices?: boolean;
     readonly auditTokenEnv?: boolean;
     readonly unsupportedPlatform?: boolean;
     readonly endpointOverride?: string;
@@ -213,16 +237,22 @@ async function runBootstrap(
   const prefix = options.prefix ?? path.join(sandbox.home, '.local');
   const log = path.join(sandbox.root, 'stub.log');
   const curlLog = path.join(sandbox.root, 'curl.log');
-  const systemPath = options.systemPath ?? process.env.PATH ?? '/usr/bin:/bin';
+  const systemPath = options.systemPath ?? '/usr/bin:/bin:/usr/sbin:/sbin';
   const installerArgs = ['--prefix', prefix, ...args];
   // `script` gives the installer a pseudo-terminal: BSD and util-linux differ.
-  const quoted = ['/bin/sh', installer, ...installerArgs]
-    .map((word) => `'${word.replaceAll("'", "'\\''")}'`)
-    .join(' ');
+  const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+  const stdoutFile = path.join(sandbox.root, 'installer-stdout');
+  const stderrFile = path.join(sandbox.root, 'installer-stderr');
+  const invocation = options.pipeScript
+    ? `/bin/cat ${quote(installer)} | /bin/sh -s -- ${installerArgs.map(quote).join(' ')}`
+    : ['/bin/sh', installer, ...installerArgs].map(quote).join(' ');
+  const quoted = `{ ${invocation}; }${options.pipeStdout ? ` > ${quote(stdoutFile)}` : ''}${options.pipeStderr ? ` 2> ${quote(stderrFile)}` : ''}`;
   const cli = !options.terminal
-    ? { executable: '/bin/sh', args: [installer] }
+    ? options.mergeOutput
+      ? { executable: '/bin/sh', args: ['-c', `${quoted} 2>&1`] }
+      : { executable: '/bin/sh', args: [installer] }
     : process.platform === 'darwin'
-      ? { executable: '/usr/bin/script', args: ['-q', '/dev/null', '/bin/sh', installer] }
+      ? { executable: '/usr/bin/script', args: ['-q', '/dev/null', '/bin/sh', '-c', quoted] }
       : { executable: 'script', args: ['-qec', quoted, '/dev/null'] };
   const result = await runCli(
     {
@@ -230,11 +260,13 @@ async function runBootstrap(
       cli,
       env: {
         ...sandbox.env,
-        CI: '',
+        CI: options.ci ?? '',
+        NO_COLOR: options.noColor,
         PATH: `${fakeBin}:${systemPath}`,
         TMPDIR: stage,
         TMT_BOOTSTRAP_STUB_LOG: log,
         TMT_BOOTSTRAP_CURL_LOG: curlLog,
+        TMT_BOOTSTRAP_FIXTURE_VERSION: fixture.version,
         TMT_BOOTSTRAP_MANIFEST: fixture.manifest,
         TMT_BOOTSTRAP_ARCHIVE: fixture.archive,
         ...(options.corrupt === undefined ? {} : { TMT_BOOTSTRAP_CORRUPT: options.corrupt }),
@@ -242,6 +274,9 @@ async function runBootstrap(
         ...(options.interrupted ? { TMT_BOOTSTRAP_INTERRUPT: '1' } : {}),
         ...(options.shortDownload ? { TMT_BOOTSTRAP_SHORT: '1' } : {}),
         ...(options.skillFailure ? { TMT_BOOTSTRAP_SKILL_FAILURE: '1' } : {}),
+        ...(options.setupFailure ? { TMT_BOOTSTRAP_SETUP_FAILURE: '1' } : {}),
+        ...(options.nativeFailure ? { TMT_BOOTSTRAP_NATIVE_FAILURE: '1' } : {}),
+        ...(options.skillNotices ? { TMT_BOOTSTRAP_SKILL_NOTICES: '1' } : {}),
         ...(options.auditTokenEnv
           ? { TMT_BOOTSTRAP_AUDIT_ENV: '1', GH_TOKEN: 'gh-canary', GITHUB_TOKEN: 'github-canary' }
           : {}),
@@ -250,10 +285,22 @@ async function runBootstrap(
           : {}),
       },
     },
-    options.terminal && process.platform !== 'darwin' ? [] : installerArgs,
+    options.terminal || options.mergeOutput ? [] : installerArgs,
     { deadlineMs: 15_000 }
   );
-  return { result, prefix, log: existsSync(log) ? readFileSync(log, 'utf8') : '', stage, curlLog };
+  return {
+    result: {
+      ...result,
+      stdout: options.pipeStdout ? readFileSync(stdoutFile, 'utf8') : result.stdout,
+      stderr: options.pipeStderr ? readFileSync(stderrFile, 'utf8') : result.stderr,
+    },
+    terminalOutput: result.stdout,
+    prefix,
+    log: existsSync(log) ? readFileSync(log, 'utf8') : '',
+    stage,
+    curlLog,
+    curlArgs: existsSync(`${curlLog}.args`) ? readFileSync(`${curlLog}.args`, 'utf8') : '',
+  };
 }
 
 function expectCleanStage(stage: string): void {
@@ -261,6 +308,228 @@ function expectCleanStage(stage: string): void {
 }
 
 describe('native curl bootstrap', () => {
+  it.each(['fresh', 'path-missing', 'setup-failure'] as const)(
+    'captures isolated terminal and piped %s output',
+    { timeout: 30_000 },
+    async (scenario) => {
+      for (const terminal of [false, true]) {
+        await withSandbox(async (sandbox) => {
+          const fixture = await createFixture(sandbox);
+          const script = await generateNativeBootstrap(
+            fixture.manifest,
+            path.dirname(fixture.archive)
+          );
+          const prefix = path.join(sandbox.home, '.local');
+          const run = await runBootstrap(sandbox, script, fixture, [], {
+            prefix,
+            terminal,
+            mergeOutput: true,
+            systemPath: `${scenario === 'path-missing' ? '' : `${prefix}/bin:`}/usr/bin:/bin:/usr/sbin:/sbin`,
+            setupFailure: scenario === 'setup-failure' && terminal,
+            skillFailure: scenario === 'setup-failure' && !terminal,
+          });
+          expect(run.result.status).toBe(scenario === 'setup-failure' && !terminal ? 1 : 0);
+          expect(existsSync(path.join(prefix, 'bin', 'tmt'))).toBe(true);
+          expectCleanStage(run.stage);
+          const plain = (run.result.stdout + run.result.stderr)
+            .replace(/\x1b\[[0-9;]*m/g, '')
+            .replaceAll('\r', '');
+          if (scenario === 'path-missing')
+            expect(plain).toContain(
+              `! ${prefix}/bin is not in PATH yet. Add it to PATH, then run hash -r or open a new shell.`
+            );
+          if (scenario === 'setup-failure') {
+            if (terminal)
+              expect(plain).toContain(
+                '! Setup did not finish; tmt is installed. Run tmt setup again when ready.'
+              );
+            else {
+              expect(plain).toContain(
+                '! The native binary is installed, but skill setup failed. Inspect conflicts before explicitly running the new tmt install --force; it backs up conflicting links/content.'
+              );
+              expect(plain).toContain(
+                'No data was migrated or deleted. Retry with the absolute new tmt path.'
+              );
+            }
+          }
+          const commands = plain.split('Next:\n')[1].trim().split('\n');
+          expect(commands.length).toBeLessThanOrEqual(3);
+          if (scenario === 'fresh' && terminal) {
+            expect(run.result.stdout).toContain('\x1b[2m');
+            expect(plain).not.toContain('! ');
+          }
+          const directory = process.env.TMT_BOOTSTRAP_CAPTURE_DIR;
+          if (directory) {
+            expect(path.isAbsolute(directory)).toBe(true);
+            mkdirSync(directory, { recursive: true });
+            writeFileSync(
+              path.join(directory, `${scenario}-${terminal ? 'tty' : 'piped'}.txt`),
+              `${run.result.stdout}${run.result.stderr}`
+            );
+          }
+        });
+      }
+    }
+  );
+
+  it.each([
+    { name: 'piped', terminal: false, ci: '', noColor: undefined, progress: false, color: false },
+    { name: 'terminal', terminal: true, ci: '', noColor: undefined, progress: true, color: true },
+    {
+      name: 'CI terminal',
+      terminal: true,
+      ci: '1',
+      noColor: undefined,
+      progress: false,
+      color: false,
+    },
+    { name: 'NO_COLOR', terminal: true, ci: '', noColor: '1', progress: true, color: false },
+    { name: 'empty NO_COLOR', terminal: true, ci: '', noColor: '', progress: true, color: false },
+  ])('gates archive progress and colour for $name', { timeout: 20_000 }, async (mode) => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], mode);
+      expect(run.result.status).toBe(0);
+      const output = run.result.stdout + run.result.stderr;
+      expect(output.includes('Downloading tmt ')).toBe(mode.progress);
+      expect(run.curlArgs.split('\n').filter((arg) => arg === '--progress-bar')).toHaveLength(
+        mode.progress ? 1 : 0
+      );
+      expect(run.curlArgs.split('\n').filter((arg) => arg === '--silent')).toHaveLength(
+        mode.progress ? 1 : 2
+      );
+      expect(readFileSync(run.curlLog, 'utf8').trim().split('\n')).toHaveLength(2);
+      expect(output.includes('\x1b[')).toBe(mode.color);
+      const plain = output.replace(/\x1b\[[0-9;]*m/g, '').replaceAll('\r', '');
+      expect(plain).toContain(`Install tmt ${fixture.version} (`);
+      expect(plain).toContain('✓ Downloaded and verified archive');
+      expect(plain).toContain('✓ Native tmt is installed at ');
+      expect(plain).not.toContain('{"installed":true}');
+      expect(plain.split('Next:\n')[1].trim().split('\n').length).toBeLessThanOrEqual(3);
+      if (mode.progress)
+        expect(plain).toMatch(/Downloading tmt .* \((macOS|Linux) (arm64|x64), [\d.]+ (B|kB|MB)\)/);
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it.each([true, false])(
+    'tests stderr independently of stdout, with piped script stdin (stdout piped=%s)',
+    { timeout: 20_000 },
+    async (pipeStdout) => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const run = await runBootstrap(sandbox, script, fixture, ['--no-setup'], {
+          terminal: true,
+          pipeScript: true,
+          pipeStdout,
+          pipeStderr: !pipeStdout,
+        });
+        expect(run.result.status).toBe(0);
+        expect(run.curlArgs.includes('--progress-bar')).toBe(pipeStdout);
+        if (pipeStdout) {
+          expect(run.result.stdout).not.toContain('\x1b[');
+          expect(run.terminalOutput).toContain('Downloading tmt ');
+        } else {
+          expect(run.terminalOutput).not.toContain('Downloading tmt ');
+          expect(run.result.stderr).not.toContain('\x1b[');
+        }
+        expectCleanStage(run.stage);
+      });
+    }
+  );
+
+  it(
+    'keeps the download label when display size is unavailable without probing another endpoint',
+    { timeout: 20_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox);
+        const original = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const script = original.replace(/archive_display_size='[^']*'/g, "archive_display_size=''");
+        const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], {
+          terminal: true,
+        });
+        expect(run.result.status).toBe(0);
+        expect(run.result.stdout).toMatch(/Downloading tmt .* \((macOS|Linux) (arm64|x64)\)/);
+        expect(readFileSync(run.curlLog, 'utf8').trim().split('\n')).toHaveLength(2);
+        expectCleanStage(run.stage);
+      });
+    }
+  );
+
+  it('quotes apostrophes and shell metacharacters in required Next commands, ahead of optional hints', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const prefix = path.join(sandbox.home, "one's literal $(printf unsafe) prefix");
+      const run = await runBootstrap(sandbox, script, fixture, [], { prefix });
+      expect(run.result.status).toBe(0);
+      expect(run.result.stdout).toContain(
+        `${prefix}/bin is not in PATH yet. Add it to PATH, then run hash -r or open a new shell.`
+      );
+      const commands = run.result.stdout
+        .split('Next:\n')[1]
+        .trim()
+        .split('\n')
+        .map((line) => line.trim());
+      expect(commands).toHaveLength(3);
+      expect(commands[0]).toMatch(/^export PATH=/);
+      expect(commands[1]).toBe('hash -r');
+      expect(commands[2]).toMatch(/ setup$/);
+      const check = await runCli({ ...sandbox, cli: { executable: '/bin/sh', args: ['-c'] } }, [
+        `${commands[0]}; printf '%s' "$PATH"`,
+      ]);
+      expect(check.status).toBe(0);
+      expect(check.stdout).toBe(`${prefix}/bin:${sandbox.env.PATH}`);
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it('retains successful skill reports, backups, warnings and picker guidance', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const run = await runBootstrap(sandbox, script, fixture, [], { skillNotices: true });
+      expect(run.result.status).toBe(0);
+      expect(run.result.stdout).toContain('✓ Installed agent skills');
+      expect(run.result.stdout).toContain('! Recoverable backup: /private/fixture/backup');
+      expect(run.result.stdout).toContain('! Warning: fixture safety notice');
+      expect(run.result.stdout).toContain(
+        'Picker action: install the optional picker before choosing it.'
+      );
+      expect(run.log).toContain('command=install');
+      expectCleanStage(run.stage);
+    });
+  });
+
+  it('preserves native failure status, both diagnostic streams and manager guidance', async () => {
+    await withSandbox(async (sandbox) => {
+      const fixture = await createFixture(sandbox);
+      const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
+      const run = await runBootstrap(sandbox, script, fixture, [], { nativeFailure: true });
+      expect(run.result.status).toBe(9);
+      expect(run.result.stderr).toContain('native failure detail');
+      expect(run.result.stderr).toContain('native stderr detail');
+      expect(run.result.stderr).toContain(
+        '✗ Native installation did not finish cleanly; inspect the error above before retrying.'
+      );
+      expect(run.result.stderr).toContain(
+        '! If the prefix contains an npm/pnpm/brew/manual command, choose another prefix or remove it with its original manager. This installer never overwrites that command.'
+      );
+      expect(run.log).not.toContain('command=install');
+      expect(existsSync(path.join(run.prefix, 'bin', 'tmt'))).toBe(false);
+      expectCleanStage(run.stage);
+    });
+  });
+
   it(
     'removes inherited tokens from staged install, setup and skill children on success and failure',
     { timeout: 20_000 },
@@ -509,7 +778,10 @@ describe('native curl bootstrap', () => {
         expect(optedOut.result.status, optedOut.result.stdout).toBe(0);
         expect(optedOut.log).not.toContain('command=setup');
 
-        const guided = await runBootstrap(sandbox, script, fixture, [], { terminal: true });
+        const guided = await runBootstrap(sandbox, script, fixture, [], {
+          terminal: true,
+          pipeScript: true,
+        });
         expect(guided.result.status, guided.result.stdout).toBe(0);
         const setupLog = guided.log.slice(guided.log.lastIndexOf('command=setup'));
         expect(setupLog).toContain('command=setup');

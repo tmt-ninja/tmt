@@ -45,6 +45,10 @@ try {
   fs.writeFileSync(installer, script, { mode: 0o600 });
   const env = {
     HOME: root,
+    XDG_CONFIG_HOME: path.join(root, 'xdg-config'),
+    XDG_DATA_HOME: path.join(root, 'xdg-data'),
+    XDG_STATE_HOME: path.join(root, 'xdg-state'),
+    XDG_CACHE_HOME: path.join(root, 'xdg-cache'),
     TMPDIR: root,
     TMT_HOME: state,
     LANG: 'C',
@@ -60,6 +64,20 @@ try {
   const first = bootstrap(['--no-skill']);
   assert.match(first, /PATH may still select another installation/);
   assert.match(first, /npm uninstall -g tmux-team/);
+  assert(
+    first.includes(
+      'For Homebrew/manual installs, use their original uninstall procedure. No old installation or shell profile was changed.'
+    )
+  );
+  assert(
+    first.includes(
+      'Use the new tmt upgrade for subsequent native updates. Application data was not migrated or deleted.'
+    )
+  );
+  assert(first.includes('✓ Downloaded and verified archive'));
+  assert(first.includes('Next:'));
+  assert(!first.includes('Downloading tmt '), 'Piped verification must not draw download progress');
+  assert(!first.includes('\x1b['), 'Piped verification must not emit ANSI');
   assert(!fs.existsSync(state), 'Binary-only bootstrap must not create application state');
   const executable = path.join(prefix, 'bin/tmt');
   assertMacOsArchitecture(executable, values.target, options);
