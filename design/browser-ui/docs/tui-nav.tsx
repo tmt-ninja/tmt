@@ -8,7 +8,7 @@ const TuiPageContent = lazy(() =>
   import('./tui/index.js').then((module) => ({ default: module.TuiPageContent })),
 );
 const LazyTuiMock = lazy(() =>
-  import('./mock-tui/index.js').then((module) => ({ default: module.TuiMock })),
+  import('./tui/index.js').then((module) => ({ default: module.TuiMock })),
 );
 
 const loading = <p data-scene-loading="">Loading preview…</p>;

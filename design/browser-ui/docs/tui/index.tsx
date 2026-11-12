@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { usePreview } from '../preview.js';
+export { TuiMock } from '../mock-tui/index.js';
 import { tuiMockBase } from '../routes.js';
 import { patternDocs, type PatternDoc } from './patterns.js';
 import { TuiPreview } from './preview.js';
