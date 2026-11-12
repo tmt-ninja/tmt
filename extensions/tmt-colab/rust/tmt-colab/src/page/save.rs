@@ -369,6 +369,10 @@ fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) 
     if let Some(large) = error.downcast_ref::<SourceTooLarge>() {
         return (large.code(), error.to_string());
     }
+    // A template save or removal refused by the rules `template save` and `remove` share (#5077).
+    if let Some(refused) = error.downcast_ref::<crate::template_catalog::Refusal>() {
+        return (refused.code(), error.to_string());
+    }
     if let Some(fault) = error.downcast_ref::<Fault>() {
         return (fault.code(), error.to_string());
     }

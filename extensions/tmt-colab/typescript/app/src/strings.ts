@@ -1337,6 +1337,8 @@ export const text = {
     saveChanges: 'Save',
     saved: (name: string) => `Saved as template ${name}`,
     removed: (name: string) => `Removed template ${name}`,
+    removeBody: (name: string) =>
+      `${name} stops being a template. The page stays as a page, and pages made from it are unchanged. If it is the default, the default returns to starter.`,
     nameErrors: {
       COLAB_TEMPLATE_NAME_TAKEN: 'Another page already has this name.',
       COLAB_TEMPLATE_NAME_RESERVED: 'This is a TMT template name.',
