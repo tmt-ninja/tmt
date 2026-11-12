@@ -146,9 +146,14 @@ test('New page creates a page from the chosen template and opens it (#5076)', as
   await expect(dialog).toHaveCount(0);
   const sent = await page.evaluate(() => window.__newPages);
   expect(sent).toHaveLength(2);
-  expect(sent[1]).toMatchObject({ title: 'Week 43', template: 'd0000002-1111-4111-8111-000000000001' });
+  expect(sent[1]).toMatchObject({
+    title: 'Week 43',
+    template: 'd0000002-1111-4111-8111-000000000001',
+  });
   expect(sent[1]!.creator).toBeUndefined();
-  await expect.poll(() => new URL(page.url()).hash).toContain(`/pages/e${sent[1]!.operationId.slice(1)}`);
+  await expect
+    .poll(() => new URL(page.url()).hash)
+    .toContain(`/pages/e${sent[1]!.operationId.slice(1)}`);
 });
 
 test('the template cards move with the arrow keys and Enter creates (#5077)', async ({ page }) => {
