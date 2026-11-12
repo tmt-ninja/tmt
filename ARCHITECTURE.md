@@ -155,6 +155,8 @@ registration and declaration support; cut metadata freezes the published CLI.
 Raw binaries prove neither archives nor public installs. [Handoffs](contracts/native-install-handoff-v1.md)
 and [records](contracts/release-index-v1.md) bind release bytes to identity.
 Archive, installer, verifier, publication, compiled schema and PR producer/cleanup sources belong to [tmt-release](.agents/skills/tmt-release/SKILL.md).
+`rust/about.toml` owns the redistributed-dependency license policy. Browser-build
+verification uses Vite's emitted metadata, kept outside served and archived inventories.
 
 ### Main release cuts
 

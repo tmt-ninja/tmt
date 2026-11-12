@@ -1,7 +1,9 @@
 import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
+import { bundledLicenseOutput } from '../../../../typescript/scripts/bundled-license-output.mjs';
 import { build, defineConfig } from 'vite-plus';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 import { tuiOracle } from '@tmt/browser-ui/docs-oracle';
@@ -53,6 +55,19 @@ export default defineConfig(({ mode }) => ({
   // The page runtime's compiler is a prebuilt browser script, so the lib build appends it as text
   // instead of bundling it (see src/runtime/entry.ts and scripts/verify-runtime.mjs).
   plugins: [
+    ...(mode === 'production' || mode === 'hosted'
+      ? [
+          bundledLicenseOutput({
+            sourceRoot: fileURLToPath(new URL('../../../../', import.meta.url)),
+            metadataFile: fileURLToPath(
+              new URL(
+                `../../../../rust/target/bundled-notices/colab-${mode === 'hosted' ? 'hosted' : 'app'}.json`,
+                import.meta.url,
+              ),
+            ),
+          }),
+        ]
+      : []),
     react(),
     designTokens(),
     {
@@ -257,5 +272,12 @@ export default defineConfig(({ mode }) => ({
                 // (the Design docs chrome, #6272) stay inside it rather than split into chunks.
                 rollupOptions: { output: { codeSplitting: false } },
               }
-            : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
+            : {
+                license: {
+                  fileName:
+                    mode === 'production' || mode === 'hosted'
+                      ? 'THIRD-PARTY-NOTICES.json'
+                      : 'THIRD-PARTY-NOTICES.txt',
+                },
+              },
 }));
