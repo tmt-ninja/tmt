@@ -202,6 +202,50 @@ test('the template cards move with the arrow keys and Enter creates (#5077)', as
   await expect(app(page).getByRole('button', { name: 'New page', exact: true })).toBeFocused();
 });
 
+test('New page names the chosen agent as creator and offers it next time (#5076)', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  const opener = app(page).getByRole('button', { name: 'New page', exact: true });
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'New page' });
+  const creator = dialog.getByRole('combobox', { name: 'Creator' });
+  // This machine's agents through Remote; No agent until one is chosen.
+  await expect(creator).toBeEnabled();
+  await expect(creator.locator('option')).toHaveText([
+    'No agent',
+    'tmt-gui-lead · My machine',
+    'gui-4 · My machine',
+  ]);
+  await expect(creator).toHaveValue('');
+  await expect(dialog).not.toContainText('Agents could not be listed');
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 43');
+  await creator.selectOption('agent-gui-4');
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await page.evaluate(() => window.__newPages))[0]!.creator).toEqual({
+    agent: { id: 'agent-gui-4', name: 'gui-4' },
+  });
+  // The agent used last is chosen the next time.
+  await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
+  await page.goBack();
+  await opener.click();
+  await expect(creator).toHaveValue('agent-gui-4');
+  await page.keyboard.press('Escape');
+  // Without Remote's list the creator stays No agent and says why; the page is still created.
+  await page.evaluate(() => (window.__agentsUnavailable = true));
+  await opener.click();
+  await expect(creator).toBeDisabled();
+  await expect(creator).toHaveValue('');
+  await expect(creator).toHaveAccessibleDescription(
+    'Agents could not be listed; the page is created without one.',
+  );
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 44');
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await page.evaluate(() => window.__newPages))[1]!.creator).toBeUndefined();
+});
+
 for (const width of [1586, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`website page dialogs remain contained at ${width} ${theme}`, async ({ page }) => {
