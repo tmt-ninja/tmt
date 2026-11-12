@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ScaledFrame } from '../../gallery/kit.js';
-import { resolveSample, type Sample } from './catalog.js';
+import type { Sample } from './catalog.js';
+import { resolveSample } from './samples.js';
 
 /** The shared docs preview owns scaling. The probe measures this renderer's real cell metrics. */
 export function TuiPreview({

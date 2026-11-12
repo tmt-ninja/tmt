@@ -1,7 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { componentDocs, resolveSample, locatePart, tuiRoot } from './catalog.js';
+import { componentDocs, locatePart, tuiRoot } from './catalog.js';
+import { resolveSample } from './samples.js';
 import { patternDocs } from './patterns.js';
 import { tuiMockBase } from '../routes.js';
 import { oracle, states } from './model.js';
@@ -105,6 +106,7 @@ for (const width of [1440, 390])
           await expect(frame).toHaveAttribute('data-look', look);
         } else {
           const samples = page.locator('.tui-sample');
+          await expect(samples.first()).toBeVisible();
           expect(await samples.count()).toBeGreaterThan(0);
           for (let i = 0; i < (await samples.count()); i++) await checkSample(page, samples.nth(i));
           frame = await checkSample(page, samples.first());
@@ -288,6 +290,7 @@ test('Agents URL states persist without driving a real terminal', async ({ page 
   await page.goto(`${tuiMockBase}/agents`);
   const frame = page.locator('tmt-tui-frame');
   const stateControl = page.getByRole('combobox', { name: 'State', exact: true });
+  await expect(stateControl).toBeVisible();
   const names = await stateControl.locator('option').allTextContents();
   expect(names).toEqual(states);
   for (const state of names) {

@@ -4,10 +4,9 @@ This is the docs-only #5835 slice of foundation #5827. It adds no product runtim
 Colab admission, terminal connection or input authority. `tmt-tui-frame` displays
 real painter cells; it never draws a replacement terminal interface.
 
-- `index.tsx` exports `tuiPages` for the owning docs shell.
-- `../mock-tui/index.tsx` exports `TuiMock({ path })`.
-- gui-2 owns `tui-nav.tsx`, navigation and router wiring. Slice commits merge
-  forward into the served foundation branch, without rebasing that branch.
+- `../tui-nav.tsx` supplies navigation metadata and loads `index.tsx` or
+  `../mock-tui/index.tsx` when their TUI routes are opened. The metadata keeps
+  the recorded frame model out of the eager docs shell.
 - `generate.mjs` reads the Ops HOME oracle, the CLI theme and the design tokens
   (`sources`). It expands the oracle dictionaries without modifying source cells
   and interns only the listed scenes; a listed scene the oracle no longer records
