@@ -1678,6 +1678,8 @@ export async function mountRenderer(
       : undefined;
   // Awaited when the frame loads; a failure meanwhile is not an unhandled rejection.
   runtime?.catch(() => {});
+  /** Whether the bound frame carries the runtime's compiler. */
+  let compiled = false;
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
@@ -1708,6 +1710,7 @@ export async function mountRenderer(
         }
       }
     if (stopped) return;
+    compiled = bundle !== undefined;
     // Parts still to paint: their arrival is not viewport-coupled growth until they settle.
     // A grace timer from an earlier render must not settle this one early.
     if (bundle && ds) {
@@ -1792,6 +1795,9 @@ export async function mountRenderer(
   const update = async (source: string): Promise<SourceUpdate> => {
     if (stopped) return 'superseded';
     if (!ready) return 'remount';
+    // A frame bound without the Tailwind compiler cannot style a page's first utility class in
+    // place (#6077); the frame key flips with it too, so the app mounts a fresh frame anyway.
+    if (!compiled && wantsUtilities(source)) return 'remount';
     const turn = ++updates;
     pendingUpdate?.settle('superseded');
     let sourceDigest: string;
