@@ -228,10 +228,22 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* The shared chip supplies the surface; native choice controls keep keyboard semantics. */
+/* The shared chip supplies the surface; native choice controls keep keyboard semantics. Short
+   inline choices are pills. Choices with descriptions stack as rows, as the block-page question's
+   choices do (`.tmt-block-question-choices`): the card radius and a small row gap, never full-width
+   pills that touch (#6316). The layout selector outranks the shared `.tmt-ui-chip` radius
+   whichever stylesheet loads last. */
 .question-choice-chip {
-  border-radius: var(--tmt-ui-radius-pill);
   overflow: visible;
+}
+.question-card .tmt-ui-choices[data-layout='inline'] .question-choice-chip {
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.question-card .tmt-ui-choices[data-layout='stack'] {
+  row-gap: var(--tmt-ui-space-s);
+}
+.question-card .tmt-ui-choices[data-layout='stack'] .question-choice-chip {
+  border-radius: var(--tmt-ui-radius);
 }
 .question-choice-chip .tmt-ui-choice {
   position: relative;
