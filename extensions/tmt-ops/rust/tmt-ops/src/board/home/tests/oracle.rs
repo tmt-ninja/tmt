@@ -1220,61 +1220,93 @@ fn account_limits_frames(styles: &mut Styles) -> Vec<Value> {
 
 const NOW: u64 = 1_791_600_000_000;
 
+// One ordered inventory owns both whole-file capture and partition coverage.
+// Counts are checked against the oracle and actual output, so a new group cannot
+// silently escape the partition that records it.
+macro_rules! oracle_groups {
+    ($group:ident, $styles:expr) => {
+        $group!(0, 1888, base_frames($styles));
+        $group!(0, 160, chart_frames($styles));
+        $group!(1, 224, bindings_frames($styles));
+        $group!(6, 80, settings_menu_frames($styles));
+        $group!(7, 24, measure_frames($styles));
+        $group!(7, 96, search_frames($styles));
+        $group!(7, 36, measure_exchanges_frames($styles));
+        $group!(8, 228, paste_frames($styles));
+        $group!(7, 60, file_chip_frames($styles));
+        $group!(7, 144, quote_frames($styles));
+        $group!(7, 36, link_popover_frames($styles));
+        $group!(7, 80, link_file_frames($styles));
+        $group!(7, 60, talk_screen_frames($styles));
+        $group!(7, 96, conversation_refresh_frames($styles));
+        $group!(7, 16, markdown_frames($styles));
+        $group!(7, 12, selection_frames($styles));
+        $group!(8, 544, member_session_frames($styles));
+        $group!(7, 24, checklist_chip_frames($styles));
+        $group!(7, 80, add_note_frames($styles));
+        $group!(7, 32, checklist_overlay_frames($styles));
+        $group!(7, 40, one_turn_frames($styles));
+        $group!(7, 24, versions_frames($styles));
+        $group!(6, 696, new_member_frames($styles));
+        $group!(
+            8,
+            560,
+            switch_frames(crate::board::switch_tool::tests::captures::SCENES, $styles,)
+        );
+        $group!(2, 128, idle_alert_frames_for_look($styles, Some(0)));
+        $group!(3, 128, idle_alert_frames_for_look($styles, Some(1)));
+        $group!(4, 128, idle_alert_frames_for_look($styles, Some(2)));
+        $group!(5, 128, idle_alert_frames_for_look($styles, Some(3)));
+        $group!(
+            8,
+            416,
+            crud_frames(
+                crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
+                $styles,
+            )
+        );
+        $group!(7, 16, unread_hover_frames($styles));
+        $group!(7, 200, checklist_capture_frames($styles));
+        $group!(7, 12, action_needed_frames($styles));
+        $group!(8, 224, digest_impact_frames($styles));
+        $group!(7, 96, answer_paging_frames($styles));
+        $group!(7, 20, jump_latest_frames($styles));
+        $group!(7, 96, checklist_activity_frames($styles));
+        $group!(8, 128, timeline_frames($styles));
+        $group!(7, 32, snapshot_frames($styles));
+        $group!(7, 80, terminal_tab_frames($styles));
+        $group!(7, 16, member_terminals_frames($styles));
+        $group!(8, 16, settings_keys_frames($styles));
+        $group!(7, 16, quota_details_frames($styles));
+        $group!(8, 448, unread_overlay_frames($styles));
+        $group!(7, 192, account_limits_frames($styles));
+        $group!(7, 8, mention_picker_frames($styles));
+        $group!(7, 360, skills_picker_frames($styles));
+        $group!(7, 32, visibility_frames($styles));
+        $group!(7, 224, orchestration_frames($styles));
+    };
+}
+
+const ORACLE_PARTS: usize = 9;
+
 fn captures() -> Value {
+    captures_part(None)
+}
+
+fn captures_part(part: Option<usize>) -> Value {
     crate::status::with_now_ms(NOW, || {
         let mut styles = Styles::default();
         let mut frames = Vec::new();
-        frames.extend(base_frames(&mut styles));
-        frames.extend(chart_frames(&mut styles));
-        frames.extend(bindings_frames(&mut styles));
-        frames.extend(settings_menu_frames(&mut styles));
-        frames.extend(measure_frames(&mut styles));
-        frames.extend(search_frames(&mut styles));
-        frames.extend(measure_exchanges_frames(&mut styles));
-        frames.extend(paste_frames(&mut styles));
-        frames.extend(file_chip_frames(&mut styles));
-        frames.extend(quote_frames(&mut styles));
-        frames.extend(link_popover_frames(&mut styles));
-        frames.extend(link_file_frames(&mut styles));
-        frames.extend(talk_screen_frames(&mut styles));
-        frames.extend(conversation_refresh_frames(&mut styles));
-        frames.extend(markdown_frames(&mut styles));
-        frames.extend(selection_frames(&mut styles));
-        frames.extend(member_session_frames(&mut styles));
-        frames.extend(checklist_chip_frames(&mut styles));
-        frames.extend(add_note_frames(&mut styles));
-        frames.extend(checklist_overlay_frames(&mut styles));
-        frames.extend(one_turn_frames(&mut styles));
-        frames.extend(versions_frames(&mut styles));
-        frames.extend(new_member_frames(&mut styles));
-        frames.extend(switch_frames(
-            crate::board::switch_tool::tests::captures::SCENES,
-            &mut styles,
-        ));
-        frames.extend(idle_alert_frames(&mut styles));
-        frames.extend(crud_frames(
-            crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
-            &mut styles,
-        ));
-        frames.extend(unread_hover_frames(&mut styles));
-        frames.extend(checklist_capture_frames(&mut styles));
-        frames.extend(action_needed_frames(&mut styles));
-        frames.extend(digest_impact_frames(&mut styles));
-        frames.extend(answer_paging_frames(&mut styles));
-        frames.extend(jump_latest_frames(&mut styles));
-        frames.extend(checklist_activity_frames(&mut styles));
-        frames.extend(timeline_frames(&mut styles));
-        frames.extend(snapshot_frames(&mut styles));
-        frames.extend(terminal_tab_frames(&mut styles));
-        frames.extend(member_terminals_frames(&mut styles));
-        frames.extend(settings_keys_frames(&mut styles));
-        frames.extend(quota_details_frames(&mut styles));
-        frames.extend(unread_overlay_frames(&mut styles));
-        frames.extend(account_limits_frames(&mut styles));
-        frames.extend(mention_picker_frames(&mut styles));
-        frames.extend(skills_picker_frames(&mut styles));
-        frames.extend(visibility_frames(&mut styles));
-        frames.extend(orchestration_frames(&mut styles));
+        macro_rules! group {
+            ($part:expr, $count:expr, $capture:expr) => {
+                if part.is_none() || part == Some($part) {
+                    let captured = $capture;
+                    assert_eq!(captured.len(), $count, "oracle capture group size");
+                    frames.extend(captured);
+                }
+            };
+        }
+        oracle_groups!(group, &mut styles);
         let styles = styles
             .0
             .into_iter()
@@ -1560,17 +1592,169 @@ fn oracle_format_b_matches_approved_expanded_oracle() {
     assert_eq!(encoded, encode_oracle(previous, Some(&encoded)));
 }
 
+// Ranges are tied to the same ordered capture inventory as the recorder.
+fn partition_ranges() -> Vec<(usize, std::ops::Range<usize>)> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    macro_rules! group {
+        ($part:expr, $count:expr, $capture:expr) => {{
+            ranges.push(($part, start..start + $count));
+            start += $count;
+        }};
+    }
+    oracle_groups!(group, &mut styles);
+    let _ = start;
+    ranges
+}
+
+fn validate_ownership(
+    frame_count: usize,
+    ranges: &[(usize, std::ops::Range<usize>)],
+) -> Result<(), String> {
+    let mut owners = vec![0u8; frame_count];
+    for (part, range) in ranges {
+        if *part >= ORACLE_PARTS || range.start > range.end || range.end > frame_count {
+            return Err("invalid oracle partition range".into());
+        }
+        for owner in &mut owners[range.clone()] {
+            *owner += 1;
+        }
+    }
+    if owners.iter().any(|&count| count != 1) {
+        return Err("each oracle frame must have exactly one owner".into());
+    }
+    Ok(())
+}
+
 #[test]
-fn home_oracle_keeps_every_cell_style_and_hit_without_stacked_rules() {
-    // Nextest runs each test in its own process, so both checks must share this
-    // local capture rather than a lazy value shared between separate tests.
-    let captured = captures();
+fn oracle_partition_ownership_covers_every_recorded_frame_once() {
+    let expected =
+        decode_oracle(serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap());
+    let frames = expected["frames"].as_array().unwrap();
+    validate_ownership(frames.len(), &partition_ranges()).unwrap();
+    let mut keys = std::collections::HashSet::new();
+    for frame in frames {
+        let key = (
+            &frame["state"],
+            &frame["look"],
+            &frame["width"],
+            &frame["height"],
+        );
+        assert!(keys.insert(key), "duplicate recorded frame key: {key:?}");
+    }
+    assert_style_table(&expected);
+}
+
+#[test]
+fn oracle_partition_ownership_rejects_gaps_and_overlaps() {
+    assert!(validate_ownership(3, &[(0, 0..1), (1, 2..3)]).is_err());
+    assert!(validate_ownership(3, &[(0, 0..2), (1, 1..3)]).is_err());
+    assert!(validate_ownership(3, &[(ORACLE_PARTS, 0..3)]).is_err());
+}
+
+fn assert_style_table(value: &Value) {
+    let styles = value["styles"].as_object().unwrap();
+    let mut used = std::collections::HashSet::new();
+    let mut values = std::collections::HashSet::new();
+    for style in styles.values() {
+        assert!(
+            values.insert(style.as_str().unwrap()),
+            "duplicate interned style"
+        );
+    }
+    for frame in value["frames"].as_array().unwrap() {
+        for row in frame["styles"].as_array().unwrap() {
+            for run in row.as_str().unwrap().split_whitespace() {
+                let (_, id) = run.split_once('=').expect("style run");
+                assert!(styles.contains_key(id), "missing style {id}");
+                used.insert(id);
+            }
+        }
+    }
+    assert_eq!(used.len(), styles.len(), "unused interned style");
+}
+
+fn resolved_frames(value: &Value) -> Vec<Value> {
+    let styles = value["styles"].as_object().unwrap();
+    value["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|frame| {
+            let mut frame = frame.clone();
+            for row in frame["styles"].as_array_mut().unwrap() {
+                let resolved: Vec<_> = row
+                    .as_str()
+                    .unwrap()
+                    .split_whitespace()
+                    .map(|run| {
+                        let (range, id) = run.split_once('=').expect("style run");
+                        json!([range, styles.get(id).expect("style id")])
+                    })
+                    .collect();
+                *row = json!(resolved);
+            }
+            frame
+        })
+        .collect()
+}
+
+#[test]
+fn resolved_oracle_comparison_ignores_ids_but_keeps_cells_styles_and_hits() {
+    let first = json!({"styles":{"s0":"fg=red"}, "frames":[{"lines":["x"],"styles":["0:1=s0"],"hits":"hit", "actions":"action"}]});
+    let mut same = json!({"styles":{"s9":"fg=red"}, "frames":[{"lines":["x"],"styles":["0:1=s9"],"hits":"hit", "actions":"action"}]});
+    assert_eq!(resolved_frames(&first), resolved_frames(&same));
+    same["styles"]["s9"] = json!("fg=blue");
+    assert_ne!(resolved_frames(&first), resolved_frames(&same));
+    same["styles"]["s9"] = json!("fg=red");
+    for field in ["lines", "hits", "actions"] {
+        let mut changed = same.clone();
+        changed["frames"][0][field] = json!("changed");
+        assert_ne!(
+            resolved_frames(&first),
+            resolved_frames(&changed),
+            "{field}"
+        );
+    }
+}
+
+fn check_oracle_part(part: usize) {
+    let captured = captures_part(Some(part));
+    assert_style_table(&captured);
+    let expected =
+        decode_oracle(serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap());
+    let frames = expected["frames"].as_array().unwrap();
+    let selected: Vec<_> = partition_ranges()
+        .into_iter()
+        .filter(|(owner, _)| *owner == part)
+        .flat_map(|(_, range)| frames[range].iter().cloned())
+        .collect();
+    let expected = json!({"styles": expected["styles"], "frames": selected});
     assert_eq!(
-        captured,
-        decode_oracle(serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap())
+        resolved_frames(&captured),
+        resolved_frames(&expected),
+        "oracle partition {part}"
     );
     assert_no_home_frame_stacks_two_rules(&captured);
 }
+
+macro_rules! oracle_part_test {
+    ($name:ident, $part:expr) => {
+        #[test]
+        fn $name() {
+            check_oracle_part($part);
+        }
+    };
+}
+oracle_part_test!(home_oracle_base_and_charts, 0);
+oracle_part_test!(home_oracle_bindings, 1);
+oracle_part_test!(home_oracle_idle_tmt, 2);
+oracle_part_test!(home_oracle_idle_tmt_light, 3);
+oracle_part_test!(home_oracle_idle_terminal, 4);
+oracle_part_test!(home_oracle_idle_no_color, 5);
+oracle_part_test!(home_oracle_settings_and_new_member, 6);
+oracle_part_test!(home_oracle_remaining_scenes, 7);
+oracle_part_test!(home_oracle_workspace_and_overlays, 8);
 
 fn assert_no_home_frame_stacks_two_rules(captured: &Value) {
     for frame in captured["frames"].as_array().unwrap() {
@@ -1733,8 +1917,15 @@ fn dump_chat_fallback_oracle() {
 }
 
 fn idle_alert_frames(styles: &mut Styles) -> Vec<Value> {
+    idle_alert_frames_for_look(styles, None)
+}
+
+fn idle_alert_frames_for_look(styles: &mut Styles, only: Option<usize>) -> Vec<Value> {
     let mut frames = Vec::new();
-    for (look_name, look) in looks() {
+    for (index, (look_name, look)) in looks().into_iter().enumerate() {
+        if only.is_some() && only != Some(index) {
+            continue;
+        }
         for scene in crate::board::idle_alert_editor::tests::captures::SCENES {
             for width in [160, 100, 80, 60] {
                 for height in [36, 8] {
