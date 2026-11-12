@@ -1,4 +1,4 @@
-// Local Node22/24 conformance, not the separate real Chrome MV3 security gate.
+// Local Node26/24 conformance, not the separate real Chrome MV3 security gate.
 // Uses RFC8032 TEST1's public fixture seed only, never a product/private user key.
 import { readFile, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
