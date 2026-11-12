@@ -567,11 +567,6 @@
 .page-list-shortcut-phone {
   display: none;
 }
-.page-list-condition-chips {
-  display: flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-xs);
-}
 .page-list-search {
   display: flex;
   align-items: center;
@@ -599,7 +594,7 @@
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
-  height: var(--tmt-ui-control-size-l);
+  min-height: var(--tmt-ui-control-size-l);
   padding-inline: var(--tmt-ui-space-xs);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
@@ -617,14 +612,6 @@
 }
 .home .page-list-search-box .page-list-search-field.rich-input-field::before {
   font-size: var(--tmt-ui-command-size);
-}
-.page-list-condition-chips {
-  flex: none;
-  max-width: 65%;
-  overflow-x: auto;
-}
-.page-list-condition-chips:empty {
-  display: none;
 }
 .page-list-filter-menu {
   position: relative;
@@ -678,24 +665,6 @@
   }
 }
 
-.page-list-condition-chips .tmt-ui-chip {
-  flex: 0 0 auto;
-  border-color: transparent;
-  background: var(--tmt-ui-surface-waiting-soft);
-  color: var(--tmt-ui-color-waiting);
-}
-/* Search uses the available row; condition remove icons sit inline with their labels. */
-.page-list-condition-chips {
-  flex: 0 1 auto;
-  max-width: calc(100% - 8px);
-}
-.page-list-condition-chips .tmt-ui-chip {
-  --tmt-ui-host-icon-action-size: 18px;
-}
-.page-list-condition-chips .tmt-ui-chip .tmt-ui-icon-action-control {
-  border-left-color: transparent;
-}
-
 /* Normal and sticky controls share one size owner, including phone icon hosts.
    Keep these host sizes off the search editor and its chips. */
 :is(.page-list-filter-menu, .page-list-sort, .page-list-compact-create) {
@@ -742,7 +711,10 @@
   white-space: nowrap;
 }
 
-/* The shared input fills the list search slot. */
+/* The shared input fills the list search slot; Filter and Sort stay on its first line as it grows. */
+.page-list-controls {
+  align-items: flex-start;
+}
 .page-list-search-box > .tmt-rich-input {
   flex: 1;
   min-width: 0;

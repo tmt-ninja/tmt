@@ -851,12 +851,15 @@ editor directly. The opener regains focus on return. These preferences are not s
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
 `page-list-filter.ts`; Home, shortcut matching and dialog previews reuse its conditions and
 `projects.ts` matching. The filter lives in the route search
-(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`,
-`state`, `includeArchived`, `shortcut`; the router merges its result
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`,
+`state`, `includeArchived`, `shortcut`; an older link's `scope` joins `project[]`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
-rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
-applies it, and a row's project button or a token removal applies at once. `stage:` is a third suggestion kind that
+rich input; every condition is one of its tokens, in the fixed order `project:`, `by:`, `state:`, Needs me,
+Include archived; Needs me is also the Needs you tab, and the other tabs are not tokens) holds only a
+draft until Enter applies it. Filter choices, tabs,
+a row's project button and a token removal apply at once and change the same token set, so a
+condition looks and sits the same however it was added; typed text stays a draft. `stage:` is a third suggestion kind that
 is never a token (below). A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
 `AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the separate creator, updated and comment-count metadata and the
@@ -876,7 +879,8 @@ verification: projects are display-only and the reply is only checked for shape)
 frame names `SPACE_SCOPE_PAGE`. The space's project names reach the list as `SpaceHome.projects`
 (the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the Archived tab,
 row actions, project dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `projects` arrive in `/api/pages`. The project-scope pills and module menu share the route scope and its device-local preference; `project:` in the search narrows inside it. Search
+keeps search, sort and filters because `projects` arrive in `/api/pages`. The projects in the search are the list's base: tab counts, Needs you and the
+suggestions see only pages in all of them, and nothing about them is remembered on the device. Search
 suggestions count the pages the tab shows, while the manage dialog counts every page in the project
 and says how many of them are archived.
 

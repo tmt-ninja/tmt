@@ -409,7 +409,7 @@ test('an external deletion does not remount an active Edit draft', async ({ page
   }
 });
 
-test('Save uses the effective list scope when a removed project falls back to All pages', async ({
+test('Save keeps a project condition from an older link even when the project is gone', async ({
   page,
 }) => {
   await mount(page);
@@ -419,10 +419,11 @@ test('Save uses the effective list scope when a removed project falls back to Al
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
-  await expect(dialog.getByRole('status')).toHaveText('5 pages');
+  // What is saved is what the field shows: the project token, matching nothing.
+  await expect(dialog.getByRole('status')).toHaveText('project: gone · 0 pages');
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('#list-fixture .page-list-table [data-page-id]')).toHaveCount(5);
+  await expect(page.locator('#list-fixture .page-list-table [data-page-id]')).toHaveCount(0);
 });
 
 test('explicit pinned projects become project shortcuts once, in order; automatic ones do not', async ({
@@ -894,42 +895,37 @@ for (const width of [390, 1440])
       await page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }).click();
       await filter.click();
       await page.getByRole('menuitemcheckbox', { name: 'Done', exact: true }).click();
-      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
-        'state: To do',
-      );
-      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
-        'state: Done',
-      );
-      const chipBoxes = await page
-        .locator('#list-fixture .page-list-condition-chips')
-        .evaluate((host) => {
-          const boundary = host.getBoundingClientRect();
-          return [...host.querySelectorAll<HTMLElement>('.tmt-ui-chip')].map((chip) => {
-            const box = chip.getBoundingClientRect();
-            return { left: box.left - boundary.left, right: boundary.right - box.right };
-          });
+      // Picked conditions are tokens inside the field, the same element a typed one is.
+      const field = page.locator('#list-fixture .page-list-search-box .tmt-rich-input');
+      await expect(field.locator('[data-kind=state]')).toHaveText(['state:To do', 'state:Done']);
+      await expect(page.locator('#list-fixture .page-list-condition-chips')).toHaveCount(0);
+      const tokenBoxes = await field.evaluate((host) => {
+        const boundary = host.getBoundingClientRect();
+        return [...host.querySelectorAll<HTMLElement>('[data-kind]')].map((chip) => {
+          const box = chip.getBoundingClientRect();
+          return { left: box.left - boundary.left, right: boundary.right - box.right };
         });
+      });
       expect(
-        chipBoxes.every((box) => box.left >= 0 && box.right >= 0),
-        JSON.stringify(chipBoxes),
+        tokenBoxes.length === 2 && tokenBoxes.every((box) => box.left >= 0 && box.right >= 0),
+        JSON.stringify(tokenBoxes),
       ).toBe(true);
-      await expect(
-        page
-          .locator('#list-fixture .page-list-condition-chips .tmt-ui-icon-action-control')
-          .first(),
-      ).toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+      // Filter stays on the field's first line.
+      const fieldTop = (await field.boundingBox())!.y;
+      expect(Math.abs((await filter.boundingBox())!.y - fieldTop)).toBeLessThanOrEqual(1);
       if (width === 1440)
         expect(
           (await page.locator('#list-fixture .page-list-search-box').boundingBox())!.width,
         ).toBeGreaterThan(500);
       await page.screenshot({ path: info.outputPath('list-filter.png') });
-      await page.getByRole('button', { name: 'Remove To do' }).click();
-      await expect(page.locator('#list-fixture .page-list-search-box')).not.toContainText(
-        'state: To do',
-      );
-      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
-        'state: Done',
-      );
+      // Its x removes the condition at once: the menu and the field read the same set.
+      await page.getByRole('button', { name: 'Remove state:To do' }).click();
+      await expect(field.locator('[data-kind=state]')).toHaveText(['state:Done']);
+      await filter.click();
+      await expect(
+        page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }),
+      ).toHaveAttribute('aria-checked', 'false');
+      await page.keyboard.press('Escape');
     });
 
 for (const theme of ['light', 'dark'] as const)

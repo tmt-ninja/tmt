@@ -1,42 +1,13 @@
-import { projectNameError } from './projects.js';
 import type { PageSummary } from './transport.js';
 
-/** The project the list is scoped to on this device, per space. Convenience only: a refused
- * storage access means the list opens on All pages. */
-const prefix = 'tmt-colab-project-scope-v1:';
-
-export function readScope(space: string | undefined): string | undefined {
-  try {
-    const stored = localStorage.getItem(prefix + (space ?? ''));
-    return stored !== null && projectNameError(stored) === undefined ? stored : undefined;
-  } catch {
-    return undefined;
-  }
-}
-/** `undefined` is All pages: the preference is removed, so Colab opens unscoped. */
-export function writeScope(space: string | undefined, scope: string | undefined): void {
-  try {
-    if (scope === undefined) localStorage.removeItem(prefix + (space ?? ''));
-    else localStorage.setItem(prefix + (space ?? ''), scope);
-  } catch {
-    /* The route search still scopes this visit. */
-  }
-}
-
-/** A scope names a project the space has; a link to one that is gone shows All pages. */
-export function knownScope(
-  scope: string | undefined,
-  projects: readonly string[] | undefined,
-): string | undefined {
-  return scope !== undefined && projects?.includes(scope) ? scope : undefined;
-}
-
-/** The pages in the scope; no scope keeps every page. */
-export function inScope(
+/** The pages in every one of the projects; none keeps every page. */
+export function inProjects(
   pages: readonly PageSummary[],
-  scope: string | undefined,
+  projects: readonly string[],
 ): readonly PageSummary[] {
-  return scope === undefined ? pages : pages.filter((page) => page.projects?.includes(scope));
+  return projects.length === 0
+    ? pages
+    : pages.filter((page) => projects.every((name) => page.projects?.includes(name)));
 }
 
 export interface ScopeRow {

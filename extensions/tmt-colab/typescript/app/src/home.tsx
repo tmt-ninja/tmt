@@ -4,7 +4,7 @@ import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
-import { BrowserMenu, BrowserChip, type BrowserTab } from '@tmt/browser-ui/react';
+import { BrowserMenu, type BrowserTab } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import {
   Archive,
@@ -52,8 +52,9 @@ import {
   type PageStage,
   type HomeStage,
 } from './list-stage.js';
+import type { PageState } from './bootstrap.js';
 import { ShortcutMenuRequestSlot } from './shortcut-menu-request.js';
-import { inScope, knownScope, writeScope } from './project-scope.js';
+import { inProjects } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { RetentionHint } from './retention-hint.js';
 import { CopyCommand } from './copy-command.js';
@@ -69,6 +70,7 @@ import {
   SharedPageListSearch,
   searchFromEdit,
   toggleProject,
+  type Condition,
   type SearchEdit,
 } from './page-list-search.js';
 import { HomeTitleLink } from './home-titles.js';
@@ -186,11 +188,7 @@ export function Home() {
         ? (search.stage ?? DEFAULT_VIEW)
         : 'all';
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = pageListFilter({
-    ...search,
-    scope: undefined,
-    ...(!port ? { stage: undefined } : {}),
-  });
+  const filter = pageListFilter({ ...search, ...(!port ? { stage: undefined } : {}) });
   const shown = homePages.filter((p) =>
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );
@@ -198,18 +196,20 @@ export function Home() {
   // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
   const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
-  // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
-  const scope = knownScope(search.scope, projectNames);
-  const scoped = inScope(staged, scope);
+  // The projects are the base: filters, counts and the needs-you chip see only the pages in them.
+  // One project names the list (title, crumb, empty text) as a scope did.
+  const scope = filter.projects.length === 1 ? filter.projects[0] : undefined;
+  const scoped = inProjects(staged, filter.projects);
+  const projectKey = filter.projects.join('\n');
   // The tabs count what the scope holds: an archived page counts only under Archived, and a page
   // that has not reported its sub-pages yet under no stage.
-  const archivedInScope = inScope(
+  const archivedInScope = inProjects(
     homePages.filter((p) => p.archived),
-    scope,
+    filter.projects,
   ).length;
-  const activeInScope = inScope(
+  const activeInScope = inProjects(
     homePages.filter((p) => !p.archived),
-    scope,
+    filter.projects,
   );
   const stages = stageCounts(activeInScope);
   const unreported = activeInScope.filter((p) => pageStage(p) === undefined).length;
@@ -283,13 +283,8 @@ export function Home() {
       resize.disconnect();
       root.removeEventListener('scroll', measure);
     };
-  }, [view, scope, space.pages]);
-  const drawn = useShownRows(
-    section,
-    listEnd,
-    pages.length,
-    JSON.stringify([view, filter, sort, scope]),
-  );
+  }, [view, projectKey, space.pages]);
+  const drawn = useShownRows(section, listEnd, pages.length, JSON.stringify([view, filter, sort]));
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
@@ -331,17 +326,29 @@ export function Home() {
     setShortcutTarget(held.shortcut);
     setShortcutDialog(held.kind);
   }, [shortcutRequest, port, shortcuts.store, shortcuts.items]);
+  // Every condition sits in the field as a token, whether typed, picked from Filter or set by a tab.
+  const conditions: Condition[] = [
+    ...(filter.state ? [filter.state].flat() : []).map((name) => ({
+      kind: 'state' as const,
+      name,
+    })),
+    ...(search.needs ? [{ kind: 'needs' as const, name: '' }] : []),
+    ...(search.includeArchived ? [{ kind: 'include-archived' as const, name: '' }] : []),
+  ];
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
-  const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
+  // Compared in the editor's own shape, so applying a draft does not reset the editor under it.
+  const applied = JSON.stringify(
+    editFromSearch(filter.projects, filter.text, filter.authors, conditions),
+  );
   const lastApplied = useRef(applied);
   const [edit, setEdit] = useState(() =>
-    editFromSearch(filter.projects, filter.text, filter.authors),
+    editFromSearch(filter.projects, filter.text, filter.authors, conditions),
   );
   const [resetKey, setResetKey] = useState(0);
   useEffect(() => {
     if (applied === lastApplied.current) return;
     lastApplied.current = applied;
-    setEdit(editFromSearch(filter.projects, filter.text, filter.authors));
+    setEdit(editFromSearch(filter.projects, filter.text, filter.authors, conditions));
     setResetKey((key) => key + 1);
     // `applied` is the whole dependency: it is the serialized filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,18 +358,70 @@ export function Home() {
     // A typed `stage:name` selects the tab and leaves the search, as a tab click does.
     const { q, stage } = takeStage(typed.q);
     const { projects, authors } = typed;
-    lastApplied.current = JSON.stringify([projects, authors, q]);
+    const held = stage ? viewConditions(typed.conditions, stage) : typed.conditions;
+    lastApplied.current = JSON.stringify(editFromSearch(projects, q, authors, held));
     setSearch({
-      project: projects.length ? projects : undefined,
       by: authors.length ? authors : undefined,
       q: q || undefined,
       ...(stage ? stageSearch(stage) : {}),
+      ...conditionSearch(projects, held),
     });
     if (stage) {
-      setEdit(editFromSearch(projects, q, authors));
+      setEdit(editFromSearch(projects, q, authors, held));
       setResetKey((key) => key + 1);
     }
   }
+  /** The route search of the projects and conditions. */
+  function conditionSearch(projects: readonly string[], held: readonly Condition[]) {
+    const has = (kind: Condition['kind']) => held.some((condition) => condition.kind === kind);
+    const states = held.flatMap((condition) =>
+      condition.kind === 'state' ? [condition.name as PageState] : [],
+    );
+    return {
+      project: projects.length ? [...projects] : undefined,
+      state: states.length ? states : undefined,
+      includeArchived: has('include-archived') || undefined,
+      needs: has('needs') || undefined,
+    } satisfies Partial<HomeSearch>;
+  }
+  /** A Filter choice changes one condition in the applied list and in the draft alike; typed
+   * text stays a draft until Enter. */
+  function toggleFromMenu(kind: 'project' | Condition['kind'], name = '') {
+    const flipProject = (list: readonly string[]) =>
+      kind !== 'project'
+        ? [...list]
+        : list.includes(name)
+          ? list.filter((item) => item !== name)
+          : [...list, name];
+    const flipCondition = (list: readonly Condition[]): Condition[] => {
+      if (kind === 'project') return [...list];
+      if (list.some((item) => item.kind === kind && item.name === name))
+        return list.filter((item) => !(item.kind === kind && item.name === name));
+      return [...list, { kind, name }];
+    };
+    const typed = searchFromEdit(edit);
+    const projects = flipProject(filter.projects);
+    const held = flipCondition(conditions);
+    lastApplied.current = JSON.stringify(
+      editFromSearch(projects, filter.text, filter.authors, held),
+    );
+    setEdit(
+      editFromSearch(
+        flipProject(typed.projects),
+        typed.q,
+        typed.authors,
+        flipCondition(typed.conditions),
+      ),
+    );
+    setResetKey((key) => key + 1);
+    setSearch(conditionSearch(projects, held));
+  }
+  /** The Needs you tab is the Needs me condition; another tab leaves it. */
+  function viewConditions(held: readonly Condition[], id: HomeView): Condition[] {
+    const rest = held.filter((condition) => condition.kind !== 'needs');
+    return id === 'needs' ? [...rest, { kind: 'needs', name: '' }] : rest;
+  }
+
   /** The route search of a tab: the default is the absence of both, and a stage leaves Archived. */
   function stageSearch(stage: HomeView): Partial<HomeSearch> {
     return {
@@ -374,13 +433,19 @@ export function Home() {
   }
   /** A tab click rewrites the stage: a `stage:name` still typed in the draft goes, so there is one. */
   function chooseView(id: HomeView) {
+    // The tab's token changes in place; the rest of the draft stays a draft until Enter.
     const typed = searchFromEdit(edit);
     const { q, stage } = takeStage(typed.q);
-    if (stage) {
-      lastApplied.current = JSON.stringify([typed.projects, typed.authors, q]);
-      setEdit(editFromSearch(typed.projects, q, typed.authors));
-      setResetKey((key) => key + 1);
-    }
+    lastApplied.current = JSON.stringify(
+      editFromSearch(
+        filter.projects,
+        stage ? q : filter.text,
+        filter.authors,
+        viewConditions(conditions, id),
+      ),
+    );
+    setEdit(editFromSearch(typed.projects, q, typed.authors, viewConditions(typed.conditions, id)));
+    setResetKey((key) => key + 1);
     setSearch({ ...stageSearch(id), ...(stage ? { q: q || undefined } : {}) });
   }
   function replaceDraft(next: SearchEdit) {
@@ -390,8 +455,13 @@ export function Home() {
   }
 
   function clearFilters() {
-    const next = editFromSearch([], '');
-    lastApplied.current = JSON.stringify([[], [], '']);
+    // The tab stays: its token is the one condition Escape keeps.
+    const next = editFromSearch(
+      [],
+      '',
+      [],
+      port ? viewConditions([], view === 'all' ? DEFAULT_VIEW : view) : [],
+    );
     setEdit(next);
     setResetKey((key) => key + 1);
     setSearch({
@@ -566,67 +636,6 @@ export function Home() {
         search={
           <div className="page-list-search">
             <div className="page-list-search-box">
-              <div className="page-list-condition-chips">
-                {scope && (
-                  <BrowserChip
-                    label={text.shortcuts.project(scope)}
-                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.project(scope))}
-                    onRemove={() => {
-                      writeScope(spaceId, undefined);
-                      setSearch({ scope: undefined });
-                    }}
-                  />
-                )}
-                {(search.state
-                  ? Array.isArray(search.state)
-                    ? search.state
-                    : [search.state]
-                  : []
-                ).map((state) => (
-                  <BrowserChip
-                    key={state}
-                    label={text.shortcuts.filterState(text.workBand.taskState[state])}
-                    removeLabel={text.shortcuts.removeCondition(text.workBand.taskState[state])}
-                    onRemove={() => {
-                      const remaining = (
-                        Array.isArray(search.state) ? search.state : [search.state]
-                      ).filter(
-                        (item): item is NonNullable<typeof item> =>
-                          item !== undefined && item !== state,
-                      );
-                      setSearch({ state: remaining.length ? remaining : undefined });
-                    }}
-                  />
-                ))}
-                {search.needs && (
-                  <BrowserChip
-                    label={text.shortcuts.needsMe}
-                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.needsMe)}
-                    onRemove={() => setSearch({ needs: undefined })}
-                  />
-                )}
-                {search.includeArchived && (
-                  <BrowserChip
-                    label={text.shortcuts.includeArchived}
-                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.includeArchived)}
-                    onRemove={() => setSearch({ includeArchived: undefined })}
-                  />
-                )}
-                {search.archived && (
-                  <BrowserChip
-                    label={text.shortcuts.archivedOnly}
-                    removeLabel={text.shortcuts.removeCondition(text.archived)}
-                    onRemove={() => chooseView('all')}
-                  />
-                )}
-                {search.stage && (
-                  <BrowserChip
-                    label={text.shortcuts.stage(search.stage)}
-                    removeLabel={text.shortcuts.removeCondition(search.stage)}
-                    onRemove={() => setSearch({ stage: undefined })}
-                  />
-                )}
-              </div>
               <SharedPageListSearch
                 placeholder="Search pages, or type project:"
                 edit={edit}
@@ -674,7 +683,7 @@ export function Home() {
                   label: project,
                   heading: index === 0 ? text.shortcuts.projectGroup : undefined,
                   role: 'menuitemcheckbox' as const,
-                  checked: scope === project,
+                  checked: filter.projects.includes(project),
                   separated: index === 0,
                 })),
                 ...(port
@@ -704,26 +713,10 @@ export function Home() {
               ]}
               onSelect={(key) => {
                 if (key === 'manage-projects') setDialog({ kind: 'manage' });
-                else if (key === 'needs') setSearch({ needs: search.needs ? undefined : true });
-                else if (key === 'archived')
-                  setSearch({ includeArchived: search.includeArchived ? undefined : true });
-                else if (key.startsWith('project:')) {
-                  const project = key.slice(8);
-                  const next = scope === project ? undefined : project;
-                  writeScope(spaceId, next);
-                  setSearch({ scope: next });
-                } else if (key.startsWith('state:')) {
-                  const value = key.slice(6) as 'todo' | 'in-progress' | 'done';
-                  const states = search.state
-                    ? Array.isArray(search.state)
-                      ? search.state
-                      : [search.state]
-                    : [];
-                  const next = states.includes(value)
-                    ? states.filter((state) => state !== value)
-                    : [...states, value];
-                  setSearch({ state: next.length ? next : undefined });
-                }
+                else if (key === 'needs') toggleFromMenu('needs');
+                else if (key === 'archived') toggleFromMenu('include-archived');
+                else if (key.startsWith('project:')) toggleFromMenu('project', key.slice(8));
+                else if (key.startsWith('state:')) toggleFromMenu('state', key.slice(6));
               }}
             />
           </span>
@@ -1108,7 +1101,7 @@ export function Home() {
               ? {}
               : shortcutDialog === 'edit' && shortcutTarget
                 ? (shortcuts.items.find((item) => item.id === shortcutTarget)?.search ?? {})
-                : { ...search, scope }
+                : search
           }
           store={shortcuts.store}
           items={shortcuts.items}
@@ -1139,9 +1132,9 @@ export function Home() {
         <PageListPins
           label={t.pinnedPages}
           pages={(port && !archived
-            ? inScope(
+            ? inProjects(
                 homePages.filter((page) => page.pinned && !page.archived),
-                scope,
+                filter.projects,
               )
             : []
           ).map((page) => {

@@ -22,7 +22,7 @@ import {
   type ShellMenuItem,
   type ShellView,
 } from '@tmt/browser-ui/shell';
-import { scopeRows, writeScope } from './project-scope.js';
+import { scopeRows } from './project-scope.js';
 import { ShortcutMenuRequestSlot, type ShortcutMenuRequest } from './shortcut-menu-request.js';
 import { shortcutCounts, type Shortcut } from './shortcuts.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
@@ -231,8 +231,6 @@ export function ColabShell({
       ? shortcuts.items.find((item) => `shortcut:${item.id}` === id)
       : undefined;
     if (id === 'colab' || id === 'all' || shortcut) {
-      // A fixed destination opens the list fresh; the remembered project would otherwise narrow it.
-      if (id !== 'colab') writeScope(space, undefined);
       void router.navigate({
         to: '/',
         search: shortcut ? { ...shortcut.search, shortcut: shortcut.id } : {},

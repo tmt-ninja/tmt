@@ -52,9 +52,14 @@
 .tmt-rich-input-text:focus-visible {
   outline: none;
 }
-.tmt-rich-input[data-shape='single'] .tmt-rich-input-text {
-  overflow: hidden;
-  white-space: nowrap;
+/* A single line grows to more lines rather than hide a chip: the field stays one paragraph. */
+.tmt-rich-input[data-shape='single'] .tmt-rich-input-line {
+  align-items: flex-start;
+}
+.tmt-rich-input[data-shape='single'] .tmt-rich-input-leading {
+  align-self: flex-start;
+  min-height: var(--tmt-foundation-control-size-l);
+  align-items: center;
 }
 .tmt-rich-input[data-shape='multi'] .tmt-rich-input-text {
   min-height: 4.5em;
