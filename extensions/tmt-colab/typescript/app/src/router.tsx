@@ -1204,7 +1204,10 @@ const designPage = createRoute({
 const colabSettings = createRoute({
   getParentRoute: () => root,
   path: '/settings',
-  component: () => <ColabSettings />,
+  component: function ColabSettingsRoute() {
+    const { transport } = root.useRouteContext();
+    return <ColabSettings management={transport.management} />;
+  },
 });
 const templates = createRoute({
   getParentRoute: () => root,

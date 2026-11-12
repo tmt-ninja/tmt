@@ -11,11 +11,69 @@ import {
   type ColabSettingsView,
 } from './colab-settings-source.js';
 import { CopyCommand } from './copy-command.js';
+import { BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
+import type { ManagementPort } from './management.js';
+import { TemplateSettings } from './template-settings.js';
 import { text } from './strings.js';
 import './colab-settings.css';
 
+/**
+ * Colab settings: General (the CLI-managed values, read only) and Templates (#5077), the one
+ * setting the browser changes, through the owner.
+ */
+export function ColabSettings({
+  source = colabSettingsSource,
+  management,
+}: {
+  source?: ColabSettingsSource;
+  management?: ManagementPort;
+}) {
+  const [tab, setTab] = useState<'general' | 'templates'>(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'templates'
+      ? 'templates'
+      : 'general',
+  );
+  const t = text.colabSettings;
+  const tabs: BrowserTab[] = [
+    {
+      id: 'general',
+      tabId: 'colab-settings-tab-general',
+      panelId: 'colab-settings-general',
+      label: text.templates.general,
+    },
+    {
+      id: 'templates',
+      tabId: 'colab-settings-tab-templates',
+      panelId: 'colab-settings-templates',
+      label: text.templates.title,
+    },
+  ];
+  return (
+    <section className="home colab-settings" aria-label={t.title}>
+      <header className="colab-settings-hero">
+        <p>{t.subtitle}</p>
+      </header>
+      <BrowserTabs
+        label={t.title}
+        tabs={tabs}
+        selected={tab}
+        variant="flush"
+        onSelect={(id) => setTab(id === 'templates' ? 'templates' : 'general')}
+      >
+        {(current) =>
+          current.id === 'templates' ? (
+            <TemplateSettings management={management} />
+          ) : (
+            <GeneralSettings source={source} />
+          )
+        }
+      </BrowserTabs>
+    </section>
+  );
+}
+
 /** The reference schema and a real injected read are distinct; no browser settings write exists. */
-export function ColabSettings({ source = colabSettingsSource }: { source?: ColabSettingsSource }) {
+function GeneralSettings({ source }: { source: ColabSettingsSource }) {
   const [view, setView] = useState<ColabSettingsView | ColabSettingsUnavailable>();
   useEffect(() => {
     let live = true;
@@ -43,10 +101,7 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
       ]
     : [];
   return (
-    <section className="home colab-settings" aria-label={t.title}>
-      <header className="colab-settings-hero">
-        <p>{t.subtitle}</p>
-      </header>
+    <div className="colab-settings-general">
       {unavailable && (
         <UiTheme theme={theme}>
           <Alert role="note">
@@ -96,6 +151,6 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
           {heading} · {t.readOnlyLabel}
         </p>
       )}
-    </section>
+    </div>
   );
 }

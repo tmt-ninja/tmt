@@ -105,3 +105,21 @@
   background: var(--tmt-ui-surface-working-soft);
   color: var(--tmt-ui-color-accent);
 }
+
+.template-toast {
+  position: fixed;
+  inset-inline: 0;
+  bottom: var(--tmt-ui-space-l);
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.template-toast-message {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-surface-paper);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+  font-size: var(--tmt-ui-caption-size);
+}
