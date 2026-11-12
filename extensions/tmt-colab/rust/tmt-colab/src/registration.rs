@@ -254,6 +254,30 @@ impl Registration {
             list_token: Default::default(),
         })
     }
+    /// The owner's template list (`GET /api/templates`, #5077): admitted as the page list is, read
+    /// by the caller outside this mutex through the returned source.
+    pub fn templates_source(
+        &self,
+        context: Option<&str>,
+    ) -> std::result::Result<crate::page::save::SourceOpener, Code> {
+        Context::parse(context)?;
+        self.save_source.clone().ok_or(Code::Unavailable)
+    }
+    /// Every template and the serving machine's default, as `template ls --json` lists them.
+    pub fn templates(open: &crate::page::save::SourceOpener) -> std::result::Result<Vec<u8>, Code> {
+        let mut source = open().map_err(|_| Code::Unavailable)?;
+        let catalog = crate::template_catalog::catalog(
+            &source.layout,
+            &source.store,
+            &source.keyring,
+            &mut source.decoder,
+        )
+        .map_err(|_| Code::Unavailable)?;
+        let settings = crate::settings::read_or_default(&source.root);
+        let listing = crate::template_catalog::listing(&catalog, settings.default_template())
+            .map_err(|_| Code::Unavailable)?;
+        serde_json::to_vec(&listing).map_err(|_| Code::Unavailable)
+    }
     pub(crate) fn space_id(&self) -> &str {
         &self.keyring.space_id
     }

@@ -35,6 +35,23 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             }
             Ok(StructuredKind::Creator)
         }
+        // Save as template and Remove template (#5077): the serve admits the name and the page
+        // with the rules `template save` and `template remove` use (`prepare`).
+        "template.set" => {
+            crate::closed::keys(body, &["name"], &["description"]).map_err(|_| invalid())?;
+            if !body["name"].is_string()
+                || body
+                    .get("description")
+                    .is_some_and(|value| !value.is_string())
+            {
+                return Err(invalid().into());
+            }
+            Ok(StructuredKind::Template)
+        }
+        "template.clear" => {
+            crate::closed::keys(body, &[], &[]).map_err(|_| invalid())?;
+            Ok(StructuredKind::Template)
+        }
         "question.handle" | "question.reopen" => {
             crate::closed::keys(body, &["id"], &[]).map_err(|_| invalid())?;
             if !body["id"]
@@ -103,10 +120,37 @@ pub fn prepare(
         edit.body.clone()
     };
     let mut source = open()?;
-    let body = if edit.action == "page.convert" {
-        serde_json::json!({"convertedAt": clock()?})
-    } else {
-        body
+    let mut removed = None;
+    let body = match edit.action.as_str() {
+        "page.convert" => serde_json::json!({"convertedAt": clock()?}),
+        "template.set" | "template.clear" => {
+            use crate::template_catalog;
+            let catalog = template_catalog::catalog(
+                &source.layout,
+                &source.store,
+                &source.keyring,
+                &mut source.decoder,
+            )?;
+            if edit.action == "template.clear" {
+                removed = Some(template_catalog::removable(&catalog, &edit.page)?);
+                body
+            } else {
+                let content = template_catalog::read_page(
+                    &source.store,
+                    &source.keyring,
+                    &mut source.decoder,
+                    &edit.page,
+                )?;
+                template_catalog::admit_save(
+                    &catalog,
+                    &edit.page,
+                    body["name"].as_str().unwrap_or_default(),
+                    body.get("description").and_then(Value::as_str),
+                    &content,
+                )?
+            }
+        }
+        _ => body,
     };
     let prepared = super::prepare_structured_publication(
         &source.store,
@@ -123,6 +167,14 @@ pub fn prepare(
         &mut source.decoder,
         clock,
     )?;
+    // A removed template that was the serving machine's default returns it to starter, as
+    // `template remove` does.
+    if let Some(user) = removed {
+        let settings = crate::settings::read_or_default(&source.root);
+        if crate::template_catalog::is_default(settings.default_template(), &user) {
+            crate::settings::set_default_template(&source.root, None)?;
+        }
+    }
     super::save::structured(&source, &edit.page, &edit.operation_id, prepared)
 }
 

@@ -7973,13 +7973,24 @@ fn the_held_page_list_path_admits_exactly_the_vector_tokens() {
 
 /// A signed `page.new` (#5076): the space scope page and no revision.
 fn new_page_body(server: &Running, id: &str, payload: Value, sender: &str, issued: u64) -> String {
+    space_body(server, id, "page.new", payload, sender, issued)
+}
+/// A signed space-scoped management request with no revision.
+fn space_body(
+    server: &Running,
+    id: &str,
+    operation: &str,
+    payload: Value,
+    sender: &str,
+    issued: u64,
+) -> String {
     let payload = serde_json::to_vec(&payload).unwrap();
     let request = tmt_colab_model::auth::management_input(&tmt_colab_model::auth::Management {
         space: &server.space,
         page: tmt_colab_model::auth::SPACE_SCOPE_PAGE,
         expected_revision: "",
         operation_id: id,
-        operation: "page.new",
+        operation,
         payload: &payload,
         sender_device: sender,
         issued_at: issued,
@@ -8241,4 +8252,77 @@ fn a_browser_new_page_copies_a_user_template_as_it_is_now() {
         template.template,
         Some(json!({"name":"weekly-review","description":"Shipped, open, risks"}))
     );
+}
+
+#[test]
+fn the_owner_lists_templates_and_sets_the_serving_machines_default() {
+    let path = tmt_colab::management::PATH;
+    let server = Running::start(Tunnels::PRODUCT);
+    let header = format!("{}\r\n", owner(DEVICE));
+    let list = |headers: &str| server.request(&Running::get("/api/templates", headers));
+    let listed = |headers: &str| -> Value {
+        let response = list(headers);
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let refused = list("");
+    assert!(refused.starts_with("HTTP/1.1 4"), "{refused}");
+    let mut non_owner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+    non_owner["owner"] = false.into();
+    let refused = list(&format!("tmt-device-context: {non_owner}\r\n"));
+    assert!(refused.starts_with("HTTP/1.1 4"), "{refused}");
+    let first = listed(&header);
+    assert_eq!(first["default"], "starter");
+    assert_eq!(
+        first["templates"].as_array().unwrap().len(),
+        tmt_colab::templates::TEMPLATES.len()
+    );
+
+    let set = |id: &str, template: Value, sender: &str| {
+        server.event(
+            path,
+            &header,
+            &space_body(
+                &server,
+                id,
+                "template.default",
+                json!({"template":template}),
+                sender,
+                now(),
+            ),
+        )
+    };
+    let settings = || fs::read_to_string(server.root.join("colab/settings.json")).ok();
+    let before = settings();
+    for (template, code) in [(json!("weekly"), "INVALID"), (json!(""), "INVALID")] {
+        let response = set("40000000-0000-4000-8000-0000000000e1", template, DEVICE);
+        assert!(response.ends_with(code), "{response}");
+        assert_eq!(settings(), before);
+    }
+    let response = set(
+        "40000000-0000-4000-8000-0000000000e1",
+        json!("report"),
+        OTHER,
+    );
+    assert!(response.ends_with("DENIED"), "{response}");
+    assert_eq!(settings(), before);
+    let response = set(
+        "40000000-0000-4000-8000-0000000000e2",
+        json!("report"),
+        DEVICE,
+    );
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.ends_with(r#""default":"report"}"#), "{response}");
+    assert_eq!(listed(&header)["default"], "report");
+    assert!(settings().unwrap().contains(r#""defaultTemplate""#));
+    // Setting it again is the same change; none returns to starter.
+    let again = set(
+        "40000000-0000-4000-8000-0000000000e2",
+        json!("report"),
+        DEVICE,
+    );
+    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
+    let reset = set("40000000-0000-4000-8000-0000000000e3", Value::Null, DEVICE);
+    assert!(reset.starts_with("HTTP/1.1 200"), "{reset}");
+    assert_eq!(listed(&header)["default"], "starter");
 }

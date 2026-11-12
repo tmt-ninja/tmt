@@ -89,21 +89,28 @@ fn display_only(operation: &str) -> bool {
 /// The owner device's new top-level page from a template (#5076). The owner makes it at its own
 /// head, so the request names no revision; statements never name it.
 pub const PAGE_NEW: &str = "page.new";
+/// The serving machine's default template (#5077): a setting of that machine, no statement and no
+/// page, so it names no revision and the space scope page.
+pub const TEMPLATE_DEFAULT: &str = "template.default";
 fn space_scoped(operation: &str) -> bool {
-    matches!(operation, "project.manage" | PAGE_NEW)
+    matches!(operation, "project.manage" | PAGE_NEW | TEMPLATE_DEFAULT)
+}
+/// The management operations that are neither log statements nor display-only owner state.
+fn owner_device_only(operation: &str) -> bool {
+    matches!(operation, PAGE_NEW | TEMPLATE_DEFAULT)
 }
 /// A device-signed management request names a log operation, one of the display-only operations
 /// that change owner-store state without a log statement, or `page.new`. Statements never use the
 /// last two kinds.
 pub fn management_operation(value: &str) -> Result<()> {
-    require(operation(value).is_ok() || display_only(value) || value == PAGE_NEW)
+    require(operation(value).is_ok() || display_only(value) || owner_device_only(value))
 }
 /// The signed revision field of a management request. A log operation names the membership head it
 /// was prepared against, a positive decimal. A display-only operation changes no membership head,
 /// and `page.new` is made at the owner's own head, so their field is empty and nothing can be read
 /// into it.
 pub fn management_revision(operation: &str, value: &str) -> Result<Option<u64>> {
-    if display_only(operation) || operation == PAGE_NEW {
+    if display_only(operation) || owner_device_only(operation) {
         require(value.is_empty())?;
         return Ok(None);
     }

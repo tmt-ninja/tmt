@@ -951,6 +951,27 @@ fn serve(
         let _ = response_as(&mut socket, status, &body, "application/json");
         return;
     }
+    if request.method == "GET" && request.path == TEMPLATES && !request.upgrade {
+        // Admitted as the page list is; the templates are folded outside the service lock.
+        let result = registration
+            .ok_or(registration::Code::Unavailable)
+            .and_then(|service| {
+                service
+                    .lock()
+                    .map_err(|_| registration::Code::Unavailable)?
+                    .templates_source(request.context.as_deref())
+            })
+            .and_then(|open| Registration::templates(&open));
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.method == "GET" && request.path == "/api/serve-release" && !request.upgrade {
         // Admission is the same device context as `/api/session`; the body is read-only.
         let (status, body) = match Registration::session(request.context.as_deref()) {
@@ -1901,6 +1922,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/session"
             | "/api/serve-release"
             | "/api/pages"
+            | TEMPLATES
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
@@ -1920,6 +1942,8 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     Ok(request)
 }
+/// The owner's template list (#5077).
+pub const TEMPLATES: &str = "/api/templates";
 /// The route shape is recognized before context admission; Registration validates its UUID.
 /// The `<token>` of `GET /api/pages/after/<token>`: 64 lowercase hex digits, the list token a
 /// previous reply carried.

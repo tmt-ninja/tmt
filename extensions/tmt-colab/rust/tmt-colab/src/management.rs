@@ -89,6 +89,19 @@ enum Action {
     /// The owner device's new top-level page from a template (#5076): the serve resolves the
     /// template, and its source and layout, itself.
     New(NewPage),
+    /// The serving machine's default template (#5077): a selector, or none for `starter`.
+    DefaultTemplate(Option<String>),
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateDefault {
+    #[serde(deserialize_with = "nullable_text")]
+    template: Option<String>,
+}
+fn nullable_text<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(d)
 }
 /// The payload of `page.new`: what the browser chooses, and nothing the template brings.
 #[derive(Deserialize)]
@@ -414,6 +427,20 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             }
             Action::New(value)
         }
+        auth::TEMPLATE_DEFAULT => {
+            if page != auth::SPACE_SCOPE_PAGE {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let value: TemplateDefault = typed(bytes)?;
+            if value
+                .template
+                .as_deref()
+                .is_some_and(|t| t.is_empty() || t.len() > TEMPLATE_SELECTOR_BYTES)
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::DefaultTemplate(value.template)
+        }
         "link.remove" => {
             let value: Reset = typed(bytes)?;
             values::generated_id(&value.link_id)?;
@@ -631,6 +658,9 @@ fn apply(
     if let Action::New(new) = &command.action {
         return new_page(service, &command, new, now);
     }
+    if let Action::DefaultTemplate(template) = &command.action {
+        return default_template(service, &command, template.as_deref());
+    }
     // Projects are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
     if let Some(head) = match &command.action {
         Action::Projects(changes) => Some(service.set_projects(changes)),
@@ -747,7 +777,11 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Projects(_) | Action::Project(_) | Action::Pin(_) | Action::New(_) => {
+        Action::Projects(_)
+        | Action::Project(_)
+        | Action::Pin(_)
+        | Action::New(_)
+        | Action::DefaultTemplate(_) => {
             return Err(Code::Invalid);
         }
         Action::MemberAdd(v) => {
@@ -928,6 +962,40 @@ fn new_page(
         )
         .map_err(|error| error.code)?;
     reply(applied.head)
+}
+
+/// `template.default` (#5077): the serving machine's default template, written where `template
+/// default` writes it. A selector that names no template writes nothing; `starter`, or none, clears
+/// the setting. Setting it again is the same change, so a replay answers the same.
+fn default_template(
+    service: &mut crate::registration::Registration,
+    command: &Command,
+    template: Option<&str>,
+) -> Result<Applied> {
+    use crate::template_catalog::{self, Found};
+    let open = service.save_source().ok_or(Code::Unavailable)?;
+    let mut space = open().map_err(|_| Code::Unavailable)?;
+    let found = match template {
+        None => Found::BuiltIn(crate::templates::find("starter").expect("starter is compiled")),
+        Some(selector) => template_catalog::catalog(
+            &space.layout,
+            &space.store,
+            &space.keyring,
+            &mut space.decoder,
+        )
+        .map_err(|_| Code::Unavailable)?
+        .find(selector)
+        .map_err(|_| Code::Invalid)?,
+    };
+    crate::settings::set_default_template(&space.root, template_catalog::default_setting(&found))
+        .map_err(|_| Code::Unavailable)?;
+    let reply = serde_json::json!({"operationId":command.operation_id,"default":found.name()});
+    Ok(Applied {
+        body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
+        resync_page: None,
+        deleted_page: None,
+        touched: Vec::new(),
+    })
 }
 
 #[cfg(test)]
