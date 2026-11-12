@@ -82,7 +82,8 @@ function fixture(includeHookQueue = true) {
     roots.push(path.dirname(options.cwd));
     expect(file).toBe(executable);
     expect(args).toEqual(['__native-schema', '--source-sha', snapshot.cut, '--json']);
-    expect(options.timeoutMs).toBe(10_000);
+    // Cold Rosetta starts need the same 60 s bound as the other native proofs (#6346).
+    expect(options.timeoutMs).toBe(60_000);
     expect(Object.keys(options.env).sort()).toEqual([
       'HOME',
       'LANG',
