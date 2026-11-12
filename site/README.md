@@ -87,6 +87,25 @@ URLs: the canonical URL, the article title and summary, and a 1200×630 card:
 `src/blog/share/<slug>.png` when an article has one, else `src/blog/og.png`.
 Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
 
+The blog consumes the published `@tmt/browser-ui/static.css` and
+`@tmt/browser-ui/editorial.css` entries through its declared local package dependency
+(#5794/#5795). The document pins `data-theme="dark"` regardless of the reader's
+preference. Editorial owns the type ramp, prose rhythm, tables, figures, code and
+`tmt-ui-tag`; the renderer wraps the approved article in `tmt-ui-prose` without
+rewriting its stored bytes. `blog.css` owns the journal grids, page spacing, shared
+chrome token mapping and blog-only tone: the ninja red primitive, its translucent
+highlighter and the blended summary foreground. It contains no private design imports
+or independent font stacks. Typography follows the shared ramp; authored article CSS
+retains precedence. Colab drafts resolve the same CSS imports into a self-contained
+style block, with no package URLs or network stylesheet dependency.
+
+Post media has 1040px of available width, with separate page gutters; direct text
+blocks remain capped at 760px. Direct figures, tables, table wrappers (`div` with a
+direct table, or `tmt-ui-table-scroll`) and `.interactive` blocks use the wide column.
+On phones, shared editorial tables scroll within their own box rather than widening
+the page. Published article overrides remain approval-bound and are not rewritten
+by the theme migration.
+
 Marketing owns and reviews the blog end to end: code in `src/blog/` and approved
 articles in `src/posts/<slug>/`. English (`en`) stays at the slug root. Each
 translation has its own `ja/`, `zh-hant/` or `zh-hans/` subdirectory with the same

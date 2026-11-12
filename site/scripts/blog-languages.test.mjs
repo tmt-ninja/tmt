@@ -66,7 +66,7 @@ test("approved variants have separate routes, language tags, reciprocal alternat
       for (const [language, tag] of [["en", "en"], ...variants]) {
         const directory = language === "en" ? "" : `${language}/`;
         const html = await readFile(join(output, directory, "posts", slug, "index.html"), "utf8");
-        assert.ok(html.includes(`<html lang="${tag}">`));
+        assert.ok(html.includes(`<html lang="${tag}" data-theme="dark">`));
         assert.ok(html.includes(`rel="canonical" href="${prefix}${directory}posts/${slug}/"`));
         assert.match(html, /aria-current="page"/);
         assert.doesNotMatch(html, /translation is not available|noindex/);
@@ -78,7 +78,7 @@ test("approved variants have separate routes, language tags, reciprocal alternat
         }
         assert.ok(html.includes(`hreflang="x-default" href="${prefix}posts/${slug}/"`));
         const index = await readFile(join(output, directory, "index.html"), "utf8");
-        assert.ok(index.includes(`<html lang="${tag}">`));
+        assert.ok(index.includes(`<html lang="${tag}" data-theme="dark">`));
         assert.ok(index.includes(`rel="canonical" href="${prefix}${directory}"`));
         assert.doesNotMatch(index, /noindex/);
         assert.ok(publicFiles["sitemap.xml"].includes(`<loc>${prefix}${directory}</loc>`));
@@ -106,14 +106,14 @@ test("missing translations render English with a visible notice but stay out of 
       html,
       /Simplified Chinese translation is not available yet. Showing the English article/,
     );
-    assert.match(html, /<html lang="en">/);
+    assert.match(html, /<html lang="en" data-theme="dark">/);
     assert.match(html, /name="robots" content="noindex,follow"/);
     assert.ok(html.includes(`rel="canonical" href="${origin}/tmt/blog/posts/${slug}/"`));
     assert.doesNotMatch(html, /hreflang="zh-Hans"/);
     assert.match(html, /title="Simplified Chinese \(English fallback\)"/);
     const index = await readFile(join(output, "zh-hans/index.html"), "utf8");
     assert.match(index, /English · translation not available yet/);
-    assert.match(index, /<html lang="en">/);
+    assert.match(index, /<html lang="en" data-theme="dark">/);
     assert.match(index, /name="robots" content="noindex,follow"/);
     assert.ok(index.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
     const englishIndex = await readFile(join(output, "index.html"), "utf8");
@@ -139,7 +139,7 @@ test("English-only and empty blogs expose no indexable foreign-language indexes"
       const englishIndex = await readFile(join(output, "index.html"), "utf8");
       for (const [language, tag] of variants) {
         const html = await readFile(join(output, language, "index.html"), "utf8");
-        assert.match(html, /<html lang="en">/);
+        assert.match(html, /<html lang="en" data-theme="dark">/);
         assert.match(html, /name="robots" content="noindex,follow"/);
         assert.ok(html.includes(`rel="canonical" href="${origin}/tmt/blog/"`));
         assert.doesNotMatch(englishIndex, new RegExp(`hreflang="${tag}"`));

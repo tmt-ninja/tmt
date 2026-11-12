@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
+import { symlink, cp, mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -71,12 +71,41 @@ test("draft creates a strict column page without opening a browser", async () =>
       const source = await readFile(args[args.indexOf("--file") + 1], "utf8");
       assert.match(source, /<article id="blog-article"><p>Public body<\/p><\/article>/);
       assert.match(source, /\.post-shell \{ color: black; \}/);
+      assert.match(source, /data-theme="dark"/);
+      assert.match(source, /<div class="tmt-ui-prose"><article/);
       assert.doesNotMatch(source, /Private note/);
       pageCreated = true;
       return created;
     };
     assert.deepEqual(await draft({ root, sourcePath, meta, call }), created);
     assert.equal(pageCreated, true);
+  }));
+
+test("draft embeds the published design-system CSS without external imports", async () =>
+  world(async (root) => {
+    const sourcePath = await draftInput(root);
+    await symlink(new URL("../node_modules", import.meta.url), join(root, "node_modules"), "dir");
+    await cp(new URL("../src/blog/blog.css", import.meta.url), join(root, "src/blog/blog.css"));
+    let checked = false;
+    await draft({
+      root,
+      sourcePath,
+      meta,
+      call: async (...args) => {
+        if (args[0] === "page" && args[1] === "create") {
+          const source = await readFile(args[args.indexOf("--file") + 1], "utf8");
+          assert.doesNotMatch(source, /@import/);
+          assert.match(source, /--tmt-ui-surface-paper:/);
+          assert.match(source, /:where\(\.tmt-ui-prose\)/);
+          assert.match(source, /\.tmt-ui-tag/);
+          assert.match(source, /data-theme="dark"/);
+          checked = true;
+          return { pageId };
+        }
+        return { ok: true };
+      },
+    });
+    assert.equal(checked, true);
   }));
 
 test("draft adds the newly created page to the blog project using the current CLI", async () =>
