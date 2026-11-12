@@ -74,7 +74,7 @@ fn the_squads_tree_tints_the_row_in_conversation_and_bolds_its_name() {
 }
 
 #[test]
-fn the_flat_agents_list_does_the_same() {
+fn conversation_tint_survives_a_cleared_row_cache() {
     let (mut rows, mut conversation) = conversation_focused(OpsTab::Agents);
     for app in [&mut rows, &mut conversation] {
         app.overview_rows.borrow_mut().clear();
@@ -145,6 +145,68 @@ fn working_and_idle_rows_keep_their_distinct_styles_in_all_looks() {
             idle[(name_x(&idle, y), y)].fg,
             look.role(Role::Dim).fg.unwrap_or_default()
         );
+    }
+}
+
+#[test]
+fn selected_idle_conversation_keeps_normal_row_style_in_every_look() {
+    use crate::board::activity::Phase;
+    use tmt_cli_style::{Base, Depth, Role, Theme};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let (_, mut app) = conversation_focused(OpsTab::Agents);
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        let workspace = &mut view.home.as_mut().unwrap().workspace;
+        for saved in workspace.squad_looks.values_mut() {
+            *saved = look;
+        }
+        workspace
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity
+            .phase = Phase::Idle;
+        workspace.roster.squads[0]
+            .member_states
+            .get_mut(MEMBER)
+            .unwrap()
+            .state = Some("idle".into());
+        app.overview_rows.borrow_mut().clear();
+        let frame = draw(&app);
+        let y = member_row(&frame);
+        let name = name_x(&frame, y);
+        let cell = &frame[(name, y)];
+        assert_eq!(
+            cell.fg,
+            look.role(Role::Text).fg.unwrap_or_default(),
+            "{base:?} {depth:?}"
+        );
+        assert!(cell.modifier.contains(Modifier::BOLD), "{base:?} {depth:?}");
+        assert!(!cell.modifier.contains(Modifier::DIM), "{base:?} {depth:?}");
+        let idle = (name..frame.area.width)
+            .find(|&x| frame[(x, y)].symbol() == "◌")
+            .expect("idle mark");
+        assert!(
+            !frame[(idle, y)].modifier.contains(Modifier::DIM),
+            "{base:?} {depth:?}"
+        );
+        match look.role(Role::Conversation).bg {
+            Some(bg) => assert_eq!(cell.bg, bg, "{base:?} {depth:?}"),
+            None => assert!(
+                cell.modifier.contains(Modifier::REVERSED),
+                "{base:?} {depth:?}"
+            ),
+        }
     }
 }
 
