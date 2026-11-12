@@ -29,8 +29,10 @@ COPY contracts/ ../contracts/
 ARG TMT_NATIVE_PROFILE=dev
 # Every cargo command below reads this; `pnpm test:e2e` forwards a host value.
 ARG CARGO_BUILD_JOBS=default
+# The example build is package-scoped like the dependency archive's cook (dependency-cache.Dockerfile): an unscoped
+# example build resolves features across the workspace and rebuilds archived dependencies.
 ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0
-RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture \
+RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture --example claude-hook-fixture --example codex-channel-fixture -p tmt-adapters \
   && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-ops \
