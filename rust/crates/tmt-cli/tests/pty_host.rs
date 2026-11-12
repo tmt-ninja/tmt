@@ -1154,6 +1154,47 @@ fn record_provider_session(
 }
 
 #[test]
+fn a_managed_claude_learns_a_delayed_session_start() {
+    let mut world = World::new();
+    let provider = e2e::replying_provider(&mut world);
+    let started = world.run(&[
+        "run",
+        "--no-channel",
+        "--save",
+        "alpha",
+        provider.to_str().unwrap(),
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    // The fixture holds the only SessionStart until the launch is observed.
+    let (identity, _pane, recorded) = record_provider_session(&world, None, e2e::SESSION);
+    assert_eq!(recorded, e2e::SESSION);
+    let stored = tmt_adapters::storage::Storage::context_by_identity(
+        &support::state_dir(&world.root).join("tmt.db"),
+        &identity,
+        0,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        stored
+            .preferences
+            .remembered
+            .unwrap()
+            .provider_session
+            .as_str(),
+        e2e::SESSION
+    );
+    let listed = world.json(&["ls", "--json"]);
+    let row = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "alpha")
+        .unwrap();
+    assert_eq!(row["session"]["unbound"], false, "{row}");
+}
+
+#[test]
 #[ignore = "flaky on hosted runners; see #4767"]
 fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
     let mut world = World::new();
