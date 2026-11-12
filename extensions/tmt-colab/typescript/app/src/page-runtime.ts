@@ -40,6 +40,7 @@ interface PinnedFile {
 const runtimePin = pin as unknown as {
   chunks: readonly (PinnedFile & { name: string; kind?: 'wasm' })[];
   theme: PinnedFile;
+  binder: PinnedFile;
 };
 
 const read = async (url: string): Promise<string> => {
@@ -156,9 +157,30 @@ export async function loadRuntime(
 export const allRuntimeChunks = () =>
   runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm').map((chunk) => chunk.name);
 
+/** What a standalone copy of a page that pins a design system carries (#6157): the theme, every
+ * chunk's text by name in load order, and the binder that checks them when the file opens. Each is
+ * verified against the pin here too; any failure rejects. */
+export async function loadStandaloneRuntime(baseUri: string): Promise<{
+  readonly theme: string;
+  readonly binder: string;
+  readonly chunks: readonly { readonly name: string; readonly text: string }[];
+}> {
+  const files = runtimePin.chunks.filter((chunk) => chunk.kind !== 'wasm');
+  const [theme, binder, ...texts] = await Promise.all([
+    pinnedText(baseUri, runtimePin.theme),
+    pinnedText(baseUri, runtimePin.binder),
+    ...files.map((chunk) => pinnedText(baseUri, chunk)),
+  ]);
+  return {
+    theme: theme!,
+    binder: binder!,
+    chunks: files.map((chunk, index) => ({ name: chunk.name, text: texts[index]! })),
+  };
+}
+
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
- * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and
- * `colab-page-ui.js`. */
+ * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.json`
+ * (`{style, script}`). */
 export interface PageDesign {
   readonly script: string;
   readonly style: string;
@@ -166,12 +188,15 @@ export interface PageDesign {
 const designs = new Map<string, Promise<PageDesign>>();
 /** Fetched once per origin path; a failure is not cached. Only an export asks for it. */
 export function loadDesign(baseUri: string): Promise<PageDesign> {
-  const key = runtimeUrl(baseUri, 'assets/colab-page-ui.js');
+  const key = runtimeUrl(baseUri, 'assets/colab-page-ui.json');
   let design = designs.get(key);
   if (!design) {
-    design = Promise.all([read(key), read(runtimeUrl(baseUri, 'assets/colab-page-ui.css'))]).then(
-      ([script, style]) => Object.freeze({ script, style }),
-    );
+    design = read(key).then((text) => {
+      const { script, style } = JSON.parse(text) as Partial<Record<keyof PageDesign, unknown>>;
+      if (typeof script !== 'string' || typeof style !== 'string')
+        throw new Error('Page design unavailable');
+      return Object.freeze({ script, style });
+    });
     design.catch(() => designs.delete(key));
     designs.set(key, design);
   }

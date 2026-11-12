@@ -4,7 +4,6 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { Downloads, prepareExport } from '../src/export.js';
 import type { ExportAttachment } from '../src/export-attachments.js';
 import { META_POLICY, THEME_SWITCH, standaloneDocument, usesDesign } from '../src/standalone.js';
-import namedDesignVector from '../../../contracts/vectors/standalone-named-design-v1.json';
 
 import { fixture, gathered, input } from './export-input.js';
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -277,6 +276,42 @@ it('adds the standalone copy of a design-system page, and of one that also asks 
     expect(await bytes(bundle.blob('page.html'))).toEqual(utf8(vector.source));
     expect(bundle.standalone).toEqual({ included: true });
   }
+});
+
+it('adds the standalone copy of a page that pins a design system, its blocks inert and escaped, byte for byte like native', async () => {
+  const vector = fixture.standaloneDesignSystem;
+  const bundle = await prepareExport({
+    ...input(),
+    source: vector.source,
+    standalone: { design: vector.design, designSystem: vector.designSystem },
+  });
+  const file = await bytes(bundle.blob('page.standalone.html'));
+  const manifest = await bytes(bundle.blob('manifest.json'));
+  expect(file).toEqual(utf8(vector.fileUtf8));
+  expect(sha(file)).toBe(vector.fileSha256);
+  expect(manifest).toEqual(utf8(vector.manifestUtf8));
+  expect(sha(manifest)).toBe(vector.manifestSha256);
+  expect(bundle.standalone).toEqual({ included: true });
+  // The copy's policy is today's, byte for byte: the binder needs no new source.
+  expect(vector.fileUtf8).toContain(`content="${META_POLICY}"`);
+  // A page that asks for the runtime as well gets no runtime script of its own: the binder runs it.
+  const both = standaloneDocument(vector.source, {
+    runtime: { script: 'window.own={};', style: '@theme inline{}' },
+    design: vector.design,
+    designSystem: vector.designSystem,
+  });
+  expect(both).toBe(vector.fileUtf8);
+  // A chunk or binder that could leave its element, or a pin that could leave its attribute, is refused.
+  for (const designSystem of [
+    { ...vector.designSystem, binder: 'a</script>' },
+    { ...vector.designSystem, chunks: [{ name: 'base', text: '<!-- a' }] },
+    { ...vector.designSystem, chunks: [{ name: 'ba"se', text: 'a' }] },
+    { ...vector.designSystem, pin: 'tmt-gui" onload="x' },
+    { ...vector.designSystem, theme: 'a</style>' },
+  ])
+    expect(standaloneDocument(vector.source, { design: vector.design, designSystem })).toEqual({
+      reason: 'runtime-unusable',
+    });
 });
 
 it('decides the design system the way the shared marker vectors say', () => {
@@ -587,11 +622,4 @@ it('copies attachment bytes before hashing and names an attachment download by i
   expect(bundle.downloadName(file)).toBe(source.filename);
   expect(bundle.downloadName('page.html')).toBe('page.html');
   expect(() => bundle.blob('attachments/00000000-0000-4000-8000-000000000023')).toThrow();
-});
-
-it('writes the shared named-design standalone notice without an unavailable wasm payload', () => {
-  const html = standaloneDocument(namedDesignVector.source, { namedDesign: true });
-  expect(html).toBe(namedDesignVector.html);
-  expect(sha(utf8(html as string))).toBe(namedDesignVector.sha256);
-  expect(html).not.toContain('application/octet-stream');
 });

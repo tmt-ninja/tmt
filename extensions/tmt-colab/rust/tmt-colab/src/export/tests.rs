@@ -392,6 +392,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
                 style: case["runtime"]["style"].as_str().unwrap(),
             }),
             design: None,
+            standalone: None,
         },
     )
     .unwrap();
@@ -426,6 +427,7 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         let assets = standalone::Assets {
             runtime: part("runtime").map(|(script, style)| standalone::Runtime { script, style }),
             design: part("design").map(|(script, style)| standalone::Design { script, style }),
+            standalone: None,
         };
         let copy = standalone::document(source, &assets).unwrap();
         assert_eq!(copy, case["fileUtf8"].as_str().unwrap().as_bytes(), "{key}");
@@ -443,9 +445,61 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
         assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
         // `derive` makes the same bytes from what the build offers.
-        let offered = standalone::derive(source, &assets).unwrap();
+        let offered = standalone::derive(source, &assets, &standalone::NoReleases).unwrap();
         assert_eq!(offered.file.as_deref(), Some(copy.as_slice()), "{key}");
     }
+    // A page that pins a design system (#6157): its blocks inert and escaped, the binder last.
+    let case = &fixture["standaloneDesignSystem"];
+    let source = case["source"].as_str().unwrap();
+    let ds = &case["designSystem"];
+    fn text(value: &serde_json::Value) -> &str {
+        value.as_str().unwrap()
+    }
+    let chunks: Vec<(&str, &str)> = ds["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| (text(&chunk["name"]), text(&chunk["text"])))
+        .collect();
+    let design = standalone::Design {
+        script: text(&case["design"]["script"]),
+        style: text(&case["design"]["style"]),
+    };
+    let copy = standalone::document_with(
+        source,
+        &standalone::Assets {
+            runtime: None,
+            design: Some(design),
+            standalone: None,
+        },
+        Some(&standalone::DesignSystem {
+            bundle: text(&ds["bundle"]).to_owned(),
+            pin: text(&ds["pin"]).to_owned(),
+            lock: text(&ds["lock"]).to_owned(),
+            prose: ds["prose"].as_bool().unwrap(),
+            runtime: standalone::Standalone {
+                theme: text(&ds["theme"]),
+                binder: text(&ds["binder"]),
+                chunks: &chunks,
+            },
+        }),
+    )
+    .unwrap();
+    assert_eq!(copy, text(&case["fileUtf8"]).as_bytes());
+    assert_eq!(hex(&crypto::digest(&copy)), case["fileSha256"]);
+    let derived = vec![
+        FileInfo::new("page.html", source.as_bytes()),
+        FileInfo {
+            derived_from: Some(standalone::DERIVED_FROM),
+            ..FileInfo::new(standalone::FILE, &copy)
+        },
+        files[1].clone(),
+        files[2].clone(),
+    ];
+    assert_eq!(
+        manifest_of(&derived),
+        text(&case["manifestUtf8"]).as_bytes()
+    );
 }
 
 #[test]

@@ -90,7 +90,10 @@ component or prop shows up there. Fix every one before handing the page over. Th
 
 - One system per page. A lock is read-only: the bundle is verified by its hash, and a changed
   bundle does not render.
-- Components render only inside Colab; a downloaded standalone page does not carry them.
+- A standalone export (`page.standalone.html`) carries the page's pinned bundle and draws its
+  components offline. From the CLI, a page that follows a space system's draft gets no copy
+  (`design-draft-unavailable`); export it from the browser, or lock a release. Parts that read
+  other pages (page views, work bundles) and TerminalFrame stay empty there.
 - Interactive behaviour is what the component offers. For your own scripts use the page runtime
   (tmt-colab skill, runtime).
 

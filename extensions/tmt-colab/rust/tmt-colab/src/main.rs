@@ -646,14 +646,29 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let runtime_script = app
         .as_ref()
         .and_then(tmt_colab::assets::App::runtime_script);
+    // A page that pins a design system (#6157) carries every pinned chunk and the binder instead.
+    let pinned = app
+        .as_ref()
+        .and_then(tmt_colab::assets::App::standalone_runtime);
+    // The design system's two texts (#5057), one file: `{style, script}`.
+    let page_ui = text("/assets/colab-page-ui.json")
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
     let assets = tmt_colab::export::standalone::Assets {
         runtime: runtime_script
             .as_deref()
             .zip(text("/assets/colab-runtime.css"))
             .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style }),
-        design: text("/assets/colab-page-ui.js")
-            .zip(text("/assets/colab-page-ui.css"))
+        design: page_ui
+            .as_ref()
+            .and_then(|ui| ui["script"].as_str().zip(ui["style"].as_str()))
             .map(|(script, style)| tmt_colab::export::standalone::Design { script, style }),
+        standalone: pinned
+            .as_ref()
+            .map(|pinned| tmt_colab::export::standalone::Standalone {
+                theme: pinned.theme,
+                binder: pinned.binder,
+                chunks: &pinned.chunks,
+            }),
     };
     let bundle = Bundle::capture_with_assets(
         &store,

@@ -261,7 +261,55 @@ impl App {
         script.push_str(RUNTIME_SEAL);
         Some(script)
     }
+
+    /// What a standalone copy of a page that pins a design system carries (#6157): the runtime
+    /// theme, the binder, and each chunk's text by name in load order. Each is exactly the file
+    /// `runtime-pin.json` records, so the binder's own chunk hashes hold; `None` when one is missing
+    /// or differs.
+    pub fn standalone_runtime(&self) -> Option<StandaloneRuntime<'_>> {
+        use sha2::Digest;
+        let pinned = |file: &serde_json::Value| -> Option<&str> {
+            let path = format!("/{}", file["path"].as_str()?);
+            let (_, bytes) = self.find(&path)?;
+            let digest = sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            (file["sha256"] == digest.as_str() && file["length"] == bytes.len())
+                .then(|| std::str::from_utf8(bytes).ok())
+                .flatten()
+        };
+        let pin = &*RUNTIME_PIN;
+        let chunks = RUNTIME_CHUNKS
+            .iter()
+            .map(|name| {
+                let file = pin["chunks"]
+                    .as_array()?
+                    .iter()
+                    .find(|chunk| chunk["name"] == name.as_str())?;
+                Some((name.as_str(), pinned(file)?))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(StandaloneRuntime {
+            theme: pinned(&pin["theme"])?,
+            binder: pinned(&pin["binder"])?,
+            chunks,
+        })
+    }
 }
+
+/// The build's pinned runtime files, as `App::standalone_runtime` returns them.
+pub struct StandaloneRuntime<'a> {
+    pub theme: &'a str,
+    pub binder: &'a str,
+    pub chunks: Vec<(&'static str, &'a str)>,
+}
+
+/// The reviewed runtime pin this executable was built with (`scripts/verify-runtime.mjs`).
+static RUNTIME_PIN: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../typescript/app/runtime-pin.json"))
+        .expect("the runtime pin is JSON")
+});
 #[cfg(test)]
 #[path = "assets_tests.rs"]
 mod tests;

@@ -10,6 +10,7 @@ import {
   type ListedAttachment,
 } from './export.js';
 import type { PageBinding } from './transport.js';
+import type { DesignSystemSource } from './design-system.js';
 import { STANDALONE_FILE, type StandaloneOutcome } from './standalone.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
@@ -18,6 +19,7 @@ import './attachment-tray.css';
 /** Downloads stay in trusted chrome; no renderer message opens this panel. */
 export function ExportPanel({
   binding,
+  designSystems,
   blocked,
   drawer = false,
   opened,
@@ -25,6 +27,8 @@ export function ExportPanel({
   notice,
 }: {
   binding?: PageBinding;
+  /** Where the page's frame reads its pinned design system, so its copy carries the same (#6157). */
+  designSystems?: DesignSystemSource;
   blocked: boolean;
   notice?: ReactNode;
   drawer?: boolean;
@@ -48,7 +52,7 @@ export function ExportPanel({
     setRequested([]);
     setAttachments([]);
     setStandalone(undefined);
-    void binding.export().then(
+    void binding.export(designSystems).then(
       (bundle) => {
         if (!active) return;
         current.current = new Downloads(bundle);
@@ -65,7 +69,7 @@ export function ExportPanel({
       current.current?.close();
       current.current = null;
     };
-  }, [binding, open, blocked]);
+  }, [binding, designSystems, open, blocked]);
   useEffect(() => {
     if (blocked && open && !notice) setOpen(false);
   }, [blocked, open, setOpen, notice]);

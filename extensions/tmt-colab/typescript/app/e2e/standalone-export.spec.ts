@@ -3,9 +3,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Browser, type Page } from '@playwright/test';
 import { standaloneDocument } from '../src/standalone.js';
-import { sealedRuntimeScript } from './page-runtime.js';
+import { sealedRuntimeScript, servePageRuntime } from './page-runtime.js';
 
 // The standalone copy of an opted-in page (#1693), built from the real runtime and opened from
 // disk the way a person opens a downloaded file: no Colab, no server, no network. The page is
@@ -72,7 +72,7 @@ test.beforeAll(() => {
     ['painted', paintedSource],
   ] as const) {
     const withDesign = standaloneDocument(text, {
-      design: { script: textOf('colab-page-ui.js'), style: textOf('colab-page-ui.css') },
+      design: JSON.parse(textOf('colab-page-ui.json')) as { script: string; style: string },
     });
     expect(typeof withDesign).toBe('string');
     designCopies[kind] = join(directory, `design-${kind}.standalone.html`);
@@ -272,3 +272,288 @@ test('a design-system copy follows the system theme live, and one the author pai
   }
   await context.close();
 });
+
+// #6157: a page that pins a design system exports its verified bundle, so the copy, opened from disk
+// with no network, draws the same `tmt-ui-*` components the frame draws. Each copy is made by the app's
+// own export path (standaloneRequest, then deriveStandalone) from the bundle the app resolves for the pin.
+const pinnedBundle = JSON.parse(
+  readFileSync(
+    new URL('../../../../../design/systems/tmt-gui/generated/bundle.json', import.meta.url),
+    'utf8',
+  ),
+) as { hash: string; version: string };
+const pinOf = (bundle: { hash: string; version: string }) =>
+  `tmt-gui@${bundle.version}#${bundle.hash}`;
+const pinnedSource = `<meta name="tmt-ds" content="${pinOf(pinnedBundle)}">
+<p>Build <tmt-ui-badge id="badge" variant="secondary">Done</tmt-ui-badge></p>`;
+/** Today's copy policy, frozen in the shared export vector: the binder needs no new source. */
+const frozenPolicy = (
+  JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/export-v1.json', import.meta.url), 'utf8'),
+  ) as { standalone: { policy: string } }
+).standalone.policy;
+
+/** The app's export of `source`, with `served` as the bundle its pin resolves to (a draft that throws
+ * when `served` is null). */
+async function exportPinned(page: Page, source: string, served: unknown = pinnedBundle) {
+  await servePageRuntime(page);
+  await page.goto('/');
+  return page.evaluate(
+    async ({ source, served }) => {
+      const runtime = '/src/export-runtime.ts';
+      const standalone = '/src/standalone.ts';
+      const { standaloneRequest } = await import(runtime);
+      const { deriveStandalone } = await import(standalone);
+      const request = await standaloneRequest(
+        { source },
+        {
+          release: async () => served,
+          draft: async () => {
+            if (!served) throw new Error('No draft');
+            return served;
+          },
+          watch: () => () => {},
+        },
+      );
+      return deriveStandalone(source, request) as {
+        outcome: { included: boolean; reason?: string };
+        document?: string;
+      };
+    },
+    { source, served },
+  );
+}
+/** `document` written to disk and opened offline, with the errors and requests it made. */
+async function openOffline(browser: Browser, document: string, name: string) {
+  const file = join(directory, name);
+  writeFileSync(file, document);
+  const context = await browser.newContext({ colorScheme: 'light', offline: true });
+  const opened = await context.newPage();
+  const problems: string[] = [];
+  const requests: string[] = [];
+  opened.on('pageerror', (error) => problems.push(String(error)));
+  opened.on('request', (request) => requests.push(request.url()));
+  await opened.goto(pathToFileURL(file).href);
+  return { context, opened, problems, requests };
+}
+
+test('a design-system page exported from the app draws its tmt-ui components offline', async ({
+  browser,
+  page,
+}) => {
+  const made = await exportPinned(page, pinnedSource);
+  expect(made.outcome).toEqual({ included: true });
+  expect(made.document).toContain(
+    `<meta http-equiv="Content-Security-Policy" content="${frozenPolicy}">`,
+  );
+  const { context, opened, problems, requests } = await openOffline(
+    browser,
+    made.document!,
+    'pinned.standalone.html',
+  );
+  await expect(opened.locator('#badge [data-slot="badge"]')).toHaveText('Done');
+  expect(await opened.evaluate(() => !!customElements.get('tmt-ui-badge'))).toBe(true);
+  await expect(
+    opened.locator('[data-tmt-ds-notice], [data-colab-standalone-notice], [data-tmt-ds-findings]'),
+  ).toHaveCount(0);
+  await expect(opened.locator('[data-tmt-part-unavailable]')).toHaveCount(0);
+  expect(problems).toEqual([]);
+  expect(requests.filter((url) => !url.startsWith('file:'))).toEqual([]);
+  await context.close();
+});
+
+test('a copy checks its blocks when it opens: a changed bundle or base fails closed, a changed chunk leaves only its parts', async ({
+  browser,
+  page,
+}) => {
+  const made = await exportPinned(page, pinnedSource);
+  const copy = made.document!;
+  const block = (name: string) => {
+    const open = `<script type="text/plain" data-chunk="${name}">`;
+    const start = copy.indexOf(open) + open.length;
+    return { start, end: copy.indexOf('</script>', start) };
+  };
+  const cases = [
+    // The bundle no longer hashes to the release the export verified.
+    {
+      name: 'bundle',
+      document: copy.replace('"name":"', '"name":"Changed '),
+      notice: true,
+    },
+    // The base chunk is not this build's: no component can be defined.
+    {
+      name: 'base',
+      document: `${copy.slice(0, block('base').start)}/* changed */${copy.slice(block('base').start)}`,
+      notice: true,
+    },
+    // A lazy chunk is not this build's: the component draws, its part does not.
+    {
+      name: 'ui',
+      document: `${copy.slice(0, block('ui').start)}/* changed */${copy.slice(block('ui').start)}`,
+      notice: false,
+    },
+  ];
+  for (const { name, document, notice } of cases) {
+    expect(document, name).not.toBe(copy);
+    const { context, opened, requests } = await openOffline(browser, document, `${name}.html`);
+    if (notice) {
+      await expect(opened.locator('[data-tmt-ds-notice]'), name).toBeVisible();
+      expect(await opened.evaluate(() => !!customElements.get('tmt-ui-badge')), name).toBe(false);
+    } else {
+      await expect(opened.locator('#badge [data-tmt-part-unavailable]'), name).toBeVisible();
+      await expect(opened.locator('[data-tmt-ds-notice]'), name).toHaveCount(0);
+    }
+    expect(
+      requests.filter((url) => !url.startsWith('file:')),
+      name,
+    ).toEqual([]);
+    await context.close();
+  }
+});
+
+test('a copy refuses an unknown component with the page check, as the frame does', async ({
+  browser,
+  page,
+}) => {
+  const source = `${pinnedSource}<tmt-ui-nope id="nope">x</tmt-ui-nope>`;
+  const made = await exportPinned(page, source);
+  expect(made.outcome).toEqual({ included: true });
+  const { context, opened, problems } = await openOffline(browser, made.document!, 'unknown.html');
+  await expect(opened.locator('[data-tmt-ds-findings]')).toContainText('tmt-ui-nope');
+  await expect(opened.locator('#badge [data-slot="badge"]')).toHaveText('Done');
+  expect(await opened.evaluate(() => !!customElements.get('tmt-ui-nope'))).toBe(false);
+  expect(problems).toEqual([]);
+  await context.close();
+});
+
+test('a pin the export cannot verify gets no copy and names why', async ({ page }) => {
+  const changed = { ...pinnedBundle, name: 'Someone else' };
+  expect((await exportPinned(page, pinnedSource, changed)).outcome).toEqual({
+    included: false,
+    reason: 'design-hash-mismatch',
+  });
+  const other = pinnedSource.replace(pinnedBundle.version, '9.9.9');
+  expect((await exportPinned(page, other)).outcome).toEqual({
+    included: false,
+    reason: 'design-unknown-release',
+  });
+  const follows = '<meta name="tmt-ds" content="space-system"><tmt-ui-badge>x</tmt-ui-badge>';
+  expect((await exportPinned(page, follows, null)).outcome).toEqual({
+    included: false,
+    reason: 'design-draft-broken',
+  });
+});
+
+test('a page that follows a draft is frozen to the draft its export resolved', async ({
+  browser,
+  page,
+}) => {
+  const follows =
+    '<meta name="tmt-ds" content="tmt-gui"><tmt-ui-badge id="badge">Now</tmt-ui-badge>';
+  const made = await exportPinned(page, follows);
+  expect(made.document).toContain(
+    `data-pin="tmt-gui" data-lock="${pinnedBundle.version}#${pinnedBundle.hash}"`,
+  );
+  const { context, opened } = await openOffline(browser, made.document!, 'follows.html');
+  await expect(opened.locator('#badge [data-slot="badge"]')).toHaveText('Now');
+  await context.close();
+});
+
+// The copy draws what the frame draws (#6157): the same components, read from the same elements in the
+// renderer frame and in the exported file, at desktop and phone widths in both schemes.
+const componentSource = `<meta name="tmt-ds" content="${pinOf(pinnedBundle)}">
+<tmt-ui-card id="card" heading="Release" description="Build 42">Ready to ship</tmt-ui-card>
+<p><tmt-ui-button id="button">Approve</tmt-ui-button> <tmt-ui-badge id="badge" variant="secondary">Done</tmt-ui-badge></p>
+<tmt-ui-alert id="alert" heading="Heads up">The copy works offline.</tmt-ui-alert>`;
+const readComponents = () =>
+  ['card', 'button', 'badge', 'alert'].map((id) => {
+    const host = document.getElementById(id)!;
+    const drawn = host.querySelector('[data-slot]') ?? host;
+    const style = getComputedStyle(drawn) as unknown as Record<string, string>;
+    return {
+      id,
+      slot: drawn.getAttribute('data-slot'),
+      text: drawn.textContent,
+      ...Object.fromEntries(
+        [
+          'display',
+          'color',
+          'backgroundColor',
+          'borderTopWidth',
+          'borderTopColor',
+          'borderTopLeftRadius',
+          'paddingTop',
+          'paddingLeft',
+          'fontFamily',
+          'fontSize',
+          'fontWeight',
+          'lineHeight',
+        ].map((name) => [name, style[name]]),
+      ),
+    };
+  });
+
+for (const width of [1440, 390])
+  for (const scheme of ['light', 'dark'] as const)
+    test(`a pinned copy draws its components the way the frame does (${width}, ${scheme})`, async ({
+      browser,
+      page,
+    }) => {
+      const made = await exportPinned(page, componentSource);
+      expect(made.outcome).toEqual({ included: true });
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.evaluate(
+        async ({ source, served }) => {
+          const path = '/src/renderer.ts';
+          const { mountRenderer } = await import(path);
+          const host = document.createElement('div');
+          host.id = 'probe';
+          document.body.replaceChildren(host);
+          // As wide as the copy's viewport, so the type ramp takes the same width step.
+          const style = document.createElement('style');
+          style.textContent = `body{margin:0}#probe iframe{width:${innerWidth}px;border:0}`;
+          document.head.append(style);
+          await mountRenderer(host, source, {
+            signal: new AbortController().signal,
+            onState: (state: string) => {
+              host.dataset.state = state;
+            },
+            designSystem: {
+              release: async () => served,
+              draft: async () => served,
+              watch: () => () => {},
+            },
+          });
+        },
+        { source: componentSource, served: pinnedBundle },
+      );
+      await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+      const frame = page.frameLocator('#probe iframe');
+      await expect(frame.locator('#alert [data-slot]').first()).toBeAttached();
+      const inFrame = await frame.locator('html').evaluate(readComponents);
+
+      const file = join(directory, `components-${width}-${scheme}.html`);
+      writeFileSync(file, made.document!);
+      const context = await browser.newContext({
+        colorScheme: scheme,
+        offline: true,
+        viewport: { width, height: 900 },
+      });
+      const exported = await context.newPage();
+      const requests: string[] = [];
+      exported.on('request', (request) => requests.push(request.url()));
+      await exported.goto(pathToFileURL(file).href);
+      await expect(exported.locator('#alert [data-slot]').first()).toBeAttached();
+      const onDisk = await exported.evaluate(readComponents);
+      expect(onDisk).toEqual(inFrame);
+      // Not a vacuous match: each component drew its own part.
+      expect(onDisk.map((entry) => entry.slot)).toEqual(['card', 'button', 'badge', 'alert']);
+      expect(requests.filter((url) => !url.startsWith('file:'))).toEqual([]);
+      const capture = process.env.COLAB_CAPTURE_DIR;
+      if (capture) {
+        await page.screenshot({ path: join(capture, `6157-frame-${width}-${scheme}.png`) });
+        await exported.screenshot({ path: join(capture, `6157-copy-${width}-${scheme}.png`) });
+      }
+      await context.close();
+    });

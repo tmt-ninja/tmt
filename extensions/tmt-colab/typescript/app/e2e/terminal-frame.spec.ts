@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
-import { standaloneDocument } from '../src/standalone.js';
 
 test('verified TerminalFrame renders live and the offline copy explains its unavailable component', async ({
   page,
@@ -111,7 +110,21 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
     ? await page.screenshot({ path: join(capture, 'terminal-live.png') })
     : undefined;
 
-  const copy = standaloneDocument(source, { namedDesign: true });
+  // The copy is made by the app's own export path, from the same verified bundle (#6157).
+  const copy = await page.evaluate(
+    async ({ source, bundle }) => {
+      const runtime = '/src/export-runtime.ts';
+      const standalone = '/src/standalone.ts';
+      const { standaloneRequest } = await import(runtime);
+      const { deriveStandalone } = await import(standalone);
+      const request = await standaloneRequest(
+        { source },
+        { release: async () => bundle, draft: async () => bundle, watch: () => () => {} },
+      );
+      return (deriveStandalone(source, request) as { document?: string }).document;
+    },
+    { source, bundle },
+  );
   expect(typeof copy).toBe('string');
   const dir = mkdtempSync(join(tmpdir(), 'terminal-standalone-'));
   const context = await browser.newContext({

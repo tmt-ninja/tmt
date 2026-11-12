@@ -624,6 +624,39 @@ pub fn resolve(
         _ => Err(Fault::Invalid.into()),
     }
 }
+/// The selector of a design system's release attachment (#6157): one read-only capture of the
+/// system root page at its current epoch, the attachment the root's config block records for
+/// `version` and `hash`, and exactly one current attachment with that id. Nothing is written and no
+/// earlier epoch is read; anything missing is `Missing`.
+pub fn release_selector(
+    store: &Store,
+    key: &Keyring,
+    root: &str,
+    version: &str,
+    hash: &str,
+    decoder: &mut Decoder,
+    deadline: Instant,
+) -> Result<AttachmentSelector> {
+    use page::Fault;
+    remaining(deadline)?;
+    let current = Snapshot::capture_read(store, key, root, None)?;
+    let current_revision = revision(key, root, &current)?;
+    let view = current.materialize_until(key, root, decoder, deadline)?;
+    let id = crate::design_bundle::release_attachment(&view.source, version, hash)
+        .ok_or(Fault::Missing)?;
+    let mut found = candidates(
+        &projected(key, root, &current, &view),
+        &view.meta,
+        &id,
+        &key.space_id,
+        root,
+        Some(&current_revision),
+    )?;
+    match found.len() {
+        1 => Ok(found.remove(0)),
+        _ => Err(Fault::Missing.into()),
+    }
+}
 /// How many of this page's current document attachments each reference token names, for the page
 /// markup check. A token is a full ID or an 8-character prefix; the renderer shows a reference
 /// only when exactly one current document attachment matches (`document-images.ts`), so earlier

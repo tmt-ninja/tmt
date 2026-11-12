@@ -58,7 +58,11 @@ async function exportIn(
     fetched.push(target);
     const up = typeof ok === 'function' ? ok(target) : ok;
     const name = new URL(target).pathname.split('/').pop();
-    return new Response(up ? `text of ${name}` : 'gone', { status: up ? 200 : 404 });
+    const body =
+      name === 'colab-page-ui.json'
+        ? JSON.stringify({ style: 'page UI style', script: 'page UI script' })
+        : `text of ${name}`;
+    return new Response(up ? body : 'gone', { status: up ? 200 : 404 });
   });
   const entry = await import('../src/entry.js');
   if (shell !== undefined) entry.hostInShell(shell);
@@ -153,19 +157,11 @@ it('exports a design-system page with the design files from the base the rendere
     true,
     design,
   );
-  expect(fetched).toEqual([
-    `${own}/colab/assets/colab-page-ui.js`,
-    `${own}/colab/assets/colab-page-ui.css`,
-  ]);
-  expect(request).toEqual({
-    design: {
-      script: 'text of colab-page-ui.js',
-      style: 'text of colab-page-ui.css',
-    },
-  });
+  expect(fetched).toEqual([`${own}/colab/assets/colab-page-ui.json`]);
+  expect(request).toEqual({ design: { script: 'page UI script', style: 'page UI style' } });
   expect(bundle.standalone).toEqual({ included: true });
-  expect(copy).toContain('<style>text of colab-page-ui.css</style>');
-  expect(copy).toContain('<script>text of colab-page-ui.js</script>');
+  expect(copy).toContain('<style>page UI style</style>');
+  expect(copy).toContain('<script>page UI script</script>');
   expect(copy).toContain('<html data-colab-design>');
   expect(copy).not.toContain('colab-runtime');
 });
@@ -176,8 +172,7 @@ it('loads the runtime and the design files for a page that asks for both, and fo
   const first = await exportIn(`${own}/colab/p/12345678`, `${own}/colab/p/`, null, true, both);
   expect([...first.fetched].sort()).toEqual(
     [
-      `${own}/colab/assets/colab-page-ui.css`,
-      `${own}/colab/assets/colab-page-ui.js`,
+      `${own}/colab/assets/colab-page-ui.json`,
       `${own}/colab/assets/colab-runtime.css`,
       `${own}/colab/assets/${BASE}`,
       `${own}/colab/assets/${UI}`,

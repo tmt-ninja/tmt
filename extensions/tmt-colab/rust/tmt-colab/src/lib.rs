@@ -12,6 +12,7 @@ pub mod conversion;
 pub mod core;
 pub mod decoder;
 pub mod deploy_declaration;
+pub mod design_bundle;
 pub mod discussion;
 pub mod edit_lock;
 pub mod edit_locks;

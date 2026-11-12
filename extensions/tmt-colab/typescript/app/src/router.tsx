@@ -2762,6 +2762,7 @@ function OpenPage({
       <ExportPanel
         key={`export:${snapshot.id}`}
         binding={snapshot.binding}
+        designSystems={designSystems}
         blocked={!!liveError}
         drawer
         notice={endedNotice}

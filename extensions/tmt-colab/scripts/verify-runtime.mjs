@@ -58,11 +58,18 @@ chunks.push({
   glue: { sha256: hash(glueBytes), length: glueBytes.length, gzip: gzipLength(glueBytes) },
   bytes: wasmBytes,
 });
+// The standalone copy's binder (#6157), which carries the hashes of these chunks.
+const binderBytes = readFileSync(join(directory, 'assets/colab-standalone-binder.js'));
 const built = {
   version: 2,
   packages,
   chunks: chunks.map(({ bytes: _bytes, ...chunk }) => chunk),
   theme: { path: 'assets/colab-runtime.css', sha256: hash(themeBytes), length: themeBytes.length },
+  binder: {
+    path: 'assets/colab-standalone-binder.js',
+    sha256: hash(binderBytes),
+    length: binderBytes.length,
+  },
 };
 
 const pinPath = join(app, 'runtime-pin.json');
@@ -91,6 +98,15 @@ expect(
   JSON.stringify(pin.theme) === JSON.stringify(built.theme),
   'runtime theme differs from runtime-pin.json',
 );
+expect(
+  JSON.stringify(pin.binder) === JSON.stringify(built.binder),
+  'standalone binder differs from runtime-pin.json',
+);
+for (const chunk of chunks.filter((entry) => entry.kind !== 'wasm'))
+  expect(
+    binderBytes.includes(chunk.sha256),
+    `the standalone binder does not carry the ${chunk.name} chunk's hash`,
+  );
 const stray = assets.filter(
   (file) =>
     /^(colab-runtime[-.].*\.js|entry-.*\.js)$/.test(file) &&
@@ -148,14 +164,15 @@ expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
 // dependency: it must be exactly what the renderer inlines and fit the same cap.
 const { buildPageUi, PAGE_UI_LIMIT } = await import('./page-ui.mjs');
 const { pageUiStyle, pageUiScript } = await buildPageUi();
-const pageUiCss = read(join(directory, 'assets/colab-page-ui.css'));
-const pageUiJs = read(join(directory, 'assets/colab-page-ui.js'));
-expect(pageUiCss === pageUiStyle, 'colab-page-ui.css differs from the renderer design system');
-expect(pageUiJs === pageUiScript, 'colab-page-ui.js differs from the renderer tmt-icon script');
-expect(Buffer.byteLength(pageUiCss) <= PAGE_UI_LIMIT, 'colab-page-ui.css is over its cap');
+const pageUi = read(join(directory, 'assets/colab-page-ui.json'));
+expect(
+  pageUi === JSON.stringify({ style: pageUiStyle, script: pageUiScript }),
+  'colab-page-ui.json differs from the renderer design system and tmt-icon script',
+);
+expect(Buffer.byteLength(pageUiStyle) <= PAGE_UI_LIMIT, 'the page UI style is over its cap');
 for (const [name, text, end] of [
-  ['colab-page-ui.css', pageUiCss, '</style'],
-  ['colab-page-ui.js', pageUiJs, '</script'],
+  ['colab-page-ui.json style', pageUiStyle, '</style'],
+  ['colab-page-ui.json script', pageUiScript, '</script'],
 ]) {
   expect(!text.toLowerCase().includes(end), `${name} contains an element end tag`);
   expect(!text.includes('<' + '!--'), `${name} contains an HTML comment opener`);

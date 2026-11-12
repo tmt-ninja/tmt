@@ -718,7 +718,7 @@ export const text = {
   exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
   exportDownload: (name: string) => `Download ${name}`,
   exportStandaloneNote:
-    'page.standalone.html opens offline in any browser. page.html stays exactly as published.',
+    'page.standalone.html opens offline in any browser; parts that read other pages stay empty there. page.html stays exactly as published.',
   exportStandaloneMissing: {
     'runtime-unavailable':
       'No standalone copy: the page runtime could not be loaded. Export again to retry.',
@@ -727,6 +727,20 @@ export const text = {
       'No standalone copy: the page design system could not be loaded. Export again to retry.',
     'design-unusable':
       'No standalone copy: the page design system cannot be written into an HTML file.',
+    'design-unknown-release':
+      'No standalone copy: this page pins a design system release this TMT does not have.',
+    'design-hash-mismatch':
+      'No standalone copy: this page’s design system bundle does not match its pin.',
+    'design-newer-runtime':
+      'No standalone copy: this page needs a newer TMT to show its components.',
+    'design-newer-schema':
+      'No standalone copy: this page needs a newer TMT to show its components.',
+    'design-draft-broken':
+      'No standalone copy: this page’s design system draft does not compile. Fix it in Design.',
+    'design-release-unavailable':
+      'No standalone copy: the page’s design system release could not be read. Export again to retry.',
+    'design-draft-unavailable':
+      'No standalone copy: a page that follows a design system draft exports its copy from the browser.',
   },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',

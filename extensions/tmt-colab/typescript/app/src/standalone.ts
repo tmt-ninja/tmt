@@ -30,18 +30,44 @@ export interface StandaloneRuntime {
   readonly script: string;
   readonly style: string;
 }
-/** The two texts the design system adds (#5057): the bytes of `assets/colab-page-ui.js` and
- * `assets/colab-page-ui.css` of the same build, which are what the renderer frame carries. */
+/** The two texts the design system adds (#5057): `script` and `style` of the same build's
+ * `assets/colab-page-ui.json`, which are what the renderer frame carries. */
 export interface StandaloneDesign {
   readonly script: string;
   readonly style: string;
 }
+/** What a page that pins a design system adds (#6157), all inert but the binder: the verified
+ * bundle's JSON, the page's own pin and the release the export verified (`<version>#<hash>`; for a
+ * page that follows a draft, the draft it resolved), whether the page keeps the editorial ramp
+ * (it did not ask for the runtime itself), the runtime theme, every runtime chunk's text in load
+ * order, and the build's binder, which checks them all when the file opens. */
+export interface StandaloneDesignSystem {
+  readonly bundle: string;
+  readonly pin: string;
+  readonly lock: string;
+  readonly prose: boolean;
+  readonly theme: string;
+  readonly chunks: readonly { readonly name: string; readonly text: string }[];
+  readonly binder: string;
+}
+/** Why a page's design system could not be carried: the frame's failure for its pin, a release
+ * that could not be read in time, or (native export only) a draft-following page, which needs the
+ * browser's draft compiler. */
+export type StandaloneDesignReason =
+  | 'design-unknown-release'
+  | 'design-hash-mismatch'
+  | 'design-newer-runtime'
+  | 'design-newer-schema'
+  | 'design-draft-broken'
+  | 'design-release-unavailable'
+  | 'design-draft-unavailable';
 /** Why a page that needs a standalone copy got none. */
 export type StandaloneReason =
   | 'runtime-unavailable'
   | 'runtime-unusable'
   | 'design-unavailable'
-  | 'design-unusable';
+  | 'design-unusable'
+  | StandaloneDesignReason;
 /** What became of the copy; absent for a page that needs none. */
 export interface StandaloneOutcome {
   readonly included: boolean;
@@ -53,9 +79,9 @@ export type StandaloneRequest =
   | {
       readonly runtime?: StandaloneRuntime;
       readonly design?: StandaloneDesign;
-      readonly namedDesign?: boolean;
+      readonly designSystem?: StandaloneDesignSystem;
     }
-  | { readonly reason: 'runtime-unavailable' | 'design-unavailable' };
+  | { readonly reason: 'runtime-unavailable' | 'design-unavailable' | StandaloneDesignReason };
 
 /** A page uses the design system (#5057) when its source contains `tmt-ui-`, `<tmt-icon` or
  * `tmt-starter`, ignoring ASCII case. A plain text test, with no parsing: it is the test the renderer
@@ -71,27 +97,47 @@ function escapes(text: string, closing: RegExp): boolean {
   return text.includes('<!--') || closing.test(text);
 }
 
+/** A pin, a lock and a chunk name are written as attribute values; their grammars hold no quote. */
+const attribute = /^[A-Za-z0-9_.@#-]{1,256}$/;
+/** The design system's head blocks: the bundle and each chunk inert, then the binder. */
+function designSystemBlocks(ds: StandaloneDesignSystem): string | undefined {
+  if (
+    ![ds.pin, ds.lock, ...ds.chunks.map((chunk) => chunk.name)].every((value) =>
+      attribute.test(value),
+    ) ||
+    escapes(ds.binder, /<\/script/i) ||
+    escapes(ds.theme, /<\/style/i) ||
+    ds.chunks.some((chunk) => escapes(chunk.text, /<\/script/i))
+  )
+    return undefined;
+  const bundle = ds.bundle.replace(/</g, '\\u003c');
+  return `<script type="application/json" id="tmt-ds-bundle" data-pin="${ds.pin}" data-lock="${ds.lock}"${ds.prose ? ' data-prose' : ''}>${bundle}</script>${ds.chunks.map((chunk) => `<script type="text/plain" data-chunk="${chunk.name}">${chunk.text}</script>`).join('')}<script>${ds.binder}</script>`;
+}
+
 /** The copy's document, or why a text is not safe to write into HTML. The head holds, in order: the
  * design style and the runtime's theme (the frame carries them in that order), the theme switch, then
- * the design script and the runtime script. A page that needs only the runtime gets the same bytes as
- * before the design system. */
+ * the design script, and then the runtime script, or for a page that pins a design system its inert
+ * blocks and the binder that runs the runtime and the components (#6157). A page that needs only the
+ * runtime gets the same bytes as before the design system. */
 export function standaloneDocument(
   source: string,
   parts: {
     readonly runtime?: StandaloneRuntime;
     readonly design?: StandaloneDesign;
-    readonly namedDesign?: boolean;
+    readonly designSystem?: StandaloneDesignSystem;
   },
 ): string | { readonly reason: 'runtime-unusable' | 'design-unusable' } {
-  const { runtime, design, namedDesign } = parts;
+  const { design, designSystem } = parts;
+  // A pinned design system brings every chunk, so the binder runs the runtime in its place.
+  const runtime = designSystem ? undefined : parts.runtime;
+  const theme = designSystem?.theme ?? runtime?.style;
   if (runtime && (escapes(runtime.script, /<\/script/i) || escapes(runtime.style, /<\/style/i)))
     return { reason: 'runtime-unusable' };
   if (design && (escapes(design.script, /<\/script/i) || escapes(design.style, /<\/style/i)))
     return { reason: 'design-unusable' };
-  const notice = namedDesign
-    ? '<p role="status" data-colab-standalone-notice>Design-system components, including TerminalFrame, are unavailable in standalone export.</p>'
-    : '';
-  return `<!doctype html><html${design ? ' data-colab-design' : ''}><head><meta http-equiv="Content-Security-Policy" content="${META_POLICY}"><meta charset="utf-8">${design ? `<style>${design.style}</style>` : ''}${runtime ? `<style type="text/tailwindcss">${runtime.style}</style>` : ''}<script>${THEME_SWITCH}</script>${design ? `<script>${design.script}</script>` : ''}${runtime ? `<script>${runtime.script}</script>` : ''}</head><body>${notice}${source}</body></html>`;
+  const blocks = designSystem ? designSystemBlocks(designSystem) : '';
+  if (blocks === undefined) return { reason: 'runtime-unusable' };
+  return `<!doctype html><html${design ? ' data-colab-design' : ''}><head><meta http-equiv="Content-Security-Policy" content="${META_POLICY}"><meta charset="utf-8">${design ? `<style>${design.style}</style>` : ''}${theme === undefined ? '' : `<style type="text/tailwindcss">${theme}</style>`}<script>${THEME_SWITCH}</script>${design ? `<script>${design.script}</script>` : ''}${runtime ? `<script>${runtime.script}</script>` : ''}${blocks}</head><body>${source}</body></html>`;
 }
 
 /** The copy of `source` (a page that needs one) and its outcome. */

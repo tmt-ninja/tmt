@@ -28,7 +28,12 @@ export function pageRuntimeFiles() {
     terminal = { name: terminalName, bytes: readFileSync(join(output, 'assets', terminalName)) };
   built = new Map(
     files
-      .filter((name) => name.startsWith('colab-runtime') && !name.endsWith('.wasm'))
+      .filter(
+        (name) =>
+          (name.startsWith('colab-runtime') && !name.endsWith('.wasm')) ||
+          name.startsWith('colab-page-ui.') ||
+          name === 'colab-standalone-binder.js',
+      )
       .map((name) => [name, readFileSync(join(output, 'assets', name), 'utf8')]),
   );
   return built;
@@ -70,20 +75,23 @@ const chunkName = (file: string) => /^colab-runtime-(.+)-[0-9a-f]{16}\.js$/.exec
 export async function servePageRuntime(page: Page, { fail }: { fail?: string } = {}) {
   const files = pageRuntimeFiles();
   const fetched: string[] = [];
-  await page.route('**/assets/colab-runtime*', (route) => {
-    const name = new URL(route.request().url()).pathname.replace(/^.*\//, '');
-    fetched.push(chunkName(name));
-    const body = name === terminal?.name ? terminal.bytes : files.get(name);
-    if (body === undefined) return route.fulfill({ status: 404 });
-    if (chunkName(name) === fail) return route.fulfill({ status: 500 });
-    return route.fulfill({
-      contentType: name.endsWith('.wasm')
-        ? 'application/wasm'
-        : name.endsWith('.css')
-          ? 'text/css'
-          : 'text/javascript',
-      body,
-    });
-  });
+  await page.route(
+    /\/assets\/(colab-runtime|colab-page-ui|colab-standalone-binder)[^/]*$/,
+    (route) => {
+      const name = new URL(route.request().url()).pathname.replace(/^.*\//, '');
+      fetched.push(chunkName(name));
+      const body = name === terminal?.name ? terminal.bytes : files.get(name);
+      if (body === undefined) return route.fulfill({ status: 404 });
+      if (chunkName(name) === fail) return route.fulfill({ status: 500 });
+      return route.fulfill({
+        contentType: name.endsWith('.wasm')
+          ? 'application/wasm'
+          : name.endsWith('.css')
+            ? 'text/css'
+            : 'text/javascript',
+        body,
+      });
+    },
+  );
   return fetched;
 }

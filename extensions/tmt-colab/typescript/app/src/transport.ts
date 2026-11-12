@@ -1,3 +1,4 @@
+import type { DesignSystemSource } from './design-system.js';
 import type { EditLockRecord } from './edit-locks.js';
 import type { ActivityObservation } from './agent-activity.js';
 import type { MessageStates } from './message-state.js';
@@ -164,7 +165,8 @@ export interface PageBinding {
   usage?(): Promise<PageUsage>;
   /** Combine this serve's own stream and report what changed. Present only where `usage` is. */
   compact?(): Promise<CompactReport>;
-  export(): Promise<ExportBundle>;
+  /** `designSystems` is where the page's frame reads its pinned design system (#6157). */
+  export(designSystems?: DesignSystemSource): Promise<ExportBundle>;
   close(): void;
 }
 export interface SpaceHome {
