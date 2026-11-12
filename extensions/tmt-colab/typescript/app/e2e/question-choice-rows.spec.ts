@@ -147,3 +147,63 @@ for (const width of [1586, 390])
         );
         expect(threads[0].comments[0].body).not.toContain(description);
       });
+
+// Choices with descriptions stack as rows, like the block-page question's choices
+// (`.tmt-block-question-choices`): the card radius and a small row gap, never full-width pills
+// that touch. Short inline choices stay pills (#6316). The rules win in either stylesheet order.
+for (const width of [1440, 390])
+  test(`stacked described choices are spaced card-radius rows; inline choices stay pills ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const described = await mount(page, {
+      kind: 'multiple',
+      choices: [
+        { label: 'Keep it', description: 'Open the discussion on a marker.' },
+        { label: 'Change it', description: 'Show the thread in the side panel.' },
+      ],
+      other: true,
+    });
+    const list = described.locator('.tmt-ui-choices');
+    await expect(list).toHaveAttribute('data-layout', 'stack');
+    const tokens = await list.evaluate((node) => {
+      const style = getComputedStyle(node);
+      const probe = (value: string) => {
+        const element = document.createElement('div');
+        element.style.cssText = `position:absolute;width:${value};border-radius:${value}`;
+        node.append(element);
+        const width = getComputedStyle(element).width;
+        element.remove();
+        return width;
+      };
+      return {
+        gap: style.rowGap,
+        spaceS: probe('var(--tmt-ui-space-s)'),
+        radius: probe('var(--tmt-ui-radius)'),
+      };
+    });
+    expect(tokens.gap).toBe(tokens.spaceS);
+    const chips = described.locator('.question-choice-chip');
+    await expect(chips).toHaveCount(3);
+    for (const radius of await chips.evaluateAll((nodes) =>
+      nodes.map((node) => getComputedStyle(node).borderTopLeftRadius),
+    ))
+      expect(radius).toBe(tokens.radius);
+    const boxes = await chips.evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().toJSON() as DOMRect),
+    );
+    for (let index = 1; index < boxes.length; index++)
+      expect(Math.round(boxes[index]!.top - boxes[index - 1]!.bottom)).toBe(
+        Number.parseFloat(tokens.spaceS),
+      );
+
+    const inline = await mount(page, { kind: 'single', choices: ['Keep it', 'Change it'] });
+    await expect(inline.locator('.tmt-ui-choices')).toHaveAttribute('data-layout', 'inline');
+    const pill = await inline
+      .locator('.tmt-ui-choices')
+      .evaluate((node) => getComputedStyle(node).getPropertyValue('--tmt-ui-radius-pill').trim());
+    for (const radius of await inline
+      .locator('.question-choice-chip')
+      .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).borderTopLeftRadius)))
+      expect(radius).toBe(pill);
+  });
