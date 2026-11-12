@@ -1382,6 +1382,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           stdout: { error: { code: 'TICK_CLOCK_RUNNING' } },
         });
         const message = 'literal {time}\nclock reminder';
+        const jobAddStartedAtMs = Date.now();
         const added = expectJsonResult<{ job: { roomId: string } }>(
           await squadCli(fixture, [
             'cron',
@@ -1395,13 +1396,53 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             message,
           ])
         );
+        const jobAddCompletedAtMs = Date.now();
         const scheduled = () =>
           requestAttempts(fixture).filter((row) => row.message_text === message);
-        await fixture.waitFor(
-          () => scheduled().length === 1,
-          5_000,
-          'scheduled request acceptance'
-        );
+        try {
+          await fixture.waitFor(
+            () => scheduled().length === 1,
+            5_000,
+            'scheduled request acceptance'
+          );
+        } catch (error) {
+          const failedAtMs = Date.now();
+          // Capture the private clock and durable request evidence before fixture cleanup.
+          const read = (file: string) => {
+            try {
+              return fs.readFileSync(file, 'utf8');
+            } catch (readError) {
+              return `unavailable: ${String(readError)}`;
+            }
+          };
+          let attempts: unknown;
+          try {
+            attempts = scheduled();
+          } catch (readError) {
+            attempts = `unavailable: ${String(readError)}`;
+          }
+          let jobs: unknown;
+          try {
+            jobs = await fixture.runJsonCli(['orch', 'job', 'ls']);
+          } catch (readError) {
+            jobs = `unavailable: ${String(readError)}`;
+          }
+          throw new Error(
+            `Scheduled-slot evidence: ${JSON.stringify({
+              jobAddStartedAtMs,
+              jobAddCompletedAtMs,
+              failedAtMs,
+              added,
+              attempts,
+              jobs,
+              lease: read(leasePath),
+              clockStdout: read(clock.outputPath),
+              clockStderr: read(clock.errorPath),
+              clockExit: read(clock.exitPath),
+            })}`,
+            { cause: error }
+          );
+        }
         const request = scheduled()[0]!;
         expect(request).toMatchObject({
           recipient_identity_id: owner,

@@ -71,21 +71,25 @@ it.each(['claude', 'codex'] as const)(
         });
         const scenario = path.join(fixture.root, 'reminder-scenario.json');
         const report = path.join(fixture.root, 'reminder-report.json');
+        const trace = path.join(fixture.root, 'reminder-trace.jsonl');
         fs.writeFileSync(
           scenario,
-          JSON.stringify([
-            { args: ['name', 'Reminder Lead', '-s', '--json'] },
-            hook('SessionStart'), // No extension consent yet.
-            hook('Stop'),
-            { args: ['extension', 'hooks', 'enable', 'ops', '--json'] },
-            hook('UserPromptSubmit'),
-            hook('UserPromptSubmit'), // The generation was already claimed.
-            hook('Stop'),
-          ])
+          JSON.stringify(
+            [
+              { args: ['name', 'Reminder Lead', '-s', '--json'] },
+              hook('SessionStart'), // No extension consent yet.
+              hook('Stop'),
+              { args: ['extension', 'hooks', 'enable', 'ops', '--json'] },
+              hook('UserPromptSubmit'),
+              hook('UserPromptSubmit'), // The generation was already claimed.
+              hook('Stop'),
+            ].map((step) => ({ ...step, measure: true }))
+          )
         );
         const command = [
           'env',
           `TMT_HOME=${fixture.globalDir}`,
+          `TMT_TEST_HOOK_TRACE=${trace}`,
           `PATH=${fixture.wrapperDir}:${process.env.PATH ?? ''}`,
           provider === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
           fixture.executables.cli.executable,
@@ -97,24 +101,45 @@ it.each(['claude', 'codex'] as const)(
         const pane = fixture.createShellPane('squad-reminder').pane;
         fixture.tmux(['send-keys', '-t', pane, '-l', command]);
         fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-        await fixture.waitFor(() => fs.existsSync(report), 15_000, 'mock-agent reminder report');
-        const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
-          code: number;
-          stdout: string;
-          stderr: string;
-        }>;
-        expect(results).toHaveLength(7);
-        expect(results.every((result) => result.code === 0 && result.stderr === '')).toBe(true);
-        expect(JSON.parse(results[4].stdout)).toEqual({
-          hookSpecificOutput: {
-            hookEventName: 'UserPromptSubmit',
-            additionalContext:
-              'Extension ops (informational): "Squad product: stale lead notes. Review notes/task/state."\n',
-          },
-        });
-        for (const index of [2, 5, 6]) expect(results[index].stdout).toBe('');
-        expect(JSON.parse(fs.readFileSync(file, 'utf8')).notes.claimed).toBe(true);
-        expect(fs.readFileSync(notes.json!.path, 'utf8')).toBe('Observed lead plan');
+        try {
+          await fixture.waitFor(() => fs.existsSync(report), 15_000, 'mock-agent reminder report');
+          const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
+            code: number;
+            stdout: string;
+            stderr: string;
+            elapsedMs: number;
+          }>;
+          expect(results).toHaveLength(7);
+          expect(results.every((result) => result.code === 0 && result.stderr === '')).toBe(true);
+          expect(JSON.parse(results[4].stdout)).toEqual({
+            hookSpecificOutput: {
+              hookEventName: 'UserPromptSubmit',
+              additionalContext:
+                'Extension ops (informational): "Squad product: stale lead notes. Review notes/task/state."\n',
+            },
+          });
+          for (const index of [2, 5, 6]) expect(results[index].stdout).toBe('');
+          expect(JSON.parse(fs.readFileSync(file, 'utf8')).notes.claimed).toBe(true);
+          expect(fs.readFileSync(notes.json!.path, 'utf8')).toBe('Observed lead plan');
+        } catch (error) {
+          // The sandbox is removed during teardown, so retain synthetic hook evidence
+          // in the failure output without accepting a missing reminder as success.
+          const read = (file: string) => {
+            try {
+              return fs.readFileSync(file, 'utf8');
+            } catch (readError) {
+              return `unavailable: ${String(readError)}`;
+            }
+          };
+          throw new Error(
+            `Reminder evidence (${provider}): ${JSON.stringify({
+              report: read(report),
+              trace: read(trace),
+              cache: read(file),
+            })}`,
+            { cause: error }
+          );
+        }
       },
       { mode: 'input-log' }
     );
