@@ -338,7 +338,7 @@ Full scope calls `workspace-partitions.yml` under the workspace worker ID; Ops
 keeps Cargo/architecture verification. The producer retains independent Cargo/libtest
 discovery, separate doctests, dev build and selected native sync. Required `partitions`
 (K) admits 2 or 3. Each Ubuntu consumer admits producer source/run/toolchain/archive digest
-separately from execution attempt, proves its weighted binary selection and records actual PASS identities.
+separately from execution attempt, proves its slice and records actual PASS identities.
 The always-run collector rejects missing/skipped/failed/overlapping/foreign results
 before native aggregation; counts never replace exact non-ignored case coverage.
 
@@ -348,22 +348,13 @@ Consumers install pinned Rust for tests using Cargo metadata, pass real Cargo in
 writes caches. Phase evidence covers compile/list/archive/extract/execute; Actions
 steps retain setup/transfer/emulator/collection cost. Separate VMs own cleanup;
 local heavy proofs require Infra's run grant. All phases drain captured output
-before returning or throwing, keeping names/details/summary in job logs and phase artifacts. Identity failures name the partition, binary/case and terminal status; leaked handles remain rejected and are distinguished from missing completion evidence. `nextest list` (inventory, selection checks and downloaded-archive extraction/listing) has a 60 s command bound; compile/archive/execute retain 18 min. A timeout names the phase and bound while preserving its original cause/output and `timeoutMs`/`errorCode` phase evidence. It is not retried.
+before returning or throwing, keeping names/details/summary in job logs and phase artifacts. Identity failures name the partition, binary/case and terminal status; leaked handles remain rejected and are distinguished from missing completion evidence. `nextest list` (inventory, slice checks and downloaded-archive extraction/listing) has a 60 s command bound; compile/archive/execute retain 18 min. A timeout names the phase and bound while preserving its original cause/output and `timeoutMs`/`errorCode` phase evidence. It is not retried.
 
 Only a fully successful producer job and both uploads yield its receipt, binding
 original attempt, exact manifest bytes, archive hash/size and immutable inventory/
 closure IDs/digests. Schema 2 separates producer from actual execution attempt;
 result names contain both. Cargo-built runtime examples are archive inputs and
 consumers verify restored executable paths before testing.
-
-Whole binaries use the shared `splitWeightedFiles` largest-first/lightest-bucket
-allocator, selected by pinned nextest exact `binary_id` filtersets. The false
-`not test(/.*/)` arm retains full discovery for strict listing admission. Measured
-weights (`ceil(median summed PASS seconds + median max single-case seconds)`
-per binary) and their source cohort/date live in
-`typescript/scripts/workspace-shard-weights.json`; refit them during the weekly
-gate-time check (#3283). New binaries receive the stated default weight and still
-run; stale names are ignored. Neither changes exact identity-union coverage.
 
 `ci.yml` runs K=3 partitions (#3284). Recovery admits K=2 or 3; collection selects each partition's latest actual success
 within three attempts of one producer generation. Newer failed/cancelled/incomplete executions refuse,

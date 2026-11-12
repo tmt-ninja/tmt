@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { splitWeightedFiles } from './e2e-shards.mjs';
 import { spawnSync } from 'node:child_process';
 import {
   mkdirSync,
@@ -139,57 +138,17 @@ function admittedCases(cases) {
   return cases;
 }
 
-/** Measured case-seconds balance whole binaries; stale entries never select binaries. */
-export function loadWorkspaceWeights(
-  text = readFileSync(new URL('./workspace-shard-weights.json', import.meta.url), 'utf8')
-) {
-  const weights = JSON.parse(text);
-  const positive = (value) => Number.isFinite(value) && value > 0;
-  assert.ok(positive(weights.defaultSeconds), 'workspace default weight');
-  assert.ok(
-    weights.binaries && typeof weights.binaries === 'object' && !Array.isArray(weights.binaries),
-    'workspace binary weights'
-  );
-  assert.ok(Object.values(weights.binaries).every(positive), 'workspace binary weight');
-  return weights;
-}
-
-/** Deterministic whole-binary assignment, independent of discovery order. */
-export function partitionCases(cases, index, total, weights = loadWorkspaceWeights()) {
+/** Preserve pinned nextest suite/test order after independently admitting every identity. */
+export function partitionCases(cases, index, total) {
   admittedCases(cases);
   assert.ok(Number.isInteger(total) && total >= 2 && total <= 3, 'partition count');
   assert.ok(Number.isInteger(index) && index >= 1 && index <= total, 'partition index');
-  const active = cases.filter((test) => !test.ignored);
-  const binaries = [...new Set(active.map((test) => test.binary))];
-  const selected = new Set(
-    splitWeightedFiles(binaries, total, (binary) =>
-      Object.hasOwn(weights.binaries, binary) ? weights.binaries[binary] : weights.defaultSeconds
-    )[index - 1].files
-  );
-  return active.filter((test) => selected.has(test.binary));
+  return cases
+    .filter((test) => !test.ignored)
+    .filter((_, position) => position % total === index - 1);
 }
 
-/** Exact equality matchers, passed as argv (never shell text). */
-export function partitionFilterset(cases, index, total, weights = loadWorkspaceWeights()) {
-  const binaries = [
-    ...new Set(partitionCases(cases, index, total, weights).map((test) => test.binary)),
-  ].sort();
-  const literal = (text) =>
-    Array.from(text, (char) =>
-      /^[a-zA-Z0-9_:/.-]$/.test(char) ? char : `\\u{${char.codePointAt(0).toString(16)}}`
-    ).join('');
-  // nextest's documented false test predicate forces discovery even for excluded
-  // binaries, preserving admission of the complete inventory, including ignored cases.
-  // https://nexte.st/docs/filtersets/reference/#basic-predicates
-  const expression = [
-    ...binaries.map((binary) => `binary_id(=${literal(binary)})`),
-    'not test(/.*/)',
-  ].join(' | ');
-  assert.ok(Buffer.byteLength(expression) < 120_000, 'partition filterset byte bound');
-  return expression;
-}
-
-/** Prove the pinned nextest filterset selects exactly the pre-registered identities. */
+/** Prove the pinned nextest slice selects exactly the pre-registered identities. */
 export function admitPartition(cases, inventory, index, total) {
   const all = new Map(admittedCases(cases).map((test) => [key(test), test]));
   const selected = [];
@@ -207,18 +166,14 @@ export function admitPartition(cases, inventory, index, total) {
       } else
         assert.ok(
           match.status === 'mismatch' &&
-            (match.reason === 'expression' || (test.ignored && match.reason === 'ignored')),
+            (match.reason === 'partition' || (test.ignored && match.reason === 'ignored')),
           'unexpected partition filter'
         );
     }
   }
   assert.equal(all.size, 0, 'partition omitted inventory case');
   const expected = partitionCases(cases, index, total);
-  assert.deepEqual(
-    selected.map(key).sort(),
-    expected.map(key).sort(),
-    'weighted assignment differs'
-  );
+  assert.deepEqual(selected.map(key).sort(), expected.map(key).sort(), 'slice assignment differs');
   return expected;
 }
 
@@ -904,8 +859,8 @@ async function inventory(directory, total) {
         'list',
         '--locked',
         '--workspace',
-        '--filterset',
-        partitionFilterset(cases, index, total),
+        '--partition',
+        `slice:${index}/${total}`,
         '--message-format',
         'json',
       ])
@@ -997,8 +952,8 @@ async function consume(directory, index) {
       realpathSync('.'),
       '--message-format',
       'json',
-      '--filterset',
-      partitionFilterset(manifest.cases, index, manifest.partitions),
+      '--partition',
+      `slice:${index}/${manifest.partitions}`,
     ])
   );
   assert.equal(
@@ -1032,8 +987,8 @@ async function consume(directory, index) {
       '--no-fail-fast',
       '--test-threads',
       '4',
-      '--filterset',
-      partitionFilterset(manifest.cases, index, manifest.partitions),
+      '--partition',
+      `slice:${index}/${manifest.partitions}`,
     ],
     { isolated: true, base: consumerEnvironment(machine.cargo) }
   );
