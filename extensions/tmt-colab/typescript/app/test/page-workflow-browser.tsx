@@ -148,6 +148,15 @@ export function mountWorkflow(nextFault: 'none' | 'refused' | 'unknown') {
       async setPinned() {
         throw new Error('Unused');
       },
+      async newPage() {
+        throw new Error('Unused');
+      },
+      async setDefaultTemplate() {
+        throw new Error('Unused');
+      },
+      async readTemplates() {
+        throw new Error('Unused');
+      },
     } satisfies ManagementPort,
     async spaceHome() {
       if (holdRead)

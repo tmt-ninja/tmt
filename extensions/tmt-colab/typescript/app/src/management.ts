@@ -32,6 +32,7 @@ import {
   type Registration,
 } from './registration.js';
 import { storagePort, type StoragePort } from './storage-usage.js';
+import { readTemplates, type TemplateListing } from './templates.js';
 
 export interface Recipient {
   id: string;
@@ -112,6 +113,8 @@ export interface ManagementPort {
   /** One `template.default` (#5077): the serving machine's default template; `null` is `starter`.
    * Answers the name of the default now. */
   setDefaultTemplate(template: string | null): Promise<string>;
+  /** The owner's templates and the serving machine's default (`GET /api/templates`). */
+  readTemplates(signal?: AbortSignal): Promise<TemplateListing>;
 }
 /** A browser's new page: the template and nothing it brings. `operationId` names the page. */
 export interface NewPageRequest {
@@ -627,7 +630,7 @@ export class ManagementClient implements ManagementPort {
     const title = request.title.trim();
     requireValue(
       title.length > 0 &&
-        !/[\u0000-\u001f\u007f]/.test(title) &&
+        ![...title].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) &&
         request.template.length > 0 &&
         request.template.length <= 64,
     );
@@ -651,6 +654,9 @@ export class ManagementClient implements ManagementPort {
       throw new ManagementError('UNKNOWN');
     }
     return pageId;
+  }
+  readTemplates(signal?: AbortSignal): Promise<TemplateListing> {
+    return readTemplates(this.mount, signal);
   }
   async setDefaultTemplate(template: string | null): Promise<string> {
     requireValue(template === null || (template.length > 0 && template.length <= 64));
@@ -711,7 +717,7 @@ export class ManagementClient implements ManagementPort {
       }),
       expiresAt,
     );
-    if (v === null || typeof v !== 'object' || v.operationId !== id)
+    if (v === null || typeof v !== 'object' || (v as { operationId?: unknown }).operationId !== id)
       throw new ManagementError('UNKNOWN');
     return v as Record<string, any>;
   }

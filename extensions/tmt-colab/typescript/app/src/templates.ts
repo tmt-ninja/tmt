@@ -27,9 +27,12 @@ const LAYOUTS = ['column', 'full', 'canvas', 'freeform'];
 /** Refuses anything but the listing's exact shape. */
 export function validateListing(value: unknown): asserts value is TemplateListing {
   const listing = value as Record<string, unknown>;
-  exactKeys(listing, Object.hasOwn(listing ?? {}, 'defaultGone')
-    ? ['default', 'templates', 'defaultGone']
-    : ['default', 'templates']);
+  exactKeys(
+    listing,
+    Object.hasOwn(listing ?? {}, 'defaultGone')
+      ? ['default', 'templates', 'defaultGone']
+      : ['default', 'templates'],
+  );
   requireValue(typeof listing.default === 'string' && Array.isArray(listing.templates));
   if ('defaultGone' in listing) requireValue(typeof listing.defaultGone === 'string');
   let defaults = 0;
@@ -44,7 +47,7 @@ export function validateListing(value: unknown): asserts value is TemplateListin
         LAYOUTS.includes(entry.layout as string) &&
         typeof entry.summary === 'string' &&
         (entry.source === 'builtIn' || entry.source === 'space') &&
-        (entry.source === 'space') === typeof entry.id === 'string' &&
+        (entry.source === 'space') === (typeof entry.id === 'string') &&
         typeof entry.default === 'boolean' &&
         Number.isSafeInteger(entry.usedBy) &&
         (entry.usedBy as number) >= 0 &&

@@ -163,6 +163,20 @@ mod tests {
     }
 
     #[test]
+    fn a_new_page_is_named_by_its_operation_in_its_own_domain() {
+        let space = "s".repeat(43);
+        let op = "60000000-0000-4000-8000-000000000001";
+        // The browser derives the same ID (`newPageId` in the app's management client).
+        assert_eq!(
+            new_page_id(&space, op),
+            "0ac15bfb-9bf1-4385-990f-ab16d9fcaad7"
+        );
+        assert_ne!(new_page_id(&space, op), child_page_id(&space, op));
+        assert_ne!(new_page_id(&space, op), new_page_create_id(&space, op));
+        tmt_colab_model::values::generated_id(&new_page_id(&space, op)).unwrap();
+    }
+
+    #[test]
     fn the_first_text_is_the_escaped_title() {
         assert_eq!(
             child_source("A <b> & \"c\""),

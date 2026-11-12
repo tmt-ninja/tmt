@@ -95,6 +95,11 @@ export async function mountPageIndex(
       },
       manageProject: async () => {},
       setPinned: async () => {},
+      newPage: async () => {
+        throw new Error('not in this fixture');
+      },
+      setDefaultTemplate: async () => 'starter',
+      readTemplates: async () => ({ default: 'starter', templates: [] }),
       setProjects: async () => {
         throw new Error('No writes in index fixture');
       },

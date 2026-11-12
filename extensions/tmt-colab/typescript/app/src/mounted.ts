@@ -327,6 +327,18 @@ export async function mountedTransport(
       const client = managementClient;
       return managed(client, () => client.setPinned(pageId, pinned));
     },
+    newPage(request) {
+      const client = managementClient;
+      return managed(client, () => client.newPage(request));
+    },
+    setDefaultTemplate(template) {
+      const client = managementClient;
+      return managed(client, () => client.setDefaultTemplate(template));
+    },
+    readTemplates(signal) {
+      const client = managementClient;
+      return managed(client, () => client.readTemplates(scopedSignal(signal)));
+    },
   };
   clearRecovery(mount);
   const owner = {
