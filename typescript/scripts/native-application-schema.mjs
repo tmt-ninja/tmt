@@ -158,7 +158,9 @@ export function exportCompiledSchema(
       output = execute(
         path.resolve(executable),
         ['__native-schema', '--source-sha', snapshot.cut, '--json'],
-        { cwd, env, timeoutMs: 10_000 }
+        // The first run of an Intel binary under Rosetta translates it before it starts; ten
+        // seconds was not enough on a hosted runner (#6346). Same bound as the other cold proofs.
+        { cwd, env, timeoutMs: 60_000 }
       );
     } catch (error) {
       commandError = new Error(
