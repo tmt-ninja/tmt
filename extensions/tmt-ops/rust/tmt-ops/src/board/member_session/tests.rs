@@ -23,6 +23,25 @@ fn host_column_shows_observed_host_and_host_session() {
     );
 }
 
+#[test]
+fn host_column_marks_missing_host_and_session_without_guessing() {
+    let mut evidence = model::Evidence::default();
+    assert_eq!(evidence.compact(), "— · —");
+    evidence.host = Some("tmux".into());
+    assert_eq!(evidence.compact(), "tmux · —");
+    evidence.host = None;
+    evidence.host_session = Some("work".into());
+    assert_eq!(evidence.compact(), "— · work");
+    evidence.unbound = Some(true);
+    assert_eq!(
+        evidence.compact(),
+        format!(
+            "{} unbound · —",
+            tmt_cli_style::mark::Mark::Warning.symbol()
+        )
+    );
+}
+
 fn remembered() -> App {
     let mut app = board();
     app.references = Inventory::from_listed(&Ok(json!({"identities":[{
@@ -120,7 +139,14 @@ fn unbound_field_is_explicit_and_host_neutral_in_rows_and_dialog() {
             Some(json!("true")),
         ] {
             let unbound = value == Some(json!(true));
-            let expected = format!("{host} · work");
+            let expected = if unbound {
+                format!(
+                    "{} unbound · {host}",
+                    tmt_cli_style::mark::Mark::Warning.symbol()
+                )
+            } else {
+                format!("{host} · work")
+            };
             for scene in ["session-rows-tree"] {
                 let mut app = capture_case(scene, crate::look::Look::default());
                 binding_observation(&mut app, host, value.clone());
@@ -234,13 +260,20 @@ fn unbound_flag_changes_fence_copy_and_legacy_confirmations() {
 }
 
 #[test]
-fn host_column_clips_a_long_host_without_session_status() {
+fn host_column_keeps_unbound_mark_and_word_when_the_host_is_clipped() {
     for scene in ["session-rows-tree"] {
         let mut app = capture_case(scene, crate::look::Look::default());
         let host = "a-host-name-longer-than-the-session-track";
         binding_observation(&mut app, host, Some(json!(true)));
         let text = paint(&app, 160, 36);
-        assert!(!text.contains("! unbound"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "{} unbound",
+                tmt_cli_style::mark::Mark::Warning.symbol()
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("· work"), "{text}");
         assert!(
             !text.contains(host),
             "the host track clips the long host: {text}"
@@ -264,7 +297,15 @@ fn unbound_row_projection_refreshes_from_the_public_inventory() {
             app.apply(snapshot);
             let text = paint(&app, 160, 36);
             assert_eq!(app.member_session_evidence(MEMBER).is_unbound(), unbound);
-            assert!(text.contains("tmux · work"), "{scene}: {text}");
+            let expected = if unbound {
+                "unbound · tmux"
+            } else {
+                "tmux · work"
+            };
+            assert!(text.contains(expected), "{scene}: {text}");
+            if unbound {
+                assert!(!text.contains("tmux · work"), "{scene}: {text}");
+            }
         }
     }
 }
