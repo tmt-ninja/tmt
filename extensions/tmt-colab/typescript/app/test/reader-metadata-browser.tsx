@@ -167,6 +167,16 @@ export async function mount(nextRole: typeof role = 'editor') {
   controller = active;
   paint();
 }
+/** The page as a template with rule comments (#6333): a reader draws no rule tags. */
+export function template() {
+  view = {
+    ...view,
+    layout: 'column',
+    template: { name: 'weekly-plan', description: 'A plan' },
+    source: `<!-- rule: the title -->\n<h1>Editor metadata</h1>\n<!-- rule: one line -->\n<p>Shipped work.</p>`,
+  };
+  paint();
+}
 export function script(next: typeof mode) {
   mode = next;
 }

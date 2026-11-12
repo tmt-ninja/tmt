@@ -25,7 +25,8 @@ registered and open; do not register them again, and answer them as you would an
 
 To make a template of a page you wrote: `tmt colab template save PAGE --name NAME [--description
 TEXT]`. The name is 1 to 40 of `a-z`, `0-9` and `-`, not one of TMT's. Write rules as one HTML
-comment before each block, one line each. The page needs a layout and registered questions.
+comment before each block, one line each; the template page shows each above its block to its owner
+only. The page needs a layout and registered questions.
 `template default NAME|ID` and `--reset` choose what a bare HTML create copies; `template remove
 NAME|ID` only stops the page being a template. Errors name the fix (`hint:`).
 

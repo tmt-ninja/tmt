@@ -2307,6 +2307,12 @@ function OpenPage({
     if (state !== 'ready') return;
     renderer.current?.threadReferences([...admittedReferences]);
   }, [state, contentRevision, admittedReferences]);
+  // A template's rules show above its blocks only to someone who may edit the page (#6333).
+  const showRules = !!view.template && !!snapshot.binding?.canMetadata?.() && !archived;
+  useEffect(() => {
+    if (state !== 'ready') return;
+    renderer.current?.templateRules(showRules);
+  }, [state, contentRevision, showRules]);
   // A resolved thread leaves the marker set, but while its Discussion view is open the page keeps a
   // quiet mark on its passage, so the person can see and scroll to what it was about.
   const quietCandidate =

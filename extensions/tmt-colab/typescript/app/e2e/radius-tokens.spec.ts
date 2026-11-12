@@ -101,6 +101,6 @@ test('the group marker is a pill', async ({ page }) => {
     .frameLocator('#ask-page-fixture iframe')
     .locator('.annotation-number[data-colab-group]')
     .first();
-  await expect(group).toBeVisible();
-  expect((await radius(group))[0]).toBe('999px');
+  // One retried read: the frame redraws its markers on each resolve (#6356).
+  await expect(group).toHaveCSS('border-top-left-radius', '999px');
 });

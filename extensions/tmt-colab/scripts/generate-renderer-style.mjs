@@ -30,6 +30,10 @@ const variables = (theme) =>
         `--tmt-ui-${group}-${name}:${tokens.browser[group][name][theme].toLowerCase()};`,
     )
     .join('');
+// A template rule tag (#6333) takes the scheme the page paints, which the frame sets on the tag
+// (`data-scheme`), under its own names so a design system's working roles never recolour it.
+const ruleVariables = (theme) =>
+  `--colab-rule-surface:${tokens.browser.surface['working-soft'][theme].toLowerCase()};--colab-rule-ink:${tokens.browser.color.working[theme].toLowerCase()};`;
 const numberStyle = await readFile(
   new URL('../typescript/app/src/annotation-number.css', import.meta.url),
   'utf8',
@@ -37,7 +41,7 @@ const numberStyle = await readFile(
 const referenceStyle = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.css', import.meta.url), 'utf8');
 // Fallback annotation roles follow the painted scheme. They sit below page design-system tokens,
 // so a pinned system can supply its own roles while ordinary pages retain these defaults.
-const css = `@layer colab-frame{:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}${referenceStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+const css = `@layer colab-frame{:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}[data-colab-rule]{${ruleVariables('light')}}[data-colab-rule][data-scheme="dark"]{${ruleVariables('dark')}}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}${referenceStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
 const referenceComponent = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.js', import.meta.url), 'utf8');
 const frameStyle = (
   await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')

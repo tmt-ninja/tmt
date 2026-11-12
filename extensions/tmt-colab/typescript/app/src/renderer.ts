@@ -308,6 +308,9 @@ export async function mountRenderer(
    * false when none or several match, undefined when the render ended or never answered. */
   reveal(id: string): Promise<boolean | undefined>;
   selectionMode(enabled: boolean): void;
+  /** Show each template rule above its block (#6333): for someone who may edit a template page.
+   * Cosmetic; the frame reads the rules from the source it holds. */
+  templateRules(show: boolean): void;
   images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
@@ -1765,6 +1768,14 @@ export async function mountRenderer(
       enabled,
     });
   };
+  const templateRules = (show: boolean) => {
+    if (stopped || !ready) return;
+    channel.port1.postMessage({
+      type: 'colab.render.template-rules',
+      renderId: snapshot.renderId,
+      show,
+    });
+  };
   const update = async (source: string): Promise<SourceUpdate> => {
     if (stopped) return 'superseded';
     if (!ready) return 'remount';
@@ -1906,6 +1917,7 @@ export async function mountRenderer(
         else readyWaiters.push(send);
       }),
     selectionMode,
+    templateRules,
     images,
     anchorRectangle,
     release,

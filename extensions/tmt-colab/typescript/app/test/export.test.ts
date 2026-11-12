@@ -256,6 +256,22 @@ it('adds the standalone copy of a page that opts in, byte for byte like native, 
   ]);
 });
 
+it('exports a template page with its rule comments as written and no rule tag (#6333)', async () => {
+  // Rule tags are the frame's, drawn for the owner only: the export carries the source's comments
+  // and nothing the frame draws, in page.html and in the standalone copy.
+  const source = `<!-- rule: one row per merged item -->\n${fixture.standalone.source}`;
+  const bundle = await prepareExport({
+    ...input(),
+    source,
+    standalone: { runtime: fixture.standalone.runtime },
+  });
+  expect(await bytes(bundle.blob('page.html'))).toEqual(utf8(source));
+  const copy = new TextDecoder().decode(await bytes(bundle.blob('page.standalone.html')));
+  expect(copy).toContain('<!-- rule: one row per merged item -->');
+  expect(copy).not.toContain('data-colab-rule');
+  expect(copy).not.toContain('rule 1 ·');
+});
+
 it('adds the standalone copy of a design-system page, and of one that also asks for the runtime, byte for byte like native', async () => {
   for (const vector of [fixture.standaloneDesign, fixture.standaloneBoth]) {
     expect(usesDesign(vector.source)).toBe(true);

@@ -464,6 +464,15 @@ mod tests {
     }
 
     #[test]
+    fn a_template_pages_rule_comments_are_source_the_check_passes() {
+        // The owner's rule tags (#6333) are drawn by the frame and never written, so the check
+        // sees only the comments, which are no finding.
+        let source = "<!-- rule: one row per merged item -->\n<p>Shipped work.</p>\n<!-- end -->";
+        let report = check(source).unwrap();
+        assert!(report.findings.is_empty(), "{:?}", report.findings);
+    }
+
+    #[test]
     fn a_source_over_the_page_cap_is_refused_before_parsing() {
         let source = " ".repeat(BASELINE_BYTES + 1);
         assert_eq!(check(&source), Err(SourceTooLarge));
