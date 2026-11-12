@@ -56,6 +56,15 @@ fn step_phrase(kind: &StepKind, ordinal: usize, total: usize) -> String {
         },
         StepKind::OwnerAccess => "Register this machine as owner",
         StepKind::Rules => "Setting up security rules…",
+        StepKind::Storage(kind) => match kind {
+            crate::deploy_run::StorageStep::Eligibility => "Checking paid Storage eligibility…",
+            crate::deploy_run::StorageStep::Bucket => {
+                "Provisioning or re-linking the default Storage bucket…"
+            }
+            crate::deploy_run::StorageStep::Ruleset | crate::deploy_run::StorageStep::Release => {
+                "Publishing deny-all Storage policy…"
+            }
+        },
         StepKind::Verify => "Checking the finished setup…",
     }
     .into()

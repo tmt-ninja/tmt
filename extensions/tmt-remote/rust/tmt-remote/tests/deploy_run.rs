@@ -1150,6 +1150,7 @@ fn machine_owner_registration_is_digest_bound_before_rules_and_after_setup() {
 
 struct HostedFake {
     inner: Fake,
+    storage: Option<tmt_remote::deploy_storage::StorageCheckpoint>,
     checkpoint: Option<tmt_remote::deploy_run::HostingCheckpoint>,
     publish: bool,
     cause: Option<tmt_remote::deploy_run::StepCause>,
@@ -1159,6 +1160,7 @@ impl HostedFake {
     fn new() -> Self {
         Self {
             inner: Fake::new(ACCOUNT),
+            storage: None,
             checkpoint: None,
             publish: true,
             cause: None,
@@ -1167,6 +1169,12 @@ impl HostedFake {
     }
 }
 impl tmt_remote::deploy_run::DeployPort for HostedFake {
+    fn restore_storage(&mut self, checkpoint: &tmt_remote::deploy_storage::StorageCheckpoint) {
+        self.storage = Some(checkpoint.clone());
+    }
+    fn storage_checkpoint(&self) -> Option<tmt_remote::deploy_storage::StorageCheckpoint> {
+        self.storage.clone()
+    }
     fn supports_hosting(&self) -> bool {
         true
     }
@@ -1189,7 +1197,21 @@ impl tmt_remote::deploy_run::DeployPort for HostedFake {
         s: &tmt_remote::deploy_run::DeployStep,
     ) -> Result<tmt_remote::deploy_run::DeployObserved, DeployProviderError> {
         use tmt_remote::deploy_run::{DeployObserved, StepKind};
+        if s.kind == StepKind::Storage(tmt_remote::deploy_run::StorageStep::Eligibility) {
+            self.inner.present.insert(s.id.clone());
+        }
         let result = tmt_remote::deploy_run::DeployPort::observe(&mut self.inner, p, s)?;
+        if let Some(storage) = &mut self.storage {
+            if self.inner.present.contains("storage:bucket") {
+                storage.metadata_digest = Some(sha256(b"synthetic Storage read-back"));
+            }
+            if self.inner.present.contains("storage:ruleset") {
+                storage.ruleset = Some(format!("projects/{PROJECT}/rulesets/synthetic-storage"));
+            }
+            if s.kind == StepKind::Verify {
+                storage.verified = result == DeployObserved::Satisfied && self.publish;
+            }
+        }
         if s.kind == StepKind::Verify && result == DeployObserved::Satisfied && self.publish {
             // Fixed provider-verification fixture, not a production publication source.
             let cp = self.checkpoint.as_mut().unwrap();
@@ -2821,4 +2843,94 @@ fn notification_reaches_the_display_before_a_provider_read_blocks() {
         worker.join().unwrap().run.unwrap().state,
         RunState::Complete
     );
+}
+
+#[test]
+fn paid_publication_preserves_the_storage_free_pairing_link_and_declares_only_verified_configuration()
+ {
+    use tmt_remote::{deploy_storage, remote_link};
+    let spark = hosted_plan();
+    let original = run(
+        &spark,
+        &authorized(&spark),
+        DeployRecord::new(DEPLOYMENT),
+        &mut HostedFake::new(),
+        &mut Mem::default(),
+        1,
+    )
+    .unwrap();
+    let original_output = remote_link::publication(&original).unwrap();
+    assert_eq!(original_output.as_object().unwrap().len(), 2);
+    assert!(original_output.get("storage").is_none());
+    let storage = deploy_storage::StoragePlan {
+        disclosure_version: 1,
+        intent: deploy_storage::StorageIntent {
+            bucket: "default".into(),
+            location: Some("us-east1".into()),
+        },
+        bucket: "fake-storage-fixture.invalid".into(),
+        location: "us-east1".into(),
+        billing_fingerprint: "b".repeat(64),
+        metadata_digest: sha256(b"null"),
+        bucket_metadata: serde_json::Value::Null,
+        bucket_was_present: false,
+        policy: deploy_storage::DENY_ALL_POLICY.into(),
+        policy_digest: sha256(deploy_storage::DENY_ALL_POLICY.as_bytes()),
+        replaced_policy_digest: None,
+    };
+    let paid = spark.with_storage(storage).unwrap();
+    let complete = run(
+        &paid,
+        &authorized(&paid).with_paid_storage(true),
+        DeployRecord::new(DEPLOYMENT),
+        &mut HostedFake::new(),
+        &mut Mem::default(),
+        2,
+    )
+    .unwrap();
+    assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+    let output = remote_link::publication(&complete).unwrap();
+    // Same serialized link bytes; the unchanged pre-PR strict verifier still admits them.
+    assert_eq!(output["remoteLink"], original_output["remoteLink"]);
+    let link = output["remoteLink"].as_str().unwrap();
+    remote_link::validate(link).unwrap();
+    assert_eq!(
+        output["storage"],
+        serde_json::json!({"version":1,"bucket":"fake-storage-fixture.invalid","location":"us-east1"})
+    );
+    assert_eq!(output.as_object().unwrap().len(), 3);
+    assert_eq!(
+        remote_link::public_config(link)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert!(remote_link::matches_record(link, &complete));
+    let mut disabled = complete.clone();
+    disabled.run.as_mut().unwrap().storage = None;
+    assert_eq!(
+        remote_link::publication(&disabled).unwrap(),
+        original_output
+    );
+    let mut unverified = complete.clone();
+    unverified
+        .run
+        .as_mut()
+        .unwrap()
+        .storage
+        .as_mut()
+        .unwrap()
+        .verified = false;
+    assert!(
+        remote_link::publication(&unverified)
+            .unwrap()
+            .get("storage")
+            .is_none()
+    );
+    let mut partial = complete;
+    partial.run.as_mut().unwrap().state = RunState::Partial;
+    assert!(remote_link::publication(&partial).is_err());
+    assert!(partial.verified_storage().is_none());
 }

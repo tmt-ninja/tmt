@@ -100,6 +100,49 @@ const MANIFEST: &[InputSpec] = &[
         permissions: SIGN_IN,
     },
 ];
+const STORAGE: &[InputSpec] = &[
+    InputSpec {
+        input: "storage",
+        flag: "storage",
+        kind: InputKind::SelectExisting,
+        default: DefaultChoice::MustProvide,
+        creates: None,
+        cost: "Explicit blaze opt-in: pay as you go; no zero-cost or spend-cap guarantee",
+        permissions: &["resourcemanager.projects.get"],
+    },
+    InputSpec {
+        input: "bucket",
+        flag: "bucket",
+        kind: InputKind::CreateOrAdopt,
+        default: DefaultChoice::MustProvide,
+        creates: Some("the Firebase default bucket, or its re-link, only when default is explicit"),
+        cost: "Existing Firebase-linked bucket or default; paid Storage pricing: https://cloud.google.com/storage/pricing",
+        permissions: &["firebasestorage.buckets.get", "storage.buckets.get"],
+    },
+    InputSpec {
+        input: "bucket-location",
+        flag: "bucket-location",
+        kind: InputKind::SelectExisting,
+        default: DefaultChoice::MustProvide,
+        creates: None,
+        cost: "Permanent Storage location; never inferred from --region",
+        permissions: &[],
+    },
+];
+pub fn registration_manifest() -> Vec<InputSpec> {
+    MANIFEST.iter().chain(STORAGE).copied().collect()
+}
+fn selected_manifest(enabled: bool, default_bucket: bool) -> Vec<InputSpec> {
+    MANIFEST
+        .iter()
+        .chain(
+            STORAGE
+                .iter()
+                .filter(|s| enabled && (s.input != "bucket-location" || default_bucket)),
+        )
+        .copied()
+        .collect()
+}
 pub fn manifest() -> &'static [InputSpec] {
     MANIFEST
 }
@@ -148,6 +191,48 @@ pub fn permission_requirements(
     requirements
 }
 
+/// Conditional paid requirements come from the same input metadata; no disabled probes.
+pub fn include_storage(
+    requirements: &mut Vec<PermissionRequirement>,
+    enabled: bool,
+    default_bucket: bool,
+) {
+    if !enabled {
+        return;
+    }
+    for spec in STORAGE {
+        for &permission in spec.permissions {
+            let requirement = PermissionRequirement {
+                permission,
+                step: "storage:preflight",
+            };
+            if !requirements.contains(&requirement) {
+                requirements.push(requirement);
+            }
+        }
+    }
+    for &permission in RULES.iter().chain(if default_bucket {
+        &["firebasestorage.defaultBucket.create"][..]
+    } else {
+        &[]
+    }) {
+        let requirement = PermissionRequirement {
+            permission,
+            step: if permission == "firebasestorage.defaultBucket.create" {
+                "storage:bucket"
+            } else if permission == "firebaserules.rulesets.create" {
+                "storage:ruleset"
+            } else if permission.ends_with(".create") || permission.ends_with(".update") {
+                "storage:release"
+            } else {
+                "storage:preflight"
+            },
+        };
+        if !requirements.contains(&requirement) {
+            requirements.push(requirement);
+        }
+    }
+}
 pub fn supplied(args: &FirestoreArgs) -> Values {
     let mut values = Values::new();
     for (name, value) in [
@@ -159,6 +244,15 @@ pub fn supplied(args: &FirestoreArgs) -> Values {
     ] {
         if let Some(value) = value.filter(|value| !value.is_empty()) {
             values.insert(name.into(), value.into());
+        }
+    }
+    for (name, value) in [
+        ("storage", &args.storage),
+        ("bucket", &args.bucket),
+        ("bucket-location", &args.bucket_location),
+    ] {
+        if let Some(value) = value {
+            values.insert(name.into(), value.clone());
         }
     }
     if !args.sign_in.is_empty() {
@@ -192,6 +286,34 @@ fn invalid(flag: &str, message: &str) -> DeployCliError {
     ))
 }
 pub fn validate_supplied(args: &FirestoreArgs) -> Result<(), DeployCliError> {
+    if args.storage.as_deref().is_some_and(|v| v != "blaze") {
+        return Err(invalid("--storage", "only explicit blaze is supported."));
+    }
+    if args.storage.is_none()
+        && (args.bucket.is_some() || args.bucket_location.is_some() || args.accept_paid_storage)
+    {
+        return Err(invalid(
+            "--storage",
+            "explicit --storage blaze is required for paid Storage inputs or consent.",
+        ));
+    }
+    if args
+        .bucket
+        .as_deref()
+        .is_some_and(|b| b != "default" && !crate::deploy_storage::bucket_ok(b))
+    {
+        return Err(invalid(
+            "--bucket",
+            "use default or a valid existing Firebase-linked bucket name.",
+        ));
+    }
+    if args
+        .bucket_location
+        .as_deref()
+        .is_some_and(|l| !crate::deploy_storage::location_ok(l))
+    {
+        return Err(invalid("--bucket-location", "invalid Storage location."));
+    }
     for (name, value) in supplied(args) {
         if value.contains('<') || value.contains('>') {
             return Err(invalid(
@@ -277,7 +399,7 @@ pub fn record_values(record: &DeployRecord, project: &str, region: Option<&str>)
     values
 }
 pub fn resource_values(inputs: &ResourceInputs) -> Values {
-    [
+    let mut values: Values = [
         ("project", inputs.project.clone()),
         ("region", inputs.region.clone()),
         ("database", inputs.database.clone()),
@@ -287,7 +409,15 @@ pub fn resource_values(inputs: &ResourceInputs) -> Values {
     ]
     .into_iter()
     .map(|(name, value)| (name.into(), value))
-    .collect()
+    .collect();
+    if let Some(storage) = &inputs.storage {
+        values.insert("storage".into(), "blaze".into());
+        values.insert("bucket".into(), storage.bucket.clone());
+        if let Some(location) = &storage.location {
+            values.insert("bucket-location".into(), location.clone());
+        }
+    }
+    values
 }
 pub fn resolve(
     args: &FirestoreArgs,
@@ -299,7 +429,13 @@ pub fn resolve(
     if let Some(project) = project {
         given.insert("project".into(), project.into());
     }
-    let selected = deploy_input::select(MANIFEST, &given, recorded, args.defaults).map_err(
+    let enabled = args.storage.is_some() || recorded.get("storage").is_some();
+    let default_bucket = given
+        .get("bucket")
+        .or_else(|| recorded.get("bucket"))
+        .is_none_or(|b| b == "default");
+    let manifest = selected_manifest(enabled, default_bucket);
+    let selected = deploy_input::select(&manifest, &given, recorded, args.defaults).map_err(
         |error| match error {
             InputError::Required(mut required) => {
                 required.permissions.clear();
@@ -308,7 +444,7 @@ pub fn resolve(
                         required.permissions.push(requirement.permission);
                     }
                 }
-                let hint = deploy_input::defaults_hint("firestore", MANIFEST, &given, &required);
+                let hint = deploy_input::defaults_hint("firestore", &manifest, &given, &required);
                 DeployCliError::Local(RemoteError::deploy_inputs(required, &hint))
             }
             InputError::RecordedConflict { flag, .. } => DeployCliError::Local(RemoteError::new(
@@ -346,6 +482,13 @@ pub fn resolve(
         web_app: values["web-app"].clone(),
         site: values["site"].clone(),
         sign_in,
+        storage: enabled.then(|| crate::deploy_storage::StorageIntent {
+            bucket: values["bucket"].clone(),
+            location: args
+                .bucket_location
+                .clone()
+                .or_else(|| recorded.get("bucket-location").cloned()),
+        }),
     };
     if !inputs.valid() {
         return Err(invalid("deployment inputs", "invalid resource selection."));

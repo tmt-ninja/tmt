@@ -41,6 +41,9 @@ impl RemoteError {
                 value["error"]["permissions"] = serde_json::json!(required.permissions);
                 value["error"]["creates"] = serde_json::json!(required.creates);
             }
+            Some(ErrorDetail::DeployPreview(preview)) => {
+                value["error"]["preview"] = preview.clone();
+            }
             Some(ErrorDetail::DeployProvider(provider)) => {
                 value["error"]["provider"] = serde_json::json!(provider)
             }
@@ -87,9 +90,21 @@ impl RemoteError {
         error.detail = Some(Box::new(ErrorDetail::DeployInputs(required)));
         error
     }
+    pub(crate) fn paid_storage_required(preview: serde_json::Value, guidance: &str) -> Self {
+        let mut error = Self::new(
+            "REMOTE_DEPLOY_PAID_STORAGE_CONSENT_REQUIRED",
+            "Paid Storage requires human consent to the displayed plan.",
+        )
+        .with_hint(guidance);
+        error.detail = Some(Box::new(ErrorDetail::DeployPreview(preview)));
+        error
+    }
     /// The one-string `message` of JSON output, which has no hint field.
     pub fn json_message(&self) -> String {
-        if matches!(self.detail.as_deref(), Some(ErrorDetail::DeployInputs(_))) {
+        if matches!(
+            self.detail.as_deref(),
+            Some(ErrorDetail::DeployInputs(_) | ErrorDetail::DeployPreview(_))
+        ) {
             return self.message.clone();
         }
         match &self.hint {
@@ -123,6 +138,9 @@ pub enum DeployOperation {
     Indexes,
     RulesRelease,
     RulesSet,
+    StorageBilling,
+    StorageLink,
+    StorageMetadata,
     WebApps,
     WebAppConfig,
     WebAppOperation,
@@ -157,6 +175,9 @@ impl DeployOperation {
             Self::Fields => "Firestore field configurations",
             Self::Indexes => "Firestore composite indexes",
             Self::RulesRelease => "the Rules release",
+            Self::StorageBilling => "Storage billing eligibility",
+            Self::StorageLink => "Storage bucket linkage",
+            Self::StorageMetadata => "Storage bucket metadata",
             Self::RulesSet => "the Rules source",
             Self::WebApps => "web apps",
             Self::WebAppConfig => "web app configuration",
@@ -213,6 +234,7 @@ pub struct CloudProviderDiagnostic {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ErrorDetail {
+    DeployPreview(serde_json::Value),
     DeployInputs(crate::deploy_input::RequiredInputs),
     OwnedRead(OwnedReadFailure),
     DeployProvider(DeployProviderDiagnostic),

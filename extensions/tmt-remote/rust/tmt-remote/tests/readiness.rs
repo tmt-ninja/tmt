@@ -470,6 +470,7 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_billing_and_usage() {
     let mut record = DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11");
     assert_eq!(tmt_remote::readiness::from_record(&record), None);
     record.run = Some(Run {
+        storage: None,
         plan_digest: "a".repeat(64),
         account: "owner@example.test".into(),
         authorized_at_ms: 1,
@@ -653,6 +654,7 @@ fn index_record(
             completed_at_ms: 1,
         }),
         run: Some(Run {
+            storage: None,
             plan_digest: digest,
             account: "owner@example.test".into(),
             authorized_at_ms: 1,

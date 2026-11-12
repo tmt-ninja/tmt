@@ -104,7 +104,7 @@ unsafe, missing or unavailable Colab sockets give the generic refusal page with 
 mount status, independent of ID existence. The cookie remains scoped to `Path=/r/<prefix>/x/`;
 ordinary mounted APIs/assets/WebSockets and anonymous admission are unchanged. Adding a route
 or extension to the static Remote-owned table requires a contract change; extensions cannot
-register root entries. Colab owns short-ID resolution and the browser's eventual app URL.
+register entries in that static table; declared `rootAppFamily` navigation is separate. Colab owns short-ID resolution and the browser's eventual app URL.
 
 ### Public browser routes
 
@@ -2157,7 +2157,8 @@ whole answer. Its fields are:
   primary-only answer, so older Remote versions continue to admit it. Older
   extensions may ignore the header and return their unchanged primary-only answer.
   This compatibility promise covers primary-only descriptions. An older Remote rejects
-  an extra carrying `rootAppFamily`; these module descriptions require Remote with
+  the whole description (including its primary rail) when an extra carries
+  `rootAppFamily`; these module descriptions require Remote with
   root-family support. No new feature token or compatibility mapping is used.
 - Optional `entry`: the path of the module's web app script, ending in `.js`. An entry that is not
   a valid path or not a script is dropped and the rest of the description stands; the app then
@@ -2178,7 +2179,8 @@ none receives that root: their extra navigation stays mounted and the composed c
 is omitted. An admitted extra's rail, menu or settings path in its own family resolves
 at the door root, with the suffix grammar and bound above. Other navigation stays
 mounted. Every script `entry` remains inside the same extension's primary mount;
-this exception grants no script, session or content authority.
+this exception grants no script, session or content authority. Fixed door routes always
+take precedence over a declared family, including routes added later.
 
 Root-page admission and `/sdk/mount` derive ownership from the same bounded local
 describe snapshot, cache age and socket-incarnation fence as composition, with no
@@ -3687,13 +3689,17 @@ An authorized Complete prints the derived link; `tmt remote link [--json]` deriv
 from one bounded lock-free owner-home snapshot, without provider calls, deploying, opening a
 browser, converting or repairing state. No record, partial/unknown or unverified publication is
 `REMOTE_LINK_UNAVAILABLE`; unsafe records retain the existing state refusal. JSON is
-`{version:1,remoteLink:<URL>}`. The link can be shared again and grants no access.
+`{version:1,remoteLink:<URL>}` with optional verified sibling `storage:{version:1,bucket,location}`
+only for a Complete paid Storage deployment. The field is absent for disabled or Partial runs.
+The link can be shared again and grants no access.
 
 The receiver is exactly `https://<site>.web.app/pair#<descriptor>`, derived from the jointly
 verified publication. The project-default site uses the public config's project ID. The complete URL is bounded to 8 KiB. The fragment is unpadded base64url
 of canonical UTF-8 JSON, with recursively sorted object keys and exactly `version:1`,
 `kind:"firestore"`, `publicWebConfig`, and `checksum`, plus optional `hostingSite` for a
-non-default site. The optional field is covered by the checksum, is a lowercase Hosting
+non-default site. Storage never changes these descriptor or link bytes, including on paid
+deployments, so existing strict pairing verifiers remain compatible. The optional field is
+covered by the checksum, is a lowercase Hosting
 site ID of at most 30 characters, and must differ from `projectId`; it is omitted for
 default-site links so their existing bytes remain identical. Public config has exactly `apiKey`,
 `authDomain`, `projectId`, `appId`; strings are printable ASCII, with consistent same-project
@@ -4189,6 +4195,71 @@ deployment ID, region, enabled extensions and declaration digests, resources, ro
 Rules/Worker changes, quotas/expiry/index policy and destructive changes. The owner explicitly
 authorizes that plan for that target account at deploy time. Existing pairing, start, account login
 or extension installation is not authorization to create or change real account resources.
+
+#### Optional paid Storage
+
+Storage is disabled unless the Firestore deployment explicitly selects `--storage blaze`.
+The conditional manifest adds `--bucket` and `--bucket-location`; `--defaults` alone makes
+zero Storage calls and retains the existing Spark input, plan and output bytes. Default-bucket
+intent is `--bucket default` with an explicit permanent location, independent of Firestore's
+region. A named bucket must already exist and be Firebase-linked to the same project; its
+observed location is frozen, and an explicitly supplied location must match. Additional new
+buckets and automatic linking of arbitrary named buckets are outside this version.
+
+Read-only Cloud Billing `projects.getBillingInfo` must prove both enabled billing and a
+nonempty billing association. A denied, failed or malformed read is unknown, distinct from
+proven disabled billing. TMT never changes billing, upgrades a plan, grants roles or sets a
+budget. Blaze applies to the entire project. Storage, operations, downloads/network and
+retention/soft-delete may incur charges; no-cost eligibility is conditional, not a zero-cost
+guarantee, and budget alerts are not spending caps. The paid preview includes this disclosure
+and the provider pricing link.
+
+The single deployment digest covers Storage intent, resolved bucket and permanent location,
+disclosure version, the private billing fingerprint, captured bucket metadata, exact Remote-owned
+v1 deny-all policy bytes and the observed replaced-policy digest. The existing account and
+foreign-policy replacement fences apply. Replacing the policy **blocks all current object access**
+on the exact bucket. V1 is deny-all configuration only; object-access Rules belong to a future,
+separately designed adapter. There is no object grant or new extension object adapter here.
+
+Paid consent is separate from ordinary exact-plan authorization: an interactive human answers
+the paid question first, then the ordinary deployment question; no or EOF at either causes no
+mutations. Human non-interactive authorization requires `--accept-paid-storage` plus the existing
+`--authorize <single-plan-digest-prefix>`. No second digest or authorization flag is introduced.
+Identified agents always receive a preview and `REMOTE_DEPLOY_PAID_STORAGE_CONSENT_REQUIRED`,
+including when supplying these flags. `TMT_AGENT` identification is a courtesy boundary, not
+authentication. The standard error envelope carries that preview at
+`error.preview`; it is not permission for the agent to execute the printed human command.
+Only the same unfinished authorized plan can reuse its consent; completed consent is not evergreen.
+Changed inputs, account, billing or captured evidence require refusal or a newly reviewed plan.
+
+Default-bucket provisioning uses the provider's defaultBucket create operation, which can also
+relink an existing default bucket; existence alone is not ownership evidence. Bucket identity,
+project link, location and relevant class/retention metadata are checked before effects and
+on resume. Every bucket, Ruleset and bucket-specific Rules release mutation has its intent
+journaled before the call through the existing run/record owner. Unknown outcomes remain
+Partial and resolve only by observing the exact original resources; absence never authorizes
+a second POST, another bucket or discarding the ambiguous run under a new plan. There is no
+parallel journal, billing mutation, automatic rollback or deletion.
+
+Storage reuses the authored `firebaserules.*` publisher with operation attribution. Its release
+is keyed to the exact bucket. Final joint read-back must confirm the bucket/link/location,
+metadata and exact deny-all policy bytes together with the ordinary deployment verification.
+Only a Complete verified run may publish optional `storage:{version:1,bucket,location}` beside
+`remoteLink` in `tmt remote link --json` and the authorized deploy JSON output. Colab reads
+this sibling declaration from that existing output, not from the pairing URL. Disabled,
+Partial, unknown or mismatched runs publish no Storage capability. A consumer that reads an
+unsupported `storage.version` or an unknown field in `storage` treats Storage as unavailable;
+`remoteLink` and the rest of the output stay usable.
+
+The admitted syntax matches `deploy_storage::bucket_ok` and `location_ok`: `bucket` is
+3–222 ASCII bytes from `[a-z0-9._-]`, begins and ends with `[a-z0-9]`, and contains neither
+`..` nor the substring `google`. It must not consist entirely of dot-separated decimal
+components that each parse as an unsigned byte (0–255), including a single component.
+`location` matches `[a-z0-9-]{1,64}` (1–64 ASCII bytes). The capability is public
+configuration, not object access, billing evidence or membership authority;
+private billing account names and fingerprints never enter it. Browsers paired only by link
+do not receive Storage in v1. A later link-format change requires its own version-skew design.
+Colab consumption is separate.
 
 #### Deployment input manifest
 

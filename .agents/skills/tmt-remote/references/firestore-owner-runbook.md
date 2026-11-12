@@ -13,8 +13,8 @@ defines explicit resource selection and `--defaults`. Supply every input explici
 use `--defaults` for omitted choices. Missing inputs refuse before login; replace any
 `<...>` placeholders in the printed command before rerunning.
 
-Choose an existing Firebase project on the free Spark plan. TMT does not create the project
-or set up paid features. Choose the database region carefully: an existing database's
+Choose an existing Firebase project. The default deployment needs no paid Storage and makes
+no Storage calls. TMT does not create the project or change its billing plan. Choose the database region carefully: an existing database's
 location cannot change, and an authorized deployment keeps its recorded region.
 
 Install Node.js and the supported Firebase CLI, then sign in with your own owner account:
@@ -32,6 +32,37 @@ For hosted Google sign-in, select the existing project-default site with
 because this version does not authorize that site's OAuth domain. Anonymous sign-in
 works with the dedicated-site default.
 Signing in to the CLI, pairing a browser or installing an extension never authorizes deployment.
+
+### Optional paid Storage
+
+Storage is opt-in with `--storage blaze --bucket default --bucket-location <location>`,
+or `--bucket <existing-linked-bucket>` for a bucket already linked to this project. Replace
+all placeholders. `--defaults` never selects Storage, a bucket or its permanent location;
+Firestore's region does not supply that location. TMT supports only the default-bucket
+provisioning path and adoption of an already linked bucket, not arbitrary new buckets.
+
+A person must first link active billing in the provider console. Blaze is project-wide;
+Storage operations, downloads/network and retention or soft-delete may incur charges.
+No-cost eligibility is conditional and budget alerts do not cap spending. Review
+[Storage pricing](https://cloud.google.com/storage/pricing) yourself. TMT reads billing
+eligibility but never links billing, upgrades a plan, sets a budget or grants roles.
+
+The preview names the exact bucket, location and metadata, policy replacement and plan digest.
+Storage v1 installs a Remote-owned **deny-all policy**, blocking all current object access
+on that bucket. It is configuration only; object-access Rules need a future separately
+designed adapter. Read this warning before adopting an existing bucket.
+
+At a terminal, approve the paid Storage question first, then the ordinary exact-plan question.
+No or EOF at either question makes no provider changes. Non-interactive human authorization
+needs both `--accept-paid-storage` and `--authorize <displayed-plan-digest-prefix>`. An identified
+agent receives the preview and a human-consent refusal even if it supplies those flags.
+`TMT_AGENT` identification is a courtesy boundary, not authentication.
+An unchanged unfinished authorized run may resume; a completed run is not evergreen consent.
+
+Keep the private record if a call's outcome is unknown. Rerunning observes the exact original
+bucket, policy and release without sending that mutation again; do not delete the record to
+force a retry. Changed billing, location, metadata or policy evidence refuses. Partial read-back
+never publishes the optional Storage capability, and TMT does not roll back or delete buckets.
 
 ### Permissions you need
 

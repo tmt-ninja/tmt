@@ -337,6 +337,11 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
         authorize: None,
         details: false,
         json: true,
+        storage: None,
+        bucket: None,
+        bucket_location: None,
+        accept_paid_storage: false,
+        agent: false,
     };
     let mut source = Captured {
         declaration: envelope,
@@ -509,6 +514,11 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
         authorize: None,
         details: false,
         json: true,
+        storage: None,
+        bucket: None,
+        bucket_location: None,
+        accept_paid_storage: false,
+        agent: false,
     };
     let result = tmt_remote::deploy_cli::execute::<tmt_remote::deploy_firestore::DeployFirestore<'_>>(
         &args,

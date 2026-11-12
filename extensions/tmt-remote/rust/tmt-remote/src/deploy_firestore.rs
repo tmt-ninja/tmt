@@ -115,9 +115,10 @@ impl DeployPreflightError {
                 "REMOTE_DEPLOY_UNAVAILABLE"
             }
         };
-        let message = match self.provider {
-            Some(provider) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
-            None => "Firebase refused to list the project's current setup. Nothing changed in your Firebase project.".into(),
+        let message = match (&self.reason, self.provider) {
+            (DeployProviderError::Rejected(DeployFault::BillingDisabled), _) => "Paid Storage billing is disabled. Review Blaze and link or reopen an active billing account yourself in the provider console, then rerun. TMT never changes billing.".into(),
+            (_, Some(provider)) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
+            (_, None) => "Firebase refused to list the project's current setup. Nothing changed in your Firebase project.".into(),
         };
         let error = crate::error::RemoteError::new(code, &message);
         error.with_deploy_provider(self.provider)
@@ -186,7 +187,8 @@ fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
     match code {
         "unsupported-tool" | "login-required" | "account-changed" | "permission-denied"
         | "api-disabled" | "quota-exceeded" | "database-mismatch" | "rules-foreign"
-        | "verify-failed" | "provider-rejected" | "unknown" => Err(HelperFailure {
+        | "billing-disabled" | "storage-mismatch" | "verify-failed" | "provider-rejected"
+        | "unknown" => Err(HelperFailure {
             code: code.into(),
             provider,
             cause,
@@ -204,6 +206,7 @@ pub struct DeployFirestore<'a> {
     package: PathBuf,
     stop: &'a AtomicBool,
     hosting: Option<deploy_run::HostingCheckpoint>,
+    storage: Option<crate::deploy_storage::StorageCheckpoint>,
     owner: Option<owner::OwnerContext>,
     hosting_sources: std::collections::BTreeMap<String, crate::hosting::HostingSource>,
     content_digest: Option<String>,
@@ -228,6 +231,7 @@ impl<'a> DeployFirestore<'a> {
             package,
             stop,
             hosting: None,
+            storage: None,
             owner: None,
             hosting_sources: std::collections::BTreeMap::new(),
             content_digest: None,
@@ -468,6 +472,7 @@ impl<'a> DeployFirestore<'a> {
                 json!({"project":plan.view().project,"source":std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?,
                 "deployment":plan.deployment_id(),"replacedDigest":plan.view().rules.replaced_digest})
             }
+            StepKind::Storage(kind) => return self.storage_step(operation, plan, *kind, deadline),
             StepKind::Hosting(_) => return self.hosting_step(operation, plan, step, deadline),
             StepKind::OwnerAccess => return self.owner_step(operation == "apply", plan, deadline),
             StepKind::Verify => return Err(unknown()),
@@ -478,7 +483,10 @@ impl<'a> DeployFirestore<'a> {
             StepKind::Index { .. } => "index",
             StepKind::CompositeIndex(_) => "composite",
             StepKind::Rules => "rules",
-            StepKind::Hosting(_) | StepKind::OwnerAccess | StepKind::Verify => unreachable!(),
+            StepKind::Storage(_)
+            | StepKind::Hosting(_)
+            | StepKind::OwnerAccess
+            | StepKind::Verify => unreachable!(),
         };
         self.exchange(
             &format!("{operation}-{kind}"),
@@ -522,6 +530,12 @@ impl DeployPort for DeployFirestore<'_> {
         self.hosting = Some(checkpoint.clone());
         self.steps = steps.to_vec();
     }
+    fn restore_storage(&mut self, checkpoint: &crate::deploy_storage::StorageCheckpoint) {
+        self.storage = Some(checkpoint.clone());
+    }
+    fn storage_checkpoint(&self) -> Option<crate::deploy_storage::StorageCheckpoint> {
+        self.storage.clone()
+    }
     fn hosting_checkpoint(&self) -> Option<deploy_run::HostingCheckpoint> {
         self.hosting.clone()
     }
@@ -553,6 +567,11 @@ impl DeployPort for DeployFirestore<'_> {
                     deploy_run::VerifiedHostingPublication::from_verified(plan, checkpoint, &value)
                         .ok_or_else(unknown)?;
                 self.hosting.as_mut().expect("checkpoint").publication = Some(publication);
+            }
+            if verified == DeployObserved::Satisfied
+                && let Some(storage) = &mut self.storage
+            {
+                storage.verified = true;
             }
             return Ok(verified);
         }
@@ -687,6 +706,8 @@ fn provider_error(error: HelperFailure) -> DeployProviderError {
         "api-disabled" => DeployFault::ApiDisabled,
         "quota-exceeded" => DeployFault::QuotaExceeded,
         "database-mismatch" => DeployFault::DatabaseMismatch,
+        "billing-disabled" => DeployFault::BillingDisabled,
+        "storage-mismatch" => DeployFault::StorageMismatch,
         "rules-foreign" => DeployFault::RulesForeign,
         "owner-conflict" => DeployFault::OwnerConflict,
         "verify-failed" => return unknown(),
@@ -722,6 +743,65 @@ fn verify_steps(
 }
 
 impl DeployFirestore<'_> {
+    pub fn storage_inventory(
+        &mut self,
+        project: &str,
+        intent: &crate::deploy_storage::StorageIntent,
+        original: Option<&crate::deploy_storage::StorageCheckpoint>,
+    ) -> Result<crate::deploy_storage::StoragePlan, DeployPreflightError> {
+        let value = self.exchange("storage-inventory", json!({"project":project,"intent":intent,"original":original,"policy":crate::deploy_storage::DENY_ALL_POLICY}),
+            None, Instant::now() + limits::DEPLOY_PROVIDER_CALL).map_err(preflight_error)?;
+        let captured: crate::deploy_storage::StoragePlan =
+            serde_json::from_value(value).map_err(|_| DeployPreflightError::from(unknown()))?;
+        if !captured.valid() {
+            return Err(unknown().into());
+        }
+        Ok(captured)
+    }
+    fn storage_step(
+        &mut self,
+        operation: &str,
+        plan: &DeployPlan,
+        kind: deploy_run::StorageStep,
+        deadline: Instant,
+    ) -> Result<Value, DeployProviderError> {
+        let checkpoint = self.storage.clone().ok_or_else(unknown)?;
+        if Some(&checkpoint.plan) != plan.view().storage.as_ref() {
+            return Err(unknown());
+        }
+        let kind = match kind {
+            deploy_run::StorageStep::Eligibility => "eligibility",
+            deploy_run::StorageStep::Bucket => "bucket",
+            deploy_run::StorageStep::Ruleset => "ruleset",
+            deploy_run::StorageStep::Release => "release",
+        };
+        let value = self
+            .exchange(
+                &format!("{operation}-storage-{kind}"),
+                json!({"project":plan.view().project,"checkpoint":checkpoint}),
+                Some(plan.account()),
+                deadline,
+            )
+            .map_err(provider_error)?;
+        let object = value.as_object().ok_or_else(unknown)?;
+        if object.len() != 2 {
+            return Err(unknown());
+        }
+        let next: crate::deploy_storage::StorageCheckpoint =
+            serde_json::from_value(value["checkpoint"].clone()).map_err(|_| unknown())?;
+        if !next.valid(&plan.view().project)
+            || next.plan != checkpoint.plan
+            || next.bucket_attempted != checkpoint.bucket_attempted
+        {
+            return Err(unknown());
+        }
+        let state = value["state"].as_str().ok_or_else(unknown)?;
+        if !["satisfied", "adopted", "absent", "done"].contains(&state) {
+            return Err(unknown());
+        }
+        self.storage = Some(next);
+        Ok(json!(state))
+    }
     pub fn prepare_content(&mut self, composition: &crate::hosting::HostingComposition) {
         self.content_digest = Some(composition.live_digest());
         self.hosting_sources = composition
@@ -1068,6 +1148,7 @@ mod cause_tests {
                 progress: None,
                 composite_started: None,
                 hosting: None,
+                storage: None,
                 owner: None,
                 hosting_sources: Default::default(),
                 content_digest: None,

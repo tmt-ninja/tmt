@@ -105,6 +105,7 @@ fn bootstrap_record(layout: &Layout) {
         completed_at_ms: now(),
     });
     record.run = Some(Run {
+        storage: None,
         plan_digest: prepared.digest().into(),
         account: "fixture@example.test".into(),
         authorized_at_ms: now(),

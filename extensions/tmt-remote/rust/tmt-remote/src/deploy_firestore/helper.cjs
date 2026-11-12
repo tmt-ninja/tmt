@@ -7,6 +7,9 @@ const hostingFileStream = require('./hosting-file.cjs');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+// Mirrors limits::DEPLOY_STORAGE_{METADATA,POLICY}_BYTES.
+const STORAGE_METADATA_BYTES = 8 * 1024;
+const STORAGE_POLICY_BYTES = 8 * 1024;
 // Mirrors limits::DEPLOY_PERMISSION_COUNT and DEPLOY_PERMISSION_BYTES.
 const PERMISSION_COUNT = 128;
 const PERMISSION_BYTES = 128;
@@ -37,6 +40,8 @@ const FAULTS = new Set([
   'owner-conflict',
   'provider-rejected',
   'unknown',
+  'billing-disabled',
+  'storage-mismatch',
 ]);
 class DeployFailure extends Error {
   constructor(code, provider, cause) {
@@ -134,6 +139,10 @@ function validate(request) {
     compatibility: [],
     account: [],
     'permission-probe': ['project', 'permissions'],
+    'storage-inventory': ['project', 'intent', 'original', 'policy'],
+    ...Object.fromEntries(['observe', 'apply'].flatMap(action =>
+      ['eligibility', 'bucket', 'ruleset', 'release'].map(step =>
+        [`${action}-storage-${step}`, ['project', 'checkpoint']]))),
     'hosting-inventory': ['project', 'site'],
     ...Object.fromEntries(
       ['observe-hosting', 'apply-hosting', 'verify-hosting'].map((op) => [
@@ -217,6 +226,23 @@ function validate(request) {
       !encoded(i.descriptor, CLOUD_DESCRIPTOR_BYTES)
     )
       fail('provider-rejected');
+  }
+  if (request.operation === 'storage-inventory' || request.operation.includes('-storage-')) {
+    const intent = request.operation === 'storage-inventory' ? i.intent : i.checkpoint?.plan?.intent;
+    const bucket = value => typeof value === 'string' && /^[a-z0-9][a-z0-9_.-]{1,220}[a-z0-9]$/.test(value)
+      && !value.includes('..') && !value.includes('google') && !/^\d+\.\d+\.\d+\.\d+$/.test(value);
+    if (!intent || (intent.bucket !== 'default' && !bucket(intent.bucket))
+      || (intent.location !== undefined && !/^[a-z0-9-]{1,64}$/.test(intent.location))
+      || (intent.bucket === 'default' && !intent.location)) fail('provider-rejected');
+    if (request.operation !== 'storage-inventory') {
+      const cp = i.checkpoint, p = cp.plan;
+      if (p.disclosureVersion !== 1 || !bucket(p.bucket) || !/^[a-z0-9-]{1,64}$/.test(p.location)
+        || typeof p.policy !== 'string' || Buffer.byteLength(p.policy) > STORAGE_POLICY_BYTES
+        || p.policyDigest !== sha(p.policy) || !/^[0-9a-f]{64}$/.test(p.billingFingerprint)
+        || !/^[0-9a-f]{64}$/.test(p.metadataDigest)
+        || (intent.bucket !== 'default' && intent.bucket !== p.bucket)
+        || (intent.location && intent.location !== p.location)) fail('provider-rejected');
+    } else if (typeof i.policy !== 'string' || Buffer.byteLength(i.policy) > STORAGE_POLICY_BYTES) fail('provider-rejected');
   }
   if (i.location !== undefined && !/^[a-z0-9-]{1,32}$/.test(i.location)) fail('provider-rejected');
   if (i.provider !== undefined && !['anonymous', 'google.com'].includes(i.provider))
@@ -368,6 +394,9 @@ function fault(response, body) {
 // may cross the helper boundary when an HTTP response is rejected.
 function providerOperation(service, route) {
   const parts = route.split('?', 1)[0].split('/');
+  if (service === 'billing') return 'storage-billing';
+  if (service === 'storage') return 'storage-link';
+  if (service === 'buckets') return 'storage-metadata';
   if (service === 'firebase') {
     if (parts[0] === 'operations') return 'web-app-operation';
     if (parts[2] === 'webApps') return parts[4] === 'config' ? 'web-app-config' : 'web-apps';
@@ -498,6 +527,9 @@ async function execute(request, deps) {
     auth: 'https://identitytoolkit.googleapis.com/admin/v2',
     rules: 'https://firebaserules.googleapis.com/v1',
     hosting: 'https://firebasehosting.googleapis.com/v1beta1',
+    billing: 'https://cloudbilling.googleapis.com/v1',
+    storage: 'https://firebasestorage.googleapis.com/v1alpha',
+    buckets: 'https://storage.googleapis.com/storage/v1',
   };
   // testIamPermissions is a read despite its POST verb. Keep it outside api()'s
   // mutation claim/reconciliation path; it cannot renew the original deadline.
@@ -1204,24 +1236,25 @@ async function execute(request, deps) {
 
   const database = `projects/${project}/databases/(default)`;
   const release = `projects/${project}/releases/cloud.firestore`;
-  async function liveRules() {
-    const current = await api('rules', release, 'GET', undefined, true);
+  async function readRules(releaseName, filename) {
+    const current = await api('rules', releaseName, 'GET', undefined, true);
     if (current === null) return null;
-    if (
-      typeof current.rulesetName !== 'string' ||
-      !current.rulesetName.startsWith(`projects/${project}/rulesets/`)
-    )
-      fail('unknown');
+    resource(current.rulesetName, `projects/${project}/rulesets/`);
     const ruleset = await api('rules', current.rulesetName);
     const files = ruleset?.source?.files;
-    if (
-      !Array.isArray(files) ||
-      files.length !== 1 ||
-      files[0].name !== 'firestore.rules' ||
-      typeof files[0].content !== 'string'
-    )
-      fail('rules-foreign');
+    if (!Array.isArray(files) || files.length !== 1 || files[0].name !== filename || typeof files[0].content !== 'string') fail('rules-foreign');
     return files[0].content;
+  }
+  const liveRules = () => readRules(release, 'firestore.rules');
+  async function findRuleset(source, filename) {
+    for (const item of await pages('rules', `projects/${project}/rulesets`, 'rulesets')) {
+      resource(item.name, `projects/${project}/rulesets/`);
+      const candidate = await api('rules', item.name);
+      const files = candidate?.source?.files;
+      if (!Array.isArray(files) || files.some(f => typeof f.name !== 'string' || typeof f.content !== 'string')) fail('unknown');
+      if (files.length === 1 && files[0].name === filename && files[0].content === source) return item.name;
+    }
+    return null;
   }
   function safeRules(source) {
     if (source === null || source === i.source) return true;
@@ -1233,6 +1266,107 @@ async function execute(request, deps) {
     )
       return true;
     return sha(source) === i.replacedDigest;
+  }
+  async function storageBilling() {
+    const value = await api('billing', `projects/${project}/billingInfo`);
+    if (!value || typeof value.billingEnabled !== 'boolean'
+      || (value.projectId !== undefined && value.projectId !== project)
+      || (value.name !== undefined && value.name !== `projects/${project}/billingInfo`)) fail('unknown');
+    if (!value.billingEnabled) fail('billing-disabled');
+    if (typeof value.billingAccountName !== 'string' || !/^billingAccounts\/[A-Za-z0-9-]{1,128}$/.test(value.billingAccountName)) fail('unknown');
+    return sha(value.billingAccountName);
+  }
+  function bucketMetadata(value, bucket, number, location) {
+    if (value === null) return null;
+    if (value.name !== bucket || String(value.projectNumber) !== number || typeof value.location !== 'string'
+      || (location && value.location.toLowerCase() !== location)
+      || typeof value.storageClass !== 'string') fail('storage-mismatch');
+    const selected = { name: bucket, projectNumber: number, location: value.location.toLowerCase(), storageClass: value.storageClass,
+      retentionPolicy: value.retentionPolicy ?? null, softDeletePolicy: value.softDeletePolicy ?? null,
+      versioning: value.versioning ?? null, autoclass: value.autoclass ?? null,
+      iamConfiguration: value.iamConfiguration ?? null };
+    if (Buffer.byteLength(stable(selected)) > STORAGE_METADATA_BYTES) fail('unknown');
+    return selected;
+  }
+  async function storageInventory(intent, policy, original) {
+    const billingFingerprint = await storageBilling();
+    const owner = await api('firebase', `projects/${project}`);
+    if (owner?.projectId !== project || !/^[0-9]+$/.test(String(owner.projectNumber))) fail('storage-mismatch');
+    const number = String(owner.projectNumber);
+    // The documented default names are resolved only from this selected project's observation.
+    const bucket = original?.plan?.bucket ?? (intent.bucket === 'default'
+      ? (owner.resources?.storageBucket ?? `${project}.firebasestorage.app`) : intent.bucket);
+    const link = await api('storage', `projects/${project}/buckets/${encodeURIComponent(bucket)}`, 'GET', undefined, true);
+    if (link !== null && ![`projects/${project}/buckets/${bucket}`, `projects/${number}/buckets/${bucket}`].includes(link?.name)) fail('storage-mismatch');
+    const metadata = bucketMetadata(await api('buckets', `b/${encodeURIComponent(bucket)}`, 'GET', undefined, true), bucket, number, intent.location);
+    if (intent.bucket !== 'default' && (metadata === null || link === null)) fail('storage-mismatch');
+    if (link !== null && metadata === null) fail('unknown');
+    const location = metadata?.location ?? intent.location;
+    if (!location || !/^[a-z0-9-]{1,64}$/.test(location)) fail('storage-mismatch');
+    const targetRelease = `projects/${project}/releases/firebase.storage/${bucket}`;
+    const before = await readRules(targetRelease, 'storage.rules');
+    const plan = { disclosureVersion: 1, intent, bucket, location, billingFingerprint,
+      metadataDigest: sha(stable(metadata)), bucketMetadata: metadata, bucketWasPresent: metadata !== null,
+      policy, policyDigest: sha(policy), ...(before === null ? {} : { replacedPolicyDigest: sha(before) }) };
+    if (original !== null) {
+      const old = original.plan;
+      if (!old || stable(old.intent) !== stable(intent) || old.billingFingerprint !== billingFingerprint
+        || old.bucket !== bucket || old.location !== location || old.policy !== policy
+        || (old.intent.bucket !== 'default' && old.intent.bucket !== bucket)) fail('storage-mismatch');
+      const expected = original.metadataDigest ?? (old.bucketWasPresent ? old.metadataDigest : null);
+      if (expected !== null && sha(stable(metadata)) !== expected) fail('storage-mismatch');
+      if (expected === null && metadata !== null && (!original.bucketAttempted || metadata.storageClass !== 'STANDARD' || metadata.retentionPolicy !== null)) fail('storage-mismatch');
+      if (before !== policy && (before === null ? old.replacedPolicyDigest !== undefined : sha(before) !== old.replacedPolicyDigest)) fail('rules-foreign');
+      return { plan: old, metadata, linked: link !== null };
+    }
+    return { plan, metadata, linked: link !== null };
+  }
+  async function storageStep() {
+    const cp = structuredClone(i.checkpoint), p = cp.plan;
+    const snapshot = await storageInventory(p.intent, p.policy, cp);
+    cp.verified = false;
+    if (snapshot.metadata !== null) cp.metadataDigest = sha(stable(snapshot.metadata));
+    const reply = state => ({ state, checkpoint: cp });
+    const action = r.operation.slice(r.operation.lastIndexOf('-') + 1);
+    const applying = r.operation.startsWith('apply');
+    const targetRelease = `projects/${project}/releases/firebase.storage/${p.bucket}`;
+    if (action === 'eligibility') return reply('satisfied');
+    if (action === 'bucket') {
+      if (snapshot.metadata !== null && snapshot.linked) return reply('adopted');
+      if (!applying) return reply('absent');
+      if (p.intent.bucket !== 'default' || !cp.bucketAttempted) fail('provider-rejected');
+      await api('storage', `projects/${project}/defaultBucket`, 'POST', { location: p.location });
+      const after = await storageInventory(p.intent, p.policy, cp);
+      if (after.metadata === null || !after.linked) fail('unknown');
+      cp.metadataDigest = sha(stable(after.metadata));
+      return reply('done');
+    }
+    if (snapshot.metadata === null || !snapshot.linked) fail('storage-mismatch');
+    if (action === 'ruleset') {
+      cp.ruleset = await findRuleset(p.policy, 'storage.rules');
+      if (cp.ruleset !== null) return reply('adopted');
+      if (!applying) return reply('absent');
+      const created = await api('rules', `projects/${project}/rulesets`, 'POST', { source: { files: [{ name: 'storage.rules', content: p.policy }] } });
+      resource(created?.name, `projects/${project}/rulesets/`);
+      cp.ruleset = created.name;
+      return reply('done');
+    }
+    if (action === 'release') {
+      const before = await readRules(targetRelease, 'storage.rules');
+      if (before === p.policy) return reply('satisfied');
+      if (!applying) return reply('absent');
+      if (cp.ruleset === null) fail('unknown');
+      resource(cp.ruleset, `projects/${project}/rulesets/`);
+      const exact = await api('rules', cp.ruleset);
+      if (exact?.source?.files?.length !== 1 || exact.source.files[0].name !== 'storage.rules' || exact.source.files[0].content !== p.policy) fail('rules-foreign');
+      if (await readRules(targetRelease, 'storage.rules') !== before) fail('rules-foreign');
+      await api('rules', before === null ? `projects/${project}/releases` : targetRelease,
+        before === null ? 'POST' : 'PATCH', before === null ? { name: targetRelease, rulesetName: cp.ruleset }
+          : { release: { name: targetRelease, rulesetName: cp.ruleset }, updateMask: 'rulesetName' });
+      if (await readRules(targetRelease, 'storage.rules') !== p.policy) fail('unknown');
+      return reply('done');
+    }
+    fail('provider-rejected');
   }
   async function ownerAccess(apply) {
     const root = `${database}/documents`,
@@ -1355,6 +1489,8 @@ async function execute(request, deps) {
     // Validate an existing Firebase project; this adapter never creates or enables one.
     const p = await api('firebase', `projects/${project}`);
     if (p.projectId !== project || p.state !== 'ACTIVE') fail('provider-rejected');
+    if (r.operation === 'storage-inventory') return (await storageInventory(i.intent, i.policy, i.original)).plan;
+    if (r.operation.includes('-storage-')) return await storageStep();
     if (r.operation === 'owner-access-config') return await publicConfig(i.appId);
     if (r.operation.endsWith('-owner-access'))
       return await ownerAccess(r.operation.startsWith('apply'));
@@ -1517,28 +1653,7 @@ async function execute(request, deps) {
       if (!safeRules(before)) fail('rules-foreign');
       if (before === i.source) return 'done';
       // An earlier unknown create is recovered by exact digest/source before a new POST.
-      const listed = await pages('rules', `projects/${project}/rulesets`, 'rulesets');
-      let found = null;
-      for (const item of listed) {
-        if (typeof item.name !== 'string' || !item.name.startsWith(`projects/${project}/rulesets/`))
-          fail('unknown');
-        const candidate = await api('rules', item.name);
-        if (
-          !Array.isArray(candidate?.source?.files) ||
-          candidate.source.files.some(
-            (f) => typeof f.name !== 'string' || typeof f.content !== 'string'
-          )
-        )
-          fail('unknown');
-        if (
-          candidate.source.files.length === 1 &&
-          candidate.source.files[0].name === 'firestore.rules' &&
-          candidate.source.files[0].content === i.source
-        ) {
-          found = item.name;
-          break;
-        }
-      }
+      let found = await findRuleset(i.source, 'firestore.rules');
       if (found === null) {
         const created = await api('rules', `projects/${project}/rulesets`, 'POST', {
           source: { files: [{ name: 'firestore.rules', content: i.source }] },

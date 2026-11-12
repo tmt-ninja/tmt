@@ -3678,6 +3678,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
         completed_at_ms: 1,
     });
     record.run = Some(Run {
+        storage: None,
         plan_digest: "a".repeat(64),
         account: "secret-owner@example.test".into(),
         authorized_at_ms: 1,

@@ -29,6 +29,7 @@ impl DefaultChoice {
 }
 
 /// Authored backend metadata, not provider replies. Order is the public display order.
+#[derive(Clone, Copy)]
 pub struct InputSpec {
     pub input: &'static str,
     /// Long option without its leading `--`.

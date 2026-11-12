@@ -369,6 +369,11 @@ mutation path; unreadable checks cannot become checked. The CLI alone projects c
 outside the plan digest and deployment record. Every invocation, including resume, rechecks.
 `deploy_cli` owns argv, short/full preview and terminal-only `progress`; `deploy_command`
 retains captured inputs across consent; pure `deploy_run` owns transitions and persistence.
+`deploy_storage` owns conditional paid intent, frozen evidence, the v1 deny-all policy and
+configuration-only capability. Its checkpoints live in the same deploy record; the existing
+helper and authored Rules publisher perform bucket-scoped work. Ambiguous Storage mutations
+are reconciled by observation only. The [paid Storage contract](../../../../contracts/remote-channel-v1.md#optional-paid-storage)
+owns the two consent gates, billing boundary and joint read-back requirements.
 Progress notifications do not change effects or records; the joined heartbeat clears before
 final output/errors. The [authorization contract](../../../../contracts/remote-channel-v1.md#authorized-deploy)
 owns interactive consent, digest authorization, supersession and creation/release fences;

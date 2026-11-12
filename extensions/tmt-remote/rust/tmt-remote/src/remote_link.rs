@@ -103,6 +103,20 @@ pub fn from_record(record: &DeployRecord) -> Result<String, RemoteError> {
     descriptor.checksum = hash(&serde_json::to_vec(&descriptor.body()).expect("body serializes"));
     descriptor.url()
 }
+/// The existing public output carries optional verified configuration beside the unchanged link.
+/// Browsers paired only by URL receive no Storage configuration in v1.
+pub fn publication(record: &DeployRecord) -> Result<Value, RemoteError> {
+    let link = from_record(record)?;
+    let mut value = serde_json::json!({"version":1,"remoteLink":link});
+    if let Some(storage) = record.verified_storage() {
+        if !storage.valid() {
+            return Err(unavailable());
+        }
+        value["storage"] = serde_json::to_value(storage).map_err(|_| unavailable())?;
+    }
+    Ok(value)
+}
+
 /// Strict canonical UTF-8/closed schema/checksum validation. The checksum is not authority.
 fn parse(url: &str) -> Result<Descriptor, RemoteError> {
     if url.len() > limits::REMOTE_LINK_BYTES {
