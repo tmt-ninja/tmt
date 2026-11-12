@@ -149,11 +149,16 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   HOME captures export expanded JSON with the ignored `dump_home_oracle` test and
   `HOME_ORACLE_OUT`; after approval, the ignored `record_home_oracle` test writes
   the compact fixture with stable line and style-row indexes: existing IDs stay
-  reserved and new rows append in first-seen order. The normal
-  `home_oracle_keeps_every_cell_style_and_hit_without_stacked_rules` test generates
-  captures once, compares every decoded cell, style and hit, then checks the same
-  immutable frames for stacked rules. Both assertions stay in one test because
-  nextest runs separate tests in separate processes. Reviewers can decode
+  reserved and new rows append in first-seen order. Nine normal HOME oracle
+  cases each capture a fixed partition with its own style interner, resolve style
+  IDs to their full values and compare every decoded cell, style, hit, action and
+  frame field; each case also checks its captured frames for stacked rules.
+  `oracle_groups!` is the ordered inventory of capture groups, their partition
+  and expected frame count. The ownership test requires each recorded frame to
+  have exactly one owner. When adding a group, register it in recorder order,
+  choose a partition and specify its count; when a group's count changes, update
+  that count with the reviewed oracle change. Check the partition timings and
+  preserve whole-recorder order. Reviewers can decode
   the frozen fixture to `HOME_ORACLE_OUT` with the ignored `dump_frozen_home_oracle`
   test and compare it with the expanded current capture before approval.
   If unused dictionary entries accumulate, the ignored `compact_home_oracle` test
