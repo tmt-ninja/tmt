@@ -565,8 +565,8 @@ delivery update the cached header total, so paint does not scan every list.
 An admitted room-modal observation updates its room summary and fences older quiet reads.
 Shared completion counts treat references as attributes, including linked open items.
 `columns::todo_span` adds the whole suffix after the existing state/task, only for
-a known positive count; the state and unread words keep their width first. When the full
-`N todo` suffix does not fit, a whole compact count is used if there is room.
+a known positive count; the state and unread words keep their width first. If the full
+`N todo` suffix does not fit, the suffix is omitted.
 The shared track solver keeps header, row and hit geometry aligned. The Agents tree
 shows twelve five-minute activity cells and a token-per-minute column alongside the
 selected TOK range; narrow layouts drop HOST, activity, then TOK/min. TOK/min remains
