@@ -33,7 +33,7 @@ export function listE2eFiles(directory = E2E_DIRECTORY) {
  * shard (ties go to the lowest index), so the result is deterministic. `seconds`
  * weighs one file; `startLoads[i]` is work shard `i` carries before any file. Each
  * shard's files are sorted by name. Every file lands in exactly one shard, whatever
- * the weights. The Docker E2E and native process shards share this split.
+ * the weights. Docker E2E, native process shards and Rust workspace binaries share this split.
  */
 export function splitWeightedFiles(files, count, seconds, startLoads = []) {
   if (!Number.isInteger(count) || count < 1)

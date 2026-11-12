@@ -49,7 +49,23 @@ export interface PartitionResult {
   cases: TestCase[];
   log: string;
 }
-export function partitionCases(cases: TestCase[], index: number, total: number): TestCase[];
+export interface WorkspaceWeights {
+  defaultSeconds: number;
+  binaries: Record<string, number>;
+}
+export function loadWorkspaceWeights(text?: string): WorkspaceWeights;
+export function partitionCases(
+  cases: TestCase[],
+  index: number,
+  total: number,
+  weights?: WorkspaceWeights
+): TestCase[];
+export function partitionFilterset(
+  cases: TestCase[],
+  index: number,
+  total: number,
+  weights?: WorkspaceWeights
+): string;
 export function admitPartition(
   cases: TestCase[],
   inventory: NextestInventory,
