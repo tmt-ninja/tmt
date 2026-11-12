@@ -29,7 +29,7 @@ if (argv[0] === 'api') {
 }
 fs.appendFileSync(
   path.join(directory, 'calls.jsonl'),
-  `${JSON.stringify({ operation, operationId, pid: process.pid })}\n`,
+  `${JSON.stringify({ operation, operationId, pid: process.pid, atMs: Date.now() })}\n`,
 );
 
 let barrier = null;
