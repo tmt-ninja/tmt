@@ -7764,9 +7764,10 @@ caller-named agent or device: the serve checks the reference against the current
 and epoch, reads the bytes through its established object channel and verifies them before
 answering. With no serve, or no established channel, it refuses as unavailable. With no established
 channel the serve's message says so: "Colab attachments are unavailable until a Colab page is opened
-in the browser or Remote restarts." That is Remote's one startup activation having failed with nothing
-asking again ([#6308](https://github.com/tmt-ninja/tmt/issues/6308)); it never names a page write
-([#6307](https://github.com/tmt-ninja/tmt/issues/6307)).
+in the browser or Remote restarts." Remote retries a failed startup activation and a lost channel with
+backoff (1 s up to 30 s, [#6308](https://github.com/tmt-ninja/tmt/issues/6308),
+[#6311](https://github.com/tmt-ninja/tmt/pull/6311)), so this refusal covers only the window before that
+retry succeeds; it never names a page write ([#6307](https://github.com/tmt-ninja/tmt/issues/6307)).
 
 The serve answers `POST /.tmt/colab/local/attachment-read` with body
 `{version:1, page, selector}` (strict fields; the selector as in `--reference`). A request
