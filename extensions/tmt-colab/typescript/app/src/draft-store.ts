@@ -5,6 +5,26 @@ import { open, seal, type Sealed } from './local-seal.js';
 import { MESSAGE_RECIPIENT_LIMIT } from './message-recipient.js';
 import { record } from './storage.js';
 import { COMMENT_BYTES } from './thread-records.js';
+import { createContext } from 'react';
+
+/** Recovery text is device-local and never authorizes another publication. */
+export interface PendingMessageStore {
+  retain(kind: 'chat' | 'comment', edit: ComposerEdit): Promise<string | undefined>;
+  clear(key: string): Promise<void>;
+}
+export const PendingMessageContext = createContext<PendingMessageStore | undefined>(undefined);
+
+export function pendingMessageStore(store: DraftStore, page: string): PendingMessageStore {
+  return {
+    async retain(kind, edit) {
+      const key = `unconfirmed:${kind}:${crypto.randomUUID()}`;
+      return (await store.apply(page, new Map([[key, edit]]))) ? key : undefined;
+    },
+    async clear(key) {
+      await store.apply(page, new Map([[key, null]]));
+    },
+  };
+}
 
 /** Unsent drafts kept per page; the oldest is dropped first. */
 export const DRAFTS_PER_PAGE = 32;
@@ -107,8 +127,13 @@ function bounded(drafts: Map<string, ComposerEdit>): Map<string, ComposerEdit> {
   while (
     drafts.size > DRAFTS_PER_PAGE ||
     (drafts.size > 1 && encodeRecord(drafts).length > RECORD_BYTES)
-  )
-    drafts.delete(drafts.keys().next().value!);
+  ) {
+    // Never silently evict an interrupted send. Refuse another recovery write instead if all
+    // entries are unconfirmed; sending itself remains available.
+    const oldest = [...drafts.keys()].find((key) => !key.startsWith('unconfirmed:'));
+    if (oldest === undefined) throw new Error('Unconfirmed messages fill draft storage');
+    drafts.delete(oldest);
+  }
   return drafts;
 }
 
@@ -166,10 +191,18 @@ export class LocalDraftStore implements DraftStore {
               }),
             );
         }
+        const kept = bounded(drafts);
+        // When unconfirmed sends fill the record, don't report a new draft as stored if
+        // protecting those sends forced the new draft out.
+        if (
+          [...kept.keys()].some((key) => key.startsWith('unconfirmed:')) &&
+          [...changes].some(([target, edit]) => edit !== null && !kept.has(target))
+        )
+          return false;
         const sealed = await seal(
           await draftKey(this.device),
           this.#scope(page),
-          encodeRecord(bounded(drafts)),
+          encodeRecord(kept),
         );
         await record(this.#record(page), sealed);
         return true;

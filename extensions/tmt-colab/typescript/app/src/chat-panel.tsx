@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, type ReactNode } from 'react';
 import { ConversationWindow } from './components/conversation-window.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { text } from './strings.js';
@@ -33,6 +33,7 @@ export function ChatPanel({
   onBusy,
   onUnsent,
   unsaved = false,
+  recovery,
   close,
   escape = close,
 }: {
@@ -55,6 +56,7 @@ export function ChatPanel({
   onUnsent?(unsent: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */
   unsaved?: boolean;
+  recovery?: ReactNode;
   close(): void;
   escape?(): void;
 }) {
@@ -186,6 +188,7 @@ export function ChatPanel({
         historyClassName="chat-messages"
         notice={
           <>
+            {recovery}
             {observationUnavailable && (
               <p role="status" className="annotation-hint">
                 {text.askObservationUnavailable}

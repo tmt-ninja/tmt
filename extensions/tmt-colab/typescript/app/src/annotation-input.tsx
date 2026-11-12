@@ -40,6 +40,7 @@ import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
 import { captureConversation } from './thread-store.js';
+import { PendingMessageContext } from './draft-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
@@ -109,6 +110,7 @@ export function AnnotationInput({
   // With an echo host, the composer clears as the echo appears; a send that fails before it
   // is recorded leaves a failed row that holds the draft until Retry or Edit.
   const echoHost = useContext(MessageEchoContext);
+  const pendingMessages = useContext(PendingMessageContext);
   const creatorPreference = useCreatorDefault();
   const { directory, retry } = useAgentDirectory(binding);
   const agents = directory.state === 'ready' ? directory.agents : undefined;
@@ -325,6 +327,7 @@ export function AnnotationInput({
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
     let echoed: MessageEcho | undefined;
     let failedReference: MessageSendReference | undefined;
+    let retained: Promise<string | undefined> | undefined;
     // With an echo, a failure before the record is reported once, on the failed row.
     const fail = (reference: MessageSendReference) => {
       if (echoed && !origin) failedReference = reference;
@@ -354,6 +357,12 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
+      if (pendingMessages) {
+        // Recovery is best effort: an unavailable or slow local store never holds up Send.
+        retained = pendingMessages
+          .retain(chat ? 'chat' : 'comment', { ...current, edited: true })
+          .catch(() => undefined);
+      }
       if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
@@ -391,6 +400,12 @@ export function AnnotationInput({
         : chat
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
+      if (retained)
+        void retained
+          .then((key) => {
+            if (key) return pendingMessages?.clear(key);
+          })
+          .catch(() => {});
       onRecorded?.();
       stage = 'dispatch';
       if (echoed) {

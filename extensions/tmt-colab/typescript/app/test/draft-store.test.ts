@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
-import { DRAFTS_PER_PAGE, DraftSession, LocalDraftStore, persistable } from '../src/draft-store.js';
+import {
+  DRAFTS_PER_PAGE,
+  DraftSession,
+  LocalDraftStore,
+  pendingMessageStore,
+  persistable,
+} from '../src/draft-store.js';
 import { draftKey, titleKey } from '../src/keyring.js';
 import { COMMENT_BYTES } from '../src/thread-records.js';
+import { savedDrafts, unconfirmedDrafts } from '../src/saved-drafts.js';
 
 const stored = new Map<string, unknown>();
 let unavailable = false;
@@ -27,6 +34,52 @@ const store = (space = 'space', device = 'device') => new LocalDraftStore(space,
 const edit = (value: string, extra: Partial<ComposerEdit> = {}): ComposerEdit => ({
   value,
   ...extra,
+});
+
+it('keeps interrupted message text encrypted until its own recovery entry is cleared', async () => {
+  const pending = pendingMessageStore(store(), 'page');
+  const chat = await pending.retain('chat', edit('Chat recovery', { edited: true }));
+  const comment = await pending.retain('comment', edit('Comment recovery', { edited: true }));
+  expect(chat).toMatch(/^unconfirmed:chat:/);
+  expect(comment).toMatch(/^unconfirmed:comment:/);
+  expect(JSON.stringify(stored.get(RECORD))).not.toContain('recovery');
+  expect((await store().load('page'))?.get(chat!)).toEqual(edit('Chat recovery', { edited: true }));
+  await pending.clear(chat!);
+  const restored = await store().load('page');
+  expect(restored?.has(chat!)).toBe(false);
+  expect(restored?.get(comment!)).toEqual(edit('Comment recovery', { edited: true }));
+  unavailable = true;
+  expect(await pending.retain('chat', edit('Must not send'))).toBeUndefined();
+});
+
+it('refuses a new interrupted message instead of evicting earlier unconfirmed sends', async () => {
+  const pending = pendingMessageStore(store(), 'page');
+  const keys: string[] = [];
+  for (let i = 0; i < DRAFTS_PER_PAGE; i++) {
+    const key = await pending.retain('chat', edit(`Message ${i}`, { edited: true }));
+    expect(key).toBeDefined();
+    keys.push(key!);
+  }
+  expect(await pending.retain('chat', edit('Overflow', { edited: true }))).toBeUndefined();
+  expect(await store().apply('page', new Map([['chat', edit('A new draft')]]))).toBe(false);
+  const restored = await store().load('page');
+  expect(restored?.size).toBe(DRAFTS_PER_PAGE);
+  for (const key of keys) expect(restored?.has(key)).toBe(true);
+});
+
+it('shows recovered chat and comment sends in their own surfaces without treating them as ordinary drafts', () => {
+  const drafts = new Map([
+    ['unconfirmed:chat:one', edit('A chat', { edited: true })],
+    ['unconfirmed:comment:two', edit('A comment', { edited: true })],
+    ['chat', edit('Current draft', { edited: true })],
+  ]);
+  expect(unconfirmedDrafts(drafts, 'chat')).toEqual([
+    { key: 'unconfirmed:chat:one', text: 'A chat', unconfirmed: true },
+  ]);
+  expect(unconfirmedDrafts(drafts, 'comment')).toEqual([
+    { key: 'unconfirmed:comment:two', text: 'A comment', unconfirmed: true },
+  ]);
+  expect(savedDrafts(drafts, [])).toEqual([]);
 });
 
 it('encrypts drafts with a key kept apart from title hints and restores exact bytes', async () => {

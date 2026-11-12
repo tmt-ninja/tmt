@@ -229,7 +229,13 @@ owns record fields, limits, revision semantics and trust boundaries.
   space/device/page, `DraftSession` coalescing, page restore on mount); `saved-drafts.tsx`
   lists selection drafts and replies to vanished threads under Comments. Restore only fills
   composers; the Ask ledger is untouched. Failed storage shows `Drafts are not saved on this
-device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the parent's `onStatusChange` seam over
+device.` once per failure and keeps the in-tab draft. For paired-owner Chat and comments,
+  the composer starts a best-effort encrypted unconfirmed-send write without delaying publication
+  and removes it after a confirmed record. Storage failure or a reload before that write settles
+  can still lose the recovery entry. A reload presents any remaining text as possibly sent; it does not
+  create a second send. The page notice opens the relevant panel, where the person can discard
+  the entry. Unconfirmed entries are not evicted to make room for ordinary drafts. Link-reader
+  writers remain memory-only and do not use this recovery store. Resolve/Reopen is the parent's `onStatusChange` seam over
   `ThreadStatusCoordinator`, not a thread edit: the window receives the thread's
   `ThreadPresentation.status` and awaits one status change (shown only when
   the local device has owner-member provenance, `Admission.ownerDevice`, the
