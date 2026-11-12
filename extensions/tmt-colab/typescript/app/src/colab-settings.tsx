@@ -62,7 +62,8 @@ export function ColabSettings({
       >
         {(current) =>
           current.id === 'templates' ? (
-            <TemplateSettings management={management} />
+            // Read only once the tab is open: the panel stays mounted, its read does not.
+            tab === 'templates' && <TemplateSettings management={management} />
           ) : (
             <GeneralSettings source={source} />
           )

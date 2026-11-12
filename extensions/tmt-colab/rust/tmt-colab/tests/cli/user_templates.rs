@@ -897,7 +897,7 @@ fn the_browser_and_the_cli_share_one_owner_per_template_rule() {
         let error = browser(&other, "template.set", json!({"name": name}))
             .err()
             .unwrap();
-        assert_eq!(code(error.into()), expected, "{name}");
+        assert_eq!(code(error), expected, "{name}");
     }
     // A page that is not a template cannot be removed, on either path.
     refused(
@@ -906,7 +906,7 @@ fn the_browser_and_the_cli_share_one_owner_per_template_rule() {
         "COLAB_TEMPLATE_UNKNOWN",
     );
     let error = browser(&other, "template.clear", json!({})).err().unwrap();
-    assert_eq!(code(error.into()), "COLAB_TEMPLATE_UNKNOWN");
+    assert_eq!(code(error), "COLAB_TEMPLATE_UNKNOWN");
     // An admitted name prepares the same structured write the CLI commits.
     assert!(matches!(
         browser(

@@ -1003,7 +1003,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
-test('the module menu is the fixed list: All pages, Shortcuts with its commands, then settings', async ({
+test('the module menu is the fixed list: All pages, Shortcuts with its commands, Templates, then settings', async ({
   page,
 }) => {
   await mount(page);
@@ -1017,7 +1017,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['all', 'colab-settings']);
+  ).toEqual(['all', 'templates', 'colab-settings']);
   // No project rows or project commands: projects live in the list's filter. With no dashboard,
   // no Dashboards group.
   await expect(menu).not.toContainText('Dashboards');
@@ -1042,7 +1042,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id!.split(':')[0])),
-  ).toEqual(['all', 'shell', 'colab-settings']);
+  ).toEqual(['all', 'shell', 'templates', 'colab-settings']);
   const shell = menu.locator('a[data-id^="shell:"]');
   await expect(shell).toHaveText('Reading shell');
   const dashboardIcon = shell.locator(':scope > svg.tmt-ui-shell-icon');
