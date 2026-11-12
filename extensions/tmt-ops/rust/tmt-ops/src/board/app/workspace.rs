@@ -462,7 +462,7 @@ impl App {
             && let Some(target) = self.workspace.selected.as_ref()
         {
             // An empty search keeps the last explicit pane target. Query text
-            // cannot reveal a hidden/scoped-out room or bypass the Pinned mode.
+            // cannot reveal a hidden or scoped-out room.
             let room = match target {
                 OpsTarget::Squad(room)
                 | OpsTarget::Member {

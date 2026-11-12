@@ -53,6 +53,7 @@ fn style(look: Look, row: &Row<'_>, value: Style, attention: bool) -> Style {
         .is_some_and(|member| member.activity.phase == crate::board::activity::Phase::Idle);
     let value = if idle
         && !row.selected
+        && !row.in_conversation
         && !row.unread
         && !attention
         && (value == look.role(Role::Text) || value == look.role(Role::Muted))
@@ -72,7 +73,7 @@ fn style(look: Look, row: &Row<'_>, value: Style, attention: bool) -> Style {
     } else {
         selection(look, row.selected, value)
     };
-    if idle && !row.selected && !row.unread && attention {
+    if idle && !row.selected && !row.in_conversation && !row.unread && attention {
         result.remove_modifier(Modifier::DIM)
     } else {
         result
@@ -376,6 +377,33 @@ mod tests {
                 theme: tmt_cli_style::Theme::new(base),
                 depth,
             };
+            let conversation = Row {
+                source,
+                expanded: false,
+                last: true,
+                folds: false,
+                state: Line::default(),
+                state_primary_width: None,
+                state_attention: vec![],
+                tokens: String::new(),
+                session: String::new(),
+                model: String::new(),
+                timers: None,
+                selected: false,
+                unread: false,
+                in_conversation: true,
+                query: "",
+            };
+            let mut expected = look
+                .conversation()
+                .patch(look.row_span(true, look.role(Role::Text), false))
+                .remove_modifier(Modifier::BOLD);
+            expected.bg = look.conversation().bg;
+            assert_eq!(
+                style(look, &conversation, look.role(Role::Text), false),
+                expected,
+                "focused conversation retains normal text: {base:?} {depth:?}"
+            );
             for (selected, unread, role) in [
                 (false, false, Role::Muted),
                 (false, false, Role::Waiting),

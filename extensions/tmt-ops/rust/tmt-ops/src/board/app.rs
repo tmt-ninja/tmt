@@ -341,7 +341,7 @@ pub enum Choice {
         path: String,
         anchor: ratatui::layout::Rect,
     },
-    /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
+    /// A click on a Talk/Measure chip selects that pane; T and M open their respective panes.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.

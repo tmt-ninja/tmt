@@ -260,8 +260,7 @@ A failed latest read says `Recent pane output unavailable`; a failed older page
 names the failure and scroll retry at the older-history boundary. An empty conversation requires both sources
 observed empty. Pane text creates no request-source, reply, acknowledgment or
 annotation authority. The shared anchor/viewport keeps prepended answers readable
-without moving the composer. The flat Agents list keeps its question-only
-presentation and does not acquire or paint these captures.
+without moving the composer. The Agents tree does not acquire or paint these captures.
 
 Core acknowledgment is the only unread projection. After a successful draw, the
 conversation owner admits exact body rows inside the clipped viewport: final or
@@ -335,7 +334,7 @@ reporting unresolved failures. Legacy-cutoff consumption belongs to
 Agents focus titles its history `Conversation` on both Core paths. The session
 supplies one ordered transcript; its filled three-row input follows the last
 observed block with one blank row above, and only overflow pins it to the bottom.
-The same InputField/editor owns the flat list, member focus and squad focus, with no
+The same InputField/editor owns member and squad focus, with no
 frame or title rule. Factory Enter replies to an observed exact question or
 messages the selected member/current squad lead from either pane; active Enter
 submits, and Esc keeps the draft and returns to the originating list. Common pool
@@ -344,7 +343,7 @@ footer owns key hints, including the active terminal-capability newline key; aut
 `view-reply` binding (default `v`) opens the full response reader without changing
 its exact-source admission; a missing response is explained in the status line.
 
-The composer opens the selected workspace UUID and room directly; flat row
+The composer opens the selected workspace UUID and room directly; row
 indices or equal payloads never choose a different membership. `RowSend`
 retains the observed sender UUID and squad-note recipient identity.
 Submission rechecks the current roster membership, sender and recipient before

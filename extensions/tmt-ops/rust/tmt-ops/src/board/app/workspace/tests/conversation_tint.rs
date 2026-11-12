@@ -1,4 +1,4 @@
-//! The agent whose conversation has focus gets its own row tint and a bold name, on the Squads tree and the flat Agents list.
+//! The agent whose conversation has focus gets its own row tint and a bold name, on the squad tree.
 use super::*;
 use crate::board::shell::OpsTab;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Modifier};

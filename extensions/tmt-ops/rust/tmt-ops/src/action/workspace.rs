@@ -333,7 +333,7 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(Search, "search", "search", "search the current list", 15),
     spec!(Help, "help", "help", "show effective scoped bindings", 25),
     spec!(Quit, "quit", "quit", "close the board", 26),
-    spec!(Sort, "sort", "sort", "cycle the flat Agents sort", 10),
+    spec!(Sort, "sort", "sort", "cycle the squad tree sort", 10),
     spec!(PaneTalk, "pane-talk", "Talk", "show the Talk pane", 11),
     spec!(
         PaneMeasure,

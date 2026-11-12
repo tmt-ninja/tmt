@@ -1,6 +1,5 @@
-//! The TOK heading of the Agents list is three controls: the sort mark (flat list), the
-//! unit word and the window word. Each has its own hit area and lights up alone under the
-//! pointer; the unit word switches the whole column like a figure does.
+//! The TOK heading has unit and window controls, each with its own hit area and hover.
+//! The unit switches the whole column like a figure does.
 use super::*;
 use crate::{
     board::app::{Choice, Request},
@@ -154,7 +153,7 @@ fn each_tok_part_lights_up_alone_under_the_pointer() {
             assert_eq!(
                 at.mark.is_some(),
                 false,
-                "{name} {width}: only the flat list sorts by tokens"
+                "{name} {width}: the tree does not sort by tokens"
             );
             for (part, area) in &controls {
                 hover(&mut app, *area);
