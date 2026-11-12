@@ -454,6 +454,18 @@ node typescript/scripts/verify-native-bootstrap.mjs --manifest /abs/dist-manifes
   --archive /abs/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz --target aarch64-apple-darwin --skill skills/tmt/SKILL.md
 ```
 
+The bootstrap prints a flat version/platform header, semantic step marks and up to
+three safely quoted `Next:` commands (required first, optional dimmed). Only the
+archive request uses curl's progress bar when stderr is a TTY outside CI; the
+label uses the generator's verified embedded size and omits it if unavailable,
+without another request. Set `NO_COLOR` or pipe the destination stream to disable
+colour. The native step preserves `Installed` versus `already current`, based only
+on the captured child status; unknown output stays unchanged. `Next:` uses bare
+`tmt` when PATH selects the new commands, or a quoted absolute path otherwise.
+Failed stdout/stderr and the full human skill report (including backup, warning
+and picker guidance) stay visible. Setup approval, trust checks and PATH/partial-failure
+guidance stay intact.
+
 The verifier needs real matching-host artifacts and replaces only curl acquisition; it is not
 live GitHub or cross-target evidence. The Dockerfile above carries it too (`--entrypoint node`).
 `test/tooling/native-bootstrap.test.ts` covers negative paths with a stub that is never
