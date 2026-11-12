@@ -46,6 +46,40 @@ fn retained(
     (observed <= now).then_some((window, observed))
 }
 
+fn retained_without_current(
+    reports: &[&crate::board::limits::observation::Report],
+    standing: Option<&crate::board::limits::Standing>,
+    kind: QuotaWindow,
+    now: u64,
+) -> Option<(Window, u64)> {
+    let newest_at = reports
+        .iter()
+        .map(|report| report.observed_at_ms)
+        .filter(|at| *at <= now)
+        .max();
+    let from_reports = if let Some(at) = newest_at {
+        let mut newest = reports.iter().filter(|report| report.observed_at_ms == at);
+        let first = newest.next()?.window(kind)?;
+        if newest.any(|report| report.window(kind) != Some(first)) {
+            return None;
+        }
+        Some((first.balance(), at))
+    } else {
+        None
+    };
+    let from_standing = standing.and_then(|standing| retained(standing, kind, now));
+    match (from_reports, from_standing) {
+        (Some(report), Some(standing)) if report.1 == standing.1 && report.0 != standing.0 => None,
+        (Some(report), Some(standing)) => Some(if report.1 >= standing.1 {
+            report
+        } else {
+            standing
+        }),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
 /// `name` is a row's name on the board: a driver ID (every account of it, or, beside several
 /// accounts, the sessions that name none), or `driver.key` for one account of a driver that has
 /// several (#5275).
@@ -152,8 +186,8 @@ pub(in crate::board) fn projection(
     } else {
         pace.latest.map(|point| point.balance())
     };
-    let retained = if balance.is_none() && reports.is_empty() {
-        standing.and_then(|standing| retained(standing, kind, now))
+    let retained = if balance.is_none() {
+        retained_without_current(&reports, standing, kind, now)
     } else {
         None
     };
@@ -417,6 +451,48 @@ mod tests {
             usage_row(Projection::default(), NOW, 40, Look::default())
                 .to_string()
                 .contains("no limit source")
+        );
+    }
+
+    #[test]
+    fn stale_session_report_remains_a_known_aged_source() {
+        use crate::board::limits::observation::Report;
+        use serde_json::json;
+        let observed = NOW - 40 * 3_600_000;
+        let reset = NOW + 24 * 3_600_000;
+        let report = Report::read(&json!({"observedAtMs":observed,"windows":[
+            {"windowMinutes":10080,"usedPercent":17.0,"resetsAtMs":reset}
+        ]}))
+        .unwrap();
+        let (window, at) = retained_without_current(&[&report], None, QuotaWindow::Weekly, NOW)
+            .expect("old session evidence remains available");
+        assert_eq!(window.left, 83.0);
+        assert_eq!(at, observed);
+        let text = usage_row(
+            Projection {
+                balance: Some(window),
+                stale_at: Some(at),
+                ..Projection::default()
+            },
+            NOW,
+            60,
+            Look::default(),
+        )
+        .to_string();
+        assert!(text.contains("83%") && text.contains("ago"), "{text}");
+        assert!(!text.contains("no limit source"), "{text}");
+        let conflict = Report::read(&json!({"observedAtMs":observed,"windows":[
+            {"windowMinutes":10080,"usedPercent":42.0,"resetsAtMs":reset}
+        ]}))
+        .unwrap();
+        assert!(
+            retained_without_current(&[&report, &conflict], None, QuotaWindow::Weekly, NOW)
+                .is_none(),
+            "conflicting latest observations stay unknown"
+        );
+        assert!(
+            retained_without_current(&[&report, &report], None, QuotaWindow::Weekly, NOW).is_some(),
+            "duplicate evidence stays usable"
         );
     }
     #[test]
