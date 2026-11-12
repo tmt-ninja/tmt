@@ -31,13 +31,6 @@ pub struct RateView {
     pub history: Option<super::rate::history::Seeds>,
 }
 
-/// Sample-time projections for the Agents activity and per-minute tracks.
-#[derive(Debug, Clone, PartialEq)]
-pub(in crate::board) struct AgentsLiveUsage {
-    pub minute: Option<super::rate::Reading>,
-    pub activity: [Option<f64>; 12],
-}
-
 /// Raw observations for tiles and headers; formatting belongs to the caller.
 #[derive(Debug)]
 pub(super) struct HomeUsage<'a> {
@@ -858,13 +851,7 @@ pub struct App {
     pub(in crate::board) cron_review_generation: u64,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
-    pub(in crate::board) agents_live_usage: RefCell<BTreeMap<String, AgentsLiveUsage>>,
-    agents_live_missing: RefCell<std::collections::BTreeSet<String>>,
-    agents_live_seen: RefCell<std::collections::BTreeSet<String>>,
-    agents_squad_seen: RefCell<std::collections::BTreeSet<String>>,
-    agents_live_at: std::cell::Cell<Option<Instant>>,
-    agents_live_generation: RefCell<Vec<(u64, u64)>>,
-    agents_squad_minutes: RefCell<BTreeMap<String, Option<super::rate::Reading>>>,
+    pub(in crate::board) agents_live: super::agents_live::Projection,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
@@ -1318,163 +1305,6 @@ impl App {
             .map(|(meter, reading, _)| (meter, reading))
     }
 
-    /// A receipt or view replacement starts a fresh paint-time projection generation.
-    fn invalidate_agents_live_usage(&mut self, now: Instant) {
-        self.agents_live_usage.get_mut().clear();
-        self.agents_live_missing.get_mut().clear();
-        self.agents_squad_minutes.get_mut().clear();
-        self.agents_live_at.set(Some(now));
-        self.agents_live_generation.get_mut().clear();
-    }
-
-    fn refresh_agents_live_generation(&self) -> Instant {
-        let now = self
-            .agents_live_at
-            .get()
-            .map_or_else(Instant::now, |sample| sample.max(Instant::now()));
-        let generation = self
-            .view
-            .as_ref()
-            .into_iter()
-            .flat_map(|view| &view.home_rate)
-            .filter(|(_, rate)| rate.settings.enabled)
-            .filter_map(|(name, _)| self.home_meter(name).map(|meter| meter.evidence_key(now)))
-            .collect::<Vec<_>>();
-        if *self.agents_live_generation.borrow() != generation {
-            self.agents_live_usage.borrow_mut().clear();
-            self.agents_live_missing.borrow_mut().clear();
-            self.agents_squad_minutes.borrow_mut().clear();
-            *self.agents_live_generation.borrow_mut() = generation;
-        }
-        now
-    }
-
-    pub(in crate::board) fn begin_agents_live_frame(&self) {
-        self.agents_live_seen.borrow_mut().clear();
-        self.agents_squad_seen.borrow_mut().clear();
-    }
-
-    pub(in crate::board) fn finish_agents_live_frame(&self) {
-        let seen = self.agents_live_seen.borrow();
-        self.agents_live_usage
-            .borrow_mut()
-            .retain(|id, _| seen.contains(id));
-        self.agents_live_missing
-            .borrow_mut()
-            .retain(|id| seen.contains(id));
-        let squads = self.agents_squad_seen.borrow();
-        self.agents_squad_minutes
-            .borrow_mut()
-            .retain(|id, _| squads.contains(id));
-    }
-
-    /// Compute each requested member once per generation, without any Core reads.
-    pub(in crate::board) fn agents_live_usage(&self, id: &str) -> Option<AgentsLiveUsage> {
-        let now = self.refresh_agents_live_generation();
-        self.agents_live_usage_cached(id, now)
-    }
-
-    fn agents_live_usage_cached(&self, id: &str, now: Instant) -> Option<AgentsLiveUsage> {
-        self.agents_live_seen.borrow_mut().insert(id.to_owned());
-        if let Some(value) = self.agents_live_usage.borrow().get(id) {
-            return Some(value.clone());
-        }
-        if self.agents_live_missing.borrow().contains(id) {
-            return None;
-        }
-        let mut best = None;
-        if let Some(view) = &self.view {
-            for (squad, rate) in &view.home_rate {
-                if !rate.settings.enabled || !rate.input.resumes.contains_key(id) {
-                    continue;
-                }
-                let Some(meter) = self.home_meter(squad) else {
-                    continue;
-                };
-                let Some((hour, evidence)) =
-                    meter.observation(id, crate::config::TokenWindow::HOUR, now)
-                else {
-                    continue;
-                };
-                let rank = (evidence, hour.span, !hour.partial);
-                if best.as_ref().is_some_and(|(previous, _)| *previous >= rank) {
-                    continue;
-                }
-                let minute = meter
-                    .observation(id, crate::config::TokenWindow::MINUTE, now)
-                    .map(|(reading, _)| reading);
-                let activity = meter.member_trend(id, now);
-                best = Some((rank, AgentsLiveUsage { minute, activity }));
-            }
-        }
-        let value = best.map(|(_, usage)| usage);
-        if let Some(usage) = &value {
-            self.agents_live_usage
-                .borrow_mut()
-                .insert(id.to_owned(), usage.clone());
-        } else {
-            self.agents_live_missing.borrow_mut().insert(id.to_owned());
-        }
-        value
-    }
-
-    /// Sum only a requested squad, once per generation, preserving missing evidence.
-    pub(in crate::board) fn agents_squad_minute(&self, room: &str) -> Option<super::rate::Reading> {
-        let now = self.refresh_agents_live_generation();
-        self.agents_squad_seen.borrow_mut().insert(room.to_owned());
-        if let Some(value) = self.agents_squad_minutes.borrow().get(room) {
-            if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
-                snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| squad.room_id == room)
-            }) {
-                self.agents_live_seen
-                    .borrow_mut()
-                    .extend(squad.members.iter().cloned());
-            }
-            return *value;
-        }
-        let value = self.workspace_snapshot().and_then(|snapshot| {
-            let squad = snapshot
-                .roster
-                .squads
-                .iter()
-                .find(|squad| squad.room_id == room)?;
-            let mut seen = std::collections::BTreeSet::new();
-            let mut total = 0u128;
-            let mut span = u64::MAX;
-            let mut known = false;
-            let mut partial = squad.observation != super::workspace::OpsObservation::Complete;
-            for id in &squad.members {
-                if !seen.insert(id) {
-                    continue;
-                }
-                if let Some(reading) = self
-                    .agents_live_usage_cached(id, now)
-                    .and_then(|usage| usage.minute)
-                {
-                    total = total.saturating_add(reading.tokens);
-                    span = span.min(reading.span);
-                    partial |= reading.partial;
-                    known = true;
-                } else {
-                    partial = true;
-                }
-            }
-            known.then_some(super::rate::Reading {
-                tokens: total,
-                partial,
-                span,
-            })
-        });
-        self.agents_squad_minutes
-            .borrow_mut()
-            .insert(room.to_owned(), value);
-        value
-    }
-
     /// The same HOUR readings and per-room UUID de-duplication supply both tables.
     pub(in crate::board) fn overview_squad_usage(
         &self,
@@ -1730,7 +1560,7 @@ impl App {
         }
         if sampled {
             self.usage_chart.get_mut().invalidate_data();
-            self.invalidate_agents_live_usage(now);
+            self.agents_live.invalidate();
         }
         sampled
     }
@@ -2042,7 +1872,7 @@ impl App {
                         .legacy(actor, &home.workspace.read_markers);
                 }
                 let previous = self.view.replace(view);
-                self.invalidate_agents_live_usage(now);
+                self.agents_live.invalidate();
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
                 if let (Some(previous), Some(name)) = (previous, previous_squad)
@@ -6400,8 +6230,9 @@ mod token_window_tests {
         let mut app = home(now);
         let first = now + Duration::from_secs(10);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), first));
-        assert!(app.agents_live_usage("a").is_some());
-        assert!(!app.agents_live_usage.borrow().is_empty());
+        app.agents_live.begin(&app, first);
+        assert!(app.agents_live.member(&app, "a").is_some());
+        assert!(!app.agents_live.usage.borrow().is_empty());
         let rate = &app.view.as_ref().unwrap().home_rate["product"];
         let read = super::super::refresh::HistoryRead {
             owner: super::super::ALL.into(),
@@ -6412,12 +6243,12 @@ mod token_window_tests {
             quota: app.quota_history_visible().then(Default::default),
         };
         assert!(app.apply_history(read, now + Duration::from_secs(20)));
-        app.agents_live_at.set(Some(now + Duration::from_secs(20)));
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
         let current = app.meters["product"]
             .observation("a", TokenWindow::MINUTE, now + Duration::from_secs(20))
             .map(|(reading, _)| reading);
         assert_eq!(
-            app.agents_live_usage("a").unwrap().minute,
+            app.agents_live.member(&app, "a").unwrap().minute,
             current,
             "a history receipt must refresh the cached member"
         );
@@ -6429,19 +6260,20 @@ mod token_window_tests {
         let mut app = home(now);
         let at = now + Duration::from_secs(10);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        let before = app.agents_live_usage("a").unwrap();
+        app.agents_live.begin(&app, at);
+        let before = app.agents_live.member(&app, "a").unwrap();
         let later = now + Duration::from_secs(20);
         app.meters.get_mut("product").unwrap().suspend(later);
         app.meters
             .get_mut("product")
             .unwrap()
             .resume(TokenWindow::MINUTE, later);
-        app.agents_live_at.set(Some(later));
+        app.agents_live.begin(&app, later);
         let actual = app.meters["product"]
             .observation("a", TokenWindow::MINUTE, later)
             .map(|(reading, _)| reading);
         assert_ne!(before.minute, actual, "fixture must change coverage");
-        assert_eq!(app.agents_live_usage("a").unwrap().minute, actual);
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
     }
 
     #[test]
@@ -6450,9 +6282,10 @@ mod token_window_tests {
         let mut app = home(now);
         let at = now + Duration::from_secs(10);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        let before = app.agents_live_usage("a").unwrap();
+        app.agents_live.begin(&app, at);
+        let before = app.agents_live.member(&app, "a").unwrap();
         let later = now + Duration::from_secs(75);
-        app.agents_live_at.set(Some(later));
+        app.agents_live.begin(&app, later);
         let actual = app.meters["product"]
             .observation("a", TokenWindow::MINUTE, later)
             .map(|(reading, _)| reading);
@@ -6460,7 +6293,7 @@ mod token_window_tests {
             before.minute, actual,
             "fixture must cross the minute window"
         );
-        assert_eq!(app.agents_live_usage("a").unwrap().minute, actual);
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
     }
 
     #[test]
@@ -6529,26 +6362,29 @@ mod token_window_tests {
             super::super::meter::Meter::new(settings, &input, now),
         );
         assert!(app.sample_home(Ok(&input.resumes), now + Duration::from_secs(10)));
+        app.agents_live.begin(&app, now + Duration::from_secs(10));
         assert!(
-            app.agents_live_usage.borrow().len() <= 30,
+            app.agents_live.usage.borrow().len() <= 30,
             "a receipt projected {} unpainted identities",
-            app.agents_live_usage.borrow().len()
+            app.agents_live.usage.borrow().len()
         );
         for index in 0..30 {
             let id = format!("member-{index:05}");
-            assert!(app.agents_live_usage(&id).is_some());
-            assert!(app.agents_live_usage(&id).is_some());
+            assert!(app.agents_live.member(&app, &id).is_some());
+            assert!(app.agents_live.member(&app, &id).is_some());
         }
-        assert_eq!(app.agents_live_usage.borrow().len(), 30);
+        assert_eq!(app.agents_live.usage.borrow().len(), 30);
         assert!(app.sample_home(Ok(&input.resumes), now + Duration::from_secs(20)));
-        assert!(app.agents_live_usage.borrow().is_empty());
-        assert!(app.agents_live_usage("member-00000").is_some());
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
+        assert!(app.agents_live.usage.borrow().is_empty());
+        assert!(app.agents_live.member(&app, "member-00000").is_some());
         app.apply(super::tests::snapshot(
             super::super::ALL,
             serde_json::json!([]),
         ));
-        assert!(app.agents_live_usage.borrow().is_empty());
-        assert!(app.agents_live_usage("member-00000").is_none());
+        assert!(app.agents_live.usage.borrow().is_empty());
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
+        assert!(app.agents_live.member(&app, "member-00000").is_none());
     }
 
     #[test]
@@ -6558,7 +6394,8 @@ mod token_window_tests {
         let before = app.view.as_ref().unwrap().document.clone();
         let at = now + Duration::from_secs(10);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        let reading = app.agents_live_usage("a").expect("sampled identity");
+        app.agents_live.begin(&app, at);
+        let reading = app.agents_live.member(&app, "a").expect("sampled identity");
         assert_eq!(reading.minute.unwrap().tokens, 150);
         assert!(reading.activity.iter().flatten().any(|value| *value > 0.0));
         assert_eq!(
@@ -6568,8 +6405,14 @@ mod token_window_tests {
         );
         let at = now + Duration::from_secs(75);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        app.agents_live.begin(&app, at);
         assert_eq!(
-            app.agents_live_usage("a").unwrap().minute.unwrap().tokens,
+            app.agents_live
+                .member(&app, "a")
+                .unwrap()
+                .minute
+                .unwrap()
+                .tokens,
             0
         );
         assert_eq!(app.view.as_ref().unwrap().document, before);

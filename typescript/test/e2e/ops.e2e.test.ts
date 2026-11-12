@@ -1001,7 +1001,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         return (
           header !== undefined &&
           rule !== undefined &&
-          /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ ALERT[ \t]*$/.test(
+          /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+ACTIVITY 1h[ \t]+TOK\/min[ \t]+TOK 1h[ \t]+◷[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
           /Talk[ \t]+M[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
@@ -1752,7 +1752,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         ]);
         await fixture.waitForCapture(
           (screen) =>
-            /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) && screen.includes('0 members'),
+            /^[ \t]*[▸▾] product[ \t]+—[ \t]+—[ \t]+0\b/m.test(screen) &&
+            screen.includes('0 members'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);

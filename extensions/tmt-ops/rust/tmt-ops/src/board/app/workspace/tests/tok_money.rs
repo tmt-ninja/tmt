@@ -310,13 +310,13 @@ fn capture_agents_cost_cells_at_160_columns() {
 
 #[test]
 fn cost_mode_keeps_minute_tokens_and_only_range_unit_is_clickable() {
-    use crate::board::{app::AgentsLiveUsage, rate::Reading};
+    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
     let mut app = valued_board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     hold(&mut app, SavingsUnit::Cost);
     report_for_member(&mut app);
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {

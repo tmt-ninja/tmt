@@ -623,6 +623,36 @@ mod header {
     }
 
     #[test]
+    fn narrow_state_never_paints_a_bare_checklist_number() {
+        let mut app = board();
+        let key = select_member(&mut app);
+        answer(
+            &mut app,
+            &key,
+            Ok(Counts {
+                todo: 2,
+                ..Counts::default()
+            }),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let rows: Vec<_> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect();
+        let member = rows.iter().find(|line| line.contains("└ worker")).unwrap();
+        assert!(
+            !member.contains("working 2"),
+            "bare checklist number: {member}"
+        );
+    }
+
+    #[test]
     fn rows_show_only_known_positive_todos_and_keep_the_activity_header_whole() {
         let mut app = board();
         let key = select_member(&mut app);
@@ -651,11 +681,8 @@ mod header {
                 .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect();
             let member = rows.iter().find(|line| line.contains("└ worker")).unwrap();
-            assert_eq!(
-                member.contains("working 2") || member.contains("working · 2 todo"),
-                positive,
-                "{member}"
-            );
+            assert_eq!(member.contains("working · 2 todo"), positive, "{member}");
+            assert!(!member.contains("working 2"), "bare count: {member}");
             assert!(
                 rows.iter().any(|line| line.contains("ACTIVITY 1h")),
                 "{rows:#?}"

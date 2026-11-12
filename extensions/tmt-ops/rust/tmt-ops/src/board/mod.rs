@@ -3,6 +3,7 @@
 
 pub(crate) mod activity;
 mod agents_focus;
+mod agents_live;
 mod app;
 mod buttons;
 mod changes;

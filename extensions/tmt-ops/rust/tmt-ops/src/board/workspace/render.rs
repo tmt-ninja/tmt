@@ -130,17 +130,19 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    app.begin_agents_live_frame();
+    let now = std::time::Instant::now();
+    let now_ms = crate::status::now_ms();
+    app.agents_live.begin(app, now);
     if matches!(app.shell.tab, OpsTab::Agents) {
         crate::board::overview::chart::host::render_panel(
             frame,
             app,
             app.overview_usage_band(area),
-            crate::status::now_ms(),
+            now_ms,
         );
     }
     let Some(placement) = app.workspace_placement(area) else {
-        app.finish_agents_live_frame();
+        app.agents_live.finish();
         return;
     };
     use crate::action::ResizeBoundary as Boundary;
@@ -163,7 +165,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 app,
                 area.width.saturating_sub(1),
                 area.height,
-                crate::status::now_ms(),
+                now_ms,
             );
             app.pane_resize.record(
                 crate::board::pane_resize::Boundary {
@@ -197,9 +199,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
     if let Some(list) = placement.list {
-        tree(frame, app, list);
+        tree(frame, app, list, now, now_ms);
     }
-    app.finish_agents_live_frame();
+    app.agents_live.finish();
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
         if app.shell.tab == OpsTab::Agents
@@ -212,12 +214,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             if matches!(target, OpsTarget::Member { .. }) {
                 crate::board::conversation::render_retained(frame, app, detail, target);
             } else {
-                squad_detail(frame, app, detail);
+                squad_detail(frame, app, detail, now, now_ms);
             }
         } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
         } else {
-            squad_detail(frame, app, detail);
+            squad_detail(frame, app, detail, now, now_ms);
         }
     }
     if app.shell.tab == OpsTab::Agents {
@@ -229,12 +231,67 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
 }
-fn tree(frame: &mut Frame, app: &App, area: Rect) {
+enum LiveCell {
+    Tokens(Option<crate::board::rate::Reading>),
+    Money(Option<(u64, bool)>),
+}
+
+fn live_cell(
+    app: &App,
+    cell: Rect,
+    key: String,
+    value: LiveCell,
+    fallback: String,
+    reduced: bool,
+    now: std::time::Instant,
+) -> (String, bool) {
+    if cell.is_empty() {
+        return (fallback, false);
+    }
+    let mut counters = app.home_counters.borrow_mut();
+    let (digits, bold, available) = match value {
+        LiveCell::Tokens(reading) => {
+            let (digits, bold) = counters.live_digits(key.clone(), reading, reduced, now);
+            (digits, bold, reading.is_some())
+        }
+        LiveCell::Money(price) => {
+            let (digits, bold) = counters.live_money(key.clone(), price, reduced, now);
+            (digits, bold, price.is_some())
+        }
+    };
+    let fits = available
+        && unicode_width::UnicodeWidthStr::width(digits.as_str()) <= usize::from(cell.width);
+    if fits {
+        counters.visible(
+            &key,
+            cell,
+            String::new(),
+            tmt_cli_style::grid::Align::Right,
+            true,
+        );
+    }
+    (
+        if available {
+            counters.admitted_digits(&key, cell.width)
+        } else {
+            "—".into()
+        },
+        bold && fits,
+    )
+}
+
+fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_ms: u64) {
     use super::columns::{self, AgentsField as Field};
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
     };
     let look = app.look();
+    let reduced = look.depth == tmt_cli_style::Depth::None
+        || app
+            .view
+            .as_ref()
+            .and_then(|view| view.home.as_ref())
+            .is_some_and(|home| home.reduced_motion);
     let inside = area;
     // The section rule yields before the table header, range and last target.
     let rule_height = u16::from(inside.height >= 4);
@@ -517,7 +574,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .map_or(0, |(_, rect)| usize::from(rect.width));
             let mut checklist_hit = None;
             let (state, state_primary_width, state_attention) = if let Some(label) =
-                app.activity_label(row)
+                app.activity_label_in_frame(row, now, now_ms)
             {
                 let projection = columns::activity_projection(app, row, &label, state_width);
                 let width = projection
@@ -561,9 +618,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     },
                     |squad| squad.members.iter().map(String::as_str).collect(),
                 );
-                let stale = app.activity_stale(std::time::Instant::now());
+                let stale = app.activity_stale(now);
                 app.admit_activity_clock(None);
-                let now = crate::status::now_ms();
+
                 let members: Vec<_> = ids
                     .iter()
                     .map(|id| {
@@ -576,7 +633,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 idle_over: state.is_some_and(|state| state.idle_over),
                                 task: None,
                             }
-                            .label(stale, now)
+                            .label(stale, now_ms)
                         });
                         crate::board::team_strip::Member {
                             id,
@@ -637,66 +694,30 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             let (tokens, tokens_bold) = if !plain {
                 if let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Tokens) {
                     let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
-                    let reading = token_reading;
-                    if cell.is_empty() {
-                        (tokens, false)
+                    let key = format!(
+                        "agents:{:?}:range:{}",
+                        row.target,
+                        app.tok_range().argument()
+                    );
+                    if app.tok_money() {
+                        live_cell(
+                            app,
+                            cell,
+                            format!("{key}:money"),
+                            LiveCell::Money(money_reading),
+                            tokens,
+                            reduced,
+                            now,
+                        )
                     } else {
-                        let reduced = look.depth == tmt_cli_style::Depth::None
-                            || app
-                                .view
-                                .as_ref()
-                                .and_then(|view| view.home.as_ref())
-                                .is_some_and(|home| home.reduced_motion);
-                        let key = format!(
-                            "agents:{:?}:range:{}",
-                            row.target,
-                            app.tok_range().argument()
-                        );
-                        let mut counters = app.home_counters.borrow_mut();
-                        let (digits, bold) = if app.tok_money() {
-                            counters.live_money(
-                                format!("{key}:money"),
-                                money_reading,
-                                reduced,
-                                std::time::Instant::now(),
-                            )
-                        } else {
-                            counters.live_digits(
-                                key.clone(),
-                                reading,
-                                reduced,
-                                std::time::Instant::now(),
-                            )
-                        };
-                        let key = if app.tok_money() {
-                            format!("{key}:money")
-                        } else {
-                            key
-                        };
-                        let available = if app.tok_money() {
-                            money_reading.is_some()
-                        } else {
-                            reading.is_some()
-                        };
-                        let fits = available
-                            && unicode_width::UnicodeWidthStr::width(digits.as_str())
-                                <= usize::from(cell.width);
-                        if fits {
-                            counters.visible(
-                                &key,
-                                cell,
-                                String::new(),
-                                tmt_cli_style::grid::Align::Right,
-                                true,
-                            );
-                        }
-                        (
-                            if available {
-                                counters.admitted_digits(&key, cell.width)
-                            } else {
-                                "—".into()
-                            },
-                            bold && fits,
+                        live_cell(
+                            app,
+                            cell,
+                            key,
+                            LiveCell::Tokens(token_reading),
+                            tokens,
+                            reduced,
+                            now,
                         )
                     }
                 } else {
@@ -707,9 +728,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             };
             let minute_reading = match &row.target {
                 OpsTarget::Member { identity_id, .. } => app
-                    .agents_live_usage(identity_id)
+                    .agents_live
+                    .member(app, identity_id)
                     .and_then(|usage| usage.minute),
-                OpsTarget::Squad(room) => app.agents_squad_minute(room),
+                OpsTarget::Squad(room) => app.agents_live.squad_minute(app, room),
                 _ => None,
             }
             .filter(|_| !plain);
@@ -717,44 +739,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 slots.iter().find(|(field, _)| *field == Field::PerMinute)
             {
                 let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
-                if cell.is_empty() {
-                    ("—".into(), false)
-                } else {
-                    let reduced = look.depth == tmt_cli_style::Depth::None
-                        || app
-                            .view
-                            .as_ref()
-                            .and_then(|view| view.home.as_ref())
-                            .is_some_and(|home| home.reduced_motion);
-                    let key = format!("agents:{:?}:minute", row.target);
-                    let mut counters = app.home_counters.borrow_mut();
-                    let (digits, bold) = counters.live_digits(
-                        key.clone(),
-                        minute_reading,
-                        reduced,
-                        std::time::Instant::now(),
-                    );
-                    let fits = minute_reading.is_some()
-                        && unicode_width::UnicodeWidthStr::width(digits.as_str())
-                            <= usize::from(cell.width);
-                    if fits {
-                        counters.visible(
-                            &key,
-                            cell,
-                            String::new(),
-                            tmt_cli_style::grid::Align::Right,
-                            true,
-                        );
-                    }
-                    (
-                        if minute_reading.is_some() {
-                            counters.admitted_digits(&key, cell.width)
-                        } else {
-                            "—".into()
-                        },
-                        bold && fits,
-                    )
-                }
+                live_cell(
+                    app,
+                    cell,
+                    format!("agents:{:?}:minute", row.target),
+                    LiveCell::Tokens(minute_reading),
+                    "—".into(),
+                    reduced,
+                    now,
+                )
             } else {
                 ("—".into(), false)
             };
@@ -796,7 +789,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
                 if !cell.is_empty() {
                     let values = app
-                        .agents_live_usage(identity_id)
+                        .agents_live
+                        .member(app, identity_id)
                         .map_or([None; 12], |usage| usage.activity);
                     let values = values
                         .into_iter()
@@ -1158,7 +1152,7 @@ pub(in crate::board) fn selection_message(state: SelectionState) -> &'static str
     }
 }
 
-fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
+fn squad_detail(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_ms: u64) {
     let look = app.look();
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
@@ -1270,6 +1264,8 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
             inside,
             target,
             app.workspace_selection_visible(),
+            now,
+            now_ms,
         );
         return;
     }
@@ -1287,6 +1283,8 @@ fn roster_preview(
     mut area: Rect,
     target: &OpsTarget,
     interactive: bool,
+    now: std::time::Instant,
+    now_ms: u64,
 ) {
     use super::columns::{self, RosterField};
     let snapshot = app.workspace_snapshot().unwrap();
@@ -1310,7 +1308,7 @@ fn roster_preview(
     let observation = squad.map_or(snapshot.roster.observation, |s| s.observation);
     let mut savings_lines = 0..0;
     let facts: Vec<Line<'static>> = squad.map_or_else(Vec::new, |squad| {
-        let usage = app.home_usage(&squad.name, std::time::Instant::now());
+        let usage = app.home_usage(&squad.name, now);
         let mut facts: Vec<_> = squad_usage(usage.as_ref(), app.home_lead_model(&squad.name))
             .iter()
             .flat_map(|fact| crate::board::notes::wrap(fact, usize::from(area.width)))
@@ -1399,7 +1397,7 @@ fn roster_preview(
                 for (field, slot) in &slots {
                     let cell = Rect::new(slot.x, y, slot.width, 1).intersection(viewport);
                     if *field == RosterField::State
-                        && let Some(label) = app.activity_label(&row)
+                        && let Some(label) = app.activity_label_in_frame(&row, now, now_ms)
                     {
                         columns::paint_activity(frame.buffer_mut(), app, &row, &label, cell, false);
                         continue;

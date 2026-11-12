@@ -75,11 +75,11 @@ fn live_projection_only_visits_painted_members_and_painted_squads() {
         }
     }
     assert!(painted > 0 && painted <= 36, "painted {painted} rows");
-    let attempted = app.agents_live_missing.borrow().clone();
+    let attempted = app.agents_live.missing.borrow().clone();
     assert!(!attempted.is_empty());
     assert!(attempted.is_subset(&allowed));
     frame(&app, 160);
-    assert_eq!(*app.agents_live_missing.borrow(), attempted);
+    assert_eq!(*app.agents_live.missing.borrow(), attempted);
 }
 
 #[test]
@@ -127,8 +127,8 @@ fn live_projection_retains_only_the_last_painted_rows_and_their_squads() {
             _ => {}
         }
     }
-    let missing = app.agents_live_missing.borrow();
-    let live = app.agents_live_usage.borrow();
+    let missing = app.agents_live.missing.borrow();
+    let live = app.agents_live.usage.borrow();
     assert!(
         missing
             .iter()
@@ -313,7 +313,7 @@ fn the_window_keeps_cycling() {
 }
 
 fn sampled_member_row() -> String {
-    use crate::board::app::AgentsLiveUsage;
+    use crate::board::agents_live::AgentsLiveUsage;
     use crate::board::rate::Reading;
 
     let mut app = open(SavingsUnit::Tokens);
@@ -323,8 +323,8 @@ fn sampled_member_row() -> String {
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let mut activity = [Some(0.0); 12];
     activity[11] = Some(120.0);
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {
@@ -365,10 +365,10 @@ fn sampled_member_activity_is_painted_oldest_to_newest() {
 
 fn minute_cell(reading: Option<crate::board::rate::Reading>) -> String {
     let mut app = open(SavingsUnit::Tokens);
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
-        crate::board::app::AgentsLiveUsage {
+        crate::board::agents_live::AgentsLiveUsage {
             minute: reading,
             activity: [None; 12],
         },
@@ -431,7 +431,7 @@ fn minute_track_marks_partial_evidence() {
 
 #[test]
 fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
-    use crate::board::{app::AgentsLiveUsage, rate::Reading};
+    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
 
     let mut app = open(SavingsUnit::Tokens);
     let roster = &mut app
@@ -450,8 +450,8 @@ fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
     roster.squads[0]
         .members
         .extend([MEMBER.into(), "missing".into()]);
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: Some(Reading {
@@ -463,7 +463,7 @@ fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
         },
     );
     app.workspace_reconcile();
-    app.agents_squad_minutes.get_mut().clear();
+    app.agents_live.squads.get_mut().clear();
     let buffer = frame(&app, 240);
     let rows: Vec<_> = buffer.content.chunks(240).collect();
     let header = rows
@@ -495,7 +495,7 @@ fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
 
 #[test]
 fn changed_minute_figure_is_bold_in_the_painted_member_row() {
-    use crate::board::{app::AgentsLiveUsage, rate::Reading};
+    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
     use ratatui::style::Modifier;
     let mut app = open(SavingsUnit::Tokens);
     let view = app.view.as_mut().unwrap();
@@ -509,11 +509,13 @@ fn changed_minute_figure_is_bold_in_the_painted_member_row() {
         }),
         activity: [None; 12],
     };
-    app.agents_live_usage
+    app.agents_live
+        .usage
         .get_mut()
         .insert(MEMBER.into(), usage(100));
     frame(&app, 240);
-    app.agents_live_usage
+    app.agents_live
+        .usage
         .get_mut()
         .insert(MEMBER.into(), usage(400));
     let buffer = frame(&app, 240);
@@ -553,10 +555,10 @@ fn selected_activity_keeps_the_no_color_reverse_cue_on_observed_cells() {
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let mut activity = [None; 12];
     activity[11] = Some(120.0);
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
-        crate::board::app::AgentsLiveUsage {
+        crate::board::agents_live::AgentsLiveUsage {
             minute: None,
             activity,
         },
@@ -578,7 +580,7 @@ fn selected_activity_keeps_the_no_color_reverse_cue_on_observed_cells() {
 #[test]
 #[ignore = "read-only live Agents layout evidence; never records fixtures"]
 fn capture_live_agents_widths() {
-    use crate::board::{app::AgentsLiveUsage, rate::Reading};
+    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
     use tmt_cli_style::{Depth, Theme, theme::Base};
     let output = std::env::var("TMT_LIVE_AGENTS_CAPTURE").expect("task-owned output path");
     let mut frames = Vec::new();
@@ -612,8 +614,8 @@ fn capture_live_agents_widths() {
                     activity[7] = Some(20.0);
                     activity[9] = Some(60.0);
                     activity[11] = Some(120.0);
-                    app.refresh_agents_live_generation();
-                    app.agents_live_usage.get_mut().insert(
+                    app.agents_live.begin(&app, Instant::now());
+                    app.agents_live.usage.get_mut().insert(
                         MEMBER.into(),
                         AgentsLiveUsage {
                             minute: Some(Reading {
@@ -624,7 +626,7 @@ fn capture_live_agents_widths() {
                             activity,
                         },
                     );
-                    app.agents_squad_minutes.get_mut().clear();
+                    app.agents_live.squads.get_mut().clear();
                     if squad {
                         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
                         app.workspace_reconcile();
@@ -645,7 +647,7 @@ fn capture_live_agents_widths() {
 
 #[test]
 fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
-    use crate::board::app::AgentsLiveUsage;
+    use crate::board::agents_live::AgentsLiveUsage;
     let mut app = open(SavingsUnit::Tokens);
     let view = app.view.as_mut().unwrap();
     view.look.depth = tmt_cli_style::Depth::None;
@@ -682,8 +684,8 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
             .collect::<String>()
     };
     assert_eq!(activity_text(&app), "            ");
-    app.refresh_agents_live_generation();
-    app.agents_live_usage.get_mut().insert(
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
             minute: None,
@@ -694,7 +696,8 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
     let mut partial = [None; 12];
     partial[9] = Some(0.0);
     partial[11] = Some(120.0);
-    app.agents_live_usage
+    app.agents_live
+        .usage
         .get_mut()
         .get_mut(MEMBER)
         .unwrap()

@@ -219,13 +219,17 @@ impl AgentsLayout {
             let mut state_width = AgentsField::State.minimum().min(width.saturating_sub(2));
             let mut name_width = AgentsField::Agent.minimum();
             let mut spare = width.saturating_sub(demand(&fields));
-            let name_first = spare.min(21u16.saturating_sub(name_width));
+            // Approved Agents mock: first widen names, then state, then names again.
+            const NAME_FIRST_TARGET: u16 = 21;
+            const STATE_TARGET: u16 = 20;
+            const NAME_FINAL_TARGET: u16 = 24;
+            let name_first = spare.min(NAME_FIRST_TARGET.saturating_sub(name_width));
             name_width += name_first;
             spare -= name_first;
-            let state_extra = spare.min(20u16.saturating_sub(state_width));
+            let state_extra = spare.min(STATE_TARGET.saturating_sub(state_width));
             state_width += state_extra;
             spare -= state_extra;
-            let name_last = spare.min(24u16.saturating_sub(name_width));
+            let name_last = spare.min(NAME_FINAL_TARGET.saturating_sub(name_width));
             name_width += name_last;
             let tracks: Vec<_> = fields
                 .iter()
@@ -534,11 +538,7 @@ fn todo_text(
     use unicode_width::UnicodeWidthStr;
     let label = app.notes.row_label(&row.target)?;
     let full = format!(" · {label}");
-    if used + full.width() <= width {
-        return Some(full);
-    }
-    let compact = format!(" {}", label.strip_suffix(" todo")?);
-    (used + compact.width() <= width).then_some(compact)
+    (used + full.width() <= width).then_some(full)
 }
 
 /// Counts are optional: the existing state and task keep their whole width first.

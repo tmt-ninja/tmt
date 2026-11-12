@@ -4,6 +4,7 @@ use crate::config::{TokenRate, TokenWindow};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+// A replacement meter must not reuse its predecessor's evidence key.
 static EVIDENCE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 const FRAME: Duration = Duration::from_millis(250);

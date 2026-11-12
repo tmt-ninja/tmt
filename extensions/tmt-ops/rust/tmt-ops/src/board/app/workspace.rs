@@ -158,8 +158,15 @@ impl App {
         &self,
         row: &OpsTreeRow,
     ) -> Option<crate::board::activity::Label> {
-        let label =
-            self.activity_label_at(row, std::time::Instant::now(), crate::status::now_ms())?;
+        self.activity_label_in_frame(row, std::time::Instant::now(), crate::status::now_ms())
+    }
+    pub(in crate::board) fn activity_label_in_frame(
+        &self,
+        row: &OpsTreeRow,
+        now: std::time::Instant,
+        now_ms: u64,
+    ) -> Option<crate::board::activity::Label> {
+        let label = self.activity_label_at(row, now, now_ms)?;
         self.admit_activity_clock(label.at);
         Some(label)
     }
