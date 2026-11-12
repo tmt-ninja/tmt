@@ -632,6 +632,9 @@ function watcherHeartbeatAnomalies(evidence, now) {
 }
 
 /** Injected evidence ports; a partial collection never becomes an empty healthy report. */
+// How long a run must have been terminal before a job still short of terminal counts as stranded.
+const STRANDED_JOB_SETTLE_MS = 15 * 60_000;
+
 export function collectInfraTick(
   api,
   { repository, since, until, previous = null, reviewMap, local }
@@ -1052,15 +1055,30 @@ export function collectInfraTick(
     assert.ok(
       jobs.rows.every(
         (job) =>
-          job.status === 'completed' &&
-          job.completed_at &&
           job.run_id === run.id &&
           job.run_attempt === run.run_attempt &&
           job.head_sha === run.head_sha
       ),
-      'Incomplete or foreign terminal job evidence.'
+      'Foreign terminal job evidence.'
     );
-    api.qualifyTerminalJobs?.(jobs.paths);
+    // GitHub can end a run while a job never leaves the queue (#6295). Such a job stays
+    // non-terminal for good, so once the run has been terminal for the settle time it is
+    // reported instead of refused. A fresher run may still be settling: refuse it as transient.
+    const stranded = jobs.rows.filter((job) => job.status !== 'completed' || !job.completed_at);
+    assert.ok(
+      !stranded.length || time(run.updated_at) <= end - STRANDED_JOB_SETTLE_MS,
+      'Incomplete terminal job evidence.'
+    );
+    if (stranded.length)
+      anomaly('job never finished in a terminal run', {
+        run: run.id,
+        attempt: run.run_attempt,
+        workflow: run.name,
+        url: run.html_url,
+        jobs: stranded.map((job) => ({ job: job.id, name: job.name, status: job.status })),
+      });
+    // Only pages whose every row is terminal may be reused from the cache.
+    else api.qualifyTerminalJobs?.(jobs.paths);
     const workers = jobs.rows
       .filter((job) => FAILED.has(job.conclusion) && !aggregateOnly(job))
       .sort((a, b) => a.id - b.id);
