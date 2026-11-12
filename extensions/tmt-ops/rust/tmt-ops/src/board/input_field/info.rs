@@ -97,8 +97,7 @@ impl Info<'_> {
         let full_left = self.left(true, true, look);
         let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
             (full_left, full)
-        } else if self.checklist
-            && full_left.width() + shortened.width() + 1 <= usize::from(line.width)
+        } else if self.checklist && full_left.width() + shortened.width() < usize::from(line.width)
         {
             (full_left, shortened)
         } else if full_left.width() + keys.width() + 2 <= usize::from(line.width) {
