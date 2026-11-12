@@ -483,7 +483,9 @@ impl ChannelOwner {
         source: crate::page::save::SourceOpener,
         deadline: Instant,
     ) -> crate::Result<(Vec<u8>, String)> {
-        let client = self.client().ok_or(crate::page::Fault::Unavailable)?;
+        let client = self
+            .client()
+            .ok_or(crate::page::Fault::AttachmentsUnavailable)?;
         let mut view = source()?;
         let capture = Arc::new(crate::attachments::capture_root_local(
             &view.store,

@@ -32,6 +32,9 @@ pub enum Fault {
     Inactive,
     Denied,
     Unavailable,
+    /// The serve has no object channel, so it can read no attachment (#6307): Remote's activation
+    /// of it failed and nothing has asked again (#6308). Its code is `COLAB_UNAVAILABLE`.
+    AttachmentsUnavailable,
     StreamGap,
     ServerMismatch,
     /// A structured page (`pageType` `blocks`) is edited by `tmt colab block`, never by source.
@@ -59,7 +62,7 @@ impl Fault {
             Self::Missing => "COLAB_STATE_MISSING",
             Self::Inactive => "COLAB_PAGE_INACTIVE",
             Self::Denied => "COLAB_DENIED",
-            Self::Unavailable => "COLAB_UNAVAILABLE",
+            Self::Unavailable | Self::AttachmentsUnavailable => "COLAB_UNAVAILABLE",
             Self::StreamGap => "COLAB_STREAM_GAP",
             Self::ServerMismatch => "COLAB_SERVER_MISMATCH",
             Self::StructuredPage => "COLAB_STRUCTURED_PAGE",
@@ -96,6 +99,9 @@ impl std::fmt::Display for Fault {
             }
             Self::Unavailable => {
                 "Serving page write unavailable; no offline fallback was attempted."
+            }
+            Self::AttachmentsUnavailable => {
+                "Colab attachments are unavailable until a Colab page is opened in the browser or Remote restarts."
             }
             Self::StreamGap => {
                 "This device's write stream moved on before the write was admitted. Nothing was written; read the page again before retrying."

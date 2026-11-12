@@ -3834,6 +3834,34 @@ fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_stor
     );
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
 }
+/// Remote's one startup activation of Colab's object channel failed (`setup`, #6308), so the
+/// serve has no channel. A CLI attachment read (`attachment read`, `design show`) is refused
+/// with a message about attachments that says how to recover, never one naming a page write
+/// (#6307).
+#[test]
+fn a_cli_attachment_read_without_an_object_channel_names_attachments_not_a_write() {
+    use tmt_colab::attachments;
+    // The serve must stay up while the CLI reads through its socket.
+    let (_server, layout, _key, _peer) = publish_fixture();
+    let selector = format!(
+        r#"{{"kind":"document-current","attachmentId":"{OTHER}","descriptorHash":"{}","contentRevision":"v1:{}"}}"#,
+        "b".repeat(64),
+        "a".repeat(64)
+    );
+    let selector =
+        tmt_colab_model::attachment::AttachmentSelector::from_json(selector.as_bytes()).unwrap();
+    let error = attachments::ipc::read(&layout, PAGE, &selector)
+        .err()
+        .expect("a serve without an object channel cannot read an attachment");
+    let failure = error
+        .downcast_ref::<tmt_colab::page::ipc::WriteError>()
+        .expect("the serve's typed refusal");
+    assert_eq!(failure.code(), "COLAB_UNAVAILABLE");
+    assert_eq!(
+        failure.to_string(),
+        "Colab attachments are unavailable until a Colab page is opened in the browser or Remote restarts."
+    );
+}
 #[test]
 fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     use tmt_colab::attachments::attach_ipc;

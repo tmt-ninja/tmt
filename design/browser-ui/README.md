@@ -27,7 +27,8 @@ The `./rich-input.css` entry exposes the RichInput stylesheet for hosts that emb
 inside an isolated page frame; the `./rich-input` React entry remains the component owner. A
 `single` RichInput grows to more lines instead of hiding chips, with its leading icon on the first
 line, and a keyboard or scripted focus that would put the caret before everything lands it after the
-content instead.
+content instead. A mouse or touch press keeps its own caret, including a tap whose focus arrives only
+after the finger lifts.
 The React entry also exports `BrowserCardMeter`, `BrowserOverview`, `BrowserEditorial`,
 `BrowserVisuallyHidden` and `BrowserChart`. The chart uses the shared series painter and releases
 its resize observer when its React owner unmounts. `createSeriesChart` accepts an optional cleanup
