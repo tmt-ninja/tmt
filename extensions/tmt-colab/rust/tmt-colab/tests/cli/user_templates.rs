@@ -832,3 +832,165 @@ fn seed_legacy_page(pilot: &Pilot) -> String {
     seed_page(pilot);
     PAGE.to_owned()
 }
+
+/// The browser's Save as template, Remove template and default (#5077) go through the rules the CLI
+/// uses, so both paths refuse the same names with the same codes, and the owner's template list
+/// (`GET /api/templates`) is `template ls --json` after each step.
+#[test]
+fn the_browser_and_the_cli_share_one_owner_per_template_rule() {
+    use tmt_colab::page::{metadata, save};
+    let pilot = Pilot::new(None);
+    let data_root = pilot.root.join("selected");
+    let template = page(&pilot, "Weekly review", TEMPLATE_SOURCE);
+    let other = page(&pilot, "Notes", "<p>Notes</p>");
+    let open: save::SourceOpener = {
+        let root = data_root.clone();
+        std::sync::Arc::new(move || {
+            save::open_source(&root, support::decoder_config(BINARY.into()))
+        })
+    };
+    let listing = || tmt_colab::registration::Registration::templates(&open).unwrap();
+    let agrees = |pilot: &Pilot| {
+        assert_eq!(
+            serde_json::from_slice::<Value>(&listing()).unwrap(),
+            listed(pilot)
+        );
+    };
+    let browser = |page: &str, action: &str, body: Value| {
+        let revision = pilot.call(&["page", "read", page, "--json"])["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        metadata::prepare(
+            &open,
+            &metadata::MetadataEdit {
+                page: page.to_owned(),
+                operation_id: "40000000-0000-4000-8000-0000000000d1".into(),
+                expected_revision: revision,
+                action: action.into(),
+                body,
+            },
+            &|| Ok(1_800_000_000_000),
+        )
+    };
+    let code = |error: Box<dyn std::error::Error + Send + Sync>| {
+        error
+            .downcast_ref::<tmt_colab::template_catalog::Refusal>()
+            .map(|refusal| refusal.code().to_owned())
+            .unwrap_or_else(|| format!("{error}"))
+    };
+    agrees(&pilot);
+    save(&pilot, &template, "weekly-review");
+    agrees(&pilot);
+
+    // A name another page carries, and a compiled name: the same refusal on both paths.
+    for (name, expected) in [
+        ("weekly-review", "COLAB_TEMPLATE_NAME_TAKEN"),
+        ("report", "COLAB_TEMPLATE_NAME_RESERVED"),
+        ("Weekly Review", "COLAB_TEMPLATE_NAME_INVALID"),
+    ] {
+        refused(
+            &pilot,
+            &["template", "save", &other, "--name", name, "--json"],
+            expected,
+        );
+        let error = browser(&other, "template.set", json!({"name": name}))
+            .err()
+            .unwrap();
+        assert_eq!(code(error), expected, "{name}");
+    }
+    // A page that is not a template cannot be removed, on either path.
+    refused(
+        &pilot,
+        &["template", "remove", &other, "--json"],
+        "COLAB_TEMPLATE_UNKNOWN",
+    );
+    let error = browser(&other, "template.clear", json!({})).err().unwrap();
+    assert_eq!(code(error), "COLAB_TEMPLATE_UNKNOWN");
+    // An admitted name prepares the same structured write the CLI commits.
+    assert!(matches!(
+        browser(
+            &other,
+            "template.set",
+            json!({"name":"notes","description":"Notes"})
+        )
+        .unwrap()
+        .prepared,
+        save::Prepared::Write(_)
+    ));
+    agrees(&pilot);
+
+    // Removing the default template returns the serving machine's default to starter, as the CLI's
+    // remove does, but only once the clear commits: a browser clear that is prepared and never
+    // committed leaves the default where it was.
+    pilot.call(&["template", "default", "weekly-review", "--json"]);
+    agrees(&pilot);
+    let default = settings(&pilot)["defaultTemplate"].clone();
+    let clear = browser(&template, "template.clear", json!({})).unwrap();
+    assert!(matches!(clear.prepared, save::Prepared::Write(_)));
+    assert!(clear.removes.is_some());
+    assert_eq!(settings(&pilot)["defaultTemplate"], default);
+    agrees(&pilot);
+    pilot.call(&["template", "remove", "weekly-review", "--json"]);
+    assert!(settings(&pilot).get("defaultTemplate").is_none());
+    agrees(&pilot);
+}
+
+/// A name is unique in the space, so saves are ordered by one lock across pages and processes: a
+/// save waits while another holds it, and of two pages saving one name back to back the second is
+/// refused.
+#[test]
+fn two_pages_saving_one_name_back_to_back_keep_it_unique() {
+    let pilot = Pilot::new(None);
+    let first = page(&pilot, "Weekly review", TEMPLATE_SOURCE);
+    let second = page(&pilot, "Weekly copy", TEMPLATE_SOURCE);
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let held = tmt_colab::template_catalog::save_lock(&layout).unwrap();
+    let mut waiting = pilot
+        .command()
+        .args([
+            "template",
+            "save",
+            &first,
+            "--name",
+            "weekly-review",
+            "--json",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // While the lock is held the save cannot finish.
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < deadline {
+        assert!(
+            waiting.try_wait().unwrap().is_none(),
+            "the save did not wait"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(held);
+    assert!(waiting.wait_with_output().unwrap().status.success());
+    refused(
+        &pilot,
+        &[
+            "template",
+            "save",
+            &second,
+            "--name",
+            "weekly-review",
+            "--json",
+        ],
+        "COLAB_TEMPLATE_NAME_TAKEN",
+    );
+    assert_eq!(
+        listed(&pilot)["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["name"] == "weekly-review")
+            .count(),
+        1
+    );
+}

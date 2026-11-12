@@ -32,6 +32,7 @@ import {
   type Registration,
 } from './registration.js';
 import { storagePort, type StoragePort } from './storage-usage.js';
+import { readTemplates, type TemplateListing } from './templates.js';
 
 export interface Recipient {
   id: string;
@@ -106,6 +107,33 @@ export interface ManagementPort {
   manageProject(change: ProjectManage): Promise<void>;
   /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
   setPinned(pageId: string, pinned: boolean): Promise<void>;
+  /** One `page.new` (#5076): the owner makes a top-level page from a template and answers its ID. A
+   * resend of the same `request` finds the page it made. */
+  newPage(request: NewPageRequest): Promise<string>;
+  /** One `template.default` (#5077): the serving machine's default template; `null` is `starter`.
+   * Answers the name of the default now. */
+  setDefaultTemplate(template: string | null): Promise<string>;
+  /** The owner's templates and the serving machine's default (`GET /api/templates`). */
+  readTemplates(signal?: AbortSignal): Promise<TemplateListing>;
+  /** The agents this machine's Remote lists, for a new page's creator; absent without Remote. */
+  agents?(): Promise<{ id: string; name: string }[]>;
+}
+/** A browser's new page: the template and nothing it brings. `operationId` names the page. */
+export interface NewPageRequest {
+  operationId: string;
+  title: string;
+  template: string;
+  creator?: { agent: { id: string; name: string } };
+}
+/** The page a `page.new` operation names (contract: `page.new`): SHA-256 over the domain, the space
+ * and the operation ID, its first 16 bytes as a version 4 UUID; the owner refuses any other. */
+export async function newPageId(space: string, operationId: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`tmt-colab/page-new/v1\0${space}\0${operationId}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)).slice(0, 16);
+  digest[6] = (digest[6] & 15) | 64;
+  digest[8] = (digest[8] & 63) | 128;
+  const hex = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 /** A refused management request: the owner socket answers with the bare code as text (contract:
  * the management socket's unsuccessful response body); a JSON `{code}` reads the same. */
@@ -599,15 +627,75 @@ export class ManagementClient implements ManagementPort {
     generatedId(pageId);
     await this.displayOnly(pageId, 'page.pin', { pageId, pinned });
   }
+  async newPage(request: NewPageRequest): Promise<string> {
+    generatedId(request.operationId);
+    const title = request.title.trim();
+    requireValue(
+      title.length > 0 &&
+        ![...title].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) &&
+        request.template.length > 0 &&
+        request.template.length <= 64,
+    );
+    const cert = this.registration.chain.certificate();
+    const pageId = await newPageId(cert.space, request.operationId);
+    const v = await this.signed(
+      SPACE_SCOPE_PAGE,
+      'page.new',
+      {
+        pageId,
+        title,
+        template: request.template,
+        ...(request.creator ? { creator: request.creator } : {}),
+      },
+      request.operationId,
+    );
+    try {
+      exactKeys(v, ['operationId', 'pageId', 'membershipHead']);
+      requireValue(v.operationId === request.operationId && v.pageId === pageId);
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+    return pageId;
+  }
+  readTemplates(signal?: AbortSignal): Promise<TemplateListing> {
+    return readTemplates(this.mount, signal);
+  }
+  async setDefaultTemplate(template: string | null): Promise<string> {
+    requireValue(template === null || (template.length > 0 && template.length <= 64));
+    const id = crypto.randomUUID();
+    const v = await this.signed(SPACE_SCOPE_PAGE, 'template.default', { template }, id);
+    try {
+      exactKeys(v, ['operationId', 'default']);
+      requireValue(v.operationId === id && typeof v.default === 'string');
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+    return v.default as string;
+  }
   /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
   private async displayOnly(
     page: string,
     operation: 'page.projects' | 'project.manage' | 'page.pin',
     payload: object,
   ): Promise<void> {
+    const v = await this.signed(page, operation, payload, crypto.randomUUID());
+    try {
+      exactKeys(v, ['operationId', 'membershipHead']);
+      exactKeys(v.membershipHead, ['revision', 'statementHash']);
+      requireValue(typeof v.membershipHead.revision === 'string');
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+  }
+  /** One signed request that names no revision; the caller checks the shape of the reply. */
+  private async signed(
+    page: string,
+    operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.new' | 'template.default',
+    payload: object,
+    id: string,
+  ): Promise<Record<string, any>> {
     const bytes = text(JSON.stringify(payload));
-    const id = crypto.randomUUID(),
-      issuedAt = Date.now(),
+    const issuedAt = Date.now(),
       cert = this.registration.chain.certificate(),
       expiresAt = Math.min(issuedAt + 600000, cert.expiresAt);
     requireValue(cert.issuedAt <= issuedAt && cert.expiresAt > issuedAt);
@@ -631,13 +719,9 @@ export class ManagementClient implements ManagementPort {
       }),
       expiresAt,
     );
-    try {
-      exactKeys(v, ['operationId', 'membershipHead']);
-      exactKeys(v.membershipHead, ['revision', 'statementHash']);
-      requireValue(v.operationId === id && typeof v.membershipHead.revision === 'string');
-    } catch {
+    if (v === null || typeof v !== 'object' || (v as { operationId?: unknown }).operationId !== id)
       throw new ManagementError('UNKNOWN');
-    }
+    return v as Record<string, any>;
   }
   async send(pending: Pending): Promise<Acknowledgment> {
     const v = await this.post(pending.body, pending.expiresAt);
@@ -703,6 +787,7 @@ export class ManagementClient implements ManagementPort {
           EXPIRED: 403,
           CONFLICT: 409,
           STALE_HEAD: 409,
+          TEMPLATE_CHANGED: 409,
           CAPACITY: 503,
           UNAVAILABLE: 503,
         };

@@ -85,6 +85,11 @@ export async function mount() {
     },
     async manageProject() {},
     async setPinned() {},
+    newPage: async () => {
+      throw new Error('not in this fixture');
+    },
+    setDefaultTemplate: async () => 'starter',
+    readTemplates: async () => ({ default: 'starter', templates: [] }),
     async setProjects() {
       throw new Error('No management command is admitted by this fixture');
     },

@@ -16,6 +16,8 @@ import {
   Pin,
   Archive,
   CornerDownRight,
+  LayoutTemplate,
+  X,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -35,7 +37,10 @@ export type PageHeaderAction =
   | 'questions'
   | 'creator'
   | 'archive'
-  | 'put-under';
+  | 'put-under'
+  | 'template-save'
+  | 'template-settings'
+  | 'template-remove';
 
 /** The More trigger's decorative icon; hosts retain each action's authority. */
 function MoreIcon() {
@@ -74,6 +79,7 @@ export function PageHeaderActions({
   pin,
   creatorLabel,
   access,
+  template,
   onSelect,
 }: {
   files: number;
@@ -92,6 +98,8 @@ export function PageHeaderActions({
   readOnly?: boolean;
   /** The page's sharing and connection words, the secondary text of the Share… item. */
   access: string;
+  /** The owner may save this page as a template (`save`) or it is one (`template`) (#5077). */
+  template?: 'save' | 'template';
   onSelect(action: PageHeaderAction | 'projects' | 'pin'): void;
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
@@ -101,6 +109,20 @@ export function PageHeaderActions({
   // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
   const compact = useMedia('(max-width: 900px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
+  // After Pin and before About, set apart (#5077).
+  const templateItems: BrowserMenuItem[] =
+    template === 'save'
+      ? [{ key: 'template-save', label: text.templates.saveAs, leadingIcon: <LayoutTemplate /> }]
+      : template === 'template'
+        ? [
+            {
+              key: 'template-settings',
+              label: text.templates.settings,
+              leadingIcon: <LayoutTemplate />,
+            },
+            { key: 'template-remove', label: text.templates.remove, leadingIcon: <X /> },
+          ]
+        : [];
   const legacyItems: BrowserMenuItem[] = [
     {
       key: 'share',
@@ -115,6 +137,11 @@ export function PageHeaderActions({
     },
     ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
     ...(pinItem ? [pinItem] : []),
+    ...templateItems.map((item, index) => ({
+      key: item.key,
+      label: item.label,
+      ...(index === 0 ? { separated: true } : {}),
+    })),
     ...(canMove ? [{ key: 'put-under', label: text.workBand.putUnder }] : []),
     { key: 'questions', label: text.metadata.questionsItem },
     { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
@@ -166,6 +193,7 @@ export function PageHeaderActions({
         { key: 'creator', label: text.moreCreator, meta: creatorLabel, leadingIcon: <UserRound /> },
       ],
     },
+    { heading: text.templates.title, items: templateItems },
     {
       heading: text.moreGroups.content,
       items: [
@@ -234,7 +262,10 @@ export function PageHeaderActions({
         key === 'about' ||
         key === 'files' ||
         key === 'source' ||
-        key === 'export'
+        key === 'export' ||
+        key === 'template-save' ||
+        key === 'template-settings' ||
+        key === 'template-remove'
       )
         onSelect(key);
       else setThemeChoice(key as ThemeChoice);

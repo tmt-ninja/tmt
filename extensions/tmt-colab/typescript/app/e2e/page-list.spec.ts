@@ -1003,7 +1003,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
-test('the module menu is the fixed list: All pages, Shortcuts with its commands, then settings', async ({
+test('the module menu is the fixed list: All pages and Templates, Shortcuts with its commands, then settings', async ({
   page,
 }) => {
   await mount(page);
@@ -1017,7 +1017,14 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['all', 'colab-settings']);
+  ).toEqual(['all', 'templates', 'colab-settings']);
+  // Templates is a fixed Colab row with All pages, above the Shortcuts heading, never in its group.
+  const templatesRow = (await menu.locator('a[data-id="templates"]').boundingBox())!;
+  const shortcutsHeading = (await menu.locator('.tmt-ui-rail-sub-group').first().boundingBox())!;
+  expect(templatesRow.y + templatesRow.height).toBeLessThanOrEqual(shortcutsHeading.y);
+  await expect(
+    menu.getByRole('list', { name: 'Shortcuts' }).locator('a[data-id="templates"]'),
+  ).toHaveCount(0);
   // No project rows or project commands: projects live in the list's filter. With no dashboard,
   // no Dashboards group.
   await expect(menu).not.toContainText('Dashboards');
@@ -1042,7 +1049,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id!.split(':')[0])),
-  ).toEqual(['all', 'shell', 'colab-settings']);
+  ).toEqual(['all', 'templates', 'shell', 'colab-settings']);
   const shell = menu.locator('a[data-id^="shell:"]');
   await expect(shell).toHaveText('Reading shell');
   const dashboardIcon = shell.locator(':scope > svg.tmt-ui-shell-icon');

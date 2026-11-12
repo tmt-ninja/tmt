@@ -32,6 +32,7 @@ import { onRememberedPages, rememberedPages } from './quick-switcher-source.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport } from './transport.js';
 import { useShortcuts } from './use-shortcuts.js';
+import { onTemplateCount, templateCount } from './templates.js';
 
 /** The TMT app's slot when Colab runs as its `/colab/` route; the app owns the rail then. */
 export const ShellHostSlot = createContext<ShellSlot | null>(null);
@@ -61,9 +62,9 @@ export function shortcutRows(
 
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
- * module menu is Colab's own fixed list: All pages, the Shortcuts group, Dashboards (the shell
- * pages, when there are any), then Colab settings. Exactly one row is selected: settings or a
- * dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
+ * module menu is Colab's own fixed list: All pages and Templates, the Shortcuts group, Dashboards
+ * (the shell pages, when there are any), then Colab settings. Exactly one row is selected: settings,
+ * Templates or a dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
  * else All pages.
  */
 export function ColabShell({
@@ -98,6 +99,7 @@ export function ColabShell({
   // The menu reads nothing itself: it shows the list the routes already read (the space home, a
   // link-opened page's chip read, the quick switcher), so it never adds a list request.
   const listed = useSyncExternalStore(onRememberedPages, () => rememberedPages(transport, space));
+  const templates = useSyncExternalStore(onTemplateCount, templateCount);
   useEffect(() => {
     if (hostSlot) return;
     void shellAddress().then(async (address) => {
@@ -119,6 +121,7 @@ export function ColabShell({
   const view = useMemo(() => {
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
     const settings = location.pathname === '/settings';
+    const templatesRoute = location.pathname === '/templates';
     // A dashboard selects its own row, ahead of the shortcut its list showed.
     const shells = shown
       .filter((page) => page.pageType === 'shell')
@@ -133,7 +136,7 @@ export function ColabShell({
     const dashboard = shells.some((row) => row.current);
     const rows = shortcutRows(
       shortcuts.items,
-      settings || dashboard ? undefined : shortcutId,
+      settings || dashboard || templatesRoute ? undefined : shortcutId,
       (item) => href('/', { ...item.search, shortcut: item.id }),
       listed,
     );
@@ -150,8 +153,23 @@ export function ColabShell({
               href: href('/'),
               total: all!.count,
               count: all!.waiting ? shellCount(all!.waiting) : undefined,
-              current: !settings && !dashboard && !rows.some((row) => row.current),
+              current:
+                !settings && !templatesRoute && !dashboard && !rows.some((row) => row.current),
             },
+            // Templates (#5077): a fixed Colab row with All pages, above the Shortcuts group, so
+            // it never reads as a shortcut Manage could remove.
+            ...(transport.management
+              ? [
+                  {
+                    id: 'templates',
+                    icon: 'file-text' as const,
+                    label: text.templates.title,
+                    href: href('/templates'),
+                    ...(templates === undefined ? {} : { total: templates }),
+                    current: templatesRoute,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -219,9 +237,11 @@ export function ColabShell({
     transport.management,
     location.pathname,
     shortcutId,
+    templates,
   ]);
   const select = (id: string) => {
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
+    if (id === 'templates') return (void router.navigate({ to: '/templates' }), true);
     if (id.startsWith('shell:')) {
       const pageId = id.slice('shell:'.length);
       void router.navigate({ to: '/pages/$pageId', params: { pageId } });

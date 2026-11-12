@@ -115,7 +115,9 @@ export type MetadataAction =
   | 'question.agent'
   | 'page.state'
   | 'page.convert'
-  | 'page.revert';
+  | 'page.revert'
+  | 'template.set'
+  | 'template.clear';
 
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {

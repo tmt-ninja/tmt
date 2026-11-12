@@ -431,38 +431,7 @@ fn ls(args: &ArgMatches) -> Result<()> {
     let default = template_catalog::default(&catalog, settings.default_template())?;
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        let mut templates: Vec<Value> = TEMPLATES
-            .iter()
-            .map(|template| {
-                json!({
-                    "name": template.name,
-                    "layout": template.kind.as_str(),
-                    "summary": template.summary,
-                    "source": "builtIn",
-                    "default": default.found.name() == template.name,
-                    "usedBy": catalog.used_by(template.name),
-                })
-            })
-            .collect();
-        templates.extend(catalog.user_templates().map(|user| {
-            let mut value = json!({
-                "name": user.name,
-                "id": user.page,
-                "layout": user.layout,
-                "summary": user.description,
-                "source": "space",
-                "default": matches!(&default.found, Found::User(found) if found.page == user.page),
-                "usedBy": catalog.used_by(&user.name),
-            });
-            if let Some(author) = &user.author {
-                value["author"] = json!(author);
-            }
-            value
-        }));
-        let mut value = json!({"default": default.found.name(), "templates": templates});
-        if let Some(gone) = &default.gone {
-            value["defaultGone"] = json!(gone);
-        }
+        let value = template_catalog::listing(&catalog, settings.default_template())?;
         writeln!(output, "{value}")?;
         return Ok(());
     }
@@ -740,13 +709,7 @@ fn default(args: &ArgMatches) -> Result<()> {
         Some(wanted) => catalog.find(wanted)?,
         None => Found::BuiltIn(find("starter").expect("starter is compiled")),
     };
-    // The setting names a user template by its page, which a rename keeps; a compiled one by name,
-    // and `starter` is the absence of a setting.
-    let setting = match &found {
-        Found::BuiltIn(template) if template.name == "starter" => None,
-        Found::BuiltIn(template) => Some(template.name),
-        Found::User(user) => Some(user.page.as_str()),
-    };
+    let setting = template_catalog::default_setting(&found);
     tmt_colab::settings::set_default_template(&space.root, setting)?;
     if json_output {
         let mut value = json!({"default": found.name(), "changed": true});
@@ -773,22 +736,6 @@ fn default(args: &ArgMatches) -> Result<()> {
         )?;
     }
     Ok(())
-}
-
-/// A description for a page being saved: its title, folded into one trimmed line within the bound.
-fn fit_description(title: &str) -> String {
-    let line = title
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let mut end = line.len().min(template_marks::DESCRIPTION_BYTES);
-    while !line.is_char_boundary(end) {
-        end -= 1;
-    }
-    line[..end].trim().to_owned()
 }
 
 /// A structured template edit on one page through the owner: the same publication as every other
@@ -847,45 +794,22 @@ fn commit(
 fn save(args: &ArgMatches) -> Result<()> {
     let json_output = args.get_flag("json");
     let (mut space, lock) = write_space()?;
+    let _saves =
+        template_catalog::save_lock(&space.open.as_ref().ok_or(page::Fault::Missing)?.layout)?;
     let name = args.get_one::<String>("name").expect("required name");
     let operand = args.get_one::<String>("page").expect("required page");
     let catalog = space.catalog()?;
     let open = space.open.as_mut().ok_or(page::Fault::Missing)?;
     let page_id = crate::cli_management::resolve_page(&open.store, &open.key, operand)?;
-    template_catalog::admit_name(&catalog, name, &page_id)?;
     let content = template_catalog::read_page(&open.store, &open.key, &mut open.decoder, &page_id)?;
-    // A saved template is register-clean, as a write is: its copies register what it registered.
-    tmt_colab::question_registry::admit_source(&content.source, &content.meta, &page_id, None)?;
-    // A page created from the template takes its layout, and every created page has one.
-    if content.layout.is_none() {
-        return Err(template_catalog::refusal(
-            "COLAB_TEMPLATE_NEEDS_LAYOUT",
-            format!(
-                "Page {} names no layout, so a page created from it would have none",
-                catalog.short_id(&page_id)
-            ),
-            Some(format!(
-                "tmt colab page layout {} column",
-                catalog.short_id(&page_id)
-            )),
-        ));
-    }
-    let description = match args.get_one::<String>("description") {
-        Some(description) => description.clone(),
-        None => template_marks::mark_of_meta(&content.meta)
-            .map(|(_, current)| current.to_owned())
-            .unwrap_or_else(|| fit_description(&content.title)),
-    };
-    if !template_marks::valid_description(&description) {
-        return Err(template_catalog::refusal(
-            "COLAB_TEMPLATE_DESCRIPTION_INVALID",
-            format!(
-                "A description is one trimmed line of at most {} bytes",
-                template_marks::DESCRIPTION_BYTES
-            ),
-            None,
-        ));
-    }
+    let body = template_catalog::admit_save(
+        &catalog,
+        &page_id,
+        name,
+        args.get_one::<String>("description").map(String::as_str),
+        &content,
+    )?;
+    let description = body["description"].as_str().unwrap_or_default().to_owned();
     let rules = template_catalog::rules(&content.source).len();
     let layout = content
         .layout
@@ -893,7 +817,6 @@ fn save(args: &ArgMatches) -> Result<()> {
         .map_or("freeform", |layout| layout.kind.as_str())
         .to_owned();
     let short = catalog.short_id(&page_id).to_owned();
-    let body = json!({"name": name, "description": description});
     let receipt = commit(
         space,
         lock,
@@ -958,28 +881,14 @@ fn remove(args: &ArgMatches) -> Result<()> {
         .get_one::<String>("template")
         .expect("required template");
     let catalog = space.catalog()?;
-    let user: User = match catalog.find(wanted)? {
-        Found::User(user) => user,
-        Found::BuiltIn(template) => {
-            return Err(template_catalog::refusal(
-                "COLAB_TEMPLATE_BUILT_IN",
-                format!(
-                    "{} is a built-in template and cannot be removed",
-                    template.name
-                ),
-                Some("tmt colab template default --reset".to_owned()),
-            ));
-        }
-    };
+    let user: User = template_catalog::removable(&catalog, wanted)?;
     let open = space.open.as_mut().ok_or(page::Fault::Missing)?;
     let content = template_catalog::read_user(&open.store, &open.key, &mut open.decoder, &user)?;
     let used = catalog.used_by(&user.name);
     let short = catalog.short_id(&user.page).to_owned();
     let settings = space.settings();
     let root = space.root.clone();
-    let was_default = settings
-        .default_template()
-        .is_some_and(|chosen| chosen == user.page || chosen == user.name);
+    let was_default = template_catalog::is_default(settings.default_template(), &user);
     let receipt = commit(
         space,
         lock,

@@ -1271,12 +1271,25 @@ fn receive_skips_websocket_keepalive_frames_before_json() {
 }
 
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
+    hello_on(server, peer, id, PAGE)
+}
+/// `hello` for a session on another page of the space.
+fn hello_on(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    id: &str,
+    page_id: &str,
+) -> Vec<Value> {
+    let on = |mut frame: Value| {
+        frame["page"] = page_id.into();
+        frame
+    };
     send(
         peer,
-        server.frame(
+        on(server.frame(
             "hello",
             json!({"membershipRevision":"0","device":id,"cursors":[]}),
-        ),
+        )),
     );
     let first = receive(peer);
     assert_eq!(first["type"], "catchup");
@@ -1291,13 +1304,13 @@ fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Va
         json!(values::encode_binary(&head.hash))
     );
     assert_eq!(first["baseline"], Value::Null);
-    send(peer, server.frame("ack", json!({"cursors":[]})));
+    send(peer, on(server.frame("ack", json!({"cursors":[]}))));
     let mut pages = vec![first];
     for _ in 0..8 {
         let page = receive(peer);
         assert_eq!(page["type"], "catchup");
         let more = page["more"].as_bool().unwrap();
-        send(peer, server.frame("ack", json!({"cursors":[]})));
+        send(peer, on(server.frame("ack", json!({"cursors":[]}))));
         if page.get("wraps").is_some() && more {
             continue;
         }
@@ -7969,4 +7982,360 @@ fn the_held_page_list_path_admits_exactly_the_vector_tokens() {
         ));
         assert!(reply.starts_with("HTTP/1.1 404"), "{token}: {reply}");
     }
+}
+
+/// A signed `page.new` (#5076): the space scope page and no revision.
+fn new_page_body(server: &Running, id: &str, payload: Value, sender: &str, issued: u64) -> String {
+    space_body(server, id, "page.new", payload, sender, issued)
+}
+/// A signed space-scoped management request with no revision.
+fn space_body(
+    server: &Running,
+    id: &str,
+    operation: &str,
+    payload: Value,
+    sender: &str,
+    issued: u64,
+) -> String {
+    let payload = serde_json::to_vec(&payload).unwrap();
+    let request = tmt_colab_model::auth::management_input(&tmt_colab_model::auth::Management {
+        space: &server.space,
+        page: tmt_colab_model::auth::SPACE_SCOPE_PAGE,
+        expected_revision: "",
+        operation_id: id,
+        operation,
+        payload: &payload,
+        sender_device: sender,
+        issued_at: issued,
+        expires_at: issued + 60_000,
+    })
+    .unwrap();
+    json!({"request":values::encode_binary(&request),"payload":values::encode_binary(&payload),
+        "signature":values::encode_binary(&signing(sender).sign(&request).to_bytes())})
+    .to_string()
+}
+fn read_page(server: &Running, page: &str) -> tmt_colab::page::Page {
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    tmt_colab::page::read(&store, &key, page, &mut decoder).unwrap()
+}
+fn page_exists(server: &Running, page: &str) -> bool {
+    server
+        .registration
+        .lock()
+        .unwrap()
+        .page_epoch(page)
+        .is_some()
+}
+fn owner_operations(server: &Running) -> i64 {
+    server
+        .oracle()
+        .query_row("SELECT count(*) FROM owner_operations", [], |r| r.get(0))
+        .unwrap()
+}
+
+#[test]
+fn a_browser_new_page_starts_from_a_compiled_template_once_per_operation() {
+    const OP: &str = "40000000-0000-4000-8000-0000000000a1";
+    const NEXT_OP: &str = "40000000-0000-4000-8000-0000000000a2";
+    let path = tmt_colab::management::PATH;
+    let server = Running::start(Tunnels::PRODUCT);
+    let header = format!("{}\r\n", owner(DEVICE));
+    let page = tmt_colab::subpage_create::new_page_id(&server.space, OP);
+    let payload = json!({"pageId":page,"title":"Week 43","template":"starter"});
+    let body = new_page_body(&server, OP, payload.clone(), DEVICE, now());
+    let before = owner_operations(&server);
+
+    // Refusals write nothing: no context, another device's context, a bad signature, a payload
+    // the template brings (source, layout) or that is not admitted, and a page ID the operation
+    // does not name.
+    let refused = |headers: &str, body: &str, code: &str| {
+        let response = server.event(path, headers, body);
+        assert!(response.ends_with(code), "{code}: {response}");
+        assert!(!page_exists(&server, &page));
+        assert_eq!(owner_operations(&server), before);
+    };
+    refused("", &body, "DENIED");
+    refused(&format!("{}\r\n", owner(OTHER)), &body, "DENIED");
+    let mut non_owner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+    non_owner["owner"] = false.into();
+    refused(
+        &format!("tmt-device-context: {non_owner}\r\n"),
+        &body,
+        "DENIED",
+    );
+    let mut bad_signature: Value = serde_json::from_str(&body).unwrap();
+    bad_signature["signature"] = values::encode_binary(&[0; 64]).into();
+    refused(&header, &bad_signature.to_string(), "DENIED");
+    let other_signer = new_page_body(&server, OP, payload.clone(), OTHER, now());
+    refused(&header, &other_signer, "DENIED");
+    for (field, value) in [
+        ("template", json!("weekly")),
+        ("template", json!("")),
+        ("title", json!("")),
+        ("title", json!("   ")),
+        ("title", json!("a\nb")),
+        ("title", json!("x".repeat(513))),
+        (
+            "pageId",
+            json!(tmt_colab::subpage_create::new_page_id(
+                &server.space,
+                NEXT_OP
+            )),
+        ),
+        ("pageId", json!(PAGE)),
+        ("source", json!("<h1>Mine</h1>")),
+        ("layout", json!({"kind":"full"})),
+        ("creator", json!({"agent":"tmt-gui-lead"})),
+    ] {
+        let mut changed = payload.clone();
+        changed[field] = value;
+        refused(
+            &header,
+            &new_page_body(&server, OP, changed, DEVICE, now()),
+            "INVALID",
+        );
+    }
+
+    let response = server.event(path, &header, &body);
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let reply: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(reply["operationId"], OP);
+    assert_eq!(reply["pageId"], page.as_str());
+    let made = read_page(&server, &page);
+    assert_eq!(made.title, "Week 43");
+    // The starter's own source, block IDs fresh per copy, its questions unassigned.
+    assert!(tmt_colab::templates::admits("starter", &made.source, None));
+    assert!(!made.source.contains("data-agent=\""));
+    assert_eq!(made.from_template, Some(json!({"name":"starter"})));
+    assert_eq!(made.publisher_agent, None);
+    let operations = owner_operations(&server);
+    assert_eq!(operations, before + 1);
+
+    // A replay answers with the same page and writes nothing; a new operation makes a new page.
+    let replay = server.event(path, &header, &body);
+    let replayed: Value = serde_json::from_str(replay.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(replayed["pageId"], page.as_str());
+    assert_eq!(owner_operations(&server), operations);
+    let next = tmt_colab::subpage_create::new_page_id(&server.space, NEXT_OP);
+    let second = server.event(
+        path,
+        &header,
+        &new_page_body(
+            &server,
+            NEXT_OP,
+            json!({"pageId":next,"title":"Report","template":"report"}),
+            DEVICE,
+            now(),
+        ),
+    );
+    assert!(second.starts_with("HTTP/1.1 200"), "{second}");
+    assert_ne!(next, page);
+    assert_eq!(
+        read_page(&server, &next).from_template,
+        Some(json!({"name":"report"}))
+    );
+
+    // A revoked owner device is refused even with a valid signature, and nothing is made.
+    server
+        .oracle()
+        .execute(
+            "UPDATE device_registrations SET revoked=1 WHERE device_id=?",
+            [DEVICE],
+        )
+        .unwrap();
+    const REVOKED_OP: &str = "40000000-0000-4000-8000-0000000000a3";
+    let revoked_page = tmt_colab::subpage_create::new_page_id(&server.space, REVOKED_OP);
+    let operations = owner_operations(&server);
+    let revoked = server.event(
+        path,
+        &header,
+        &new_page_body(
+            &server,
+            REVOKED_OP,
+            json!({"pageId":revoked_page,"title":"Late","template":"starter"}),
+            DEVICE,
+            now(),
+        ),
+    );
+    assert!(
+        revoked.starts_with("HTTP/1.1 403") && revoked.ends_with("DENIED"),
+        "{revoked}"
+    );
+    assert!(!page_exists(&server, &revoked_page));
+    assert_eq!(owner_operations(&server), operations);
+}
+
+#[test]
+fn a_browser_new_page_copies_a_user_template_as_it_is_now() {
+    use tmt_colab::{
+        decoder::{Decoder, StructuredKind},
+        page::{self, PublicationPreparation, StructuredAction},
+        publication::{LocalWrite, WriteAction},
+    };
+    const TEMPLATE: &str = "00000000-0000-4000-8000-0000000000c1";
+    const OP: &str = "40000000-0000-4000-8000-0000000000c2";
+    let server = Running::start(Tunnels::PRODUCT);
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let head: i64 = server
+        .oracle()
+        .query_row(
+            "SELECT max(CAST(revision AS INTEGER)) FROM membership_log",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let source = "<h1>Week</h1>\n<!-- rule: one row per merged item -->\n<p>Shipped</p>\n";
+    let create = json!({"space":server.space,"page":TEMPLATE,"expectedRevision":head.to_string(),
+        "operationId":"40000000-0000-4000-8000-0000000000c3","operation":"page.create",
+        "payload":values::encode_binary(&serde_json::to_vec(&json!({"pageId":TEMPLATE,
+            "title":"Weekly review","source":source,"layout":{"kind":"column"}})).unwrap())});
+    let made = server.event(tmt_colab::management::LOCAL_PATH, "", &create.to_string());
+    assert!(made.starts_with("HTTP/1.1 200"), "{made}");
+    // Mark it as the template weekly-review, as `template save` does.
+    let frozen = {
+        let store = Store::read(&layout).unwrap();
+        let mut decoder = Decoder::with_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap();
+        let revision = page::read(&store, &key, TEMPLATE, &mut decoder)
+            .unwrap()
+            .revision;
+        let prepared = page::prepare_structured_publication(
+            &store,
+            &key,
+            TEMPLATE,
+            StructuredAction {
+                kind: StructuredKind::Template,
+                action: "template.set",
+                body: &json!({"name":"weekly-review","description":"Shipped, open, risks"}),
+                expected_revision: Some(&revision),
+                display_agent: None,
+                operation_id: None,
+            },
+            &mut decoder,
+            &|| Ok(now()),
+        )
+        .unwrap();
+        store.close().unwrap();
+        match prepared {
+            PublicationPreparation::Write(frozen) => frozen,
+            PublicationPreparation::Noop { .. } => panic!("expected a write"),
+        }
+    };
+    let body = LocalWrite {
+        version: 2,
+        action: WriteAction::Write,
+        signed_job: frozen.job().clone(),
+        packet: values::encode_binary(frozen.packet()),
+        chain: values::encode_binary(frozen.chain()),
+    }
+    .to_json(&author_key(&frozen))
+    .unwrap();
+    let marked = server.event(page::ipc::PATH, "", &String::from_utf8(body).unwrap());
+    assert!(marked.starts_with("HTTP/1.1 200"), "{marked}");
+
+    let header = format!("{}\r\n", owner(DEVICE));
+    let page_id = tmt_colab::subpage_create::new_page_id(&server.space, OP);
+    let request = new_page_body(
+        &server,
+        OP,
+        json!({"pageId":page_id,"title":"Week 43","template":"weekly-review"}),
+        DEVICE,
+        now(),
+    );
+    let response = server.event(tmt_colab::management::PATH, &header, &request);
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let copy = read_page(&server, &page_id);
+    let template = read_page(&server, TEMPLATE);
+    assert_eq!(copy.title, "Week 43");
+    assert_eq!(copy.source, source);
+    assert_eq!(copy.template, None);
+    let from = copy.from_template.unwrap();
+    assert_eq!(from["name"], "weekly-review");
+    assert!(from["revision"].as_str().unwrap().starts_with("v1:"));
+    assert_eq!(
+        template.template,
+        Some(json!({"name":"weekly-review","description":"Shipped, open, risks"}))
+    );
+}
+
+#[test]
+fn the_owner_lists_templates_and_sets_the_serving_machines_default() {
+    let path = tmt_colab::management::PATH;
+    let server = Running::start(Tunnels::PRODUCT);
+    let header = format!("{}\r\n", owner(DEVICE));
+    let list = |headers: &str| server.request(&Running::get("/api/templates", headers));
+    let listed = |headers: &str| -> Value {
+        let response = list(headers);
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let refused = list("");
+    assert!(refused.starts_with("HTTP/1.1 4"), "{refused}");
+    let mut non_owner: Value = serde_json::from_str(&context(DEVICE)).unwrap();
+    non_owner["owner"] = false.into();
+    let refused = list(&format!("tmt-device-context: {non_owner}\r\n"));
+    assert!(refused.starts_with("HTTP/1.1 4"), "{refused}");
+    let first = listed(&header);
+    assert_eq!(first["default"], "starter");
+    assert_eq!(
+        first["templates"].as_array().unwrap().len(),
+        tmt_colab::templates::TEMPLATES.len()
+    );
+
+    let set = |id: &str, template: Value, sender: &str| {
+        server.event(
+            path,
+            &header,
+            &space_body(
+                &server,
+                id,
+                "template.default",
+                json!({"template":template}),
+                sender,
+                now(),
+            ),
+        )
+    };
+    let settings = || fs::read_to_string(server.root.join("colab/settings.json")).ok();
+    let before = settings();
+    for (template, code) in [(json!("weekly"), "INVALID"), (json!(""), "INVALID")] {
+        let response = set("40000000-0000-4000-8000-0000000000e1", template, DEVICE);
+        assert!(response.ends_with(code), "{response}");
+        assert_eq!(settings(), before);
+    }
+    let response = set(
+        "40000000-0000-4000-8000-0000000000e1",
+        json!("report"),
+        OTHER,
+    );
+    assert!(response.ends_with("DENIED"), "{response}");
+    assert_eq!(settings(), before);
+    let response = set(
+        "40000000-0000-4000-8000-0000000000e2",
+        json!("report"),
+        DEVICE,
+    );
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.ends_with(r#""default":"report"}"#), "{response}");
+    assert_eq!(listed(&header)["default"], "report");
+    assert!(settings().unwrap().contains(r#""defaultTemplate""#));
+    // Setting it again is the same change; none returns to starter.
+    let again = set(
+        "40000000-0000-4000-8000-0000000000e2",
+        json!("report"),
+        DEVICE,
+    );
+    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
+    let reset = set("40000000-0000-4000-8000-0000000000e3", Value::Null, DEVICE);
+    assert!(reset.starts_with("HTTP/1.1 200"), "{reset}");
+    assert_eq!(listed(&header)["default"], "starter");
 }

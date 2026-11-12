@@ -113,6 +113,11 @@ export function mountMove() {
     setProjects: async () => {},
     manageProject: async () => {},
     setPinned: async () => {},
+    newPage: async () => {
+      throw new Error('not in this fixture');
+    },
+    setDefaultTemplate: async () => 'starter',
+    readTemplates: async () => ({ default: 'starter', templates: [] }),
   };
   const transport = {
     ...base,

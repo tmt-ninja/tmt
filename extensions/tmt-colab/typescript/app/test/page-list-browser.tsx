@@ -3,7 +3,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import type { PageWorkRow } from '../src/bootstrap.js';
-import { ManagementError, type ManagementPort, type Selection } from '../src/management.js';
+import {
+  ManagementError,
+  type ManagementPort,
+  type NewPageRequest,
+  type Selection,
+} from '../src/management.js';
+import type { TemplateEntry } from '../src/templates.js';
 import { AdmissionRefusedError } from '../src/registration.js';
 import { SessionEndedError } from '../src/ask-remote.js';
 import type { ProjectChange, ProjectManage } from '../src/projects.js';
@@ -37,7 +43,50 @@ declare global {
     /** The owner's fold finishing: every page without a summary gets one (the first in progress),
      * and the next list read returns them. */
     __reportTasks?: () => void;
+    /** Every `page.new` request (#5076); `__newPageRefusal` fails the next one with that code. */
+    __newPages: NewPageRequest[];
+    __newPageRefusal?: string;
+    /** Remote cannot list this machine's agents for the next New page (#5076). */
+    __agentsUnavailable?: boolean;
+    /** Every `template.default` request (#5077), in order. */
+    __templateDefaults: (string | null)[];
   }
+}
+/** The templates of the fixture space, as the owner lists them (#5077): TMT's six and two of the
+ * space's own, more than the six that bring the picker's filter and scroll area. */
+export function fixtureTemplates(): TemplateEntry[] {
+  const builtIn: [string, TemplateEntry['layout'], string][] = [
+    ['starter', 'column', 'Title, summary, sections and questions'],
+    ['report', 'column', 'Summary, findings table and next steps'],
+    ['review', 'column', 'Parts for the reader to confirm, and questions'],
+    ['compare', 'column', 'Now and after, side by side'],
+    ['board', 'full', 'A full-bleed status board'],
+    ['gallery', 'column', 'A grid of pictures with captions'],
+  ];
+  const space: [string, string, string][] = [
+    ['design-proposal', 'Options with mocks, spec table, questions', 'tmt-gui-lead'],
+    ['weekly-review', 'Shipped, open, risks, next week', 'ben'],
+  ];
+  return [
+    ...builtIn.map(([name, layout, summary]) => ({
+      name,
+      layout,
+      summary,
+      source: 'builtIn' as const,
+      default: name === 'starter',
+      usedBy: 0,
+    })),
+    ...space.map(([name, summary, author], n) => ({
+      name,
+      id: `d${String(n + 1).padStart(7, '0')}-1111-4111-8111-000000000001`,
+      layout: 'column' as const,
+      summary,
+      source: 'space' as const,
+      default: false,
+      usedBy: name === 'weekly-review' ? 4 : 2,
+      author,
+    })),
+  ];
 }
 export const pageListSpace = 'a0000000-0000-4000-8000-000000000001';
 let root: Root | undefined;
@@ -139,6 +188,9 @@ export async function mountPageList(
   window.__failProjectRequest = undefined;
   window.__failManage = undefined;
   window.__pinRequests = [];
+  window.__newPages = [];
+  window.__agentsUnavailable = undefined;
+  window.__templateDefaults = [];
   window.__pinRefusal = undefined;
   window.__pageOperations = [];
   window.__operationMode = undefined;
@@ -304,7 +356,38 @@ export async function mountPageList(
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
+  let templates = fixtureTemplates();
   const management: ManagementPort = {
+    newPage: async (request) => {
+      window.__newPages.push(request);
+      if (window.__newPageRefusal) {
+        const code = window.__newPageRefusal;
+        window.__newPageRefusal = undefined;
+        throw new ManagementError(code);
+      }
+      return `e${request.operationId.slice(1)}`;
+    },
+    setDefaultTemplate: async (template) => {
+      window.__templateDefaults.push(template);
+      // The owner answers the default's name, whether the request named it or its page.
+      const name =
+        template === null
+          ? 'starter'
+          : (templates.find((t) => t.id === template || t.name === template)?.name ?? template);
+      templates = templates.map((t) => ({ ...t, default: t.name === name }));
+      return name;
+    },
+    agents: async () => {
+      if (window.__agentsUnavailable) throw new Error('Remote is not running');
+      return [
+        { id: 'agent-gui-lead', name: 'tmt-gui-lead' },
+        { id: 'agent-gui-4', name: 'gui-4' },
+      ];
+    },
+    readTemplates: async () => ({
+      default: templates.find((t) => t.default)!.name,
+      templates,
+    }),
     // The list's archive and delete run the real four steps; the fixture answers each in memory.
     read: async (pageId) => ({ page: { pageId } }) as never,
     prepare: async (_view, selection) => ({ selection }) as never,

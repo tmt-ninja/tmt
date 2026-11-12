@@ -115,6 +115,10 @@ import {
   usePageEnvironment,
 } from './page-environment.js';
 import { ColabSettings } from './colab-settings.js';
+import { TemplatesPage } from './templates-page.js';
+import { TemplateDialogs, type TemplateDialogKind } from './template-dialogs.js';
+import { Toast, useToast } from './template-toast.js';
+import { NewPageDialog } from './new-page-dialog.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
@@ -1203,7 +1207,15 @@ const designPage = createRoute({
 const colabSettings = createRoute({
   getParentRoute: () => root,
   path: '/settings',
-  component: () => <ColabSettings />,
+  component: function ColabSettingsRoute() {
+    const { transport } = root.useRouteContext();
+    return <ColabSettings management={transport.management} />;
+  },
+});
+const templates = createRoute({
+  getParentRoute: () => root,
+  path: '/templates',
+  component: TemplatesPage,
 });
 const blocked = createRoute({
   getParentRoute: () => root,
@@ -1257,7 +1269,9 @@ function Shell() {
                   ? text.openAPage
                   : pathname === '/settings'
                     ? text.colabSettings.section
-                    : text.error
+                    : pathname === '/templates'
+                      ? text.templates.title
+                      : text.error
               }
             />
           )}
@@ -1598,6 +1612,10 @@ function OpenPage({
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
   const [metadataDialog, setMetadataDialog] = useState<'creator' | 'questions' | null>(null);
+  // Save as template, Template settings and Remove template, and Use template (#5077).
+  const [templateDialog, setTemplateDialog] = useState<TemplateDialogKind | null>(null);
+  const [usingTemplate, setUsingTemplate] = useState(false);
+  const [templateToast, showTemplateToast] = useToast();
   const [conversion, setConversion] = useState<{
     kind: 'convert' | 'revert';
     revision: string;
@@ -2475,6 +2493,11 @@ function OpenPage({
           remoteChip={false}
           headingSuffix={
             <>
+              {view.template && (
+                <span className="template-badge" data-kind="template">
+                  {text.templates.templateChip}
+                </span>
+              )}
               {hierarchy.subpages}
               <PageProjects
                 transport={transport}
@@ -2573,60 +2596,108 @@ function OpenPage({
             </div>
           }
           actions={
-            <PageHeaderActions
-              files={fileCount}
-              readOnly={archived}
-              access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
-              canExport={!!snapshot.binding && !liveError && !archived}
-              canManage={!!transport.management}
-              canFiles={!!snapshot.binding?.files}
-              canProjects={!!transport.management}
-              canArchive={!!transport.management && !archived && !liveError}
-              canMove={
-                !!snapshot.binding?.work &&
-                !!snapshot.binding.canWork?.() &&
-                !archived &&
-                !liveError
-              }
-              pin={pin}
-              creatorLabel={creatorName(view)}
-              showSource={view.pageType !== 'blocks'}
-              onConvert={
-                snapshot.binding?.canMetadata?.() &&
-                state === 'ready' &&
-                !archived &&
-                !liveError &&
-                !view.pageType &&
-                !view.template
-                  ? () => void openConversion('convert')
-                  : undefined
-              }
-              onRevert={
-                snapshot.binding?.canMetadata?.() &&
-                state === 'ready' &&
-                !archived &&
-                !liveError &&
-                view.pageType === 'blocks' &&
-                view.convertedAt !== undefined
-                  ? () => void openConversion('revert')
-                  : undefined
-              }
-              onSelect={(action) => {
-                if (action === 'put-under') {
-                  setChoosingParent(true);
-                } else if (action === 'archive') {
-                  setPageOperation('page.archive');
-                } else if (action === 'creator' || action === 'questions') {
-                  close();
-                  setMetadataDialog(action);
-                } else if (action === 'projects') openProjects(moreButtonRect());
-                else if (action === 'pin') requestPin('toggle');
-                else toggle(action);
-              }}
-            />
+            <>
+              {view.template && transport.management && !archived && (
+                <BrowserAction
+                  type="button"
+                  variant="primary"
+                  presentation="compact"
+                  label={text.templates.useTemplate}
+                  onActivate={() => setUsingTemplate(true)}
+                />
+              )}
+              <PageHeaderActions
+                template={
+                  transport.management &&
+                  snapshot.binding?.canMetadata?.() &&
+                  state === 'ready' &&
+                  !archived &&
+                  !liveError &&
+                  !view.pageType
+                    ? view.template
+                      ? 'template'
+                      : 'save'
+                    : undefined
+                }
+                files={fileCount}
+                readOnly={archived}
+                access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
+                canExport={!!snapshot.binding && !liveError && !archived}
+                canManage={!!transport.management}
+                canFiles={!!snapshot.binding?.files}
+                canProjects={!!transport.management}
+                canArchive={!!transport.management && !archived && !liveError}
+                canMove={
+                  !!snapshot.binding?.work &&
+                  !!snapshot.binding.canWork?.() &&
+                  !archived &&
+                  !liveError
+                }
+                pin={pin}
+                creatorLabel={creatorName(view)}
+                showSource={view.pageType !== 'blocks'}
+                onConvert={
+                  snapshot.binding?.canMetadata?.() &&
+                  state === 'ready' &&
+                  !archived &&
+                  !liveError &&
+                  !view.pageType &&
+                  !view.template
+                    ? () => void openConversion('convert')
+                    : undefined
+                }
+                onRevert={
+                  snapshot.binding?.canMetadata?.() &&
+                  state === 'ready' &&
+                  !archived &&
+                  !liveError &&
+                  view.pageType === 'blocks' &&
+                  view.convertedAt !== undefined
+                    ? () => void openConversion('revert')
+                    : undefined
+                }
+                onSelect={(action) => {
+                  if (action === 'put-under') {
+                    setChoosingParent(true);
+                  } else if (action === 'archive') {
+                    setPageOperation('page.archive');
+                  } else if (action === 'creator' || action === 'questions') {
+                    close();
+                    setMetadataDialog(action);
+                  } else if (action === 'projects') openProjects(moreButtonRect());
+                  else if (action === 'pin') requestPin('toggle');
+                  else if (action === 'template-save') setTemplateDialog('save');
+                  else if (action === 'template-settings') setTemplateDialog('settings');
+                  else if (action === 'template-remove') setTemplateDialog('remove');
+                  else toggle(action);
+                }}
+              />
+            </>
           }
         />
       )}
+      <TemplateDialogs
+        key={`template:${snapshot.id}`}
+        kind={templateDialog}
+        pageId={snapshot.id}
+        view={view}
+        binding={snapshot.binding}
+        management={transport.management}
+        onDismiss={() => setTemplateDialog(null)}
+        onDone={(message) => {
+          setTemplateDialog(null);
+          showTemplateToast(message);
+        }}
+      />
+      <NewPageDialog
+        open={usingTemplate}
+        onClose={() => setUsingTemplate(false)}
+        focusFallback={() => null}
+        management={transport.management}
+        initialTemplate={snapshot.id}
+        onCreated={(pageId) => routing.open(`/pages/${pageId}`)}
+      />
+      <Toast message={templateToast} />
       <MetadataDialogs
         key={snapshot.id}
         kind={metadataDialog}
@@ -3546,7 +3617,7 @@ export function shellLocation() {
   for (const key of ['read', 'anchor', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
-  if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+  if (/^\/(?:all|settings|templates|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
     history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
 }
 export function createAppRouter(
@@ -3639,6 +3710,7 @@ export function createAppRouter(
       page,
       shortPage,
       colabSettings,
+      templates,
       blocked,
       design,
       designPage,

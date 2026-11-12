@@ -111,20 +111,148 @@ test('Needs you is a tab: it lists the pages waiting on you and leaves with anot
   expect(new URL(page.url()).hash).not.toContain('needs');
 });
 
-test('New page gives the command that creates a page on the machine', async ({ page }) => {
+test('New page creates a page from the chosen template and opens it (#5076)', async ({ page }) => {
   await mount(page, 1440, 'light');
-  await app(page).getByRole('button', { name: 'New page' }).click();
+  const opener = app(page).getByRole('button', { name: 'New page', exact: true });
+  await opener.click();
   const dialog = page.getByRole('dialog', { name: 'New page' });
+  const title = dialog.getByRole('textbox', { name: 'Title' });
+  await expect(title).toBeFocused();
+  const cards = dialog.getByRole('listbox', { name: 'Template' });
+  // The default first, TMT's next, then this space's; the default is chosen until another is.
+  await expect(cards.getByRole('option').first()).toContainText('starter');
+  await expect(cards.getByRole('option', { selected: true })).toContainText('starter');
+  // The terminal command follows the choice and names no template for the default.
+  await dialog.getByText('Or create from a terminal').click();
   await expect(dialog).toContainText('tmt colab page create --title "Notes"');
-  await expect(dialog).toContainText('Return to your TMT workspace after creating the page.');
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  // Without a title nothing is sent, and the title says why.
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(title).toBeFocused();
+  await expect(dialog).toContainText('Give the page a title.');
+  expect(await page.evaluate(() => window.__newPages.length)).toBe(0);
+  await title.fill('Week 43');
+  await cards.getByRole('option', { name: /weekly-review/ }).click();
+  await expect(cards).toBeFocused();
+  await expect(dialog).toContainText(
+    'tmt colab page create --title "Week 43" --template weekly-review',
+  );
+  // A refusal stays in the dialog with its reason; the dialog is not closed.
+  await page.evaluate(() => (window.__newPageRefusal = 'TEMPLATE_CHANGED'));
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('The template changed');
+  await expect(dialog).toBeVisible();
+  // Create page sends one page.new with the template's page and opens the page it made.
+  await dialog.getByRole('button', { name: 'Create page' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(app(page).getByRole('button', { name: 'New page' })).toBeFocused();
-  await expect(rows(page)).toHaveCount(50);
-  await app(page).getByRole('button', { name: 'New page' }).click();
-  await dialog.getByRole('button', { name: 'Close New page' }).click();
+  const sent = await page.evaluate(() => window.__newPages);
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toMatchObject({
+    title: 'Week 43',
+    template: 'd0000002-1111-4111-8111-000000000001',
+  });
+  expect(sent[1]!.creator).toBeUndefined();
+  await expect
+    .poll(() => new URL(page.url()).hash)
+    .toContain(`/pages/e${sent[1]!.operationId.slice(1)}`);
+});
+
+test('the template cards move with the arrow keys and Enter creates (#5077)', async ({ page }) => {
+  await mount(page, 1440, 'light');
+  await app(page).getByRole('button', { name: 'New page', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New page' });
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Notes');
+  const cards = dialog.getByRole('listbox', { name: 'Template' });
+  await cards.focus();
+  const selected = () => cards.getByRole('option', { selected: true });
+  await expect(selected()).toContainText('starter');
+  // Two columns: right is the next card, down is the one below it.
+  await page.keyboard.press('ArrowRight');
+  await expect(selected()).toContainText('report');
+  await page.keyboard.press('ArrowDown');
+  await expect(selected()).toContainText('compare');
+  await page.keyboard.press('ArrowLeft');
+  await expect(selected()).toContainText('review');
+  await page.keyboard.press('End');
+  await expect(selected()).toContainText('weekly-review');
+  await page.keyboard.press('Home');
+  await expect(selected()).toContainText('starter');
+  await expect(cards).toHaveAttribute(
+    'aria-activedescendant',
+    (await selected().getAttribute('id'))!,
+  );
+  // More than six templates: the filter narrows the cards, and the source chips filter by source.
+  const filter = dialog.getByRole('searchbox', { name: 'Filter templates' });
+  await filter.fill('review');
+  await expect(cards.getByRole('option')).toHaveCount(2);
+  await dialog.getByRole('radio', { name: /This space/ }).click();
+  await expect(cards.getByRole('option')).toHaveCount(1);
+  await filter.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(selected()).toContainText('weekly-review');
+  await page.keyboard.press('Enter');
   await expect(dialog).toHaveCount(0);
-  await expect(app(page).getByRole('button', { name: 'New page' })).toBeFocused();
+  expect((await page.evaluate(() => window.__newPages))[0]).toMatchObject({ title: 'Notes' });
+  // The page it made opens; back on the list, the template used last comes right after the default.
+  await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
+  await page.goBack();
+  await app(page).getByRole('button', { name: 'New page', exact: true }).click();
+  await expect(dialog.getByRole('option').nth(1)).toContainText('weekly-review');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(app(page).getByRole('button', { name: 'New page', exact: true })).toBeFocused();
+});
+
+test('New page names the chosen agent as creator and offers it next time (#5076)', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  const opener = app(page).getByRole('button', { name: 'New page', exact: true });
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'New page' });
+  const creator = dialog.getByRole('combobox', { name: 'Creator' });
+  // This machine's agents through Remote, in the design system's Select; No agent until one is chosen.
+  await expect(creator).toBeEnabled();
+  await expect(creator).toHaveText('No agent');
+  await expect(dialog).not.toContainText('Agents could not be listed');
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 43');
+  await creator.click();
+  // The Select's list is the one listbox while it is open (the rest of the page is hidden).
+  const agents = page
+    .getByRole('listbox')
+    .filter({ has: page.getByRole('option', { name: 'No agent' }) });
+  await expect(agents.getByRole('option')).toHaveText([
+    'No agent',
+    'tmt-gui-lead · My machine',
+    'gui-4 · My machine',
+  ]);
+  await agents.getByRole('option', { name: 'gui-4 · My machine' }).click();
+  await expect(agents).toHaveCount(0);
+  await expect(creator).toHaveText('gui-4 · My machine');
+  await expect(creator).toBeFocused();
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await page.evaluate(() => window.__newPages))[0]!.creator).toEqual({
+    agent: { id: 'agent-gui-4', name: 'gui-4' },
+  });
+  // The agent used last is chosen the next time.
+  await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
+  await page.goBack();
+  await opener.click();
+  await expect(creator).toHaveText('gui-4 · My machine');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  // Without Remote's list the creator stays No agent and says why; the page is still created.
+  await page.evaluate(() => (window.__agentsUnavailable = true));
+  await opener.click();
+  await expect(creator).toBeDisabled();
+  await expect(creator).toHaveText('No agent');
+  await expect(creator).toHaveAccessibleDescription(
+    'Agents could not be listed; the page is created without one.',
+  );
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 44');
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await page.evaluate(() => window.__newPages))[1]!.creator).toBeUndefined();
 });
 
 for (const width of [1586, 390])
@@ -136,8 +264,10 @@ for (const width of [1586, 390])
       await opener.click();
       const create = app(page).getByRole('dialog', { name: 'New page', exact: true });
       await expect(
-        create.locator('footer').getByRole('button', { name: 'Close', exact: true }),
+        create.locator('footer').getByRole('button', { name: 'Cancel', exact: true }),
       ).toBeVisible();
+      await expect(create.getByRole('option').first()).toBeVisible();
+      await create.getByText('Or create from a terminal').click();
       await expect(
         create
           .getByRole('button', { name: 'Copy', exact: true })
@@ -145,7 +275,7 @@ for (const width of [1586, 390])
       ).toHaveCount(1);
       expect(await create.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       await page.screenshot({ path: await capturePath(`new-page-${width}-${theme}.png`) });
-      await create.getByRole('button', { name: 'Close', exact: true }).click();
+      await create.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(opener).toBeFocused();
       const menu = rows(page)
         .first()
@@ -404,7 +534,7 @@ for (const width of [1440, 390])
       await create.click();
       const dialog = page.getByRole('dialog', { name: 'New page', exact: true });
       await expect(dialog).toBeVisible();
-      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(create).toBeFocused();
       await home.evaluate((node) => (node.scrollTop = 0));
       await expect(home).not.toHaveAttribute('data-compact');
@@ -590,13 +720,13 @@ test('a scroll transition never steals dialog focus and dismissal returns to the
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
   expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(create).toBeFocused();
   await create.click();
   await home.evaluate((node) => (node.scrollTop = 0));
   await expect(home).not.toHaveAttribute('data-compact');
   expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(create).toBeFocused();
 });
 

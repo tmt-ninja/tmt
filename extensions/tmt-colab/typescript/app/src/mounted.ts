@@ -327,6 +327,23 @@ export async function mountedTransport(
       const client = managementClient;
       return managed(client, () => client.setPinned(pageId, pinned));
     },
+    newPage(request) {
+      const client = managementClient;
+      return managed(client, () => client.newPage(request));
+    },
+    setDefaultTemplate(template) {
+      const client = managementClient;
+      return managed(client, () => client.setDefaultTemplate(template));
+    },
+    readTemplates(signal) {
+      const client = managementClient;
+      return managed(client, () => client.readTemplates(scopedSignal(signal)));
+    },
+    async agents() {
+      const remote = current.remote;
+      if (!remote) throw new Error('Remote is unavailable');
+      return (await remote.listAgents()).map(({ id, name }) => ({ id, name }));
+    },
   };
   clearRecovery(mount);
   const owner = {

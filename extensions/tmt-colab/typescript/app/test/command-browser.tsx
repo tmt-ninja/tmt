@@ -126,6 +126,11 @@ const port: ManagementPort = {
   },
   manageProject: async () => {},
   setPinned: async () => {},
+  newPage: async () => {
+    throw new Error('not in this fixture');
+  },
+  setDefaultTemplate: async () => 'starter',
+  readTemplates: async () => ({ default: 'starter', templates: [] }),
   setProjects: async () => {},
 };
 const root = createRoot(document.getElementById('root')!);

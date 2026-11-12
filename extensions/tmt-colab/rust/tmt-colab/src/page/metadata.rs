@@ -7,6 +7,31 @@ use super::{
 use crate::decoder::StructuredKind;
 use serde_json::Value;
 
+/// A prepared metadata edit and what its commit must do afterwards.
+pub struct PreparedEdit {
+    pub prepared: Prepared,
+    /// A Remove template: the template it removes, whose default returns to starter only once the
+    /// clear commits (`Removal::reset_default`), as `template remove` does.
+    pub removes: Option<Removal>,
+}
+
+/// The template a Remove template takes away, and the data root whose settings name the default.
+pub struct Removal {
+    root: std::path::PathBuf,
+    template: crate::template_catalog::User,
+}
+impl Removal {
+    /// After the clear committed: a default that names the removed template returns to starter. A
+    /// default changed meanwhile to another template stays.
+    pub fn reset_default(&self) -> crate::Result<()> {
+        let settings = crate::settings::read_or_default(&self.root);
+        if crate::template_catalog::is_default(settings.default_template(), &self.template) {
+            crate::settings::set_default_template(&self.root, None)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct MetadataEdit {
     pub page: String,
     pub operation_id: String,
@@ -34,6 +59,23 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
                 return Err(invalid().into());
             }
             Ok(StructuredKind::Creator)
+        }
+        // Save as template and Remove template (#5077): the serve admits the name and the page
+        // with the rules `template save` and `template remove` use (`prepare`).
+        "template.set" => {
+            crate::closed::keys(body, &["name"], &["description"]).map_err(|_| invalid())?;
+            if !body["name"].is_string()
+                || body
+                    .get("description")
+                    .is_some_and(|value| !value.is_string())
+            {
+                return Err(invalid().into());
+            }
+            Ok(StructuredKind::Template)
+        }
+        "template.clear" => {
+            crate::closed::keys(body, &[], &[]).map_err(|_| invalid())?;
+            Ok(StructuredKind::Template)
         }
         "question.handle" | "question.reopen" => {
             crate::closed::keys(body, &["id"], &[]).map_err(|_| invalid())?;
@@ -95,7 +137,7 @@ pub fn prepare(
     open: &SourceOpener,
     edit: &MetadataEdit,
     clock: &dyn Fn() -> crate::Result<u64>,
-) -> crate::Result<Prepared> {
+) -> crate::Result<PreparedEdit> {
     let kind = validate(&edit.action, &edit.body)?;
     let body = if edit.action == "question.agent" {
         resolve_question_agent(&edit.body)?
@@ -103,10 +145,37 @@ pub fn prepare(
         edit.body.clone()
     };
     let mut source = open()?;
-    let body = if edit.action == "page.convert" {
-        serde_json::json!({"convertedAt": clock()?})
-    } else {
-        body
+    let mut removed = None;
+    let body = match edit.action.as_str() {
+        "page.convert" => serde_json::json!({"convertedAt": clock()?}),
+        "template.set" | "template.clear" => {
+            use crate::template_catalog;
+            let catalog = template_catalog::catalog(
+                &source.layout,
+                &source.store,
+                &source.keyring,
+                &mut source.decoder,
+            )?;
+            if edit.action == "template.clear" {
+                removed = Some(template_catalog::removable(&catalog, &edit.page)?);
+                body
+            } else {
+                let content = template_catalog::read_page(
+                    &source.store,
+                    &source.keyring,
+                    &mut source.decoder,
+                    &edit.page,
+                )?;
+                template_catalog::admit_save(
+                    &catalog,
+                    &edit.page,
+                    body["name"].as_str().unwrap_or_default(),
+                    body.get("description").and_then(Value::as_str),
+                    &content,
+                )?
+            }
+        }
+        _ => body,
     };
     let prepared = super::prepare_structured_publication(
         &source.store,
@@ -123,7 +192,13 @@ pub fn prepare(
         &mut source.decoder,
         clock,
     )?;
-    super::save::structured(&source, &edit.page, &edit.operation_id, prepared)
+    Ok(PreparedEdit {
+        prepared: super::save::structured(&source, &edit.page, &edit.operation_id, prepared)?,
+        removes: removed.map(|template| Removal {
+            root: source.root.clone(),
+            template,
+        }),
+    })
 }
 
 #[cfg(test)]

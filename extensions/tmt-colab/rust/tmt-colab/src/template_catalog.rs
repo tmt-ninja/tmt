@@ -380,6 +380,154 @@ pub fn rules(source: &str) -> Vec<String> {
     found
 }
 
+/// The `{name, description}` that saving this page as a template writes, admitted by the rules
+/// `template save` and the browser's Save as template share: the name's grammar, not a compiled
+/// name, not another page's template; a page that is register-clean, as a write is, so its copies
+/// register what it registered; a page that names a layout, which every page created from it takes;
+/// and a description of one trimmed line within its bound. With no description, the page keeps its
+/// own, or takes its title.
+pub fn admit_save(
+    catalog: &Catalog,
+    page: &str,
+    name: &str,
+    description: Option<&str>,
+    content: &Content,
+) -> Result<Value> {
+    admit_name(catalog, name, page)?;
+    crate::question_registry::admit_source(&content.source, &content.meta, page, None)?;
+    if content.layout.is_none() {
+        return Err(Refusal::new(
+            "COLAB_TEMPLATE_NEEDS_LAYOUT",
+            format!(
+                "Page {} names no layout, so a page created from it would have none",
+                catalog.short_id(page)
+            ),
+            Some(format!(
+                "tmt colab page layout {} column",
+                catalog.short_id(page)
+            )),
+        ));
+    }
+    let description = match description {
+        Some(description) => description.to_owned(),
+        None => template_marks::mark_of_meta(&content.meta)
+            .map(|(_, current)| current.to_owned())
+            .unwrap_or_else(|| fit_description(&content.title)),
+    };
+    if !template_marks::valid_description(&description) {
+        return Err(Refusal::new(
+            "COLAB_TEMPLATE_DESCRIPTION_INVALID",
+            format!(
+                "A description is one trimmed line of at most {} bytes",
+                template_marks::DESCRIPTION_BYTES
+            ),
+            None,
+        ));
+    }
+    Ok(serde_json::json!({"name": name, "description": description}))
+}
+
+/// The lock that orders template saves across pages and processes: a name is unique in the space,
+/// so a save holds it from reading the catalog until its write commits, whether the CLI or the
+/// serve's browser Save as template makes it. Blocking: a second save waits, then finds the name.
+pub fn save_lock(layout: &Layout) -> Result<nix::fcntl::Flock<std::fs::File>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(layout.directory.join("template-saves.lock"))?;
+    nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive)
+        .map_err(|(_, error)| error.into())
+}
+
+/// A description for a page being saved: its title, folded into one trimmed line within the bound.
+pub fn fit_description(title: &str) -> String {
+    let line = title
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut end = line.len().min(template_marks::DESCRIPTION_BYTES);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line[..end].trim().to_owned()
+}
+
+/// The user template a removal names: a compiled one cannot be removed.
+pub fn removable(catalog: &Catalog, selector: &str) -> Result<User> {
+    match catalog.find(selector)? {
+        Found::User(user) => Ok(user),
+        Found::BuiltIn(template) => Err(Refusal::new(
+            "COLAB_TEMPLATE_BUILT_IN",
+            format!(
+                "{} is a built-in template and cannot be removed",
+                template.name
+            ),
+            Some("tmt colab template default --reset".to_owned()),
+        )),
+    }
+}
+
+/// Whether the space's default setting names this user template (by its page, or by its name).
+pub fn is_default(setting: Option<&str>, user: &User) -> bool {
+    setting.is_some_and(|chosen| chosen == user.page || chosen == user.name)
+}
+
+/// The setting that makes a template the default: a user template by its page, which a rename
+/// keeps; a compiled one by name; and `starter` is the absence of a setting.
+pub fn default_setting(found: &Found) -> Option<&str> {
+    match found {
+        Found::BuiltIn(template) if template.name == "starter" => None,
+        Found::BuiltIn(template) => Some(template.name),
+        Found::User(user) => Some(user.page.as_str()),
+    }
+}
+
+/// Every template with the space's default marked, as `template ls --json` prints it and the
+/// owner's `GET /api/templates` answers it: compiled ones first, then the space's own.
+pub fn listing(catalog: &Catalog, setting: Option<&str>) -> Result<Value> {
+    let default = default(catalog, setting)?;
+    let mut templates: Vec<Value> = templates::TEMPLATES
+        .iter()
+        .map(|template| {
+            serde_json::json!({
+                "name": template.name,
+                "layout": template.kind.as_str(),
+                "summary": template.summary,
+                "source": "builtIn",
+                "default": default.found.name() == template.name,
+                "usedBy": catalog.used_by(template.name),
+            })
+        })
+        .collect();
+    templates.extend(catalog.user_templates().map(|user| {
+        let mut value = serde_json::json!({
+            "name": user.name,
+            "id": user.page,
+            "layout": user.layout,
+            "summary": user.description,
+            "source": "space",
+            "default": matches!(&default.found, Found::User(found) if found.page == user.page),
+            "usedBy": catalog.used_by(&user.name),
+        });
+        if let Some(author) = &user.author {
+            value["author"] = serde_json::json!(author);
+        }
+        value
+    }));
+    let mut value = serde_json::json!({"default": default.found.name(), "templates": templates});
+    if let Some(gone) = &default.gone {
+        value["defaultGone"] = serde_json::json!(gone);
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

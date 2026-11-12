@@ -514,7 +514,9 @@ follows the page's `page.history` mode, never possession of a new key.
 
 `page.projects`, `project.manage` and `page.pin` are not in this table: they are management requests that
 change display-only owner-store state and append no statement (see [Projects](#projects-3747) and
-[Pins](#pins-4356)).
+[Pins](#pins-4356)). Nor are `page.new` and `template.default`, management requests of the owner
+device only ([Templates in the browser](#templates-in-the-browser-5076-5077)): `page.new` makes a page
+through the owner's own `page.create`, and `template.default` changes a setting of the serving machine.
 
 **Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive`, `page.unarchive` and
 `page.delete` are page-scoped: each names exactly one page in `pageId` and changes only that page's
@@ -1112,8 +1114,10 @@ built-in has none). `template show` prints the template's current one to compare
 source and nothing else: after creation the page is independent of the template, and a later
 change, removal or deletion of the template changes nothing here. A dashboard
 has neither key. Source writes, checkpoints, compaction and epoch baselines preserve both keys in the
-committed update bytes; only `page create` from a template (named, or the space default) sets `fromTemplate`, and only `template save` and
-`template remove` set or clear `template`. A native or browser projection with a member beyond those
+committed update bytes; only a create from a template (`page create` with one named or the space
+default, or the owner browser's `page.new`) sets `fromTemplate`, and only `template save` and
+`template remove`, or the owner browser's `template.set` and `template.clear` metadata commands with
+the same admission, set or clear `template`. A native or browser projection with a member beyond those
 named, a name outside the grammar, a built-in name in `template`, a description past its bounds or a
 dashboard with either key is rejected.
 
@@ -3661,8 +3665,9 @@ outcome is not resent: the user is asked to check the sub-pages. Share readers a
 no Add control.
 
 `subpage.create` with the body `{title}` and nothing else makes a page and attaches it, as
-`tmt colab subpage create` does; its batch form below is the other browser action that makes pages. Page creation is
-otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`, checked
+`tmt colab subpage create` does; its batch form below, and the owner device's `page.new` from a
+template ([Templates in the browser](#templates-in-the-browser-5076-5077)), are the other browser
+actions that make pages. Page creation is otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`, checked
 again under the sync lock when the page is made): the page's first text is the title as an escaped
 heading, and no source, layout or agent comes from the caller. The serve refuses a source page the
 shared hierarchy preflight refuses (`COLAB_LINK_REFUSED` with `reason`) before anything is made,
@@ -4503,29 +4508,29 @@ is read or sent, and reloading the tab loads the current app.
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type             | Additional fields / behavior                                                                                                                                                                                                                                                              |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                                                                                                     |
-| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                                                                                              |
-| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                                                                                                   |
-| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                                                                                         |
-| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                                                                                           |
-| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                                                                                            |
-| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                                                                                             |
-| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                                                                                                  |
-| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                                                                                    |
-| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), `question.agent` (`{id, selector?}`, the serve resolves the selector), committed through the conditional content publisher |
-| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                                                                                         |
-| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                                                                                        |
-| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                                                                                                 |
-| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                                                                                                  |
-| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                                                                                                |
-| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                                                                                                    |
-| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                                                                                           |
-| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                                                                                              |
-| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                                                                                                 |
-| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                                                                                                  |
-| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                                                                                            |
+| Type             | Additional fields / behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                                                                                                                                                                                                                                                                                                         |
+| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                                                                                                                                                                                                                                                                                                  |
+| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                                                                                                                                                                                                                                                                                             |
+| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                                                                                                                                                                                                                                                                                               |
+| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                                                                                                                                                                                                                                                                                                 |
+| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                                                                                                                                                                                                                                                                                                      |
+| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                                                                                                                                                                                                                                                                                        |
+| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), `question.agent` (`{id, selector?}`, the serve resolves the selector), `template.set` (`{name, description?}`) or `template.clear` (`{}`), admitted as `template save` and `template remove` admit them ([Templates in the browser](#templates-in-the-browser-5076-5077)), committed through the conditional content publisher |
+| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                                                                                                                                                                                                                                                                                             |
+| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                                                                                                                                                                                                                                                                                                     |
+| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -5869,12 +5874,12 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
+positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356), and for the browser's `page.new` and `template.default`, see [Templates in the browser](#templates-in-the-browser-5076-5077))
 and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional `template` name (a compiled template's, or a user template's with `templatePage`, the page that carries that name) and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
-cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
+creates pages only through `page.new`, which names a template and never a source. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
 local route has a separate body cap for worst-case JSON escaping plus base64
 (`LOCAL_CREATE_PAYLOAD_BYTES = 6 * (2 MiB + 256 KiB) + 1024`, body cap
 `ceil(payloadCap / 3) * 4 + 2048`). Other management selections retain 16 KiB
@@ -6684,6 +6689,48 @@ whose template is gone (its mark removed, its page deleted) is not a failure: th
 `starter` and prints `warning:` naming the setting. `template remove` and the CLI `delete` of a
 default template page return the setting to `starter` themselves and report it (`delete` adds
 `templateDefaultReset: true`).
+
+### Templates in the browser (#5076, #5077)
+
+The owner's browser lists templates, makes a page from one, saves and removes a template and sets
+the default through the rules the CLI uses: one owner per rule (`template_catalog`), so the two
+paths refuse the same input with the same code.
+
+- `GET /api/templates`, admitted exactly as `GET /api/pages` (owner context, 403 `{code:"DENIED"}`
+  otherwise), answers the `template ls --json` document: `{default, templates, defaultGone?}`, the
+  compiled templates first. The browser refuses any other shape.
+- `page.new` is a device-signed management request of the owner device. Its frame names the space
+  scope page and the empty revision: a new page reads no membership head, and the owner makes it at
+  its own head. Its payload is exactly `{pageId, title, template}` with an optional `creator`
+  selection `{agent:{id,name}}`; `title` is the sub-page title grammar within the page title bound,
+  and `template` a selector of at most 64 bytes (a compiled name, a user template's name, or its
+  page's ID). `pageId` must be the name-based ID over the space and the operation ID: SHA-256 of
+  `tmt-colab/page-new/v1`, a zero byte, the space ID, a zero byte and the operation ID, the first 16
+  bytes with UUID version 4 and variant 10 bits, as a lowercase UUID. The creation is recorded under
+  the ID derived the same way from `tmt-colab/page-new-create/v1`. The serve checks the signature
+  against the owner's current registered devices under the management lock (a revoked device is
+  `DENIED`), recomputes `pageId` (`INVALID` on a mismatch), resolves the template itself, and runs
+  `page.create` with the template's source, with its question agents set to the creator (none
+  when anonymous), the template's layout, and `fromTemplate` as a CLI create from it records. The
+  caller never sends a source or a layout; a payload that does is `INVALID`. An unknown or
+  ambiguous template, or a bad title, is `INVALID`; a user template that changed while it was read
+  is `TEMPLATE_CHANGED`; each writes nothing. The reply is `{operationId, pageId, membershipHead}`.
+  When the page already exists, the operation was made before: the reply names it and nothing is
+  read or written again, so a lost reply is resent with the same operation ID.
+- `template.default` is the same kind of request with the payload exactly `{template}`: a selector,
+  or `null` for `starter`. It writes the serving machine's default through the setting `template
+default` writes (below); it is that machine's default, not a space-wide value. A selector that
+  names no template is `INVALID` and writes nothing. Setting the same default again is the same
+  change. The reply is `{operationId, default}` with the default's name.
+- Save as template and Remove template are the owner browser's `template.set` and `template.clear`
+  metadata commands on the page's socket, with its expected revision and operation status. Their
+  admission is `template save`'s and `template remove`'s: the name grammar, a name no other page
+  carries and no compiled name, a register-clean page that names a layout, the description rule
+  (no description keeps the existing one, else the title); only a user template can be removed, and
+  removing the default returns it to `starter` once the clear commits (a refused clear leaves the
+  default, and a default chosen since is kept). Saves across pages are ordered by one lock in the
+  data root (`template-saves.lock`), which `template save` also holds from its name check until its
+  write commits, so two pages never both take one name.
 
 `tmt colab template` commands, each with `--json`:
 

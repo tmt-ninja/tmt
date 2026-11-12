@@ -864,13 +864,25 @@ impl<A: Admission> Server<A> {
         job: &SaveJob,
     ) -> Result<crate::page::save::SaveResult, Code> {
         let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
+        // A browser Save as template holds the space's template-save lock from its name check
+        // until it commits, as `template save` does, so two pages never both take one name.
+        let _saves = match &job.metadata {
+            Some(edit) if edit.action == "template.set" => {
+                let layout = (job.open)().map_err(|_| Code::Denied)?.layout;
+                Some(crate::template_catalog::save_lock(&layout).map_err(|_| Code::Denied)?)
+            }
+            _ => None,
+        };
         let mut evaluations = 0;
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
             let mut made = Made::default();
+            let mut removes = None;
             let prepared = if let Some(edit) = &job.metadata {
-                crate::page::metadata::prepare(&job.open, edit, &read_clock)
-                    .map(|prepared| (prepared, None))
+                crate::page::metadata::prepare(&job.open, edit, &read_clock).map(|edit| {
+                    removes = edit.removes;
+                    (edit.prepared, None)
+                })
             } else if let Some(batch) = &job.blocks {
                 crate::page::blocks::prepare(&job.open, batch, &read_clock).map(
                     |(prepared, receipt)| {
@@ -910,7 +922,17 @@ impl<A: Admission> Server<A> {
                 Ok(now) => {
                     let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
                     match state.finish_save(reply_to, job, prepared, made, now, may_retry)? {
-                        SaveFinish::Replied(result) => return Ok(*result),
+                        SaveFinish::Replied(result) => {
+                            drop(state);
+                            // A Remove template moves the default only once its clear committed.
+                            // The clear stays committed if the settings write fails: the
+                            // default then names a gone template, which the catalog answers as
+                            // starter and Colab settings shows as a note.
+                            if let Some(removal) = removes.filter(|_| result.state == "committed") {
+                                let _ = removal.reset_default();
+                            }
+                            return Ok(*result);
+                        }
                         SaveFinish::Retry => evaluations += 1,
                     }
                 }
