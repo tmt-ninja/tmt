@@ -43,6 +43,8 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 インストーラーは `tmt` を `~/.local/bin` に配置し、端末では続けて `tmt setup` を実行します。agent を検出し、Ops、Remote、Colab、Digest と同梱 skill を提案します。選んだ拡張機能と agent の変更予定を確認し、一度承認します。後からいつでも `tmt setup` で不足を補えます。正常にインストール済みの拡張機能を setup が更新することはありません。[設定の詳細 →](/working#tmt-setup) `tmt` が見つからない場合は、`~/.local/bin` を PATH に一度追加してください。
 
+インストール、更新、拡張機能のダウンロードは GitHub だけを使います。ネットワークで外部への接続が制限されている場合は、`github.com`、`raw.githubusercontent.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com` を許可してください。
+
 <Mdx.h3 id="update-before-setting-up-firestore">Firestore の設定前に更新する</Mdx.h3>
 
 TMT は初期の alpha 版です。以下の設定を始める前に alpha channel に更新してください。

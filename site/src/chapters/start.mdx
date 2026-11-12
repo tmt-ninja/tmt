@@ -36,6 +36,8 @@ Start with the talk, reply and receipt in step 1. Board, colab and meet all sit 
 
 The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into `tmt setup`: it finds your agents and offers Ops, Remote, Colab and Digest with their bundled skills. Review the selected extensions and planned agent changes, then approve once. Run `tmt setup` any time later to finish missing items; healthy installed extensions are not upgraded by setup. [Setup details →](/working#tmt-setup) If `tmt` is not found, add `~/.local/bin` to your PATH once.
 
+Installing, upgrading and extension downloads use GitHub only. If your network restricts outbound access, allow `github.com`, `raw.githubusercontent.com`, `release-assets.githubusercontent.com` and `objects.githubusercontent.com`.
+
 ### Update before setting up Firestore
 
 TMT is an early alpha. Update to the alpha channel before starting the setup below:
