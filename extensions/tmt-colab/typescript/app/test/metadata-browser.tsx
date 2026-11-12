@@ -13,6 +13,7 @@ import type { ThreadView } from '../src/thread-records.js';
 import type { MetadataAction } from '../src/save.js';
 import { SaveRefused } from '../src/save.js';
 import { PageOperationDialog } from '../src/page-operation-dialog.js';
+import type { ManagementPort, NewPageRequest } from '../src/management.js';
 import { destination, id } from './ask-fixtures.js';
 import vector from '../../../contracts/vectors/discussion-v1.json';
 
@@ -80,6 +81,17 @@ const binding: PageBinding = {
       view = { ...view, pageType: 'blocks', blocks: {}, convertedAt: 123 };
     } else if (action === 'page.revert') {
       const { pageType: _type, blocks: _blocks, convertedAt: _convertedAt, ...rest } = view;
+      view = rest;
+    } else if (action === 'template.set') {
+      // The owner refuses a name another page carries (#5077); the fixture names one.
+      if (body.name === 'weekly-review')
+        throw new SaveRefused('COLAB_TEMPLATE_NAME_TAKEN', 'weekly-review is already a template');
+      view = {
+        ...view,
+        template: { name: body.name as string, description: (body.description as string) ?? '' },
+      };
+    } else if (action === 'template.clear') {
+      const { template: _template, ...rest } = view;
       view = rest;
     } else if (action === 'creator.set')
       view = {
@@ -167,9 +179,59 @@ export function checking() {
   view = { ...view, discussionPending: true, threads: undefined };
   publish?.(structuredClone(view));
 }
-const transport = localTransport('Metadata fixture', [
+const local = localTransport('Metadata fixture', [
   { id: pageId, sharing: 'private', binding, ...view },
 ]);
+/** The owner's templates and creates (#5076, #5077): only what the page's template chrome uses. */
+export const newPages: NewPageRequest[] = [];
+const transport =
+  new URLSearchParams(location.search).get('owner') === 'templates'
+    ? {
+        ...local,
+        management: {
+          readTemplates: async () => ({
+            default: 'starter',
+            templates: [
+              ...['starter', 'report'].map((name) => ({
+                name,
+                layout: 'column' as const,
+                summary: `${name} summary`,
+                source: 'builtIn' as const,
+                default: name === 'starter',
+                usedBy: 0,
+              })),
+              {
+                name: 'weekly-review',
+                id: id(300),
+                layout: 'column' as const,
+                summary: 'Shipped, open, risks, next week',
+                source: 'space' as const,
+                default: false,
+                usedBy: 4,
+                author: 'ben',
+              },
+              ...(view.template
+                ? [
+                    {
+                      name: view.template.name,
+                      id: pageId,
+                      layout: 'column' as const,
+                      summary: view.template.description,
+                      source: 'space' as const,
+                      default: false,
+                      usedBy: 0,
+                    },
+                  ]
+                : []),
+            ],
+          }),
+          newPage: async (request: NewPageRequest) => {
+            newPages.push(request);
+            return id(301);
+          },
+        } as unknown as ManagementPort,
+      }
+    : local;
 createRoot(document.getElementById('root')!).render(
   <RouterProvider router={createAppRouter(transport)} />,
 );

@@ -11,6 +11,7 @@ import { ManagementError, type ManagementPort } from './management.js';
 import { TemplateBadges, templateMeta } from './template-card.js';
 import {
   createCommand,
+  noteTemplates,
   pickerOrder,
   type TemplateEntry,
   type TemplateListing,
@@ -118,7 +119,7 @@ function NewPage({
     setListing(undefined);
     management.readTemplates(abort.signal).then(
       (value) => {
-        if (!abort.signal.aborted) setListing(value);
+        if (!abort.signal.aborted) setListing(noteTemplates(value));
       },
       () => {
         if (!abort.signal.aborted) setListing('failed');

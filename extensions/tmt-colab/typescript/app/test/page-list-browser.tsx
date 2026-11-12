@@ -373,7 +373,11 @@ export async function mountPageList(
     },
     setDefaultTemplate: async (template) => {
       window.__templateDefaults.push(template);
-      const name = template ?? 'starter';
+      // The owner answers the default's name, whether the request named it or its page.
+      const name =
+        template === null
+          ? 'starter'
+          : (templates.find((t) => t.id === template || t.name === template)?.name ?? template);
       templates = templates.map((t) => ({ ...t, default: t.name === name }));
       return name;
     },

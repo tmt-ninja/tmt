@@ -72,6 +72,14 @@ export function onTemplateCount(listener: () => void): () => void {
   countListeners.add(listener);
   return () => countListeners.delete(listener);
 }
+/** A read of the template list: the menu's count follows it. */
+export function noteTemplates(listing: TemplateListing): TemplateListing {
+  if (lastCount !== listing.templates.length) {
+    lastCount = listing.templates.length;
+    for (const listener of countListeners) listener();
+  }
+  return listing;
+}
 
 /** The owner's template list; any failure is one error for the caller to show. */
 export async function readTemplates(mount: URL, signal?: AbortSignal): Promise<TemplateListing> {
@@ -83,10 +91,6 @@ export async function readTemplates(mount: URL, signal?: AbortSignal): Promise<T
   requireValue(text.length <= TEMPLATE_LIST_BYTES);
   const value: unknown = JSON.parse(text);
   validateListing(value);
-  if (lastCount !== value.templates.length) {
-    lastCount = value.templates.length;
-    for (const listener of countListeners) listener();
-  }
   return value;
 }
 

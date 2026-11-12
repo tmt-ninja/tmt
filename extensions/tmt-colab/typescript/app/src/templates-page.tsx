@@ -5,7 +5,12 @@ import { Plus } from 'lucide-react';
 import { NewPageDialog } from './new-page-dialog.js';
 import { TemplateCard } from './template-card.js';
 import type { ManagementPort } from './management.js';
-import { catalogOrder, type TemplateEntry, type TemplateListing } from './templates.js';
+import {
+  catalogOrder,
+  noteTemplates,
+  type TemplateEntry,
+  type TemplateListing,
+} from './templates.js';
 import { text } from './strings.js';
 import './templates-page.css';
 
@@ -23,7 +28,7 @@ export function useTemplateListing(management: ManagementPort | undefined) {
     setListing(undefined);
     management.readTemplates(abort.signal).then(
       (value) => {
-        if (!abort.signal.aborted) setListing(value);
+        if (!abort.signal.aborted) setListing(noteTemplates(value));
       },
       () => {
         if (!abort.signal.aborted) setListing('failed');
