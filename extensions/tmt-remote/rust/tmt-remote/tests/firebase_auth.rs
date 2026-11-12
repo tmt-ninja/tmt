@@ -422,6 +422,38 @@ fn ambiguous_signup_is_not_automatically_repeated_but_explicit_retry_is_allowed(
 }
 
 #[test]
+fn a_signup_whose_save_meets_a_held_lock_never_claims_nothing_changed() {
+    // Another holder keeps the credential lock for the whole write wait.
+    struct LockedStore(MemoryStore);
+    impl CredentialStore for LockedStore {
+        fn load(&self) -> Result<StoreRead, AuthError> {
+            self.0.load()
+        }
+        fn replace(&self, _: Option<&Credential>, _: &Credential) -> Result<(), AuthError> {
+            Err(AuthError::lock_held_for(std::time::Duration::from_secs(5)))
+        }
+        fn remove(&self, expected: &Credential) -> Result<(), AuthError> {
+            self.0.remove(expected)
+        }
+    }
+    let store = LockedStore(MemoryStore::default());
+    let clock = TestClock::new();
+    let cancel = AtomicBool::new(false);
+    let http = FakeHttp::new(vec![Ok(signup("u1"))]);
+    let mut c = client(&store, &http, &clock, &cancel);
+    let error = c.sign_in().unwrap_err();
+    assert_eq!(error.kind, AuthErrorKind::Unavailable);
+    assert!(error.may_have_effect());
+    assert_eq!(
+        error.to_string(),
+        "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for 5 seconds; the new sign-in was not saved, and Firestore may already have created it. Run the same command again after it ends. (REMOTE_STATE_UNAVAILABLE)"
+    );
+    assert_eq!(http.requests.borrow().len(), 1);
+    assert_eq!(store.0.writes.get(), 0);
+    assert!(c.token().is_err());
+}
+
+#[test]
 fn cancellation_after_auth_response_never_publishes_a_token_or_credential() {
     let store = MemoryStore::default();
     let clock = TestClock::new();

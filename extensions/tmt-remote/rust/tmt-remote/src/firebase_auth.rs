@@ -109,9 +109,16 @@ impl fmt::Display for AuthError {
             // Whole seconds, rounded up, so a sub-second wait never reads "0 seconds".
             let seconds = wait.as_millis().div_ceil(1000).max(1);
             let unit = if seconds == 1 { "second" } else { "seconds" };
+            // After a provider effect (a signup whose save hit the lock) only
+            // the local write is known to have failed.
+            let outcome = if self.possible_effect {
+                "the new sign-in was not saved, and Firestore may already have created it"
+            } else {
+                "nothing changed"
+            };
             return write!(
                 f,
-                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {seconds} {unit}; nothing changed. Run the same command again after it ends. ({})",
+                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {seconds} {unit}; {outcome}. Run the same command again after it ends. ({})",
                 self.code()
             );
         }
