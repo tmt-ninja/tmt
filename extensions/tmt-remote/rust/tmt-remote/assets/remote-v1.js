@@ -8775,24 +8775,9 @@ var AGENT_STATES = {
 		word: "Idle",
 		tone: "neutral"
 	},
-	"needs-you": {
-		mark: "unknown",
-		word: "Unknown",
-		tone: "neutral"
-	},
-	blocked: {
-		mark: "unknown",
-		word: "Unknown",
-		tone: "neutral"
-	},
 	offline: {
 		mark: "ring",
 		word: "Offline",
-		tone: "neutral"
-	},
-	"idle-alert": {
-		mark: "dashed",
-		word: "Idle",
 		tone: "neutral"
 	},
 	unknown: {
@@ -8840,10 +8825,7 @@ function opsBoard(payload) {
 				revision: squad.room.revision
 			} : null,
 			...squad.lead ? { lead: squad.lead.name } : {},
-			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? {
-				idleAlertMs: squad.idleAlertMs,
-				idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4)
-			} : {}
+			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? { idleAlertMs: squad.idleAlertMs } : {}
 		})),
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
@@ -8883,7 +8865,7 @@ var opsSource = { async board(signal) {
 } };
 //#endregion
 //#region src/ops-parts.ts
-/** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
+/** The pieces the Ops sections share: element and mark helpers, the state chip,
 * the page head and the board's squads in display order. */
 function el(tag, className, text) {
 	const node = document.createElement(tag);

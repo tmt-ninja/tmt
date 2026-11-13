@@ -7,22 +7,12 @@ import { coreId } from './operations.js';
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
  * (`tmt-ui-state-mark`), the same box for every state. */
-export type AgentState =
-  | 'working'
-  | 'idle'
-  | 'needs-you'
-  | 'blocked'
-  | 'offline'
-  | 'idle-alert'
-  | 'unknown';
-export type AgentMark = 'dot' | 'ring' | 'dashed' | 'clock' | 'diamond' | 'cross' | 'unknown';
+export type AgentState = 'working' | 'idle' | 'offline' | 'unknown';
+export type AgentMark = 'dot' | 'ring' | 'dashed' | 'unknown';
 export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
   working: { mark: 'dot', word: 'Working', tone: 'neutral' },
   idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
-  'needs-you': { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
-  blocked: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
   offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
-  'idle-alert': { mark: 'dashed', word: 'Idle', tone: 'neutral' },
   unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
@@ -52,8 +42,6 @@ export interface OpsSquad {
   lead?: string;
   /** Effective squad alert interval, as supplied by the owner read. */
   idleAlertMs?: number;
-  /** Minutes before an idle alert, when the squad sets one. */
-  idleAlertMinutes?: number;
 }
 export interface OpsSchedule {
   id: string;
@@ -163,10 +151,7 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
           : null,
       ...(squad.lead ? { lead: squad.lead.name } : {}),
       ...(typeof squad.idleAlertMs === 'number' && Number.isFinite(squad.idleAlertMs)
-        ? {
-            idleAlertMs: squad.idleAlertMs,
-            idleAlertMinutes: Math.round(squad.idleAlertMs / 60_000),
-          }
+        ? { idleAlertMs: squad.idleAlertMs }
         : {}),
     })),
     agents: payload.agents.map((agent) => {

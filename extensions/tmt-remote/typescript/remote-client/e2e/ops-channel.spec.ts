@@ -39,8 +39,8 @@ for (const width of [1440, 390])
       await page.evaluate(() => {
         window.channelBoard.squads = [
           ...window.channelBoard.squads,
-          { name: 'core' },
-          { name: 'remote' },
+          { name: 'core', room: null },
+          { name: 'remote', room: null },
         ];
         window.channelBoard.agents = [
           ...window.channelBoard.agents,

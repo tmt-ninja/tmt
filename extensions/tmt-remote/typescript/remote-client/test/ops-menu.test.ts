@@ -19,7 +19,7 @@ const first = '00000000-0000-4000-8000-000000000001';
 const second = '00000000-0000-4000-8000-000000000002';
 const board = (): OpsBoard => ({
   agents: [agent(first, 'first'), agent(second, 'second')],
-  squads: [{ name: 'sample', room: null, idleAlertMinutes: 30 }],
+  squads: [{ name: 'sample', room: null, idleAlertMs: 1_800_000 }],
   schedules: [{ id: 'timer', squad: 'sample', when: 'hourly', what: '' }],
   truncated: false,
 });
@@ -47,7 +47,7 @@ it('shows only local squad channels and observed timer counts', () => {
 });
 
 it('shows an idle override only when both intervals are known and differ', () => {
-  const source = { ...board(), squads: [{ name: 'sample', idleAlertMs: 1_800_000 }] };
+  const source = { ...board(), squads: [{ name: 'sample', room: null, idleAlertMs: 1_800_000 }] };
   const badges = (value: OpsBoard) => opsMenu('home', value, '/ops/').groups[0]!.items[0]!.badges;
   expect(badges(source)).toEqual(['⏱ 1']);
   expect(badges({ ...source, defaultIdleAlertMs: 1_800_000 })).toEqual(['⏱ 1']);

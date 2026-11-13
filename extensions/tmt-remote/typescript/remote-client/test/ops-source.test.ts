@@ -26,7 +26,7 @@ it('turns the contract board into rows with uncoloured activity states', () => {
     answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs,
   ).toBeUndefined();
   expect(board.squads).toEqual([
-    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1800000, idleAlertMinutes: 30 },
+    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1_800_000 },
   ]);
   expect(board.agents).toEqual([
     {
