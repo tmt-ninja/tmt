@@ -323,8 +323,11 @@ test.describe('the shell bar', () => {
       await page.keyboard.press(shortcut);
       await expect(dialog(page)).toHaveCount(1);
       await expect(dialog(page)).toBeVisible();
+      // The control mirrors the switcher's open state (#5253).
+      await expect(control).toHaveAttribute('aria-expanded', 'true');
       await page.keyboard.press('Escape');
       await expect(dialog(page)).toHaveCount(0);
+      await expect(control).toHaveAttribute('aria-expanded', 'false');
       // Opened from the control, Escape returns focus to it.
       await control.focus();
       await page.keyboard.press(shortcut);

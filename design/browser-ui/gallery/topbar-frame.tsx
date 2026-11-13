@@ -1,6 +1,7 @@
 import { useDsScope } from '../src/ui/theme.js';
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -306,13 +307,24 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
   const gate = useMemo(() => (delayed ? deferredLoad() : undefined), [delayed]);
   const native = useRef<ShellControls | ShellHost | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  // The root reports when its dialog closes, so the bar's Search buttons mirror aria-expanded.
+  const closed = useRef<(() => void) | undefined>(undefined);
   const openSearch = useCallback((control: HTMLButtonElement) => {
     opener.current = control;
     control.focus();
     setRestoreSearchFocus(true);
     setSearchRequests((value) => value + 1);
     setSearch(true);
+    closed.current?.();
+    return new Promise<void>((resolve) => {
+      closed.current = resolve;
+    });
   }, []);
+  useEffect(() => {
+    if (search) return;
+    closed.current?.();
+    closed.current = undefined;
+  }, [search]);
   useLayoutEffect(() => {
     const status = (event: Event) => {
       const value = (event as CustomEvent<string>).detail;

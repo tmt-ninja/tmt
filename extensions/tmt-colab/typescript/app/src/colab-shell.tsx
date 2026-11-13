@@ -291,12 +291,24 @@ function OwnShell({
   const remote = useShellRemoteStatus(
     view.rail.main.find((item) => item.id === 'remote')?.href ?? '/remote/',
   );
+  // The bar's Search buttons mirror the switcher's open state through the promise (#5253).
+  const closed = useRef<(() => void) | undefined>(undefined);
+  const open = switcher?.open === true;
+  useEffect(() => {
+    if (open) return;
+    closed.current?.();
+    closed.current = undefined;
+  }, [open]);
   const commonControls = useMemo(
     () => ({
       openSearch(opener: HTMLButtonElement) {
         if (!owner.current) return;
         owner.current.control.current = opener;
-        owner.current.activate();
+        if (!owner.current.activate()) return;
+        closed.current?.();
+        return new Promise<void>((resolve) => {
+          closed.current = resolve;
+        });
       },
       remote,
     }),

@@ -13,7 +13,9 @@ export type ShellRemoteStatus =
 
 /** Root-owned bindings and display data; the leaf performs no product reads. */
 export interface ShellCommonControls {
-  openSearch(opener: HTMLButtonElement): void;
+  /** Opens the root's search dialog. A promise that settles when that dialog closes lets the
+   * Search buttons report `aria-expanded`; a root that returns nothing leaves the state unset. */
+  openSearch(opener: HTMLButtonElement): void | Promise<void>;
   remote: ShellRemoteStatus;
 }
 
@@ -247,10 +249,25 @@ export function createShellTopBar(
       event.stopPropagation();
       if (event.isTrusted) dismiss();
     };
+    // The root owns the dialog; the leaf mirrors its open state while the root's promise is pending.
+    let searchRound = 0;
+    const searchExpanded = (open: boolean | undefined) => {
+      for (const button of [search, sidebarSearch])
+        if (open === undefined) button.removeAttribute('aria-expanded');
+        else button.setAttribute('aria-expanded', String(open));
+    };
     const openSearch = (opener: HTMLButtonElement) => {
       themeMenu.close();
       searchHelp.binding.dismiss();
-      options!.openSearch(opener);
+      const closed = options!.openSearch(opener);
+      // A root that opened nothing new (for example, its dialog is already open) changes nothing.
+      if (!closed) return;
+      const round = ++searchRound;
+      searchExpanded(true);
+      const settle = () => {
+        if (round === searchRound) searchExpanded(false);
+      };
+      closed.then(settle, settle);
     };
     search.onclick = (event) => {
       if (event.isTrusted) openSearch(search);
@@ -310,6 +327,8 @@ export function createShellTopBar(
       slot: { title, actions, status: statusSlot },
       update,
       dispose() {
+        searchRound += 1;
+        searchExpanded(undefined);
         document.removeEventListener('keydown', shortcut);
         observeTheme.disconnect();
         themeMenu.dispose();
