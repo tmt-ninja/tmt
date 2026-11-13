@@ -2,7 +2,7 @@
 //! All mutations use one writer transaction; exact results survive lost replies.
 mod bootstrap;
 pub(crate) mod epoch;
-pub(crate) use bootstrap::display_title;
+pub(crate) use bootstrap::{PriorContentCut, display_title};
 pub(crate) use epoch::ReadCache;
 pub use epoch::{Cut, StoredBaseline};
 

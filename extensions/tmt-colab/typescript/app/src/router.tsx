@@ -2203,11 +2203,11 @@ function OpenPage({
     return mentionPages(pageViewSource, (id, signal) => transport.page(id, signal), admitted);
   }, [pageViewSource, transport]);
   const workSource = useMemo(() => {
-    if (!transport.management || view.ownerOnlyContent !== true) return undefined;
-    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    if (!transport.management || view.ownerOnlyWorkBundle !== true) return undefined;
+    const admitted = () => binding.current?.ownerOnlyWorkBundle?.() === true;
     const source = workBundleSource(transport, space, (id) => routing.pageHref(id));
     return gateWorkBundleSource(source, admitted);
-  }, [transport, space, routing, view.ownerOnlyContent]);
+  }, [transport, space, routing, view.ownerOnlyWorkBundle]);
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,

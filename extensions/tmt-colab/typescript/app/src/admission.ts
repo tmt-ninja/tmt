@@ -66,6 +66,41 @@ export function pageLifecycle(
   return state;
 }
 
+/** Classify only already verified owner statements and already admitted device identities. */
+export function ownerOnlyPriorEpochCuts(
+  log: readonly statement.Verified[],
+  page: string,
+  epoch: string,
+  ownerDevice: (device: string) => boolean,
+  verifiedCut?: (epoch: string, cut: ReturnType<typeof streamCut.decode>) => boolean,
+): boolean {
+  try {
+    // A cut names a stream and hash, not its historical signing key. Without a verified
+    // matching envelope, even an owner-issued chain for the same device ID is insufficient.
+    if (!verifiedCut) return false;
+    const current = decimal(epoch);
+    let next = 2n;
+    for (const { payload: p } of log) {
+      if (p.operation !== 'epoch.advance' || p.value.pageId !== page) continue;
+      const advance = decimal(p.value.epoch);
+      if (advance > current) break;
+      if (advance !== next) return false;
+      for (const entry of p.value.cuts) {
+        if (entry.pageId !== page || decimal(entry.epoch) !== advance - 1n) return false;
+        const cut = streamCut.decode(binary(entry.cut, 1024));
+        if (cut.namespace !== entry.namespace) return false;
+        if (entry.namespace === 'content' && decimal(cut.tailHeadSeq, true) > 0n) {
+          if (!ownerDevice(cut.streamId) || !verifiedCut(entry.epoch, cut)) return false;
+        }
+      }
+      next++;
+    }
+    return next === current + 1n;
+  } catch {
+    return false;
+  }
+}
+
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
 export class Admission {
   head: statement.Head | null = null;
@@ -75,6 +110,7 @@ export class Admission {
   root: CryptoKey | null = null;
   #roots = new Map<string, CryptoKey>();
   #authors = new Map<string, certificate.Certificate>();
+  #priorProofInvalid = false;
   constructor(
     readonly space: string,
     readonly page: string,
@@ -86,6 +122,53 @@ export class Admission {
   /** Verified authority for parent management; never renderer data. */
   statements(): readonly statement.Verified[] {
     return this.#log.slice();
+  }
+  /** Work-bundle provenance uses only a completed verified log and admitted device chains. */
+  ownerOnlyPriorEpoch(
+    verifiedCut?: (epoch: string, cut: ReturnType<typeof streamCut.decode>) => boolean,
+  ): boolean {
+    return (
+      this.head !== null &&
+      !this.#priorProofInvalid &&
+      this.#target !== null &&
+      this.head.revision === this.#target.revision &&
+      equal(this.head.hash, this.#target.hash) &&
+      this.#authors.size <= 64 &&
+      ownerOnlyPriorEpochCuts(
+        this.#log,
+        this.page,
+        this.epoch,
+        (device) => this.ownerDevice(device),
+        verifiedCut,
+      )
+    );
+  }
+  /** Candidates come only from the pinned owner log, never the transport's list. */
+  priorContentCuts(): { epoch: string; cut: ReturnType<typeof streamCut.decode> }[] {
+    try {
+      if (
+        !this.head ||
+        !this.#target ||
+        this.head.revision !== this.#target.revision ||
+        !equal(this.head.hash, this.#target.hash)
+      )
+        return [];
+      const cuts = this.#log.flatMap(({ payload: p }) => {
+        if (p.operation !== 'epoch.advance' || p.value.pageId !== this.page) return [];
+        return p.value.cuts.flatMap((entry) => {
+          if (entry.pageId !== this.page || entry.namespace !== 'content') return [];
+          return [{ epoch: entry.epoch, cut: streamCut.decode(binary(entry.cut, 1024)) }];
+        });
+      });
+      // The existing catch-up object bound also limits optional prior evidence.
+      return cuts.length <= 256 ? cuts : [];
+    } catch {
+      return [];
+    }
+  }
+  /** Optional historical chain material failed verification; ordinary page admission continues. */
+  invalidatePriorEpochProof(): void {
+    this.#priorProofInvalid = true;
   }
   /** Verify and adopt a later membership chain obtained by a separate page catch-up. */
   async advanceFrom(other: Admission): Promise<void> {

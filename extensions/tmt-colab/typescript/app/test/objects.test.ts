@@ -62,6 +62,95 @@ it('tracks authenticated non-owner content for the current epoch', async () => {
   expect(await shared.admit(f.context.authorDevice, entry)).toBeNull();
   expect(shared.ownerOnlyContent).toBe(false);
 });
+it('proves a prior cut only with the matching owner-signed retained update', async () => {
+  const f = await fixture();
+  const objects = new Objects(f.admission, '2');
+  const envelope = await f.seal();
+  const entry = await f.entry(envelope);
+  const cut = {
+    streamId: f.context.authorDevice,
+    namespace: 'content',
+    checkpointHash: null,
+    checkpointSeq: '0',
+    tailHeadSeq: '1',
+    tailHeadHash: await envelope.hash(),
+  };
+  Object.assign(f.admission, {
+    priorContentCuts: () => [{ epoch: '1', cut }],
+    invalidatePriorEpochProof: vi.fn(),
+  });
+  expect(objects.priorCutVerified('1', cut)).toBe(false);
+  expect(
+    await objects.admitPriorEvidence([
+      {
+        streamId: cut.streamId,
+        namespace: 'content',
+        checkpoint: null,
+        anchor: entry,
+        tail: [],
+      },
+    ]),
+  ).toBe(true);
+  expect(objects.priorCutVerified('1', cut)).toBe(true);
+  expect(await objects.verifyPriorCutAnchor('1', cut, entry)).toBe(true);
+  const own = await f.seal({ ...f.context, namespace: 'own' });
+  const ownCut = { ...cut, tailHeadHash: await own.hash() };
+  expect(await objects.verifyPriorCutAnchor('1', ownCut, await f.entry(own))).toBe(true);
+  const checkpoint = await f.seal({ ...f.context, kind: 'checkpoint' });
+  const checkpointCut = {
+    ...cut,
+    checkpointHash: await checkpoint.hash(),
+    checkpointSeq: '1',
+    tailHeadHash: new Uint8Array(32),
+  };
+  expect(await objects.verifyPriorCutAnchor('1', checkpointCut, await f.entry(checkpoint))).toBe(
+    true,
+  );
+  // A checkpoint may be larger than an update; prior evidence uses the same checkpoint cap.
+  const largeCheckpoint = await f.seal(
+    { ...f.context, kind: 'checkpoint' },
+    new Uint8Array(UPDATE_ENVELOPE_BYTES),
+  );
+  const largeCut = { ...checkpointCut, checkpointHash: await largeCheckpoint.hash() };
+  expect(await objects.verifyPriorCutAnchor('1', largeCut, await f.entry(largeCheckpoint))).toBe(
+    true,
+  );
+  vi.spyOn(f.admission, 'priorContentCuts').mockReturnValue([{ epoch: '1', cut: largeCut }]);
+  expect(
+    await objects.admitPriorEvidence([
+      {
+        streamId: largeCut.streamId,
+        namespace: 'content',
+        checkpoint: await f.entry(largeCheckpoint),
+        tail: [],
+      },
+    ]),
+  ).toBe(true);
+  expect(objects.priorCutVerified('1', largeCut)).toBe(true);
+  vi.spyOn(f.admission, 'priorContentCuts').mockReturnValue([{ epoch: '1', cut }]);
+  expect(
+    await objects.verifyPriorCutAnchor('1', { ...cut, tailHeadHash: new Uint8Array(32) }, entry),
+  ).toBe(false);
+  vi.spyOn(f.admission, 'readAuthor').mockReturnValue({
+    key: new Uint8Array(32),
+    ownerDevice: true,
+  });
+  expect(await objects.verifyPriorCutAnchor('1', cut, entry)).toBe(false);
+  vi.spyOn(f.admission, 'readAuthor').mockReturnValue({ key: hex(v.public), ownerDevice: false });
+  expect(await objects.verifyPriorCutAnchor('1', cut, entry)).toBe(false);
+  expect(
+    await objects.admitPriorEvidence([
+      {
+        streamId: cut.streamId,
+        namespace: 'content',
+        checkpoint: null,
+        anchor: entry,
+        tail: [],
+      },
+    ]),
+  ).toBe(true);
+  expect(f.admission.invalidatePriorEpochProof).toHaveBeenCalled();
+});
 it('verifies scope/signature/hash and chain continuity; exact replay applies nothing', async () => {
   const f = await fixture(),
     objects = new Objects(f.admission),

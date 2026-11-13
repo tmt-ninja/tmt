@@ -68,6 +68,17 @@ interface Head {
   seq: bigint;
   hash: Uint8Array;
 }
+function priorCutKey(epoch: string, cut: ReturnType<typeof streamCut.decode>): string {
+  return [
+    epoch,
+    cut.streamId,
+    cut.namespace,
+    cut.checkpointSeq,
+    cut.checkpointHash ? encodeBinary(cut.checkpointHash) : '',
+    cut.tailHeadSeq,
+    encodeBinary(cut.tailHeadHash),
+  ].join(':');
+}
 /** Shared author chain; checkpoint hashes are namespace cursors, not update heads.
  * Authenticated plaintext carries its namespace and writer into the isolated fold. */
 export class Objects {
@@ -84,6 +95,8 @@ export class Objects {
   /** The covered stream's update envelope at n that a fold is checked against (colab-v1, "Planned
    * owner fold"): admitted as an anchor, applied to nothing, and used only to verify a fold. */
   #anchors = new Map<string, { seq: bigint; envelope: Envelope }>();
+  #priorAnchors = new Map<string, ReceivedEntry>();
+  #priorProven = new Set<string>();
   ownData = false;
   constructor(
     readonly admission: Admission,
@@ -402,6 +415,171 @@ export class Objects {
         )),
     );
     this.#anchors.set(stream, { seq, envelope: env });
+  }
+  /** Verify retained prior-cut evidence without applying it or advancing a current-epoch head. */
+  async verifyPriorCutAnchor(
+    epoch: string,
+    cut: ReturnType<typeof streamCut.decode>,
+    entry: ReceivedEntry,
+  ): Promise<boolean> {
+    try {
+      exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
+      const seq = decimal(entry.seq);
+      const hash = binary(entry.envelopeHash, 32, 32);
+      const emptyTail =
+        cut.checkpointHash !== null &&
+        cut.tailHeadSeq === cut.checkpointSeq &&
+        cut.tailHeadHash.every((byte) => byte === 0);
+      const env = receivedEnvelope(
+        entry.envelope,
+        emptyTail ? MAX_ENVELOPE_BYTES : UPDATE_ENVELOPE_BYTES,
+      );
+      const { context, coveredDevice } = decodeHeader(env.header());
+      const expectedHash = emptyTail ? cut.checkpointHash! : cut.tailHeadHash;
+      requireValue(
+        seq > 0n &&
+          context.space === this.admission.space &&
+          context.page === this.admission.page &&
+          context.epoch === epoch &&
+          context.authorDevice === cut.streamId &&
+          context.streamSeq === entry.seq &&
+          entry.seq === cut.tailHeadSeq &&
+          coveredDevice === undefined &&
+          (emptyTail
+            ? context.kind === 'checkpoint' && context.namespace === cut.namespace
+            : context.kind === 'update') &&
+          equal(hash, expectedHash) &&
+          equal(await env.hash(), expectedHash),
+      );
+      const author = this.admission.readAuthor(context, hash);
+      return (
+        author.ownerDevice &&
+        (await strictVerify(
+          author.key,
+          env.signature(),
+          await signatureInput(env.header(), env.ciphertext()),
+        ))
+      );
+    } catch {
+      return false;
+    }
+  }
+  /** A fold is signed by its signer, so its covered device must also sign the retained anchor. */
+  async verifyPriorFoldCut(
+    epoch: string,
+    cut: ReturnType<typeof streamCut.decode>,
+    checkpoint: ReceivedEntry,
+    anchor?: ReceivedEntry,
+  ): Promise<boolean> {
+    try {
+      requireValue(anchor !== undefined && cut.checkpointHash !== null);
+      exactKeys(checkpoint, ['seq', 'envelopeHash', 'envelope']);
+      exactKeys(anchor, ['seq', 'envelopeHash', 'envelope']);
+      const fold = receivedEnvelope(checkpoint.envelope, MAX_ENVELOPE_BYTES);
+      const covered = receivedEnvelope(anchor.envelope, UPDATE_ENVELOPE_BYTES);
+      const { context, coveredDevice } = decodeHeader(fold.header());
+      const hash = binary(checkpoint.envelopeHash, 32, 32);
+      requireValue(
+        context.space === this.admission.space &&
+          context.page === this.admission.page &&
+          context.epoch === epoch &&
+          context.kind === FOLD &&
+          context.namespace === cut.namespace &&
+          coveredDevice === cut.streamId &&
+          checkpoint.seq === cut.checkpointSeq &&
+          cut.tailHeadSeq === cut.checkpointSeq &&
+          cut.tailHeadHash.every((byte) => byte === 0) &&
+          context.streamSeq === checkpoint.seq &&
+          anchor.seq === checkpoint.seq &&
+          equal(hash, cut.checkpointHash) &&
+          equal(await fold.hash(), hash) &&
+          equal(await covered.hash(), binary(anchor.envelopeHash, 32, 32)),
+      );
+      const keys = this.admission.readFold(context, cut.streamId, hash);
+      requireValue(
+        await strictVerify(
+          keys.signer,
+          fold.signature(),
+          await signatureInput(fold.header(), fold.ciphertext()),
+        ),
+      );
+      await checkAnchor(fold, covered, keys.covered);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  priorCutVerified(epoch: string, cut: ReturnType<typeof streamCut.decode>): boolean {
+    return this.#priorProven.has(priorCutKey(epoch, cut));
+  }
+  /** An owner catchup may carry historical proof objects in existing anchor/fold frames.
+   * They are compared to signed cuts and never applied to the current page. */
+  async admitPriorEvidence(value: unknown): Promise<boolean> {
+    if (!Array.isArray(value) || value.length !== 1) return false;
+    const row = value[0] as Record<string, unknown> | null;
+    if (!row || typeof row !== 'object' || typeof row.streamId !== 'string') return false;
+    const anchored = Object.hasOwn(row, 'anchor');
+    const entry = (anchored ? row.anchor : row.checkpoint) as ReceivedEntry | null;
+    if (!entry || typeof entry !== 'object' || typeof entry.seq !== 'string') return false;
+    const candidates = this.admission
+      .priorContentCuts()
+      .filter(({ cut }) => cut.streamId === row.streamId && cut.tailHeadSeq === entry.seq);
+    let context: ReturnType<typeof decodeHeader>;
+    try {
+      context = decodeHeader(
+        receivedEnvelope(
+          entry.envelope,
+          anchored ? UPDATE_ENVELOPE_BYTES : MAX_ENVELOPE_BYTES,
+        ).header(),
+      );
+    } catch {
+      if (!candidates.length) return false;
+      this.admission.invalidatePriorEpochProof();
+      return true;
+    }
+    if (context.context.epoch === this.epoch) return false;
+    try {
+      requireValue(decimal(context.context.epoch) < decimal(this.epoch));
+      exactKeys(
+        row,
+        anchored
+          ? ['streamId', 'namespace', 'checkpoint', 'anchor', 'tail']
+          : ['streamId', 'namespace', 'checkpoint', 'tail'],
+      );
+      requireValue(Array.isArray(row.tail) && row.tail.length === 0);
+      if (anchored) requireValue(row.checkpoint === null);
+      requireValue(row.namespace === context.context.namespace);
+      const matching = candidates.filter(({ epoch }) => epoch === context.context.epoch);
+      requireValue(matching.length > 0);
+      const key = `${context.context.epoch}:${row.streamId}:${entry.seq}`;
+      if (anchored && context.context.kind === 'update') {
+        // A fold's update anchor arrives before its checkpoint; it grants nothing on its own.
+        requireValue(
+          this.#priorAnchors.has(key) || this.#anchors.size + this.#priorAnchors.size < 256,
+        );
+        this.#priorAnchors.set(key, entry);
+      }
+      for (const { epoch, cut } of matching) {
+        const ok =
+          !anchored && context.context.kind === FOLD
+            ? await this.verifyPriorFoldCut(epoch, cut, entry, this.#priorAnchors.get(key))
+            : await this.verifyPriorCutAnchor(epoch, cut, entry);
+        if (ok) this.#priorProven.add(priorCutKey(epoch, cut));
+        else if (
+          !(
+            anchored &&
+            context.context.kind === 'update' &&
+            cut.checkpointHash &&
+            cut.tailHeadSeq === cut.checkpointSeq &&
+            cut.tailHeadHash.every((byte) => byte === 0)
+          )
+        )
+          this.admission.invalidatePriorEpochProof();
+      }
+    } catch {
+      this.admission.invalidatePriorEpochProof();
+    }
+    return true;
   }
   async streams(
     value: unknown,

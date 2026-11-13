@@ -121,6 +121,18 @@ export class Connection {
       this.objects.ownerOnlyContent === true
     );
   }
+  /** Work bundles may additionally prove the baseline's prior authors. */
+  get ownerOnlyWorkBundle(): boolean {
+    return (
+      this.#complete &&
+      !this.#stopped &&
+      this.objects.ownerOnlyContent === true &&
+      (!this.#baselineUnproven ||
+        this.admission.ownerOnlyPriorEpoch((epoch, cut) =>
+          this.objects.priorCutVerified(epoch, cut),
+        ))
+    );
+  }
   #baselineUnproven = false;
   readonly objects: Objects;
   readonly fold = new Fold();
@@ -345,6 +357,7 @@ export class Connection {
       ...this.#projection,
       ownData: this.objects.ownData,
       ownerOnlyContent: this.ownerOnlyContent,
+      ownerOnlyWorkBundle: this.ownerOnlyWorkBundle,
       archived: this.admission.archived,
     });
     for (const pending of this.#ownPublications) {

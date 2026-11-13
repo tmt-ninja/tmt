@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
-import { Admission, STATEMENT_ENVELOPE_BYTES } from '../src/admission.js';
+import { Admission, STATEMENT_ENVELOPE_BYTES, ownerOnlyPriorEpochCuts } from '../src/admission.js';
 import { Frames } from '../src/frames.js';
 import { Catchup } from '../src/catchup.js';
 import { Objects } from '../src/objects.js';
@@ -34,6 +34,314 @@ async function secondHead() {
   };
 }
 const root = hex(v.public);
+
+it('proves every prior epoch only when every content writer has a current owner chain', () => {
+  const cut = (epoch: string, writer: string, namespace: 'content' | 'own', seq = '1') => ({
+    pageId: v.page,
+    epoch,
+    namespace,
+    cut: c.encodeBinary(
+      c.streamCut.input({
+        streamId: writer,
+        namespace,
+        checkpointHash: null,
+        checkpointSeq: '0',
+        tailHeadSeq: seq,
+        tailHeadHash: new Uint8Array(32).fill(seq === '0' ? 0 : 1),
+      }),
+    ),
+  });
+  const advance = (epoch: string, cuts: ReturnType<typeof cut>[]) =>
+    ({
+      payload: { operation: 'epoch.advance', value: { pageId: v.page, epoch, cuts } },
+    }) as unknown as c.statement.Verified;
+  const owner = (id: string) => id === v.page;
+  const epoch1 = [cut('1', v.page, 'content'), cut('1', v.page, 'own', '0')];
+  const epoch2 = [cut('2', v.page, 'content'), cut('2', v.page, 'own', '0')];
+  const log = [advance('2', epoch1), advance('3', epoch2)];
+  const confirmed = () => true;
+  expect(ownerOnlyPriorEpochCuts(log, v.page, '3', owner)).toBe(false); // No envelope proof.
+  expect(ownerOnlyPriorEpochCuts(log, v.page, '3', owner, confirmed)).toBe(true);
+  expect(ownerOnlyPriorEpochCuts(log, v.page, '3', () => false, confirmed)).toBe(false); // missing/revoked chain
+  expect(ownerOnlyPriorEpochCuts([advance('3', epoch2)], v.page, '3', owner, confirmed)).toBe(
+    false,
+  );
+  expect(ownerOnlyPriorEpochCuts([advance('2', epoch1)], v.page, '3', owner, confirmed)).toBe(
+    false,
+  );
+  expect(
+    ownerOnlyPriorEpochCuts(
+      [advance('2', [...epoch1, cut('1', v.device, 'content')])],
+      v.page,
+      '2',
+      owner,
+      confirmed,
+    ),
+  ).toBe(false);
+  expect(
+    ownerOnlyPriorEpochCuts(
+      [advance('2', [cut('1', v.device, 'content')])],
+      v.page,
+      '2',
+      owner,
+      confirmed,
+    ),
+  ).toBe(false); // link-issued writer
+});
+
+it('requires a verified owner statement and an admitted owner chain for baseline provenance', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(50);
+  try {
+    const signer = await crypto.subtle.importKey(
+      'pkcs8',
+      c.concat(hex('302e020100300506032b657004220420'), hex(v.seed)),
+      'Ed25519',
+      false,
+      ['sign'],
+    );
+    const oldEnvelope = await c.Envelope.seal(
+      {
+        space: v.space,
+        page: v.page,
+        epoch: '1',
+        kind: 'update',
+        namespace: 'content',
+        authorDevice: v.page,
+        membershipRevision: '1',
+        streamSeq: '1',
+        prevHash: new Uint8Array(32),
+      },
+      hex(v.epochKey),
+      signer,
+      new Uint8Array([1]),
+    );
+    const cut = c.encodeBinary(
+      c.streamCut.input({
+        streamId: v.page,
+        namespace: 'content',
+        checkpointHash: null,
+        checkpointSeq: '0',
+        tailHeadSeq: '1',
+        tailHeadHash: await oldEnvelope.hash(),
+      }),
+    );
+    const digest = c.encodeBinary(new Uint8Array(32));
+    const payload = c.text(
+      JSON.stringify({
+        pageId: v.page,
+        epoch: '2',
+        cuts: [{ pageId: v.page, epoch: '1', namespace: 'content', cut }],
+        baseline: {
+          pageId: v.page,
+          epoch: '2',
+          sourceDigest: digest,
+          baselineCommitment: digest,
+          title: 'Page',
+          objectEnvelopeHash: digest,
+          membershipRevision: '2',
+        },
+        wraps: [],
+      }),
+    );
+    const input = c.statement.input({
+      space: v.space,
+      operation: 'epoch.advance',
+      revision: '2',
+      previousHash: hex(v.statementHash),
+      payloadDigest: await c.digest(payload),
+    });
+    const signed = {
+      statement: c.encodeBinary(input),
+      payload: c.encodeBinary(payload),
+      signature: c.encodeBinary(await c.sign(signer, input)),
+    };
+    const advanced = c.statement.Envelope.fromJson(c.text(JSON.stringify(signed)));
+    const make = () =>
+      new Admission(v.space, v.page, '2', root, {} as Registration, {
+        linkId: v.device,
+        principal: 'fixture',
+        expiresAt: Number.MAX_SAFE_INTEGER,
+      });
+    const frame = {
+      revision: '2',
+      statementHash: c.encodeBinary(await advanced.hash()),
+      ownerKey: c.encodeBinary(root),
+      statements: [raw, c.encodeBinary(advanced.toJson())],
+      more: false,
+    };
+    const valid = make();
+    await valid.membership(frame, true);
+    expect(valid.ownerOnlyPriorEpoch()).toBe(false); // Missing chain is not proof.
+    await valid.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
+    expect(valid.ownerOnlyPriorEpoch()).toBe(false); // A matching signed envelope is still needed.
+    expect(valid.ownerOnlyPriorEpoch(() => true)).toBe(true);
+    const objects = new Objects(valid, '2');
+    const verified = (epoch: string, cut: ReturnType<typeof c.streamCut.decode>) =>
+      objects.priorCutVerified(epoch, cut);
+    expect(valid.ownerOnlyPriorEpoch(verified)).toBe(false);
+    expect(
+      await objects.admitPriorEvidence([
+        {
+          streamId: v.page,
+          namespace: 'content',
+          checkpoint: null,
+          anchor: {
+            seq: '1',
+            envelopeHash: c.encodeBinary(await oldEnvelope.hash()),
+            envelope: c.encodeBinary(oldEnvelope.toBytes()),
+          },
+          tail: [],
+        },
+      ]),
+    ).toBe(true);
+    expect(valid.ownerOnlyPriorEpoch(verified)).toBe(true);
+    const otherSigner = await crypto.subtle.importKey(
+      'pkcs8',
+      c.concat(hex('302e020100300506032b657004220420'), hex(v.recipientSeed)),
+      'Ed25519',
+      false,
+      ['sign'],
+    );
+    const otherEnvelope = await c.Envelope.seal(
+      c.decodeHeader(oldEnvelope.header()).context,
+      hex(v.epochKey),
+      otherSigner,
+      new Uint8Array([1]),
+    );
+    const otherCut = c.encodeBinary(
+      c.streamCut.input({
+        streamId: v.page,
+        namespace: 'content',
+        checkpointHash: null,
+        checkpointSeq: '0',
+        tailHeadSeq: '1',
+        tailHeadHash: await otherEnvelope.hash(),
+      }),
+    );
+    const altered = JSON.parse(c.decodeText(payload)) as { cuts: { cut: string }[] };
+    altered.cuts[0].cut = otherCut;
+    const otherPayload = c.text(JSON.stringify(altered));
+    const otherInput = c.statement.input({
+      space: v.space,
+      operation: 'epoch.advance',
+      revision: '2',
+      previousHash: hex(v.statementHash),
+      payloadDigest: await c.digest(otherPayload),
+    });
+    const otherAdvance = c.statement.Envelope.fromJson(
+      c.text(
+        JSON.stringify({
+          statement: c.encodeBinary(otherInput),
+          payload: c.encodeBinary(otherPayload),
+          signature: c.encodeBinary(await c.sign(signer, otherInput)),
+        }),
+      ),
+    );
+    const mismatch = make();
+    await mismatch.membership(
+      {
+        ...frame,
+        statementHash: c.encodeBinary(await otherAdvance.hash()),
+        statements: [raw, c.encodeBinary(otherAdvance.toJson())],
+      },
+      true,
+    );
+    await mismatch.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
+    const mismatchObjects = new Objects(mismatch, '2');
+    expect(
+      await mismatchObjects.admitPriorEvidence([
+        {
+          streamId: v.page,
+          namespace: 'content',
+          checkpoint: null,
+          anchor: {
+            seq: '1',
+            envelopeHash: c.encodeBinary(await otherEnvelope.hash()),
+            envelope: c.encodeBinary(otherEnvelope.toBytes()),
+          },
+          tail: [],
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      mismatch.ownerOnlyPriorEpoch((epoch, item) => mismatchObjects.priorCutVerified(epoch, item)),
+    ).toBe(false);
+    const capped = make();
+    await capped.membership(frame, true);
+    const template = c.certificate.Chain.fromJson(c.text(JSON.stringify(v.chain))).certificate();
+    const extraChains = await Promise.all(
+      Array.from({ length: 64 }, async (_, index) => {
+        const deviceId = `00000000-0000-4000-8000-${(index + 256).toString(16).padStart(12, '0')}`;
+        const cert = c.certificate.input({ ...template, deviceId });
+        return {
+          deviceId,
+          chain: transport({
+            ...v.chain,
+            deviceCertificate: c.encodeBinary(cert),
+            issuerSignature: c.encodeBinary(await c.sign(signer, cert)),
+          }),
+        };
+      }),
+    );
+    await capped.chains([
+      { deviceId: v.page, chain: transport(v.chain) },
+      ...extraChains.slice(0, 63),
+    ]);
+    expect(capped.ownerOnlyPriorEpoch(() => true)).toBe(true);
+    await capped.chains(extraChains.slice(63));
+    expect(capped.ownerOnlyPriorEpoch(() => true)).toBe(false);
+    const revoked = make();
+    await revoked.membership(frame, true);
+    await revoked.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
+    const revokePayload = c.text(JSON.stringify({ deviceId: v.page, cuts: [] }));
+    const revokeInput = c.statement.input({
+      space: v.space,
+      operation: 'device.revoke',
+      revision: '3',
+      previousHash: await advanced.hash(),
+      payloadDigest: await c.digest(revokePayload),
+    });
+    const revoke = c.statement.Envelope.fromJson(
+      c.text(
+        JSON.stringify({
+          statement: c.encodeBinary(revokeInput),
+          payload: c.encodeBinary(revokePayload),
+          signature: c.encodeBinary(await c.sign(signer, revokeInput)),
+        }),
+      ),
+    );
+    await revoked.membership(
+      {
+        revision: '3',
+        statementHash: c.encodeBinary(await revoke.hash()),
+        ownerKey: c.encodeBinary(root),
+        statements: [c.encodeBinary(revoke.toJson())],
+        more: false,
+      },
+      true,
+    );
+    expect(revoked.ownerOnlyPriorEpoch(() => true)).toBe(false);
+    valid.invalidatePriorEpochProof();
+    expect(valid.ownerOnlyPriorEpoch(() => true)).toBe(false);
+    const forged = make();
+    await expect(
+      forged.membership(
+        {
+          ...frame,
+          statements: [
+            raw,
+            transport({ ...signed, signature: c.encodeBinary(new Uint8Array(64)) }),
+          ],
+        },
+        true,
+      ),
+    ).rejects.toThrow();
+    expect(forged.ownerOnlyPriorEpoch()).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 function admission() {
   return new Admission(v.space, v.page, '1', root, {
     deviceId: v.page,

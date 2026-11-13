@@ -3,6 +3,8 @@ import { expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
 import { openBaseline } from '../src/baseline.js';
+import { Catchup } from '../src/catchup.js';
+import { Objects } from '../src/objects.js';
 import type { Registration } from '../src/registration.js';
 vi.mock('../src/storage.js', () => ({ record: async () => undefined }));
 vi.stubGlobal('navigator', { locks: { request: async (_key: string, fn: () => unknown) => fn() } });
@@ -18,6 +20,7 @@ async function fixture(
   change: Record<string, unknown> = {},
   body = { source: b.source, update: b.update },
   contextChange: Partial<c.Context> = {},
+  cuts: unknown[] = [],
 ) {
   const signer = await crypto.subtle.importKey(
     'pkcs8',
@@ -82,7 +85,7 @@ async function fixture(
   const before = await shared.verifyNext(v.space, owner, genesis.head);
   const advance = await sign(
     'epoch.advance',
-    { pageId: v.page, epoch: '2', cuts: [], baseline: descriptor, wraps: [] },
+    { pageId: v.page, epoch: '2', cuts, baseline: descriptor, wraps: [] },
     before.head,
   );
   const last = await advance.verifyNext(v.space, owner, before.head);
@@ -111,6 +114,103 @@ it('opens the exact signed reset object independently of the device stream', asy
   expect(result.source).toBe(b.source);
   expect(result.title).toBe(b.title);
   expect(result.update).toEqual(c.binary(b.update, 4 * 1024 * 1024));
+});
+
+it('opens a page but withholds work-bundle proof when a signed prior anchor is pruned', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(50);
+  try {
+    const cut = c.encodeBinary(
+      c.streamCut.input({
+        streamId: v.page,
+        namespace: 'content',
+        checkpointHash: null,
+        checkpointSeq: '0',
+        tailHeadSeq: '1',
+        tailHeadHash: new Uint8Array(32).fill(1),
+      }),
+    );
+    const f = await fixture({}, undefined, {}, [
+      { pageId: v.page, epoch: '1', namespace: 'content', cut },
+    ]);
+    await f.a.chains([{ deviceId: v.page, chain: c.encodeBinary(json(v.chain)) }]);
+    const objects = new Objects(f.a);
+    const result = await openBaseline(f.a, c.encodeBinary(json(f.descriptor)), f.object);
+    expect(result.source).toBe(b.source);
+    expect(f.a.ownerOnlyPriorEpoch((epoch, item) => objects.priorCutVerified(epoch, item))).toBe(
+      false,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('keeps the page available and the work-bundle proof closed for a forged optional chain', async () => {
+  const f = await fixture();
+  vi.spyOn(f.a, 'validatePage').mockImplementation(() => {});
+  const catchup = new Catchup(f.a, 'private', new Objects(f.a));
+  const scope = { version: 1, type: 'catchup', space: v.space, page: v.page, epoch: '2' };
+  await catchup.admitValue({
+    ...scope,
+    membershipHead: {
+      revision: '3',
+      statementHash: c.encodeBinary(f.a.head!.hash),
+      ownerKey: c.encodeBinary(hex(v.public)),
+      statements: [],
+      more: false,
+    },
+    baseline: c.encodeBinary(json(f.descriptor)),
+    baselineObject: f.object,
+    streams: [],
+    more: true,
+  });
+  expect(f.a.ownerOnlyPriorEpoch()).toBe(false); // No retained-envelope proof was supplied.
+  expect(f.a.ownerOnlyPriorEpoch(() => true)).toBe(true);
+  const forged = { ...v.chain, issuerSignature: c.encodeBinary(new Uint8Array(64)) };
+  expect(
+    await catchup.admitValue({
+      ...scope,
+      chains: [{ deviceId: v.page, chain: c.encodeBinary(json(forged)) }],
+      streams: [],
+      more: true,
+    }),
+  ).toBe(false);
+  expect(await catchup.admitValue({ ...scope, streams: [], more: false })).toBe(true);
+  expect(catchup.baseline?.source).toBe(b.source);
+  expect(f.a.ownerOnlyPriorEpoch(() => true)).toBe(false);
+  catchup.close();
+});
+it('routes prior proof away from current-epoch objects for archive-capable owner reads', async () => {
+  const f = await fixture();
+  vi.spyOn(f.a, 'validateRead').mockImplementation(() => {});
+  const objects = new Objects(f.a);
+  const proof = vi.spyOn(objects, 'admitPriorEvidence').mockResolvedValue(true);
+  const current = vi.spyOn(objects, 'streams');
+  const catchup = new Catchup(f.a, 'private', objects, '2', true);
+  const scope = { version: 1, type: 'catchup', space: v.space, page: v.page, epoch: '2' };
+  await catchup.admitValue({
+    ...scope,
+    membershipHead: {
+      revision: '3',
+      statementHash: c.encodeBinary(f.a.head!.hash),
+      ownerKey: c.encodeBinary(hex(v.public)),
+      statements: [],
+      more: false,
+    },
+    baseline: c.encodeBinary(json(f.descriptor)),
+    baselineObject: f.object,
+    streams: [],
+    more: true,
+  });
+  const evidence = [
+    { streamId: v.page, namespace: 'content', checkpoint: null, anchor: {}, tail: [] },
+  ];
+  expect(await catchup.admitValue({ ...scope, streams: evidence, more: true })).toBe(false);
+  expect(proof).toHaveBeenCalledWith(evidence);
+  expect(current).not.toHaveBeenCalled();
+  expect(await catchup.admitValue({ ...scope, streams: [], more: false })).toBe(true);
+  expect(catchup.baseline?.source).toBe(b.source);
+  catchup.close();
 });
 it('rejects descriptor substitutions, object substitutions and strict body errors', async () => {
   const f = await fixture();

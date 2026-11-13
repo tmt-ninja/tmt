@@ -1,5 +1,16 @@
 //! Bounded bootstrap reads on the existing owner snapshot, without secret export.
 use super::*;
+
+/// A prior content cut named by the verified owner log. It is a delivery candidate only.
+#[derive(Clone)]
+pub(crate) struct PriorContentCut {
+    pub epoch: u64,
+    pub stream: String,
+    pub checkpoint_seq: u64,
+    pub checkpoint_hash: Option<[u8; 32]>,
+    pub tail_seq: u64,
+    pub tail_hash: [u8; 32],
+}
 use crate::page_expiry::{PageRetention, SpaceExpiry, archive_at_ms, effective_days};
 
 pub(crate) struct MembershipPage {
@@ -360,6 +371,48 @@ impl OwnerTransaction<'_> {
             cache.put(&key, payloads.clone());
         }
         Ok(payloads)
+    }
+    /// Candidate historical content writers from the verified owner-log prefix. This is only
+    /// transport selection: the browser independently checks the signed cuts and each chain.
+    pub(crate) fn prior_content_cuts(
+        &self,
+        page: &str,
+        epoch: u64,
+        target: &statement::Head,
+    ) -> Result<Vec<PriorContentCut>> {
+        let limit = usize::try_from(target.revision).map_err(|_| OwnerFault::Capacity)?;
+        let log = self.verified_log()?;
+        if limit > log.len() {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let mut cuts = Vec::new();
+        for entry in log.iter().take(limit) {
+            let payload::Payload::EpochAdvance(advance) = entry else {
+                continue;
+            };
+            if advance.page_id != page || values::decimal(&advance.epoch, false)? > epoch {
+                continue;
+            }
+            for cut in advance.cuts.as_slice() {
+                if cut.page_id != page || cut.namespace != "content" {
+                    continue;
+                }
+                let bytes = values::binary(&cut.cut, 1024)?;
+                let decoded = tmt_colab_model::stream_cut::decode(&bytes)?;
+                let tail_seq = values::decimal(decoded.tail_head_seq, true)?;
+                if tail_seq > 0 {
+                    cuts.push(PriorContentCut {
+                        epoch: values::decimal(&cut.epoch, false)?,
+                        stream: decoded.stream_id.to_owned(),
+                        checkpoint_seq: values::decimal(decoded.checkpoint_seq, true)?,
+                        checkpoint_hash: decoded.checkpoint_hash.copied(),
+                        tail_seq,
+                        tail_hash: *decoded.tail_head_hash,
+                    });
+                }
+            }
+        }
+        Ok(cuts)
     }
     fn page_list_with(&self, space: Option<SpaceExpiry>) -> Result<serde_json::Value> {
         let mut query = self.tx.prepare(

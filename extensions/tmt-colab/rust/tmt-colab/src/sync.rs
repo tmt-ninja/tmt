@@ -218,6 +218,8 @@ struct Catchup {
     wrap_offset: usize,
     wraps_done: bool,
     wrap_epoch: u64,
+    prior_cuts: Option<VecDeque<store::owner::PriorContentCut>>,
+    prior_fold: Option<store::owner::PriorContentCut>,
 }
 fn bootstrap_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
     if let Some(fault) = error.downcast_ref::<store::Fault>() {
@@ -597,6 +599,14 @@ fn delivery(
     hash: [u8; 32],
     bytes: Vec<u8>,
 ) -> Result<(serde_json::Value, Option<Delivery>), Code> {
+    delivery_epoch(scope, &scope.epoch, hash, bytes)
+}
+fn delivery_epoch(
+    scope: &SyncScope,
+    object_epoch: &str,
+    hash: [u8; 32],
+    bytes: Vec<u8>,
+) -> Result<(serde_json::Value, Option<Delivery>), Code> {
     if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
         return Err(Code::Capacity);
     }
@@ -605,7 +615,7 @@ fn delivery(
     if decoded.hash()? != hash
         || header.context.space != scope.space
         || header.context.page != scope.page
-        || header.context.epoch != scope.epoch
+        || header.context.epoch != object_epoch
     {
         return Err(Code::Invalid);
     }
@@ -626,6 +636,26 @@ fn delivery(
             }),
         ))
     }
+}
+
+fn prior_checkpoint(
+    store: &Store,
+    page: &str,
+    cut: &store::owner::PriorContentCut,
+) -> Option<store::ReadObject> {
+    let scope = StreamScope {
+        page,
+        epoch: cut.epoch,
+        stream: &cut.stream,
+    };
+    let object = store
+        .retained_namespace_next(scope, store::Namespace::Content, Default::default())
+        .ok()??;
+    (object.checkpoint
+        && object.cursor.seq == cut.checkpoint_seq
+        && Some(object.cursor.hash) == cut.checkpoint_hash
+        && object.bytes.len() <= limits::OBJECT_BYTES)
+        .then_some(object)
 }
 #[derive(Clone, Default)]
 struct Saving {
@@ -2324,6 +2354,8 @@ impl<A: Admission> State<A> {
             wrap_offset: 0,
             wraps_done: false,
             wrap_epoch: values::decimal(&scope.epoch, false)?,
+            prior_cuts: None,
+            prior_fold: None,
         });
         peer.push(text);
         if let Some(transfer) = transfer {
@@ -2387,7 +2419,12 @@ impl<A: Admission> State<A> {
                 })
                 .map_err(bootstrap_error)?;
             let count = wraps.len();
-            let complete = !more && namespaces.is_empty();
+            // A rotated owner page gets one final opportunity to carry retained author chains.
+            // Link/public and detached historical catchups retain their existing bytes.
+            let prior_proof = matches!(&catchup.recipients, WrapRecipients::Owner)
+                && catchup.wrap_epoch == epoch
+                && epoch > 1;
+            let complete = !more && namespaces.is_empty() && !prior_proof;
             let text = wire::output(
                 &scope,
                 "catchup",
@@ -2547,6 +2584,182 @@ impl<A: Admission> State<A> {
                 peer.enqueue(transfer);
             }
         } else {
+            let prior_mode = matches!(&catchup.recipients, WrapRecipients::Owner)
+                && catchup.wrap_epoch == epoch
+                && epoch > 1;
+            if prior_mode && catchup.prior_cuts.is_none() {
+                let mut extra = Vec::<(String, Vec<u8>)>::new();
+                // The owner log determines candidates; the server's list is never proof.
+                // If a retained chain or frame capacity is unavailable, omit it and let the
+                // browser keep the work-bundle gate closed while ordinary viewing continues.
+                let mut cuts = self
+                    .store
+                    .owner_read(&scope.space, &catchup.owner, |tx| {
+                        tx.prior_content_cuts(&scope.page, epoch, &catchup.head)
+                    })
+                    .unwrap_or_default();
+                if cuts.len() > limits::SYNC_NAMESPACES {
+                    cuts.clear();
+                }
+                let mut writers = std::collections::BTreeSet::new();
+                for cut in &cuts {
+                    writers.insert(cut.stream.clone());
+                    if cut.tail_hash == [0; 32]
+                        && cut.tail_seq == cut.checkpoint_seq
+                        && let Some(checkpoint) = prior_checkpoint(&self.store, &scope.page, cut)
+                        && let Ok(envelope) = object::Envelope::from_bytes(&checkpoint.bytes)
+                        && let Ok(header) = object::Header::decode(envelope.header())
+                        && header.context.kind == object::FOLD
+                    {
+                        writers.insert(header.context.author_device);
+                    }
+                }
+                for device in writers {
+                    if peer.chains.contains(&device) {
+                        continue;
+                    }
+                    if peer.chains.len() + extra.len() >= 64 {
+                        break;
+                    }
+                    let Ok(chain) = self
+                        .store
+                        .owner_read(&scope.space, &catchup.owner, |tx| tx.author_chain(&device))
+                    else {
+                        continue;
+                    };
+                    extra.push((device, chain));
+                    let chains: Vec<_> = extra
+                        .iter()
+                        .map(|(device, chain)| serde_json::json!({"deviceId":device,"chain":values::encode_binary(chain)}))
+                        .collect();
+                    if wire::output(
+                        &scope,
+                        "catchup",
+                        serde_json::json!({"chains":chains,"streams":[],"more":true}),
+                    )
+                    .is_err()
+                    {
+                        extra.pop();
+                        break;
+                    }
+                }
+                let chains: Vec<_> = extra.iter().map(|(device, chain)|
+                    serde_json::json!({"deviceId":device,"chain":values::encode_binary(chain)})).collect();
+                let text = wire::output(
+                    &scope,
+                    "catchup",
+                    serde_json::json!({"chains":chains,"streams":[],"more":true}),
+                )?;
+                let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                peer.catchup.as_mut().ok_or(Code::Invalid)?.prior_cuts = Some(cuts.into());
+                for (device, _) in extra {
+                    peer.chains.insert(device);
+                }
+                peer.push(text);
+                return Ok(());
+            }
+            if prior_mode {
+                loop {
+                    let (cut, checkpoint_frame) = {
+                        let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                        let catchup = peer.catchup.as_mut().ok_or(Code::Invalid)?;
+                        match catchup.prior_fold.take() {
+                            Some(cut) => (Some(cut), true),
+                            None => (
+                                catchup
+                                    .prior_cuts
+                                    .as_mut()
+                                    .ok_or(Code::Invalid)?
+                                    .pop_front(),
+                                false,
+                            ),
+                        }
+                    };
+                    let Some(cut) = cut else { break };
+                    let old_scope = StreamScope {
+                        page: &scope.page,
+                        epoch: cut.epoch,
+                        stream: &cut.stream,
+                    };
+                    let zero_tail = cut.tail_hash == [0; 32] && cut.tail_seq == cut.checkpoint_seq;
+                    let mut pending_fold = false;
+                    let candidate = if checkpoint_frame {
+                        prior_checkpoint(&self.store, &scope.page, &cut).map(|object| {
+                            (
+                                store::Namespace::Content,
+                                object.cursor.hash,
+                                object.bytes,
+                                true,
+                            )
+                        })
+                    } else if zero_tail {
+                        prior_checkpoint(&self.store, &scope.page, &cut).and_then(|checkpoint| {
+                            let envelope = object::Envelope::from_bytes(&checkpoint.bytes).ok()?;
+                            let header = object::Header::decode(envelope.header()).ok()?;
+                            if header.context.kind == object::FOLD {
+                                let anchor =
+                                    self.store.retained_anchor(old_scope, cut.tail_seq).ok()??;
+                                if anchor.hash != header.context.prev_hash {
+                                    return None;
+                                }
+                                pending_fold = true;
+                                Some((anchor.namespace, anchor.hash, anchor.bytes, false))
+                            } else {
+                                Some((
+                                    store::Namespace::Content,
+                                    checkpoint.cursor.hash,
+                                    checkpoint.bytes,
+                                    true,
+                                ))
+                            }
+                        })
+                    } else {
+                        self.store
+                            .retained_anchor(old_scope, cut.tail_seq)
+                            .ok()
+                            .flatten()
+                            .filter(|anchor| anchor.hash == cut.tail_hash)
+                            .map(|anchor| (anchor.namespace, anchor.hash, anchor.bytes, false))
+                    };
+                    let Some((namespace, hash, bytes, fold)) = candidate else {
+                        continue;
+                    };
+                    if bytes.len()
+                        > if fold {
+                            limits::OBJECT_BYTES
+                        } else {
+                            limits::CONTENT_UPDATE_BYTES + 2048
+                        }
+                    {
+                        continue;
+                    }
+                    let Ok((envelope, transfer)) =
+                        delivery_epoch(&scope, &cut.epoch.to_string(), hash, bytes)
+                    else {
+                        continue;
+                    };
+                    let entry = serde_json::json!({"seq":cut.tail_seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":envelope});
+                    let stream = if fold {
+                        serde_json::json!({"streamId":cut.stream,"namespace":namespace.name(),"checkpoint":entry,"tail":[]})
+                    } else {
+                        serde_json::json!({"streamId":cut.stream,"namespace":namespace.name(),"checkpoint":null,"anchor":entry,"tail":[]})
+                    };
+                    let text = wire::output(
+                        &scope,
+                        "catchup",
+                        serde_json::json!({"streams":[stream],"more":true}),
+                    )?;
+                    let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                    if pending_fold {
+                        peer.catchup.as_mut().ok_or(Code::Invalid)?.prior_fold = Some(cut);
+                    }
+                    peer.push(text);
+                    if let Some(transfer) = transfer {
+                        peer.enqueue(transfer);
+                    }
+                    return Ok(());
+                }
+            }
             let text = wire::output(
                 &scope,
                 "catchup",
