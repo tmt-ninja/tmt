@@ -92,6 +92,7 @@ const OPS: &[&str] = &[
     "identity.stop",
     "identity.remove",
     "user.identity",
+    "user.person",
     "consumption.history",
     "consumption.limits",
     "drivers.models",
@@ -370,6 +371,7 @@ pub enum Request {
     },
     /// The person's saved identity (#513); created and marked on first use.
     UserIdentity,
+    UserPerson,
     /// Read-only availability of an optional use of another extension.
     ExtensionUse {
         extension: String,
@@ -467,6 +469,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
             Request::UserIdentity
+        }
+        "user.person"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::UserPerson
         }
         op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
@@ -649,6 +656,7 @@ impl Session {
                 | Request::JobRun { .. }
                 | Request::SendNow { .. }
                 | Request::UserIdentity
+                | Request::UserPerson
                 | Request::History(crate::request_history::ListQuery::Conversation(_))
         ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
         {
@@ -761,6 +769,11 @@ impl Session {
             Request::UserIdentity => user::identity(
                 storage,
                 settings.as_ref().expect("user identity settings"),
+                crate::user::login_name().as_deref(),
+            ),
+            Request::UserPerson => user::person(
+                storage,
+                settings.as_ref().expect("user person settings"),
                 crate::user::login_name().as_deref(),
             ),
             Request::HookRegister(hook) => identity_hooks::register(storage, hook),
