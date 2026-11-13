@@ -236,7 +236,11 @@ impl Controller {
                     geometry.push(RowGeometry {
                         id: item.id.as_str().into(),
                         lines: index..index + 1 + usize::from(item.reference.is_some()),
-                        visible: rect,
+                        visible: Rect {
+                            height: (1 + u16::from(item.reference.is_some()))
+                                .min(area.bottom().saturating_sub(rect.y)),
+                            ..rect
+                        },
                     });
                 }
                 Visual::Link(item) => {

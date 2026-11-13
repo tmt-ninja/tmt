@@ -260,9 +260,6 @@ impl Controller {
         let Some(row) = items.iter().find(|row| row.id.as_str() == id) else {
             return Effect::None;
         };
-        if app.right_tab == crate::board::shell::RightTab::Checklist {
-            return self.tick(app, row);
-        }
         let enter = app.view.as_ref().map(|view| view.checklist_enter);
         match (&row.reference, enter) {
             (Some(_), Some(crate::config::ChecklistEnter::Tick)) => self.tick(app, row),

@@ -418,35 +418,15 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-The conversation entry is the `C  Checklist 2` chip after Talk / Measure on the pane's tab row (`talk_measure::checklist`; the key as a keycap, none when unbound; left out when the row is too narrow); its modal is `Checklist · <member>`
-(with the item count), and a source form is `Add to checklist · <member>`.
-The list is one list in stored order (`rows.rs`, no kind grouping), with no header, in a sheet
-that asks for the whole board body; the modal then keeps its usual 90% cap, or the full width below
-the md step (the width is part of the template key, so a resize recompiles it). Each item is a two-line `flex-col` row, and the selection covers both lines.
-Line 1 is the cursor, `OPEN_MARK` (`○`, `waiting` role) and the wrapped title. Line 2, under the
-title, is `LINK_MARK` (`↗`) and `address()` in the `link` role, then the byline in `dim` capped at
-24 cells. `address()` gives a GitHub issue/PR as `owner/repo#N` and any other reference whole
-without its scheme. A todo's line 2 is only the byline. The link text carries the `link` hit id; the
-controller keeps its painted areas (`link_hits`) and the item under the pointer (`hovered`, from
-`App::move_pointer` while Notes is the top overlay). A press on a link selects its row and opens it;
-the cursor row's link and the hovered link paint in the selection colour, underlined.
-The title text carries the `title` hit id; its bare web links (`member_links::bare_urls`,
-the transcript's rule) map onto its painted glyphs the same way and become links 1.. of
-the row (`LinkHit::link`; 0 is the item's own link), each hovered on its own. Shift+↑↓ swaps
-with the neighbouring row of the same list. Captions
-resolve held preview/roster data by the frozen room/member UUID, falling back to
-`member <short UUID>` when no name is held. Rendering never reads Core or borrows
-another selected member's name. Both form variants label the first field Title.
-The canonical authored action is `member-checklist`, bound to `C` for members
-and the Reader (`N` stays create-squad on a squad row); the chip leads with that key as a
-keycap, taken from the effective bindings. This breaking rename before launch has no `member-notes` alias;
-an authored former action gets the ordinary unknown-action notice.
-
-Enter on a link row follows the global `board.checklist_enter` (`open` by default, or `tick`; a todo
-row always ticks). It is a `View` field built beside `ask_lead`, edited on the `,` page and by
-`tmt ops sq config set`; a bad authored value is noticed and reads as `open`. Space always ticks and
-`o` always opens the link, so both actions stay reachable under either value; the footer names
-`Enter tick · o open` only under `tick`.
+The `C  Checklist` chip opens the selected member's Checklist in the Agents right pane;
+Ctrl+L from the composer preserves its draft and caret, and Esc returns to it. C on a
+squad keeps the squad Checklist surface. The page groups non-archived items under
+`Todo · N` and `Done · N`; done items are dimmed. Item provenance is right-aligned,
+and a reference gets its own line. The controller retains its existing link hits,
+write epochs, edit forms, and unsent drafts. The `U` action asks the selected member
+to update the checklist; its session-only state changes to updated only after the
+matching final reply. Authored bindings retain precedence. Enter on a link continues
+to follow `board.checklist_enter`; Space ticks and `o` opens the link.
 
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment

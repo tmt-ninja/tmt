@@ -942,9 +942,19 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         && app.error.is_none()
         && app.migration_notice.is_none()
     {
+        let enter_label = if app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.checklist_enter == crate::config::ChecklistEnter::Tick)
+        {
+            "tick"
+        } else {
+            "open/tick"
+        };
         let mut hints: Vec<Hint> = [
             ("↑↓", "choose"),
-            ("⏎", "tick"),
+            ("⏎", enter_label),
+            ("o", "open"),
             ("a", "add"),
             ("e", "edit"),
             ("d", "delete"),
