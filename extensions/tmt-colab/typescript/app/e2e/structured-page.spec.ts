@@ -1566,11 +1566,7 @@ for (const width of [1440, 390])
         ),
       ).toBe(true);
       await shot('carousel-failed');
-      // Retry (the failed read only) reads it again.
-      await page.evaluate(() => (window.failImage = false));
-      await tile('讀不到的圖').getByRole('button', { name: 'Retry' }).click();
-      await expect(pics.locator('img')).toHaveCount(3);
-      await expect(pics.getByRole('img', { name: '讀不到的圖' })).toBeVisible();
+      // That Retry reads the failed image again is test/block-images.test.ts's (#6357).
       expect(outside).toEqual([]);
     });
 

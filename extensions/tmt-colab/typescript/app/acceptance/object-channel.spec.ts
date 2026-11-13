@@ -137,8 +137,6 @@ test('object channel: first demand and replacement use live discovery', async ({
   });
 });
 
-// Only this test client is compiled here. No product bundle or binary is replaced.
-// It drives the real browser registration, Connection, crypto, fold and Writer.
 test('object channel: a refused first setup recovers once Remote can be found (#6351)', async () => {
   await withWorld(async (world) => {
     // The door as startDoor brings it up, but before the extensions are on the world's PATH: the
@@ -174,6 +172,8 @@ test('object channel: a refused first setup recovers once Remote can be found (#
   });
 });
 
+// Only this test client is compiled here. No product bundle or binary is replaced.
+// It drives the real browser registration, Connection, crypto, fold and Writer.
 test('object channel: upload original recovers, commits and publishes through real owners', async ({
   browserName,
 }, info) => {

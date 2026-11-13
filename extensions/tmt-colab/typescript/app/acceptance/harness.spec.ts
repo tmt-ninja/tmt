@@ -713,7 +713,7 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
   });
 });
 
-// The soak tests' Live check names the state a page stayed in. The attachment is a closed set,
+// A Live check names the state a page stayed in. The attachment is a closed set,
 // read from the parent's status label only; the CI report keeps nothing else (#3083).
 test('harness: a failed Live check attaches the closed header state and keeps its failure', async ({
   page,

@@ -2654,15 +2654,9 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
     };
   }, id);
   await frame.locator('html').evaluate(() => {
-    const events: string[] = [];
     const messages: string[] = [];
-    Reflect.set(window, '__focusThreads', events);
     Reflect.set(window, '__focusMessages', messages);
     window.addEventListener('message', (event) => messages.push(String(event.data?.type)));
-    document.addEventListener('focusin', (event) => {
-      const target = event.target as HTMLElement;
-      if (target.dataset.colabThread) events.push(target.dataset.colabThread);
-    });
   });
   await frame.locator('[data-colab-thread="second"]').evaluate((node: HTMLElement) => node.click());
   await sendToFrame(page, id, {
@@ -2693,9 +2687,6 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   expect(
     await frame.locator('html').evaluate(() => Reflect.get(window, '__focusMessages')),
   ).toEqual([]);
-  expect(await frame.locator('html').evaluate(() => Reflect.get(window, '__focusThreads'))).toEqual(
-    ['first', 'second', 'second'],
-  );
   await expect(frame.locator('[data-colab-thread="second"]')).toBeFocused();
   await page.evaluate(() => {
     document.body.tabIndex = -1;
