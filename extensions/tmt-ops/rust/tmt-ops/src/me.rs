@@ -64,6 +64,30 @@ pub fn current(core: &Core) -> Result<Option<Me>, SquadError> {
     }
 }
 
+/// The configured person, read-only: Core's `user.person`. `None` when Core has no configured
+/// person yet, or an older Core does not offer the operation (it answers `API_INPUT_INVALID`).
+/// Nothing is created or marked, so a read that shows or counts can use it freely.
+pub fn person(core: &Core) -> Result<Option<Me>, SquadError> {
+    match core.api("user.person", json!({})) {
+        Ok(shown) if shown["person"].is_null() => Ok(None),
+        Ok(shown) => match (
+            shown["person"]["identityId"].as_str(),
+            shown["person"]["name"].as_str(),
+        ) {
+            (Some(id), Some(name)) => Ok(Some(Me {
+                id: id.into(),
+                name: name.into(),
+            })),
+            _ => Err(SquadError::new(
+                "SQUAD_CORE_UNAVAILABLE",
+                "user.person returned no identity.",
+            )),
+        },
+        Err(error) if error.code == "API_INPUT_INVALID" => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// Carries the user an earlier `ops.toml` recorded into Core, once: the
 /// identity `me_id` names (else `me`) becomes `user.name` unless Core already
 /// has a name set, and the record is dropped. That identity also gets Core's

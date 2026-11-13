@@ -56,7 +56,7 @@ fn invalid(message: impl ToString) -> Error {
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     let outcome = match task.work {
         Work::Read { after } => {
-            let service = service(core, &task.key);
+            let service = reader(core, &task.key);
             let preview = service
                 .as_ref()
                 .map_err(|error| error.message.clone())
@@ -87,8 +87,17 @@ fn service(core: &Core, key: &Key) -> Result<Service, Error> {
     }
 }
 
+/// A read admitted by the caller or Core's configured person, which creates nobody; with
+/// neither the board shows the list as unknown.
+fn reader(core: &Core, key: &Key) -> Result<Service, Error> {
+    let config = Config::load(core).map_err(|error| invalid(error.message))?;
+    let member = key.member().map(Id::parse).transpose()?;
+    Service::reading(core, &config, Id::parse(&key.room)?, member)?
+        .ok_or_else(crate::checklist::no_person)
+}
+
 fn read(core: &Core, key: &Key) -> Result<Preview, Error> {
-    service(core, key)?.preview()
+    reader(core, key)?.preview()
 }
 
 fn apply(core: &Core, key: &Key, write: Write) -> Result<Applied, Error> {

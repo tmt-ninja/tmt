@@ -1213,6 +1213,7 @@ No command accepts an actor override or uses a member filter as assignment.
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                  |
 | `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                          |
+| `counts`                                               | Optional repeated `--member UUID` (at most 32; default the room's roster); open, unarchived items per member; reads create nothing                           |
 | `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                            |
 | `done ITEM`                                            | Agent verb, no `--room` needed: short id, UUID prefix or UUID; completes at the item's current revision                                                         |
 | `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
@@ -1258,7 +1259,10 @@ list (archived items included): Ops chat names an item as `#Title (3f2a)`, so re
 refused with up to five candidates and a missing one says so; every other command needs the exact UUID.
 
 The verified invoking caller decides authority. Only when no caller is bound may
-the active user be used; ambiguous or invalid callers refuse. Active
+the active user be used; ambiguous or invalid callers refuse. Reads (`ls`, `show`,
+`events`, `counts` and the board's checklist preview) use the configured person only when it
+already exists and never create or mark it; with no caller and no person they refuse, except
+`counts`, which reports `no-person`. Writes resolve, and may create, the person as before. Active
 users and room leads are managers. Collaborators can create unassigned
 items, edit content, complete and reopen unarchived items. Initial assignment
 requires manager permission, including self-assignment; only managers assign,
@@ -1287,6 +1291,12 @@ milliseconds; the service fills them from the verified caller and its clock, so 
 or request sets them. Add and edit, assign, unassign, complete, reopen, archive and
 restore stamp the item; reorder and delete do not. An item stored before they were
 recorded reads all four as null until its next change, which sets `lastChanged*` only.
+
+`counts --room ROOM_UUID [--member UUID]...` returns JSON action `counts`:
+`room` and `members:[{id,open,reason?}]`, where `open` is the member's open, unarchived
+item count (the board's todo count). A member that cannot be read has `open: null` and a
+`reason`: `no-person` (no caller and no configured person), `member-unavailable` or
+`room-unavailable`; the command still exits 0. More than 32 members is refused.
 
 `events` returns the list's mutation log, oldest first, as JSON action `events`:
 `roomId`, `events:[{id,roomId,memberId,checklistId,itemId,actorId,atMs,action,revision}]`,

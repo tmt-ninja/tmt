@@ -50,6 +50,13 @@ pub const CHECKLIST_LS: &CommandSpec = spec!(
     ["Read an exact room" => "tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444"]
 );
 
+pub const CHECKLIST_COUNTS: &CommandSpec = spec!(
+    "counts", "Count each member's open conversation-list items in one read",
+    details = "A read for boards: one admission and one reference read for the room, at most 32 members (default: the room's roster). The count is the board's todo count: open, not archived. Nothing is created or written, not even the person; without an admitted caller or a configured person every count is null with reason no-person.",
+    ["Count every member's open items" => "tmt ops squad checklist counts --room 44444444-4444-4444-8444-444444444444 --json",
+     "Count two members" => "tmt ops squad checklist counts --room 44444444-4444-4444-8444-444444444444 --member 22222222-2222-4222-8222-222222222222 --member 33333333-3333-4333-8333-333333333333"]
+);
+
 pub const CHECKLIST_EVENTS: &CommandSpec = spec!(
     "events", "Read what changed in a checklist, oldest first",
     details = "One row per applied change: who, when, what and the resulting revision, never a title or body. --after takes the last event id already seen (0 reads from the beginning); `nextCursor` is the id to pass next. `gap` says history before the cursor may be missing: `legacy` for changes made before the log existed, `pruned` for events retention removed (30 days or the newest 1000 per room).",

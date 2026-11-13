@@ -164,6 +164,11 @@ pub struct Item {
     /// The last change that moved the item's revision; set when it is added too.
     pub last_changed: Option<Stamp>,
 }
+impl AsRef<Item> for Item {
+    fn as_ref(&self) -> &Item {
+        self
+    }
+}
 
 /// Content-free identity protection, never an operation receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
