@@ -45,10 +45,10 @@
     },
     {
       "name": "docs",
-      "path": "assets/colab-runtime-docs-8782ae435febe8e3.js",
-      "sha256": "8782ae435febe8e3fa6806c8f6e84d04ee14db1e0567701c779c2c9efd42412b",
-      "length": 175449,
-      "gzip": 50960
+      "path": "assets/colab-runtime-docs-2aa3c109091af88b.js",
+      "sha256": "2aa3c109091af88bd5457eb20086e1232621a4417432819e3a6a259eaf3a054a",
+      "length": 176746,
+      "gzip": 51420
     },
     {
       "name": "terminal-frame",
@@ -71,7 +71,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "a790a55771d0f74025622d24517789accc4cebbf0c2c422bc5e497cc2d423fa9",
+    "sha256": "8273573f3cde7f2104f13398ff6e010b3c1c346e29768fde069b93198a49a499",
     "length": 69410
   }
 }
