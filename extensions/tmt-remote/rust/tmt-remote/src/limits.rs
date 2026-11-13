@@ -116,6 +116,9 @@ pub const READ_DIGEST_BYTES: usize = 1024 * 1024;
 pub const READ_LIMITS_BYTES: usize = 512 * 1024;
 pub const READ_OPS_SQUADS: usize = 32;
 pub const READ_OPS_AGENTS: usize = 256;
+/// Core's public consumption.history admits at most 32 UUIDs per read. The board
+/// therefore starts at most READ_OPS_AGENTS / READ_OPS_USAGE_IDENTITIES parallel reads.
+pub const READ_OPS_USAGE_IDENTITIES: usize = 32;
 pub const READ_OPS_TIMERS: usize = 64;
 /// Longest projected Ops text, in Unicode scalars.
 pub const READ_OPS_NAME: usize = 64;

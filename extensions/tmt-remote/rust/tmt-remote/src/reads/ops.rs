@@ -61,6 +61,10 @@ fn agent(row: &Value, squad: &str, role: &str) -> Option<Value> {
     );
     agent.insert("squad".into(), json!(squad));
     agent.insert("role".into(), json!(role));
+    agent.insert("tokens1d".into(), Value::Null);
+    // Ops owns the conversation checklist. Until its read-only batch port exists,
+    // no per-member command or private-store fallback belongs in a board read.
+    agent.insert("checklistCount".into(), Value::Null);
     put(&mut agent, "presence", token(&row["presence"], 16));
     let activity = &row["activity"];
     if matches!(
@@ -220,8 +224,22 @@ fn timers(document: &Value, truncated: &mut bool) -> Option<Vec<Value>> {
             "owner",
             text(&job["owner"], limits::READ_OPS_NAME),
         );
-        put(&mut timer, "state", token(&job["state"], 16));
-        put(&mut timer, "nextMs", job["nextMs"].get(0).and_then(safe));
+        let state = match job["state"].as_str() {
+            Some("on") if job["ownerMissing"] != true => Some("on"),
+            Some("on" | "paused" | "no owner") => Some("paused"),
+            _ => None,
+        };
+        timer.insert(
+            "state".into(),
+            state.map_or(Value::Null, |state| json!(state)),
+        );
+        let next = (state == Some("on"))
+            .then(|| job["nextMs"].get(0).and_then(safe))
+            .flatten();
+        timer.insert(
+            "nextMs".into(),
+            next.map_or(Value::Null, |next| json!(next)),
+        );
         // The first line only: a message often names local files.
         let first = job["message"].as_str().and_then(|m| m.lines().next());
         put(
@@ -256,5 +274,84 @@ pub(super) fn project(
     payload.insert("agents".into(), Value::Array(agents));
     payload.insert("timers".into(), timers.map_or(Value::Null, Value::Array));
     payload.insert("truncated".into(), json!(truncated));
+    payload.insert("defaultIdleAlertMs".into(), Value::Null);
     Some(payload)
+}
+
+/// Config owns the no-squad effective default and emits whole seconds. Unknown
+/// context, duplicate entries or unsupported values are unavailable, never 30m by guess.
+pub(super) fn idle_default(settings: &Value) -> Option<u64> {
+    if settings.get("context") != Some(&Value::Null) {
+        return None;
+    }
+    let mut entries = settings["entries"]
+        .as_array()?
+        .iter()
+        .filter(|entry| entry["key"] == "idle_alert.after");
+    let value = entries.next()?["value"].as_str()?;
+    if entries.next().is_some() {
+        return None;
+    }
+    let seconds = value.strip_suffix('s')?;
+    if seconds.is_empty() || seconds.len() > 5 || !seconds.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let seconds: u64 = seconds.parse().ok()?;
+    (300..=86_400).contains(&seconds).then_some(seconds * 1000)
+}
+
+/// One Core-owned closed-day aggregate; cached inputs are already included in
+/// inputTokens. Missing coverage and an unobserved zero never become a measured zero.
+pub(super) fn tokens1d(document: &Value, id: &str) -> Option<Value> {
+    const DAY: u64 = 86_400_000;
+    let observed = safe(&document["asOfMs"])?;
+    let through = safe(&document["throughMs"])?;
+    if through > observed || through % 5000 != 0 {
+        return None;
+    }
+    let mut identities = document["identities"]
+        .as_array()?
+        .iter()
+        .filter(|row| row["id"] == id);
+    let row = identities.next()?;
+    if identities.next().is_some() || row["found"] != true || row["reporting"] != true {
+        return None;
+    }
+    let mut windows = row["windows"]
+        .as_array()?
+        .iter()
+        .filter(|window| window["windowMs"] == DAY);
+    let window = windows.next()?;
+    if windows.next().is_some()
+        || window["toMs"] != through
+        || window["fromMs"] != through.saturating_sub(DAY)
+    {
+        return None;
+    }
+    let available = safe(&window["availableFromMs"])?;
+    if available > through {
+        return None;
+    }
+    let [bucket] = window["buckets"].as_array()?.as_slice() else {
+        return None;
+    };
+    if bucket["fromMs"] != window["fromMs"] || bucket["toMs"] != window["toMs"] {
+        return None;
+    }
+    let input = safe(&bucket["inputTokens"])?;
+    let output = safe(&bucket["outputTokens"])?;
+    if safe(&bucket["cachedInputTokens"])? > input {
+        return None;
+    }
+    let tokens = input
+        .checked_add(output)
+        .filter(|tokens| *tokens <= MAX_SAFE)?;
+    let complete = bucket["complete"].as_bool()?;
+    let covered = safe(&bucket["coveredMs"])?;
+    let duration = through - through.saturating_sub(DAY);
+    if covered > duration || complete && covered != duration || !complete && tokens == 0 {
+        return None;
+    }
+    Some(json!({"tokens":tokens,"complete":complete}))
 }

@@ -1631,8 +1631,10 @@ is exactly `{kind:"roster",roomId,revision}`, with a canonical room UUID and pos
 JavaScript-safe integer revision. A room post has 1–64 distinct canonical recipient UUIDs.
 Every recipient must pass the device's talk allowlist again under the existing effect
 fence; the browser cannot grant roster membership. Core validates the selected roster
-revision and each recipient's membership. `ROOM_ROSTER_CHANGED` and
-`ROOM_RECIPIENT_NOT_MEMBER` become durable `state:"refused"` with the original code.
+revision and each recipient's membership. Roster posts may select any non-empty subset of the
+current roster. A stale revision or any non-member returns `ROOM_ROSTER_CHANGED`, preserved as
+durable `state:"refused"`. Remote also forwards `ROOM_RECIPIENT_NOT_MEMBER` as refused if Core
+returns it; roster posts do not depend on Core emitting that code.
 A malformed or uncertain Core answer remains uncertain, never permission to send again.
 Room accepted state adds `requestIds` in the frozen `recipientIds` order, one Core
 request per recipient, while retaining `requestId = requestIds[0]`. A DM's accepted
@@ -2312,7 +2314,7 @@ channel, and dispatch stays unreachable from them. They are siblings of the comp
 
 | Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)        |
 | --------------------------------- | --------------------------------------------------------------------------------- |
-| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel; then one bounded `room list --json` for nonempty squads             |
+| `GET <prefix>/x/-/ops` | `ops squad ls --json`, `ops squad cron ls --json` and `ops config show --json` in parallel; then one bounded `room list --json` for nonempty squads and bounded Core `consumption.history` batches |
 | `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
 
@@ -2351,10 +2353,32 @@ a generic unavailable. `observedAtMs` is the owner's clock when the read finishe
   `state?` (the board's raw state text, at most 80 scalars, so free text stays readable), `stateTone?`
   (the board's colour token for it, `[a-z0-9-]` up to 24 bytes; a client maps tokens it knows and treats
   the rest as neutral), `task?`, `next?`, `model?`, `link?` (`https://` only, no whitespace),
-  `pending?`, `waitingOnYou` (a count), `digest? {active,remainingMs,heldCount}` and `staleness?`.
-- `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state?`,
-  `nextMs?` (the first only) and `what?` (the first line of the job message).
+  `pending?`, `waitingOnYou` (a count), `digest? {active,remainingMs,heldCount}`, `staleness?`,
+  `tokens1d: {tokens,complete} | null` and `checklistCount: number | null`. Tokens are Core's closed
+  24-hour input-plus-output aggregate; cached inputs are already included. `complete:false` marks
+  a known lower bound, never exact full-day usage. Missing observations or an incomplete zero are
+  null. `checklistCount` is currently always null: the existing per-member checklist command can
+  create a person and cannot batch. The [Ops read-only batch reader](https://github.com/tmt-ninja/tmt/issues/6380) is a separate follow-up;
+  this board never calls the per-member command or copies its private store reader.
+- `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state`,
+  `nextMs: number | null` (the owner's first next run) and `what?` (the first line of the job message).
+  `state` is `on`, `paused` or null. A paused or owner-missing timer has `nextMs:null`, even if a
+  stale next time was supplied; no browser or Remote schedule calculation is permitted. Unknown
+  state or unavailable next-run evidence stays null.
 - `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
+- `defaultIdleAlertMs: number | null`: the effective workspace default, once per payload, from
+  `ops config show --json` with no squad or tab context (`idle_alert.after`). Unknown context,
+  duplicate/malformed setting or a failed read is null; Remote never guesses a default.
+
+Board, cron and configuration reads share the existing deadline. Once the bounded board supplies
+its UUIDs, distinct projected members are split into at most eight parallel Core
+`consumption.history` calls of at most 32 UUIDs each (the 256-agent board cap), with
+`windowsMs:[86400000]` and `maxBuckets:1`. Each chunk uses Core's own closed-window cut and
+coverage; rows are independent observations, not a new cross-chunk aggregate. There is no silent
+32-member truncation, per-member or per-squad subprocess loop, polling worker or new telemetry
+store. A failed chunk leaves only its members' tokens null. Other optional source failures leave
+only their own fields unavailable; the board itself still renders. The SDK retains these values
+and explicit nulls for the web consumer.
 
 Never forwarded: a pane's id, target, cwd or location, process data, unrelated room IDs, owner IDs, unlisted row
 fields, the rest of a schedule message and the person's own identity. Text has control and

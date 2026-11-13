@@ -8809,15 +8809,23 @@ function unavailableBoard(reason) {
 		agents: [],
 		squads: [],
 		schedules: [],
+		defaultIdleAlertMs: null,
 		truncated: false,
 		unavailable: REASONS[reason]
 	};
+}
+var safeNumber = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+function usage1d(value) {
+	return value && safeNumber(value.tokens) && typeof value.complete === "boolean" && (value.complete || value.tokens > 0) ? {
+		tokens: value.tokens,
+		complete: value.complete
+	} : null;
 }
 /** The page's board from one `ok` payload; a payload off the contract is a failed read. */
 function opsBoard(payload) {
 	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
 	return {
-		...typeof payload.defaultIdleAlertMs === "number" && Number.isFinite(payload.defaultIdleAlertMs) ? { defaultIdleAlertMs: payload.defaultIdleAlertMs } : {},
+		defaultIdleAlertMs: safeNumber(payload.defaultIdleAlertMs) && payload.defaultIdleAlertMs >= 3e5 && payload.defaultIdleAlertMs <= 864e5 ? payload.defaultIdleAlertMs : null,
 		squads: payload.squads.map((squad) => ({
 			name: squad.name,
 			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
@@ -8841,11 +8849,15 @@ function opsBoard(payload) {
 				...agent.next ? { next: agent.next } : {},
 				...agent.pending ? { pending: agent.pending } : {},
 				...agent.model ? { model: agent.model } : {},
-				waitingOnYou: agent.waitingOnYou ?? 0
+				waitingOnYou: agent.waitingOnYou ?? 0,
+				tokens1d: usage1d(agent.tokens1d),
+				checklistCount: null
 			};
 		}),
 		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
 			id: timer.id,
+			state: timer.state === "on" || timer.state === "paused" ? timer.state : null,
+			nextMs: timer.state === "on" && safeNumber(timer.nextMs) ? timer.nextMs : null,
 			squad: timer.squad,
 			when: timer.scheduleText,
 			what: timer.what ?? "",
@@ -9605,7 +9617,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
 				const badges = timers ? [`⏱ ${timers}`] : [];
 				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
-				if (idle !== void 0 && board.defaultIdleAlertMs !== void 0 && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
+				if (idle !== void 0 && board.defaultIdleAlertMs !== null && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
 				return {
 					id: `channel:${group.name}`,
 					label: group.name,

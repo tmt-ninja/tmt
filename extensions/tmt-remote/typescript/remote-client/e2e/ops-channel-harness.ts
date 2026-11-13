@@ -33,9 +33,12 @@ declare global {
 window.channelReads = 0;
 window.channelHold = false;
 window.channelBoard = {
+  defaultIdleAlertMs: null,
   squads: [{ room: null, name: 'sample', lead: 'sample-lead', idleAlertMs: 900_000 }],
   agents: [
     {
+      tokens1d: null,
+      checklistCount: null,
       id: '00000000-0000-4000-8000-000000000001',
       name: 'sample-lead',
       squad: 'sample',
@@ -47,6 +50,8 @@ window.channelBoard = {
       task: 'Review the sample plan',
     },
     {
+      tokens1d: null,
+      checklistCount: null,
       id: '00000000-0000-4000-8000-000000000002',
       name: 'sample-1',
       squad: 'sample',
@@ -57,6 +62,8 @@ window.channelBoard = {
       waitingOnYou: 4,
     },
     {
+      tokens1d: null,
+      checklistCount: null,
       id: '00000000-0000-4000-8000-000000000003',
       name: 'sample-2',
       squad: 'sample',
@@ -69,6 +76,8 @@ window.channelBoard = {
   schedules: [
     {
       id: 'timer1',
+      nextMs: null,
+      state: null,
       squad: 'sample',
       when: 'cron 0 * * * *',
       what: 'Sample hourly review',
