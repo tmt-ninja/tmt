@@ -110,16 +110,36 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         (body, Rect::default())
     };
     let snapshot = state.snapshot();
+    // With `⏎` on a plan, the title says whose rows show; the verdicts still come from every plan.
+    let only = state
+        .only_plan_row()
+        .map(|plan| format!(" · members of {}", plan.name))
+        .unwrap_or_default();
     let title = match snapshot {
-        Some(_) if state.plans => {
-            format!("Plans · {}", snapshot.map_or(0, |s| s.document.plans.len()))
-        }
+        Some(s) if state.plans => format!("Plans · {}", s.plan_rows.len()),
         Some(s) if s.sending.routes.is_some() => {
-            format!("Who may message whom · at {}", s.clock(s.document.at_ms))
+            format!(
+                "Who may message whom{only} · at {}",
+                s.clock(s.document.at_ms)
+            )
         }
-        Some(s) => format!("Members · at {}", s.clock(s.document.at_ms)),
+        Some(s) => format!("Members{only} · at {}", s.clock(s.document.at_ms)),
         None => "Who may message whom".into(),
     };
+    // The plans rule notes how many are in effect at the selected time.
+    let plans_note = snapshot
+        .filter(|_| state.plans)
+        .map(|s| {
+            let at = s.document.at_ms;
+            let on = s
+                .document
+                .timeline
+                .iter()
+                .find(|i| i.start_ms <= at && at < i.end_ms)
+                .map_or(0, |i| i.plan_ids.len());
+            format!("{on} in effect")
+        })
+        .unwrap_or_default();
     let rule = line(left, left.y);
     let focus = state.focus();
     let mut focused_rule = rule;
@@ -127,7 +147,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         frame.buffer_mut(),
         rule,
         &title,
-        Line::default(),
+        Line::styled(plans_note, look.role(Role::Muted)),
         focus == super::Section::Routes,
         look,
     );
@@ -157,7 +177,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ),
             None => empty(frame, app, list, "◌ Loading Orchestration…", None),
         },
-        Some(snapshot) if state.plans => plans(frame, app, snapshot, list),
         Some(snapshot) => {
             // The totals line closes the column when it has room for it.
             let totals = u16::from(list.height >= 10);
@@ -174,12 +193,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     Role::Muted,
                 );
             }
-            let routes = snapshot.sending.routes.is_some();
-            let members = snapshot.document.members.len() as u16;
+            let routes = snapshot.sending.routes.is_some() && !state.plans;
+            let members = state.members(snapshot).len() as u16;
             // Each section's whole content: rule (Talks, Jobs), column names and rows; the matrix
             // also has up to two legend lines.
             let full = [
-                if routes { members + 3 } else { members + 1 },
+                if state.plans {
+                    // Column names and one row per plan; with none, the two commands.
+                    1 + (snapshot.plan_rows.len() as u16).max(2)
+                } else if routes {
+                    members + 3
+                } else {
+                    members + 1
+                },
                 snapshot
                     .sending
                     .talks
@@ -197,7 +223,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 height: sizes[0],
                 ..list
             };
-            if routes {
+            if state.plans {
+                plans(frame, app, snapshot, top);
+            } else if routes {
                 let (note, used) = matrix(frame, app, snapshot, top);
                 top.height = used;
                 if !note.is_empty() {
@@ -439,13 +467,20 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         );
         free = x + wide + 1;
     }
-    // Which cell each column shows: the highest count among the cells it covers.
+    // In the plans list, the strip marks only the selected plan's cells, named.
+    let plan = state.selected_plan().filter(|_| state.plans);
+    let marked =
+        |cell: &super::model::StripCell| plan.is_some_and(|p| cell.plan_ids.contains(&p.id));
+    // Which cell each column shows: a marked cell first, then the highest count it covers.
     let mut shown: Vec<Option<usize>> = vec![None; usize::from(width)];
     for (index, cell) in strip.cells.iter().enumerate() {
         let from = column(cell.start_ms).min(width - 1);
         let to = column(cell.end_ms).max(from + 1).min(width);
         for slot in &mut shown[usize::from(from)..usize::from(to)] {
-            if slot.is_none_or(|other| strip.cells[other].count < cell.count) {
+            if slot.is_none_or(|other| {
+                let other = &strip.cells[other];
+                (marked(other), other.count) < (marked(cell), cell.count)
+            }) {
                 *slot = Some(index);
             }
         }
@@ -474,13 +509,25 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         } else {
             " "
         };
-        let body = format!("{mark}{}", fill.repeat(usize::from(run.saturating_sub(1))));
-        let role = if cell.count == 0 {
+        let body = match plan {
+            Some(plan) if marked(cell) => grid::fit(
+                &safe(&format!(" {}", plan.name)),
+                usize::from(run),
+                Align::Left,
+                Truncate::End,
+            ),
+            Some(_) => "·".repeat(usize::from(run)),
+            None => format!("{mark}{}", fill.repeat(usize::from(run.saturating_sub(1)))),
+        };
+        let role = if cell.count == 0 || (plan.is_some() && !marked(cell)) {
             Role::Dim
         } else {
             Role::Text
         };
         let mut style = look.role(role);
+        if plan.is_some() && marked(cell) {
+            style = look.selected(true, style);
+        }
         if Some(index) == selected {
             style = look.role(Role::Text).add_modifier(Modifier::BOLD);
         }
@@ -648,7 +695,7 @@ fn controls(app: &App) -> Vec<(Option<Control>, Vec<Span<'static>>)> {
 fn plans(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let state = &app.orchestration;
     let look = app.look();
-    let plans = &snapshot.document.plans;
+    let plans = &snapshot.plan_rows;
     if plans.is_empty() {
         empty(frame, app, area, "Base only · no plans yet", None);
         for (offset, (label, command)) in [
@@ -672,43 +719,91 @@ fn plans(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         }
         return;
     }
+    // Columns sized to their widest value; WHEN yields first, any cut ends in `…`, and one cell
+    // of gutter stays before the divider.
+    let widest = |header: &str, values: &mut dyn Iterator<Item = &str>| {
+        values
+            .map(|v| safe(v).width())
+            .fold(header.width(), usize::max)
+    };
+    let name_w = widest("PLAN", &mut plans.iter().map(|p| p.name.as_str()));
+    let who_w = widest("WHO", &mut plans.iter().map(|p| p.who.as_str()));
+    let prio_w = plans
+        .iter()
+        .map(|p| p.priority.to_string().len())
+        .fold("PRIO".len(), usize::max);
+    let when_full = widest("WHEN", &mut plans.iter().map(|p| p.when.as_str()));
+    // A leading space, the on/off mark, a space between columns and the gutter.
+    let fixed = 1 + 2 + name_w + 1 + who_w + 1 + 1 + prio_w + 1;
+    let when_w = usize::from(area.width).saturating_sub(fixed).min(when_full);
+    let columns = |name: &str, who: &str, when: &str, prio: &str| {
+        format!(
+            "{} {} {} {}",
+            cell(name, name_w),
+            cell(who, who_w),
+            cell(when, when_w),
+            grid::fit(prio, prio_w, Align::Right, Truncate::End)
+        )
+    };
+    text(
+        frame,
+        app,
+        line(area, area.y),
+        &format!("   {}", columns("PLAN", "WHO", "WHEN", "PRIO")),
+        Role::Muted,
+    );
     let selected = plans
         .iter()
-        .position(|p| p["id"].as_str() == state.plan_selection.as_deref())
+        .position(|p| Some(&p.id) == state.plan_selection.as_ref())
         .unwrap_or(0);
-    let rows = usize::from(area.height);
-    let start = selected.saturating_sub(rows / 2);
-    for (index, plan) in plans.iter().enumerate().skip(start).take(rows) {
-        let chosen = index == selected;
-        let enabled = plan["enabled"].as_bool() == Some(true);
-        let row = Rect::new(area.x, area.y + (index - start) as u16, area.width, 1);
-        let name = cell(plan["name"].as_str().unwrap_or("?"), 24);
+    let focused = state.focus() == super::Section::Routes;
+    let room = usize::from(area.height.saturating_sub(1));
+    let (start, shown, above, below) = window(plans.len(), room, Some(selected));
+    let mut y = area.y + 1;
+    let hint = |frame: &mut Frame, y: u16, hidden: usize, direction| {
+        text(
+            frame,
+            app,
+            Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+            &MoreHint::label(hidden as u64, direction, false),
+            Role::Muted,
+        );
+    };
+    if above > 0 {
+        hint(frame, y, above, MoreDirection::Up);
+        y += 1;
+    }
+    for (index, plan) in plans.iter().enumerate().skip(start).take(shown) {
+        let chosen = focused && index == selected;
+        let row = Rect::new(area.x, y, area.width, 1);
+        let base = look.selected(chosen, look.role(Role::Text));
         strip::paint_left(
             frame.buffer_mut(),
             row,
             Line::from(vec![
-                Span::styled(" ", look.selected(chosen, look.role(Role::Text))),
+                Span::styled(" ", base),
                 Span::styled(
-                    if enabled { "● " } else { "○ " },
+                    if plan.enabled { "● " } else { "○ " },
                     look.selected(
                         chosen,
-                        look.role(if enabled { Role::Working } else { Role::Muted }),
+                        look.role(if plan.enabled {
+                            Role::Working
+                        } else {
+                            Role::Muted
+                        }),
                     ),
                 ),
                 Span::styled(
-                    format!("{name} "),
-                    look.selected(chosen, look.role(Role::Text)),
-                ),
-                Span::styled(
-                    cell(
-                        &format!(
-                            "{} · priority {}",
-                            if enabled { "on" } else { "off" },
-                            plan["priority"]
-                        ),
-                        usize::from(area.width).saturating_sub(28),
+                    format!(
+                        "{} ",
+                        columns(
+                            &plan.name,
+                            &plan.who,
+                            &plan.when,
+                            &plan.priority.to_string()
+                        )
                     ),
-                    look.selected(chosen, look.role(Role::Muted)),
+                    base,
                 ),
             ]),
         );
@@ -718,9 +813,12 @@ fn plans(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 .push(Rect::new(row.x + 1, row.y, 1, 1));
         }
         state.hits.borrow_mut().push((row, Control::Plan(index)));
+        y += 1;
+    }
+    if below > 0 {
+        hint(frame, y, below, MoreDirection::Down);
     }
 }
-/// The member table of a Core without the routes view: one row per member, state in its role.
 fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let state = &app.orchestration;
     let look = app.look();
@@ -736,7 +834,7 @@ fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         },
         Role::Muted,
     );
-    let members = &snapshot.document.members;
+    let members = state.members(snapshot);
     if members.is_empty() {
         empty(
             frame,
@@ -747,7 +845,7 @@ fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 area.width,
                 area.height.saturating_sub(1),
             ),
-            "No members match this query",
+            &no_members(app, snapshot),
             None,
         );
         return;
@@ -788,6 +886,17 @@ fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 .push(Rect::new(row.x + 19, row.y, 9, 1));
         }
         state.hits.borrow_mut().push((row, Control::Member(index)));
+    }
+}
+/// Why no member row shows: the plan filter names its plan and when, else the query matched none.
+fn no_members(app: &App, snapshot: &Snapshot) -> String {
+    match app.orchestration.only_plan_row() {
+        Some(plan) => format!(
+            "{} applies to no one at {}",
+            plan.name,
+            snapshot.clock(snapshot.document.at_ms)
+        ),
+        None => "No members match this query".into(),
     }
 }
 fn receiving_label(member: &Member) -> String {
@@ -886,7 +995,7 @@ fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
 fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (String, u16) {
     let state = &app.orchestration;
     let look = app.look();
-    let members = &snapshot.document.members;
+    let members = state.members(snapshot);
     let sending = &snapshot.sending;
     let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
     let widest = names.iter().map(|n| safe(n).width()).max().unwrap_or(0);
@@ -1528,6 +1637,17 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             .find(|m| Some(&m.identity_id) == app.orchestration.selected.as_ref())
     });
     if let Some(snapshot) = snapshot
+        && let Some(plan) = app
+            .orchestration
+            .selected_plan()
+            .filter(|_| app.orchestration.plans)
+            .filter(|_| app.orchestration.focus() == super::Section::Routes)
+    {
+        let lines = plan_lines(app, snapshot, plan);
+        place(frame, app, lines, area);
+        return;
+    }
+    if let Some(snapshot) = snapshot
         && let Some(job) = app
             .orchestration
             .selected_job()
@@ -1906,9 +2026,169 @@ fn job_lines(app: &App, snapshot: &Snapshot, job: &JobRow, width: u16) -> Vec<In
         _ => buttons.push((key(Ui::JobPause, "p"), "Pause", Control::JobPause)),
     }
     buttons.push((key(Ui::JobRun, "x"), "Run now", Control::JobRun));
-    buttons.push((key(Ui::JobEdit, "e"), "Edit…", Control::JobEdit));
+    buttons.push((key(Ui::OrchestrationEdit, "e"), "Edit…", Control::JobEdit));
     buttons.push((key(Ui::JobNew, "n"), "New job…", Control::JobNew));
     lines.push(InspectorLine::Buttons(buttons));
+    lines
+}
+/// The selected plan: when, for whom, what it sets and leaves, whether it is in effect now, its
+/// next start in the read range, its keys, and the members it applies to at the selected time.
+fn plan_lines(app: &App, snapshot: &Snapshot, plan: &super::model::PlanRow) -> Vec<InspectorLine> {
+    let look = app.look();
+    let at = snapshot.document.at_ms;
+    let key = |action, preferred| super::super::keycap::key(app, action, preferred);
+    let (mark, role) = if plan.enabled {
+        ("● on", Role::Working)
+    } else {
+        ("○ off", Role::Muted)
+    };
+    let mut lines = vec![InspectorLine::Rule(
+        plan.name.clone(),
+        Line::from(vec![
+            Span::styled(mark, look.role(role)),
+            Span::styled(
+                format!(" · priority {}", plan.priority),
+                look.role(Role::Text),
+            ),
+        ]),
+    )];
+    lines.push(InspectorLine::Row(
+        "When",
+        plan.when.clone(),
+        Role::Text,
+        None,
+    ));
+    let members = snapshot.plan_members(&plan.id);
+    // Who it applies to now, as Core matched it; the target itself in parentheses.
+    let who = if members.is_empty() || !plan.open {
+        plan.who.clone()
+    } else {
+        format!(
+            "{}  ({})",
+            members
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            plan.who
+        )
+    };
+    lines.push(InspectorLine::Row("Who", who, Role::Text, None));
+    lines.push(InspectorLine::Row(
+        "Sets",
+        plan.sets.clone(),
+        Role::Text,
+        None,
+    ));
+    if !plan.leaves.is_empty() {
+        // While it is in effect, the left fields' sources are what its members show.
+        let mut from: Vec<String> = Vec::new();
+        for member in &members {
+            let e = &member.effective;
+            for (word, source) in [
+                ("state", &e.state.source),
+                ("sending", &e.sending.source),
+                ("receiving", &e.receiving.source),
+                ("routine", &e.routine.source),
+                ("talk limit", &e.talk_limit.source),
+            ] {
+                let label = snapshot.document.source_label(source);
+                if plan.leaves.contains(&word) && !from.contains(&label) {
+                    from.push(label);
+                }
+            }
+        }
+        let from = if from.is_empty() {
+            "lower plans or Base".to_owned()
+        } else {
+            from.join(", ")
+        };
+        lines.push(InspectorLine::Row(
+            "Leaves",
+            plan.leaves.join(", "),
+            Role::Text,
+            Some(from),
+        ));
+    }
+    let (until, next) = snapshot.plan_now_next(&plan.id);
+    lines.push(match until {
+        Some(end) => InspectorLine::Row(
+            "Now",
+            format!("in effect until {}", snapshot.clock(end)),
+            Role::Text,
+            None,
+        ),
+        None => InspectorLine::Row(
+            "Now",
+            format!("not in effect at {}", snapshot.clock(at)),
+            Role::Muted,
+            None,
+        ),
+    });
+    let next = match next {
+        Some(start) => snapshot.short(start),
+        None => {
+            // Past the read range: the range key that widens it.
+            let wider = match app.orchestration.query.days {
+                1 => key(Ui::OrchestrationWeek, "7"),
+                7 => key(Ui::OrchestrationMonth, "0"),
+                _ => None,
+            };
+            match wider {
+                Some(k) => format!("not in this range · {k} widens"),
+                None => "not in this range".into(),
+            }
+        }
+    };
+    lines.push(InspectorLine::Row("Next", next, Role::Text, None));
+    lines.push(InspectorLine::Buttons(vec![
+        (key(Ui::PlanOnly, "enter"), "Its members", Control::PlanOnly),
+        (
+            key(Ui::PlanToggle, "o"),
+            if plan.enabled { "Turn off" } else { "Turn on" },
+            Control::PlanToggle,
+        ),
+        (key(Ui::OrchestrationEdit, "e"), "Edit…", Control::PlanEdit),
+    ]));
+    lines.push(InspectorLine::Blank);
+    lines.push(InspectorLine::Rule(
+        format!(
+            "Effect at {} · {} member{}",
+            snapshot.clock(at),
+            members.len(),
+            if members.len() == 1 { "" } else { "s" }
+        ),
+        Line::default(),
+    ));
+    if members.is_empty() {
+        lines.push(InspectorLine::Text(
+            "No member at this time".into(),
+            Role::Muted,
+        ));
+    }
+    let name_w = members
+        .iter()
+        .map(|m| safe(&m.name).width())
+        .max()
+        .unwrap_or(0);
+    for member in members {
+        let (mark, word, role) = state_mark(&member.effective.state.value);
+        lines.push(InspectorLine::Styled(Line::from(vec![
+            Span::styled(
+                format!(" {} ", cell(&member.name, name_w)),
+                look.role(Role::Text),
+            ),
+            Span::styled(format!("{mark} {word:<6} "), look.role(role)),
+            Span::styled(
+                format!(
+                    "{} {}",
+                    cell(&receiving_label(member), 12),
+                    sending_word(&member.effective.sending.value)
+                ),
+                look.role(Role::Text),
+            ),
+        ])));
+    }
     lines
 }
 /// One inspector line before it is placed.

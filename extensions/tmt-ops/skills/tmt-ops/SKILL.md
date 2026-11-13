@@ -1164,6 +1164,18 @@ resumes it and `x` runs it once now, each after a confirm, and `e` and `n` open 
 Timers edit and new-job forms. A job made with `tmt orch job` is shown read-only. The
 selected member's own jobs follow its settings in the inspector.
 
+**Plans** (`P`) replaces the first section with Core's plans: on or off, name, who
+(`everyone`, member names or a pattern), when (`weekdays 09:00–18:00`, `every day
+22:00–08:00`, `Mon Wed 22:00–06:00 · every 2 weeks`) and priority; Talks and Jobs stay
+below. The strip then marks only the selected plan's spans. The inspector shows when,
+who it applies to now (Core's matches, then the target), what it sets, what it leaves
+and where those come from, whether it is in effect at the selected time and its next
+start in the range (`not in this range` names the key that widens it), then the
+members it applies to with their state, receiving and sending. `⏎` shows only those
+members in the matrix (`members of <plan>`; verdicts still come from every plan) and
+`⏎` again shows all; `o` turns the plan on or off after Core's preview; `e` names the
+`tmt orch plan set` command, since plans are added and edited with commands.
+
 Changes always show Core's preview first and save only that exact preview after you
 confirm: `a` allows a blocked route once until the sender's current slot ends (at
 most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
@@ -1177,8 +1189,9 @@ These keys are the defaults of the tab's own key scope, so `?` lists them and a
 `[bind]` entry can move them: `orchestration-day`, `orchestration-week`,
 `orchestration-month`, `orchestration-earlier`, `orchestration-later`,
 `orchestration-now`, `orchestration-plans`, `allow-once`, `focus-hour`, `end-focus`,
-`release-held`, `why`, `orchestration-section`, `job-pause`, `job-run`, `job-edit` and
-`job-new`; the list moves (`previous`, `next`, `fold`, `expand`,
+`release-held`, `why`, `orchestration-section`, `job-pause`, `job-run`,
+`orchestration-edit` (a job's form, or a plan's command), `job-new`, `plan-toggle` and
+`plan-only`; the list moves (`previous`, `next`, `fold`, `expand`,
 `first`, `last`) move through members, plans, matrix cells, talk pairs or jobs there.
 
 ## Cron on the board

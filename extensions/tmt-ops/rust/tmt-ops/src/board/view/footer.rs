@@ -553,7 +553,8 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
             "member"
         },
     ));
-    if routes {
+    // In the plans list `[` and `]` move the time; `←→` still do, unlisted.
+    if routes && !state.plans {
         hints.extend(pair(
             key(Ui::Fold, "left"),
             key(Ui::Expand, "right"),
@@ -576,11 +577,22 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     // Only what the focused section offers, at most eight with the moves.
     let actions = [
         (Ui::OrchestrationSection, "tab", sections),
+        (
+            Ui::PlanOnly,
+            "enter",
+            routes && (state.plans || state.only_plan.is_some()),
+        ),
+        (
+            Ui::PlanToggle,
+            "o",
+            routes && state.plans && snapshot.writes,
+        ),
+        (Ui::OrchestrationEdit, "e", routes && state.plans),
         (Ui::AllowOnce, "a", blocked && !jobs),
         (Ui::ReleaseHeld, "r", held && !jobs),
         (Ui::JobPause, "p", writable && owned),
         (Ui::JobRun, "x", writable),
-        (Ui::JobEdit, "e", writable),
+        (Ui::OrchestrationEdit, "e", writable),
         (Ui::JobNew, "n", jobs && !jobs_failed),
         (Ui::FocusHour, "f", routes && !state.plans),
         (Ui::EndFocus, "F", routes && !state.plans),
@@ -596,6 +608,7 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
             let word = match action {
                 Ui::Search if app.search.is_empty() => "filter",
                 Ui::OrchestrationPlans if state.plans => "members",
+                Ui::PlanOnly if !state.plans => "all members",
                 Ui::JobPause
                     if job.is_some_and(|job| {
                         job.state == crate::cron_service::rows::JobState::Paused

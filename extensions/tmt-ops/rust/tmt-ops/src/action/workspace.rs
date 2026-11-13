@@ -81,8 +81,10 @@ pub enum OpsUiAction {
     OrchestrationSection,
     JobPause,
     JobRun,
-    JobEdit,
+    OrchestrationEdit,
     JobNew,
+    PlanToggle,
+    PlanOnly,
 }
 
 pub struct OpsUiSpec {
@@ -560,10 +562,10 @@ const SPECS: &[OpsUiSpec] = &[
         7
     ),
     spec!(
-        JobEdit,
-        "job-edit",
+        OrchestrationEdit,
+        "orchestration-edit",
         "edit",
-        "edit the selected job's message and schedule",
+        "edit the selected job, or show the command that edits the selected plan",
         8
     ),
     spec!(
@@ -572,6 +574,20 @@ const SPECS: &[OpsUiSpec] = &[
         "new",
         "add a job for the selected member",
         8
+    ),
+    spec!(
+        PlanToggle,
+        "plan-toggle",
+        "on/off",
+        "turn the selected plan on or off, after a confirm",
+        7
+    ),
+    spec!(
+        PlanOnly,
+        "plan-only",
+        "its members",
+        "show only the members the selected plan applies to; again shows all",
+        6
     ),
     spec!(
         MoveMembership,
@@ -640,8 +656,10 @@ impl OpsUiAction {
                 | Self::OrchestrationSection
                 | Self::JobPause
                 | Self::JobRun
-                | Self::JobEdit
+                | Self::OrchestrationEdit
                 | Self::JobNew
+                | Self::PlanToggle
+                | Self::PlanOnly
         )
     }
     pub fn acts_on_member(self) -> bool {

@@ -479,6 +479,8 @@ pub(in crate::board) struct StripCell {
     pub count: usize,
     /// The start of the first Core interval inside the cell: what a click selects.
     pub at_ms: u64,
+    /// Every plan in effect somewhere in the cell: the plans list marks the selected one's cells.
+    pub plan_ids: BTreeSet<String>,
 }
 /// The timeline strip of the read range, laid out on the worker: cells, axis ticks and labels.
 #[derive(Clone, Debug, Default)]
@@ -524,7 +526,12 @@ impl Strip {
                 start_ms: from,
                 end_ms: to,
                 count: inside.clone().map(|i| i.plan_ids.len()).max().unwrap_or(0),
-                at_ms: inside.map(|i| i.start_ms.max(from)).next().unwrap_or(from),
+                at_ms: inside
+                    .clone()
+                    .map(|i| i.start_ms.max(from))
+                    .next()
+                    .unwrap_or(from),
+                plan_ids: inside.flat_map(|i| i.plan_ids.iter().cloned()).collect(),
             }
         };
         let day_end = |date: jiff::civil::Date| -> Result<u64, String> {
@@ -615,6 +622,191 @@ pub(in crate::board) struct Snapshot {
     pub writes: bool,
     /// Core's jobs, evaluated now, ordered by next run; paused, then ownerless, last.
     pub jobs: Jobs,
+    /// Core's plans in its order, labelled on the worker.
+    pub plan_rows: Vec<PlanRow>,
+}
+/// The policy fields a plan may set, in the order the board names them.
+const PLAN_FIELDS: [(&str, &str); 5] = [
+    ("state", "state"),
+    ("sending", "sending"),
+    ("receiving", "receiving"),
+    ("routine", "routine"),
+    ("talkLimit", "talk limit"),
+];
+/// One plan as the board shows it, labelled from Core's plan document.
+#[derive(Clone, Debug)]
+pub(in crate::board) struct PlanRow {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub priority: i64,
+    /// `everyone`, the named members, or the pattern, as the targets say.
+    pub who: String,
+    /// Whether a target is a pattern or everyone: who it is depends on current names.
+    pub open: bool,
+    pub when: String,
+    pub sets: String,
+    /// The fields the plan neither sets nor implies through a state.
+    pub leaves: Vec<&'static str>,
+}
+impl PlanRow {
+    fn read(plan: &Value, members: &[Member], zone: &jiff::tz::TimeZone) -> Self {
+        let mut open = false;
+        let who: Vec<String> = plan["targets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|target| match target["kind"].as_str() {
+                Some("all") => {
+                    open = true;
+                    "everyone".to_owned()
+                }
+                Some("pattern") => {
+                    open = true;
+                    target["pattern"].as_str().unwrap_or("?").to_owned()
+                }
+                _ => {
+                    let id = target["id"].as_str().unwrap_or_default();
+                    members
+                        .iter()
+                        .find(|m| m.identity_id == id)
+                        .map_or_else(|| "a former member".to_owned(), |m| m.name.clone())
+                }
+            })
+            .collect();
+        let fields = &plan["fields"];
+        let mut sets: Vec<String> = PLAN_FIELDS
+            .iter()
+            .filter(|(key, _)| fields.get(*key).is_some())
+            .map(|(key, word)| format!("{word} {}", field_value(key, &fields[*key])))
+            .collect();
+        let overrides = plan["members"].as_array().map_or(0, Vec::len);
+        if overrides > 0 {
+            sets.push(format!(
+                "{overrides} member override{}",
+                if overrides == 1 { "" } else { "s" }
+            ));
+        }
+        let state = fields.get("state").is_some();
+        let leaves = PLAN_FIELDS
+            .iter()
+            .filter(|(key, _)| {
+                fields.get(*key).is_none() && !(state && matches!(*key, "receiving" | "routine"))
+            })
+            .map(|(_, word)| *word)
+            .collect();
+        Self {
+            id: plan["id"].as_str().unwrap_or_default().to_owned(),
+            name: plan["name"].as_str().unwrap_or("?").to_owned(),
+            enabled: plan["enabled"].as_bool() == Some(true),
+            priority: plan["priority"].as_i64().unwrap_or_default(),
+            who: if who.is_empty() {
+                "no one".into()
+            } else {
+                who.join(", ")
+            },
+            open,
+            when: schedule_text(&plan["schedule"], zone),
+            sets: if sets.is_empty() {
+                "nothing".into()
+            } else {
+                sets.join(" · ")
+            },
+            leaves,
+        }
+    }
+}
+/// A plan field's value in words.
+fn field_value(key: &str, value: &Value) -> String {
+    match (key, value) {
+        ("talkLimit", Value::Null) => "unlimited".into(),
+        ("talkLimit", n) => format!("{n}/h"),
+        ("receiving", v) => match Receiving::read(v) {
+            Some(Some(receiving)) => receiving.label(),
+            _ => "?".into(),
+        },
+        ("sending", v) => match v.as_str() {
+            Some("leads") => "leads only".into(),
+            Some(word) => word.into(),
+            None => "?".into(),
+        },
+        ("state", v) => {
+            let word = v.as_str().unwrap_or("?");
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|c| c.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+        (_, v) => v.as_str().unwrap_or("?").into(),
+    }
+}
+/// A plan schedule in words: `always`, `every day 22:00–08:00`, `weekdays 09:00–18:00`,
+/// `Mon Wed 22:00–06:00 · every 2 weeks` or a `once` span.
+fn schedule_text(schedule: &Value, zone: &jiff::tz::TimeZone) -> String {
+    let hours = || {
+        if schedule["allDay"].as_bool() == Some(true) {
+            "all day".to_owned()
+        } else {
+            format!(
+                "{}–{}",
+                schedule["start"].as_str().unwrap_or("?"),
+                schedule["end"].as_str().unwrap_or("?")
+            )
+        }
+    };
+    match schedule["kind"].as_str() {
+        Some("always") => "always".into(),
+        Some("daily") => format!("every day {}", hours()),
+        Some("weekly") => {
+            let days: Vec<u64> = schedule["weekdays"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .collect();
+            let names = match days.as_slice() {
+                [1, 2, 3, 4, 5] => "weekdays".to_owned(),
+                [6, 7] => "weekends".to_owned(),
+                [1, 2, 3, 4, 5, 6, 7] => "every day".to_owned(),
+                days => days
+                    .iter()
+                    .map(|d| match d {
+                        1 => "Mon",
+                        2 => "Tue",
+                        3 => "Wed",
+                        4 => "Thu",
+                        5 => "Fri",
+                        6 => "Sat",
+                        _ => "Sun",
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            };
+            let every = match schedule["intervalWeeks"].as_u64() {
+                Some(n) if n > 1 => format!(" · every {n} weeks"),
+                _ => String::new(),
+            };
+            format!("{names} {}{every}", hours())
+        }
+        Some("once") => {
+            let at = |key: &str| {
+                schedule[key]
+                    .as_u64()
+                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms as i64).ok())
+                    .map_or_else(
+                        || "?".to_owned(),
+                        |t| {
+                            t.to_zoned(zone.clone())
+                                .strftime("%b %-d %H:%M")
+                                .to_string()
+                        },
+                    )
+            };
+            format!("{} – {}", at("startMs"), at("endMs"))
+        }
+        _ => "?".into(),
+    }
 }
 /// The jobs read, scoped to the Jobs section: a jobs problem never hides the rest of the tab.
 #[derive(Clone, Debug)]
@@ -713,7 +905,13 @@ impl Snapshot {
             };
             clock.insert(ms, zoned.strftime(format).to_string());
         }
+        let plan_rows = document
+            .plans
+            .iter()
+            .map(|plan| PlanRow::read(plan, &document.members, &zone))
+            .collect();
         Ok(Self {
+            plan_rows,
             document,
             sending,
             times,
@@ -723,6 +921,63 @@ impl Snapshot {
             writes,
             jobs,
         })
+    }
+    /// The members a plan applies to at the selected time, as Core reports them.
+    pub fn plan_members(&self, id: &str) -> Vec<&Member> {
+        self.document
+            .members
+            .iter()
+            .filter(|m| m.active_plans.iter().any(|p| p == id))
+            .collect()
+    }
+    /// The plan's span around the selected time, and its next start after it, in the read range.
+    pub fn plan_now_next(&self, id: &str) -> (Option<u64>, Option<u64>) {
+        let at = self.document.at_ms;
+        let mut spans: Vec<&Interval> = self
+            .document
+            .timeline
+            .iter()
+            .filter(|i| i.plan_ids.iter().any(|p| p == id))
+            .collect();
+        spans.sort_by_key(|i| i.start_ms);
+        // Neighbouring intervals that both hold the plan are one span of it.
+        let mut merged: Vec<(u64, u64)> = Vec::new();
+        for i in spans {
+            match merged.last_mut() {
+                Some(last) if last.1 >= i.start_ms => last.1 = last.1.max(i.end_ms),
+                _ => merged.push((i.start_ms, i.end_ms)),
+            }
+        }
+        // A span the read range cuts short ends where Core's slot for the plan ends, as its
+        // members' sources say.
+        let slot_end = self
+            .plan_members(id)
+            .iter()
+            .flat_map(|m| {
+                let e = &m.effective;
+                [
+                    &e.state.source,
+                    &e.receiving.source,
+                    &e.sending.source,
+                    &e.routine.source,
+                    &e.talk_limit.source,
+                ]
+            })
+            .filter(|source| source.plan_id.as_deref() == Some(id))
+            .filter_map(|source| source.slot.as_ref().map(|slot| slot.end_ms))
+            .max();
+        let until = merged
+            .iter()
+            .find(|(start, end)| *start <= at && at < *end)
+            .map(|(_, end)| match slot_end {
+                Some(slot) if *end >= self.document.range.end_ms => slot.max(*end),
+                _ => *end,
+            });
+        let next = merged
+            .iter()
+            .find(|(start, _)| *start > at)
+            .map(|(start, _)| *start);
+        (until, next)
     }
     pub fn short(&self, ms: u64) -> String {
         self.short
