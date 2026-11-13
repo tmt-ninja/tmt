@@ -5,11 +5,20 @@ import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import {
-  RichInput,
-  plainRichInputDocument,
+  $replaceRichInput,
+  $richInputText,
+  RichInputCore as RichInput,
+  type RichInputDocument,
   type RichInputEdit,
-} from '../src/components/rich-input.js';
+} from '@tmt/browser-ui/rich-input';
+import { RichInputControl } from '@tmt/browser-ui/rich-input-control';
 import { MessageComposer, type ComposerEdit } from '../src/components/message-composer.js';
+
+const plainRichInputDocument: RichInputDocument<RichInputEdit> = {
+  read: () => ({ value: $richInputText() }),
+  replace: (edit) => $replaceRichInput(edit.value),
+  equal: (a, b) => a.value === b.value,
+};
 
 function Fixture() {
   const [edit, setEdit] = useState<RichInputEdit>({ value: '' });
@@ -21,30 +30,34 @@ function Fixture() {
   return (
     <main style={{ minHeight: 0, maxWidth: 500, margin: 16 }}>
       <RichInput
-        label="Shared text"
         edit={edit}
         onChange={setEdit}
         document={plainRichInputDocument}
         disabled={disabled}
         resetKey={reset}
-        accessory={accessory ? <span>Fixture accessory</span> : undefined}
-        onKeyDownCapture={(event) => {
-          // Fixture-only trusted toggle while the input keeps its focus.
-          if (event.altKey && event.key === 'a') {
-            event.preventDefault();
-            setAccessory((value) => !value);
-          }
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            setApplied(edit.value);
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            setEdit({ value: '' });
-            setReset((value) => value + 1);
-          }
-        }}
-      />
+      >
+        <RichInputControl
+          label="Shared text"
+          disabled={disabled}
+          accessory={accessory ? <span>Fixture accessory</span> : undefined}
+          onKeyDownCapture={(event) => {
+            // Fixture-only trusted toggle while the input keeps its focus.
+            if (event.altKey && event.key === 'a') {
+              event.preventDefault();
+              setAccessory((value) => !value);
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              setApplied(edit.value);
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setEdit({ value: '' });
+              setReset((value) => value + 1);
+            }
+          }}
+        />
+      </RichInput>
       <output aria-label="Applied text">{applied}</output>
       <button type="button" onClick={() => setDisabled(!disabled)}>
         Toggle access

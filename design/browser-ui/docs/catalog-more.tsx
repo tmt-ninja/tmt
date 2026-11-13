@@ -412,8 +412,16 @@ function FloatingDemo({ thread }: { thread: boolean }) {
   );
 }
 
-function RichInputDemo({ shape }: { shape: 'single' | 'multi' }) {
-  const [value, setValue] = useState<RichInputValue>(emptyRichInputValue);
+function RichInputDemo({
+  shape,
+  initial = emptyRichInputValue,
+  disabled,
+}: {
+  shape: 'single' | 'multi';
+  initial?: RichInputValue;
+  disabled?: boolean;
+}) {
+  const [value, setValue] = useState<RichInputValue>(initial);
   return shape === 'single' ? (
     <RichInput
       shape="single"
@@ -421,6 +429,7 @@ function RichInputDemo({ shape }: { shape: 'single' | 'multi' }) {
       placeholder="Search pages, or type project:"
       value={value}
       onChange={setValue}
+      disabled={disabled}
       leading={<Search aria-hidden="true" />}
       suggestions={[
         {
@@ -440,6 +449,7 @@ function RichInputDemo({ shape }: { shape: 'single' | 'multi' }) {
       placeholder="Message, @ to mention"
       value={value}
       onChange={setValue}
+      disabled={disabled}
       onSubmit={() => setValue(emptyRichInputValue)}
       suggestions={[
         {
@@ -562,6 +572,57 @@ export const moreComponents: ComponentDoc[] = [
     variants: [
       ['Composer', () => <RichInputDemo shape="multi" />],
       [
+        'Composer with a mention',
+        () => (
+          <RichInputDemo
+            shape="multi"
+            initial={{
+              value: '@sample-lead please review ',
+              chips: [{ kind: 'mention', text: '@sample-lead', range: { start: 0, end: 12 } }],
+            }}
+          />
+        ),
+      ],
+      [
+        'Composer disabled',
+        () => <RichInputDemo shape="multi" disabled initial={{ value: 'Draft kept', chips: [] }} />,
+      ],
+      [
+        'Search with filter chips',
+        () => (
+          <RichInputDemo
+            shape="single"
+            initial={{
+              value: 'project:design notes',
+              chips: [{ kind: 'project', text: 'project:design', range: { start: 0, end: 14 } }],
+            }}
+          />
+        ),
+      ],
+      [
+        'Anatomy',
+        () => (
+          <ul className="docs-list">
+            <li>
+              Field: one Lexical editable. The search is one line with a leading icon; the composer
+              is several lines with an attachment tray and a footer of toolbar and send.
+            </li>
+            <li>
+              Chip: a mention or filter token inside the text, with its own Remove button. Its text
+              is the token text, so the value reads back as plain text with chip ranges.
+            </li>
+            <li>
+              Suggestions: a list under the field while a trigger's query is open; a host may handle
+              a choice as an action instead of a chip.
+            </li>
+            <li>
+              States: empty (placeholder), with chips, suggestions open, disabled; a host composer
+              adds busy while its send is in flight, with the text kept and nothing greyed.
+            </li>
+          </ul>
+        ),
+      ],
+      [
         'Optional search props',
         () => (
           <table>
@@ -592,6 +653,67 @@ export const moreComponents: ComponentDoc[] = [
                   <code>onEscape</code>
                 </td>
                 <td>Handles Escape when no suggestion list is open.</td>
+              </tr>
+            </tbody>
+          </table>
+        ),
+      ],
+      [
+        'Core for host inputs',
+        () => (
+          <table>
+            <thead>
+              <tr>
+                <th>Export</th>
+                <th>What a host builds with it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <code>RichInputCore</code>, <code>RichInputDocument</code>,{' '}
+                  <code>RichInputEdit</code>
+                </td>
+                <td>
+                  One Lexical editing lifetime over the host's own value: the document reads and
+                  replaces it, a changed <code>resetKey</code> starts a fresh undo history, and a
+                  replacement in an input the user is not in never moves a caret. RichInput is built
+                  on it; Colab's composer and page-list filter are hosts.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>RichInputControl</code>, <code>RICH_INPUT_RESET_TAG</code>
+                </td>
+                <td>
+                  From <code>@tmt/browser-ui/rich-input-control</code>, so the page runtime's
+                  RichInput never loads Browser field parts: the editable surface with field label,
+                  header and accessory rows, busy and disabled states, and the composition guard
+                  before the host's keys. Update listeners skip edits tagged as a host replacement.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>RichInputChipNode</code>, <code>$isRichInputChip</code>,{' '}
+                  <code>RichInputChipView</code>, <code>RichInputChipViewProps</code>
+                </td>
+                <td>
+                  The one chip node: a kind, its text and opaque host data, such as the agent a
+                  mention routes to. A host may draw its own chip through the view; removal is
+                  always one undo step.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>$richInputText</code>, <code>$replaceRichInput</code>,{' '}
+                  <code>$richInputTokens</code>, <code>$richInputCaret</code>,{' '}
+                  <code>$richInputSelection</code>, <code>$selectRichInputRange</code>,{' '}
+                  <code>RichInputRange</code>
+                </td>
+                <td>
+                  The plain document model: text with one line break between paragraphs and chips as
+                  UTF-16 ranges over it.
+                </td>
               </tr>
             </tbody>
           </table>

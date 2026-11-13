@@ -14,7 +14,7 @@ import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
 import { ReadRefusedError, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { OwnRecordConflict, OwnAppendRefused } from '../src/own-publication.js';
 import { getNearestEditorFromDOMNode, $getRoot, $isElementNode } from 'lexical';
-import { MessageMentionNode } from '../src/components/message-composer-document.js';
+import { $isRichInputChip } from '@tmt/browser-ui/rich-input';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { projectThreadStatus } from '../src/thread-status-view.js';
 import { destination, id, selection, type RemoteDouble } from './ask-fixtures.js';
@@ -157,8 +157,10 @@ export function normalizeMention() {
       for (const paragraph of $getRoot().getChildren()) {
         if (!$isElementNode(paragraph)) continue;
         for (const node of paragraph.getChildren())
-          if (node instanceof MessageMentionNode)
-            node.getWritable().__defaultCreator = !node.__defaultCreator;
+          if ($isRichInputChip(node) && node.getKind() === 'mention') {
+            const { defaultCreator, ...data } = node.getData() as { defaultCreator?: true };
+            node.getWritable().__data = defaultCreator ? data : { ...data, defaultCreator: true };
+          }
       }
     },
     { discrete: true },
@@ -262,7 +264,7 @@ export function mount(
     requestAnimationFrame(() => {
       // Read token labels without the action's hidden tooltip text.
       const content = field.cloneNode(true) as HTMLElement;
-      content.querySelectorAll('.message-mention-host').forEach((host) => {
+      content.querySelectorAll('.tmt-rich-input-chip-host').forEach((host) => {
         host.textContent = host.querySelector('.agent-chip-name')?.textContent ?? '';
       });
       firstFrame = {

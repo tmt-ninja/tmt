@@ -1,6 +1,5 @@
 import { BrowserIconAction } from '@tmt/browser-ui/react';
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { $getNodeByKey, HISTORY_PUSH_TAG, type NodeKey } from 'lexical';
+import type { RichInputChipViewProps } from '@tmt/browser-ui/rich-input';
 import { X } from 'lucide-react';
 import { AgentChip } from './agent-chip.js';
 import { createContext, useContext } from 'react';
@@ -15,18 +14,30 @@ export const MessageMentionContext = createContext<{
   disabled: boolean;
 }>({ disabled: false });
 
-export function MessageMentionChip({
-  nodeKey,
+/** The composer's chip look: a mention chip renders as the agent it routes to. */
+export function MessageMentionView(chip: RichInputChipViewProps) {
+  const data = chip.data as { recipient: RecipientKey; defaultCreator?: true };
+  return (
+    <MessageMentionChip
+      token={chip.text}
+      recipient={data.recipient}
+      defaultCreator={data.defaultCreator === true}
+      remove={chip.remove}
+    />
+  );
+}
+
+function MessageMentionChip({
   token,
   recipient,
-  defaultCreator = false,
+  defaultCreator,
+  remove,
 }: {
-  nodeKey: NodeKey;
   token: string;
   recipient: RecipientKey;
-  defaultCreator?: boolean;
+  defaultCreator: boolean;
+  remove(): void;
 }) {
-  const [editor] = useLexicalComposerContext();
   const { candidates, disabled } = useContext(MessageMentionContext);
   const matches = candidates?.filter((agent) => recipientMatches(recipient, agent));
   const agent = matches?.length === 1 ? matches[0] : undefined;
@@ -64,17 +75,7 @@ export function MessageMentionChip({
         icon={<X />}
         disabled={disabled}
         onActivate={(event) => {
-          if (!event.isTrusted || !editor.isEditable()) return;
-          editor.update(
-            () => {
-              const node = $getNodeByKey(nodeKey);
-              if (!node) return;
-              node.selectPrevious();
-              node.remove();
-            },
-            { tag: HISTORY_PUSH_TAG, discrete: true },
-          );
-          editor.focus();
+          if (event.isTrusted) remove();
         }}
       />
     </AgentChip>
