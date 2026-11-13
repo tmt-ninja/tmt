@@ -381,6 +381,8 @@ fn the_owner_browser_sees_core_s_send_now_answer_and_every_other_grant_sees_it_f
         fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
         core.message_state(&message_state(true));
         let expected = kind == "browser";
+        let request_message = "<script>inert</script>\nExact e\u{0301} 🎯\0";
+        fs::write(core.root.join("prompt"), json!({"status":"retained","message":request_message,"messageBytes":request_message.len()}).to_string()).unwrap();
         let shown = ask(&owner, &operations, &session, 2, "requests.show", &request);
         assert_eq!(shown["messageState"]["canSendNow"], expected, "{kind}");
         assert_eq!(shown["messageState"]["state"], "sent", "{kind}");
@@ -390,6 +392,11 @@ fn the_owner_browser_sees_core_s_send_now_answer_and_every_other_grant_sees_it_f
         );
         let result = ask(&owner, &operations, &session, 3, "result", &request);
         assert_eq!(result["state"], "pending", "{kind}");
+        if expected {
+            assert_eq!(result["requestMessage"], request_message);
+        } else {
+            assert!(result.get("requestMessage").is_none(), "{result}");
+        }
         assert_eq!(result["messageState"]["canSendNow"], expected, "{kind}");
         assert_eq!(result["messageState"]["remainingMs"], 500, "{kind}");
         // Once replied there is no state left to show.
@@ -400,6 +407,50 @@ fn the_owner_browser_sees_core_s_send_now_answer_and_every_other_grant_sees_it_f
         .unwrap();
         let replied = ask(&owner, &operations, &session, 4, "result", &request);
         assert!(replied.get("messageState").is_none(), "{replied}");
+        assert_eq!(replied["message"], "done");
+        if expected {
+            assert_eq!(replied["requestMessage"], request_message);
+        } else {
+            assert!(replied.get("requestMessage").is_none(), "{replied}");
+        }
+        let mut sequence = 5;
+        for prompt in [
+            json!({"status":"expired"}),
+            json!({"status":"unavailable"}),
+            json!({"status":"retained","message":"","messageBytes":0}),
+        ] {
+            fs::write(core.root.join("prompt"), prompt.to_string()).unwrap();
+            let result = ask(&owner, &operations, &session, sequence, "result", &request);
+            sequence += 1;
+            if expected {
+                assert_eq!(
+                    result["requestMessage"],
+                    if prompt["status"] == "retained" {
+                        json!("")
+                    } else {
+                        Value::Null
+                    }
+                );
+            } else {
+                assert!(result.get("requestMessage").is_none(), "{result}");
+            }
+        }
+        for prompt in [
+            json!({"status":"retained","message":12,"messageBytes":2}),
+            json!({"status":"retained","message":"🎯","messageBytes":1}),
+            json!({"status":"retained","message":"text"}),
+            json!({"status":"retained","message":"text","messageBytes":4.5}),
+        ] {
+            fs::write(core.root.join("prompt"), prompt.to_string()).unwrap();
+            let result = ask(&owner, &operations, &session, sequence, "result", &request);
+            sequence += 1;
+            if expected {
+                assert_eq!(result["error"]["code"], "REMOTE_INPUT_INVALID", "{result}");
+            } else {
+                assert_eq!(result["state"], "replied");
+                assert!(result.get("requestMessage").is_none(), "{result}");
+            }
+        }
     }
 }
 #[test]

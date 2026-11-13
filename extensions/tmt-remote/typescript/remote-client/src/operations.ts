@@ -49,10 +49,11 @@ export interface MessageState {
   remainingMs: number | null;
   canSendNow: boolean;
 }
-export type ResultState =
+export type ResultState = (
   | { state: 'pending'; requestId: string; messageState?: MessageState }
   | { state: 'replied'; requestId: string; message: string }
-  | { state: 'unavailable'; requestId: string; reason?: string };
+  | { state: 'unavailable'; requestId: string; reason?: string }
+) & { requestMessage?: string | null };
 /** What asking to send a message now came to. `sent` only when Core typed it; `unconfirmed` means
  * it may have been typed, so do not offer it again before reading `result`; `unavailable` and
  * `refused` typed nothing. An unrecognized state decodes as `unconfirmed`, never `sent`.
@@ -328,14 +329,19 @@ function sendStateBase(value: unknown, id: string): SendState {
 function resultState(value: unknown, id: string): ResultState {
   const state = record(value);
   valid(state.requestId === id);
+  const requestMessage: { requestMessage?: string | null } = {};
+  if (Object.hasOwn(state, 'requestMessage')) {
+    valid(state.requestMessage === null || typeof state.requestMessage === 'string');
+    requestMessage.requestMessage = state.requestMessage as string | null;
+  }
   switch (state.state) {
     case 'pending':
-      return { state: 'pending', requestId: id, ...messageState(state) };
+      return { state: 'pending', requestId: id, ...messageState(state), ...requestMessage };
     case 'replied':
       valid(typeof state.message === 'string');
-      return { state: 'replied', requestId: id, message: state.message };
+      return { state: 'replied', requestId: id, message: state.message, ...requestMessage };
     case 'unavailable':
-      return { state: 'unavailable', requestId: id, ...reason(state) };
+      return { state: 'unavailable', requestId: id, ...reason(state), ...requestMessage };
     default:
       throw new Error('Invalid result state.');
   }

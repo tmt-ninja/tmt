@@ -1379,6 +1379,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     state: 'replied',
     requestId: asked.sent.requestId,
     message: 'Browser retained final 🎯',
+    requestMessage: null,
   });
   const coreCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
     .trim()

@@ -103,6 +103,19 @@ for (const state of ['pending', 'replied', 'unavailable']) {
       requestId: id,
       ...(state === 'replied' ? { message: door.final } : {}),
     });
+    for (const requestMessage of [null, '', '<script>inert</script>\nExact e\u0301 🎯\u0000']) {
+      door.requestMessage = requestMessage;
+      assert.deepEqual(await client.result(id), {
+        state,
+        requestId: id,
+        ...(state === 'replied' ? { message: door.final } : {}),
+        requestMessage,
+      });
+    }
+    for (const requestMessage of [42, false, {}, []]) {
+      door.requestMessage = requestMessage;
+      await assert.rejects(client.result(id), unknown('unverifiable_response'));
+    }
   });
 }
 

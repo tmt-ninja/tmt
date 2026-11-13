@@ -111,6 +111,7 @@ elif wire['operation']=='requests.show':
     final_path=root/('final-'+wire['input']['requestId'])
     if not final_path.exists(): final_path=root/'final'
     detail={'requestId':wire['input']['requestId'],'final':json.loads(final_path.read_text())}
+    if (root/'prompt').exists(): detail['prompt']=json.loads((root/'prompt').read_text())
     if (root/'message-state').exists(): detail['messageState']=json.loads((root/'message-state').read_text())
     print(json.dumps(detail))
 elif wire['operation'] in ('orchestration.read','orchestration.write'):
