@@ -41,9 +41,17 @@ pub(crate) struct Intent {
     #[serde(default)]
     pub(crate) recipient_ids: Vec<String>,
     pub(crate) message: String,
-    kind: String,
+    pub(crate) kind: String,
+    pub(crate) room: Option<RosterRoom>,
     #[serde(default)]
     expected_name: Option<String>,
+}
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RosterRoom {
+    kind: String,
+    room_id: String,
+    revision: u64,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -175,7 +183,7 @@ fn dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
 /// the person at this machine. Never both and never neither.
 fn frozen_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     let value = parsed_dispatch(bytes)?;
-    if value.input.recipient_ids.len() != 1 {
+    if value.input.recipient_ids.is_empty() {
         return Err(invalid());
     }
     Ok(value)
@@ -197,8 +205,25 @@ fn parsed_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     if value.version != 1
         || value.operation != "dispatch.create"
         || !attribution
-        || value.input.kind != "request"
-        || value.input.recipient_ids.len() > 1
+        || !matches!(value.input.kind.as_str(), "request" | "announcement")
+        || value.input.recipient_ids.len() > crate::limits::DISPATCH_RECIPIENTS
+        || value
+            .input
+            .recipient_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != value.input.recipient_ids.len()
+        || (value.input.room.is_none() && value.input.recipient_ids.len() > 1)
+        || value.input.room.as_ref().is_some_and(|room| {
+            room.kind != "roster"
+                || !canonical::is_core_id(&room.room_id)
+                || room.revision == 0
+                || room.revision > 9_007_199_254_740_991
+                || value.input.recipient_ids.is_empty()
+                || value.input.expected_name.is_some()
+                || value.created_at_ms.is_some()
+        })
         || (value.input.recipient_ids.is_empty()
             && (value.input.expected_name.is_none() || value.created_at_ms.is_none()))
         || !canonical::is_core_id(&value.input.operation_id)
@@ -213,7 +238,9 @@ fn parsed_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     Ok(value)
 }
 fn permits(grant: &Grant, intent: &Intent) -> Result<(), RemoteError> {
-    if !grant.permits_scope("talk") || !grant.authority()?.permits(&intent.recipient_ids[0]) {
+    let authority = grant.authority()?;
+    if !grant.permits_scope("talk") || intent.recipient_ids.iter().any(|id| !authority.permits(id))
+    {
         return Err(RemoteError::new(
             "REMOTE_SCOPE_DENIED",
             "Recipient is not permitted.",
@@ -232,27 +259,42 @@ pub(crate) fn held_intent(grant: &Grant, id: &str, frozen: &[u8]) -> Result<Inte
 fn uncertain(id: &str) -> Value {
     json!({"state":"uncertain","operationId":id})
 }
-fn accepted(id: &str, recipient: &str, receipt: &Value) -> Result<Value, RemoteError> {
+fn accepted(id: &str, intent: &Intent, receipt: &Value) -> Result<Value, RemoteError> {
     let items = receipt["items"]
         .as_array()
-        .filter(|items| items.len() == 1)
+        .filter(|items| items.len() == intent.recipient_ids.len())
         .ok_or_else(invalid)?;
-    let request = items[0]["requestId"]
-        .as_str()
-        .filter(|id| id.starts_with("req_"))
-        .ok_or_else(invalid)?;
-    if receipt["operationId"] != id
-        || items[0]["recipientId"] != recipient
-        || !matches!(
-            items[0]["acceptance"].as_str(),
-            Some("queued" | "recipientUnavailable")
-        )
-        || !canonical::is_core_id(&request[4..])
-    {
+    if receipt["operationId"] != id {
         return Err(invalid());
     }
-    // Wake is advisory. A receipt remains accepted even if the one-shot wake is uncertain.
-    Ok(json!({"state":"accepted","operationId":id,"requestId":request}))
+    let mut requests = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for recipient in &intent.recipient_ids {
+        let matches: Vec<_> = items
+            .iter()
+            .filter(|item| item["recipientId"] == *recipient)
+            .collect();
+        let [item] = matches.as_slice() else {
+            return Err(invalid());
+        };
+        let request = item["requestId"].as_str().ok_or_else(invalid)?;
+        request_reference(request)?;
+        if !seen.insert(request)
+            || !matches!(
+                item["acceptance"].as_str(),
+                Some("queued" | "recipientUnavailable")
+            )
+        {
+            return Err(invalid());
+        }
+        requests.push(request);
+    }
+    // Receipt order is Core-owned; expose requestIds in the client's frozen recipient order.
+    let mut result = json!({"state":"accepted","operationId":id,"requestId":requests[0]});
+    if intent.room.is_some() {
+        result["requestIds"] = json!(requests);
+    }
+    Ok(result)
 }
 
 pub struct Operations {
@@ -546,7 +588,10 @@ impl Operations {
                     format!("[remote: {}]\n{}", permit.grant.name, value.input.message);
                 let mut wire = json!({"version":1,"operation":"dispatch.create","originator":"anonymous",
                     "input":{"operationId":value.input.operation_id,"recipientIds":value.input.recipient_ids,
-                    "message":value.input.message,"kind":"request"}});
+                    "message":value.input.message,"kind":value.input.kind}});
+                if let Some(room) = value.input.room {
+                    wire["input"]["room"] = serde_json::to_value(room).map_err(|_| invalid())?;
+                }
                 if let Some(name) = value.input.expected_name {
                     wire["input"]["expectedName"] = json!(name);
                 }
@@ -660,20 +705,25 @@ impl Operations {
                 agent = Some(input);
             }
             "requests.list" => {
-                if !permit.owner_browser() {
-                    return Err(RemoteError::new(
-                        "REMOTE_SCOPE_DENIED",
-                        "Conversation requires the owner browser.",
-                    ));
-                }
                 let input: Value = read_input(permit)?;
+                if !permit.owner_browser() {
+                    return Err(if input.get("roomId").is_some() {
+                        RemoteError::room_history_denied("owner_browser_required")
+                    } else {
+                        RemoteError::new(
+                            "REMOTE_SCOPE_DENIED",
+                            "Conversation requires the owner browser.",
+                        )
+                    });
+                }
                 let query = conversation::request(&input)?;
-                resources.push(
-                    query["input"]["memberId"]
-                        .as_str()
-                        .expect("validated member")
-                        .to_owned(),
-                );
+                if let Some(member) = query["input"]["memberId"].as_str() {
+                    resources.push(member.to_owned());
+                } else if permit.authority.agents != crate::authority::PermittedAgents::All {
+                    // A room page can include any roster member; a subset grant cannot
+                    // authorize disclosing the rest of the room through a broader read.
+                    return Err(RemoteError::room_history_denied("all_agents_required"));
+                }
                 conversation = Some(query);
             }
             "orchestration.read" => orchestration = Some(orchestration::read(permit)?),
@@ -1039,7 +1089,7 @@ impl Operations {
         }
         let show = json!({"version":1,"operation":"dispatch.show","input":{"operationId":id}});
         match self.api(show.to_string().as_bytes()) {
-            Ok(receipt) => accepted(id, &intent.recipient_ids[0], &receipt),
+            Ok(receipt) => accepted(id, &intent, &receipt),
             Err(error)
                 if error.code == "DISPATCH_NOT_FOUND"
                     && retry
@@ -1059,7 +1109,17 @@ impl Operations {
                     frozen.to_vec()
                 };
                 match self.api(&core_wire) {
-                    Ok(receipt) => accepted(id, &intent.recipient_ids[0], &receipt),
+                    Ok(receipt) => accepted(id, &intent, &receipt),
+                    Err(error)
+                        if matches!(
+                            error.code.as_str(),
+                            "ROOM_ROSTER_CHANGED"
+                                | "ROOM_RECIPIENT_NOT_MEMBER"
+                                | "DISPATCH_INVALID"
+                        ) =>
+                    {
+                        Ok(json!({"state":"refused","operationId":id,"reason":error.code}))
+                    }
                     Err(_) => Ok(uncertain(id)),
                 }
             }
@@ -1255,8 +1315,12 @@ impl Store {
             return Err(invalid());
         }
         let mut resources: Vec<String> = serde_json::from_str(&refs).map_err(database)?;
-        if let Some(request) = payload["requestId"].as_str() {
-            resources.push(request.strip_prefix("req_").ok_or_else(invalid)?.into());
+        if let Some(requests) = payload["requestIds"].as_array() {
+            for request in requests {
+                resources.push(request_reference(request.as_str().ok_or_else(invalid)?)?);
+            }
+        } else if let Some(request) = payload["requestId"].as_str() {
+            resources.push(request_reference(request)?);
         }
         audit::append(
             &tx,

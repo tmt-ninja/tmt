@@ -5,10 +5,11 @@ import { openSession } from '../src/device.js';
 import {
   conversations,
   parseConversation,
+  parseRoom,
   CONVERSATION_RESPONSE_BYTES,
   type ConversationPage,
 } from '../src/conversations.js';
-import { operations, ClientError } from '../src/operations.js';
+import { operations, ClientError, RefusalError } from '../src/operations.js';
 import { Door, paired } from './door.js';
 const MEMBER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const VIEWER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -87,6 +88,47 @@ test('conversation read freezes the exact scoped input and shares the existing s
   assert.deepEqual(
     door.calls.map((call) => call.envelope.operation),
     ['requests.list', 'agents.list'],
+  );
+  const roomId = crypto.randomUUID();
+  const {
+    direction: _direction,
+    changePosition: _position,
+    responseId: _response,
+    responsePreview: _preview,
+    previewTruncated: _truncated,
+    ...roomItem
+  } = page().items[0]!;
+  const roomPage = {
+    roomId,
+    changes: 'unknown' as const,
+    nextBefore: null,
+    items: [{ ...roomItem, roomId }],
+  };
+  door.conversationReply = () => roomPage;
+  assert.deepEqual(await client.readRoom(roomId, { limit: 20 }), roomPage);
+  assert.deepEqual(door.calls.at(-1)!.payload, {
+    version: 1,
+    operation: 'requests.list',
+    input: { roomId, limit: 20 },
+  });
+  assert.throws(() => client.readRoom(roomId, { since: 'fake' } as never), TypeError);
+  assert.throws(() => parseRoom({ ...roomPage, changePosition: 'fake' }, roomId, {}));
+  for (const reason of ['owner_browser_required', 'all_agents_required'] as const) {
+    door.conversationReply = () => ({
+      error: { code: 'REMOTE_SCOPE_DENIED', message: 'Refused', scope: 'results.read', reason },
+    });
+    await assert.rejects(
+      client.readRoom(roomId),
+      (error: unknown) =>
+        error instanceof RefusalError &&
+        error.code === 'REMOTE_SCOPE_DENIED' &&
+        error.scope === 'results.read' &&
+        error.reason === reason &&
+        error.settingsUrl === undefined,
+    );
+  }
+  assert.throws(() =>
+    parseRoom({ ...roomPage, items: [{ ...roomPage.items[0], roomId: MEMBER }] }, roomId, {}),
   );
 });
 test('conversation input rejects viewer selection, malformed positions and bounds before HTTP', async () => {

@@ -536,13 +536,15 @@ var RefusalError = class extends Error {
 	limit;
 	settingsUrl;
 	scope;
-	constructor(code, retryAfterMs, limit, settingsUrl, scope) {
+	reason;
+	constructor(code, retryAfterMs, limit, settingsUrl, scope, reason) {
 		super(`Remote operation refused: ${code}.`);
 		this.code = code;
 		this.retryAfterMs = retryAfterMs;
 		this.limit = limit;
 		this.settingsUrl = settingsUrl;
 		this.scope = scope;
+		this.reason = reason;
 		this.name = "RefusalError";
 	}
 };
@@ -678,10 +680,12 @@ function sendStateBase(value, id) {
 		};
 		case "accepted":
 			valid$7(requestId(state.requestId));
+			if (state.requestIds !== void 0) valid$7(Array.isArray(state.requestIds) && state.requestIds.length >= 1 && state.requestIds.length <= 64 && state.requestIds.every(requestId) && new Set(state.requestIds).size === state.requestIds.length && state.requestIds[0] === state.requestId);
 			return {
 				state: "accepted",
 				operationId: id,
-				requestId: state.requestId
+				requestId: state.requestId,
+				...state.requestIds === void 0 ? {} : { requestIds: [...state.requestIds] }
 			};
 		case "uncertain":
 			valid$7(state.requestId === void 0 || requestId(state.requestId));
@@ -770,7 +774,9 @@ function remoteError(value, address) {
 	const error = record(value.error);
 	valid$7(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && (scope === "talk" || scope === "results.read"));
+	const readReason = error.reason;
+	valid$7(readReason === void 0 || scope === "results.read" && ["owner_browser_required", "all_agents_required"].includes(readReason));
 	const limit = error.limit;
 	valid$7(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
 	valid$7(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
@@ -811,7 +817,7 @@ function remoteError(value, address) {
 		"REMOTE_MEMBER_OWNER_REQUIRED",
 		"REMOTE_MEMBER_CONFLICT"
 	].includes(error.code));
-	return new RefusalError(error.code, retry, limit, settingsUrl, scope);
+	return new RefusalError(error.code, retry, limit, settingsUrl, scope, readReason);
 }
 function enqueue(channel, action) {
 	const pending = channel.tail.then(action);
@@ -984,20 +990,35 @@ function operations(session, options = {}) {
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message);
-			const { operationId, agentId, message } = value;
+			const roomSend = "room" in value;
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
+			const { operationId, message } = value;
+			const frozen = roomSend ? {
+				operationId,
+				message,
+				recipientIds: [...value.recipientIds],
+				kind: value.kind ?? "request",
+				room: {
+					kind: "roster",
+					...value.room
+				}
+			} : {
+				operationId,
+				recipientIds: [value.agentId],
+				message,
+				kind: "request"
+			};
 			try {
 				return await call("dispatch.create", operationId, {
 					version: 1,
 					operation: "dispatch.create",
 					originator: "anonymous",
-					input: {
-						operationId,
-						recipientIds: [agentId],
-						message,
-						kind: "request"
-					}
-				}, (value) => sendState(value, operationId));
+					input: frozen
+				}, (value) => {
+					const state = sendState(value, operationId);
+					if (roomSend && state.state === "accepted") valid$7(state.requestIds?.length === frozen.recipientIds.length);
+					return state;
+				});
 			} catch (error) {
 				if (error instanceof RefusalError && PRE_EFFECT.has(error.code)) return {
 					state: "refused",
@@ -1005,7 +1026,7 @@ function operations(session, options = {}) {
 					reason: error.code,
 					...error.limit === void 0 ? {} : { limit: error.limit },
 					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl },
-					...error.scope === void 0 ? {} : { scope: error.scope }
+					...error.scope === "talk" ? { scope: error.scope } : {}
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -1022,7 +1043,7 @@ function operations(session, options = {}) {
 					reason: error.code,
 					...error.limit === void 0 ? {} : { limit: error.limit },
 					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl },
-					...error.scope === void 0 ? {} : { scope: error.scope }
+					...error.scope === "talk" ? { scope: error.scope } : {}
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -8778,6 +8799,10 @@ function opsBoard(payload) {
 	return {
 		squads: payload.squads.map((squad) => ({
 			name: squad.name,
+			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
+				roomId: squad.room.roomId,
+				revision: squad.room.revision
+			} : null,
 			...squad.lead ? { lead: squad.lead.name } : {},
 			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {}
 		})),
@@ -10629,21 +10654,32 @@ function final(value) {
 }
 /** Called only after signature/correlation verification by the shared Session lane. */
 function parseConversation(value, memberId, input) {
+	return parsePage(value, memberId, input, false);
+}
+function parseRoom(value, roomId, input) {
+	return parsePage(value, roomId, input, true);
+}
+function parsePage(value, scopeId, input, room) {
 	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
 	const row = object(value);
-	keys(row, [
+	keys(row, room ? [
+		"roomId",
+		"items",
+		"nextBefore",
+		"changes"
+	] : [
 		"viewerId",
 		"member",
 		"items",
 		"nextBefore",
 		"changePosition"
 	], input.since === void 0 ? [] : ["changedSince"]);
-	valid(coreId(row.viewerId) && [
+	valid((room ? row.roomId === scopeId && row.changes === "unknown" : coreId(row.viewerId) && [
 		"active",
 		"unknown",
 		"retired"
-	].includes(row.member) && conversationPosition(row.changePosition) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
-	valid(row.member === "active" || row.items.length === 0);
+	].includes(row.member) && conversationPosition(row.changePosition)) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
+	valid(room || row.member === "active" || row.items.length === 0);
 	const ids = /* @__PURE__ */ new Set();
 	const items = row.items.map((value) => {
 		const item = object(value);
@@ -10662,10 +10698,15 @@ function parseConversation(value, memberId, input) {
 			"previewTruncated",
 			"direction",
 			"changePosition"
-		], ["responseId"]);
+		].filter((key) => !room || ![
+			"direction",
+			"changePosition",
+			"responsePreview",
+			"previewTruncated"
+		].includes(key)).concat(room ? ["roomId"] : []), room ? [] : ["responseId"]);
 		const sender = object(item.sender);
 		keys(sender, ["kind", "identityId"]);
-		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) && ["request", "announcement"].includes(item.kind) && [
+		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && (coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) || room && sender.kind === "unknown" && sender.identityId === null) && ["request", "announcement"].includes(item.kind) && [
 			"person",
 			"automation",
 			"unknown"
@@ -10676,11 +10717,11 @@ function parseConversation(value, memberId, input) {
 			"queued",
 			"uncertain",
 			"definitely_failed"
-		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition));
+		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && (room ? item.roomId === scopeId : preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition)));
 		ids.add(item.requestId);
-		valid(item.direction === "toMember" ? item.recipientId === memberId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === memberId);
+		valid(room || (item.direction === "toMember" ? item.recipientId === scopeId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === scopeId));
 		const settled = final(item.final);
-		valid(settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
+		valid(room || settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
 		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
 		const { messageState: state } = messageState(item);
 		const { messageState: _rawState, ...rest } = item;
@@ -10705,6 +10746,12 @@ function parseConversation(value, memberId, input) {
 			};
 		}
 	}
+	if (room) return {
+		roomId: scopeId,
+		items,
+		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
+		changes: "unknown"
+	};
 	return {
 		viewerId: row.viewerId,
 		member: row.member,
@@ -10718,34 +10765,37 @@ function conversations(session, options = {}) {
 	const channel = channelFor(session);
 	if (!channel) throw new TypeError("Use a verified Session.");
 	const call = verifiedSessionRequest(session, options);
+	function readScope(scopeId, value, room) {
+		const allowed = room ? ["limit", "before"] : [
+			"limit",
+			"before",
+			"since"
+		];
+		if (!coreId(scopeId) || Object.keys(value).some((key) => !allowed.includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
+		let before;
+		if (value.before !== void 0) try {
+			before = cursor$1(value.before);
+		} catch {
+			throw new TypeError("Invalid conversation cursor.");
+		}
+		const frozen = {
+			limit: value.limit ?? 20,
+			...before ? { before } : {},
+			...value.since === void 0 ? {} : { since: value.since }
+		};
+		return call("requests.list", crypto.randomUUID(), {
+			version: 1,
+			operation: "requests.list",
+			input: {
+				[room ? "roomId" : "memberId"]: scopeId,
+				...frozen
+			}
+		}, (answer) => room ? parseRoom(answer, scopeId, frozen) : parseConversation(answer, scopeId, frozen));
+	}
 	return {
 		machineId: channel.paired.machineId,
-		read(memberId, value = {}) {
-			if (!coreId(memberId) || Object.keys(value).some((key) => ![
-				"limit",
-				"before",
-				"since"
-			].includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
-			let before;
-			if (value.before !== void 0) try {
-				before = cursor$1(value.before);
-			} catch {
-				throw new TypeError("Invalid conversation cursor.");
-			}
-			const frozen = {
-				limit: value.limit ?? 20,
-				...before ? { before } : {},
-				...value.since === void 0 ? {} : { since: value.since }
-			};
-			return call("requests.list", crypto.randomUUID(), {
-				version: 1,
-				operation: "requests.list",
-				input: {
-					memberId,
-					...frozen
-				}
-			}, (answer) => parseConversation(answer, memberId, frozen));
-		}
+		read: (memberId, value = {}) => readScope(memberId, value, false),
+		readRoom: (roomId, value = {}) => readScope(roomId, value, true)
 	};
 }
 //#endregion

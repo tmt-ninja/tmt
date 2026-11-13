@@ -120,6 +120,10 @@ impl MessageService {
                     "code": error.code,
                     "message": "Remote request refused."
                 }});
+                if let Some(reason) = error.room_history_reason() {
+                    payload["error"]["scope"] = json!("results.read");
+                    payload["error"]["reason"] = json!(reason);
+                }
                 if let Some(limit) = error.limit {
                     payload["error"]["limit"] = json!(limit);
                 }

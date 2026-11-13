@@ -49,9 +49,27 @@ export interface ConversationPage {
   changePosition: string;
   changedSince?: ConversationChanges;
 }
+export interface RoomInput {
+  limit?: number;
+  before?: ConversationCursor;
+}
+export type RoomItem = Omit<
+  ConversationItem,
+  'direction' | 'changePosition' | 'responsePreview' | 'previewTruncated' | 'responseId' | 'sender'
+> & {
+  roomId: string;
+  sender: ConversationItem['sender'] | { kind: 'unknown'; identityId: null };
+};
+export interface RoomPage {
+  roomId: string;
+  items: RoomItem[];
+  nextBefore: ConversationCursor | null;
+  changes: 'unknown';
+}
 export interface RemoteConversations {
   readonly machineId: string;
   read(memberId: string, input?: ConversationInput): Promise<ConversationPage>;
+  readRoom(roomId: string, input?: RoomInput): Promise<RoomPage>;
 }
 // Mirrors limits::CONVERSATION_RESPONSE_BYTES; the independent boundary vector is
 // checked by both native and SDK tests. No different raw/projected response budget.
@@ -131,24 +149,39 @@ export function parseConversation(
   memberId: string,
   input: ConversationInput,
 ): ConversationPage {
+  return parsePage(value, memberId, input, false) as ConversationPage;
+}
+export function parseRoom(value: unknown, roomId: string, input: RoomInput): RoomPage {
+  return parsePage(value, roomId, input, true) as RoomPage;
+}
+function parsePage(
+  value: unknown,
+  scopeId: string,
+  input: ConversationInput,
+  room: boolean,
+): ConversationPage | RoomPage {
   if (utf8.encode(JSON.stringify(value)).length > CONVERSATION_RESPONSE_BYTES)
     throw new Error('Conversation response exceeds byte limit.');
   const row = object(value);
   keys(
     row,
-    ['viewerId', 'member', 'items', 'nextBefore', 'changePosition'],
+    room
+      ? ['roomId', 'items', 'nextBefore', 'changes']
+      : ['viewerId', 'member', 'items', 'nextBefore', 'changePosition'],
     input.since === undefined ? [] : ['changedSince'],
   );
   valid(
-    coreId(row.viewerId) &&
-      ['active', 'unknown', 'retired'].includes(row.member as string) &&
-      conversationPosition(row.changePosition) &&
+    (room
+      ? row.roomId === scopeId && row.changes === 'unknown'
+      : coreId(row.viewerId) &&
+        ['active', 'unknown', 'retired'].includes(row.member as string) &&
+        conversationPosition(row.changePosition)) &&
       Array.isArray(row.items) &&
       row.items.length <= (input.limit ?? 20),
   );
-  valid(row.member === 'active' || row.items.length === 0);
+  valid(room || row.member === 'active' || row.items.length === 0);
   const ids = new Set<string>();
-  const items = row.items.map((value): ConversationItem => {
+  const items = row.items.map((value): ConversationItem | RoomItem => {
     const item = object(value);
     keys(
       item,
@@ -167,8 +200,14 @@ export function parseConversation(
         'previewTruncated',
         'direction',
         'changePosition',
-      ],
-      ['responseId'],
+      ]
+        .filter(
+          (key) =>
+            !room ||
+            !['direction', 'changePosition', 'responsePreview', 'previewTruncated'].includes(key),
+        )
+        .concat(room ? ['roomId'] : []),
+      room ? [] : ['responseId'],
     );
     const sender = object(item.sender);
     keys(sender, ['kind', 'identityId']);
@@ -176,8 +215,8 @@ export function parseConversation(
       requestId(item.requestId) &&
         !ids.has(item.requestId) &&
         coreId(item.recipientId) &&
-        coreId(sender.identityId) &&
-        ['explicit', 'verified'].includes(sender.kind as string) &&
+        ((coreId(sender.identityId) && ['explicit', 'verified'].includes(sender.kind as string)) ||
+          (room && sender.kind === 'unknown' && sender.identityId === null)) &&
         ['request', 'announcement'].includes(item.kind as string) &&
         ['person', 'automation', 'unknown'].includes(item.origin as string) &&
         ['prepared', 'sending', 'sent', 'queued', 'uncertain', 'definitely_failed'].includes(
@@ -185,21 +224,25 @@ export function parseConversation(
         ) &&
         integer(item.preparedAtMs) &&
         preview(item.preview) &&
-        preview(item.responsePreview) &&
-        typeof item.previewTruncated === 'boolean' &&
-        conversationPosition(item.changePosition),
+        (room
+          ? item.roomId === scopeId
+          : preview(item.responsePreview) &&
+            typeof item.previewTruncated === 'boolean' &&
+            conversationPosition(item.changePosition)),
     );
     ids.add(item.requestId);
     valid(
-      item.direction === 'toMember'
-        ? item.recipientId === memberId && sender.identityId === row.viewerId
-        : item.direction === 'fromMember' &&
+      room ||
+        (item.direction === 'toMember'
+          ? item.recipientId === scopeId && sender.identityId === row.viewerId
+          : item.direction === 'fromMember' &&
             item.recipientId === row.viewerId &&
-            sender.identityId === memberId,
+            sender.identityId === scopeId),
     );
     const settled = final(item.final);
     valid(
-      settled.status === 'retained' ||
+      room ||
+        settled.status === 'retained' ||
         (item.responsePreview === null && item.previewTruncated === false),
     );
     if (item.responseId !== undefined)
@@ -211,7 +254,7 @@ export function parseConversation(
       sender: { ...sender },
       final: settled,
       ...(state ? { messageState: state } : {}),
-    } as unknown as ConversationItem;
+    } as unknown as ConversationItem | RoomItem;
   });
   let changedSince: ConversationChanges | undefined;
   if (input.since !== undefined) {
@@ -229,12 +272,19 @@ export function parseConversation(
       changedSince = { count: changes.count, more: changes.more };
     }
   }
+  if (room)
+    return {
+      roomId: scopeId,
+      items: items as RoomItem[],
+      nextBefore: row.nextBefore === null ? null : cursor(row.nextBefore),
+      changes: 'unknown',
+    };
   return {
-    viewerId: row.viewerId,
+    viewerId: row.viewerId as string,
     member: row.member as ConversationPage['member'],
-    items,
+    items: items as ConversationItem[],
     nextBefore: row.nextBefore === null ? null : cursor(row.nextBefore),
-    changePosition: row.changePosition,
+    changePosition: row.changePosition as string,
     ...(changedSince === undefined ? {} : { changedSince }),
   };
 }
@@ -245,36 +295,44 @@ export function conversations(
   const channel = channelFor(session);
   if (!channel) throw new TypeError('Use a verified Session.');
   const call = verifiedSessionRequest(session, options);
+  function readScope(scopeId: string, value: ConversationInput, room: boolean) {
+    const allowed = room ? ['limit', 'before'] : ['limit', 'before', 'since'];
+    if (
+      !coreId(scopeId) ||
+      Object.keys(value).some((key) => !allowed.includes(key)) ||
+      (value.limit !== undefined &&
+        (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX)) ||
+      (value.since !== undefined && !conversationPosition(value.since))
+    )
+      throw new TypeError('Invalid conversation input.');
+    let before: ConversationCursor | undefined;
+    if (value.before !== undefined) {
+      try {
+        before = cursor(value.before);
+      } catch {
+        throw new TypeError('Invalid conversation cursor.');
+      }
+    }
+    const frozen: ConversationInput = {
+      limit: value.limit ?? 20,
+      ...(before ? { before } : {}),
+      ...(value.since === undefined ? {} : { since: value.since }),
+    };
+    return call(
+      'requests.list',
+      crypto.randomUUID(),
+      {
+        version: 1,
+        operation: 'requests.list',
+        input: { [room ? 'roomId' : 'memberId']: scopeId, ...frozen },
+      },
+      (answer) =>
+        room ? parseRoom(answer, scopeId, frozen) : parseConversation(answer, scopeId, frozen),
+    );
+  }
   return {
     machineId: channel.paired.machineId,
-    read(memberId, value = {}) {
-      if (
-        !coreId(memberId) ||
-        Object.keys(value).some((key) => !['limit', 'before', 'since'].includes(key)) ||
-        (value.limit !== undefined &&
-          (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX)) ||
-        (value.since !== undefined && !conversationPosition(value.since))
-      )
-        throw new TypeError('Invalid conversation input.');
-      let before: ConversationCursor | undefined;
-      if (value.before !== undefined) {
-        try {
-          before = cursor(value.before);
-        } catch {
-          throw new TypeError('Invalid conversation cursor.');
-        }
-      }
-      const frozen: ConversationInput = {
-        limit: value.limit ?? 20,
-        ...(before ? { before } : {}),
-        ...(value.since === undefined ? {} : { since: value.since }),
-      };
-      return call(
-        'requests.list',
-        crypto.randomUUID(),
-        { version: 1, operation: 'requests.list', input: { memberId, ...frozen } },
-        (answer) => parseConversation(answer, memberId, frozen),
-      );
-    },
+    read: (memberId, value = {}) => readScope(memberId, value, false) as Promise<ConversationPage>,
+    readRoom: (roomId, value = {}) => readScope(roomId, value, true) as Promise<RoomPage>,
   };
 }

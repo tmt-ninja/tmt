@@ -944,20 +944,31 @@ fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), Re
         }
         if !json_output {
             let terminal = output.terminal();
-            tmt_cli_style::detail::write(
-                &mut output,
-                terminal,
-                "HELD MESSAGE",
-                &[
-                    ("device", event["deviceName"].as_str().unwrap_or("").into()),
-                    ("source", event["clientId"].as_str().unwrap_or("").into()),
-                    (
-                        "recipient",
-                        event["recipientId"].as_str().unwrap_or("").into(),
-                    ),
-                    ("message", event["message"].as_str().unwrap_or("").into()),
-                ],
-            )?;
+            let mut details = vec![
+                ("device", event["deviceName"].as_str().unwrap_or("").into()),
+                ("source", event["clientId"].as_str().unwrap_or("").into()),
+                (
+                    "recipient",
+                    event["recipientIds"]
+                        .as_array()
+                        .map(|ids| {
+                            ids.iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_else(|| event["recipientId"].as_str().unwrap_or("").to_owned()),
+                ),
+                ("message", event["message"].as_str().unwrap_or("").into()),
+            ];
+            if let Some(room) = event["room"]["roomId"].as_str() {
+                details.push(("room", room.to_owned()));
+                details.push((
+                    "kind",
+                    event["kind"].as_str().unwrap_or("request").to_owned(),
+                ));
+            }
+            tmt_cli_style::detail::write(&mut output, terminal, "HELD MESSAGE", &details)?;
             output.flush()?;
             let mut prompt = tmt_cli_style::stream::stderr();
             write!(prompt, "Send this frozen message? [y/N] ")?;

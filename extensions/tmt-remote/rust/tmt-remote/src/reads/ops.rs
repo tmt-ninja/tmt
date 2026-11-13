@@ -1,5 +1,5 @@
 //! The Ops board projection: an allowlist over `tmt ops squad ls --json` and
-//! `tmt ops squad cron ls --json`. A pane's id, target and cwd, room IDs, unlisted row fields
+//! `tmt ops squad cron ls --json`. A pane's id, target and cwd, unrelated room IDs, unlisted row fields
 //! and all but the first line of a schedule message never leave the machine's own terminal.
 use crate::limits;
 use serde_json::{Map, Value, json};
@@ -119,7 +119,13 @@ fn agent(row: &Value, squad: &str, role: &str) -> Option<Value> {
     Some(Value::Object(agent))
 }
 
-fn squad(document: &Value, squads: &mut Vec<Value>, agents: &mut Vec<Value>, truncated: &mut bool) {
+fn squad(
+    document: &Value,
+    rooms: Option<&Value>,
+    squads: &mut Vec<Value>,
+    agents: &mut Vec<Value>,
+    truncated: &mut bool,
+) {
     let head = &document["squad"];
     let Some(name) = text(&head["name"], limits::READ_OPS_NAME) else {
         return;
@@ -127,6 +133,24 @@ fn squad(document: &Value, squads: &mut Vec<Value>, agents: &mut Vec<Value>, tru
     let lead = agent(&head["lead"], &name, "lead");
     let mut entry = Map::new();
     entry.insert("name".into(), json!(name));
+    let room = rooms
+        .and_then(|value| value["rooms"].as_array())
+        .and_then(|rows| {
+            let id = head["roomId"]
+                .as_str()
+                .filter(|id| crate::canonical::is_core_id(id))?;
+            let mut matches = rows.iter().filter(|row| row["id"] == id);
+            let row = matches.next()?;
+            if matches.next().is_some()
+                || row["name"] != format!("squad-{name}")
+                || row["retired"] != false
+            {
+                return None;
+            }
+            let revision = safe(&row["revision"]).filter(|revision| *revision > 0)?;
+            Some(json!({"roomId":id,"revision":revision}))
+        });
+    entry.insert("room".into(), room.unwrap_or(Value::Null));
     put(&mut entry, "layout", token(&head["layout"], 24));
     if let Some(lead) = &lead {
         entry.insert(
@@ -212,7 +236,11 @@ fn timers(document: &Value, truncated: &mut bool) -> Option<Vec<Value>> {
 
 /// `None` when the squad document is not the expected shape. A cron document that is
 /// absent or malformed leaves `timers` null.
-pub(super) fn project(board: &Value, cron: Option<&Value>) -> Option<Map<String, Value>> {
+pub(super) fn project(
+    board: &Value,
+    cron: Option<&Value>,
+    rooms: Option<&Value>,
+) -> Option<Map<String, Value>> {
     let listed = board["squads"].as_array()?;
     let (mut squads, mut agents, mut truncated) = (Vec::new(), Vec::new(), false);
     for document in listed {
@@ -220,7 +248,7 @@ pub(super) fn project(board: &Value, cron: Option<&Value>) -> Option<Map<String,
             truncated = true;
             break;
         }
-        squad(document, &mut squads, &mut agents, &mut truncated);
+        squad(document, rooms, &mut squads, &mut agents, &mut truncated);
     }
     let timers = cron.and_then(|cron| timers(cron, &mut truncated));
     let mut payload = Map::new();

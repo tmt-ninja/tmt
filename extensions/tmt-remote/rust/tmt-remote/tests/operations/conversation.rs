@@ -19,6 +19,12 @@ fn conversation_scope_is_fixed_and_positions_are_not_reconstructed() {
         input,
         json!({"memberId":MEMBER,"before":before,"since":"opaque_Position-1"})
     );
+    assert_eq!(
+        request(&json!({"roomId":MEMBER,"before":before})).unwrap(),
+        json!({"version":1,"operation":"requests.list","input":{"roomId":MEMBER,"limit":20,"before":before}})
+    );
+    assert!(request(&json!({"roomId":MEMBER,"since":"opaque"})).is_err());
+    assert!(request(&json!({"roomId":MEMBER,"memberId":MEMBER})).is_err());
     for since in [
         json!(null),
         json!(123),
@@ -93,6 +99,33 @@ fn conversation_projection_keeps_only_the_viewer_pair_and_published_fields() {
     assert_eq!(projected["items"][0]["changePosition"], "older_Z");
     assert_eq!(projected["items"][0]["responseId"], "rsp_4");
     assert_eq!(projected["changedSince"], json!({"count":1,"more":false}));
+    let mut room_row = raw["items"][0].clone();
+    room_row["roomId"] = json!(MEMBER);
+    room_row["requestId"] = json!("req_dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+    raw["items"].as_array_mut().unwrap().push(room_row);
+    assert_eq!(
+        super::response(&raw, &query).unwrap(),
+        projected,
+        "room rows never enter the DM stream or make its valid rows unavailable"
+    );
+    let room_query = request(&json!({"roomId":MEMBER})).unwrap();
+    let room_raw = json!({"items":[raw["items"][1]],"nextBefore":null});
+    let room = super::response(&room_raw, &room_query).unwrap();
+    assert_eq!(room["roomId"], MEMBER);
+    assert_eq!(room["changes"], "unknown");
+    for field in [
+        "direction",
+        "changePosition",
+        "responsePreview",
+        "previewTruncated",
+        "responseId",
+    ] {
+        assert!(room["items"][0].get(field).is_none(), "{field}");
+    }
+    assert!(room.get("changePosition").is_none());
+    let mut wrong = room_raw.clone();
+    wrong["items"][0]["roomId"] = json!("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    assert!(super::response(&wrong, &room_query).is_err());
 }
 #[test]
 fn malformed_or_cross_pair_conversations_are_unavailable_not_partial() {
@@ -128,8 +161,8 @@ fn malformed_or_cross_pair_conversations_are_unavailable_not_partial() {
     raw["items"][0]["responsePreview"] = json!("x".repeat(161));
     assert!(super::response(&raw, &query).is_err());
     let mut raw = page();
-    raw["items"][0]["roomId"] = json!("private room");
-    assert!(super::response(&raw, &query).is_err());
+    raw["items"][0]["roomId"] = json!("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    assert_eq!(super::response(&raw, &query).unwrap()["items"], json!([]));
     let mut raw = page();
     raw["items"][0]["final"] = json!({"status":"expired","submittedAtMs":2,"expiresAtMs":3});
     assert!(super::response(&raw, &query).is_err());

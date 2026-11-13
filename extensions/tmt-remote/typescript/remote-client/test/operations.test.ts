@@ -777,6 +777,25 @@ test('an explicit identical resend reconstructs identical payload bytes and rece
   assert.deepEqual(await client.send({ ...value }), first);
   assert.equal(door.calls[0]!.bytes, door.calls[1]!.bytes);
   assert.equal(door.calls[0]!.envelope.id, door.calls[1]!.envelope.id);
+  const room = { roomId: crypto.randomUUID(), revision: 2 };
+  const recipientIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const roomIntent = {
+    operationId: crypto.randomUUID(),
+    message: 'Room post',
+    room,
+    recipientIds,
+    kind: 'announcement' as const,
+  };
+  const sending = client.send(roomIntent);
+  room.revision = 99;
+  recipientIds.reverse();
+  assert.equal((await sending).state, 'accepted');
+  const payload = door.calls[2]!.payload as {
+    input: { room: { revision: number }; recipientIds: string[]; kind: string };
+  };
+  assert.equal(payload.input.room.revision, 2);
+  assert.deepEqual(payload.input.recipientIds, [...recipientIds].reverse());
+  assert.equal(payload.input.kind, 'announcement');
 });
 
 test('invalid input and copied sessions never publish or throw an unknown-outcome ClientError', async () => {

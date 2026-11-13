@@ -1694,13 +1694,15 @@ var RefusalError$1 = class extends Error {
 	limit;
 	settingsUrl;
 	scope;
-	constructor(code, retryAfterMs, limit, settingsUrl, scope) {
+	reason;
+	constructor(code, retryAfterMs, limit, settingsUrl, scope, reason) {
 		super(`Remote operation refused: ${code}.`);
 		this.code = code;
 		this.retryAfterMs = retryAfterMs;
 		this.limit = limit;
 		this.settingsUrl = settingsUrl;
 		this.scope = scope;
+		this.reason = reason;
 		this.name = "RefusalError";
 	}
 };

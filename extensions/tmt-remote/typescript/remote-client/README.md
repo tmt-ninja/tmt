@@ -554,3 +554,12 @@ listener tail, never zero reads. Native transport/credentials and Colab's relay 
 separate slices; this API enables neither agent operations nor cloud attachment glue.
 The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
 owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.
+
+Room posts use `operations(session).send({operationId, message, room: {roomId, revision},
+recipientIds, kind: "request"})`; persist the operation UUID before sending. An accepted
+room post includes `requestIds` in recipient order and the first as `requestId`.
+`conversations(session).readRoom(roomId, {limit, before})` returns
+`{roomId, items, nextBefore, changes: "unknown"}`. Refresh by reading the newest page;
+room reads have no `since` or change position. Read a reply with `result(requestId)`.
+See the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
+for owner-browser authority, room fields and original-only recovery.

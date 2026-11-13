@@ -45,7 +45,8 @@ impl Approval {
         Ok((
             grant.clone(),
             json!({"event":"held","operationId":id,"clientId":grant.client_id,"deviceName":grant.name,
-            "recipientId":frozen.recipient_ids[0],"message":frozen.message}),
+            "recipientId":frozen.recipient_ids[0],"recipientIds":frozen.recipient_ids,
+            "room":frozen.room,"kind":frozen.kind,"message":frozen.message}),
         ))
     }
     pub(crate) fn confirm(&self, id: &str, grant: &Grant) -> Result<Value, RemoteError> {
@@ -169,12 +170,9 @@ impl Store {
             ));
         }
         let intent = crate::operations::held_intent(grant, id, &frozen)?;
-        crate::budgets::charge(
-            &tx,
-            &intent.recipient_ids[0],
-            crate::budgets::Budget::Approval,
-            now,
-        )?;
+        for recipient in &intent.recipient_ids {
+            crate::budgets::charge(&tx, recipient, crate::budgets::Budget::Approval, now)?;
+        }
         let changed=tx.execute("UPDATE operations SET phase='dispatching' WHERE id=?1 AND client_id=?2 AND phase='held'",params![id,grant.client_id]).map_err(database)?;
         if changed != 1 {
             return Err(invalid());
