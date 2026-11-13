@@ -56,9 +56,12 @@ impl Drop for Scratch {
     }
 }
 
-/// The first line that is a full-width rule directly followed by another: a
-/// heading rule is mostly `─`, and neighbours share one. A pane's frame edge carries its corners and
-/// is not a heading rule, so it may sit against one.
+/// The first line that holds a rule directly above another rule in the same column: a heading
+/// rule is mostly `─`, and neighbours share one. A row's columns are its spans between `│`
+/// dividers; two rules are stacked when they start at the same cell on consecutive rows, so two
+/// full-width rules and two rules in one pane are caught, while a rule beside another pane's rule
+/// one row lower is not. A pane's frame edge carries its corners and is not a heading rule, so it
+/// may sit against one.
 pub(crate) fn stacked_rules(lines: &[String]) -> Option<usize> {
     let rule = |line: &str| {
         let line = line.trim();
@@ -66,9 +69,65 @@ pub(crate) fn stacked_rules(lines: &[String]) -> Option<usize> {
             && !line.contains(['┌', '┐', '└', '┘', '┏', '┓', '┗', '┛'])
             && line.chars().filter(|c| *c == '─').count() * 5 >= line.chars().count() * 2
     };
-    lines
-        .windows(2)
-        .position(|pair| rule(&pair[0]) && rule(&pair[1]))
+    // The starting cells of a row's spans that are rules.
+    let rules = |line: &str| -> Vec<usize> {
+        let mut start = 0;
+        line.split('│')
+            .filter_map(|part| {
+                let at = start;
+                start += part.chars().count() + 1;
+                rule(part).then_some(at)
+            })
+            .collect()
+    };
+    lines.windows(2).position(|pair| {
+        let below = rules(&pair[1]);
+        rules(&pair[0]).iter().any(|start| below.contains(start))
+    })
+}
+
+#[cfg(test)]
+mod stacked_rules_tests {
+    use super::stacked_rules;
+    fn rows(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_owned()).collect()
+    }
+    #[test]
+    fn rules_stack_when_they_start_in_the_same_column_on_consecutive_rows() {
+        // A full-width rule above a full-width rule.
+        assert_eq!(
+            stacked_rules(&rows(&[
+                "── Agents ──────────────────────",
+                "── Jobs ────────────────────────"
+            ])),
+            Some(0)
+        );
+        // Two rules starting together inside one pane.
+        assert_eq!(
+            stacked_rules(&rows(&[
+                "text text │── worker ─────────",
+                "text text │── Jobs ───────────"
+            ])),
+            Some(0)
+        );
+        // Diagonal rules on either side of the divider.
+        assert_eq!(
+            stacked_rules(&rows(&[
+                "── Talks ─────────│",
+                " PAIR  LAST       │── worker ───────"
+            ])),
+            None
+        );
+        // The approved Digest layout (#6287): the pane title rule above the Exchanges section
+        // rule, which starts one cell further right, past the divider.
+        assert_eq!(
+            stacked_rules(&rows(&[
+                "── Agents by TOK ──────────── / Search ── ▸━ all · 1d ━━━━━━━━━━━━━━━━━━━━",
+                "  AGENT          STATE                   │ ── Exchanges · 1d ──────────────"
+            ])),
+            None
+        );
+    }
 }
 
 /// Prewarm a fixture without executing its payload. macOS first-exec assessment
