@@ -24,6 +24,17 @@ export function standaloneBinderPlugin({ build }) {
         if (found.length !== 1) throw new Error(`The binder needs one built ${name} chunk`);
         return { name, sha256: createHash('sha256').update(found[0].source).digest('hex') };
       });
+      // The terminal renderer the binder accepts: this build's pinned wasm, by length and SHA-256.
+      const wasm = Object.values(bundle).filter(
+        (output) =>
+          output.type === 'asset' &&
+          /^assets\/colab-runtime-terminal-[0-9a-f]{16}\.wasm$/.test(output.fileName),
+      );
+      if (wasm.length !== 1) throw new Error('The binder needs one built terminal renderer');
+      const terminal = {
+        length: wasm[0].source.length,
+        sha256: createHash('sha256').update(wasm[0].source).digest('hex'),
+      };
       const { dsProseStyle } = await (await import('./page-ui.mjs')).buildPageUi();
       const app = new URL('../typescript/app/', import.meta.url);
       const [output] = [].concat(
@@ -34,6 +45,7 @@ export function standaloneBinderPlugin({ build }) {
           define: {
             __COLAB_RUNTIME_CHUNKS__: JSON.stringify(chunks),
             __COLAB_DS_PROSE__: JSON.stringify(dsProseStyle),
+            __COLAB_TERMINAL_WASM__: JSON.stringify(terminal),
           },
           build: {
             write: false,

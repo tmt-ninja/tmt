@@ -525,6 +525,7 @@ fn a_locked_space_release_is_read_without_writing_and_its_absence_names_the_reas
             theme: "@theme inline{}",
             binder: "window.bind={};",
             chunks: &chunks,
+            terminal: None,
         }),
     };
     let lock = format!("1.2.3#sha256-{}", "ab".repeat(32));

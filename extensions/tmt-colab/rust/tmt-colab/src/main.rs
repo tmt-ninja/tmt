@@ -676,6 +676,7 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                 theme: pinned.theme,
                 binder: pinned.binder,
                 chunks: &pinned.chunks,
+                terminal: pinned.terminal,
             }),
     };
     let bundle = Bundle::capture_with_assets(

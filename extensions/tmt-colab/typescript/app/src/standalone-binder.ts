@@ -11,6 +11,10 @@
  *   component and shows the notice.
  * - the bundle's own hash against `data-lock`, the release the export verified. A page that locks a
  *   release must lock that one. A failure shows the frame's notice and defines no component.
+ * - the terminal renderer, when the copy carries it (`<script type="application/octet-stream"
+ *   data-terminal>`, base64), against this build's pinned length and SHA-256. Only verified bytes
+ *   are handed to the terminal chunk, once, as the frame hands them; otherwise a TerminalFrame
+ *   stays in its failed state and the page says it is unavailable.
  *
  * Then it writes the chunks, the seal, and `frameDesignSystem` of the bundle as inline scripts; the
  * page check's findings follow once the body has parsed. The copy's policy is the frame's; nothing
@@ -38,6 +42,8 @@ declare const __COLAB_RUNTIME_CHUNKS__: readonly {
 }[];
 /** The editorial layer a page that did not ask for the runtime keeps for its text (#5917). */
 declare const __COLAB_DS_PROSE__: string;
+/** This build's pinned terminal renderer: its length and SHA-256 (the runtime build writes them). */
+declare const __COLAB_TERMINAL_WASM__: { readonly length: number; readonly sha256: string };
 
 const encoder = new TextEncoder();
 const head = document.head;
@@ -56,6 +62,22 @@ const verified = __COLAB_RUNTIME_CHUNKS__.flatMap(({ name, sha256 }) => {
   const text = chunkText(name);
   return text !== undefined && sha256Hex(encoder.encode(text)) === sha256 ? [{ name, text }] : [];
 });
+
+/** The carried terminal renderer, only when its bytes are exactly this build's. */
+const terminal = ((): ArrayBuffer | undefined => {
+  const text = head.querySelector(
+    'script[type="application/octet-stream"][data-terminal]',
+  )?.textContent;
+  if (!text) return undefined;
+  try {
+    const binary = atob(text);
+    if (binary.length !== __COLAB_TERMINAL_WASM__.length) return undefined;
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return sha256Hex(bytes) === __COLAB_TERMINAL_WASM__.sha256 ? bytes.buffer : undefined;
+  } catch {
+    return undefined;
+  }
+})();
 
 const bind = (): FrameDesignSystem | undefined => {
   if (!block) return undefined;
@@ -79,18 +101,18 @@ const bind = (): FrameDesignSystem | undefined => {
   if (typeof checked === 'string') return noticeFrame(checked);
   try {
     const frame = frameDesignSystem(checked, pin);
-    // The page check reads the body as it parsed, before any component draws into it. The copy
-    // carries no terminal renderer yet (#6150), so a page that writes a TerminalFrame says so.
+    // The page check reads the body as it parsed, before any component draws into it. A page that
+    // writes a TerminalFrame without verified renderer bytes says so.
     document.addEventListener(
       'DOMContentLoaded',
       () => {
         const elements = bodyElements(document.body);
-        const terminal = new Set(
+        const terminalTags = new Set(
           checked.components
             .filter((component) => component.uiParts?.includes('TerminalFrame'))
             .map((component) => component.tag),
         );
-        if (elements.some((element) => terminal.has(element.tag))) {
+        if (!terminal && elements.some((element) => terminalTags.has(element.tag))) {
           const line = document.createElement('p');
           line.setAttribute('role', 'status');
           line.setAttribute('data-colab-standalone-notice', '');
@@ -114,8 +136,20 @@ const bind = (): FrameDesignSystem | undefined => {
 // registration before the design system and the page's own scripts run, as in the frame. Without
 // a verified base no chunk can register, so none runs.
 const runtime = verified[0]?.name === 'base' ? verified : [];
+// The terminal chunk takes the verified bytes once, as it does in the frame; the seal removes the
+// hook before the design system or the page's own scripts run.
+if (terminal && runtime.length)
+  Object.assign(window, {
+    __colabTakeTerminalBytes: () => {
+      delete (window as { __colabTakeTerminalBytes?: unknown }).__colabTakeTerminalBytes;
+      return terminal;
+    },
+  });
 for (const { text } of runtime) write('script', text);
-write('script', 'window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;');
+write(
+  'script',
+  'window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;delete window.__colabTakeTerminalBytes;',
+);
 const design = bind();
 if (design?.failure) notice(design);
 else if (design) {
