@@ -5741,10 +5741,22 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 			event.stopPropagation();
 			if (event.isTrusted) dismiss();
 		};
+		let searchRound = 0;
+		const searchExpanded = (open) => {
+			for (const button of [search, sidebarSearch]) if (open === void 0) button.removeAttribute("aria-expanded");
+			else button.setAttribute("aria-expanded", String(open));
+		};
 		const openSearch = (opener) => {
 			themeMenu.close();
 			searchHelp.binding.dismiss();
-			options.openSearch(opener);
+			const closed = options.openSearch(opener);
+			if (!closed) return;
+			const round = ++searchRound;
+			searchExpanded(true);
+			const settle = () => {
+				if (round === searchRound) searchExpanded(false);
+			};
+			closed.then(settle, settle);
 		};
 		search.onclick = (event) => {
 			if (event.isTrusted) openSearch(search);
@@ -5781,6 +5793,8 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 			},
 			update,
 			dispose() {
+				searchRound += 1;
+				searchExpanded(void 0);
 				document.removeEventListener("keydown", shortcut);
 				observeTheme.disconnect();
 				themeMenu.dispose();
