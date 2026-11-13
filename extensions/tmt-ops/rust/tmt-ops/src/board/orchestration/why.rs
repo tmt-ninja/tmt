@@ -165,6 +165,13 @@ impl Why {
                 _ => "← Base".into(),
             }
         };
+        // One time column: as wide as the widest time on the page (`Tue 21:00` beside `22:58`).
+        let time_w = self
+            .items
+            .iter()
+            .map(|item| clock(item["recordedAtMs"].as_u64().unwrap_or(0)).width())
+            .max()
+            .unwrap_or(5);
         let rows: Vec<Value> = self
             .items
             .iter()
@@ -202,7 +209,10 @@ impl Why {
                         }
                         all
                     });
-                let time = format!(" {}  ", clock(item["recordedAtMs"].as_u64().unwrap_or(0)));
+                let time = format!(
+                    " {:<time_w$}  ",
+                    clock(item["recordedAtMs"].as_u64().unwrap_or(0))
+                );
                 let result = format!("{mark} {outcome:<10} ");
                 let reason = format!("{} ", item["reason"].as_str().unwrap_or("?"));
                 let source = sources.join(" ");
