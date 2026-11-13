@@ -119,11 +119,12 @@ exit 7
     let mut terminal =
         Connection::connect(&support::state_dir(&world.root).join("pty"), pane).unwrap();
     terminal.input(b"answer\r").unwrap();
-    wait_for("the Stop hook", || world.root.join("stop.status").exists());
-    assert_eq!(
-        fs::read_to_string(world.root.join("stop.status")).unwrap(),
-        "0"
-    );
+    // The shell creates stop.status before printf writes the code, so wait for content.
+    let status = world.root.join("stop.status");
+    wait_for("the Stop hook", || {
+        fs::read_to_string(&status).is_ok_and(|code| !code.is_empty())
+    });
+    assert_eq!(fs::read_to_string(&status).unwrap(), "0");
     wait_for("the retained final", || {
         let db = rusqlite::Connection::open_with_flags(
             &database,
