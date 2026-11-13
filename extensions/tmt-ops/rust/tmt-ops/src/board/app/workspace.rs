@@ -181,10 +181,12 @@ impl App {
             return self.say("A maximum of 32 labels is allowed.");
         }
         let expected = std::sync::Arc::new(snapshot.preferences.labels.clone());
-        let id = match crate::id::new_v4() {
-            Ok(id) => id,
-            Err(error) => return self.say(format!("Could not create label: {error}")),
-        };
+        // At most 31 definitions exist here, so one of these 32 IDs is free.
+        // Allocation stays in the retained model; Config's CAS fences another editor.
+        let id = (1..=32)
+            .map(|number| format!("label-{number}"))
+            .find(|id| expected.definitions.iter().all(|label| &label.id != id))
+            .expect("fewer than 32 label definitions");
         self.label_draft = Some(LabelDraft {
             expected,
             original: None,

@@ -125,6 +125,15 @@ fn label_key_on_a_squad_only_reports_the_required_target() {
 }
 
 #[test]
+fn label_key_on_the_common_pool_only_reports_the_required_target() {
+    let mut app = populated_board(1, 2);
+    paint(&app, 160, 36);
+    assert_eq!(key(&mut app, KeyCode::Char('l')), Effect::None);
+    assert_eq!(app.notice.as_deref(), Some("Select an agent to label."));
+    assert!(app.menu.is_none());
+}
+
+#[test]
 fn labels_after_nine_remain_reachable_without_digit_bindings() {
     let mut app = populated_board(1, 2);
     let labels = &mut app
@@ -241,6 +250,36 @@ fn editor_refuses_a_thirty_third_label() {
         app.notice
             .as_deref()
             .is_some_and(|notice| notice.contains("32 labels"))
+    );
+}
+
+#[test]
+fn editor_picks_an_unused_id_at_the_definition_limit() {
+    let mut app = populated_board(1, 2);
+    let labels = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .labels;
+    labels.definitions = (1..=31)
+        .map(|index| crate::config::BoardLabel {
+            id: format!("label-{index}"),
+            glyph: "X".into(),
+            color: "working".into(),
+            name: format!("Label {index}"),
+        })
+        .collect();
+    app.choose(Choice::LabelNew);
+    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.input.as_mut().unwrap().text = "New".into();
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(app.choose(Choice::LabelSave), Effect::Act(Request::LabelEdit { edit: crate::config::LabelEdit::Upsert(label), .. }) if label.id == "label-32")
     );
 }
 

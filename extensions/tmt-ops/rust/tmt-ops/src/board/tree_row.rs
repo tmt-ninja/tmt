@@ -236,37 +236,31 @@ pub(in crate::board) fn paint(
                     "▸ "
                 };
                 let branch = format!("{indent}{branch}");
-                if member && row.label.is_some() {
-                    let offset = 1 + branch.width();
-                    if offset + 3 <= usize::from(cell.width) {
-                        painted.label = Some(Rect::new(cell.x + offset as u16, cell.y, 3, 1));
-                    }
+                let offset = 1 + branch.width();
+                let show_label =
+                    member && row.label.is_some() && offset + 4 <= usize::from(cell.width);
+                if show_label {
+                    painted.label = Some(Rect::new(cell.x + offset as u16, cell.y, 3, 1));
                 }
                 let name_width = usize::from(cell.width).saturating_sub(
-                    1 + branch.width()
-                        + usize::from(row.source.lead)
-                        + 4 * usize::from(member && row.label.is_some()),
+                    1 + branch.width() + usize::from(row.source.lead) + 4 * usize::from(show_label),
                 );
                 // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
                     Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
                     Span::raw(match row.label {
-                        Some(Some(label)) if member => {
+                        Some(Some(label)) if show_label => {
                             if label.glyph.width() == 1 {
                                 format!(" {} ", label.glyph)
                             } else {
                                 format!("{} ", label.glyph)
                             }
                         }
-                        Some(None) if member => "   ".into(),
+                        Some(None) if show_label => "   ".into(),
                         _ => String::new(),
                     }),
-                    Span::raw(if member && row.label.is_some() {
-                        " "
-                    } else {
-                        ""
-                    }),
+                    Span::raw(if show_label { " " } else { "" }),
                     Span::styled(
                         if row.source.lead { "*" } else { "" },
                         look.role(Role::Muted),
@@ -353,17 +347,17 @@ pub(in crate::board) fn paint(
             && let Some(span) = line.spans.get_mut(2)
         {
             let role = crate::look::role(&label.color).expect("validated label role");
-            span.style = if look.depth == tmt_cli_style::Depth::None {
+            let fill = tmt_cli_style::theme::screen::fill(
+                &look.theme,
+                role,
+                look.depth,
+                tmt_cli_style::theme::screen::Fill::Solid,
+            );
+            span.style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
                 Style::new().add_modifier(Modifier::REVERSED)
             } else {
-                tmt_cli_style::theme::screen::fill(
-                    &look.theme,
-                    role,
-                    look.depth,
-                    tmt_cli_style::theme::screen::Fill::Solid,
-                )
-                .fg(ratatui::style::Color::Black)
-                .remove_modifier(Modifier::DIM | Modifier::REVERSED)
+                fill.fg(ratatui::style::Color::Black)
+                    .remove_modifier(Modifier::DIM | Modifier::REVERSED)
             };
         }
         if (matches!(field, AgentsField::PerMinute) && row.minute_bold)
@@ -567,6 +561,50 @@ mod tests {
         assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
         assert_eq!(buffer[(24, 0)].symbol(), "…");
         assert_eq!(buffer[(25, 0)].symbol(), " ");
+    }
+
+    #[test]
+    fn a_chip_is_never_partially_painted_or_clickable() {
+        let app = crate::board::app::workspace::tests::board();
+        let rows = app.workspace_rows();
+        let source = rows
+            .iter()
+            .find(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        let label = crate::config::WorkspaceLabels::default()
+            .definitions
+            .remove(0);
+        let row = Row {
+            source,
+            label: Some(Some(&label)),
+            expanded: false,
+            last: true,
+            folds: false,
+            state: Line::default(),
+            state_primary_width: None,
+            state_attention: Vec::new(),
+            tokens: String::new(),
+            tokens_bold: false,
+            minute: String::new(),
+            minute_bold: false,
+            session: String::new(),
+            timers: None,
+            selected: false,
+            unread: false,
+            in_conversation: false,
+            query: "",
+        };
+        let area = Rect::new(0, 0, 7, 1);
+        let mut buffer = Buffer::empty(area);
+        let painted = paint(
+            &mut buffer,
+            area,
+            &[(AgentsField::Agent, area)],
+            &row,
+            Look::default(),
+        );
+        assert!(painted.label.is_none());
+        assert!(!buffer.content.iter().any(|cell| cell.symbol() == "P"));
     }
 
     #[test]

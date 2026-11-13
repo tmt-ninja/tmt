@@ -260,6 +260,15 @@ mod board {
     }
 
     #[test]
+    fn terminal_row_refuses_the_member_label_action() {
+        let (mut app, member) = listed_board();
+        select(&mut app, &member, 1);
+        press(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.notice.as_deref(), Some("Select an agent to label."));
+        assert!(app.menu.is_none());
+    }
+
+    #[test]
     fn terminal_rows_sit_under_their_member_and_fold_with_it() {
         let (mut app, member) = listed_board();
         let rows = app.workspace_rows();
