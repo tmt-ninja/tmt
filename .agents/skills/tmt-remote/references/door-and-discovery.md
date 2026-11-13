@@ -83,8 +83,10 @@ preserve unsupported peer errors. No HTTP descriptor or second status acquisitio
 [owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
 best-effort observation and use-time authority limits.
 
-The private pairing offer carries `ownerPolicyVersion: 1`; every pairing flow requires it
-before exposing the offer or confirming, otherwise the CLI reports `REMOTE_SERVE_OUTDATED`.
+The private pairing offer carries `ownerPolicyVersion:2`. Auto-upgrade can replace the CLI
+while an older serve keeps running, so every pairing flow requires that marker before exposing
+an offer or confirming. A mismatch returns the existing `REMOTE_SERVE_OUTDATED` restart hint;
+version 1 cannot honor owner name/expiry narrowing.
 
 Stop sends one control request to set serve's SIGTERM shutdown flag, then waits for
 the lifecycle lease and verifies socket cleanup while holding that lease. It never
@@ -184,7 +186,13 @@ process-interruption tests, not power-loss or complete product/release acceptanc
 New pairings are read only. After the word-match confirmation, the terminal asks separately whether
 to allow sending, defaulting to no. Owner-side `--talk` preselects sending and skips that second
 prompt; bare JSON confirmation remains read only. `--agents <uuid,...>` and `--hold` require `--talk`
-and narrow the issued policy, not enrollment. Existing grants are unchanged; no migration ships.
+and narrow the issued policy, not enrollment. Owner flags `--name <text>` and
+`--expires <duration|never>` choose the final device name and lifetime without another prompt.
+Durations use positive `s`, `m`, `h` or `d` units, such as `1h` or `7d`; omitted expiry is `never`.
+Terminal confirmation shows the name/lifetime; JSON candidate/paired events echo final `name`
+and absolute `expiresAtMs`. The deadline is fixed when the candidate is shown and rechecked
+at issuance; the existing grant checks refuse later reads/sends at expiry. Existing grants are
+unchanged; no migration ships.
 `tmt remote members sending <member-id|unique-name> on|off` changes the person sending choice
 through the current serve or under the stopped serve lease, with its member revision rechecked
 at the effect. Narrower per-machine grants remain unchanged; designated settings browsers use the existing immutable

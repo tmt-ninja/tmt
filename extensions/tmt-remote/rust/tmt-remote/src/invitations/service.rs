@@ -494,7 +494,12 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         if !actor.interactive() {
             return Err(invalid().into());
         }
-        if policy.talk || policy.hold || policy.agents.is_some() {
+        if policy.talk
+            || policy.hold
+            || policy.agents.is_some()
+            || policy.name.is_some()
+            || policy.expires_at_ms.is_some()
+        {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
                 "New invitations start with sending off and direct delivery. Change member sending after confirmation.",

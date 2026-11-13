@@ -622,7 +622,16 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     pair_command.args(["pair", "--json"]);
     let selected_agent = "11111111-1111-4111-8111-111111111111";
     if explicit_policy {
-        pair_command.args(["--talk", "--agents", selected_agent, "--hold"]);
+        pair_command.args([
+            "--talk",
+            "--agents",
+            selected_agent,
+            "--hold",
+            "--name",
+            "Owner tablet",
+            "--expires",
+            "1h",
+        ]);
     }
     let mut pair = pair_command
         .stdin(Stdio::piped())
@@ -640,7 +649,7 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     });
     let offer = line(&events);
     assert_eq!(offer["event"], "offer");
-    assert_eq!(offer["ownerPolicyVersion"], 1);
+    assert_eq!(offer["ownerPolicyVersion"], 2);
     let d = &offer["descriptor"];
     let code = canonical::pairing_code(offer["code"].as_str().unwrap()).unwrap();
     let key = SigningKey::from_bytes(&[5; 32]);
@@ -692,6 +701,24 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let candidate = line(&events);
     assert_eq!(candidate["event"], "candidate");
     assert_eq!(
+        candidate["name"],
+        if explicit_policy {
+            "Owner tablet"
+        } else {
+            "Other machine"
+        }
+    );
+    if explicit_policy {
+        assert_eq!(candidate["proposedName"], "Other machine");
+        let now = tmt_remote::pairing::now_ms().unwrap();
+        assert!(
+            (now + 3_500_000..=now + 3_600_000)
+                .contains(&candidate["expiresAtMs"].as_u64().unwrap())
+        );
+    } else {
+        assert!(candidate["expiresAtMs"].is_null());
+    }
+    assert_eq!(
         candidate["words"],
         serde_json::json!(canonical::fingerprint_words(&public).unwrap())
     );
@@ -699,7 +726,21 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let ended = line(&events);
     assert_eq!(ended["reason"], "paired");
     assert!(pair.wait().unwrap().success());
-    assert!(device.join().unwrap().starts_with("HTTP/1.1 200"));
+    let response = device.join().unwrap();
+    assert!(response.starts_with("HTTP/1.1 200"));
+    let reply: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let receipt = canonical::base64url_decode(reply["receipt"].as_str().unwrap()).unwrap();
+    crypto::verify_server_proof(
+        &crypto::response_key(&code, &enrollment).unwrap(),
+        &receipt,
+        &canonical::base64url_bytes(reply["serverProof"].as_str().unwrap(), 32).unwrap(),
+    )
+    .unwrap();
+    let receipt: Value = serde_json::from_slice(&receipt).unwrap();
+    for field in ["name", "expiresAtMs"] {
+        assert_eq!(ended[field], candidate[field]);
+        assert_eq!(receipt["grant"][field], candidate[field]);
+    }
     let client_id = ended["clientId"].as_str().unwrap();
     let member_id = ended["memberId"].as_str().unwrap();
     member_reads::assert_shared_member_reads(&pilot, client_id, member_id);
@@ -709,6 +750,8 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let machine = &machines["machines"][0];
     assert_eq!(machine["clientId"], client_id);
     assert_eq!(machine["kind"], "cli");
+    assert_eq!(machine["name"], candidate["name"]);
+    assert_eq!(machine["expiresAtMs"], candidate["expiresAtMs"]);
     assert_eq!(machine["sendingScope"], explicit_policy);
     assert_eq!(
         machine["delivery"],
@@ -3113,31 +3156,41 @@ fn control_exchange(
 fn every_pair_flow_refuses_an_old_owner_before_exposing_or_confirming_its_offer() {
     let pilot = Pilot::new();
     tmt_remote::state::Layout::open(&pilot.root.join("state")).unwrap();
-    for extra in [vec![], vec!["--talk"], vec!["--talk", "--hold"]] {
-        let mut args = vec!["pair", "--json"];
-        args.extend(extra);
-        let output = control_exchange(
-            &pilot,
-            &args,
-            serde_json::json!({"op":"pair"}),
-            Some(
-                "{\"event\":\"offer\",\"link\":\"private-old-owner-link\"}\n{\"event\":\"ended\",\"reason\":\"cancelled\"}\n",
-            ),
-            Some(""),
-        );
-        assert!(!output.status.success());
-        assert!(output.stderr.is_empty());
-        assert!(
-            !String::from_utf8_lossy(&output.stdout).contains("private-old-owner-link"),
-            "old owner offer exposed before marker refusal: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(answer["error"]["code"], "REMOTE_SERVE_OUTDATED");
-        assert_eq!(
-            answer["error"]["message"],
-            tmt_remote::control::outdated_serve().message
-        );
+    for marker in [None, Some(1)] {
+        for extra in [
+            vec![],
+            vec!["--talk"],
+            vec!["--talk", "--hold"],
+            vec!["--name", "Owner tablet", "--expires", "1h"],
+        ] {
+            let mut offer = serde_json::json!({"event":"offer","link":"private-old-owner-link"});
+            if let Some(marker) = marker {
+                offer["ownerPolicyVersion"] = serde_json::json!(marker);
+            }
+            let wire = format!("{offer}\n{{\"event\":\"ended\",\"reason\":\"cancelled\"}}\n");
+            let mut args = vec!["pair", "--json"];
+            args.extend(extra);
+            let output = control_exchange(
+                &pilot,
+                &args,
+                serde_json::json!({"op":"pair"}),
+                Some(&wire),
+                Some(""),
+            );
+            assert!(!output.status.success());
+            assert!(output.stderr.is_empty());
+            assert!(
+                !String::from_utf8_lossy(&output.stdout).contains("private-old-owner-link"),
+                "old owner offer exposed before marker refusal: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(answer["error"]["code"], "REMOTE_SERVE_OUTDATED");
+            assert_eq!(
+                answer["error"]["message"],
+                tmt_remote::control::outdated_serve().message
+            );
+        }
     }
 }
 

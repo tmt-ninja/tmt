@@ -803,10 +803,11 @@ fn owner_talk_policy_narrows_agents_and_hold_in_the_signed_receipt_and_atomic_au
     );
     assert_eq!(owner.next()["event"], "candidate");
     let agent = uuid_v4().unwrap();
+    let expiry = tmt_remote::pairing::now_ms().unwrap() + 60_000;
     writeln!(
         owner.stream,
         "{}",
-        json!({"op":"confirm","policy":{"talk":true,"agents":[agent],"hold":true}})
+        json!({"op":"confirm","policy":{"talk":true,"agents":[agent],"hold":true,"name":"Owner tablet","expiresAtMs":expiry}})
     )
     .unwrap();
     let ended = owner.next();
@@ -825,6 +826,8 @@ fn owner_talk_policy_narrows_agents_and_hold_in_the_signed_receipt_and_atomic_au
     let result: Value = serde_json::from_slice(&receipt).unwrap();
     assert_eq!(result["grant"]["agents"], json!([agent]));
     assert_eq!(result["grant"]["mode"], "hold");
+    assert_eq!(result["grant"]["name"], "Owner tablet");
+    assert_eq!(result["grant"]["expiresAtMs"], expiry);
     let stored = h
         .store
         .lock()
@@ -833,6 +836,13 @@ fn owner_talk_policy_narrows_agents_and_hold_in_the_signed_receipt_and_atomic_au
         .unwrap()
         .unwrap();
     assert!(stored.permits_scope("talk"));
+    assert_eq!(stored.name, "Owner tablet");
+    assert_eq!(stored.expires_at_ms, Some(expiry));
+    assert!(stored.live_at(expiry - 1));
+    assert!(
+        !stored.live_at(expiry),
+        "existing grant liveness ends at the exact expiry"
+    );
     let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
     let count: i64 = oracle
         .query_row(
@@ -842,4 +852,28 @@ fn owner_talk_policy_narrows_agents_and_hold_in_the_signed_receipt_and_atomic_au
         )
         .unwrap();
     assert_eq!(count, 1);
+    for policy in [
+        json!({"name":""}),
+        json!({"expiresAtMs":1}),
+        json!({"expiresAtMs":1u64 << 53}),
+    ] {
+        let refused = Harness::new(FAST);
+        let Offered {
+            mut owner,
+            code,
+            descriptor,
+            ..
+        } = open(&refused);
+        let device = Device::browser(&refused, 8);
+        let pending = submit(
+            &refused,
+            device.body(&descriptor, &code, &device.key),
+            Some(device.origin.clone()),
+        );
+        assert_eq!(owner.next()["event"], "candidate");
+        writeln!(owner.stream, "{}", json!({"op":"confirm","policy":policy})).unwrap();
+        assert_eq!(owner.next()["reason"], "failed");
+        assert_ne!(pending.join().unwrap().0, 200);
+        assert!(refused.store.lock().unwrap().grants().unwrap().is_empty());
+    }
 }
