@@ -233,10 +233,14 @@ Leaving the section or aborting the route closes the dialog. These views add no
 agent or schedule controls, owner reads or persistence.
 
 Orchestration (`ops-orchestration.ts`, order Agents · Squads · Orchestration · Timers) is the one
-Ops section that changes anything. It reads Core's own views (`overview`, `routes`, `talks`, `why`)
-through signed `orchestration.read` (`orchestration-client.ts`) on entry and every 30 s while shown,
-not from the board, so its rail item has no total. A missing view (`ORCH_INPUT_INVALID`) reads as
-not available, and a routes list cut at 32 pages or by `ORCH_LIMIT` says so. Every change is
+Ops section that changes anything. It reads Core's own views (`overview`, `routes`, `talks`, `why`,
+and `jobs` for the selected member) through signed `orchestration.read` (`orchestration-client.ts`)
+on entry and every 30 s while shown, not from the board, so its rail item has no total. Times are in
+Core's zone: the timeline axis, the plan lanes and the legend come from the overview's `timeline` and
+`plans`, and the plan filter is the overview's `plan` input. Route verdicts are Core's for now (the
+`routes` view takes no time), so at another time the matrix says so. A missing view
+(`ORCH_INPUT_INVALID`) reads as not available, and a routes list cut at 32 pages or by `ORCH_LIMIT`
+says so. Every change is
 `orchestration.write` preview first, shown as Core's own effect lines; Save applies exactly that
 preview with `consent:true`, Cancel sends nothing, and a stale preview saves nothing. Only
 `focus.set`, `focus.clear`, `route.allow` and `talks.resume` are offered; plans and leads stay in

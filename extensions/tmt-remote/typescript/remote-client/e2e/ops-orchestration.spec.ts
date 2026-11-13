@@ -40,9 +40,44 @@ for (const width of [1440, 390])
       await expect(page.getByRole('list', { name: 'Talks this hour' })).toContainText(
         'sample-lead ⇄ sample-1',
       );
-      await expect(page.getByRole('list', { name: 'Talks this hour' })).toContainText('◆ 2 held');
+      await expect(page.getByRole('list', { name: 'Talks this hour' })).toContainText(
+        '12/12 · 2 held · needs a person',
+      );
+      // The timeline names the date and Core's zone, and the plans in effect at the selected time.
+      await expect(page.getByRole('group', { name: 'Time range' })).toBeVisible();
+      await expect(page.locator('.ops-orchestration-when')).toHaveText('Tue 10-27Asia/Tokyo');
+      const legend = page.getByRole('list', { name: 'Plans at the selected time' });
+      await expect(legend).toContainText('Shift B · Night');
+      await expect(legend.getByRole('listitem').filter({ hasText: 'Quiet hours' })).toContainText(
+        'every day 22:00–08:00 · everyone',
+      );
+      // A cell selects both sides: the route, then the sender's own values with their sources.
+      await matrix.getByRole('button', { name: /^night-1 to core-1: / }).click();
       const inspector = page.getByRole('region', { name: 'Selected member and route' });
-      await expect(inspector).toContainText('Receiving');
+      // Stacked at 390 the panel is below the matrix: a choice brings it into view with focus.
+      if (width === 390) {
+        const heading = inspector.getByRole('heading', { name: 'night-1 → core-1' });
+        await expect(heading).toBeFocused();
+        await expect(heading).toBeInViewport();
+      } else {
+        await expect(matrix.getByRole('button', { name: /^night-1 to core-1: / })).toBeFocused();
+      }
+      await expect(inspector).toContainText('SendingLeads only ← Shift B · Night');
+      await expect(inspector).toContainText('✕ not sent, explained');
+      await expect(inspector).toContainText('State● Awake ← Shift B · Night');
+      await expect(inspector).toContainText('Talk limit20 / h ← Shift B · Night');
+      await expect(page.getByRole('list', { name: 'Jobs · night-1' })).toContainText(
+        'Night review● readyevery 1h · next 00:00',
+      );
+      await expect(matrix.locator('th[data-cross]')).toHaveText(['core-1', 'night-1']);
+      // At any width the matrix scrolls inside its card and the row names stay on its left edge.
+      const scroller = page.getByRole('region', { name: 'Route matrix, scrolls both ways' });
+      await scroller.evaluate((node) => node.scrollTo({ left: node.scrollWidth }));
+      const [box, name] = await Promise.all([
+        scroller.boundingBox(),
+        matrix.getByRole('rowheader', { name: 'night-1' }).boundingBox(),
+      ]);
+      expect(Math.abs(name!.x - box!.x)).toBeLessThanOrEqual(1);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveCount(1);
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
       // Every action row: one-line labels and one shared height; the row wraps, not the text.
@@ -83,6 +118,32 @@ for (const width of [1440, 390])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(errors).toEqual([]);
     });
+
+test('the timeline follows the range, the plan filter and the steps', async ({ page }) => {
+  await open(page, 1440, 'light');
+  const overviews = async () =>
+    (await calls(page)).filter((call) => call.kind === 'read' && call.input.view === 'overview');
+  await page
+    .getByRole('group', { name: 'Time range' })
+    .getByRole('button', { name: '7 days' })
+    .click();
+  await expect(page.locator('.ops-orchestration-when')).toHaveText(
+    'Tue 10-27 – Mon 11-02Asia/Tokyo',
+  );
+  await page.getByRole('combobox', { name: 'Plans' }).selectOption({ label: 'Shift B · Night' });
+  const legend = page.getByRole('list', { name: 'Plans at the selected time' });
+  await expect(legend).toHaveText('Shift B · Nightevery other week Tue Thu 22:00–06:00 · night-*');
+  expect((await overviews()).at(-1)!.input).toMatchObject({ rangeDays: 7, plan: 'plan-shift-b' });
+  // Later moves to Core's next change, and the matrix says its verdicts are still for now.
+  await page.getByRole('button', { name: 'Later', exact: true }).click();
+  await expect(page.locator('.ops-orchestration-at')).toContainText('Wed 10-28 01:00');
+  await expect(page.locator('.ops-orchestration-matrix-body')).toContainText(
+    '✕ and ◆ are Core’s verdicts for now; receiving is at Wed 10-28 01:00.',
+  );
+  await page.getByRole('button', { name: 'Now', exact: true }).click();
+  await expect(page.locator('.ops-orchestration-at')).toContainText('Tue 10-27 23:00');
+  expect((await overviews()).at(-1)!.input).not.toHaveProperty('atMs');
+});
 
 test('a change shows Core’s preview and saves only that preview after Save', async ({ page }) => {
   await open(page, 1440, 'light');

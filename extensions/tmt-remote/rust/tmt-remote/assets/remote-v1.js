@@ -4442,7 +4442,7 @@ function fields(value, keys) {
 function name(value) {
 	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
-function target(entry) {
+function target$1(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
@@ -4487,7 +4487,7 @@ async function parseCatalog(value) {
 		]);
 		const entry = await reference(r.name, r.url);
 		valid$1(entry.kind === r.kind && entry.project === r.project);
-		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		valid$1(!entries.some((old) => old.name === entry.name || target$1(old) === target$1(entry)));
 		entries.push(Object.freeze(entry));
 	}
 	const catalog = {
@@ -4553,7 +4553,7 @@ async function planImport(incoming, current) {
 		incoming: next,
 		current: before,
 		rows: next.entries.map((entry) => {
-			const same = before.entries.find((old) => target(old) === target(entry));
+			const same = before.entries.find((old) => target$1(old) === target$1(entry));
 			if (same) return {
 				entry,
 				status: "duplicate",
@@ -7758,8 +7758,8 @@ function createDigestSource() {
 }
 //#endregion
 //#region src/digest-view.ts
-var HOUR = 36e5;
-var DAY$1 = 24 * HOUR;
+var HOUR$1 = 36e5;
+var DAY$1 = 24 * HOUR$1;
 /** Input plus output; cached input is part of input and is never added. */
 var tokensOf = (point) => point.input + point.output;
 function seatName(seat) {
@@ -7950,8 +7950,8 @@ function observedAgo(observedAtMs, nowMs) {
 function resetsIn(resetsAtMs, nowMs) {
 	const ms = resetsAtMs - nowMs;
 	if (ms <= 0) return "now";
-	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR)}h`;
-	return `${Math.max(1, Math.floor(ms / HOUR))}h`;
+	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR$1)}h`;
+	return `${Math.max(1, Math.floor(ms / HOUR$1))}h`;
 }
 //#endregion
 //#region src/not-available.ts
@@ -8888,12 +8888,6 @@ function mark(shape, tone) {
 	node.setAttribute("aria-hidden", "true");
 	return node;
 }
-/** The content's one-line subtitle; route identity lives in the top bar. */
-function pageHead(subtitle) {
-	const head = el("header", browserUiClasses.pageHead);
-	if (subtitle) head.append(el("p", browserUiClasses.pageSubtitle, subtitle));
-	return head;
-}
 /** The line under every Ops page: what the page is and that it keeps itself current. */
 function pageFoot(text = "Read-only · Refreshes while visible") {
 	const foot = el("p", "ops-foot");
@@ -8955,6 +8949,37 @@ function source(value) {
 		planId: text(row.planId) ? row.planId : null
 	} : null;
 }
+function target(value) {
+	const row = value && typeof value === "object" ? value : {};
+	if (row.kind === "all") return [{ kind: "all" }];
+	if (row.kind === "identity" && text(row.id)) return [{
+		kind: "identity",
+		id: row.id
+	}];
+	if (row.kind === "pattern" && text(row.pattern)) return [{
+		kind: "pattern",
+		pattern: row.pattern
+	}];
+	return [];
+}
+function schedule(value) {
+	const row = value && typeof value === "object" ? value : {};
+	if (row.kind === "always") return { kind: "always" };
+	if (row.kind === "once" && safe(row.startMs) && safe(row.endMs)) return {
+		kind: "once",
+		startMs: row.startMs,
+		endMs: row.endMs
+	};
+	if (row.kind === "weekly" && safe(row.intervalWeeks) && Array.isArray(row.weekdays) && text(row.start) && text(row.end)) return {
+		kind: "weekly",
+		intervalWeeks: row.intervalWeeks,
+		weekdays: row.weekdays.filter((day) => safe(day) && day >= 1 && day <= 7),
+		start: row.start,
+		end: row.end,
+		allDay: row.allDay === true
+	};
+	return null;
+}
 /** The overview the page draws, or a TypeError for a document it cannot read. */
 function decodeOverview(value) {
 	const range = object$1(value.range);
@@ -8970,12 +8995,18 @@ function decodeOverview(value) {
 			startMs: range.startMs,
 			endMs: range.endMs
 		},
+		selectedPlanId: text(value.selectedPlanId) ? value.selectedPlanId : null,
 		plans: plans.flatMap((plan) => {
 			const row = object$1(plan);
-			return text(row.id) && text(row.name) ? [{
+			if (!text(row.id) || !text(row.name)) return [];
+			return [{
 				id: row.id,
-				name: row.name
-			}] : [];
+				name: row.name,
+				priority: Number.isSafeInteger(row.priority) ? Number(row.priority) : 0,
+				enabled: row.enabled !== false,
+				targets: Array.isArray(row.targets) ? row.targets.flatMap(target) : [],
+				schedule: schedule(row.schedule)
+			}];
 		}),
 		members: members.map((member) => {
 			const row = object$1(member);
@@ -8995,8 +9026,10 @@ function decodeOverview(value) {
 					state: field("state"),
 					receiving: field("receiving"),
 					sending: field("sending"),
-					routine: field("routine")
+					routine: field("routine"),
+					talkLimit: field("talkLimit")
 				},
+				activePlans: Array.isArray(row.activePlans) ? row.activePlans.filter(text) : [],
 				nextChangeAtMs: safe(row.nextChangeAtMs) ? row.nextChangeAtMs : null
 			};
 		}),
@@ -9098,6 +9131,55 @@ async function readSending(api, memberQuery) {
 		truncated
 	};
 }
+var JOB_STATES = [
+	"on",
+	"held",
+	"paused",
+	"no_owner"
+];
+function jobSchedule(value) {
+	const row = value && typeof value === "object" ? value : {};
+	if (row.kind === "every" && safe(row.seconds)) {
+		const minutes = Math.round(row.seconds / 60);
+		return minutes % 60 === 0 ? `every ${minutes / 60}h` : `every ${minutes} min`;
+	}
+	if (row.kind === "at" && text(row.at)) return text(row.on) ? `${row.on} ${row.at}` : `daily ${row.at}`;
+	if (row.kind === "cron" && text(row.expression)) return row.expression;
+	return "—";
+}
+function decodeJobs(rows) {
+	return rows.flatMap((value) => {
+		const row = object$1(value);
+		if (!text(row.jobId) || !JOB_STATES.includes(row.state)) return [];
+		const displayId = text(row.displayId) ? row.displayId : row.jobId;
+		return [{
+			id: row.jobId,
+			displayId,
+			title: text(row.title) && row.title ? row.title : text(row.messagePreview) ? row.messagePreview : displayId,
+			schedule: jobSchedule(row.schedule),
+			state: row.state,
+			nextRunAtMs: safe(row.nextRunAtMs) ? row.nextRunAtMs : null
+		}];
+	});
+}
+/** One member's jobs, first page only (`more` when Core has another); `null` when this Core has no
+* jobs view. */
+async function readJobs(api, ownerIdentityId) {
+	try {
+		const answer = await api.read({
+			view: "jobs",
+			ownerIdentityId,
+			limit: 50
+		});
+		return {
+			jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
+			more: text(answer.nextCursor)
+		};
+	} catch (error) {
+		if (unknownView(error)) return null;
+		throw error;
+	}
+}
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
 function previewLines(preview, name) {
 	const lines = [];
@@ -9137,102 +9219,183 @@ function receivingCell(value) {
 	switch (row.mode) {
 		case "direct": return "Direct";
 		case "auto": return "Auto";
+		case "urgent": return "Urgent";
+		case "hold": return "Hold";
 		case "batch": return safe(row.intervalMs) ? `B${Math.round(row.intervalMs / 6e4)}` : "Batch";
 		default: return text(row.mode) ? row.mode : "·";
 	}
 }
 //#endregion
 //#region src/ops-orchestration.ts
-/** The Orchestration page (#4894): Core's plans and each member's effective policy at a selected
-* time, who may message whom, and this hour's talks. Every change shows Core's preview first and
-* saves only that exact preview after the person confirms. Nothing is computed here: each value and
-* its source is Core's. */
-var DAY = 864e5;
-var FIELDS = [
-	["state", "State"],
-	["receiving", "Receiving"],
-	["sending", "Sending"],
-	["routine", "Routine jobs"]
+/** The Orchestration page (#4894, #5986): Core's plans on a timeline in Core's zone, each member's
+* effective policy at the selected time, who may message whom, this hour's talks and each member's
+* jobs. Every change shows Core's preview first and saves only that exact preview after the person
+* confirms. Nothing is computed here: each value and its source is Core's. */
+var HOUR = 36e5;
+var DAY = 24 * HOUR;
+var RANGES = [
+	1,
+	7,
+	30
 ];
-var words = (value) => {
-	if (value === null || value === void 0) return "—";
-	if (typeof value === "string") return value.charAt(0).toUpperCase() + value.slice(1);
-	if (typeof value === "object" && "mode" in value) return receivingCell(value);
-	return JSON.stringify(value);
+var STATE = {
+	awake: "● Awake",
+	low: "◐ Low",
+	focus: "◑ Focus",
+	sleep: "◌ Sleep"
 };
+var SENDING = {
+	anyone: "Anyone",
+	leads: "Leads only",
+	paused: "Paused"
+};
+var ROUTINE = {
+	run: "Run",
+	hold: "Hold"
+};
+var JOB = {
+	on: "● ready",
+	held: "◆ held",
+	paused: "⏸ paused",
+	no_owner: "○ no owner"
+};
+var WEEKDAYS = [
+	"Mon",
+	"Tue",
+	"Wed",
+	"Thu",
+	"Fri",
+	"Sat",
+	"Sun"
+];
+/** Core's receiving value in words for the member panel. */
+function receivingWords(value) {
+	if (!value || typeof value !== "object") return "—";
+	const row = value;
+	if (row.mode === "batch" && Number.isSafeInteger(row.intervalMs)) return `Batch ${Math.round(Number(row.intervalMs) / 6e4)} min`;
+	if (row.mode === "urgent") return "Urgent only";
+	return receivingCell(value);
+}
+function fieldWords(key, value) {
+	if (value === null || value === void 0) return key === "talkLimit" ? "No limit" : "—";
+	if (key === "receiving") return receivingWords(value);
+	if (key === "talkLimit" && typeof value === "number") return `${value} / h`;
+	return typeof value === "string" ? (key === "state" ? STATE : key === "sending" ? SENDING : ROUTINE)[value] ?? value : JSON.stringify(value);
+}
 function orchestrationView(connect, now = () => Date.now()) {
 	const node = el("div", "ops-orchestration-page");
 	const status = el("p", "ops-note");
 	status.setAttribute("role", "status");
-	const controls = el("div", browserUiClasses.actions);
-	const ranges = [
-		1,
-		7,
-		30
-	].map((days) => {
-		const button = el("button", browserUiClasses.action, days === 1 ? "1 day" : `${days} days`);
+	const bar = el("div", "ops-orchestration-bar");
+	const rangeGroup = el("div", "ops-orchestration-range");
+	rangeGroup.setAttribute("role", "group");
+	rangeGroup.setAttribute("aria-label", "Time range");
+	const ranges = RANGES.map((days) => {
+		const button = el("button", void 0, days === 1 ? "1 day" : `${days} days`);
 		button.type = "button";
 		button.dataset.days = String(days);
+		rangeGroup.append(button);
 		return button;
 	});
-	const earlier = el("button", browserUiClasses.action);
-	const back = createIcon("chevron-right");
-	back.classList.add("ops-orchestration-back");
-	earlier.append(back, el("span", browserUiClasses.actionLabel, "Earlier"));
-	const later = el("button", browserUiClasses.action);
-	later.append(el("span", browserUiClasses.actionLabel, "Later"), createIcon("chevron-right"));
-	const nowButton = el("button", browserUiClasses.action, "Now");
-	for (const button of [
-		earlier,
-		later,
-		nowButton
-	]) button.type = "button";
+	const when = el("p", "ops-orchestration-when");
+	const planSelect = el("select", `${browserUiClasses.fieldControl} ops-orchestration-plan`);
+	planSelect.setAttribute("aria-label", "Plans");
 	const filter = el("input", browserUiClasses.fieldControl);
 	filter.type = "search";
 	filter.placeholder = "Members: prefix or contains";
 	filter.setAttribute("aria-label", "Filter members");
 	const search = el("div", browserUiClasses.searchField);
 	search.append(createIcon("search"), filter);
-	controls.append(...ranges, earlier, later, nowButton, search);
-	const timeline = el("div", "ops-orchestration-timeline");
-	timeline.setAttribute("role", "group");
-	timeline.setAttribute("aria-label", "Plans in effect over the range");
-	const matrixCard = el("section", browserUiClasses.card);
+	bar.append(rangeGroup, when, planSelect, search);
+	const timelineCard = el("section", `${browserUiClasses.card} ops-orchestration-timeline`);
+	timelineCard.setAttribute("aria-label", "Timeline");
+	const axis = el("div", "ops-orchestration-axis");
+	axis.setAttribute("aria-hidden", "true");
+	const track = el("div", "ops-orchestration-track");
+	track.setAttribute("role", "group");
+	track.setAttribute("aria-label", "Plans in effect over the range");
+	const lanes = el("div", "ops-orchestration-lanes");
+	lanes.setAttribute("aria-hidden", "true");
+	const stepRow = el("div", "ops-orchestration-step");
+	const earlier = el("button", `${browserUiClasses.action} ops-orchestration-icon`);
+	const back = createIcon("chevron-right");
+	back.classList.add("ops-orchestration-back");
+	earlier.append(back);
+	earlier.setAttribute("aria-label", "Earlier");
+	earlier.title = "Earlier: the previous change";
+	const later = el("button", `${browserUiClasses.action} ops-orchestration-icon`);
+	later.append(createIcon("chevron-right"));
+	later.setAttribute("aria-label", "Later");
+	later.title = "Later: the next change";
+	const nowButton = el("button", browserUiClasses.action, "Now");
+	for (const button of [
+		earlier,
+		later,
+		nowButton
+	]) button.type = "button";
+	const atText = el("p", "ops-orchestration-at");
+	stepRow.append(earlier, atText, later, nowButton);
+	const legend = el("ul", "ops-orchestration-legend");
+	legend.setAttribute("aria-label", "Plans at the selected time");
+	timelineCard.append(axis, track, lanes, stepRow, legend);
+	const matrixCard = el("section", `${browserUiClasses.card} ops-orchestration-routes`);
 	const matrixHead = el("div", browserUiClasses.cardHead);
-	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"));
-	const matrixBody = el("div");
+	const matrixMeta = el("span", browserUiClasses.cardMeta);
+	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"), matrixMeta);
+	const matrixBody = el("div", "ops-orchestration-matrix-body");
 	const talks = el("div", "ops-orchestration-talks");
 	matrixCard.append(matrixHead, matrixBody, talks);
-	const inspector = el("section", browserUiClasses.card);
+	const inspector = el("section", `${browserUiClasses.card} ops-orchestration-inspector`);
 	inspector.setAttribute("aria-label", "Selected member and route");
 	const grid = el("div", "ops-grid");
 	grid.append(matrixCard, inspector);
 	const dialog = el("dialog", browserUiClasses.dialog);
-	node.append(pageHead("Plans, time slots and who may message whom, as Core decides them."), controls, status, timeline, grid, pageFoot("Changes show Core’s preview first · Refreshes while visible"), dialog);
+	timelineCard.hidden = true;
+	grid.hidden = true;
+	node.append(bar, status, timelineCard, grid, dialog);
 	let api;
 	let days = 1;
 	let atMs = null;
+	let plan = null;
 	let memberQuery = "";
 	let overview;
 	let sending;
 	let selected;
 	let target;
 	let why;
+	const jobs = /* @__PURE__ */ new Map();
 	let generation = 0;
 	const say = (text) => {
 		status.textContent = text;
 	};
-	/** The viewer's local time; `zone` names another zone, such as UTC for a hover title. */
-	const time = (ms, zone) => new Intl.DateTimeFormat(void 0, {
-		weekday: days > 1 ? "short" : void 0,
+	const zone = () => overview?.timeZone ?? "UTC";
+	/** Core's zone, 24-hour: `23:00`. */
+	const time = (ms) => new Intl.DateTimeFormat("en-GB", {
 		hour: "2-digit",
 		minute: "2-digit",
-		timeZone: zone,
-		timeZoneName: zone ? "short" : void 0
+		hourCycle: "h23",
+		timeZone: zone()
 	}).format(ms);
+	/** Core's zone: `Tue 10-27`. */
+	const date = (ms) => {
+		const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+			weekday: "short",
+			month: "2-digit",
+			day: "2-digit",
+			timeZone: zone()
+		}).formatToParts(ms).map((part) => [part.type, part.value]));
+		return `${parts.weekday} ${parts.month}-${parts.day}`;
+	};
+	/** A time in the range, with its day when the range spans days. */
+	const moment = (ms) => days > 1 ? `${date(ms)} ${time(ms)}` : time(ms);
 	const member = (id) => overview?.members.find((m) => m.identityId === id);
 	const name = (id) => member(id)?.name ?? id;
-	const planName = (id) => overview?.plans.find((plan) => plan.id === id)?.name ?? "a plan";
+	const planOf = (id) => overview?.plans.find((p) => p.id === id);
+	const planName = (id) => planOf(id)?.name ?? "a plan";
+	const swatch = (id) => {
+		const index = overview?.plans.findIndex((p) => p.id === id) ?? 0;
+		return `var(--tmt-ui-color-series-${Math.max(0, index) % 7 + 1})`;
+	};
 	const from = (source) => {
 		switch (source?.kind) {
 			case "base": return "Base";
@@ -9243,19 +9406,36 @@ function orchestrationView(connect, now = () => Date.now()) {
 			default: return "unknown";
 		}
 	};
+	/** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
+	const planSummary = (p) => {
+		const rule = p.schedule;
+		let when = "schedule not shown";
+		if (rule?.kind === "always") when = "always";
+		else if (rule?.kind === "once") when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
+		else if (rule?.kind === "weekly") {
+			const set = [...rule.weekdays].sort();
+			const dayWords = set.length === 7 ? "every day" : set.join() === "1,2,3,4,5" ? "weekdays" : set.map((d) => WEEKDAYS[d - 1]).join(" ");
+			when = `${rule.intervalWeeks === 2 ? "every other week " : rule.intervalWeeks > 2 ? `every ${rule.intervalWeeks} weeks ` : ""}${dayWords} ${rule.allDay ? "all day" : `${rule.start}–${rule.end}`}`;
+		}
+		const who = p.targets.map((t) => t.kind === "all" ? "everyone" : t.kind === "identity" ? name(t.id) : t.pattern).join(", ");
+		return `${when} · ${who || "no one"}${p.enabled ? "" : " · off"}`;
+	};
 	async function load() {
 		const mine = ++generation;
+		if (!overview) say("Reading orchestration from Core…");
 		try {
 			api ??= await connect();
 			const input = {
 				view: "overview",
 				rangeDays: days,
 				...atMs === null ? {} : { atMs },
+				...plan === null ? {} : { plan },
 				...memberQuery ? { memberQuery } : {}
 			};
 			const next = decodeOverview(await api.read(input));
 			const nextSending = await readSending(api, memberQuery || void 0);
 			if (mine !== generation) return;
+			if (overview?.configurationRevision !== next.configurationRevision) jobs.clear();
 			overview = next;
 			sending = nextSending;
 			if (!member(selected)) selected = next.members[0]?.identityId;
@@ -9268,32 +9448,89 @@ function orchestrationView(connect, now = () => Date.now()) {
 			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the read (${error.code}).` : "Orchestration is not available right now. `tmt orch` shows it in the terminal.");
 		}
 	}
+	function drawBar(view) {
+		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
+		const last = view.range.endMs - 1;
+		when.replaceChildren(el("span", void 0, days === 1 ? date(view.range.startMs) : `${date(view.range.startMs)} – ${date(last)}`), el("span", "ops-orchestration-zone", view.timeZone));
+		const options = [Object.assign(el("option", void 0, `All plans (${view.plans.length})`), { value: "" }), ...view.plans.map((p) => Object.assign(el("option", void 0, p.name), { value: p.id }))];
+		planSelect.replaceChildren(...options);
+		planSelect.value = view.selectedPlanId ?? "";
+	}
+	/** Where a time sits on the range, as a share of its width. */
+	const share = (view, ms) => Math.min(1, Math.max(0, (ms - view.range.startMs) / Math.max(1, view.range.endMs - view.range.startMs)));
+	const place = (node, view, start, end) => {
+		node.style.left = `${share(view, start) * 100}%`;
+		node.style.width = `${(share(view, end) - share(view, start)) * 100}%`;
+	};
 	function drawTimeline(view) {
-		const span = Math.max(1, view.range.endMs - view.range.startMs);
-		const row = el("div", "ops-orchestration-slots");
-		for (const interval of view.timeline) {
+		const step = days === 1 ? 3 * HOUR : days === 7 ? DAY : 7 * DAY;
+		const ticks = [];
+		for (let at = view.range.startMs, index = 0; at <= view.range.endMs; at += step, index++) {
+			if (days > 1 && at === view.range.endMs) break;
+			const [weekday, monthDay] = date(at).split(" ");
+			const tick = el("span", "ops-orchestration-tick", days === 1 ? at === view.range.endMs ? "24" : time(at).slice(0, 2) : days === 7 ? `${weekday} ${monthDay.slice(3)}` : monthDay);
+			tick.style.left = `${share(view, at) * 100}%`;
+			if (days > 1) tick.dataset.span = "";
+			if (index % 2) tick.dataset.minor = "";
+			ticks.push(tick);
+		}
+		axis.replaceChildren(...ticks);
+		const marker = () => {
+			const line = el("span", "ops-orchestration-marker");
+			line.style.left = `${share(view, view.atMs) * 100}%`;
+			return line;
+		};
+		const slots = view.timeline.map((interval) => {
 			const slot = el("button", "ops-orchestration-slot");
 			slot.type = "button";
-			slot.style.flexGrow = String(Math.max(1, interval.endMs - interval.startMs) / span);
+			place(slot, view, interval.startMs, interval.endMs);
 			const count = interval.planIds.length;
-			slot.textContent = count ? String(count) : "·";
-			const plans = `${count} plan${count === 1 ? "" : "s"} in effect`;
-			slot.title = `${time(interval.startMs)}–${time(interval.endMs)} · ${plans}`;
-			slot.setAttribute("aria-label", `From ${time(interval.startMs)}: ${plans}`);
+			slot.textContent = count ? String(count) : "";
+			if (!count) slot.dataset.empty = "";
+			const plans = count ? interval.planIds.map(planName).join(", ") : "Base only";
+			slot.title = `${moment(interval.startMs)}–${moment(interval.endMs)} · ${plans}`;
+			slot.setAttribute("aria-label", `From ${moment(interval.startMs)}: ${plans}`);
 			if (view.atMs >= interval.startMs && view.atMs < interval.endMs) slot.ariaCurrent = "time";
 			slot.addEventListener("click", () => {
 				atMs = Math.max(interval.startMs, view.range.startMs);
 				load();
 			});
-			row.append(slot);
-		}
-		const names = view.timeline.find((i) => view.atMs >= i.startMs && view.atMs < i.endMs)?.planIds.map((id) => planName(id)) ?? [];
-		const at = el("time", void 0, time(view.atMs));
+			return slot;
+		});
+		track.dataset.days = String(days);
+		track.replaceChildren(...slots, marker());
+		const shown = view.plans.filter((p) => (!view.selectedPlanId || p.id === view.selectedPlanId) && view.timeline.some((interval) => interval.planIds.includes(p.id)));
+		lanes.dataset.days = String(days);
+		lanes.replaceChildren(...shown.map((p) => {
+			const lane = el("div", "ops-orchestration-lane");
+			lane.style.setProperty("--ops-orchestration-plan", swatch(p.id));
+			const segments = view.timeline.filter((interval) => interval.planIds.includes(p.id));
+			const widest = segments.reduce((best, interval) => interval.endMs - interval.startMs > best.endMs - best.startMs ? interval : best);
+			for (const interval of segments) {
+				const bar = el("span", "ops-orchestration-lane-bar", interval === widest ? p.name : "");
+				place(bar, view, interval.startMs, interval.endMs);
+				bar.title = `${p.name} · ${moment(interval.startMs)}–${moment(interval.endMs)}`;
+				lane.append(bar);
+			}
+			return lane;
+		}));
+		const ids = view.timeline.find((i) => view.atMs >= i.startMs && view.atMs < i.endMs)?.planIds ?? [];
+		const at = el("time", void 0, moment(view.atMs));
 		at.dateTime = new Date(view.atMs).toISOString();
-		at.title = time(view.atMs, "UTC");
-		const caption = el("p", "ops-orchestration-caption");
-		caption.append("Showing ", at, ` · ${names.length ? names.join(", ") : "Base only"}`);
-		timeline.replaceChildren(el("p", "ops-orchestration-caption", "Time slots: each number is how many plans are in effect; choose one to see that time."), row, caption);
+		atText.replaceChildren(at, ` · ${ids.length ? `${ids.length} plan${ids.length === 1 ? "" : "s"} in effect` : "Base only"}${atMs === null ? " · now" : ""}`);
+		const listed = [...ids.flatMap((id) => planOf(id) ? [planOf(id)] : []), ...shown.filter((p) => !ids.includes(p.id))];
+		legend.replaceChildren(...listed.map((p) => {
+			const item = el("li");
+			const mark = el("span", "ops-orchestration-swatch");
+			mark.style.background = swatch(p.id);
+			item.append(mark, el("strong", void 0, p.name), el("span", void 0, planSummary(p)));
+			if (!ids.includes(p.id)) {
+				item.dataset.later = "";
+				item.append(el("span", "ops-orchestration-source", "not at this time"));
+			}
+			return [item];
+		}).flat());
+		if (!view.plans.length) legend.replaceChildren(el("li", void 0, "Base only: no plans yet. `tmt orch plan add --help`"));
 	}
 	function cellText(row, column) {
 		if (row.identityId === column.identityId) return {
@@ -9307,33 +9544,47 @@ function orchestrationView(connect, now = () => Date.now()) {
 		};
 		if (route.verdict === "blocked") return {
 			text: "✕",
-			label: `blocked by ${from(route.source)}`
+			label: `blocked by ${from(route.source)}`,
+			verdict: "blocked"
 		};
 		if (route.verdict === "needs_person") return {
 			text: "◆",
-			label: "needs a person"
+			label: "needs a person",
+			verdict: "needs_person"
 		};
-		const receiving = receivingCell(column.fields.receiving.value);
 		return {
-			text: receiving,
-			label: `allowed · receives ${receiving}`
+			text: receivingCell(column.fields.receiving.value),
+			label: `allowed · receives ${receivingWords(column.fields.receiving.value)}`
 		};
 	}
 	function drawMatrix(view) {
+		const count = view.members.length;
+		matrixMeta.textContent = memberQuery ? `${count} matching “${memberQuery}”` : `${count} × ${count}`;
 		if (!sending?.routes) {
-			matrixBody.replaceChildren(sentence("Routes are not available on this Core. Member policies are shown on the right."));
+			matrixBody.replaceChildren(sentence("Routes are not available on this Core. Member policies are shown beside it."));
 			return;
 		}
-		const scroll = el("div", browserUiClasses.tableScroll);
-		const table = el("table", `${browserUiClasses.table} ops-orchestration-matrix`);
+		if (!count) {
+			matrixBody.replaceChildren(sentence("No members match."));
+			return;
+		}
+		const scroll = el("div", "ops-orchestration-scroll");
+		scroll.tabIndex = 0;
+		scroll.setAttribute("role", "region");
+		scroll.setAttribute("aria-label", "Route matrix, scrolls both ways");
+		const table = el("table", "ops-orchestration-matrix");
 		const head = el("tr");
-		head.append(el("th", void 0, "From ↓ To →"));
-		for (const column of view.members) {
+		const corner = el("th", void 0, "From ↓ To →");
+		corner.scope = "col";
+		head.append(corner);
+		const columnAt = view.members.findIndex((m) => m.identityId === target);
+		view.members.forEach((column, index) => {
 			const th = el("th", void 0, column.name);
 			th.scope = "col";
-			if (column.identityId === target) th.dataset.crosshair = "";
+			th.title = column.name;
+			if (index === columnAt) th.dataset.cross = "";
 			head.append(th);
-		}
+		});
 		const thead = el("thead");
 		thead.append(head);
 		const body = el("tbody");
@@ -9341,31 +9592,96 @@ function orchestrationView(connect, now = () => Date.now()) {
 			const tr = el("tr");
 			const th = el("th", void 0, row.name);
 			th.scope = "row";
-			if (row.identityId === selected) th.dataset.crosshair = "";
+			th.title = row.name;
+			const inRow = row.identityId === selected;
+			if (inRow) th.dataset.cross = "";
 			tr.append(th);
-			for (const column of view.members) {
+			view.members.forEach((column, index) => {
 				const cell = cellText(row, column);
-				const td = el("td", browserUiClasses.tableMono);
+				const td = el("td");
+				if (inRow || index === columnAt) td.dataset.cross = "";
 				const button = el("button", "ops-orchestration-cell", cell.text);
 				button.type = "button";
+				if (cell.verdict) button.dataset.verdict = cell.verdict;
 				button.setAttribute("aria-label", `${row.name} to ${column.name}: ${cell.label}`);
-				if (row.identityId === selected && column.identityId === target) button.ariaPressed = "true";
+				if (inRow && index === columnAt) {
+					button.ariaPressed = "true";
+					if (cell.verdict === "blocked") button.textContent = `✕ ${fieldWords("sending", row.fields.sending.value).toLowerCase()}`;
+				}
 				button.addEventListener("click", () => {
 					selected = row.identityId;
 					target = column.identityId === row.identityId ? target : column.identityId;
 					why = void 0;
 					draw();
+					if (matchMedia("(max-width: 1050px)").matches) {
+						const heading = inspector.querySelector("h3");
+						if (!heading) return;
+						heading.tabIndex = -1;
+						heading.scrollIntoView({
+							block: "start",
+							behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+						});
+						heading.focus({ preventScroll: true });
+						return;
+					}
+					matrixBody.querySelector(`tbody tr:nth-child(${view.members.indexOf(row) + 1}) td:nth-of-type(${index + 1}) button`)?.focus({ preventScroll: true });
 				});
 				td.append(button);
 				tr.append(td);
-			}
+			});
 			body.append(tr);
 		}
 		table.append(thead, body);
+		table.addEventListener("keydown", (event) => {
+			const move = {
+				ArrowUp: [-1, 0],
+				ArrowDown: [1, 0],
+				ArrowLeft: [0, -1],
+				ArrowRight: [0, 1]
+			}[event.key];
+			const cell = event.target.closest("td");
+			if (!move || !cell) return;
+			const tr = cell.parentElement;
+			const rows = [...body.rows];
+			const r = rows.indexOf(tr) + move[0];
+			const col = cell.cellIndex + move[1];
+			const next = rows[r]?.cells[col]?.querySelector("button");
+			if (!next) return;
+			event.preventDefault();
+			next.focus();
+		});
 		scroll.append(table);
-		const notes = [el("p", "ops-orchestration-caption", "B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person")];
+		const key = el("dl", "ops-orchestration-key");
+		key.setAttribute("aria-label", "Matrix key");
+		for (const [glyph, meaning, verdict] of [
+			["B30", "batch every 30 min"],
+			["Direct", "right away"],
+			["Urgent", "urgent only"],
+			[
+				"✕",
+				"blocked by the sender rule",
+				"blocked"
+			],
+			[
+				"◆",
+				"needs a person",
+				"needs_person"
+			]
+		]) {
+			const item = el("div");
+			const term = el("dt", void 0, glyph);
+			if (verdict) term.dataset.verdict = verdict;
+			item.append(term, el("dd", void 0, meaning));
+			key.append(item);
+		}
+		const notes = [key];
+		if (atMs !== null) notes.push(el("p", "ops-orchestration-caption", `✕ and ◆ are Core’s verdicts for now; receiving is at ${moment(view.atMs)}.`));
 		if (sending.truncated) notes.push(el("p", "ops-orchestration-caption", "Core stopped at its page limit; filter members to see the rest."));
+		const keep = matrixBody.querySelector(".ops-orchestration-scroll");
+		const position = keep ? [keep.scrollLeft, keep.scrollTop] : [0, 0];
 		matrixBody.replaceChildren(scroll, ...notes);
+		scroll.scrollLeft = position[0];
+		scroll.scrollTop = position[1];
 	}
 	function drawTalks() {
 		if (!sending?.talks) return talks.replaceChildren();
@@ -9375,36 +9691,81 @@ function orchestrationView(connect, now = () => Date.now()) {
 		for (const pair of sending.talks) {
 			const item = el("li", browserUiClasses.listRow);
 			const limit = pair.limit === null ? "" : `/${pair.limit}`;
-			item.append(el("span", browserUiClasses.listTitle, `${pair.names[0]} ⇄ ${pair.names[1]}`), el("span", browserUiClasses.listMeta, `${pair.count}${limit}${pair.held ? ` · ◆ ${pair.heldCount} held` : ""}`));
+			item.append(el("span", browserUiClasses.listTitle, `${pair.held ? "◆ " : ""}${pair.names[0]} ⇄ ${pair.names[1]}`), el("span", browserUiClasses.listMeta, `${pair.count}${limit}${pair.held ? ` · ${pair.heldCount} held · needs a person` : ""}`));
+			if (pair.held) item.dataset.held = "";
 			list.append(item);
 		}
 		talks.replaceChildren(el("h4", browserUiClasses.sectionHeading, "Talks this hour"), list);
 	}
 	/** One action: its label stays on one line, cut with the full text as its title when long. */
-	const action = (label, run) => {
+	const action = (label, run, accessible) => {
 		const button = el("button", browserUiClasses.action);
 		button.append(el("span", browserUiClasses.actionLabel, label));
-		button.title = label;
+		button.title = accessible ?? label;
+		if (accessible) button.setAttribute("aria-label", accessible);
 		button.type = "button";
 		button.addEventListener("click", run);
 		return button;
 	};
+	/** Facts; a value's source follows it, muted: `Leads only ← Shift B`. */
+	const facts = (rows) => {
+		const list = el("dl", browserUiClasses.facts);
+		for (const [term, value, source] of rows) {
+			const dd = el("dd", void 0, value);
+			if (source) dd.append(el("span", "ops-orchestration-source", ` ← ${source}`));
+			list.append(el("dt", void 0, term), dd);
+		}
+		return list;
+	};
+	function drawJobs(row) {
+		const entry = jobs.get(row.identityId);
+		if (entry === void 0 || entry === "loading") return [el("p", "ops-orchestration-caption", "Jobs · reading…")];
+		if (entry === "failed") return [el("p", "ops-orchestration-caption", "Jobs · Core could not read them right now.")];
+		if (entry === null) return [el("p", "ops-orchestration-caption", "Jobs · not available on this Core.")];
+		const head = el("h4", browserUiClasses.sectionHeading, `Jobs ${entry.jobs.length}${entry.more ? "+" : ""}`);
+		if (!entry.jobs.length) return [head, el("p", "ops-orchestration-caption", "No jobs.")];
+		const list = el("ul", "ops-orchestration-jobs");
+		list.setAttribute("aria-label", `Jobs · ${row.name}`);
+		for (const job of entry.jobs) {
+			const item = el("li");
+			const next = job.nextRunAtMs === null ? "" : ` · next ${moment(job.nextRunAtMs)}`;
+			const title = el("span", void 0, job.title);
+			title.title = job.title;
+			item.append(title, el("span", void 0, JOB[job.state]), el("span", void 0, `${job.schedule}${next}`));
+			item.dataset.state = job.state;
+			list.append(item);
+		}
+		return [head, list];
+	}
+	async function loadJobs(id) {
+		if (jobs.has(id) || !api) return;
+		jobs.set(id, "loading");
+		try {
+			jobs.set(id, await readJobs(api, id));
+		} catch {
+			jobs.set(id, "failed");
+		}
+		if (selected === id) drawInspector();
+	}
 	function drawInspector() {
 		const parts = [];
 		const row = member(selected);
 		const column = member(target);
+		const at = overview ? moment(overview.atMs) : "";
 		if (row && column) {
 			const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
-			parts.push(el("h3", browserUiClasses.cardTitle, `${row.name} → ${column.name}`));
-			const facts = el("dl", browserUiClasses.facts);
-			const add = (term, value) => facts.append(el("dt", void 0, term), el("dd", void 0, value));
-			add("Sending", `${words(row.fields.sending.value)} ← ${from(row.fields.sending.source)}`);
-			add("Result", !route ? "not reported" : route.verdict === "blocked" ? "◆ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `sent · ${receivingCell(column.fields.receiving.value)}`);
-			parts.push(facts);
+			const head = el("div", "ops-orchestration-panel-head");
+			head.append(el("h3", browserUiClasses.cardTitle, `${row.name} → ${column.name}`), el("span", browserUiClasses.cardMeta, at));
+			parts.push(head);
+			parts.push(facts([[
+				"Sending",
+				fieldWords("sending", row.fields.sending.value),
+				from(row.fields.sending.source)
+			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "✕ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `sent · ${receivingWords(column.fields.receiving.value)}`]]));
 			const actions = el("div", browserUiClasses.actions);
 			if (route?.verdict === "blocked") {
 				const end = Math.min(row.nextChangeAtMs ?? now() + DAY, now() + DAY);
-				actions.append(action(`Allow once until ${time(end)}`, () => preview(`Allow ${row.name} → ${column.name} once`, {
+				actions.append(action(`Allow once until ${moment(end)}`, () => preview(`Allow ${row.name} → ${column.name} once`, {
 					kind: "route.allow",
 					fromId: row.identityId,
 					toId: column.identityId,
@@ -9419,39 +9780,65 @@ function orchestrationView(connect, now = () => Date.now()) {
 			if (actions.childElementCount) parts.push(actions);
 		}
 		if (row) {
-			parts.push(el("h3", browserUiClasses.cardTitle, row.name));
-			const facts = el("dl", browserUiClasses.facts);
-			for (const [key, label] of FIELDS) {
-				const field = row.fields[key];
-				facts.append(el("dt", void 0, label), el("dd", void 0, `${words(field.value)} ← ${from(field.source)}`));
-			}
-			parts.push(facts);
-			const at = now();
-			const actions = el("div", browserUiClasses.actions);
-			actions.append(action("Focus now 1h", () => preview(`Focus ${row.name} for one hour`, {
+			const section = el("div", "ops-orchestration-member");
+			const head = el("div", "ops-orchestration-panel-head");
+			head.append(el("h3", browserUiClasses.cardTitle, row.name), action("Why", () => void explain(row), `Why · ${row.name}`));
+			section.append(head);
+			const value = (key, label) => [
+				label,
+				fieldWords(key, row.fields[key].value),
+				from(row.fields[key].source)
+			];
+			section.append(facts([
+				value("state", "State"),
+				value("receiving", "Receiving"),
+				value("sending", "Sending"),
+				value("routine", "Routine jobs"),
+				value("talkLimit", "Talk limit"),
+				["Plans", row.activePlans.length ? row.activePlans.map(planName).join(", ") : "Base only"],
+				["Next change", row.nextChangeAtMs === null ? "none in view" : moment(row.nextChangeAtMs)]
+			]));
+			const start = now();
+			const focus = el("div", "ops-orchestration-focus");
+			const focusActions = el("div", browserUiClasses.actions);
+			const focusFor = (hours) => action(`${hours}h`, () => preview(`Focus ${row.name} for ${hours === 1 ? "one hour" : `${hours} hours`}`, {
 				kind: "focus.set",
 				identityId: row.identityId,
-				startMs: at,
-				endMs: at + 36e5
-			})), action("End focus", () => preview(`End ${row.name}'s focus`, {
+				startMs: start,
+				endMs: start + hours * HOUR
+			}), `Focus now ${hours}h`);
+			focusActions.append(focusFor(1), focusFor(2), action("End focus", () => preview(`End ${row.name}'s focus`, {
 				kind: "focus.clear",
 				identityId: row.identityId
-			})), action("Why", () => void explain(row)));
-			parts.push(actions);
+			})));
+			focus.append(el("span", "ops-orchestration-focus-label", "Focus now"), focusActions);
+			section.append(focus);
 			if (why?.id === row.identityId) {
 				const list = el("ul", browserUiClasses.list);
 				list.setAttribute("aria-label", `Why · ${row.name}`);
 				for (const line of why.lines) list.append(el("li", browserUiClasses.listRow, line));
-				parts.push(list);
+				section.append(list);
 			}
-			parts.push(el("p", "ops-orchestration-caption", "Jobs · not available yet"));
+			section.append(...drawJobs(row));
+			parts.push(section);
+			loadJobs(row.identityId);
 		}
 		if (!parts.length) parts.push(sentence("No members match."));
+		const focused = document.activeElement;
+		const kept = focused instanceof HTMLHeadingElement && inspector.contains(focused) ? focused.textContent : null;
 		inspector.replaceChildren(...parts);
+		if (kept === null) return;
+		const heading = [...inspector.querySelectorAll("h3")].find((node) => node.textContent === kept);
+		if (!heading) return;
+		heading.tabIndex = -1;
+		heading.focus({ preventScroll: true });
 	}
 	function draw() {
 		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
 		if (!overview) return;
+		timelineCard.hidden = false;
+		grid.hidden = false;
+		drawBar(overview);
 		drawTimeline(overview);
 		drawMatrix(overview);
 		drawTalks();
@@ -9508,6 +9895,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 		try {
 			await api.write(applyInput(previewed));
 			dialog.close();
+			jobs.clear();
 			await load();
 			if (!status.textContent) say("Orchestration saved.");
 		} catch (error) {
@@ -9519,9 +9907,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 		days = Number(button.dataset.days);
 		load();
 	});
+	planSelect.addEventListener("change", () => {
+		plan = planSelect.value || null;
+		load();
+	});
 	const step = (direction) => {
 		if (!overview) return;
-		const boundaries = [...overview.timeline.flatMap((i) => [i.startMs, i.endMs]), ...overview.members.flatMap((m) => m.nextChangeAtMs === null ? [] : [m.nextChangeAtMs])].filter((value, at, all) => all.indexOf(value) === at).sort((a, b) => a - b);
+		const boundaries = [...overview.timeline.flatMap((i) => [i.startMs, i.endMs]), ...overview.members.flatMap((m) => m.nextChangeAtMs === null ? [] : [m.nextChangeAtMs])].filter((value, at, all) => all.indexOf(value) === at && value < overview.range.endMs).sort((a, b) => a - b);
 		const next = direction < 0 ? boundaries.reverse().find((at) => at < overview.atMs) : boundaries.find((at) => at > overview.atMs);
 		if (next === void 0) return;
 		atMs = next;
