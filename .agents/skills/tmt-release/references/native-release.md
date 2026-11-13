@@ -640,10 +640,10 @@ the cut planner owns release attribution.
 
 - **Pull request: enforcing.** Both `Code quality` and the small `pr-title.yml` workflow read
   the current title through `gh api` (a rerun's event title may be stale) and changed paths
-  from the event's `base...head`. A title outside the approved policy fails when a path
-  changes a released component, using `releasedComponentNamesOfPath` (owned roots plus
-  declared consumers, without Cargo closure). `cli` owns `.` except other components' roots;
-  only PRs confined to unreleased roots keep any title. Missing evidence fails closed.
+  from the event's `base...head`. Every PR title must follow the same approved syntax as
+  queued squash subjects, including PRs confined to unreleased roots. Released-component
+  attribution from `releasedComponentNamesOfPath` (owned roots plus declared consumers,
+  without Cargo closure) is diagnostic only; it never exempts a title. Missing evidence fails closed.
   The separate read-only Node job runs on opened/edited/reopened/synchronize with independent
   concurrency, no dependency install or product build. Editing a title triggers that check;
   rerun `Code quality` if its previous title step failed. Full CI has no `edited` trigger.
