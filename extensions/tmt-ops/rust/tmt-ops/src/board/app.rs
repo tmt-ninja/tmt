@@ -21,6 +21,7 @@ use std::{
 };
 
 mod carry;
+mod labels;
 mod panels;
 pub(in crate::board) mod workspace;
 
@@ -334,7 +335,7 @@ pub enum Choice {
     EditLabels,
     LabelDefinition(String),
     LabelNew,
-    LabelField(super::app::workspace::LabelField),
+    LabelField(super::app::labels::LabelField),
     LabelColor(String),
     LabelSave,
     LabelMove(usize),
@@ -430,10 +431,19 @@ pub enum Choice {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuEntry {
+    pub chip: Option<MenuChip>,
+    pub separator: bool,
     /// The key that chooses it directly.
     pub key: String,
     pub label: String,
     pub choice: Choice,
+}
+
+/// A semantic leading chip; the menu only owns its placement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuChip {
+    pub glyph: String,
+    pub role: tmt_cli_style::Role,
 }
 
 /// Opening sender/member retained until a link composer is submitted.
@@ -819,9 +829,7 @@ pub struct App {
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<WorkspaceStartup>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
-    pub(super) label_draft: Option<workspace::LabelDraft>,
-    pub(super) label_field: Option<workspace::LabelField>,
-    pub(super) label_save_pending: bool,
+    pub(super) label_editor: labels::LabelState,
     /// The membership `m` lifted, while ↑↓ choose its squad.
     pub(super) moving: Option<super::workspace::moving::Moving>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
@@ -2748,7 +2756,7 @@ impl App {
                     && (action.verb != Verb::Digest
                         || row.as_ref().is_some_and(|row| self.digest_choice(row).is_some()))
             })
-            .map(|(key, action)| MenuEntry {
+            .map(|(key, action)| MenuEntry { chip: None, separator: false,
                 key,
                 label: match action.verb {
                     Verb::Ui(ui) => ui.menu_label().unwrap_or(&action.text).to_owned(),
@@ -2764,7 +2772,7 @@ impl App {
         {
             for ui in crate::action::OpsUiAction::menu_actions() {
                 if !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))) {
-                    entries.push(MenuEntry {
+                    entries.push(MenuEntry { chip: None, separator: false,
                         key: String::new(),
                         label: ui.menu_label().expect("catalog menu action").into(),
                         choice: Choice::Action(Action::parse(ui.spec().name).expect("catalog action")),
@@ -2777,7 +2785,7 @@ impl App {
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::UpdateStatus))
             && self.workspace_message_target().is_none_or(|target| !matches!(target, super::workspace::OpsTarget::Member { room_id: None, .. }))
         {
-            entries.push(MenuEntry {
+            entries.push(MenuEntry { chip: None, separator: false,
                 key: String::new(), label: "Update status".into(),
                 choice: Choice::Action(Action::parse("update-status").expect("status action")),
             });
@@ -2792,6 +2800,8 @@ impl App {
             })
         {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Mark read".into(),
                 choice: Choice::Action(Action::parse("mark-read").expect("mark-read action")),
@@ -2803,6 +2813,8 @@ impl App {
         });
         if let Some(draft) = self.workspace_form.as_ref().filter(|draft| !draft.shown) {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: if draft.stage == super::workspace::manage::Stage::Pending {
                     format!("Pending {}", draft.kind.label())
@@ -2815,7 +2827,7 @@ impl App {
         if self.quota_details_available()
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::QuotaDetails)))
         {
-            entries.push(MenuEntry {
+            entries.push(MenuEntry { chip: None, separator: false,
                 key: String::new(),
                 label: "Quota details".into(),
                 choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
@@ -2823,11 +2835,15 @@ impl App {
         }
         if self.shell.tab == super::shell::OpsTab::Digest {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Digest window…".into(),
                 choice: Choice::DigestWindowMenu,
             });
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Estimate basis…".into(),
                 choice: Choice::DigestBasis,
@@ -2842,6 +2858,8 @@ impl App {
             })
         {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Savings unit".into(),
                 choice: Choice::Action(Action::parse("savings-unit").expect("savings unit action")),
@@ -2854,6 +2872,8 @@ impl App {
             })
         {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Usage chart".into(),
                 choice: Choice::Action(
@@ -2862,6 +2882,8 @@ impl App {
             });
         }
         entries.push(MenuEntry {
+            chip: None,
+            separator: false,
             key: String::new(),
             label: "Checklist".into(),
             choice: Choice::Checklist,
@@ -3541,9 +3563,9 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
-                if self.label_field.is_some() {
+                if self.label_editor.field.is_some() {
                     self.retain_label_field_input();
-                    self.label_field = None;
+                    self.label_editor.field = None;
                     self.input = None;
                     return self.label_draft_menu();
                 }
@@ -3645,7 +3667,7 @@ impl App {
             self.input.take().expect("composing")
         };
         if input.compose == Compose::Workspace {
-            if self.label_field.is_some() {
+            if self.label_editor.field.is_some() {
                 return self.submit_label_field(input.text.into_string());
             }
             return self.workspace_submit_field(input.text.into_string());

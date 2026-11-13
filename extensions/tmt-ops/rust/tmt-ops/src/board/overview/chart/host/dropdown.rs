@@ -84,6 +84,8 @@ impl Dropdown {
                     _ => None,
                 };
                 MenuEntry {
+                    chip: None,
+                    separator: false,
                     key: if *target == current {
                         "✓".into()
                     } else {
@@ -267,7 +269,7 @@ impl Dropdown {
             ),
         );
         self.surface
-            .render(&self.entries, self.selected, frame, look, area, None);
+            .render(&self.entries, self.selected, frame, look, area);
         area
     }
 }

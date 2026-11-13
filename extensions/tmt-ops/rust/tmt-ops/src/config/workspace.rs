@@ -220,6 +220,32 @@ pub(crate) fn valid_label_glyph(glyph: &str) -> bool {
         && (1..=2).contains(&glyph.width())
 }
 
+fn validate_label(label: &BoardLabel) -> Result<(), SquadError> {
+    if label.id.is_empty()
+        || label.id.len() > 64
+        || !label
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err(invalid(
+            "Label IDs use letters, numbers, hyphens or underscores.",
+        ));
+    }
+    if !valid_label_glyph(&label.glyph) {
+        return Err(invalid(
+            "Use one nonblank character or emoji, one or two cells wide, without joined characters.",
+        ));
+    }
+    if crate::look::role(&label.color).is_none() {
+        return Err(invalid("Choose a board palette color."));
+    }
+    if label.name.trim().is_empty() || label.name.chars().any(char::is_control) {
+        return Err(invalid("Label names must be nonblank text."));
+    }
+    Ok(())
+}
+
 fn label_toml(label: &BoardLabel) -> toml_edit::Value {
     let mut table = toml_edit::InlineTable::new();
     table.insert("id", label.id.as_str().into());
@@ -507,34 +533,17 @@ impl Config {
                 let glyph = field("glyph")?;
                 let color = field("color")?;
                 let name = field("name")?;
-                if id.is_empty()
-                    || id.len() > 64
-                    || !id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-                    || !ids.insert(id.to_owned())
-                {
-                    return Err(invalid(
-                        "Each label needs a unique ID using letters, numbers, hyphens or underscores.",
-                    ));
-                }
-                if !valid_label_glyph(glyph) {
-                    return Err(invalid(
-                        "Use one nonblank character or emoji, one or two cells wide, without joined characters.",
-                    ));
-                }
-                if crate::look::role(color).is_none() {
-                    return Err(invalid("Choose a board palette color."));
-                }
-                if name.trim().is_empty() || name.chars().any(char::is_control) {
-                    return Err(invalid("Label names must be nonblank text."));
-                }
-                labels.definitions.push(BoardLabel {
+                let label = BoardLabel {
                     id: id.into(),
                     glyph: glyph.into(),
                     color: color.into(),
                     name: name.into(),
-                });
+                };
+                validate_label(&label)?;
+                if !ids.insert(label.id.clone()) {
+                    return Err(invalid("Each label needs a unique ID."));
+                }
+                labels.definitions.push(label);
             }
         }
         if let Some(members) = table.get("members") {
@@ -545,7 +554,7 @@ impl Config {
                 let label = value
                     .as_str()
                     .ok_or_else(|| invalid("Member label IDs must be text."))?;
-                if !canonical_room_id(id)
+                if !super::unread::identity(id)
                     || !labels
                         .definitions
                         .iter()
@@ -571,7 +580,7 @@ impl Config {
         if self.workspace_labels()? != *expected {
             return Err(invalid("Labels changed; reload before saving."));
         }
-        if !canonical_room_id(member)
+        if !super::unread::identity(member)
             || label.is_some_and(|id| {
                 !expected
                     .definitions
@@ -582,7 +591,7 @@ impl Config {
             return Err(invalid("Choose a member and an existing label."));
         }
         if expected.members.get(member).map(String::as_str) == label {
-            return self.write(|_| {});
+            return Ok(());
         }
         self.write(|document| {
             if document.get("workspace").is_none() {
@@ -622,28 +631,7 @@ impl Config {
         }
         let index = match &edit {
             LabelEdit::Upsert(label) => {
-                if label.id.is_empty()
-                    || label.id.len() > 64
-                    || !label
-                        .id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-                {
-                    return Err(invalid(
-                        "Label IDs use letters, numbers, hyphens or underscores.",
-                    ));
-                }
-                if !valid_label_glyph(&label.glyph) {
-                    return Err(invalid(
-                        "Use one nonblank character or emoji, one or two cells wide, without joined characters.",
-                    ));
-                }
-                if crate::look::role(&label.color).is_none() {
-                    return Err(invalid("Choose a board palette color."));
-                }
-                if label.name.trim().is_empty() || label.name.chars().any(char::is_control) {
-                    return Err(invalid("Label names must be nonblank text."));
-                }
+                validate_label(label)?;
                 let found = expected
                     .definitions
                     .iter()
@@ -676,7 +664,7 @@ impl Config {
         if matches!((&edit, index), (LabelEdit::Upsert(label), Some(index)) if expected.definitions[index] == *label)
             || matches!((&edit, index), (LabelEdit::Move { index: target, .. }, Some(index)) if *target == index)
         {
-            return self.write(|_| {});
+            return Ok(());
         }
         self.write(|document| {
             if document.get("workspace").is_none() {
@@ -2002,6 +1990,13 @@ mod tests {
                 .is_err()
         );
         assert_eq!(fs::read_to_string(first.path()).unwrap(), updated);
+        let current = first.workspace_labels().unwrap();
+        let externally_edited = format!("{updated}# external edit\n");
+        fs::write(first.path(), &externally_edited).unwrap();
+        first
+            .save_member_label(&current, "66666666-6666-4666-8666-666666666666", Some("pr"))
+            .unwrap();
+        assert_eq!(fs::read_to_string(first.path()).unwrap(), externally_edited);
     }
 
     #[test]

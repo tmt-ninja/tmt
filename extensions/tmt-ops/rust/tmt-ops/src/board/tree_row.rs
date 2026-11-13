@@ -18,7 +18,14 @@ const NAME_SPAN: usize = 5;
 
 /// The same three-cell label chip is used in the tree and label menus.
 pub(in crate::board) fn label_chip(label: &crate::config::BoardLabel, look: Look) -> Span<'static> {
-    let role = crate::look::role(&label.color).expect("validated label role");
+    role_chip(
+        &label.glyph,
+        crate::look::role(&label.color).expect("validated label role"),
+        look,
+    )
+}
+
+pub(in crate::board) fn role_chip(glyph: &str, role: Role, look: Look) -> Span<'static> {
     let fill = tmt_cli_style::theme::screen::fill(
         &look.theme,
         role,
@@ -28,13 +35,16 @@ pub(in crate::board) fn label_chip(label: &crate::config::BoardLabel, look: Look
     let style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
         Style::new().add_modifier(Modifier::REVERSED)
     } else {
-        fill.fg(ratatui::style::Color::Black)
+        fill.fg(fill
+            .fg
+            .or_else(|| tmt_cli_style::theme::screen::keycap(&look.theme, look.depth, false).fg)
+            .unwrap_or(ratatui::style::Color::Reset))
             .remove_modifier(Modifier::DIM | Modifier::REVERSED)
     };
-    let text = if label.glyph.width() == 1 {
-        format!(" {} ", label.glyph)
+    let text = if glyph.width() == 1 {
+        format!(" {} ", glyph)
     } else {
-        format!("{} ", label.glyph)
+        format!("{} ", glyph)
     };
     Span::styled(text, style)
 }

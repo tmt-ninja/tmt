@@ -248,7 +248,9 @@ fn editor_picks_an_unused_id_at_the_definition_limit() {
         })
         .collect();
     app.choose(Choice::LabelNew);
-    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.choose(Choice::LabelField(
+        crate::board::app::labels::LabelField::Name,
+    ));
     app.input.as_mut().unwrap().text = "New".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
@@ -313,6 +315,25 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
             theme: tmt_cli_style::Theme::new(base),
             depth,
         };
+        for label in crate::config::WorkspaceLabels::default().definitions {
+            let chip = crate::board::tree_row::label_chip(&label, look);
+            let role = crate::look::role(&label.color).unwrap();
+            let fill = tmt_cli_style::theme::screen::fill(
+                &look.theme,
+                role,
+                depth,
+                tmt_cli_style::theme::screen::Fill::Solid,
+            );
+            if depth == Depth::None {
+                assert!(chip.style.add_modifier.contains(Modifier::REVERSED));
+            } else {
+                let fg = fill
+                    .fg
+                    .or_else(|| tmt_cli_style::theme::screen::keycap(&look.theme, depth, false).fg);
+                assert_eq!(chip.style.fg, fg, "{base:?} {}", label.id);
+                assert_eq!(chip.style.bg, fill.bg, "{base:?} {}", label.id);
+            }
+        }
         app.view.as_mut().unwrap().look = look;
         let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         let mut preferences = workspace.preferences.clone();
@@ -342,7 +363,17 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
             assert!(!row[glyph + 2].modifier.contains(Modifier::REVERSED));
         } else {
             assert_eq!(row[glyph].bg, look.role(Role::Waiting).fg.unwrap());
-            assert_eq!(row[glyph].fg, ratatui::style::Color::Black);
+            let fill = tmt_cli_style::theme::screen::fill(
+                &look.theme,
+                Role::Waiting,
+                depth,
+                tmt_cli_style::theme::screen::Fill::Solid,
+            );
+            let paired_fg = fill
+                .fg
+                .or_else(|| tmt_cli_style::theme::screen::keycap(&look.theme, depth, false).fg)
+                .unwrap();
+            assert_eq!(row[glyph].fg, paired_fg);
             assert!(!row[glyph].modifier.contains(Modifier::DIM));
             assert_ne!(row[glyph + 2].bg, row[glyph].bg);
         }
@@ -473,7 +504,9 @@ fn label_editor_offers_definition_edits_and_preserves_a_cancelled_draft() {
             .any(|entry| entry.label.contains("New label"))
     );
     app.choose(Choice::LabelDefinition("pr".into()));
-    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.choose(Choice::LabelField(
+        crate::board::app::labels::LabelField::Name,
+    ));
     app.input.as_mut().unwrap().text = "Review draft".into();
     app.input_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(
@@ -494,7 +527,9 @@ fn label_editor_offers_definition_edits_and_preserves_a_cancelled_draft() {
             .iter()
             .any(|entry| entry.label.contains("Review draft"))
     );
-    app.choose(Choice::LabelField(super::super::LabelField::Glyph));
+    app.choose(Choice::LabelField(
+        crate::board::app::labels::LabelField::Glyph,
+    ));
     app.input.as_mut().unwrap().text = "👩\u{200d}💻".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
@@ -509,10 +544,14 @@ fn label_editor_offers_definition_edits_and_preserves_a_cancelled_draft() {
 fn label_editor_saves_one_valid_definition_and_retains_it_after_failure() {
     let mut app = populated_board(1, 2);
     app.choose(Choice::LabelDefinition("pr".into()));
-    app.choose(Choice::LabelField(super::super::LabelField::Glyph));
+    app.choose(Choice::LabelField(
+        crate::board::app::labels::LabelField::Glyph,
+    ));
     app.input.as_mut().unwrap().text = "界".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.choose(Choice::LabelField(
+        crate::board::app::labels::LabelField::Name,
+    ));
     app.input.as_mut().unwrap().text = "Ship".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     app.choose(Choice::LabelColor("working".into()));
@@ -522,7 +561,7 @@ fn label_editor_saves_one_valid_definition_and_retains_it_after_failure() {
         "{effect:?}"
     );
     app.finished(Ok("Unrelated action finished.".into()));
-    assert!(app.label_save_pending);
+    assert!(app.label_editor.save_pending);
     app.finished_label_edit(Err("Labels changed; reload before saving.".into()));
     app.choose(Choice::EditLabels);
     let menu = app.menu.as_ref().unwrap();

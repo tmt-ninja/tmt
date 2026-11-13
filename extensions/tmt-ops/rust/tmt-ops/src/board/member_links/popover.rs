@@ -55,6 +55,8 @@ fn link_title(url: &str) -> String {
 fn actions(url: &str, can_open: bool, anchor: Rect) -> Vec<MenuEntry> {
     let shown = origin(url);
     let mut entries = vec![MenuEntry {
+        chip: None,
+        separator: false,
         key: String::new(),
         label: if shown.width() > LINE {
             crate::board::view::fit(shown, LINE)
@@ -65,23 +67,31 @@ fn actions(url: &str, can_open: bool, anchor: Rect) -> Vec<MenuEntry> {
     }];
     entries.push(if can_open {
         MenuEntry {
+            chip: None,
+            separator: false,
             key: "o".into(),
             label: "Open".into(),
             choice: Choice::LinkOpen(url.to_owned()),
         }
     } else {
         MenuEntry {
+            chip: None,
+            separator: false,
             key: "o".into(),
             label: "Open (no browser here)".into(),
             choice: Choice::Unavailable("No browser here: copy the link".into()),
         }
     });
     entries.push(MenuEntry {
+        chip: None,
+        separator: false,
         key: "y".into(),
         label: "Copy".into(),
         choice: Choice::LinkCopy(url.to_owned()),
     });
     entries.push(MenuEntry {
+        chip: None,
+        separator: false,
         key: "f".into(),
         label: "Show full".into(),
         choice: Choice::LinkShow {
@@ -163,6 +173,8 @@ impl App {
             .filter(|(held, _)| held == url)
         {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: "n".into(),
                 label: "Add to checklist".into(),
                 choice: choice.clone(),
@@ -174,16 +186,22 @@ impl App {
     pub(in crate::board) fn file_popover(&mut self, path: &str, anchor: Rect) -> Effect {
         let entries = vec![
             MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: crate::board::view::fit(path, LINE),
                 choice: Choice::Heading,
             },
             MenuEntry {
+                chip: None,
+                separator: false,
                 key: "y".into(),
                 label: "Copy full path".into(),
                 choice: Choice::FileCopy(path.into()),
             },
             MenuEntry {
+                chip: None,
+                separator: false,
                 key: "f".into(),
                 label: "Show full".into(),
                 choice: Choice::FileShow {
@@ -274,6 +292,8 @@ impl App {
         let entries: Vec<_> = chunks(&text, LINE)
             .into_iter()
             .map(|label| MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label,
                 choice: copy.clone(),

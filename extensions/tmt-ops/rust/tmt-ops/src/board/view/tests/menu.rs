@@ -13,6 +13,8 @@ fn open(title: &str, keys: &[(&str, &str)]) -> App {
         entries: keys
             .iter()
             .map(|(key, label)| MenuEntry {
+                chip: None,
+                separator: false,
                 key: (*key).into(),
                 label: (*label).into(),
                 choice: Choice::Dismiss,

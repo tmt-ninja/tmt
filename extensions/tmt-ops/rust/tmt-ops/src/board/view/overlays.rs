@@ -83,15 +83,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
                 anchor.is_some(),
             )
         });
-        surface.render(
-            &menu.entries,
-            menu.selected,
-            frame,
-            look,
-            body,
-            app.workspace_snapshot()
-                .map(|snapshot| &snapshot.preferences.labels),
-        );
+        surface.render(&menu.entries, menu.selected, frame, look, body);
         // An anchored dropdown fills its area; a docked menu reports where its sheet was drawn.
         let outer = if anchor.is_some() {
             Some(body)
