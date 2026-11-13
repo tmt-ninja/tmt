@@ -80,7 +80,11 @@ function posts(items: Iterable<RoomItem>): Post[] {
   return [...out.values()];
 }
 
-export function channelStream(shell: RemoteShell, port: ChannelPort = sessionChannel(shell)) {
+export function channelStream(
+  shell: RemoteShell,
+  port: ChannelPort = sessionChannel(shell),
+  rereadBoard: () => void = () => {},
+) {
   const node = el('section', 'ops-dm');
   node.setAttribute('aria-label', 'Channel messages');
   const olderButton = el('button', 'ops-dm-older', 'Show older messages');
@@ -112,6 +116,8 @@ export function channelStream(shell: RemoteShell, port: ChannelPort = sessionCha
     refused = false,
     known = '';
   const box = outbox(port, (value) => {
+    // A stale roster: read the board again so the recipients refresh; the person sends again.
+    if (value.state === 'refused' && value.reason === 'ROOM_ROSTER_CHANGED') rereadBoard();
     draw();
     showComposer();
     if (value.state === 'accepted') {

@@ -52,7 +52,9 @@ export function opsPage(
     orchestrationAt = Date.now();
     return orchestration.refresh();
   };
-  const channel = channelView(location.pathname, shell, channelPort);
+  // A stale-roster refusal reads the board again at once (set once the board read exists below).
+  let rereadBoard = () => {};
+  const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
   const collapsedSquads = new Set<string>();
   const unread = new Map<string, ConversationUnread>();
   let unreadScope = '';
@@ -139,7 +141,7 @@ export function opsPage(
   // The board while the route is visible, at the board's own cadence; a page repaints only when
   // the board changed, so a reader's place and selection stay.
   let last = '';
-  whileVisible(REFRESH_MS, shell.signal, async () => {
+  const readBoard = async (): Promise<boolean> => {
     const next = await source.board(shell.signal);
     if (shell.signal.aborted) return true;
     const seen = JSON.stringify(next);
@@ -162,5 +164,7 @@ export function opsPage(
       paint();
     }
     return next.unavailable === undefined;
-  });
+  };
+  rereadBoard = () => void readBoard();
+  whileVisible(REFRESH_MS, shell.signal, readBoard);
 }

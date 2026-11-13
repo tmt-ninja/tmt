@@ -470,10 +470,12 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
   await box.click();
   await page.keyboard.type('Take the 390 capture next.');
   await page.evaluate(() => {
-    window.dmSendState = { state: 'refused', operationId: '', reason: 'Talk limit reached' };
+    window.dmSendState = { state: 'refused', operationId: '', reason: 'ROOM_ROSTER_CHANGED' };
   });
   await page.keyboard.press('Enter');
-  await expect(note).toContainText('Not sent: Talk limit reached');
+  await expect(note).toContainText(
+    'Not sent: the squad changed. Check the recipients and send again.',
+  );
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(2);
   const sends = await page.evaluate(() => window.dmSends);

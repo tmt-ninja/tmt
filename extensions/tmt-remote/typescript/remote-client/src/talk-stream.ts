@@ -9,6 +9,9 @@ import { el } from './ops-parts.js';
 import type { SendState } from './operations.js';
 import type { ConversationItem } from './conversations.js';
 
+/** Core's words start a line, so they start with a capital. */
+const sentence = (text: string | undefined) =>
+  text ? text.charAt(0).toUpperCase() + text.slice(1) : undefined;
 /** The mark beside the delivery words: answered, delivered, still going, unknown or failed. */
 export type Mark = 'answered' | 'done' | 'wait' | 'unknown' | 'failed';
 
@@ -32,7 +35,7 @@ export const finalLabel = (item: Pick<ConversationItem, 'final'>): string | unde
 /** What the delivery words and mark read from: a DM exchange or a room post. */
 type Delivered = Pick<ConversationItem, 'delivery' | 'messageState' | 'final'>;
 export const deliveryText = (item: Delivered): string =>
-  item.messageState?.reason.text ??
+  sentence(item.messageState?.reason.text) ??
   {
     prepared: 'Preparing',
     sending: 'Sending',
@@ -348,7 +351,7 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
           note.append(link);
         }
       } else if (mine?.state === 'refused')
-        note.textContent = `Not sent: ${mine.reason ?? 'the machine refused it'}. Send again to retry the same message.`;
+        note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
       else if (busy && mine!.state !== 'sending')
         // "Sending…" already shows under the message itself.
         note.textContent =
@@ -359,6 +362,18 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
       return { canSend: !mine?.grant, busy };
     },
   };
+}
+
+/** Core's refusal in words, with what the person can do; an unknown code is named as it is. */
+function refusalWords(reason: string | undefined): string {
+  switch (reason) {
+    case 'ROOM_ROSTER_CHANGED':
+      return 'the squad changed. Check the recipients and send again.';
+    case undefined:
+      return 'the machine refused it. Send again to retry the same message.';
+    default:
+      return `the machine refused it (${reason}). Send again to retry the same message.`;
+  }
 }
 
 /** The row of a post on its way, under the stream until the stream lists it. */
@@ -387,7 +402,7 @@ export function pendingRow(
               ? 'Delivery unknown · checking, nothing is sent again'
               : value.state === 'accepted'
                 ? 'Sent'
-                : `Not sent${value.reason ? ` · ${value.reason}` : ''}`,
+                : 'Not sent',
       mark:
         value.state === 'uncertain'
           ? 'unknown'

@@ -8888,7 +8888,7 @@ function el(tag, className, text) {
 	return node;
 }
 /** A sentence in place of a list: why there is nothing to show, with any command as code. */
-function sentence(text) {
+function sentence$1(text) {
 	const node = document.createElement("p");
 	node.className = "ops-empty";
 	notAvailable(node, text);
@@ -9615,8 +9615,8 @@ function timersView() {
 	return {
 		node: page,
 		update(board) {
-			if (board.schedules === null) return body.replaceChildren(sentence("Your machine could not read the timers. Run `tmt ops ui` to see them."));
-			if (!board.schedules.length) return body.replaceChildren(sentence("No timers are set."));
+			if (board.schedules === null) return body.replaceChildren(sentence$1("Your machine could not read the timers. Run `tmt ops ui` to see them."));
+			if (!board.schedules.length) return body.replaceChildren(sentence$1("No timers are set."));
 			const scroll = el("div", browserUiClasses.tableScroll);
 			const table = el("table", browserUiClasses.table);
 			table.dataset.roomy = "";
@@ -9744,8 +9744,8 @@ function nextIn(at, now = Date.now()) {
 }
 /** The panel's timers: a list, or a sentence that never reads an unknown as none. */
 function timerList(jobs, truncated) {
-	if (jobs === null) return sentence("Timers are unavailable from this machine right now.");
-	if (!jobs.length) return sentence(truncated ? "No timers in this partial read." : "No timers are set.");
+	if (jobs === null) return sentence$1("Timers are unavailable from this machine right now.");
+	if (!jobs.length) return sentence$1(truncated ? "No timers in this partial read." : "No timers are set.");
 	const list = el("ul", "ops-timer-list");
 	list.setAttribute("aria-label", "Timers");
 	list.append(...jobs.map(timerRow));
@@ -10164,7 +10164,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 	}
 	function drawMatrix(view) {
 		if (!sending?.routes) {
-			matrixBody.replaceChildren(sentence("Routes are not available on this Core. Member policies are shown on the right."));
+			matrixBody.replaceChildren(sentence$1("Routes are not available on this Core. Member policies are shown on the right."));
 			return;
 		}
 		const scroll = el("div", browserUiClasses.tableScroll);
@@ -10289,7 +10289,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 			}
 			parts.push(el("p", "ops-orchestration-caption", "Jobs · not available yet"));
 		}
-		if (!parts.length) parts.push(sentence("No members match."));
+		if (!parts.length) parts.push(sentence$1("No members match."));
 		inspector.replaceChildren(...parts);
 	}
 	function draw() {
@@ -10737,6 +10737,8 @@ function conversations(session, options = {}) {
 * operation id frozen with its draft and reused by a retry of the same words, an unknown outcome
 * only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
 * retry. Untrusted words stay text. */
+/** Core's words start a line, so they start with a capital. */
+var sentence = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : void 0;
 /** What a reply row says when there is no reply text to show. */
 var finalLabel = (item) => {
 	switch (item.final.status) {
@@ -10748,7 +10750,7 @@ var finalLabel = (item) => {
 		case "unavailable": return "The reply is unavailable";
 	}
 };
-var deliveryText = (item) => item.messageState?.reason.text ?? {
+var deliveryText = (item) => sentence(item.messageState?.reason.text) ?? {
 	prepared: "Preparing",
 	sending: "Sending",
 	sent: "Sent",
@@ -11004,7 +11006,7 @@ function outbox(port, changed) {
 					link.href = mine.settingsUrl;
 					note.append(link);
 				}
-			} else if (mine?.state === "refused") note.textContent = `Not sent: ${mine.reason ?? "the machine refused it"}. Send again to retry the same message.`;
+			} else if (mine?.state === "refused") note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
 			else if (busy && mine.state !== "sending") note.textContent = mine.state === "uncertain" ? "Checking whether the message arrived. It is never sent twice." : "Waiting for approval on the machine.";
 			note.hidden = !note.textContent;
 			return {
@@ -11013,6 +11015,14 @@ function outbox(port, changed) {
 			};
 		}
 	};
+}
+/** Core's refusal in words, with what the person can do; an unknown code is named as it is. */
+function refusalWords(reason) {
+	switch (reason) {
+		case "ROOM_ROSTER_CHANGED": return "the squad changed. Check the recipients and send again.";
+		case void 0: return "the machine refused it. Send again to retry the same message.";
+		default: return `the machine refused it (${reason}). Send again to retry the same message.`;
+	}
 }
 /** The row of a post on its way, under the stream until the stream lists it. */
 function pendingRow(value, to, mentions = []) {
@@ -11026,7 +11036,7 @@ function pendingRow(value, to, mentions = []) {
 		at: /* @__PURE__ */ new Date(),
 		text: value.message,
 		mentions,
-		state: value.state === "sending" ? "Sending…" : value.state === "held" ? "Waiting for approval on the machine" : value.state === "uncertain" ? "Delivery unknown · checking, nothing is sent again" : value.state === "accepted" ? "Sent" : `Not sent${value.reason ? ` · ${value.reason}` : ""}`,
+		state: value.state === "sending" ? "Sending…" : value.state === "held" ? "Waiting for approval on the machine" : value.state === "uncertain" ? "Delivery unknown · checking, nothing is sent again" : value.state === "accepted" ? "Sent" : "Not sent",
 		mark: value.state === "uncertain" ? "unknown" : value.state === "accepted" ? "done" : value.state === "refused" ? "failed" : "wait"
 	}));
 	group.append(inner);
@@ -11386,7 +11396,7 @@ function posts(items) {
 	}
 	return [...out.values()];
 }
-function channelStream(shell, port = sessionChannel(shell)) {
+function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => {}) {
 	const node = el("section", "ops-dm");
 	node.setAttribute("aria-label", "Channel messages");
 	const olderButton = el("button", "ops-dm-older", "Show older messages");
@@ -11413,6 +11423,7 @@ function channelStream(shell, port = sessionChannel(shell)) {
 	let olderCursor;
 	let generation = 0, running = false, wanted = false, visible = false, refused = false, known = "";
 	const box = outbox(port, (value) => {
+		if (value.state === "refused" && value.reason === "ROOM_ROSTER_CHANGED") rereadBoard();
 		draw();
 		showComposer();
 		if (value.state === "accepted") {
@@ -11747,7 +11758,7 @@ function chip(text) {
 	node.append(el("span", browserUiClasses.chipLabel, text));
 	return node;
 }
-function channelView(pathname, shell, port = void 0) {
+function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const page = el("div", "ops-channel");
 	const head = el("header", "ops-channel-head");
 	const titleRow = el("div", "ops-channel-titlebar");
@@ -11828,7 +11839,7 @@ function channelView(pathname, shell, port = void 0) {
 	}
 	toggle.addEventListener("click", () => setOpen(!open));
 	const history = el("section", "ops-channel-history");
-	const stream = channelStream(shell, port);
+	const stream = channelStream(shell, port, rereadBoard);
 	page.append(head, panel, history, stream.thread);
 	setOpen(false);
 	const fit = () => {
@@ -11966,7 +11977,7 @@ function channelView(pathname, shell, port = void 0) {
 			} else {
 				face.replaceChildren();
 				title.textContent = `#${place.squad}`;
-				chips.append(chip(squad?.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes}m` : "Idle alert unavailable"));
+				chips.append(chip(squad?.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes}m` : "Idle alert not configured"));
 				channelFacts(squad, people, board.truncated);
 			}
 			if (timerCount === void 0) chips.append(chip("Timers unavailable"));
@@ -12040,7 +12051,8 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		orchestrationAt = Date.now();
 		return orchestration.refresh();
 	};
-	const channel = channelView(location.pathname, shell, channelPort);
+	let rereadBoard = () => {};
+	const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
 	const collapsedSquads = /* @__PURE__ */ new Set();
 	const unread = /* @__PURE__ */ new Map();
 	let unreadScope = "";
@@ -12109,7 +12121,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		return true;
 	});
 	let last = "";
-	whileVisible(REFRESH_MS, shell.signal, async () => {
+	const readBoard = async () => {
 		const next = await source.board(shell.signal);
 		if (shell.signal.aborted) return true;
 		const seen = JSON.stringify(next);
@@ -12125,7 +12137,9 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			paint();
 		}
 		return next.unavailable === void 0;
-	});
+	};
+	rereadBoard = () => void readBoard();
+	whileVisible(REFRESH_MS, shell.signal, readBoard);
 }
 //#endregion
 //#region src/members.ts

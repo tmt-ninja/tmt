@@ -57,6 +57,8 @@ export function channelView(
   pathname: string,
   shell: RemoteShell,
   port: ChannelPort | undefined = undefined,
+  /** Reads the board again now, as after a stale-roster refusal. */
+  rereadBoard: () => void = () => {},
 ): {
   node: HTMLElement;
   history: HTMLElement;
@@ -148,7 +150,7 @@ export function channelView(
 
   // The stream with its message box: the channel's own, or the DM's (placed by the Ops page).
   const history = el('section', 'ops-channel-history');
-  const stream = channelStream(shell, port);
+  const stream = channelStream(shell, port, rereadBoard);
   page.append(head, panel, history, stream.thread);
   setOpen(false);
   // Slack's frame: the view fills the window below the top bar and only the stream scrolls, so the
@@ -304,7 +306,7 @@ export function channelView(
           chip(
             squad?.idleAlertMinutes
               ? `Idle alert ${squad.idleAlertMinutes}m`
-              : 'Idle alert unavailable',
+              : 'Idle alert not configured',
           ),
         );
         channelFacts(squad, people, board.truncated);
