@@ -50,9 +50,10 @@ body {
   font: 400 14px/1.5 var(--tmt-ui-font-body);
   -webkit-text-size-adjust: 100%;
 }
-/* The active module is already named and selected; its glyph is not a status or action. */
-.tmt-ui-rail-item[data-module-current] > .tmt-ui-shell-icon {
-  color: inherit;
+/* Remote's role chips and rail counts use the same pill radius as other small labels. */
+body .remote-role.tmt-ui-chip,
+.tmt-ui-shell-count {
+  border-radius: var(--tmt-ui-radius-pill);
 }
 /* Only a page outside the TMT web shell (the error page) keeps the fixed header's top padding. */
 body:not(:has(.tmt-ui-shell)) {
