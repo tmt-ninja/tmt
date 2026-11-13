@@ -130,11 +130,30 @@ for (const kind of ['single', 'multiple', 'short', 'long']) {
     await run(page, 'questionAsk', 'replied');
     await expect(card.getByTestId('ask-reply')).toContainText('I read your answer in this thread.');
     await card.getByRole('button', { name: 'Change answer', exact: true }).press('Enter');
+    // Change answer starts from the answer it changes (#6400).
     if (kind === 'single' || kind === 'multiple') {
+      await expect(card.getByLabel('Change it', { exact: true })).toBeChecked();
+      if (kind === 'multiple')
+        await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
       await card.getByLabel('Other', { exact: true }).check();
-      await card.getByLabel('Your other answer', { exact: true }).fill('Try another heading.');
-    } else await card.getByLabel('Your answer', { exact: true }).fill('My changed answer.');
-    await send(page);
+      const field = card.getByLabel('Your other answer', { exact: true });
+      await field.fill('Try another heading.');
+      if (kind === 'single') {
+        // Shift+Enter is a new line; Enter in the one-line Other field sends (#6400).
+        await field.press('Shift+Enter');
+        await expect(field).toHaveValue('Try another heading.\n');
+        await field.press('Backspace');
+        await field.press('Enter');
+        const line = card.locator('.question-line');
+        await expect(line).toHaveAttribute('aria-label', /Answered:/);
+        await openAnsweredQuestion(line);
+      } else await send(page);
+    } else {
+      const field = card.getByLabel('Your answer', { exact: true });
+      await expect(field).toHaveValue('Use a clearer heading.');
+      await field.fill('My changed answer.');
+      await send(page);
+    }
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
     const changed = await run(page, 'discussionProof');
     expect(changed).toHaveLength(1);

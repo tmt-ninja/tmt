@@ -798,6 +798,9 @@ a.tmt-block-mention:focus-visible {
   color: var(--tmt-ui-color-secondary);
   margin-inline-start: auto;
 }
+.tmt-block-question-input {
+  margin-top: var(--tmt-ui-space-s);
+}
 .tmt-block-question-input textarea {
   display: block;
   box-sizing: border-box;

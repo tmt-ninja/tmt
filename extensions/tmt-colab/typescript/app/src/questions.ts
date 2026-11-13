@@ -734,6 +734,27 @@ export function answerOf(question: Pick<Question, 'title'>, body: string): strin
   return page >= 0 ? answer.slice(0, page) : answer;
 }
 
+/** The draft an answer came from, for Change answer (#6400): the choices in their question order,
+ * then `Other: text`, as `answerComment` writes them. An answer that no longer fits the question's
+ * choices (they changed since) starts empty rather than guessing. */
+export function draftOf(
+  question: Pick<Question, 'kind' | 'choices' | 'other'>,
+  answer: string,
+): { choices: string[]; other: boolean; value: string } {
+  if (question.kind === 'short' || question.kind === 'long')
+    return { choices: [], other: false, value: answer };
+  const choices: string[] = [];
+  let rest = answer;
+  for (const { label } of question.choices)
+    if (rest === label || rest.startsWith(`${label}; `)) {
+      choices.push(label);
+      rest = rest.slice(Math.min(rest.length, label.length + 2));
+    }
+  if (question.other && rest.startsWith('Other: '))
+    return { choices, other: true, value: rest.slice('Other: '.length) };
+  return rest ? { choices: [], other: false, value: '' } : { choices, other: false, value: '' };
+}
+
 /** Bound answers survive title/quote changes. Unbound legacy display history still uses the
  * resolved quote and fixed answer prefix. Another question's binding never matches by text. */
 export function currentAnswer(question: Question, comments: readonly CommentView[]) {

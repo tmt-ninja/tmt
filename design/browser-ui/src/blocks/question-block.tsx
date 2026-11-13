@@ -233,6 +233,22 @@ export function QuestionBlock({
                     otherChoice.current?.focus();
                   }
                 }}
+                onKeyDown={(event) => {
+                  // Enter sends from this one-line field; Shift+Enter is a new line, and an IME's
+                  // Enter only ends its composition (229 is Safari's composing key).
+                  if (
+                    event.key === 'Enter' &&
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.nativeEvent.isComposing &&
+                    event.keyCode !== 229
+                  ) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
                 rows={1}
               />
               <span id={`${id}-count`}>

@@ -14,7 +14,18 @@ test('a choice question requires text for Other and sends the selected answer', 
   await expect(field).toBeFocused();
   await expect(question.getByRole('button', { name: 'Send' })).toBeDisabled();
   await field.fill('Start with the phone');
-  await field.press('Control+Enter');
+  // Shift+Enter is a new line; an IME's Enter only ends its composition; Enter sends (#6400).
+  await field.press('Shift+Enter');
+  await expect(field).toHaveValue('Start with the phone\n');
+  await field.press('Backspace');
+  for (const composing of [{ isComposing: true }, { keyCode: 229 }])
+    await field.evaluate((node, init) => {
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...init });
+      if ('keyCode' in init) Object.defineProperty(event, 'keyCode', { value: init.keyCode });
+      node.dispatchEvent(event);
+    }, composing);
+  await expect(page.locator('[data-answer]')).toHaveText('');
+  await field.press('Enter');
   await expect(page.locator('[data-answer]')).toHaveText(
     '{"choices":[],"other":"Start with the phone"}',
   );
