@@ -2371,9 +2371,13 @@ a generic unavailable. `observedAtMs` is the owner's clock when the read finishe
   `tokens1d: {tokens,complete} | null` and `checklistCount: number | null`. Tokens are Core's closed
   24-hour input-plus-output aggregate; cached inputs are already included. `complete:false` marks
   a known lower bound, never exact full-day usage. Missing observations or an incomplete zero are
-  null. `checklistCount` is currently always null: the existing per-member checklist command can
-  create a person and cannot batch. The [Ops read-only batch reader](https://github.com/tmt-ninja/tmt/issues/6380) is a separate follow-up;
-  this board never calls the per-member command or copies its private store reader.
+  null. `checklistCount` is the member's observed open, unarchived item count from Ops' read-only
+  `ops squad checklist counts --room <roomId> --json` (no `--member`), matched by the squad's
+  stable room UUID and member UUID. A measured zero stays zero. A root or member unavailable
+  reason (including an unknown reason), missing or malformed evidence, an unknown command or
+  a failed call leaves the affected count null. Remote never creates a person, calls the
+  per-member list command or copies Ops' private store reader. These counts do not depend on
+  the optional Core room revision used by the composer.
 - `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state`,
   `nextMs: number | null` (the owner's first next run) and `what?` (the first line of the job message).
   `state` is `on`, `paused` or null. A paused or owner-missing timer has `nextMs:null`, even if a
@@ -2389,10 +2393,13 @@ its UUIDs, distinct projected members are split into at most eight parallel Core
 `consumption.history` calls of at most 32 UUIDs each (the 256-agent board cap), with
 `windowsMs:[86400000]` and `maxBuckets:1`. Each chunk uses Core's own closed-window cut and
 coverage; rows are independent observations, not a new cross-chunk aggregate. There is no silent
-32-member truncation, per-member or per-squad subprocess loop, polling worker or new telemetry
-store. A failed chunk leaves only its members' tokens null. Other optional source failures leave
-only their own fields unavailable; the board itself still renders. The SDK retains these values
-and explicit nulls for the web consumer.
+32-member truncation or per-member usage call. A failed chunk leaves only its members' tokens
+null. Checklist acquisition runs one public counts call per admitted squad room, with at most four
+concurrent calls, bounded by the 32-squad board cap and the same deadline. A failed room call leaves
+only that room's checklist counts null; an unavailable member leaves only that member's count null.
+There is no polling worker or new telemetry store. Other optional source failures leave only
+their own fields unavailable; the board itself still renders. The SDK retains these values and
+explicit nulls for the web consumer.
 
 Never forwarded: a pane's id, target, cwd or location, process data, unrelated room IDs, owner IDs, unlisted row
 fields, the rest of a schedule message and the person's own identity. Text has control and

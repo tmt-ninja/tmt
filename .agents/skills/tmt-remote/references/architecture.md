@@ -92,7 +92,11 @@ bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata 
 32-UUID `consumption.history` reads. Core owns each closed-day cut and coverage;
 Remote adds no sampler or cross-chunk aggregate. Cron owns next-run/state, Ops config
 owns the no-squad idle default, and failures leave only their source fields unavailable.
-Checklist counts remain unavailable until Ops supplies its read-only batch port.
+Checklist counts use Ops' public read-only `squad checklist counts` route, one call
+per admitted squad room (at most 32), with at most four concurrent calls under the
+same read deadline. The existing projection supplies private acquisition targets;
+no second roster or private-store reader is introduced. Counts join by squad and member UUID, and
+unavailable observations stay null independently of Core room revision metadata.
 All acquisitions share the existing read deadline and serve-local cache.
 
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)

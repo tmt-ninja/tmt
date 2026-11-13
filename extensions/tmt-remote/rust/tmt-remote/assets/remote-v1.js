@@ -8851,7 +8851,7 @@ function opsBoard(payload) {
 				...agent.model ? { model: agent.model } : {},
 				waitingOnYou: agent.waitingOnYou ?? 0,
 				tokens1d: usage1d(agent.tokens1d),
-				checklistCount: null
+				checklistCount: safeNumber(agent.checklistCount) ? agent.checklistCount : null
 			};
 		}),
 		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({

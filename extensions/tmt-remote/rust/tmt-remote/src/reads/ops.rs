@@ -62,8 +62,7 @@ fn agent(row: &Value, squad: &str, role: &str) -> Option<Value> {
     agent.insert("squad".into(), json!(squad));
     agent.insert("role".into(), json!(role));
     agent.insert("tokens1d".into(), Value::Null);
-    // Ops owns the conversation checklist. Until its read-only batch port exists,
-    // no per-member command or private-store fallback belongs in a board read.
+    // Missing or refused room observations stay unavailable until the optional read joins.
     agent.insert("checklistCount".into(), Value::Null);
     put(&mut agent, "presence", token(&row["presence"], 16));
     let activity = &row["activity"];
@@ -129,11 +128,23 @@ fn squad(
     squads: &mut Vec<Value>,
     agents: &mut Vec<Value>,
     truncated: &mut bool,
+    checklist_rooms: &mut Vec<ChecklistRoom>,
 ) {
     let head = &document["squad"];
     let Some(name) = text(&head["name"], limits::READ_OPS_NAME) else {
         return;
     };
+    // Ops owns the stable room UUID used by its checklist reader. Core's optional
+    // room revision is only composer metadata and cannot gate this independent read.
+    if let Some(room_id) = head["roomId"]
+        .as_str()
+        .filter(|id| crate::canonical::is_core_id(id))
+    {
+        checklist_rooms.push(ChecklistRoom {
+            squad: name.clone(),
+            room_id: room_id.to_owned(),
+        });
+    }
     let lead = agent(&head["lead"], &name, "lead");
     let mut entry = Map::new();
     entry.insert("name".into(), json!(name));
@@ -252,21 +263,41 @@ fn timers(document: &Value, truncated: &mut bool) -> Option<Vec<Value>> {
     Some(timers)
 }
 
+/// Private acquisition targets emitted by the same admission that builds the payload.
+/// These are never serialized or a second roster owner.
+#[derive(Clone)]
+pub(super) struct ChecklistRoom {
+    pub squad: String,
+    pub room_id: String,
+}
+pub(super) struct Projection {
+    pub payload: Map<String, Value>,
+    pub checklist_rooms: Vec<ChecklistRoom>,
+}
+
 /// `None` when the squad document is not the expected shape. A cron document that is
 /// absent or malformed leaves `timers` null.
 pub(super) fn project(
     board: &Value,
     cron: Option<&Value>,
     rooms: Option<&Value>,
-) -> Option<Map<String, Value>> {
+) -> Option<Projection> {
     let listed = board["squads"].as_array()?;
+    let mut checklist_rooms = Vec::new();
     let (mut squads, mut agents, mut truncated) = (Vec::new(), Vec::new(), false);
     for document in listed {
         if squads.len() >= limits::READ_OPS_SQUADS {
             truncated = true;
             break;
         }
-        squad(document, rooms, &mut squads, &mut agents, &mut truncated);
+        squad(
+            document,
+            rooms,
+            &mut squads,
+            &mut agents,
+            &mut truncated,
+            &mut checklist_rooms,
+        );
     }
     let timers = cron.and_then(|cron| timers(cron, &mut truncated));
     let mut payload = Map::new();
@@ -275,7 +306,31 @@ pub(super) fn project(
     payload.insert("timers".into(), timers.map_or(Value::Null, Value::Array));
     payload.insert("truncated".into(), json!(truncated));
     payload.insert("defaultIdleAlertMs".into(), Value::Null);
-    Some(payload)
+    Some(Projection {
+        payload,
+        checklist_rooms,
+    })
+}
+
+/// One roster member's observed count; no-person, old Core, unknown reasons,
+/// mismatched rooms and ambiguous/missing rows never become a measured zero.
+pub(super) fn checklist_count(document: &Value, room: &str, member: &str) -> Option<u64> {
+    if document["action"] != "counts"
+        || document["room"] != room
+        || document["available"] != true
+        || document.get("reason").is_some()
+    {
+        return None;
+    }
+    let mut matches = document["members"]
+        .as_array()?
+        .iter()
+        .filter(|row| row["id"] == member);
+    let row = matches.next()?;
+    if matches.next().is_some() || row.get("reason").is_some() {
+        return None;
+    }
+    safe(&row["open"])
 }
 
 /// Config owns the no-squad effective default and emits whole seconds. Unknown
