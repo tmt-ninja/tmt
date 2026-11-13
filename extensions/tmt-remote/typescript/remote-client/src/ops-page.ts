@@ -11,7 +11,12 @@ import { orchestrationApi } from './orchestration-client.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
-import { conversationHistory, type ConversationRead } from './conversation-history.js';
+import type { ChannelPort } from './channel-stream.js';
+import {
+  conversationHistory,
+  type ConversationRead,
+  type ConversationTalk,
+} from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
 import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
 
@@ -28,6 +33,8 @@ export function opsPage(
     if (!shell.session) throw new Error('No signed browser session.');
     return orchestrationApi(await shell.session());
   },
+  historyTalk?: ConversationTalk,
+  channelPort?: ChannelPort,
 ): void {
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
@@ -45,7 +52,7 @@ export function opsPage(
     orchestrationAt = Date.now();
     return orchestration.refresh();
   };
-  const channel = channelView(location.pathname);
+  const channel = channelView(location.pathname, shell, channelPort);
   const collapsedSquads = new Set<string>();
   const unread = new Map<string, ConversationUnread>();
   let unreadScope = '';
@@ -61,6 +68,7 @@ export function opsPage(
       paintMenu();
     },
     historyRead,
+    historyTalk,
   );
   const paintMenu = () => {
     const section = current();

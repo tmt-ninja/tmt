@@ -1,10 +1,19 @@
-/** One bounded DM read at a time; positions and seen state never leave their owners. */
-import { browserUiClasses as c } from '@tmt/browser-ui/static';
+/** The DM (#5704; spec 8d17ce7c screen 3): the conversation as a chat anchored at the bottom, with
+ * day separators, each message's delivery under it and the member's reply as its own row, and
+ * the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
+ * read at a time; positions and seen state never leave their owners. */
 import { el } from './ops-parts.js';
-import { commandCopy } from './command-copy.js';
+import { exchangeRows, outbox, pendingRow, talkList } from './talk-stream.js';
+import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
-import { ClientError, RefusalError } from './operations.js';
+import {
+  ClientError,
+  RefusalError,
+  operations,
+  type SendInput,
+  type SendState,
+} from './operations.js';
 import {
   conversations,
   type ConversationInput,
@@ -23,6 +32,11 @@ export type ConversationRead = (
   memberId: string,
   input: ConversationInput,
 ) => Promise<{ machineId: string; page: ConversationPage }>;
+/** Talk: send once with a frozen operation id, and observe an operation already sent. */
+export interface ConversationTalk {
+  send(input: SendInput): Promise<SendState>;
+  operation(operationId: string): Promise<SendState>;
+}
 export interface ConversationObservation {
   scope?: ConversationScope;
   unread: ConversationUnread;
@@ -52,6 +66,16 @@ function sessionRead(shell: RemoteShell): ConversationRead {
     }
   };
 }
+function sessionTalk(shell: RemoteShell): ConversationTalk {
+  const client = async () => {
+    if (!shell.session) throw new Error('No signed browser session.');
+    return operations(await shell.session());
+  };
+  return {
+    send: async (input) => (await client()).send(input),
+    operation: async (operationId) => (await client()).operation(operationId),
+  };
+}
 function storage(): Storage | undefined {
   try {
     return localStorage;
@@ -60,150 +84,99 @@ function storage(): Storage | undefined {
   }
 }
 const UNKNOWN: ConversationUnread = { state: 'unknown' };
-const finalLabel = (item: ConversationItem): string => {
-  switch (item.final.status) {
-    case 'not_submitted':
-      return 'No reply submitted';
-    case 'not_required':
-      return 'No reply required';
-    case 'withdrawn':
-      return `Withdrawn · ${item.final.reason}`;
-    case 'expired':
-      return 'Reply expired';
-    case 'unavailable':
-      return 'Reply unavailable';
-    case 'retained':
-      return item.previewTruncated ? 'Reply preview · truncated' : 'Reply preview';
-  }
-};
+
 export function conversationHistory(
   shell: RemoteShell,
   observed: (value: ConversationObservation) => void,
   read: ConversationRead = sessionRead(shell),
+  talk: ConversationTalk = sessionTalk(shell),
 ) {
-  const node = el('section', 'ops-channel-history');
+  const node = el('section', 'ops-dm');
   node.setAttribute('aria-label', 'Talk history');
-  const heading = el('h2', c.sectionHeading, 'Talk history');
-  const unread = el('p', 'ops-detail-note', 'Unread changes: Unknown');
-  const status = el('p', 'ops-empty', 'Choose a member to read the retained conversation.');
-  status.setAttribute('role', 'status');
-  const list = el('ul', c.list);
-  list.setAttribute('aria-label', 'Conversation previews');
-  const actions = el('div', c.actions);
-  const refreshButton = el('button', c.action, 'Refresh history');
-  refreshButton.type = 'button';
-  const olderButton = el('button', c.action, 'Older');
+  const olderButton = el('button', 'ops-dm-older', 'Show older messages');
   olderButton.type = 'button';
-  const footer = el(
-    'p',
-    'ops-foot',
-    'Reading here does not acknowledge requests or send messages. Seen state stays in this browser.',
-  );
-  actions.append(refreshButton, olderButton);
-  node.append(heading, unread, status, list, actions, footer);
-  const terminal = commandCopy('tmt ops ui');
-  terminal.hidden = true;
-  node.append(terminal);
+  const status = el('p', 'ops-dm-status', 'Choose a member to read the retained conversation.');
+  status.setAttribute('role', 'status');
+  const stream = talkList('Conversation');
+  const list = stream.list;
+  const compose = el('section', 'ops-channel-compose');
+  compose.setAttribute('aria-label', 'Message');
+  const composerHost = el('div', 'ops-composer-host');
+  const sendNote = el('p', 'ops-channel-compose-reason');
+  sendNote.id = 'ops-dm-send-note';
+  sendNote.setAttribute('aria-live', 'polite');
+  compose.append(composerHost, sendNote);
+  node.append(olderButton, status, list, compose);
+  const composer = composerSlot(composerHost);
   const seen = conversationSeen(storage());
-  const rows = new Map<string, { node: HTMLElement; fingerprint: string }>();
+  const items = new Map<string, ConversationItem>();
   let memberId: string | undefined,
     memberName = '',
-    panelVisible = false,
-    newest = true;
+    panelVisible = false;
   let generation = 0,
     running = false,
     wanted = false;
-  let scope: ConversationScope | undefined, page: ConversationPage | undefined;
+  let scope: ConversationScope | undefined;
+  let olderCursor: ConversationCursor | null | undefined;
   let reported = '';
+  const box = outbox(talk, (value) => {
+    draw();
+    showComposer();
+    if (value.state === 'accepted') {
+      wanted = true;
+      void refresh();
+    }
+  });
   function report(value: ConversationObservation) {
     const fingerprint = JSON.stringify(value);
-    unread.textContent =
-      value.unread.state === 'unknown'
-        ? 'Unread changes: Unknown'
-        : `Unread changes: ${value.unread.more ? '50+' : value.unread.count}`;
     if (fingerprint !== reported) {
       reported = fingerprint;
       observed(value);
     }
   }
-  function buttons() {
-    refreshButton.disabled = running || !memberId;
-    refreshButton.textContent = newest ? 'Refresh history' : 'Newest page';
-    olderButton.disabled = running || !page?.nextBefore;
-    olderButton.textContent = page && !page.nextBefore ? 'No older page' : 'Older';
+  function controls() {
+    olderButton.hidden = !memberId || !olderCursor;
+    olderButton.disabled = running;
     node.setAttribute('aria-busy', String(running));
   }
-  function draw(next: ConversationPage) {
-    terminal.hidden = true;
-    page = next;
-    status.textContent =
-      next.member === 'unknown'
-        ? 'This member is unknown on this machine.'
-        : next.member === 'retired'
-          ? 'This member has been retired.'
-          : next.items.length
-            ? ''
-            : 'No retained conversation in this page.';
-    status.hidden = status.textContent === '';
-    const remaining = new Set(next.items.map((item) => item.requestId));
-    for (const [id, row] of rows)
-      if (!remaining.has(id)) {
-        row.node.remove();
-        rows.delete(id);
-      }
-    next.items.forEach((item, index) => {
-      const fingerprint = JSON.stringify([item, memberName]);
-      let row = rows.get(item.requestId);
-      if (!row) {
-        row = { node: el('li', c.listRow), fingerprint: '' };
-        row.node.dataset.requestId = item.requestId;
-        rows.set(item.requestId, row);
-      }
-      if (row.fingerprint !== fingerprint) {
-        row.fingerprint = fingerprint;
-        const title = el('div', `${c.listTitle} ops-detail-block`);
-        title.append(
-          el(
-            'strong',
-            c.listLabel,
-            item.direction === 'toMember' ? `You → ${memberName}` : `${memberName} → You`,
-          ),
-          el('p', c.listDescription, item.preview ?? 'Request preview unavailable'),
-          el(
-            'p',
-            c.listDescription,
-            item.responsePreview === null
-              ? finalLabel(item)
-              : `${finalLabel(item)} · ${item.responsePreview}`,
-          ),
-        );
-        const meta = el('div', c.listMeta);
-        const at = new Date(item.preparedAtMs);
-        const time = el(
-          'time',
-          c.listUpdated,
-          Number.isFinite(at.valueOf()) ? at.toLocaleString() : 'Time unavailable',
-        );
-        if (Number.isFinite(at.valueOf())) time.dateTime = at.toISOString();
-        meta.append(
-          time,
-          el(
-            'span',
-            c.listState,
-            item.messageState?.reason.text ?? item.delivery.replaceAll('_', ' '),
-          ),
-        );
-        row.node.replaceChildren(title, meta);
-      }
-      if (list.children[index] !== row.node)
-        list.insertBefore(row.node, list.children[index] ?? null);
+  function draw() {
+    const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : undefined;
+    stream.draw(
+      items.values(),
+      (item) =>
+        exchangeRows(item, {
+          me: 'You',
+          them: memberName,
+          fromMe: item.direction === 'toMember',
+        }),
+      memberName,
+      unlisted && pendingRow(unlisted, memberName),
+    );
+  }
+  function showComposer() {
+    if (!memberId) return;
+    const { canSend, busy } = box.box(memberId, sendNote);
+    composer.show({
+      key: memberId,
+      label: `Message ${memberName}`,
+      placeholder: `Message ${memberName}…`,
+      hint: 'Enter sends · Shift+Enter for a new line',
+      describedBy: sendNote.id,
+      canSend,
+      busy,
+      cleared: box.cleared,
+      onSend: (message) => {
+        const agentId = memberId;
+        if (!agentId || shell.signal.aborted) return;
+        void box.send(agentId, message, (operationId) => ({ operationId, agentId, message }));
+      },
     });
   }
   async function load(before?: ConversationCursor): Promise<boolean> {
     if (!memberId || shell.signal.aborted || document.visibilityState !== 'visible') return true;
     if (running) return true;
     running = true;
-    buttons();
+    controls();
     const selected = memberId,
       ticket = generation;
     const input: ConversationInput = { limit: 20, ...(before ? { before } : {}) };
@@ -240,19 +213,30 @@ export function conversationHistory(
         scope &&
         (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)
       ) {
-        rows.clear();
-        list.replaceChildren();
+        items.clear();
+        stream.reset();
+        olderCursor = undefined;
       }
       scope = nextScope;
       let changes =
         input.since === baseline.position
           ? conversationUnread(baseline, next.page.changedSince)
           : UNKNOWN;
-      const renderedNewest = !before && newest;
-      if ((before && !newest) || renderedNewest) draw(next.page);
+      for (const item of next.page.items) items.set(item.requestId, item);
+      if (before || olderCursor === undefined) olderCursor = next.page.nextBefore;
+      status.textContent =
+        next.page.member === 'unknown'
+          ? 'This member is unknown on this machine.'
+          : next.page.member === 'retired'
+            ? 'This member has been retired.'
+            : items.size
+              ? ''
+              : `No messages with ${memberName} yet. Say hello below.`;
+      status.hidden = status.textContent === '';
+      draw();
       const visible = panelVisible && node.isConnected && document.visibilityState === 'visible';
       if (
-        renderedNewest &&
+        !before &&
         visible &&
         !seen.markVisibleNewest(scope, next.page, {
           newest: true,
@@ -265,19 +249,18 @@ export function conversationHistory(
       return true;
     } catch {
       if (current()) {
-        page = undefined;
-        rows.clear();
-        list.replaceChildren();
-        terminal.hidden = false;
+        items.clear();
+        stream.reset();
+        olderCursor = undefined;
         status.hidden = false;
         status.textContent =
-          'Conversation history is unavailable for this browser. Use Ops in this machine’s terminal.';
+          'The conversation is unavailable for this browser. Reload the page, or use Ops in this machine’s terminal.';
         report({ unread: UNKNOWN });
       }
       return false;
     } finally {
       running = false;
-      buttons();
+      controls();
       if (wanted && !shell.signal.aborted) {
         wanted = false;
         void refresh();
@@ -285,31 +268,25 @@ export function conversationHistory(
     }
   }
   async function refresh(): Promise<boolean> {
-    if (panelVisible && !newest) return true;
+    await box.observe();
     return load();
   }
-  refreshButton.addEventListener('click', () => {
-    newest = true;
-    generation++;
-    void load();
-  });
   olderButton.addEventListener('click', () => {
-    const before = page?.nextBefore;
-    if (!before || running) return;
-    newest = false;
+    if (!olderCursor || running) return;
     generation++;
-    void load(before);
+    void load(olderCursor);
   });
   shell.signal.addEventListener(
     'abort',
     () => {
       generation++;
-      rows.clear();
+      stream.forget();
+      items.clear();
     },
     { once: true },
   );
   whileVisible(5000, shell.signal, refresh);
-  buttons();
+  controls();
   return {
     node,
     select(member: { id: string; name: string } | undefined) {
@@ -318,22 +295,27 @@ export function conversationHistory(
       if (member && member.id !== memberId) {
         memberId = member.id;
         memberName = member.name;
-        newest = true;
         generation++;
         scope = undefined;
-        page = undefined;
-        rows.clear();
-        list.replaceChildren();
+        olderCursor = undefined;
+        items.clear();
+        stream.reset();
         status.hidden = false;
-        status.textContent = 'Reading retained conversation…';
+        status.textContent = 'Reading the conversation…';
         report({ unread: UNKNOWN });
+        showComposer();
         if (running) wanted = true;
         else void refresh();
       } else if (member) {
-        memberName = member.name;
+        if (member.name !== memberName) {
+          memberName = member.name;
+          stream.forget();
+          draw();
+          showComposer();
+        }
         if (!wasVisible) void refresh();
       }
-      buttons();
+      controls();
     },
   };
 }

@@ -10,6 +10,7 @@ export interface OpsHarness {
   harness: string;
   html: string;
   css: string;
+  composer: string;
   dispose(): Promise<void>;
 }
 
@@ -38,12 +39,29 @@ export async function buildOpsHarness(): Promise<OpsHarness> {
       '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div>',
     )
     .replace('/sdk/shell.js', '/harness.js');
+  // The door's STYLE order: static, pages, then the rich input's field surface (#5704).
   const css =
     (await readFile(
       new URL('../../../../../design/browser-ui/generated/static.css', import.meta.url),
       'utf8',
-    )) + (await readFile(new URL('pages.css', assets), 'utf8'));
-  return { harness, html, css, dispose: () => rm(directory, { recursive: true, force: true }) };
+    )) +
+    (await readFile(new URL('pages.css', assets), 'utf8')) +
+    (await readFile(
+      new URL(
+        '../../../../../design/browser-ui/src/rich-input-control/control.css',
+        import.meta.url,
+      ),
+      'utf8',
+    ));
+  // The committed Ops message box module, as the door serves it.
+  const composer = await readFile(new URL('ops-composer-v1.js', assets), 'utf8');
+  return {
+    harness,
+    html,
+    css,
+    composer,
+    dispose: () => rm(directory, { recursive: true, force: true }),
+  };
 }
 
 /** Serves the harness under `origin` with a fake clock, the viewport and the stored theme. */
@@ -61,13 +79,19 @@ export async function serveOpsHarness(
     const path = new URL(route.request().url()).pathname;
     return route.fulfill({
       contentType:
-        path === '/harness.js'
+        path === '/harness.js' || path === '/sdk/ops-composer-v1.js'
           ? 'text/javascript'
           : path === '/sdk/pages.css'
             ? 'text/css'
             : 'text/html',
       body:
-        path === '/harness.js' ? built.harness : path === '/sdk/pages.css' ? built.css : built.html,
+        path === '/harness.js'
+          ? built.harness
+          : path === '/sdk/ops-composer-v1.js'
+            ? built.composer
+            : path === '/sdk/pages.css'
+              ? built.css
+              : built.html,
     });
   });
 }

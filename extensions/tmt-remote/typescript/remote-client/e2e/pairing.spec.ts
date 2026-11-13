@@ -6669,7 +6669,7 @@ test('owner DM history reuses one root Session and strips private Core fields', 
     .split('\n').length;
   await page.goto(`${origin}/ops/#dm/${memberId}/sample`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Browser agent');
-  await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
+  await expect(page.getByRole('list', { name: 'Conversation' })).toContainText(
     'Native retained preview',
   );
   await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
@@ -6678,8 +6678,12 @@ test('owner DM history reuses one root Session and strips private Core fields', 
   );
   const opens = sent.filter((call) => call.operation === 'session.open').length;
   expect(opens).toBe(1);
-  await page.getByRole('button', { name: 'Refresh history', exact: true }).click();
-  await expect(page.getByText('Unread changes: 0', { exact: true })).toBeVisible();
+  // The visible tick rereads the newest page on the same Session.
+  await expect
+    .poll(() => sent.filter((call) => call.operation === 'requests.list').length, {
+      timeout: 15_000,
+    })
+    .toBeGreaterThanOrEqual(2);
   await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
     'aria-busy',
     'false',

@@ -1213,25 +1213,18 @@ test.describe('the Ops route on the owner read', () => {
     });
     try {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #tmt-core');
-      await expect(page.locator('.ops-channel-context .tmt-ui-list-state')).toHaveText([
+      await expect(page.locator('.ops-member-row .ops-member-state')).toHaveText([
         'Working',
         'Offline',
       ]);
+      await page.getByRole('tab', { name: /^Timers/ }).click();
+      await expect(page.getByRole('tabpanel', { name: /^Timers/ })).toContainText('Hourly pass');
       await modulePages(page).getByRole('link', { name: 'core-3 · Offline', exact: true }).click();
       await expect(page).toHaveURL(
         `${origin}/ops#dm/00000000-0000-4000-8000-000000000002/tmt-core`,
       );
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / core-3');
-      await expect(
-        page.getByRole('heading', {
-          name: 'Talk history',
-          exact: true,
-        }),
-      ).toBeVisible();
-      await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
-      await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
-        'Hourly pass',
-      );
+      await expect(page.getByRole('region', { name: 'Talk history' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
       expect(
         requests.some((request) => /requests\.list|dispatch\.create/.test(request.url())),
@@ -1249,8 +1242,8 @@ test.describe('the Ops route on the owner read', () => {
       reads = await stub(page, [board, changed]);
     });
     await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('#tmt-core');
-    await expect(page.locator('#ops-channel-about .tmt-ui-list-row')).toHaveCount(2);
-    await expect(page.locator('.ops-channel-context')).toContainText('renamed-lead', {
+    await expect(page.locator('#ops-channel-members .ops-member-row')).toHaveCount(2);
+    await expect(page.locator('#ops-channel-members')).toContainText('renamed-lead', {
       timeout: 8000,
     });
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
@@ -1270,7 +1263,7 @@ test.describe('the Ops route on the owner read', () => {
         down ? route.abort('connectionrefused') : route.fallback(),
       );
     });
-    const rows = page.locator('#ops-channel-about .tmt-ui-list-row');
+    const rows = page.locator('#ops-channel-members .ops-member-row');
     await expect(rows).toHaveCount(2);
     down = true;
     await expect(page.locator('#ops-note')).toHaveText(
