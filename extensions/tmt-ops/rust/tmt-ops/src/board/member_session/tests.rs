@@ -293,7 +293,7 @@ fn unbound_row_projection_refreshes_from_the_public_inventory() {
             row["name"] = json!("worker");
             row["session"] = json!({"unbound":unbound});
             let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
-            snapshot.references = Inventory::from_listed(&Ok(json!({"identities":[row]})));
+            snapshot.references = Some(Inventory::from_listed(&Ok(json!({"identities":[row]}))));
             snapshot.tabs = app.tabs.clone();
             snapshot.view = Ok(app.view.take().unwrap());
             app.apply(snapshot);
@@ -443,7 +443,7 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
     fn refresh(app: &mut App, last_ms: u64) {
         let fresh = remembered();
         let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
-        snapshot.references = app.references.clone();
+        snapshot.references = Some(app.references.clone());
         snapshot.tabs = app.tabs.clone();
         snapshot.view = Ok(fresh.view.unwrap());
         snapshot
