@@ -578,7 +578,7 @@ fn assert_selected_row_differs(scene: &str, first: &str, second: &str) {
 fn the_selected_plan_and_member_rows_are_visible_in_every_look() {
     assert_selected_row_differs("orchestration-plans", "Night shift", "Review week");
     assert_selected_row_differs("orchestration-table-selection", "worker", "peer");
-    assert_selected_row_differs("orchestration-jobs", "Queue review", "UI check");
+    assert_selected_row_differs("orchestration-jobs", "j1 core-1", "j2 gui-1");
 }
 #[test]
 fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_blocked_cell() {
