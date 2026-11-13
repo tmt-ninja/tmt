@@ -2914,20 +2914,35 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
         assert_eq!(reply, preview);
         assert_eq!(
             core.calls().len(),
-            before + 1,
-            "apply makes no second plans read"
+            before + 2,
+            "apply independently reads and narrows the current plan"
         );
         assert_eq!(core.calls().last().unwrap()["input"], apply);
-        // A changed candidate is still passed to Core with the ORIGINAL digest, never silently
-        // re-previewed by Remote. Core's digest refusal is preserved. Real-Core evidence in the
-        // PR separately qualifies this boundary; this fixture proves forwarding, not Core policy.
+        // The browser can hash its own broadened preview. A digest is content evidence, not
+        // authority: Remote must refuse this direct apply before Core's write. This fixture
+        // models Core's framing; the private real-Core control separately proves matching hashes.
         let mut changed = apply.clone();
-        changed["mutation"]["candidate"]["name"] = json!("Changed after preview");
-        fs::write(
-            core.root.join("orchestration-error"),
-            "ORCH_CONFLICT|changed mutation",
-        )
-        .unwrap();
+        changed["mutation"]["candidate"]["name"] = json!("Broadened direct apply");
+        let mut forged_preview = preview.clone();
+        forged_preview
+            .as_object_mut()
+            .unwrap()
+            .remove("previewDigest");
+        forged_preview["mutation"] = changed["mutation"].clone();
+        let guard = json!({"preview":forged_preview,"configuredTimeZone":null,"digestEnabled":true,"digestRevision":0,"baseReceiving":[]});
+        let bytes = serde_json::to_vec(&guard).unwrap();
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        digest.update(b"tmt-orchestration-preview-v1");
+        digest.update((bytes.len() as u64).to_be_bytes());
+        digest.update(&bytes);
+        changed["previewDigest"] = json!(
+            digest
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
         let before = core.calls().len();
         let reply = orchestrate(
             &owner,
@@ -2935,13 +2950,40 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
             &session,
             sequence,
             "orchestration.write",
-            changed.clone(),
+            changed,
         );
         sequence += 1;
-        assert_eq!(reply["refused"]["code"], "ORCH_CONFLICT");
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_SCOPE_DENIED",
+            "broadened apply: {reply}"
+        );
+        assert_eq!(
+            core.calls().len(),
+            before + 1,
+            "only the plans observation may reach Core"
+        );
+        assert_eq!(
+            core.calls().last().unwrap()["operation"],
+            "orchestration.read"
+        );
+        let mut stale = apply.clone();
+        stale["expectedConfigurationRevision"] = json!(2);
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            stale,
+        );
+        sequence += 1;
+        assert_eq!(reply["refused"]["code"], "ORCH_CONFLICT", "{reply}");
         assert_eq!(core.calls().len(), before + 1);
-        assert_eq!(core.calls().last().unwrap()["input"], changed);
-        fs::remove_file(core.root.join("orchestration-error")).unwrap();
+        assert_eq!(
+            core.calls().last().unwrap()["operation"],
+            "orchestration.read"
+        );
     }
     // All fields, including nested and future ones, stay outside the browser's authority.
     let mut candidate = plan.clone();

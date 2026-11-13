@@ -1641,15 +1641,17 @@ The owner browser is the person, so a mutation naming an `actorId` is refused. P
 stay two calls: the browser sends Core's `expectedConfigurationRevision`, `previewAtMs`,
 `previewDigest` and `consent:true` itself, and Remote never synthesizes consent or a preview.
 
-For `plan.set`, the preview candidate must equal Core's current plan in every field except the
-boolean `enabled`. Remote reads `orchestration.read` `{view:"plans"}` through the existing bounded
+For `plan.set` in both preview and apply, the candidate must equal Core's current plan in every
+field except the boolean `enabled`. Remote reads `orchestration.read` `{view:"plans"}` through the existing bounded
 Core API with permit revalidation before and after the read, then compares the full candidate
 (including nested and unknown fields) with the matching plan. A different field, missing plan,
 `plan.add` or `plan.rm` is `REMOTE_SCOPE_DENIED`. Core's preview `configurationRevision` must equal
 the observed plans revision; otherwise the existing `ORCH_CONFLICT` refusal asks for a new preview.
-Apply needs no second Remote comparison: Core's `previewDigest` binds the exact mutation, and its
-`expectedConfigurationRevision` binds that configuration. An apply carrying a different candidate
-fails Core's digest check. The existing Store effect fence still encloses Core writes.
+At apply, Remote reads and compares the current plan again and requires the observed revision to
+equal the input's `expectedConfigurationRevision` (`ORCH_CONFLICT` otherwise). A broadened apply is
+`REMOTE_SCOPE_DENIED` before any Core write, even with a client-computed digest. Core's deterministic
+`previewDigest` binds content but grants no authority. Core still validates its digest and revision
+at apply, under the existing Store effect fence.
 
 **Room posts.** `dispatch.create` retains the ordinary operation envelope and anonymous
 client originator. Its input is `{operationId,recipientIds,message,kind,room?}`; `kind`

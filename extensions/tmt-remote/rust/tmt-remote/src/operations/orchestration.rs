@@ -48,8 +48,8 @@ pub(super) fn read(permit: &MessagePermit) -> Result<Value, RemoteError> {
     Ok(json!({"version":1,"operation":"orchestration.read","input":input}))
 }
 
-/// The Core request and optional plans revision for an admitted write. Only plan on/off previews
-/// read the current plans; the owner browser names no actor and Core still owns apply.
+/// The Core request and optional preview revision for an admitted write. Both plan on/off phases
+/// read and compare current plans; the owner browser names no actor and Core still owns effects.
 pub(super) fn write(
     permit: &MessagePermit,
     read_plans: impl FnOnce() -> Result<Value, RemoteError>,
@@ -73,7 +73,7 @@ pub(super) fn write(
             "The owner browser acts as the person and names no actor.",
         ));
     }
-    let revision = if mutation["kind"] == "plan.set" && input["phase"] == "preview" {
+    let revision = if mutation["kind"] == "plan.set" {
         let enabled = mutation["candidate"]["enabled"]
             .as_bool()
             .ok_or_else(plan_denied)?;
@@ -82,6 +82,11 @@ pub(super) fn write(
         let revision = plans["configurationRevision"]
             .as_u64()
             .ok_or_else(invalid)?;
+        if input["phase"] == "apply"
+            && input["expectedConfigurationRevision"].as_u64() != Some(revision)
+        {
+            return Err(conflict());
+        }
         let rows = plans["plans"].as_array().ok_or_else(invalid)?;
         let mut matching = rows.iter().filter(|plan| plan["id"] == id);
         let current = matching.next().ok_or_else(plan_denied)?;
@@ -93,7 +98,7 @@ pub(super) fn write(
         if candidate != mutation["candidate"] {
             return Err(plan_denied());
         }
-        Some(revision)
+        (input["phase"] == "preview").then_some(revision)
     } else {
         None
     };
@@ -108,14 +113,17 @@ fn plan_denied() -> RemoteError {
         "The browser may only turn a current plan on or off.",
     )
 }
-/// The plans observation and Core preview must describe the same configuration. Core alone binds
-/// the exact mutation into `previewDigest` and validates it on apply; no second comparison is needed.
+fn conflict() -> RemoteError {
+    RemoteError::new(
+        "ORCH_CONFLICT",
+        "The orchestration configuration changed; preview again.",
+    )
+}
+/// Core's preview must describe the same configuration as the comparison. Apply separately checks
+/// its expected revision and candidate before Core's digest/revision-bound write.
 pub(super) fn preview_revision(answer: Value, revision: Option<u64>) -> Result<Value, RemoteError> {
     if revision.is_some_and(|revision| answer["configurationRevision"].as_u64() != Some(revision)) {
-        return Err(RemoteError::new(
-            "ORCH_CONFLICT",
-            "The orchestration configuration changed; preview again.",
-        ));
+        return Err(conflict());
     }
     Ok(answer)
 }
