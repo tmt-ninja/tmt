@@ -534,13 +534,23 @@ impl Strip {
             strip.axis = "TIME";
             strip.row = "in effect";
             strip.spans = true;
-            strip.cells = timeline
+            // Core's intervals, with the time none of them covers as base-only spans.
+            let mut from = start;
+            for interval in timeline
                 .iter()
                 .filter(|i| i.start_ms < end && start < i.end_ms)
-                .map(|i| cell(i.start_ms.max(start), i.end_ms.min(end)))
-                .collect();
-            if strip.cells.is_empty() {
-                strip.cells.push(cell(start, end));
+            {
+                let (at, until) = (interval.start_ms.max(start), interval.end_ms.min(end));
+                if from < at {
+                    strip.cells.push(cell(from, at));
+                }
+                if from < until {
+                    strip.cells.push(cell(at.max(from), until));
+                }
+                from = from.max(until);
+            }
+            if from < end || strip.cells.is_empty() {
+                strip.cells.push(cell(from, end));
             }
             for hour in (0..24).step_by(3) {
                 let (at, zoned) = local(days[0], hour)?;

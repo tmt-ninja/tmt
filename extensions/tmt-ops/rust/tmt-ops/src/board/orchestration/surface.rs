@@ -468,17 +468,6 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         .iter()
         .map(|(line, _)| line.width() as u16 + 3)
         .sum();
-    let mut x = area.right().saturating_sub(controls_width);
-    let controls_fit = x > x0 + marker + 2;
-    if controls_fit {
-        for (line, control) in controls {
-            let wide = line.width() as u16;
-            let rect = Rect::new(x, area.y + 2, wide, 1);
-            strip::paint_left(frame.buffer_mut(), rect, line);
-            state.hits.borrow_mut().push((rect, control));
-            x += wide + 3;
-        }
-    }
     let names: Vec<&str> = snapshot
         .document
         .timeline
@@ -501,37 +490,56 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             names.join(" · ")
         }
     );
-    // The label sits before the marker when it fits there, else after it; it yields first.
+    // The label sits before the marker when it fits there, else after it; it yields first. The
+    // step controls stand at the right, or at the left when the marker is under them.
     let marker_x = x0 + marker;
     strip::paint_left(
         frame.buffer_mut(),
         Rect::new(marker_x, area.y + 2, 1, 1),
         Line::styled("▲", look.role(Role::Text).add_modifier(Modifier::BOLD)),
     );
-    let before = marker_x.saturating_sub(area.x + 1);
-    let limit = if controls_fit {
-        area.right().saturating_sub(controls_width + 1)
-    } else {
-        area.right()
-    };
     let label = safe(&label);
-    if label.width() as u16 + 1 <= before {
-        let wide = label.width() as u16;
+    let wide = label.width() as u16;
+    let right = area.right().saturating_sub(controls_width);
+    let before = (wide + 1 <= marker_x.saturating_sub(area.x + 1)).then(|| marker_x - 1 - wide);
+    let controls_x = if right > marker_x + 2 {
+        Some(right)
+    } else {
+        let left = area.x + 1;
+        let free = before.unwrap_or(marker_x);
+        (left + controls_width < free).then_some(left)
+    };
+    if let Some(mut x) = controls_x {
+        for (line, control) in controls {
+            let wide = line.width() as u16;
+            let rect = Rect::new(x, area.y + 2, wide, 1);
+            strip::paint_left(frame.buffer_mut(), rect, line);
+            state.hits.borrow_mut().push((rect, control));
+            x += wide + 3;
+        }
+    }
+    if let Some(x) = before {
         text(
             frame,
             app,
-            Rect::new(marker_x - 1 - wide, area.y + 2, wide, 1),
+            Rect::new(x, area.y + 2, wide, 1),
             &label,
             Role::Muted,
         );
-    } else if limit > marker_x + 2 {
-        text(
-            frame,
-            app,
-            Rect::new(marker_x + 2, area.y + 2, limit - marker_x - 2, 1),
-            &label,
-            Role::Muted,
-        );
+    } else {
+        let limit = match controls_x {
+            Some(x) if x > marker_x => x.saturating_sub(1),
+            _ => area.right(),
+        };
+        if limit > marker_x + 2 {
+            text(
+                frame,
+                app,
+                Rect::new(marker_x + 2, area.y + 2, limit - marker_x - 2, 1),
+                &label,
+                Role::Muted,
+            );
+        }
     }
 }
 /// Range, plans and now as keycap controls, from the keys bound now; an unbound one keeps no cap.

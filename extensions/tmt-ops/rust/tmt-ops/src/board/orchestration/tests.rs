@@ -662,7 +662,10 @@ pub(in crate::board) mod captures {
     /// is allowed once, one pair is held, and both verdicts appear.
     fn roster_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
         // The selected time and range the board asked for: the fixture's own state stands in for now.
-        let at = input["atMs"].as_u64().filter(|at| *at > 1000).unwrap_or(WED_23);
+        let at = input["atMs"]
+            .as_u64()
+            .filter(|at| *at > 1000)
+            .unwrap_or(WED_23);
         let days = input["rangeDays"].as_u64().unwrap_or(1);
         let end = WED_00 + days * DAY;
         // Shift B runs 22:00-06:00 on weekdays (the night before the range is clipped to it);
