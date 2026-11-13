@@ -75,9 +75,25 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let state = &app.orchestration;
     let look = app.look();
     header(frame, app, Rect::new(area.x + 1, area.y, area.width - 2, 1));
-    // One blank row parts the header from the sections where the height allows.
-    let gap = u16::from(area.height >= 12);
-    let body = Rect::new(area.x, area.y + 1 + gap, area.width, area.height - 1 - gap);
+    // The timeline strip takes three rows under the header where the height allows; without it,
+    // one blank row parts the header from the sections.
+    let strip = state
+        .snapshot()
+        .filter(|_| !state.unavailable && area.height >= 12);
+    if let Some(snapshot) = strip {
+        timeline(
+            frame,
+            app,
+            snapshot,
+            Rect::new(area.x + 1, area.y + 1, area.width - 2, 3),
+        );
+    }
+    let top = if strip.is_some() {
+        4
+    } else {
+        1 + u16::from(area.height >= 12)
+    };
+    let body = Rect::new(area.x, area.y + top, area.width, area.height - top);
     let (left, right) = if area.width >= 110 {
         let width = body.width * 47 / 100;
         (
@@ -320,6 +336,9 @@ fn status(app: &App, short: bool) -> Vec<Span<'static>> {
         },
         look.role(Role::Text),
     )]);
+    if let Some(note) = &state.note {
+        part(vec![Span::styled(safe(note), look.role(Role::Muted))]);
+    }
     if let Some(reason) = &state.failure {
         part(vec![Span::styled(
             format!(
@@ -331,6 +350,189 @@ fn status(app: &App, short: bool) -> Vec<Span<'static>> {
         )]);
     }
     status
+}
+/// The label column of the timeline strip.
+const STRIP_LABEL: u16 = 15;
+/// The timeline strip: the range's axis, the plans in effect per cell, and the selected time with
+/// the earlier and later controls. Cells are laid out by their instants, so every range and day
+/// length lands on the same columns as its axis; a column covering several cells shows the
+/// highest count.
+fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let state = &app.orchestration;
+    let look = app.look();
+    let strip = &snapshot.strip;
+    let range = &snapshot.document.range;
+    if area.width <= STRIP_LABEL + 4 || strip.cells.is_empty() {
+        return;
+    }
+    let x0 = area.x + STRIP_LABEL;
+    let width = area.right() - x0 - 1;
+    let span = range.end_ms.saturating_sub(range.start_ms).max(1);
+    let column = |ms: u64| -> u16 {
+        let offset = ms.clamp(range.start_ms, range.end_ms) - range.start_ms;
+        ((u128::from(offset) * u128::from(width)) / u128::from(span)) as u16
+    };
+    let row = |y: u16| Rect::new(area.x, area.y + y, area.width, 1);
+    text(frame, app, row(0), strip.axis, Role::Muted);
+    text(frame, app, row(1), strip.row, Role::Muted);
+    // Axis ticks: a label never covers the one before it.
+    let mut free = 0;
+    for (at, label) in &strip.ticks {
+        let wide = label.width() as u16;
+        let mut x = column(*at);
+        if *at >= range.end_ms {
+            x = x.saturating_sub(wide.saturating_sub(1));
+        }
+        if x < free || x + wide > width {
+            continue;
+        }
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(x0 + x, area.y, wide, 1),
+            Line::styled(label.clone(), look.role(Role::Muted)),
+        );
+        free = x + wide + 1;
+    }
+    // Which cell each column shows: the highest count among the cells it covers.
+    let mut shown: Vec<Option<usize>> = vec![None; usize::from(width)];
+    for (index, cell) in strip.cells.iter().enumerate() {
+        let from = column(cell.start_ms).min(width - 1);
+        let to = column(cell.end_ms).max(from + 1).min(width);
+        for slot in &mut shown[usize::from(from)..usize::from(to)] {
+            if slot.is_none_or(|other| strip.cells[other].count < cell.count) {
+                *slot = Some(index);
+            }
+        }
+    }
+    let selected = strip.cells.iter().position(|cell| {
+        cell.start_ms <= snapshot.document.at_ms && snapshot.document.at_ms < cell.end_ms
+    });
+    let mut x = 0;
+    while x < width {
+        let Some(index) = shown[usize::from(x)] else {
+            x += 1;
+            continue;
+        };
+        let run = shown[usize::from(x)..]
+            .iter()
+            .take_while(|slot| **slot == Some(index))
+            .count() as u16;
+        let cell = &strip.cells[index];
+        let mark = match cell.count {
+            0 => "·".to_owned(),
+            n if n < 10 => n.to_string(),
+            _ => "+".to_owned(),
+        };
+        let fill = if strip.spans && cell.count == 0 {
+            "·"
+        } else {
+            " "
+        };
+        let body = format!("{mark}{}", fill.repeat(usize::from(run.saturating_sub(1))));
+        let role = if cell.count == 0 {
+            Role::Dim
+        } else {
+            Role::Text
+        };
+        let mut style = look.role(role);
+        if Some(index) == selected {
+            style = look.role(Role::Text).add_modifier(Modifier::BOLD);
+        }
+        let rect = Rect::new(x0 + x, area.y + 1, run, 1);
+        strip::paint_left(frame.buffer_mut(), rect, Line::styled(body, style));
+        state
+            .hits
+            .borrow_mut()
+            .push((rect, Control::At(cell.at_ms)));
+        x += run;
+    }
+    // The selected time: a marker under it, what is in effect then, and the step controls.
+    let at = snapshot.document.at_ms;
+    let marker = column(at).min(width - 1);
+    let mut controls = Vec::new();
+    for (action, preferred, label, control) in [
+        (
+            Ui::OrchestrationEarlier,
+            "[",
+            "earlier",
+            Control::PreviousTime,
+        ),
+        (Ui::OrchestrationLater, "]", "later", Control::NextTime),
+    ] {
+        if let Some(key) = super::super::keycap::key(app, action, preferred) {
+            let line = super::super::keycap::label(Some(&key), label, false, look);
+            controls.push((line, control));
+        }
+    }
+    let controls_width: u16 = controls
+        .iter()
+        .map(|(line, _)| line.width() as u16 + 3)
+        .sum();
+    let mut x = area.right().saturating_sub(controls_width);
+    let controls_fit = x > x0 + marker + 2;
+    if controls_fit {
+        for (line, control) in controls {
+            let wide = line.width() as u16;
+            let rect = Rect::new(x, area.y + 2, wide, 1);
+            strip::paint_left(frame.buffer_mut(), rect, line);
+            state.hits.borrow_mut().push((rect, control));
+            x += wide + 3;
+        }
+    }
+    let names: Vec<&str> = snapshot
+        .document
+        .timeline
+        .iter()
+        .find(|interval| interval.start_ms <= at && at < interval.end_ms)
+        .map(|interval| {
+            interval
+                .plan_ids
+                .iter()
+                .map(|id| snapshot.document.plan_name(id))
+                .collect()
+        })
+        .unwrap_or_default();
+    let label = format!(
+        "at {} · {}",
+        snapshot.clock(at),
+        if names.is_empty() {
+            "base only".to_owned()
+        } else {
+            names.join(" · ")
+        }
+    );
+    // The label sits before the marker when it fits there, else after it; it yields first.
+    let marker_x = x0 + marker;
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(marker_x, area.y + 2, 1, 1),
+        Line::styled("▲", look.role(Role::Text).add_modifier(Modifier::BOLD)),
+    );
+    let before = marker_x.saturating_sub(area.x + 1);
+    let limit = if controls_fit {
+        area.right().saturating_sub(controls_width + 1)
+    } else {
+        area.right()
+    };
+    let label = safe(&label);
+    if label.width() as u16 + 1 <= before {
+        let wide = label.width() as u16;
+        text(
+            frame,
+            app,
+            Rect::new(marker_x - 1 - wide, area.y + 2, wide, 1),
+            &label,
+            Role::Muted,
+        );
+    } else if limit > marker_x + 2 {
+        text(
+            frame,
+            app,
+            Rect::new(marker_x + 2, area.y + 2, limit - marker_x - 2, 1),
+            &label,
+            Role::Muted,
+        );
+    }
 }
 /// Range, plans and now as keycap controls, from the keys bound now; an unbound one keeps no cap.
 fn controls(app: &App) -> Vec<(Option<Control>, Vec<Span<'static>>)> {

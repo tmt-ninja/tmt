@@ -12,6 +12,8 @@ pub(in crate::board) enum Control {
     Plans,
     PreviousTime,
     NextTime,
+    /// A timeline cell: the start of the first interval inside it.
+    At(u64),
     Now,
     /// A matrix cell: sender row, recipient column.
     Cell(usize, usize),
@@ -152,6 +154,7 @@ impl App {
             Control::Range(days) => state.query.days = days,
             Control::Plans => state.plans = !state.plans,
             Control::Now => {
+                state.note = None;
                 state.follow_now = true;
                 state.query.at_ms = crate::status::now_ms();
             }
@@ -168,35 +171,12 @@ impl App {
                     .and_then(|p| p["id"].as_str().map(str::to_owned));
             }
             Control::PreviousTime | Control::NextTime => {
-                if let Some(snapshot) = state.snapshot() {
-                    let mut boundaries: Vec<_> = snapshot
-                        .document
-                        .timeline
-                        .iter()
-                        .flat_map(|interval| [interval.start_ms, interval.end_ms])
-                        .chain(
-                            snapshot
-                                .document
-                                .members
-                                .iter()
-                                .filter_map(|member| member.next_change_at_ms),
-                        )
-                        .collect();
-                    boundaries.sort_unstable();
-                    boundaries.dedup();
-                    let next = if matches!(control, Control::PreviousTime) {
-                        boundaries
-                            .into_iter()
-                            .rev()
-                            .find(|at| *at < state.query.at_ms)
-                    } else {
-                        boundaries.into_iter().find(|at| *at > state.query.at_ms)
-                    };
-                    if let Some(at) = next {
-                        state.query.at_ms = at;
-                        state.follow_now = false;
-                    }
-                }
+                state.step(matches!(control, Control::NextTime));
+            }
+            Control::At(at) => {
+                state.query.at_ms = at;
+                state.follow_now = false;
+                state.note = None;
             }
         }
         self.invalidate_frame_geometry();

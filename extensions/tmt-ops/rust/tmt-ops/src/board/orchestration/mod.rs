@@ -27,6 +27,43 @@ pub(in crate::board) struct State {
     report: Option<(Query, Arc<Snapshot>)>,
     pub failure: Option<String>,
     pub unavailable: bool,
+    /// What the last time step could not do (`no earlier change`), shown until the next step.
+    pub note: Option<String>,
+    /// A step past the held range: the one read it asked for, and what to keep if it finds nothing.
+    edge: Option<Edge>,
+}
+/// A step that reads the neighbouring range: its direction, the instant it started from and the
+/// observation to restore when that range holds no further change.
+struct Edge {
+    later: bool,
+    from_ms: u64,
+    prior: Option<(Query, Arc<Snapshot>)>,
+}
+/// Every instant where the effective policy may change: interval bounds and next changes.
+fn boundaries(snapshot: &Snapshot) -> Vec<u64> {
+    let mut at: Vec<u64> = snapshot
+        .document
+        .timeline
+        .iter()
+        .flat_map(|interval| [interval.start_ms, interval.end_ms])
+        .chain(
+            snapshot
+                .document
+                .members
+                .iter()
+                .filter_map(|member| member.next_change_at_ms),
+        )
+        .collect();
+    at.sort_unstable();
+    at.dedup();
+    at
+}
+fn beyond(boundaries: &[u64], from: u64, later: bool) -> Option<u64> {
+    if later {
+        boundaries.iter().copied().find(|at| *at > from)
+    } else {
+        boundaries.iter().copied().rev().find(|at| *at < from)
+    }
 }
 impl Default for State {
     fn default() -> Self {
@@ -41,6 +78,8 @@ impl Default for State {
             report: None,
             failure: None,
             unavailable: false,
+            note: None,
+            edge: None,
             cursor: None,
             hits: Default::default(),
             enlarge: Default::default(),
@@ -135,6 +174,9 @@ impl State {
                 self.report = Some((read.query, Arc::from(snapshot)));
                 self.failure = None;
                 self.unavailable = false;
+                if let Some(edge) = self.edge.take() {
+                    self.finish_edge(edge);
+                }
             }
             Observation::Unavailable => {
                 self.unavailable = true;
@@ -144,6 +186,60 @@ impl State {
             Observation::Failed(error) => {
                 self.failure = Some(error);
             }
+        }
+    }
+    /// `[` or `]`: the previous or next change in the held range. Past its first or last change,
+    /// one read of the neighbouring range is asked for; [`Self::finish_edge`] ends the step on it.
+    pub fn step(&mut self, later: bool) -> bool {
+        let Some(snapshot) = self.snapshot() else {
+            return false;
+        };
+        let from = self.query.at_ms;
+        let next = beyond(&boundaries(snapshot), from, later);
+        let target = if later {
+            snapshot.document.range.end_ms
+        } else {
+            snapshot.document.range.start_ms.saturating_sub(1)
+        };
+        self.note = None;
+        if let Some(at) = next {
+            self.query.at_ms = at;
+            self.follow_now = false;
+            return true;
+        }
+        if target == from {
+            return false;
+        }
+        self.edge = Some(Edge {
+            later,
+            from_ms: from,
+            prior: self.report.clone(),
+        });
+        self.query.at_ms = target;
+        self.follow_now = false;
+        true
+    }
+    /// The neighbouring range's change nearest the step's start, or, with none there, the
+    /// observation the step started from: never a second edge read.
+    fn finish_edge(&mut self, edge: Edge) {
+        let found = self
+            .snapshot()
+            .and_then(|snapshot| beyond(&boundaries(snapshot), edge.from_ms, edge.later));
+        match (found, edge.prior) {
+            (Some(at), _) => self.query.at_ms = at,
+            (None, Some((query, report))) => {
+                self.query = query.clone();
+                self.report = Some((query, report));
+                self.note = Some(
+                    if edge.later {
+                        "no later change"
+                    } else {
+                        "no earlier change"
+                    }
+                    .into(),
+                );
+            }
+            (None, None) => {}
         }
     }
     pub fn tick(&mut self, now: u64) -> bool {

@@ -173,26 +173,47 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
         wire["observedAtMs"] = at.into();
         wire["members"][0]["nextChangeAtMs"] = Value::Null;
         wire["timeline"] = timeline;
-        model::Snapshot::new(model::Overview::decode(wire).unwrap(), model::Sending::default(), true)
-            .unwrap()
+        model::Snapshot::new(
+            model::Overview::decode(wire).unwrap(),
+            model::Sending::default(),
+            true,
+        )
+        .unwrap()
     };
-    let today = || day(1000, 3000, 1000, json!([{"startMs":1000,"endMs":3000,"planIds":[]}]));
+    let today = || {
+        day(
+            1000,
+            3000,
+            1000,
+            json!([{"startMs":1000,"endMs":3000,"planIds":[]}]),
+        )
+    };
     for (earlier, lands_on, note) in [
-        (json!([{"startMs":1,"endMs":500,"planIds":[]},{"startMs":500,"endMs":1000,"planIds":[]}]), 500, None),
+        (
+            json!([{"startMs":1,"endMs":500,"planIds":[]},{"startMs":500,"endMs":1000,"planIds":[]}]),
+            500,
+            None,
+        ),
         (json!([]), 1000, Some("no earlier change")),
     ] {
-        let mut state = state();
+        let mut state = self::state();
         state.follow_now = false;
         state.apply(state.read(), Observation::Ready(Box::new(today())));
         let original = state.read();
         assert!(state.step(false), "the edge step asks for the previous day");
         assert_eq!(state.query.at_ms, 999);
         assert!(state.snapshot().is_none(), "one read is pending");
-        state.apply(state.read(), Observation::Ready(Box::new(day(1, 1000, 999, earlier))));
+        state.apply(
+            state.read(),
+            Observation::Ready(Box::new(day(1, 1000, 999, earlier))),
+        );
         assert_eq!(state.query.at_ms, lands_on);
         assert_eq!(state.note.as_deref(), note);
         if note.is_some() {
-            assert!(state.read() == original && state.snapshot().is_some(), "no further read");
+            assert!(
+                state.read() == original && state.snapshot().is_some(),
+                "no further read"
+            );
         }
     }
 }
