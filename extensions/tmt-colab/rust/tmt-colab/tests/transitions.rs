@@ -2300,6 +2300,11 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
         let mut first = true;
         let mut bytes = Vec::new();
         let mut chunks = 0;
+        let proof_bytes = update.to_bytes().unwrap();
+        let proof_hash = values::encode_binary(&update.hash().unwrap());
+        let mut proof = Vec::new();
+        let mut proof_chunks = 0;
+        let mut proof_seen = false;
         let mut done = false;
         for _ in 0..2048 {
             let frame: Value = match client.read() {
@@ -2343,30 +2348,51 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
                     );
                 }
             } else if frame["type"] == "chunk" {
-                assert_eq!(frame["index"], chunks);
+                let is_baseline =
+                    frame["envelopeHash"] == values::encode_binary(&expected.hash().unwrap());
+                let (expected_bytes, actual_bytes, index) = if is_baseline {
+                    (&saved.envelope, &mut bytes, &mut chunks)
+                } else {
+                    assert!(proof_seen);
+                    assert_eq!(frame["envelopeHash"], proof_hash);
+                    (&proof_bytes, &mut proof, &mut proof_chunks)
+                };
+                assert_eq!(frame["index"], *index);
                 assert_eq!(
                     frame["count"],
-                    saved
-                        .envelope
+                    expected_bytes
                         .len()
                         .div_ceil(tmt_colab::limits::CHUNK_BYTES)
                 );
-                assert_eq!(
-                    frame["envelopeHash"],
-                    values::encode_binary(&expected.hash().unwrap())
-                );
-                bytes.extend(
+                actual_bytes.extend(
                     values::binary(
                         frame["bytes"].as_str().unwrap(),
                         tmt_colab::limits::CHUNK_BYTES,
                     )
                     .unwrap(),
                 );
-                chunks += 1;
+                *index += 1;
             } else {
                 assert_eq!(bytes, saved.envelope); // No control frame interrupts the transfer.
+                if proof_seen {
+                    assert_eq!(proof, proof_bytes); // Nor can one interrupt the proof transfer.
+                }
                 assert!(frame.get("baselineObject").is_none());
                 assert_eq!(frame["type"], "catchup");
+                if let Some(anchor) = frame["streams"][0].get("anchor") {
+                    assert!(!proof_seen);
+                    assert_eq!(anchor["seq"], "1");
+                    assert_eq!(anchor["envelopeHash"], proof_hash);
+                    if let Some(inline) = anchor["envelope"].as_str() {
+                        proof = values::binary(inline, tmt_colab::limits::CHUNK_BYTES).unwrap();
+                    } else {
+                        assert_eq!(
+                            anchor["envelope"]["objectId"],
+                            object::Header::decode(update.header()).unwrap().object_id
+                        );
+                    }
+                    proof_seen = true;
+                }
                 if frame["more"] == false {
                     done = true;
                     break;
@@ -2374,6 +2400,8 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
             }
         }
         assert!(done);
+        assert!(proof_seen);
+        assert_eq!(proof, proof_bytes);
         assert_eq!(bytes, saved.envelope);
         assert_eq!(chunks == 0, size == 4);
         if size > 4 {

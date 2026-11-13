@@ -2288,11 +2288,21 @@ fn retained_device_and_member_wraps_are_scoped_paged_and_ordered() {
             ack(&mut peer);
             continue;
         }
-        let wraps = page["wraps"].as_array().unwrap();
-        assert!(wraps.len() <= 512);
-        assert!(page.to_string().len() <= 65536);
-        actual.extend(wraps.iter().map(|v| v.as_str().unwrap().to_owned()));
-        count += 1;
+        if let Some(wraps) = page.get("wraps") {
+            let wraps = wraps.as_array().unwrap();
+            assert!(wraps.len() <= 512);
+            assert!(page.to_string().len() <= 65536);
+            actual.extend(wraps.iter().map(|v| v.as_str().unwrap().to_owned()));
+            count += 1;
+        } else {
+            // The owner-only prior-proof phase follows the retained wrap pages.
+            assert_eq!(actual, expected);
+            assert!(page.get("chains").is_some() || page["more"] == false);
+            if let Some(chains) = page.get("chains") {
+                assert!(chains.as_array().unwrap().is_empty());
+                assert_eq!(page["more"], true);
+            }
+        }
         ack(&mut peer);
         if page["more"] == false {
             break;
