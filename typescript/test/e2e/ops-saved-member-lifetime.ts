@@ -5,6 +5,11 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import type { E2EFixture } from './harness.js';
 
+/** Teardown waits on process exit, a state. The bound only stops a hung run; a loaded runner
+ * can take seconds to reap a killed process, and that is not what the scenario tests. Four
+ * waits in a row still fit the 60 s scenario timeout. */
+const TEARDOWN_MS = 10_000;
+
 /** Owns the public-template child's lifetime before the fixture removes its stores. */
 export function savedMemberLifetime(fixture: E2EFixture, shim: string) {
   const word = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -113,7 +118,7 @@ IFS= read -r release < ${word(gate)}
           collect();
           if (boardPane && (board.length === 0 || !gone(board))) {
             fixture.tmux(['send-keys', '-t', boardPane, 'C-c']);
-            await fixture.waitFor(() => gone(board), 2_000, 'saved-member board exit');
+            await fixture.waitFor(() => gone(board), TEARDOWN_MS, 'saved-member board exit');
           }
           const pane = fixture
             .tmux(['list-panes', '-a', '-F', '#{session_name}|#{pane_id}|#{pane_pid}'])
@@ -126,7 +131,7 @@ IFS= read -r release < ${word(gate)}
           if (panePid && !record(launcherFile)) {
             await fixture.waitFor(
               () => record(launcherFile) !== undefined || gone([panePid]),
-              2_000,
+              TEARDOWN_MS,
               'partial member startup ownership'
             );
           }
@@ -136,7 +141,7 @@ IFS= read -r release < ${word(gate)}
           }
           await fixture.waitFor(
             () => gone(collect()),
-            2_000,
+            TEARDOWN_MS,
             'saved-member launcher and provider exit'
           );
         } catch (error) {
@@ -154,7 +159,7 @@ IFS= read -r release < ${word(gate)}
           }
           await fixture.waitFor(
             () => gone(collect()),
-            2_000,
+            TEARDOWN_MS,
             'failed saved-member process cleanup'
           );
           throw error;
