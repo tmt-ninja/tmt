@@ -389,6 +389,19 @@ pub fn allow_capture() {
     CAPTURE_ALLOWED.store(true, Ordering::Relaxed);
 }
 
+/// Storage templates are built only in processes that never allow capture,
+/// so a build cannot become the first consent observation.
+#[cfg(test)]
+pub(crate) fn capture_allowed() -> bool {
+    CAPTURE_ALLOWED.load(Ordering::Relaxed)
+}
+
+/// Whether the consent file was read in this process.
+#[cfg(test)]
+pub(crate) fn observers_initialized() -> bool {
+    OBSERVERS.get().is_some()
+}
+
 /// Whether a storage connection on `database` should capture lifecycle
 /// evidence. The consent file is read at most once per process.
 pub(crate) fn should_capture(database: &Path) -> bool {

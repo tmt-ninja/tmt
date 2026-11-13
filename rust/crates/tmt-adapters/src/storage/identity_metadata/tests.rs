@@ -16,16 +16,21 @@ use tmt_core::{
 
 use super::super::*;
 
+use crate::storage::template_fixture::{TemplateLease, place_migrated_database};
+
 struct Fixture {
     _directory: TestDirectory,
+    _template: TemplateLease,
     database: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
         let directory = TestDirectory::new();
+        let database = directory.path.join("state").join("tmux-team.db");
         Self {
-            database: directory.path.join("state").join("tmux-team.db"),
+            _template: place_migrated_database(&database),
+            database,
             _directory: directory,
         }
     }
