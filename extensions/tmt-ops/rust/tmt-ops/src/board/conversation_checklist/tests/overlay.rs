@@ -126,6 +126,16 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
         })]),
     );
     assert!(paint(&app).contains("asked · waiting"));
+    assert!(
+        app.conversation_finals().is_some(),
+        "Checklist keeps the existing selected-member final reader active"
+    );
+    assert!(app.finals_read().is_none(), "the unrelated result was held");
+    app.observe_cursor(Some(42));
+    assert!(
+        app.finals_read().is_some(),
+        "a changed source cursor refreshes the awaiting request's finals"
+    );
     app.apply_finals(
         finals,
         Ok(vec![serde_json::json!({
@@ -134,8 +144,21 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
         })]),
     );
     assert!(paint(&app).contains("updated 2m ago"));
+    let ask_hit = app
+        .notes_overlay
+        .as_ref()
+        .unwrap()
+        .ask_hit
+        .borrow()
+        .expect("painted ask control");
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: ask_hit.x,
+        row: ask_hit.y,
+        modifiers: KeyModifiers::NONE,
+    };
     assert!(matches!(
-        press(&mut app, KeyCode::Char('U')),
+        app.mouse(click, Instant::now()),
         Effect::Act(Request::ChecklistAsk { .. })
     ));
     app.finished_send(crate::board::conversation::outgoing::Completed {
@@ -205,6 +228,10 @@ fn authored_ctrl_l_wins_over_checklist_while_composing() {
             crate::action::Action::parse("pane-measure").unwrap(),
         );
     }
+    assert!(
+        !paint(&app).contains("U  Ask worker to update"),
+        "the authored key is not advertised for the button"
+    );
     press(&mut app, KeyCode::Char('U'));
     assert_eq!(
         app.right_tab,
@@ -418,11 +445,12 @@ fn every_row_shows_who_added_it_when_on_its_second_line() {
 }
 
 #[test]
-fn an_empty_list_has_no_header_row() {
+fn an_empty_list_shows_zero_todo_and_done_counts() {
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
     assert!(!screen.contains("STATUS"), "{screen}");
-    assert!(screen.contains("No items yet"), "{screen}");
+    assert!(screen.contains("Todo · 0"), "{screen}");
+    assert!(screen.contains("Done · 0"), "{screen}");
 }
 
 #[test]
@@ -446,29 +474,68 @@ fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
 }
 
 #[test]
-fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
-    for form in [false, true] {
-        let (mut app, key) = read_with(vec![]);
-        if form {
-            app.add_to_notes(note_seed(&app, NoteKind::Todo));
-        } else {
-            press(&mut app, KeyCode::Char('C'));
-            press(&mut app, KeyCode::Char('a'));
-        }
-        app.select(0);
-        assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
-        let screen = paint(&app);
-        let title = if form {
-            "Add to checklist · worker"
-        } else {
-            "Checklist · worker · 0 items"
-        };
-        assert!(screen.contains(title), "{screen}");
-        assert!(screen.contains("Title ›"), "{screen}");
-        assert!(screen.contains("Enter save"), "{screen}");
-        assert!(!screen.contains("Note ›"), "{screen}");
-        assert_eq!(app.notes_overlay.as_ref().unwrap().key, key);
-    }
+fn checklist_page_follows_the_selected_member_but_a_seeded_form_keeps_its_target() {
+    let (mut app, key) = read_with(vec![]);
+    app.add_to_notes(note_seed(&app, NoteKind::Todo));
+    app.select(0);
+    assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
+    assert_eq!(
+        app.notes_overlay.as_ref().unwrap().key,
+        key,
+        "seeded form keeps its target"
+    );
+
+    let mut app = crate::board::app::workspace::tests::populated_board(1, 2);
+    let members: Vec<_> = app
+        .workspace_rows()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| matches!(row.target, OpsTarget::Member { .. }).then_some(index))
+        .collect();
+    assert_eq!(members.len(), 2);
+    app.notes = State::reading();
+    app.select(members[0]);
+    let first = app.conversation_checklist_key().unwrap();
+    let now = Instant::now();
+    let task = app.notes.offer(Some(&first), now).unwrap();
+    app.finished_notes(
+        Completed {
+            key: task.key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Ok(preview(vec![todo(1)])),
+                activity: activity::Read::default(),
+            },
+        },
+        now,
+    );
+    app.open_notes();
+    assert!(paint(&app).contains("item 1"));
+    app.select(members[1]);
+    let second = app.conversation_checklist_key().unwrap();
+    assert_ne!(first, second);
+    assert_eq!(app.notes_overlay.as_ref().unwrap().key, second);
+    let task = app.notes.offer(Some(&second), now).unwrap();
+    app.finished_notes(
+        Completed {
+            key: task.key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Ok(preview(vec![todo(2)])),
+                activity: activity::Read::default(),
+            },
+        },
+        now,
+    );
+    let screen = paint(&app);
+    assert!(
+        screen.contains("item 2"),
+        "selected member's checklist: {screen}"
+    );
+    assert!(
+        !screen.contains("item 1"),
+        "previous member must not leak: {screen}"
+    );
 }
 
 #[test]

@@ -933,6 +933,57 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         .map_or(last_row, |text| {
             crate::board::notice::paint_links(frame, app, last_row, text, app.notice_clock.failed)
         });
+    if app.right_tab == crate::board::shell::RightTab::Checklist
+        && app.focused() == crate::config::Pane::Replies
+        && app
+            .notes_overlay
+            .as_ref()
+            .is_some_and(|controller| !controller.owns_typing(&app.notes))
+        && app.error.is_none()
+        && app.migration_notice.is_none()
+    {
+        let mut hints: Vec<Hint> = [
+            ("↑↓", "choose"),
+            ("⏎", "tick"),
+            ("a", "add"),
+            ("e", "edit"),
+            ("d", "delete"),
+            ("Shift+↑↓", "move"),
+        ]
+        .into_iter()
+        .map(|(key, label)| (key.into(), label.into()))
+        .collect();
+        if !app.bindings().contains_key("U")
+            && let Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) =
+                app.workspace_selected_member()
+            && let Some(member) = app
+                .workspace_snapshot()
+                .and_then(|snapshot| snapshot.roster.members.get(identity_id))
+        {
+            hints.push((
+                "U".into(),
+                format!(
+                    "ask {} to update",
+                    crate::board::notes::single_line(&member.name)
+                ),
+            ));
+        }
+        if let Some(key) = crate::board::keycap::key(app, crate::action::OpsUiAction::PaneTalk, "T")
+        {
+            hints.push((key, "talk".into()));
+        }
+        let hints = fit_hints(
+            hints,
+            vec![("Esc".into(), "back".into())],
+            usize::from(hint_area.width),
+        );
+        strip::paint_left(
+            frame.buffer_mut(),
+            hint_area,
+            paint_hints(&hints, look, Role::Muted),
+        );
+        return;
+    }
     let legend = if footer.height > 0 && app.error.is_none() && app.migration_notice.is_none() {
         agents_line(
             app,

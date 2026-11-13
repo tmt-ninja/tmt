@@ -44,6 +44,38 @@ impl Controller {
             return;
         }
         let items = self.items(&app.notes);
+        let status = if let Some(notice) = &self.notice {
+            notice.clone()
+        } else if app.notes.writing(&self.key) {
+            "Saving…".into()
+        } else if let Some(item) = self
+            .deleting()
+            .and_then(|id| items.iter().find(|row| &row.id == id))
+        {
+            format!(
+                "Delete “{}”? Enter deletes · Esc keeps it",
+                crate::board::notes::single_line(&item.title)
+            )
+        } else {
+            String::new()
+        };
+        let area = if !status.is_empty() && area.height > 1 {
+            let status_area = Rect::new(area.x, area.bottom() - 1, area.width, 1);
+            strip::paint_left(
+                frame.buffer_mut(),
+                status_area,
+                Line::styled(
+                    crate::board::view::fit(&status, usize::from(status_area.width)),
+                    look.role(Role::Waiting),
+                ),
+            );
+            Rect {
+                height: area.height - 1,
+                ..area
+            }
+        } else {
+            area
+        };
         let todo = items.iter().filter(|item| !item.completed).count();
         let done = items.len().saturating_sub(todo);
         let mut visual = vec![Visual::Heading("Todo", todo)];
@@ -118,6 +150,11 @@ impl Controller {
                     } else {
                         String::new()
                     };
+                    let note = if app.bindings().contains_key("U") {
+                        note.strip_prefix("U  ").unwrap_or(&note).to_owned()
+                    } else {
+                        note
+                    };
                     let note = Line::styled(note, look.role(Role::Muted));
                     if !note.spans.is_empty() {
                         *self.ask_hit.borrow_mut() =
@@ -141,10 +178,14 @@ impl Controller {
                         String::new()
                     };
                     let title_width = available.saturating_sub(byline.width());
-                    let title = crate::board::view::fit(
-                        &crate::board::notes::single_line(&item.title),
-                        title_width,
-                    );
+                    let safe_title = crate::board::notes::single_line(&item.title);
+                    let title = crate::board::view::fit(&safe_title, title_width);
+                    let gap = if byline.is_empty() {
+                        String::new()
+                    } else {
+                        " ".repeat(title_width.saturating_sub(title.width()))
+                    };
+                    let title_x = rect.x.saturating_add(prefix.width() as u16);
                     let style = look.role(if item.completed {
                         Role::Dim
                     } else {
@@ -156,9 +197,42 @@ impl Controller {
                         Line::from(vec![
                             Span::styled(prefix, style),
                             Span::styled(title, style),
+                            Span::raw(gap),
                             Span::styled(byline, look.role(Role::Muted)),
                         ]),
                     );
+                    for (index, range) in crate::board::member_links::bare_urls(&safe_title)
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let start = safe_title[..range.start].width();
+                        let end = start + safe_title[range.clone()].width();
+                        if end > title_width {
+                            continue;
+                        }
+                        let url = safe_title[range].to_owned();
+                        let hovered = self.hovered.borrow().as_ref()
+                            == Some(&(item.id.as_str().to_owned(), index + 1));
+                        for cell in start..end {
+                            let x = title_x.saturating_add(cell as u16);
+                            if x >= rect.right() {
+                                break;
+                            }
+                            let hit = Rect::new(x, rect.y, 1, 1);
+                            link_hits.push(super::surface::LinkHit {
+                                area: hit,
+                                row: item.id.as_str().into(),
+                                link: index + 1,
+                                url: url.clone(),
+                            });
+                            if hovered {
+                                frame.buffer_mut()[(x, rect.y)].set_style(
+                                    look.selection()
+                                        .add_modifier(ratatui::style::Modifier::UNDERLINED),
+                                );
+                            }
+                        }
+                    }
                     geometry.push(RowGeometry {
                         id: item.id.as_str().into(),
                         lines: index..index + 1 + usize::from(item.reference.is_some()),
@@ -188,12 +262,23 @@ impl Controller {
                                 .min(text.width().saturating_sub(5) as u16),
                             1,
                         );
-                        link_hits.push(super::surface::LinkHit {
-                            area: link_area,
-                            row: item.id.as_str().into(),
-                            link: 0,
-                            url: url.clone(),
-                        });
+                        let hovered = selected.as_deref() == Some(item.id.as_str())
+                            || self.hovered.borrow().as_ref()
+                                == Some(&(item.id.as_str().to_owned(), 0));
+                        for x in link_area.left()..link_area.right() {
+                            link_hits.push(super::surface::LinkHit {
+                                area: Rect::new(x, link_area.y, 1, 1),
+                                row: item.id.as_str().into(),
+                                link: 0,
+                                url: url.clone(),
+                            });
+                            if hovered {
+                                frame.buffer_mut()[(x, link_area.y)].set_style(
+                                    look.selection()
+                                        .add_modifier(ratatui::style::Modifier::UNDERLINED),
+                                );
+                            }
+                        }
                         hits.push(Hit {
                             rect: link_area,
                             id: vec!["link".into()],

@@ -4722,7 +4722,8 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
-        let notes_changed = self.overlay() == Some(Overlay::Notes)
+        let notes_changed = (self.overlay() == Some(Overlay::Notes)
+            || self.right_tab == super::shell::RightTab::Checklist)
             && self
                 .notes_overlay
                 .as_ref()
