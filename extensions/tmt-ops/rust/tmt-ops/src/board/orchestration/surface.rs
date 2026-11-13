@@ -1,19 +1,24 @@
-//! Held Orchestration facts through the shared Strip, button and row styles.
+//! Held Orchestration facts through the shared rule, key/value, empty-state and row styles.
 use super::{
     super::app::App,
     input::Control,
-    model::{Receiving, RouteSource, Snapshot, Verdict},
+    model::{Member, Receiving, RouteSource, Snapshot, Source, Verdict},
 };
+use crate::{action::OpsUiAction as Ui, look::Look};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
-    text::Line,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::{Line, Span},
 };
 use tmt_cli_style::{
     Role,
     grid::{self, Align, Truncate},
 };
-use tmt_tui::components::strip;
+use tmt_tui::components::{
+    design_system::{MoreDirection, MoreHint},
+    strip,
+};
 fn safe(text: &str) -> String {
     super::super::workspace::render::safe(text)
 }
@@ -28,6 +33,27 @@ fn text(frame: &mut Frame, app: &App, area: Rect, value: &str, role: Role) {
             // A cut line ends with an ellipsis, never mid-word without one.
             Line::styled(cell(value, usize::from(area.width)), app.look().role(role)),
         );
+    }
+}
+fn line(area: Rect, y: u16) -> Rect {
+    Rect::new(area.x, y, area.width, u16::from(y < area.bottom()))
+}
+/// A member state as its mark, word and role: the one place these colours are chosen.
+fn state_mark(state: &str) -> (&'static str, &'static str, Role) {
+    match state {
+        "awake" => ("●", "Awake", Role::Working),
+        "low" => ("◐", "Low", Role::Text),
+        "focus" => ("◑", "Focus", Role::Text),
+        _ => ("◌", "Sleep", Role::Muted),
+    }
+}
+/// The selected matrix cell: the conversation tint (reverse without colours) under the cell's own
+/// foreground, bold, so it stands out of its selected row in every look.
+fn crosshair(look: Look, value: Style) -> Style {
+    let style = look.conversation().add_modifier(Modifier::BOLD);
+    match value.fg {
+        Some(fg) if style.bg.is_some() => style.fg(fg),
+        _ => style,
     }
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -47,269 +73,463 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     let state = &app.orchestration;
     let look = app.look();
-    let row = |y, height| Rect::new(area.x + 1, area.y + y, area.width.saturating_sub(2), height);
-    let choices = [
-        ("Day", Control::Range(1)),
-        ("7 days", Control::Range(7)),
-        ("30 days", Control::Range(30)),
-        ("Plans", Control::Plans),
-        ("Now", Control::Now),
-    ];
-    let buttons: Vec<_> = choices
-        .iter()
-        .map(|(label, _)| tmt_tui::components::Button::secondary(label))
-        .collect();
-    let hits = super::super::buttons::paint(
-        app,
-        frame.buffer_mut(),
-        row(0, 1),
-        &buttons,
-        Align::Left,
-        None,
-    );
-    for ((_, control), hit) in choices.into_iter().zip(hits) {
-        if let Some(rect) = hit {
-            state.hits.borrow_mut().push((rect, control));
-        }
-    }
-    // What Core reports is said only once Core has answered.
-    if let Some(snapshot) = state.snapshot() {
-        text(
-            frame,
-            app,
-            row(1, 1),
-            if snapshot.sending.routes.is_some() {
-                "From ↓ To → · who may message whom at the selected time"
-            } else {
-                "Member policies at selected time · routes are not available on this Core"
-            },
-            Role::Muted,
-        );
-    }
-    if state.unavailable {
-        text(
-            frame,
-            app,
-            row(3, 1),
-            "Orchestration is not available in this Core. Update Core to use this tab.",
-            Role::Waiting,
-        );
-        return;
-    }
-    let Some(snapshot) = state.snapshot() else {
-        text(
-            frame,
-            app,
-            row(3, 1),
-            state.failure.as_deref().unwrap_or("Loading Orchestration…"),
-            if state.failure.is_some() {
-                Role::Blocked
-            } else {
-                Role::Waiting
-            },
-        );
-        return;
-    };
-    text(
-        frame,
-        app,
-        row(2, 1),
-        &format!(
-            "{} · {} · {} · revision {}",
-            snapshot.time(snapshot.document.at_ms),
-            snapshot.document.time_zone,
-            if state.follow_now {
-                "following now"
-            } else {
-                "selected time"
-            },
-            snapshot.document.configuration_revision
-        ),
-        Role::Text,
-    );
-    let warning = state.failure.as_ref().map(|e| {
-        format!(
-            "Refresh failed · {e} · showing {}",
-            snapshot.time(snapshot.document.observed_at_ms)
+    header(frame, app, Rect::new(area.x + 1, area.y, area.width - 2, 1));
+    // One blank row parts the header from the sections where the height allows.
+    let gap = u16::from(area.height >= 12);
+    let body = Rect::new(area.x, area.y + 1 + gap, area.width, area.height - 1 - gap);
+    let (left, right) = if area.width >= 110 {
+        let width = body.width * 47 / 100;
+        (
+            Rect { width, ..body },
+            Rect::new(
+                body.x + width + 1,
+                body.y,
+                body.width - width - 1,
+                body.height,
+            ),
         )
+    } else {
+        (body, Rect::default())
+    };
+    let snapshot = state.snapshot();
+    let title = match snapshot {
+        Some(_) if state.plans => {
+            format!("Plans · {}", snapshot.map_or(0, |s| s.document.plans.len()))
+        }
+        Some(s) if s.sending.routes.is_some() => {
+            format!("Who may message whom · at {}", s.short(s.document.at_ms))
+        }
+        Some(s) => format!("Members · at {}", s.short(s.document.at_ms)),
+        None => "Who may message whom".into(),
+    };
+    let rule = line(left, left.y);
+    super::super::section_rule::paint(
+        frame.buffer_mut(),
+        rule,
+        &title,
+        Line::default(),
+        true,
+        look,
+    );
+    let list = Rect::new(left.x, left.y + 1, left.width, left.height - 1);
+    if !right.is_empty() {
+        super::super::divider::paint(
+            frame.buffer_mut(),
+            Rect::new(left.right(), body.y, 1, body.height),
+            true,
+            look,
+        );
+    }
+    match snapshot {
+        _ if state.unavailable => empty(
+            frame,
+            app,
+            list,
+            "Orchestration is not available in this Core. Update Core to use this tab.",
+            None,
+        ),
+        None => match &state.failure {
+            Some(reason) => {
+                empty(
+                    frame,
+                    app,
+                    list,
+                    &format!("✕ Could not read Orchestration · {reason}"),
+                    None,
+                );
+                frame.buffer_mut()[(list.x + 1, list.y)].set_style(look.role(Role::Blocked));
+                let retry = super::super::view::footer::effective_key(
+                    app,
+                    &app.workspace_bindings(),
+                    crate::action::Verb::Refresh,
+                    "ctrl-r",
+                )
+                .map(|key| super::super::view::footer::key_label(&key).to_owned());
+                if let Some(key) = retry
+                    && list.height > 2
+                {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(list.x + 1, list.y + 2, list.width.saturating_sub(2), 1),
+                        super::super::keycap::label(Some(&key), "Retry", false, look),
+                    );
+                }
+            }
+            None => empty(frame, app, list, "◌ Loading Orchestration…", None),
+        },
+        Some(snapshot) if state.plans => plans(frame, app, snapshot, list),
+        Some(snapshot) => {
+            let talks = snapshot.sending.talks.as_ref().map_or(0, |pairs| {
+                // Rule, column header and one row per pair (or the empty line).
+                2 + pairs.len().max(1) as u16
+            });
+            let gap = u16::from(talks > 0 && list.height >= 12);
+            let members = snapshot.document.members.len() as u16;
+            let room = list.height.saturating_sub(talks + gap);
+            let own = if snapshot.sending.routes.is_some() {
+                // Column names, one row per sender and the legend.
+                (members + 2).min(room.max(3.min(list.height)))
+            } else {
+                (members + 1).min(room.max(2.min(list.height)))
+            };
+            let top = Rect {
+                height: own,
+                ..list
+            };
+            if snapshot.sending.routes.is_some() {
+                matrix(frame, app, snapshot, top);
+            } else {
+                table(frame, app, snapshot, top);
+            }
+            let rest = Rect::new(
+                list.x,
+                top.bottom() + gap,
+                list.width,
+                list.bottom().saturating_sub(top.bottom() + gap),
+            );
+            if talks > 0 && !rest.is_empty() {
+                talk_rows(frame, app, snapshot, rest);
+            }
+        }
+    }
+    super::super::pane_chrome::mark_focused_rule(frame.buffer_mut(), app, Some(rule), None);
+    if !right.is_empty() {
+        inspector(frame, app, snapshot.filter(|_| !state.unavailable), right);
+    }
+}
+fn empty(frame: &mut Frame, app: &App, area: Rect, message: &str, action: Option<(&str, &str)>) {
+    if area.height > 0 {
+        super::super::empty_state::paint(
+            frame.buffer_mut(),
+            Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+            message,
+            action,
+            app.look(),
+        );
+    }
+}
+/// The tab's one header line: where and when on the left, the bound controls on the right. When
+/// both do not fit, the status uses its short words, then the controls give way.
+fn header(frame: &mut Frame, app: &App, area: Rect) {
+    let controls = if app.orchestration.snapshot().is_some() {
+        controls(app)
+    } else {
+        Vec::new()
+    };
+    let controls_width: usize = controls
+        .iter()
+        .map(|(_, spans)| spans.iter().map(Span::width).sum::<usize>())
+        .sum();
+    let room = usize::from(area.width);
+    let full = Line::from(status(app, false));
+    let short = Line::from(status(app, true));
+    let fits = |line: &Line| line.width() + 2 + controls_width <= room;
+    let (status, width) = if fits(&full) {
+        (full, controls_width as u16)
+    } else if fits(&short) {
+        (short, controls_width as u16)
+    } else {
+        (full, 0)
+    };
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect {
+            width: area.width - width,
+            ..area
+        },
+        status,
+    );
+    if width == 0 {
+        return;
+    }
+    let mut x = area.right() - width;
+    for (control, spans) in controls {
+        let wide = spans.iter().map(Span::width).sum::<usize>() as u16;
+        let rect = Rect::new(x, area.y, wide, 1);
+        strip::paint_left(frame.buffer_mut(), rect, Line::from(spans));
+        if let Some(control) = control {
+            app.orchestration.hits.borrow_mut().push((rect, control));
+        }
+        x += wide;
+    }
+}
+fn status(app: &App, short: bool) -> Vec<Span<'static>> {
+    let state = &app.orchestration;
+    let look = app.look();
+    let mut status = vec![Span::styled("Orchestration", look.role(Role::Text))];
+    let mut part = |spans: Vec<Span<'static>>| {
+        status.push(Span::styled(" · ", look.role(Role::Muted)));
+        status.extend(spans);
+    };
+    let Some(snapshot) = state.snapshot() else {
+        part(vec![Span::styled(
+            if state.unavailable || state.failure.is_some() {
+                "not read"
+            } else {
+                "reading…"
+            },
+            look.role(Role::Muted),
+        )]);
+        return status;
+    };
+    let document = &snapshot.document;
+    part(vec![Span::styled(
+        format!(
+            "{} {}",
+            snapshot.short(document.at_ms),
+            safe(&document.time_zone)
+        ),
+        look.role(Role::Text),
+    )]);
+    part(if state.follow_now {
+        vec![
+            Span::styled("● ", look.role(Role::Working)),
+            Span::styled(
+                if short { "now" } else { "following now" },
+                look.role(Role::Text),
+            ),
+        ]
+    } else {
+        vec![Span::styled("selected time", look.role(Role::Muted))]
     });
+    // Plans in effect at the selected time, never across the whole range.
+    let active = document
+        .timeline
+        .iter()
+        .find(|i| i.start_ms <= document.at_ms && document.at_ms < i.end_ms)
+        .map_or(0, |i| i.plan_ids.len());
+    part(vec![Span::styled(
+        match (active, short) {
+            (0, _) => "Base only".to_owned(),
+            (1, false) => "1 plan in effect".to_owned(),
+            (1, true) => "1 plan".to_owned(),
+            (n, false) => format!("{n} plans in effect"),
+            (n, true) => format!("{n} plans"),
+        },
+        look.role(Role::Text),
+    )]);
+    if let Some(reason) = &state.failure {
+        part(vec![Span::styled(
+            format!(
+                "◆ Refresh failed · {} · showing {}",
+                safe(reason),
+                snapshot.short(document.observed_at_ms)
+            ),
+            look.role(Role::Waiting),
+        )]);
+    }
+    status
+}
+/// Range, plans and now as keycap controls, from the keys bound now; an unbound one keeps no cap.
+fn controls(app: &App) -> Vec<(Option<Control>, Vec<Span<'static>>)> {
+    let state = &app.orchestration;
+    let look = app.look();
+    let gap = || (None, vec![Span::raw("   ")]);
+    let control = |action: Ui, preferred: &str, label: &str, on: bool, control: Control| {
+        let mut spans = Vec::new();
+        if let Some(key) = super::super::keycap::key(app, action, preferred) {
+            spans.push(super::super::keycap::span(&key, on, look));
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(
+            label.to_owned(),
+            look.role(if on { Role::Text } else { Role::Muted }),
+        ));
+        spans.push(Span::raw(" "));
+        (Some(control), spans)
+    };
+    let mut row = vec![(None, vec![Span::styled("Range ", look.role(Role::Muted))])];
+    for (action, preferred, days, label) in [
+        (Ui::OrchestrationDay, "d", 1, "1d"),
+        (Ui::OrchestrationWeek, "7", 7, "7d"),
+        (Ui::OrchestrationMonth, "0", 30, "30d"),
+    ] {
+        row.push(control(
+            action,
+            preferred,
+            label,
+            state.query.days == days,
+            Control::Range(days),
+        ));
+    }
+    row.push(gap());
+    row.push(control(
+        Ui::OrchestrationPlans,
+        "P",
+        "Plans",
+        state.plans,
+        Control::Plans,
+    ));
+    if !state.follow_now {
+        row.push(gap());
+        row.push(control(
+            Ui::OrchestrationNow,
+            "N",
+            "Now",
+            false,
+            Control::Now,
+        ));
+    }
+    row
+}
+fn plans(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let state = &app.orchestration;
+    let look = app.look();
+    let plans = &snapshot.document.plans;
+    if plans.is_empty() {
+        empty(frame, app, area, "Base only · no plans yet", None);
+        for (offset, (label, command)) in [
+            ("Preview a plan:", "tmt orch preview --file plan.json"),
+            ("Then save it:", "tmt orch plan add --file plan.json"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let row = line(area, area.y + 1 + offset as u16);
+            if row.height > 0 {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(row.x + 1, row.y, row.width.saturating_sub(2), 1),
+                    Line::from(vec![
+                        Span::styled(format!("{label:<17}"), look.role(Role::Muted)),
+                        Span::styled(command, look.role(Role::Text)),
+                    ]),
+                );
+            }
+        }
+        return;
+    }
+    let selected = plans
+        .iter()
+        .position(|p| p["id"].as_str() == state.plan_selection.as_deref())
+        .unwrap_or(0);
+    let rows = usize::from(area.height);
+    let start = selected.saturating_sub(rows / 2);
+    for (index, plan) in plans.iter().enumerate().skip(start).take(rows) {
+        let chosen = index == selected;
+        let enabled = plan["enabled"].as_bool() == Some(true);
+        let row = Rect::new(area.x, area.y + (index - start) as u16, area.width, 1);
+        let name = cell(plan["name"].as_str().unwrap_or("?"), 24);
+        strip::paint_left(
+            frame.buffer_mut(),
+            row,
+            Line::from(vec![
+                Span::styled(" ", look.selected(chosen, look.role(Role::Text))),
+                Span::styled(
+                    if enabled { "● " } else { "○ " },
+                    look.selected(
+                        chosen,
+                        look.role(if enabled { Role::Working } else { Role::Muted }),
+                    ),
+                ),
+                Span::styled(
+                    format!("{name} "),
+                    look.selected(chosen, look.role(Role::Text)),
+                ),
+                Span::styled(
+                    cell(
+                        &format!(
+                            "{} · priority {}",
+                            if enabled { "on" } else { "off" },
+                            plan["priority"]
+                        ),
+                        usize::from(area.width).saturating_sub(28),
+                    ),
+                    look.selected(chosen, look.role(Role::Muted)),
+                ),
+            ]),
+        );
+        if chosen {
+            app.workspace_state_cells
+                .borrow_mut()
+                .push(Rect::new(row.x + 1, row.y, 1, 1));
+        }
+        state.hits.borrow_mut().push((row, Control::Plan(index)));
+    }
+}
+/// The member table of a Core without the routes view: one row per member, state in its role.
+fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let state = &app.orchestration;
+    let look = app.look();
+    let wide = area.width >= 70;
     text(
         frame,
         app,
-        row(3, 1),
-        &warning.unwrap_or_else(|| {
-            let active = snapshot.document.timeline.iter().find(|i| {
-                i.start_ms <= snapshot.document.at_ms && snapshot.document.at_ms < i.end_ms
-            });
-            active
-                .map(|i| {
-                    format!(
-                        "{} → {} · {} active plans",
-                        snapshot.time(i.start_ms),
-                        snapshot.time(i.end_ms),
-                        i.plan_ids.len()
-                    )
-                })
-                .unwrap_or_else(|| "Base only · no active plan interval".into())
-        }),
-        if state.failure.is_some() {
-            Role::Waiting
+        line(area, area.y),
+        if wide {
+            " MEMBER            STATE     RECEIVING       SENDING   ROUTINE"
         } else {
-            Role::Muted
+            " MEMBER            STATE     RECEIVING"
         },
+        Role::Muted,
     );
-    let content = Rect::new(
-        area.x + 1,
-        area.y + 5,
-        area.width.saturating_sub(2),
-        area.height.saturating_sub(5),
-    );
-    let [table, detail] = if area.width >= 110 {
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(content)
-    } else {
-        [content, Rect::default()]
-    };
-    if state.plans {
-        text(
+    let members = &snapshot.document.members;
+    if members.is_empty() {
+        empty(
             frame,
             app,
-            table,
-            "Plans · higher priority wins per configured field",
-            Role::Muted,
+            Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1),
+            ),
+            "No members match this query",
+            None,
         );
-        if snapshot.document.plans.is_empty() {
-            text(
-                frame,
-                app,
-                Rect {
-                    y: table.y + 1,
-                    height: table.height.saturating_sub(1),
-                    ..table
-                },
-                "Base only · no configured plans",
-                Role::Text,
-            );
-        }
-        let selected = snapshot
-            .document
-            .plans
-            .iter()
-            .position(|p| p["id"].as_str() == state.plan_selection.as_deref())
-            .unwrap_or(0);
-        let start = selected.saturating_sub(usize::from(table.height.saturating_sub(2)) / 2);
-        for (index, plan) in snapshot
-            .document
-            .plans
-            .iter()
-            .enumerate()
-            .skip(start)
-            .take(usize::from(table.height.saturating_sub(2)))
-        {
-            let y = table.y + 1 + (index - start) as u16;
-            let label = format!(
-                "{} {} · priority {} · revision {}",
-                if plan["enabled"].as_bool() == Some(true) {
-                    "●"
-                } else {
-                    "○"
-                },
-                plan["name"].as_str().unwrap_or("?"),
-                plan["priority"],
-                plan["revision"]
-            );
-            let style = look.row_span(index == selected, look.role(Role::Text), false);
-            let area = Rect::new(table.x, y, table.width.saturating_sub(1), 1);
-            strip::paint_left(
-                frame.buffer_mut(),
-                area,
-                Line::styled(cell(&label, usize::from(area.width)), style),
-            );
-            state.hits.borrow_mut().push((area, Control::Plan(index)));
-        }
-    } else if snapshot.sending.routes.is_some() {
-        matrix(frame, app, snapshot, table);
-    } else {
-        text(
-            frame,
-            app,
-            table,
-            if table.width >= 70 {
-                "MEMBER            STATE   RECEIVING       SENDING   ROUTINE"
-            } else {
-                "MEMBER            STATE   RECEIVING"
-            },
-            Role::Muted,
-        );
-        let selected = snapshot
-            .document
-            .members
-            .iter()
-            .position(|member| Some(&member.identity_id) == state.selected.as_ref())
-            .unwrap_or(0);
-        let start = selected.saturating_sub(usize::from(table.height.saturating_sub(2)) / 2);
-        if snapshot.document.members.is_empty() {
-            text(
-                frame,
-                app,
-                Rect {
-                    y: table.y + 1,
-                    height: 1,
-                    ..table
-                },
-                "No members match this query",
-                Role::Muted,
-            );
-        }
-        for (index, member) in snapshot
-            .document
-            .members
-            .iter()
-            .enumerate()
-            .skip(start)
-            .take(usize::from(table.height.saturating_sub(2)))
-        {
-            let receiving = member
-                .effective
-                .receiving
-                .value
-                .as_ref()
-                .map(|r| r.label())
-                .unwrap_or_else(|| "unavailable".into());
-            let mut value = format!(
-                "{} {} {}",
-                cell(&member.name, 17),
-                cell(&member.effective.state.value, 7),
-                cell(&receiving, 15)
-            );
-            if table.width >= 70 {
-                value.push_str(&format!(
+        return;
+    }
+    let selected = members
+        .iter()
+        .position(|member| Some(&member.identity_id) == state.selected.as_ref())
+        .unwrap_or(0);
+    let rows = usize::from(area.height.saturating_sub(1));
+    let start = selected.saturating_sub(rows / 2);
+    for (index, member) in members.iter().enumerate().skip(start).take(rows) {
+        let chosen = index == selected;
+        let row = Rect::new(area.x, area.y + 1 + (index - start) as u16, area.width, 1);
+        let (mark, word, role) = state_mark(&member.effective.state.value);
+        let base = look.selected(chosen, look.role(Role::Text));
+        let mut spans = vec![
+            Span::styled(format!(" {} ", cell(&member.name, 17)), base),
+            Span::styled(
+                cell(&format!("{mark} {word}"), 9),
+                look.selected(chosen, look.role(role)),
+            ),
+            Span::styled(format!(" {}", cell(&receiving_label(member), 15)), base),
+        ];
+        if wide {
+            spans.push(Span::styled(
+                format!(
                     " {} {}",
-                    cell(&member.effective.sending.value, 9),
+                    cell(sending_word(&member.effective.sending.value), 9),
                     member.effective.routine.value
-                ));
-            }
-            let area = Rect::new(
-                table.x,
-                table.y + 1 + (index - start) as u16,
-                table.width.saturating_sub(1),
-                1,
-            );
-            let style = look.row_span(index == selected, look.role(Role::Text), false);
-            strip::paint_left(frame.buffer_mut(), area, Line::styled(value, style));
-            state.hits.borrow_mut().push((area, Control::Member(index)));
+                ),
+                base,
+            ));
         }
+        strip::paint_left(frame.buffer_mut(), row, Line::from(spans));
+        if chosen {
+            app.workspace_state_cells
+                .borrow_mut()
+                .push(Rect::new(row.x + 19, row.y, 9, 1));
+        }
+        state.hits.borrow_mut().push((row, Control::Member(index)));
     }
-    if table.height > 1 {
-        text(
-            frame,
-            app,
-            Rect::new(table.x, table.bottom() - 1, table.width, 1),
-            "Jobs · not available yet",
-            Role::Muted,
-        );
-    }
-    if !detail.is_empty() {
-        inspector(frame, app, snapshot, detail);
+}
+fn receiving_label(member: &Member) -> String {
+    member
+        .effective
+        .receiving
+        .value
+        .as_ref()
+        .map(|r| r.label())
+        .unwrap_or_else(|| "unavailable".into())
+}
+fn sending_word(value: &str) -> &str {
+    match value {
+        "leads" => "leads only",
+        other => other,
     }
 }
 /// The short cell word for a recipient's receiving: what a message to it does now.
@@ -323,21 +543,22 @@ fn receiving_cell(receiving: Option<&Receiving>) -> String {
         Some(batch @ Receiving::Batch { .. }) => batch.label().replace("batch ", "B"),
     }
 }
-const NAME_WIDTH: u16 = 14;
+const NAME_WIDTH: u16 = 15;
 const CELL_WIDTH: u16 = 9;
-/// The route matrix: one row per sender, one column per recipient, crosshair on the
-/// selection. Every cell is Core's verdict (`✕` blocked, `◆` needs a person) or, when
-/// allowed, the recipient's receiving. Nothing is inferred here.
+/// The route matrix: one row per sender, one column per recipient. The selected sender's row
+/// carries the selection, the selected route the crosshair and its recipient a bold name. Every
+/// cell is Core's verdict (`✕` blocked, `◆` needs a person) or, when allowed, the recipient's
+/// receiving. Nothing is inferred here.
 fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let state = &app.orchestration;
     let look = app.look();
     let members = &snapshot.document.members;
     let sending = &snapshot.sending;
-    // Header, legend, talks and jobs lines take four rows.
-    let rows = usize::from(area.height.saturating_sub(4));
-    let columns = usize::from(area.width.saturating_sub(NAME_WIDTH) / CELL_WIDTH);
+    // Column names and the legend take two rows.
+    let rows = usize::from(area.height.saturating_sub(2));
+    let columns = usize::from(area.width.saturating_sub(NAME_WIDTH + 1) / CELL_WIDTH);
     if members.is_empty() || rows == 0 || columns == 0 {
-        text(frame, app, area, "No members match this query", Role::Muted);
+        empty(frame, app, area, "No members match this query", None);
         return;
     }
     let index = |id: &Option<String>| {
@@ -349,147 +570,286 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let (row, column) = (index(&state.selected), index(&state.target));
     let first_row = row.saturating_sub(rows.saturating_sub(1));
     let first_column = column.saturating_sub(columns.saturating_sub(1));
-    let line = |y: u16| Rect::new(area.x, area.y + y, area.width, 1);
-    let mut header = cell("From ↓ To →", usize::from(NAME_WIDTH));
-    for to in members.iter().skip(first_column).take(columns) {
-        header.push_str(&cell(&to.name, usize::from(CELL_WIDTH)));
+    let mut header = vec![Span::styled(
+        format!(" {}", cell("From ↓ To →", usize::from(NAME_WIDTH - 1))),
+        look.role(Role::Muted),
+    )];
+    for (c, to) in members.iter().enumerate().skip(first_column).take(columns) {
+        header.push(Span::styled(
+            format!("{} ", cell(&to.name, usize::from(CELL_WIDTH - 1))),
+            if c == column {
+                look.role(Role::Text).add_modifier(Modifier::BOLD)
+            } else {
+                look.role(Role::Muted)
+            },
+        ));
     }
-    text(frame, app, line(0), &header, Role::Muted);
-    for (r, from) in members.iter().enumerate().skip(first_row).take(rows) {
-        let y = area.y + 1 + (r - first_row) as u16;
+    strip::paint_left(frame.buffer_mut(), line(area, area.y), Line::from(header));
+    let shown = members.iter().enumerate().skip(first_row).take(rows);
+    let mut y = area.y + 1;
+    for (r, from) in shown {
+        let selected = r == row;
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(area.x, y, NAME_WIDTH, 1),
+            Rect::new(area.x, y, area.width, 1),
             Line::styled(
-                cell(&from.name, usize::from(NAME_WIDTH)),
-                look.row_span(r == row, look.role(Role::Text), false),
+                format!(" {} ", cell(&from.name, usize::from(NAME_WIDTH - 2))),
+                look.selected(selected, look.role(Role::Text)),
             ),
         );
         for (c, to) in members.iter().enumerate().skip(first_column).take(columns) {
-            let word = if r == c {
-                "—".to_owned()
+            let (word, role) = if r == c {
+                ("—".to_owned(), Role::Dim)
             } else {
                 match sending.route(&from.identity_id, &to.identity_id) {
-                    None => "·".into(),
+                    None => ("·".into(), Role::Dim),
                     Some(route) => match route.verdict {
-                        Verdict::Blocked => "✕".into(),
-                        Verdict::NeedsPerson => "◆".into(),
-                        Verdict::Allowed => receiving_cell(to.effective.receiving.value.as_ref()),
+                        Verdict::Blocked => ("✕".into(), Role::Blocked),
+                        Verdict::NeedsPerson => ("◆".into(), Role::Waiting),
+                        Verdict::Allowed => (
+                            receiving_cell(to.effective.receiving.value.as_ref()),
+                            Role::Text,
+                        ),
                     },
                 }
             };
             let x = area.x + NAME_WIDTH + ((c - first_column) as u16) * CELL_WIDTH;
             let rect = Rect::new(x, y, CELL_WIDTH, 1);
+            let style = if selected && c == column {
+                crosshair(look, look.role(role))
+            } else {
+                look.selected(selected, look.role(role))
+            };
             strip::paint_left(
                 frame.buffer_mut(),
                 rect,
-                Line::styled(
-                    cell(&word, usize::from(CELL_WIDTH)),
-                    look.row_span(r == row && c == column, look.role(Role::Text), false),
-                ),
+                Line::styled(cell(&word, usize::from(CELL_WIDTH)), style),
             );
+            if selected && matches!(role, Role::Blocked | Role::Waiting) {
+                // A verdict keeps its colour on the selection: the frame pass's state-cell contract.
+                app.workspace_state_cells
+                    .borrow_mut()
+                    .push(Rect::new(x, y, 1, 1));
+            }
             state.hits.borrow_mut().push((rect, Control::Cell(r, c)));
         }
+        y += 1;
     }
     let hidden_rows = members.len().saturating_sub(first_row + rows);
     let hidden_columns = members.len().saturating_sub(first_column + columns);
     let mut legend =
         String::from("Dir direct · B batch · Urg urgent · ✕ sender rule · ◆ needs a person");
-    if hidden_rows + hidden_columns > 0 || sending.truncated {
-        legend = format!(
-            "{} · {} · {legend}",
-            tmt_tui::components::design_system::MoreHint::label(
-                hidden_rows as u64,
-                tmt_tui::components::design_system::MoreDirection::Down,
-                false
-            ),
-            tmt_tui::components::design_system::MoreHint::label(
-                hidden_columns as u64,
-                tmt_tui::components::design_system::MoreDirection::Right,
-                false
-            )
-        );
+    for (hidden, direction) in [
+        (hidden_columns, MoreDirection::Right),
+        (hidden_rows, MoreDirection::Down),
+    ] {
+        if hidden > 0 {
+            legend = format!(
+                "{} · {legend}",
+                MoreHint::label(hidden as u64, direction, false)
+            );
+        }
     }
     if sending.truncated {
         legend = format!("Too many members for one matrix; filter with / · {legend}");
     }
-    text(frame, app, line(area.height - 3), &legend, Role::Muted);
-    let talks = match &sending.talks {
-        None => "Talks this hour · not available on this Core".to_owned(),
-        Some(pairs) if pairs.is_empty() => "Talks this hour · none".to_owned(),
-        Some(pairs) => {
-            let shown: Vec<_> = pairs
-                .iter()
-                .map(|p| {
-                    let limit = p.limit.map_or_else(|| "—".to_owned(), |l| l.to_string());
-                    format!(
-                        "{} ⇄ {} {}/{}{}",
-                        p.names.0,
-                        p.names.1,
-                        p.count,
-                        limit,
-                        if p.held { " ◆ held" } else { "" }
-                    )
-                })
-                .collect();
-            format!("Talks this hour · {}", shown.join("   "))
-        }
-    };
-    text(frame, app, line(area.height - 2), &talks, Role::Text);
+    // The legend sits directly under the last sender row.
+    text(
+        frame,
+        app,
+        line(area, y),
+        &format!(" {legend}"),
+        Role::Muted,
+    );
 }
-fn inspector(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
-    let Some(member) = snapshot
-        .document
-        .members
-        .iter()
-        .find(|m| Some(&m.identity_id) == app.orchestration.selected.as_ref())
-    else {
+/// Talks this hour: one row per pair Core counts, its limit, last message and whether it is held.
+fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let look = app.look();
+    let Some(pairs) = &snapshot.sending.talks else {
         return;
     };
-    let e = &member.effective;
-    let mut lines = Vec::new();
+    let held = pairs.iter().filter(|p| p.held).count();
+    super::super::section_rule::paint(
+        frame.buffer_mut(),
+        line(area, area.y),
+        &format!(
+            "Talks this hour · {} {}",
+            pairs.len(),
+            if pairs.len() == 1 { "pair" } else { "pairs" }
+        ),
+        if held > 0 {
+            Line::styled(format!("{held} held"), look.role(Role::Waiting))
+        } else {
+            Line::default()
+        },
+        false,
+        look,
+    );
+    if pairs.is_empty() {
+        empty(
+            frame,
+            app,
+            Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1),
+            ),
+            "No talks this hour",
+            None,
+        );
+        return;
+    }
+    text(
+        frame,
+        app,
+        line(area, area.y + 1),
+        " PAIR                    LAST HOUR  LAST      STATE",
+        Role::Muted,
+    );
+    let at = snapshot.document.at_ms;
+    for (offset, pair) in pairs.iter().enumerate() {
+        let y = area.y + 2 + offset as u16;
+        if y >= area.bottom() {
+            break;
+        }
+        let limit = pair.limit.map_or_else(|| "—".to_owned(), |l| l.to_string());
+        let last = pair.last_at_ms.map_or_else(
+            || "—".to_owned(),
+            |last| match at.saturating_sub(last) / 60_000 {
+                0 => "just now".to_owned(),
+                m if m < 60 => format!("{m}m ago"),
+                m => format!("{}h ago", m / 60),
+            },
+        );
+        let (status, role) = if pair.held {
+            (
+                format!("◆ held {} · needs a person", pair.held_count),
+                Role::Waiting,
+            )
+        } else {
+            ("● open".to_owned(), Role::Working)
+        };
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(area.x, y, area.width, 1),
+            Line::from(vec![
+                Span::styled(
+                    format!(
+                        " {} {}  {} ",
+                        cell(&format!("{} ⇄ {}", pair.names.0, pair.names.1), 23),
+                        grid::fit(
+                            &format!("{} / {limit}", pair.count),
+                            9,
+                            Align::Right,
+                            Truncate::End
+                        ),
+                        cell(&last, 9)
+                    ),
+                    look.role(Role::Text),
+                ),
+                Span::styled(status, look.role(role)),
+            ]),
+        );
+    }
+}
+/// The inspector: the selected route, then the selected member, one key/value line per field with
+/// where it comes from. Lines that do not fit end in a count of what is below.
+fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Rect) {
+    let look = app.look();
+    let member = snapshot.and_then(|snapshot| {
+        snapshot
+            .document
+            .members
+            .iter()
+            .find(|m| Some(&m.identity_id) == app.orchestration.selected.as_ref())
+    });
+    let (Some(snapshot), Some(member)) = (snapshot, member) else {
+        super::super::section_rule::paint(
+            frame.buffer_mut(),
+            line(area, area.y),
+            if snapshot.is_some_and(|s| s.document.members.is_empty()) {
+                "No member selected"
+            } else {
+                "Details"
+            },
+            Line::default(),
+            false,
+            look,
+        );
+        return;
+    };
+    let mut lines: Vec<InspectorLine> = Vec::new();
     let target = snapshot
         .document
         .members
         .iter()
         .find(|m| Some(&m.identity_id) == app.orchestration.target.as_ref())
-        .filter(|t| t.identity_id != member.identity_id);
+        .filter(|t| t.identity_id != member.identity_id)
+        .filter(|_| !app.orchestration.plans);
     if let (Some(to), Some(_)) = (target, &snapshot.sending.routes) {
-        lines.push((
-            format!(
-                "{} → {} at {}",
-                member.name,
-                to.name,
-                snapshot.time(snapshot.document.at_ms)
-            ),
-            Role::Text,
+        let route = snapshot.sending.route(&member.identity_id, &to.identity_id);
+        let (note, role) = match route.map(|r| &r.verdict) {
+            None => ("not read", Role::Muted),
+            Some(Verdict::Allowed) => ("● allowed", Role::Working),
+            Some(Verdict::Blocked) => ("✕ not sent", Role::Blocked),
+            Some(Verdict::NeedsPerson) => ("◆ held", Role::Waiting),
+        };
+        lines.push(InspectorLine::Rule(
+            format!("{} → {}", member.name, to.name),
+            Line::styled(note, look.role(role)),
         ));
-        match snapshot.sending.route(&member.identity_id, &to.identity_id) {
-            None => lines.push(("Route · not read (filter the members)".into(), Role::Muted)),
+        lines.push(InspectorLine::Row(
+            "Sending",
+            sending_word(&member.effective.sending.value).to_owned(),
+            Role::Text,
+            Some(
+                snapshot
+                    .document
+                    .source_label(&member.effective.sending.source),
+            ),
+        ));
+        match route {
+            None => lines.push(InspectorLine::Row(
+                "Result",
+                "not read · filter the members".into(),
+                Role::Muted,
+                None,
+            )),
             Some(route) => {
                 let (result, role) = match route.verdict {
-                    Verdict::Allowed => ("allowed", Role::Text),
-                    Verdict::Blocked => ("not sent, explained · a allows once", Role::Blocked),
-                    Verdict::NeedsPerson => ("held · needs a person · r releases", Role::Waiting),
+                    Verdict::Allowed => {
+                        (format!("delivered · {}", receiving_label(to)), Role::Text)
+                    }
+                    Verdict::Blocked => ("✕ not sent, explained".to_owned(), Role::Blocked),
+                    Verdict::NeedsPerson => ("◆ held · needs a person".to_owned(), Role::Waiting),
                 };
-                lines.push((format!("Result · {result}"), role));
-                lines.push((
-                    match &route.source {
-                        RouteSource::Grant { until_ms } => {
-                            format!("from allow once until {}", snapshot.time(*until_ms))
+                lines.push(InspectorLine::Row("Result", result, role, None));
+                match &route.source {
+                    RouteSource::Grant { until_ms } => lines.push(InspectorLine::Row(
+                        "Until",
+                        snapshot.short(*until_ms),
+                        Role::Text,
+                        Some("allow once".into()),
+                    )),
+                    RouteSource::Policy(source) => {
+                        if let Some(slot) = &source.slot {
+                            lines.push(InspectorLine::Row(
+                                "Until",
+                                snapshot.short(slot.end_ms),
+                                Role::Text,
+                                Some(format!("{} ends", snapshot.document.source_label(source))),
+                            ));
                         }
-                        RouteSource::Policy(source) => {
-                            format!("from {}", snapshot.document.source_label(source))
-                        }
-                    },
-                    Role::Muted,
-                ));
+                    }
+                }
             }
         }
         if let Some(pair) = snapshot.sending.pair(&member.identity_id, &to.identity_id) {
-            lines.push((
+            lines.push(InspectorLine::Row(
+                "Talks",
                 format!(
-                    "Talks this hour · {}/{}{}",
+                    "{} / {} this hour{}",
                     pair.count,
                     pair.limit
                         .map_or_else(|| "unlimited".to_owned(), |l| l.to_string()),
@@ -499,108 +859,205 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                         String::new()
                     }
                 ),
-                Role::Muted,
+                if pair.held { Role::Waiting } else { Role::Text },
+                None,
             ));
         }
-        lines.push((String::new(), Role::Muted));
-    }
-    lines.push((member.name.clone(), Role::Text));
-    lines.push((member.identity_id.clone(), Role::Muted));
-    for (name, value, source) in [
-        ("State", e.state.value.clone(), &e.state.source),
-        (
-            "Receiving",
-            e.receiving
-                .value
-                .as_ref()
-                .map(|r| r.label())
-                .unwrap_or_else(|| "unavailable".into()),
-            &e.receiving.source,
-        ),
-        (
-            "Configured sending",
-            e.sending.value.clone(),
-            &e.sending.source,
-        ),
-        (
-            "Configured routine",
-            e.routine.value.clone(),
-            &e.routine.source,
-        ),
-        (
-            "Configured talk limit",
-            e.talk_limit
-                .value
-                .map(|n| format!("{n}/h"))
-                .unwrap_or_else(|| "unlimited".into()),
-            &e.talk_limit.source,
-        ),
-    ] {
-        lines.push((format!("{name} · {value}"), Role::Text));
-        lines.push((
-            format!("from {}", snapshot.document.source_label(source)),
-            Role::Muted,
-        ));
-        if let Some(id) = &source.identity_id {
-            lines.push((format!("member source · {id}"), Role::Muted));
-        }
-        if let Some(slot) = &source.slot {
-            lines.push((
-                format!(
-                    "{} → {}",
-                    snapshot.time(slot.start_ms),
-                    snapshot.time(slot.end_ms)
-                ),
-                Role::Muted,
+        let (blocked, held) = app.orchestration.cell_actions();
+        if blocked && snapshot.writes {
+            let until = member.next_change_at_ms.map_or_else(
+                || "for up to 24 hours".to_owned(),
+                |end| format!("until {}", snapshot.short(end)),
+            );
+            lines.push(InspectorLine::Button(
+                super::super::keycap::key(app, Ui::AllowOnce, "a"),
+                format!("Allow once {until}"),
+                Control::Allow,
             ));
         }
+        if held && snapshot.writes {
+            lines.push(InspectorLine::Button(
+                super::super::keycap::key(app, Ui::ReleaseHeld, "r"),
+                "Release held".into(),
+                Control::Resume,
+            ));
+        }
+        lines.push(InspectorLine::Blank);
     }
+    let e = &member.effective;
+    let (mark, word, state_role) = state_mark(&e.state.value);
+    lines.push(InspectorLine::Rule(
+        member.name.clone(),
+        Line::styled(format!("{mark} {word}"), look.role(state_role)),
+    ));
+    let source = |source: &Source| Some(snapshot.document.source_label(source));
+    lines.push(InspectorLine::Row(
+        "State",
+        format!("{mark} {word}"),
+        state_role,
+        source(&e.state.source),
+    ));
+    lines.push(InspectorLine::Row(
+        "Receiving",
+        receiving_label(member),
+        if e.receiving.available {
+            Role::Text
+        } else {
+            Role::Dim
+        },
+        source(&e.receiving.source),
+    ));
     if !e.receiving.available {
         if let Some(proposed) = &e.receiving.proposed_value {
-            lines.push((
-                format!("Proposed receiving · {}", proposed.label()),
+            lines.push(InspectorLine::Row(
+                "Proposed",
+                proposed.label(),
                 Role::Waiting,
+                Some("not published yet".into()),
             ));
         }
-        lines.push((
+        lines.push(InspectorLine::Text(
             "Digest has not published its settings yet.".into(),
             Role::Waiting,
         ));
     }
+    lines.push(InspectorLine::Row(
+        "Sending",
+        sending_word(&e.sending.value).to_owned(),
+        Role::Text,
+        source(&e.sending.source),
+    ));
+    lines.push(InspectorLine::Row(
+        "Routine",
+        e.routine.value.clone(),
+        Role::Text,
+        source(&e.routine.source),
+    ));
+    lines.push(InspectorLine::Row(
+        "Talk limit",
+        e.talk_limit
+            .value
+            .map_or_else(|| "unlimited".into(), |n| format!("{n} / hour")),
+        Role::Text,
+        source(&e.talk_limit.source),
+    ));
     if let Some(next) = member.next_change_at_ms {
-        lines.push((
-            format!("Next change · {}", snapshot.time(next)),
-            Role::Muted,
+        lines.push(InspectorLine::Row(
+            "Next change",
+            snapshot.short(next),
+            Role::Text,
+            None,
         ));
     }
     if !member.active_plans.is_empty() {
-        lines.push((
-            format!(
-                "Active plans · {}",
-                member
-                    .active_plans
-                    .iter()
-                    .map(|id| snapshot.document.plan_name(id))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Role::Muted,
+        lines.push(InspectorLine::Row(
+            "Plans",
+            member
+                .active_plans
+                .iter()
+                .map(|id| snapshot.document.plan_name(id))
+                .collect::<Vec<_>>()
+                .join(", "),
+            Role::Text,
+            None,
         ));
     }
     if let Some((id, why)) = &app.orchestration.why
         && id == &member.identity_id
     {
-        lines.push((String::new(), Role::Muted));
-        lines.extend(why.iter().map(|line| (line.clone(), Role::Muted)));
-    }
-    let mut y = area.y;
-    for (line, role) in lines {
-        for line in super::super::notes::wrap(&safe(&line), usize::from(area.width)) {
-            if y >= area.bottom() {
-                return;
+        lines.push(InspectorLine::Blank);
+        lines.push(InspectorLine::Rule("Why".into(), Line::default()));
+        for line in why {
+            for wrapped in super::super::notes::wrap(&safe(line), usize::from(area.width - 2)) {
+                lines.push(InspectorLine::Text(wrapped, Role::Muted));
             }
-            text(frame, app, Rect::new(area.x, y, area.width, 1), &line, role);
-            y += 1;
+        }
+    }
+    let rows = usize::from(area.height);
+    let (shown, hidden) = if lines.len() > rows {
+        (rows.saturating_sub(1), lines.len() - rows.saturating_sub(1))
+    } else {
+        (lines.len(), 0)
+    };
+    for (offset, painted) in lines.into_iter().take(shown).enumerate() {
+        painted.paint(frame, app, line(area, area.y + offset as u16));
+    }
+    if hidden > 0 {
+        text(
+            frame,
+            app,
+            line(area, area.y + shown as u16),
+            &format!(
+                " {}",
+                MoreHint::label(hidden as u64, MoreDirection::Down, false)
+            ),
+            Role::Muted,
+        );
+    }
+}
+/// One inspector line before it is placed.
+enum InspectorLine {
+    Rule(String, Line<'static>),
+    Row(&'static str, String, Role, Option<String>),
+    Button(Option<String>, String, Control),
+    Text(String, Role),
+    Blank,
+}
+impl InspectorLine {
+    fn paint(self, frame: &mut Frame, app: &App, area: Rect) {
+        let look = app.look();
+        if area.is_empty() {
+            return;
+        }
+        match self {
+            Self::Rule(title, note) => super::super::section_rule::paint(
+                frame.buffer_mut(),
+                area,
+                &title,
+                note,
+                false,
+                look,
+            ),
+            Self::Row(key, value, role, source) => {
+                let mut shown = super::super::key_value::line(
+                    &super::super::key_value::Row {
+                        key,
+                        value: super::super::key_value::Value::Observed(&value),
+                        // Every inspector row keeps the sourced columns, with or without a source.
+                        source: Some(source.as_deref().unwrap_or_default()),
+                    },
+                    usize::from(area.width),
+                    look,
+                );
+                if let Some(span) = shown.spans.get_mut(3) {
+                    span.style = look.role(role);
+                }
+                strip::paint_left(frame.buffer_mut(), area, shown);
+            }
+            Self::Button(key, label, control) => {
+                let mut spans = vec![Span::raw(" ")];
+                if let Some(key) = key {
+                    spans.push(super::super::keycap::span(&key, false, look));
+                    spans.push(Span::raw(" "));
+                }
+                spans.push(Span::styled(label, look.role(Role::Text)));
+                let width = Line::from(spans.clone())
+                    .width()
+                    .min(usize::from(area.width)) as u16;
+                strip::paint_left(frame.buffer_mut(), area, Line::from(spans));
+                app.orchestration
+                    .hits
+                    .borrow_mut()
+                    .push((Rect { width, ..area }, control));
+            }
+            Self::Text(value, role) => text(
+                frame,
+                app,
+                Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+                &value,
+                role,
+            ),
+            Self::Blank => {}
         }
     }
 }

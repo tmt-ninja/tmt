@@ -56,6 +56,7 @@ impl Metric {
                 } else {
                     key_value::Value::Unreported(&value)
                 },
+                source: None,
             },
         );
     }

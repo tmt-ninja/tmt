@@ -42,10 +42,8 @@ pub(in crate::board) struct Bounds {
 pub(in crate::board) struct Source {
     pub kind: String,
     pub plan_id: Option<String>,
-    pub identity_id: Option<String>,
     pub revision: u64,
     pub slot: Option<Bounds>,
-    pub defaulted: bool,
 }
 #[derive(Clone, Debug)]
 pub(in crate::board) struct Field<T> {
@@ -132,16 +130,17 @@ impl Source {
             Value::String(s) => Some(Some(s.clone())),
             _ => None,
         };
+        // The member and default markers are checked on the wire; the board names sources only.
+        optional("identityId")?;
+        v["defaulted"].as_bool()?;
         Some(Self {
             kind: v["kind"].as_str()?.to_owned(),
             plan_id: optional("planId")?,
-            identity_id: optional("identityId")?,
             revision: v["revision"].as_u64()?,
             slot: match &v["slot"] {
                 Value::Null => None,
                 slot => Some(Bounds::read(slot)?),
             },
-            defaulted: v["defaulted"].as_bool()?,
         })
     }
 }
@@ -356,25 +355,18 @@ impl Overview {
             .and_then(|p| p["name"].as_str())
             .unwrap_or(id)
     }
+    /// Where a value comes from, by name only: revisions and identities stay in the CLI.
     pub fn source_label(&self, source: &Source) -> String {
-        let owner = match source.kind.as_str() {
+        match source.kind.as_str() {
             "base" => "Base".to_owned(),
             "focus" => "Personal focus".to_owned(),
+            "member" => "Member setting".to_owned(),
             _ => source
                 .plan_id
                 .as_deref()
                 .map(|id| self.plan_name(id).to_owned())
                 .unwrap_or_else(|| source.kind.clone()),
-        };
-        format!(
-            "{owner} · revision {}{}",
-            source.revision,
-            if source.defaulted {
-                " · state default"
-            } else {
-                ""
-            }
-        )
+        }
     }
 }
 /// One ordered route's sending verdict, as Core's `routes` view states it (#4892).
@@ -479,6 +471,8 @@ pub(in crate::board) struct Snapshot {
     pub document: Overview,
     pub sending: Sending,
     pub times: BTreeMap<u64, String>,
+    /// The same instants as weekday and clock time in the calendar zone (`Wed 23:00`).
+    pub short: BTreeMap<u64, String>,
     pub writes: bool,
 }
 impl Snapshot {
@@ -517,26 +511,28 @@ impl Snapshot {
                 }
             }
         }
-        let times = instants
-            .into_iter()
-            .map(|ms| {
-                let timestamp = jiff::Timestamp::from_millisecond(ms as i64)
-                    .map_err(|_| "Orchestration time cannot be displayed.".to_owned())?;
-                Ok((
-                    ms,
-                    timestamp
-                        .to_zoned(zone.clone())
-                        .strftime("%Y-%m-%d %H:%M %:z")
-                        .to_string(),
-                ))
-            })
-            .collect::<Result<_, String>>()?;
+        let mut times = BTreeMap::new();
+        let mut short = BTreeMap::new();
+        for ms in instants {
+            let zoned = jiff::Timestamp::from_millisecond(ms as i64)
+                .map_err(|_| "Orchestration time cannot be displayed.".to_owned())?
+                .to_zoned(zone.clone());
+            times.insert(ms, zoned.strftime("%Y-%m-%d %H:%M %:z").to_string());
+            short.insert(ms, zoned.strftime("%a %H:%M").to_string());
+        }
         Ok(Self {
             document,
             sending,
             times,
+            short,
             writes,
         })
+    }
+    pub fn short(&self, ms: u64) -> String {
+        self.short
+            .get(&ms)
+            .cloned()
+            .unwrap_or_else(|| self.time(ms))
     }
     pub fn time(&self, ms: u64) -> String {
         self.times

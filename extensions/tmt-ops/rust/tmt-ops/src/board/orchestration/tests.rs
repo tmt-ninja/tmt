@@ -201,7 +201,10 @@ fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
     // People read names, short times and where a value comes from, never identities or revisions.
     assert!(!text.contains("10000000-"), "{text}");
     assert!(!text.contains("revision"), "{text}");
-    assert!(text.contains("Orchestration · Thu 00:00 UTC · ● following now"), "{text}");
+    assert!(
+        text.contains("Orchestration · Thu 00:00 UTC · ● following now"),
+        "{text}"
+    );
     let rows: Vec<String> = text
         .chars()
         .collect::<Vec<_>>()
@@ -209,7 +212,8 @@ fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
         .map(|row| row.iter().collect())
         .collect();
     assert!(
-        rows.iter().any(|row| row.contains("State") && row.contains("← Base")),
+        rows.iter()
+            .any(|row| row.contains("State") && row.contains("← Base")),
         "one line per field with its source: {text}"
     );
 }
@@ -329,16 +333,35 @@ fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
         let header = find(&buffer, "From ↓ To →").expect("matrix header");
         let (worker, peer) = (header.1 + 1, header.1 + 2);
         let name_cell = |y| buffer[(header.0, y)].style();
-        assert_ne!(name_cell(worker), name_cell(peer), "{name}: selected row is visible");
+        assert_ne!(
+            name_cell(worker),
+            name_cell(peer),
+            "{name}: selected row is visible"
+        );
         let blocked = find_in_row(&buffer, worker, "✕").expect("worker → peer is blocked");
         let held = find_in_row(&buffer, peer, "◆").expect("peer → worker needs a person");
         let selected_cell = buffer[(blocked, worker)].style();
-        assert_ne!(selected_cell, name_cell(worker), "{name}: selected cell stands out of its row");
-        assert_ne!(selected_cell, buffer[(held, peer)].style(), "{name}: selected cell is unique");
+        assert_ne!(
+            selected_cell,
+            name_cell(worker),
+            "{name}: selected cell stands out of its row"
+        );
+        assert_ne!(
+            selected_cell,
+            buffer[(held, peer)].style(),
+            "{name}: selected cell is unique"
+        );
         if let Some(waiting) = look.role(tmt_cli_style::Role::Waiting).fg {
             assert_eq!(buffer[(held, peer)].fg, waiting, "{name}: ◆ is Waiting");
+        }
+        // A reverse-video selection keeps one foreground; a coloured one keeps the verdict's.
+        if look.selection().bg.is_some() {
             let blocked_fg = look.role(tmt_cli_style::Role::Blocked).fg.unwrap();
-            assert_eq!(buffer[(blocked, worker)].fg, blocked_fg, "{name}: ✕ is Blocked");
+            assert_eq!(
+                buffer[(blocked, worker)].fg,
+                blocked_fg,
+                "{name}: ✕ is Blocked"
+            );
         }
     }
 }
@@ -355,9 +378,13 @@ fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> Vec<(u16, String)> {
         .map(|x| (x, buffer[(x, y)].symbol().to_owned()))
         .collect()
 }
-/// The first cell where `needle` starts, as painted (one symbol per cell).
+/// The first cell of the list column (left of the inspector) where `needle` starts.
 fn find(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
-    (0..buffer.area.height).find_map(|y| find_in_row(buffer, y, needle).map(|x| (x, y)))
+    (0..buffer.area.height).find_map(|y| {
+        find_in_row(buffer, y, needle)
+            .filter(|x| *x < buffer.area.width * 45 / 100)
+            .map(|x| (x, y))
+    })
 }
 fn find_in_row(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> Option<u16> {
     let cells = row_text(buffer, y);
@@ -376,7 +403,14 @@ fn assert_selected_row_differs(scene: &str, first: &str, second: &str) {
         assert_ne!(
             buffer[a].style(),
             buffer[b].style(),
-            "{scene} {name}: the selected row is visible"
+            "{scene} {name}: the selected row is visible at {a:?} {b:?}\n{}",
+            (0..12)
+                .map(|y| row_text(&buffer, y)
+                    .into_iter()
+                    .map(|(_, s)| s)
+                    .collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 }
@@ -560,9 +594,7 @@ pub(in crate::board) mod captures {
     fn roster_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
         let night = json!({"kind":"plan","planId":NIGHT,"identityId":null,"revision":4,
             "slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},"defaulted":false});
-        let field = |value: Value, from_plan: bool| {
-            json!({"value":value,"source":if from_plan { night.clone() } else { source() }})
-        };
+        let field = |value: Value, from_plan: bool| json!({"value":value,"source":if from_plan { night.clone() } else { source() }});
         let members: Vec<Value> = ROSTER
             .iter()
             .enumerate()
@@ -586,7 +618,9 @@ pub(in crate::board) mod captures {
             })
             .collect();
         Ok(match (op, input["view"].as_str()) {
-            ("capabilities", _) => json!({"operations":["orchestration.read","orchestration.write"]}),
+            ("capabilities", _) => {
+                json!({"operations":["orchestration.read","orchestration.write"]})
+            }
             (_, Some("routes")) => {
                 let mut routes = Vec::new();
                 for (from, (from_name, _)) in ROSTER.iter().enumerate() {
@@ -691,9 +725,10 @@ pub(in crate::board) mod captures {
                 app.orchestration.target = Some(roster_id(4));
             }
             "orchestration-table-selection" => app.orchestration.selected = Some(OTHER.into()),
-            "orchestration-refresh-failed" => app
-                .orchestration
-                .apply(read, Observation::Failed("Core did not answer within 10 s".into())),
+            "orchestration-refresh-failed" => app.orchestration.apply(
+                read,
+                Observation::Failed("Core did not answer within 10 s".into()),
+            ),
             "orchestration-why" => {
                 app.orchestration.why = Some((
                     MEMBER.into(),

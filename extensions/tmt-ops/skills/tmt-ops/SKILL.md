@@ -1133,12 +1133,21 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 
 `3` opens **Orchestration**: Core's plans and every member's effective state and
 receiving policy at a selected time, read through the public `orchestration.read`
-views. `d`, `7` and `0` pick a 1, 7 or 30 day range, `[` and `]` step to the
-previous or next policy change, `N` returns to now, `P` lists plans and `/` filters
-members. When Core reports routes, a **From ↓ To →** matrix shows who may message whom
-(`✕` blocked, `◆` needs a person, otherwise the recipient's receiving mode) and the
-pairs with talks this hour; arrows move the selected cell. An older Core without
-those views shows member policies only and says routes are not available.
+views. One header line names the selected time and zone, whether it follows now and
+how many plans are in effect, with the range, **Plans** and (away from now) **Now**
+controls on the right. `d`, `7` and `0` pick a 1, 7 or 30 day range, `[` and `]`
+step to the previous or next policy change, `N` returns to now, `P` lists plans and
+`/` filters members. When Core reports routes, the **Who may message whom** section
+holds a **From ↓ To →** matrix (`✕` blocked, `◆` needs a person, otherwise the
+recipient's receiving mode) with its legend, and **Talks this hour** lists each pair
+with its count, limit, last message and whether it is held; arrows move the selected
+cell, whose sender row and route stay highlighted. An older Core without those views
+shows a **Members** table instead, without talks. At 110 columns and wider, the
+inspector on the right shows the selected route, then the selected member, one line
+per field with where its value comes from (`← Base`, a plan name or `Personal
+focus`). While loading, after a failed first read (with `ctrl-r` to retry) and with
+no plans configured, the section says so; a failed refresh keeps the last data and
+says so in the header.
 
 Changes always show Core's preview first and save only that exact preview after you
 confirm: `a` allows a blocked route once until the sender's current slot ends (at

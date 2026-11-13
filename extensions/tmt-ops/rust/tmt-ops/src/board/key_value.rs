@@ -1,4 +1,5 @@
-//! KeyValue: neutral labels and right-aligned observed values.
+//! KeyValue: neutral labels and right-aligned observed values; with a source, the value sits in a
+//! fixed column and the source follows it after an arrow.
 use crate::look::Look;
 use ratatui::{
     Frame,
@@ -24,7 +25,13 @@ impl Value<'_> {
 pub(in crate::board) struct Row<'a> {
     pub key: &'a str,
     pub value: Value<'a>,
+    /// Where the value comes from (`← Base`); it yields its room first. An empty source keeps the
+    /// sourced columns without an arrow.
+    pub source: Option<&'a str>,
 }
+/// Columns of a sourced row: the key, then the value, then `← source`.
+const SOURCED_KEY: usize = 11;
+const SOURCED_VALUE: usize = 23;
 
 pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'static> {
     if width < 3 {
@@ -33,6 +40,45 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
     let key = crate::board::notes::sanitize(row.key);
     let value = crate::board::notes::sanitize(row.value.text());
     let inner = width - 2;
+    let value_role = if matches!(row.value, Value::Observed(_)) {
+        Role::Text
+    } else {
+        Role::Dim
+    };
+    if let Some(source) = row.source {
+        // An empty source keeps the columns of its neighbours without an arrow.
+        let source = if source.is_empty() {
+            String::new()
+        } else {
+            format!("← {}", crate::board::notes::sanitize(source))
+        };
+        let key_width = SOURCED_KEY.min(inner);
+        let rest = inner - key_width;
+        let mut value_width = rest.saturating_sub(1).min(value.width().max(SOURCED_VALUE));
+        let mut source_width = rest.saturating_sub(value_width + 2);
+        if source_width < 3 || source.is_empty() {
+            source_width = 0;
+            value_width = rest.saturating_sub(1);
+        }
+        let fit = |text: &str, width: usize| {
+            tmt_tui::text::fit_line(
+                text,
+                width as u16,
+                TextFlow::Truncate,
+                tmt_cli_style::grid::Align::Left,
+            )
+        };
+        let gap = inner - key_width - value_width - source_width;
+        return Line::from(vec![
+            Span::raw(" "),
+            Span::styled(fit(&key, key_width), look.role(Role::Muted)),
+            Span::raw(" ".repeat(gap.min(1))),
+            Span::styled(fit(&value, value_width), look.role(value_role)),
+            Span::raw(" ".repeat(gap.saturating_sub(1))),
+            Span::styled(fit(&source, source_width), look.role(Role::Muted)),
+            Span::raw(" "),
+        ]);
+    }
     // The label carries units and time windows; the value yields first.
     let value_width = value.width().min(inner.saturating_sub(2));
     let key_width = inner
@@ -58,11 +104,7 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
                 TextFlow::Truncate,
                 tmt_cli_style::grid::Align::Right,
             ),
-            look.role(if matches!(row.value, Value::Observed(_)) {
-                Role::Text
-            } else {
-                Role::Dim
-            }),
+            look.role(value_role),
         ),
         Span::raw(" "),
     ])
@@ -149,6 +191,7 @@ mod tests {
                 &Row {
                     key: "held",
                     value: Value::Observed("0"),
+                    source: None,
                 },
                 width,
                 look,
@@ -157,6 +200,7 @@ mod tests {
                 &Row {
                     key: "held",
                     value: Value::Unreported("—"),
+                    source: None,
                 },
                 width,
                 look,
@@ -175,11 +219,36 @@ mod tests {
             &Row {
                 key: "price\nunsafe",
                 value: Value::Observed("界\t42"),
+                source: None,
             },
             32,
             look,
         )
         .to_string();
         assert!(!escaped.chars().any(char::is_control));
+    }
+    #[test]
+    fn a_source_follows_the_value_and_yields_first() {
+        let look = Look::default();
+        let row = Row {
+            key: "State",
+            value: Value::Observed("● Awake"),
+            source: Some("Shift B · Night"),
+        };
+        let wide = line(&row, 60, look);
+        assert_eq!(wide.width(), 60);
+        assert!(
+            wide.to_string()
+                .starts_with(" State       ● Awake                 ← Shift B · Night"),
+            "{wide}"
+        );
+        assert_eq!(wide.spans[3].style, look.role(Role::Text));
+        for width in [0, 3, 12, 20, 24, 36, 40] {
+            let narrow = line(&row, width, look);
+            assert_eq!(narrow.width(), width, "{width}");
+            if width >= 24 {
+                assert!(narrow.to_string().contains("● Awake"), "{width}: {narrow}");
+            }
+        }
     }
 }

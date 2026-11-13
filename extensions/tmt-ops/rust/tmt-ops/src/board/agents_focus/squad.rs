@@ -107,6 +107,7 @@ pub(super) fn render(
                         key_value::Value::Unreported("—"),
                         key_value::Value::Observed,
                     ),
+                    source: None,
                 },
                 look,
             );
