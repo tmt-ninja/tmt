@@ -19,6 +19,7 @@ use tmt_tui::components::{
     design_system::{MoreDirection, MoreHint},
     strip,
 };
+use unicode_width::UnicodeWidthStr;
 fn safe(text: &str) -> String {
     super::super::workspace::render::safe(text)
 }
@@ -97,9 +98,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             format!("Plans · {}", snapshot.map_or(0, |s| s.document.plans.len()))
         }
         Some(s) if s.sending.routes.is_some() => {
-            format!("Who may message whom · at {}", s.short(s.document.at_ms))
+            format!("Who may message whom · at {}", s.clock(s.document.at_ms))
         }
-        Some(s) => format!("Members · at {}", s.short(s.document.at_ms)),
+        Some(s) => format!("Members · at {}", s.clock(s.document.at_ms)),
         None => "Who may message whom".into(),
     };
     let rule = line(left, left.y);
@@ -167,17 +168,28 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             let members = snapshot.document.members.len() as u16;
             let room = list.height.saturating_sub(talks + gap);
             let own = if snapshot.sending.routes.is_some() {
-                // Column names, one row per sender and the legend.
-                (members + 2).min(room.max(3.min(list.height)))
+                // Column names, one row per sender and up to two legend lines.
+                (members + 3).min(room.max(3.min(list.height)))
             } else {
                 (members + 1).min(room.max(2.min(list.height)))
             };
-            let top = Rect {
+            let mut top = Rect {
                 height: own,
                 ..list
             };
             if snapshot.sending.routes.is_some() {
-                matrix(frame, app, snapshot, top);
+                let (note, used) = matrix(frame, app, snapshot, top);
+                top.height = used;
+                if !note.is_empty() {
+                    super::super::section_rule::paint(
+                        frame.buffer_mut(),
+                        rule,
+                        &title,
+                        Line::styled(note, look.role(Role::Muted)),
+                        true,
+                        look,
+                    );
+                }
             } else {
                 table(frame, app, snapshot, top);
             }
@@ -313,7 +325,7 @@ fn status(app: &App, short: bool) -> Vec<Span<'static>> {
             format!(
                 "◆ Refresh failed · {} · showing {}",
                 safe(reason),
-                snapshot.short(document.observed_at_ms)
+                snapshot.clock(document.observed_at_ms)
             ),
             look.role(Role::Waiting),
         )]);
@@ -543,23 +555,89 @@ fn receiving_cell(receiving: Option<&Receiving>) -> String {
         Some(batch @ Receiving::Batch { .. }) => batch.label().replace("batch ", "B"),
     }
 }
-const NAME_WIDTH: u16 = 15;
-const CELL_WIDTH: u16 = 9;
-/// The route matrix: one row per sender, one column per recipient. The selected sender's row
-/// carries the selection, the selected route the crosshair and its recipient a bold name. Every
-/// cell is Core's verdict (`✕` blocked, `◆` needs a person) or, when allowed, the recipient's
-/// receiving. Nothing is inferred here.
-fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+/// The widest a matrix name column or recipient column grows, in cells.
+const NAME_CAP: usize = 13;
+const COLUMN_CAP: usize = 12;
+/// Labels no wider than `width` that never show two different names as the same text: a long
+/// name keeps both ends, then its tail, then its position.
+fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
+    let cut = |name: &str, truncate| {
+        grid::fit(&safe(name), width, Align::Left, truncate)
+            .trim_end()
+            .to_owned()
+    };
+    let mut labels: Vec<String> = names.iter().map(|n| cut(n, Truncate::Middle)).collect();
+    let clashes = |labels: &[String]| -> Vec<usize> {
+        (0..labels.len())
+            .filter(|&i| {
+                labels
+                    .iter()
+                    .enumerate()
+                    .any(|(j, l)| j != i && *l == labels[i] && names[j] != names[i])
+            })
+            .collect()
+    };
+    for index in clashes(&labels) {
+        let name = safe(names[index]);
+        let tail: String = name
+            .chars()
+            .rev()
+            .scan(0, |used, c| {
+                *used += c.to_string().width();
+                (*used < width).then_some(c)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        labels[index] = if tail.width() < name.width() {
+            format!("…{tail}")
+        } else {
+            name
+        };
+    }
+    for index in clashes(&labels) {
+        let mark = format!("#{}", index + 1);
+        labels[index] = format!(
+            "{}{mark}",
+            cut(names[index], Truncate::End)
+                .chars()
+                .scan(0, |used, c| {
+                    *used += c.to_string().width();
+                    (*used + mark.width() <= width).then_some(c)
+                })
+                .collect::<String>()
+        );
+    }
+    labels
+}
+/// The route matrix: one row per sender, one column per recipient, each column as wide as the
+/// longest name (capped). The selected sender's row carries the selection, the selected route the
+/// crosshair and its recipient a bold name. Every cell is Core's verdict (`✕` blocked, `◆` needs a
+/// person) or, when allowed, the recipient's receiving. Nothing is inferred here. Returns the
+/// section rule's note (how many senders and recipients lie outside the view) and the rows used.
+fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (String, u16) {
     let state = &app.orchestration;
     let look = app.look();
     let members = &snapshot.document.members;
     let sending = &snapshot.sending;
-    // Column names and the legend take two rows.
-    let rows = usize::from(area.height.saturating_sub(2));
-    let columns = usize::from(area.width.saturating_sub(NAME_WIDTH + 1) / CELL_WIDTH);
+    let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+    let widest = names.iter().map(|n| safe(n).width()).max().unwrap_or(0);
+    // The column header label and the receiving words set the floors.
+    let name_width = widest.clamp("From ↓ To →".width(), NAME_CAP);
+    let column_width = widest.clamp(4, COLUMN_CAP);
+    let (rows_labels, column_labels) = (
+        distinct_labels(&names, name_width),
+        distinct_labels(&names, column_width),
+    );
+    let name_cells = (name_width + 2) as u16;
+    let cell_cells = (column_width + 1) as u16;
+    // Column names and up to two legend lines take three rows.
+    let rows = usize::from(area.height.saturating_sub(3).max(area.height.min(1)));
+    let columns = usize::from(area.width.saturating_sub(name_cells + 1) / cell_cells);
     if members.is_empty() || rows == 0 || columns == 0 {
         empty(frame, app, area, "No members match this query", None);
-        return;
+        return (String::new(), area.height.min(1));
     }
     let index = |id: &Option<String>| {
         members
@@ -570,13 +648,14 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let (row, column) = (index(&state.selected), index(&state.target));
     let first_row = row.saturating_sub(rows.saturating_sub(1));
     let first_column = column.saturating_sub(columns.saturating_sub(1));
+    let pad = |text: &str, width: usize| grid::fit(text, width, Align::Left, Truncate::End);
     let mut header = vec![Span::styled(
-        format!(" {}", cell("From ↓ To →", usize::from(NAME_WIDTH - 1))),
+        format!(" {} ", pad("From ↓ To →", name_width)),
         look.role(Role::Muted),
     )];
-    for (c, to) in members.iter().enumerate().skip(first_column).take(columns) {
+    for c in (first_column..members.len()).take(columns) {
         header.push(Span::styled(
-            format!("{} ", cell(&to.name, usize::from(CELL_WIDTH - 1))),
+            format!("{} ", pad(&column_labels[c], column_width)),
             if c == column {
                 look.role(Role::Text).add_modifier(Modifier::BOLD)
             } else {
@@ -585,15 +664,15 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         ));
     }
     strip::paint_left(frame.buffer_mut(), line(area, area.y), Line::from(header));
-    let shown = members.iter().enumerate().skip(first_row).take(rows);
+    let mut words: Vec<String> = Vec::new();
     let mut y = area.y + 1;
-    for (r, from) in shown {
+    for (r, from) in members.iter().enumerate().skip(first_row).take(rows) {
         let selected = r == row;
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, y, area.width, 1),
             Line::styled(
-                format!(" {} ", cell(&from.name, usize::from(NAME_WIDTH - 2))),
+                format!(" {} ", pad(&rows_labels[r], name_width)),
                 look.selected(selected, look.role(Role::Text)),
             ),
         );
@@ -606,15 +685,18 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                     Some(route) => match route.verdict {
                         Verdict::Blocked => ("✕".into(), Role::Blocked),
                         Verdict::NeedsPerson => ("◆".into(), Role::Waiting),
-                        Verdict::Allowed => (
-                            receiving_cell(to.effective.receiving.value.as_ref()),
-                            Role::Text,
-                        ),
+                        Verdict::Allowed => {
+                            let word = receiving_cell(to.effective.receiving.value.as_ref());
+                            if !words.contains(&word) {
+                                words.push(word.clone());
+                            }
+                            (word, Role::Text)
+                        }
                     },
                 }
             };
-            let x = area.x + NAME_WIDTH + ((c - first_column) as u16) * CELL_WIDTH;
-            let rect = Rect::new(x, y, CELL_WIDTH, 1);
+            let x = area.x + name_cells + ((c - first_column) as u16) * cell_cells;
+            let rect = Rect::new(x, y, cell_cells, 1);
             let style = if selected && c == column {
                 crosshair(look, look.role(role))
             } else {
@@ -623,7 +705,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             strip::paint_left(
                 frame.buffer_mut(),
                 rect,
-                Line::styled(cell(&word, usize::from(CELL_WIDTH)), style),
+                Line::styled(pad(&word, usize::from(cell_cells)), style),
             );
             if selected && matches!(role, Role::Blocked | Role::Waiting) {
                 // A verdict keeps its colour on the selection: the frame pass's state-cell contract.
@@ -635,32 +717,62 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         }
         y += 1;
     }
-    let hidden_rows = members.len().saturating_sub(first_row + rows);
-    let hidden_columns = members.len().saturating_sub(first_column + columns);
-    let mut legend =
-        String::from("Dir direct · B batch · Urg urgent · ✕ sender rule · ◆ needs a person");
-    for (hidden, direction) in [
-        (hidden_columns, MoreDirection::Right),
-        (hidden_rows, MoreDirection::Down),
-    ] {
-        if hidden > 0 {
-            legend = format!(
-                "{} · {legend}",
-                MoreHint::label(hidden as u64, direction, false)
-            );
+    // The legend explains the words exactly as the cells write them.
+    let mut legend: Vec<String> = [
+        ("Dir", "direct"),
+        ("Auto", "auto"),
+        ("Urg", "urgent only"),
+        ("Hold", "hold all"),
+    ]
+    .into_iter()
+    .filter(|(word, _)| words.iter().any(|w| w == word))
+    .map(|(word, meaning)| format!("{word} {meaning}"))
+    .collect();
+    legend.extend(words.iter().filter_map(|w| {
+        w.strip_prefix('B')
+            .map(|interval| format!("{w} batch {interval}"))
+    }));
+    legend.extend(["✕ sender rule".to_owned(), "◆ needs a person".to_owned()]);
+    // Whole items per line: the legend wraps between items rather than cutting one.
+    let room = usize::from(area.width).saturating_sub(2);
+    let mut lines: Vec<String> = Vec::new();
+    for item in legend {
+        match lines.last_mut() {
+            Some(last) if last.width() + 3 + item.width() <= room => {
+                last.push_str(" · ");
+                last.push_str(&item);
+            }
+            _ => lines.push(item),
         }
     }
-    if sending.truncated {
-        legend = format!("Too many members for one matrix; filter with / · {legend}");
+    for legend in lines {
+        if y >= area.bottom() {
+            break;
+        }
+        text(
+            frame,
+            app,
+            line(area, y),
+            &format!(" {legend}"),
+            Role::Muted,
+        );
+        y += 1;
     }
-    // The legend sits directly under the last sender row.
-    text(
-        frame,
-        app,
-        line(area, y),
-        &format!(" {legend}"),
-        Role::Muted,
-    );
+    let hidden_rows = members.len().saturating_sub(first_row + rows);
+    let hidden_columns = members.len().saturating_sub(first_column + columns);
+    let mut note: Vec<String> = Vec::new();
+    if sending.truncated {
+        note.push("too many to read · filter with /".into());
+    }
+    for (hidden, direction) in [
+        (hidden_rows, MoreDirection::Down),
+        (hidden_columns, MoreDirection::Right),
+    ] {
+        if hidden > 0 {
+            note.push(MoreHint::label(hidden as u64, direction, false));
+        }
+    }
+    (note.join(" · "), y - area.y)
 }
 /// Talks this hour: one row per pair Core counts, its limit, last message and whether it is held.
 fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
@@ -828,7 +940,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
                 match &route.source {
                     RouteSource::Grant { until_ms } => lines.push(InspectorLine::Row(
                         "Until",
-                        snapshot.short(*until_ms),
+                        snapshot.clock(*until_ms),
                         Role::Text,
                         Some("allow once".into()),
                     )),
@@ -836,9 +948,12 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
                         if let Some(slot) = &source.slot {
                             lines.push(InspectorLine::Row(
                                 "Until",
-                                snapshot.short(slot.end_ms),
+                                snapshot.clock(slot.end_ms),
                                 Role::Text,
-                                Some(format!("{} ends", snapshot.document.source_label(source))),
+                                Some(format!(
+                                    "when {} ends",
+                                    snapshot.document.source_label(source)
+                                )),
                             ));
                         }
                     }
@@ -867,7 +982,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
         if blocked && snapshot.writes {
             let until = member.next_change_at_ms.map_or_else(
                 || "for up to 24 hours".to_owned(),
-                |end| format!("until {}", snapshot.short(end)),
+                |end| format!("until {}", snapshot.clock(end)),
             );
             lines.push(InspectorLine::Button(
                 super::super::keycap::key(app, Ui::AllowOnce, "a"),
@@ -944,7 +1059,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
     if let Some(next) = member.next_change_at_ms {
         lines.push(InspectorLine::Row(
             "Next change",
-            snapshot.short(next),
+            snapshot.clock(next),
             Role::Text,
             None,
         ));

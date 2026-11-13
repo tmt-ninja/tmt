@@ -768,7 +768,8 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
         .map(|n| {
             let mut member = template.clone();
             member.identity_id = format!("10000000-0000-4000-8000-{n:012}");
-            member.name = format!("agent-{n}");
+            // Long names that share their start and end: cut alike, they would read the same.
+            member.name = format!("core-ops-member-{n}-of-the-night-squad");
             member
         })
         .collect();
@@ -795,6 +796,27 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
         .max()
         .unwrap();
     assert!(rows < 60 && columns < 60);
-    let expected = format!("{} more ↓ · {} more → ·", 60 - rows, 60 - columns);
+    // The counts sit in the section rule's note, so the legend stays whole.
+    let expected = format!("━ {} more ↓ · {} more → ━", 60 - rows, 60 - columns);
     assert!(text.contains(&expected), "expected {expected}: {text}");
+    assert!(text.contains("✕ sender rule · ◆ needs a person"), "{text}");
+    // Two different visible names never render as the same text.
+    let lines: Vec<String> = text
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(160)
+        .map(|row| row.iter().collect())
+        .collect();
+    let header = lines.iter().find(|l| l.contains("From ↓ To →")).unwrap();
+    let columns: Vec<&str> = header[..header.find('│').unwrap_or(header.len())]
+        .split("From ↓ To →")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .collect();
+    let distinct: std::collections::BTreeSet<_> = columns.iter().collect();
+    assert!(
+        columns.len() > 1 && distinct.len() == columns.len(),
+        "{header}"
+    );
 }

@@ -473,6 +473,8 @@ pub(in crate::board) struct Snapshot {
     pub times: BTreeMap<u64, String>,
     /// The same instants as weekday and clock time in the calendar zone (`Wed 23:00`).
     pub short: BTreeMap<u64, String>,
+    /// Clock time alone on the selected time's day, weekday and clock time on any other.
+    pub clock: BTreeMap<u64, String>,
     pub writes: bool,
 }
 impl Snapshot {
@@ -511,20 +513,32 @@ impl Snapshot {
                 }
             }
         }
+        let zoned = |ms: u64| {
+            jiff::Timestamp::from_millisecond(ms as i64)
+                .map(|t| t.to_zoned(zone.clone()))
+                .map_err(|_| "Orchestration time cannot be displayed.".to_owned())
+        };
+        let day = zoned(document.at_ms)?.date();
         let mut times = BTreeMap::new();
         let mut short = BTreeMap::new();
+        let mut clock = BTreeMap::new();
         for ms in instants {
-            let zoned = jiff::Timestamp::from_millisecond(ms as i64)
-                .map_err(|_| "Orchestration time cannot be displayed.".to_owned())?
-                .to_zoned(zone.clone());
+            let zoned = zoned(ms)?;
             times.insert(ms, zoned.strftime("%Y-%m-%d %H:%M %:z").to_string());
             short.insert(ms, zoned.strftime("%a %H:%M").to_string());
+            let format = if zoned.date() == day {
+                "%H:%M"
+            } else {
+                "%a %H:%M"
+            };
+            clock.insert(ms, zoned.strftime(format).to_string());
         }
         Ok(Self {
             document,
             sending,
             times,
             short,
+            clock,
             writes,
         })
     }
@@ -533,6 +547,12 @@ impl Snapshot {
             .get(&ms)
             .cloned()
             .unwrap_or_else(|| self.time(ms))
+    }
+    pub fn clock(&self, ms: u64) -> String {
+        self.clock
+            .get(&ms)
+            .cloned()
+            .unwrap_or_else(|| self.short(ms))
     }
     pub fn time(&self, ms: u64) -> String {
         self.times
