@@ -194,10 +194,24 @@ fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("routes are not available on this Core"));
-    assert!(text.contains("Jobs · not available yet"));
     assert!(text.contains("batch 30m"));
+    // Jobs arrive with their own section; nothing stands in for them meanwhile.
+    assert!(!text.contains("Jobs"), "{text}");
     assert!(!text.contains("0 jobs"));
+    // People read names, short times and where a value comes from, never identities or revisions.
+    assert!(!text.contains("10000000-"), "{text}");
+    assert!(!text.contains("revision"), "{text}");
+    assert!(text.contains("Orchestration · Thu 00:00 UTC · ● following now"), "{text}");
+    let rows: Vec<String> = text
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(160)
+        .map(|row| row.iter().collect())
+        .collect();
+    assert!(
+        rows.iter().any(|row| row.contains("State") && row.contains("← Base")),
+        "one line per field with its source: {text}"
+    );
 }
 
 const OTHER: &str = "10000000-0000-4000-8000-000000000002";
@@ -307,8 +321,69 @@ fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
     assert!(text.contains("From ↓ To →"));
     assert!(text.contains("✕"));
     assert!(text.contains("◆"));
-    assert!(text.contains("worker ⇄ peer 2/2 ◆ held"));
-    assert!(text.contains("Result · not sent, explained"));
+    assert!(text.contains("◆ held"));
+    assert!(text.contains("✕ not sent, explained"));
+    for (name, look) in crate::board::home::tests::oracle::looks() {
+        let app = captures::case("orchestration-matrix", look);
+        let buffer = paint(&app, 160, 36);
+        let header = find(&buffer, "From ↓ To →").expect("matrix header");
+        let (worker, peer) = (header.1 + 1, header.1 + 2);
+        let name_cell = |y| buffer[(header.0, y)].style();
+        assert_ne!(name_cell(worker), name_cell(peer), "{name}: selected row is visible");
+        let blocked = find_in_row(&buffer, worker, "✕").expect("worker → peer is blocked");
+        let held = find_in_row(&buffer, peer, "◆").expect("peer → worker needs a person");
+        let selected_cell = buffer[(blocked, worker)].style();
+        assert_ne!(selected_cell, name_cell(worker), "{name}: selected cell stands out of its row");
+        assert_ne!(selected_cell, buffer[(held, peer)].style(), "{name}: selected cell is unique");
+        if let Some(waiting) = look.role(tmt_cli_style::Role::Waiting).fg {
+            assert_eq!(buffer[(held, peer)].fg, waiting, "{name}: ◆ is Waiting");
+            let blocked_fg = look.role(tmt_cli_style::Role::Blocked).fg.unwrap();
+            assert_eq!(buffer[(blocked, worker)].fg, blocked_fg, "{name}: ✕ is Blocked");
+        }
+    }
+}
+fn paint(app: &super::super::app::App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| super::super::view::render(frame, app))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> Vec<(u16, String)> {
+    (0..buffer.area.width)
+        .map(|x| (x, buffer[(x, y)].symbol().to_owned()))
+        .collect()
+}
+/// The first cell where `needle` starts, as painted (one symbol per cell).
+fn find(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+    (0..buffer.area.height).find_map(|y| find_in_row(buffer, y, needle).map(|x| (x, y)))
+}
+fn find_in_row(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> Option<u16> {
+    let cells = row_text(buffer, y);
+    let wanted: Vec<String> = needle.chars().map(String::from).collect();
+    cells
+        .windows(wanted.len())
+        .find(|w| w.iter().zip(&wanted).all(|((_, a), b)| a == b))
+        .map(|w| w[0].0)
+}
+/// A list row's selection: the first and second rows that start with these names differ.
+fn assert_selected_row_differs(scene: &str, first: &str, second: &str) {
+    for (name, look) in crate::board::home::tests::oracle::looks() {
+        let buffer = paint(&captures::case(scene, look), 160, 36);
+        let a = find(&buffer, first).unwrap_or_else(|| panic!("{scene}: {first}"));
+        let b = find(&buffer, second).unwrap_or_else(|| panic!("{scene}: {second}"));
+        assert_ne!(
+            buffer[a].style(),
+            buffer[b].style(),
+            "{scene} {name}: the selected row is visible"
+        );
+    }
+}
+#[test]
+fn the_selected_plan_and_member_rows_are_visible_in_every_look() {
+    assert_selected_row_differs("orchestration-plans", "Night shift", "Review week");
+    assert_selected_row_differs("orchestration-table-selection", "worker", "peer");
 }
 #[test]
 fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_blocked_cell() {
@@ -452,7 +527,123 @@ pub(in crate::board) mod captures {
         "orchestration-plans",
         "orchestration-why",
         "orchestration-preview",
+        "orchestration-roster",
+        "orchestration-table-selection",
+        "orchestration-empty",
+        "orchestration-failed",
+        "orchestration-refresh-failed",
     ];
+    const WED_23: u64 = 1_794_405_600_000;
+    const NIGHT_START: u64 = 1_794_402_000_000;
+    const NIGHT_END: u64 = 1_794_430_800_000;
+    const NIGHT: &str = "20000000-0000-4000-8000-000000000011";
+    const QUIET: &str = "20000000-0000-4000-8000-000000000012";
+    const ROSTER: [(&str, &str); 12] = [
+        ("tmt-tui-lead", "awake"),
+        ("core-ops-2", "awake"),
+        ("core-1", "low"),
+        ("remote-3", "awake"),
+        ("remote-4", "focus"),
+        ("gui-1", "sleep"),
+        ("night-1", "awake"),
+        ("night-2", "awake"),
+        ("design-2", "low"),
+        ("colab-1", "sleep"),
+        ("infra-1", "awake"),
+        ("tmt-qa-long-member-name", "focus"),
+    ];
+    fn roster_id(index: usize) -> String {
+        format!("10000000-0000-4000-8000-{:012}", index + 101)
+    }
+    /// A real-shaped squad at Wed 23:00 Asia/Tokyo: night members follow Shift B, one route
+    /// is allowed once, one pair is held, and both verdicts appear.
+    fn roster_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+        let night = json!({"kind":"plan","planId":NIGHT,"identityId":null,"revision":4,
+            "slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},"defaulted":false});
+        let field = |value: Value, from_plan: bool| {
+            json!({"value":value,"source":if from_plan { night.clone() } else { source() }})
+        };
+        let members: Vec<Value> = ROSTER
+            .iter()
+            .enumerate()
+            .map(|(index, (name, state))| {
+                let on_night = name.starts_with("night");
+                let mut receiving = field(
+                    match index % 3 {
+                        0 => json!({"mode":"batch","intervalMs":1800000}),
+                        1 => json!({"mode":"direct"}),
+                        _ => json!({"mode":"urgent"}),
+                    },
+                    on_night,
+                );
+                receiving["available"] = true.into();
+                json!({"identityId":roster_id(index),"name":name,
+                    "activePlans":if on_night { json!([NIGHT, QUIET]) } else { json!([QUIET]) },
+                    "nextChangeAtMs":if on_night { json!(NIGHT_END) } else { Value::Null },"jobs":null,
+                    "effective":{"state":field(json!(state), on_night),"receiving":receiving,
+                        "sending":field(json!(if on_night { "leads" } else { "anyone" }), on_night),
+                        "routine":field(json!("run"), false),"talkLimit":field(json!(20), false)}})
+            })
+            .collect();
+        Ok(match (op, input["view"].as_str()) {
+            ("capabilities", _) => json!({"operations":["orchestration.read","orchestration.write"]}),
+            (_, Some("routes")) => {
+                let mut routes = Vec::new();
+                for (from, (from_name, _)) in ROSTER.iter().enumerate() {
+                    for (to, (to_name, _)) in ROSTER.iter().enumerate() {
+                        if from == to {
+                            continue;
+                        }
+                        let (verdict, source) = if from_name.starts_with("night") && to != 0 {
+                            if (from_name, to_name) == (&"night-1", &"gui-1") {
+                                ("allowed", json!({"kind":"grant","grantUntilMs":NIGHT_END}))
+                            } else {
+                                ("blocked", night.clone())
+                            }
+                        } else if (from_name, to_name) == (&"core-ops-2", &"core-1") {
+                            ("needs_person", source())
+                        } else {
+                            ("allowed", source())
+                        };
+                        routes.push(json!({"from":roster_id(from),"fromName":from_name,
+                            "to":roster_id(to),"toName":to_name,"verdict":verdict,"source":source}));
+                    }
+                }
+                json!({"routes":routes,"nextAfter":null})
+            }
+            (_, Some("talks")) => {
+                let member = |index: usize| {
+                    json!({"identityId":roster_id(index),"name":ROSTER[index].0,
+                        "talkLimit":{"value":20,"source":source()}})
+                };
+                json!({"pairs":[
+                    {"members":[member(1),member(2)],"count":20,"limit":20,"lastAtMs":WED_23 - 60_000,
+                     "windowStartMs":NIGHT_START,"state":"held","heldCount":1,"held":[]},
+                    {"members":[member(3),member(4)],"count":7,"limit":20,"lastAtMs":WED_23 - 240_000,
+                     "windowStartMs":NIGHT_START,"state":"open","heldCount":0,"held":[]}]})
+            }
+            _ => json!({"schemaVersion":1,"configurationRevision":9,"receivingRevision":3,
+                "observedAtMs":WED_23,"atMs":WED_23,"timeZone":"Asia/Tokyo",
+                "range":{"startMs":WED_23 - 82_800_000,"endMs":WED_23 + 3_600_000},
+                "plans":[
+                    {"id":NIGHT,"name":"Shift B · Night","revision":4,"fields":{},"schedule":{},
+                     "targets":[],"members":[],"enabled":true,"priority":20},
+                    {"id":QUIET,"name":"Quiet hours","revision":2,"fields":{},"schedule":{},
+                     "targets":[],"members":[],"enabled":true,"priority":10}],
+                "members":members,
+                "timeline":[{"startMs":NIGHT_START,"endMs":NIGHT_END,"planIds":[NIGHT, QUIET]}]}),
+        })
+    }
+    fn older_core_pair(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+        match (op, input["view"].as_str()) {
+            ("capabilities", _) => Ok(json!({"operations":["orchestration.read"]})),
+            (_, Some("routes" | "talks")) => Err(crate::core::SquadError::new(
+                "ORCH_INPUT_INVALID",
+                "Invalid orchestration input or calendar selection.",
+            )),
+            _ => Ok(pair_document()),
+        }
+    }
     fn plans_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
         if op == "orchestration.read" && input["view"] == "overview" {
             let mut value = pair_document();
@@ -483,12 +674,26 @@ pub(in crate::board) mod captures {
             "orchestration-unsupported" => Observation::Unavailable,
             "orchestration-table" => Observation::Ready(Box::new(ready())),
             "orchestration-plans" => Observation::Ready(Box::new(observe(plans_api))),
+            "orchestration-roster" => Observation::Ready(Box::new(observe(roster_api))),
+            "orchestration-table-selection" => {
+                Observation::Ready(Box::new(observe(older_core_pair)))
+            }
+            "orchestration-failed" => Observation::Failed("Core did not answer within 10 s".into()),
             _ => Observation::Ready(Box::new(observe(pair_api))),
         };
-        app.orchestration
-            .apply(app.orchestration.read(), observation);
+        let read = app.orchestration.read();
+        app.orchestration.apply(read.clone(), observation);
         match scene {
-            "orchestration-plans" => app.orchestration.plans = true,
+            "orchestration-plans" | "orchestration-empty" => app.orchestration.plans = true,
+            "orchestration-roster" => {
+                // Selection away from the first row and column, past the rows a short frame shows.
+                app.orchestration.selected = Some(roster_id(6));
+                app.orchestration.target = Some(roster_id(4));
+            }
+            "orchestration-table-selection" => app.orchestration.selected = Some(OTHER.into()),
+            "orchestration-refresh-failed" => app
+                .orchestration
+                .apply(read, Observation::Failed("Core did not answer within 10 s".into())),
             "orchestration-why" => {
                 app.orchestration.why = Some((
                     MEMBER.into(),
