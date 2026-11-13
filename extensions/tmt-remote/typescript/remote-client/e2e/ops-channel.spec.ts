@@ -80,7 +80,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.ops-channel-chips')).toHaveText(/Idle alert 15m\s*Timers 1/);
       await expect(page.locator('.ops-channel-line')).toContainText('Lead sample-lead · 3 members');
       await expect(page.locator('.ops-channel-compose')).toContainText(
-        'needs the next Remote update',
+        'has no channel room on this machine yet',
       );
       await details(page);
       await expect(page.locator('.ops-member-row .ops-member-state')).toHaveText([
@@ -515,18 +515,18 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
 test('channel posts to the lead or each mention with the board room, and shows replies under the post', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    window.roomEnabled = true;
-  });
   await open(page);
   await page.evaluate(() => {
-    window.channelBoard.squads[0]!.room = { roomId: 'room-sample', revision: 7 };
+    window.channelBoard.squads[0]!.room = {
+      roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+      revision: 7,
+    };
     const at = 1720000000000;
     window.roomPage.items = [
       {
         requestId: 'req_00000011-cccc-4ccc-8ccc-cccccccccccc',
         recipientId: '00000000-0000-4000-8000-000000000001',
-        roomId: 'room-sample',
+        roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
         sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
         kind: 'request',
         origin: 'person',
@@ -539,8 +539,6 @@ test('channel posts to the lead or each mention with the board room, and shows r
           bodyBytes: 9,
         },
         preview: 'Ask @sample-2 <b>about</b> the plan',
-        previewTruncated: false,
-        changePosition: 'p1',
       },
     ];
     window.roomResults = {
@@ -578,7 +576,7 @@ test('channel posts to the lead or each mention with the board room, and shows r
   const [lead, mentioned] = await page.evaluate(() => window.roomSends);
   expect(lead).toMatchObject({
     message: 'Plan the week.',
-    room: { roomId: 'room-sample', revision: 7 },
+    room: { roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001', revision: 7 },
     recipientIds: ['00000000-0000-4000-8000-000000000001'],
   });
   expect(mentioned!.recipientIds).toEqual([

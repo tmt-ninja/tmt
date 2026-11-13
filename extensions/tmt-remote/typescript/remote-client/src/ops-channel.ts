@@ -346,7 +346,7 @@ export function channelView(
         const lead = people.find((agent) => agent.role === 'lead');
         stream.select({
           squad: place.squad,
-          room: squad?.room,
+          room: squad?.room ?? null,
           ...(lead ? { lead: { id: lead.id, name: lead.name } } : {}),
           members: people.map((agent) => ({ id: agent.id, name: agent.name })),
         });

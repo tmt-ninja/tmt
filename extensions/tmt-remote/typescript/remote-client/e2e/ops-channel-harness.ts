@@ -11,8 +11,9 @@ import {
   type ConversationChanges,
   type ConversationInput,
 } from '../src/conversations.js';
-import type { ResultState, SendInput, SendState } from '../src/operations.js';
-import type { ChannelPort, RoomPage, RoomSendInput } from '../src/channel-stream.js';
+import type { ResultState, RoomSendInput, SendInput, SendState } from '../src/operations.js';
+import type { ChannelPort } from '../src/channel-stream.js';
+import type { RoomPage } from '../src/conversations.js';
 
 declare global {
   interface Window {
@@ -26,8 +27,6 @@ declare global {
     channelBoard: OpsBoard;
     dmSends: SendInput[];
     dmObserved: number;
-    /** The channel's room port (#5704 A4); unset leaves the page without one, as before remote-3. */
-    roomEnabled?: boolean;
     roomPage: RoomPage;
     roomReads: number;
     roomSends: RoomSendInput[];
@@ -103,7 +102,12 @@ window.dmCalls = [];
 window.dmSends = [];
 window.dmObserved = 0;
 window.dmSendState = null;
-window.roomPage = { roomId: 'room-sample', items: [], nextBefore: null, changes: 'unknown' };
+window.roomPage = {
+  roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+  items: [],
+  nextBefore: null,
+  changes: 'unknown',
+};
 window.roomReads = 0;
 window.roomSends = [];
 window.roomSendState = null;
@@ -598,5 +602,5 @@ opsPage(
       return answer(window.dmSendState, operationId, 'req_00000009-cccc-4ccc-8ccc-cccccccccccc');
     },
   },
-  window.roomEnabled ? room : undefined,
+  room,
 );

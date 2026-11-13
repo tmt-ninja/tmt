@@ -29,7 +29,9 @@ export const finalLabel = (item: Pick<ConversationItem, 'final'>): string | unde
   }
 };
 /** The delivery line under a message: Core's own words when it has them. */
-export const deliveryText = (item: ConversationItem): string =>
+/** What the delivery words and mark read from: a DM exchange or a room post. */
+type Delivered = Pick<ConversationItem, 'delivery' | 'messageState' | 'final'>;
+export const deliveryText = (item: Delivered): string =>
   item.messageState?.reason.text ??
   {
     prepared: 'Preparing',
@@ -40,7 +42,7 @@ export const deliveryText = (item: ConversationItem): string =>
     definitely_failed: 'Not delivered',
   }[item.delivery] ??
   item.delivery;
-export const deliveryMark = (item: ConversationItem): Mark =>
+export const deliveryMark = (item: Delivered): Mark =>
   item.final.status !== 'not_submitted' || item.messageState?.state === 'answered'
     ? 'answered'
     : item.delivery === 'definitely_failed'

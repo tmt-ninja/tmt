@@ -8,8 +8,15 @@ import { el } from './ops-parts.js';
 import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
-import { RefusalError, type ResultState } from './operations.js';
-import type { ConversationCursor, ConversationItem } from './conversations.js';
+import { RefusalError, operations, type ResultState, type RoomSendInput } from './operations.js';
+import {
+  conversations,
+  type ConversationCursor,
+  type RoomInput,
+  type RoomItem,
+  type RoomPage,
+} from './conversations.js';
+import { onSession } from './conversation-history.js';
 import {
   messageRow,
   outbox,
@@ -20,38 +27,26 @@ import {
 } from './talk-stream.js';
 import type { TalkPort } from './talk-stream.js';
 
-export interface RoomRef {
-  roomId: string;
-  revision: number;
-}
-export interface RoomSendInput {
-  operationId: string;
-  message: string;
-  room: RoomRef;
-  recipientIds: string[];
-  kind?: 'request' | 'announcement';
-}
-/** A room exchange: the conversation item shape with its room and recipient, and no direction or
- * reply words (a reply is read with `result`). */
-export type RoomItem = Omit<ConversationItem, 'direction' | 'responsePreview'> & { roomId: string };
-export interface RoomPage {
-  roomId: string;
-  items: RoomItem[];
-  nextBefore: ConversationCursor | null;
-  changes: 'unknown';
-}
-/** Remote's room read, room send and reply read (remote-3, #5704 A4). */
+/** Remote's room read, room send and reply read (#6378); tests inject a double. */
 export interface ChannelPort extends TalkPort<RoomSendInput> {
-  readRoom(
-    roomId: string,
-    input: { limit: number; before?: ConversationCursor },
-  ): Promise<RoomPage>;
+  readRoom(roomId: string, input: RoomInput): Promise<RoomPage>;
   result(requestId: string): Promise<ResultState>;
+}
+/** The channel's calls on the owner's signed Session. */
+export function sessionChannel(shell: RemoteShell): ChannelPort {
+  return {
+    readRoom: (roomId, input) =>
+      onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
+    result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
+    send: (input) => onSession(shell, (session) => operations(session).send(input)),
+    operation: (operationId) =>
+      onSession(shell, (session) => operations(session).operation(operationId)),
+  };
 }
 export interface ChannelRoom {
   squad: string;
   /** The squad's Core room, `null` when the squad has none, `undefined` when the board does not say. */
-  room: RoomRef | null | undefined;
+  room: { roomId: string; revision: number } | null;
   lead?: { id: string; name: string };
   members: readonly { id: string; name: string }[];
 }
@@ -85,7 +80,7 @@ function posts(items: Iterable<RoomItem>): Post[] {
   return [...out.values()];
 }
 
-export function channelStream(shell: RemoteShell, port: ChannelPort | undefined) {
+export function channelStream(shell: RemoteShell, port: ChannelPort = sessionChannel(shell)) {
   const node = el('section', 'ops-dm');
   node.setAttribute('aria-label', 'Channel messages');
   const olderButton = el('button', 'ops-dm-older', 'Show older messages');
@@ -116,16 +111,14 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     visible = false,
     refused = false,
     known = '';
-  const box = port
-    ? outbox(port, (value) => {
-        draw();
-        showComposer();
-        if (value.state === 'accepted') {
-          wanted = true;
-          void refresh();
-        }
-      })
-    : undefined;
+  const box = outbox(port, (value) => {
+    draw();
+    showComposer();
+    if (value.state === 'accepted') {
+      wanted = true;
+      void refresh();
+    }
+  });
   const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
 
   /** Each recipient's side of a post: their reply words, or why there are none. */
@@ -150,7 +143,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
   }
   function postRow(post: Post, inThread = false): HTMLElement {
     const first = post.items[0]!;
-    const as = { ...first, direction: 'toMember' as const, responsePreview: null };
+    const as = first;
     const row = messageRow({
       who: 'You',
       to: answers(post)
@@ -160,7 +153,6 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
       at: new Date(post.preparedAtMs),
       text: first.preview,
       mentions: channel?.members.map((member) => member.name) ?? [],
-      ...(first.previewTruncated ? { note: 'Preview shortened' } : {}),
       ...(inThread ? { state: deliveryText(as), mark: deliveryMark(as) } : {}),
     });
     if (inThread) return row;
@@ -303,7 +295,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
 
   function draw() {
     const target = roomId ?? '';
-    const unlisted = box?.unlisted(target, (id) => items.has(id));
+    const unlisted = box.unlisted(target, (id) => items.has(id));
     const shown = posts(items.values());
     stream.draw(
       shown,
@@ -332,16 +324,10 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     const room = channel.room;
     let canSend = false,
       busy = false;
-    if (!port) {
-      sendNote.textContent = `Sending to ${name} from the browser needs the next Remote update. Until then, use Ops in this machine’s terminal.`;
+    if (!room) {
+      sendNote.textContent = `${name} has no channel room on this machine yet. Talk to a member directly instead.`;
       sendNote.hidden = false;
-    } else if (!room) {
-      sendNote.textContent =
-        room === null
-          ? `${name} has no channel room on this machine yet. Talk to a member directly instead.`
-          : 'Reading the channel…';
-      sendNote.hidden = false;
-    } else ({ canSend, busy } = box!.box(room.roomId, sendNote));
+    } else ({ canSend, busy } = box.box(room.roomId, sendNote));
     composer.show({
       key: `channel:${channel.squad}`,
       label: `Message ${name}`,
@@ -350,9 +336,9 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
       describedBy: sendNote.id,
       canSend,
       busy,
-      cleared: box?.cleared ?? 0,
+      cleared: box.cleared,
       onSend: (message) => {
-        if (!channel?.room || !box || shell.signal.aborted) return;
+        if (!channel?.room || shell.signal.aborted) return;
         const target = channel.room;
         const to = recipients(message, channel);
         if (!to.length) {
@@ -381,7 +367,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
       if (item.final.status !== 'retained' || known === 'replied' || known === 'unavailable')
         continue;
       try {
-        const value = await port!.result(item.requestId);
+        const value = await port.result(item.requestId);
         if (ticket !== generation) return;
         replies.set(item.requestId, value);
       } catch {
@@ -390,7 +376,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     }
   }
   async function load(before?: ConversationCursor): Promise<boolean> {
-    if (!port || !roomId || !visible || refused || shell.signal.aborted) return true;
+    if (!roomId || !visible || refused || shell.signal.aborted) return true;
     if (document.visibilityState !== 'visible') return true;
     if (running) {
       wanted = true;
@@ -417,7 +403,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
         if (error instanceof RefusalError) {
           // A refused read waits for the board or the grant to change; the tick does not ask again.
           refused = true;
-          const reason = (error as RefusalError & { reason?: string }).reason;
+          const reason = error.reason;
           emptyTitle.textContent = 'This browser cannot read the channel';
           emptyText.replaceChildren(
             reason === 'owner_browser_required'
@@ -448,7 +434,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     }
   }
   async function refresh(): Promise<boolean> {
-    await box?.observe();
+    await box.observe();
     return load();
   }
   olderButton.hidden = true;
@@ -480,11 +466,10 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
         stream.reset();
         olderButton.hidden = true;
         emptyTitle.textContent = 'No channel messages yet';
-        emptyText.textContent = port
-          ? next?.room === null
+        emptyText.textContent =
+          next?.room === null
             ? 'This squad has no channel room on this machine.'
-            : 'Reading the channel…'
-          : 'Messages to this channel appear here. Open a member to read your conversation with them.';
+            : 'Reading the channel…';
         empty.hidden = false;
         void refresh();
       } else draw();

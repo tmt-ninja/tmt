@@ -8804,11 +8804,7 @@ function opsBoard(payload) {
 				revision: squad.room.revision
 			} : null,
 			...squad.lead ? { lead: squad.lead.name } : {},
-			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {},
-			...squad.room === null ? { room: null } : squad.room && typeof squad.room.roomId === "string" && Number.isSafeInteger(squad.room.revision) ? { room: {
-				roomId: squad.room.roomId,
-				revision: squad.room.revision
-			} } : {}
+			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {}
 		})),
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
@@ -10523,6 +10519,217 @@ function composerSlot(host) {
 	} };
 }
 //#endregion
+//#region src/conversations.ts
+var CONVERSATION_PAGE_MAX = 50;
+var CONVERSATION_PREVIEW_BYTES = 640;
+var CONVERSATION_WITHDRAWAL_BYTES = 1024;
+var utf8$1 = new TextEncoder();
+var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+function valid(condition) {
+	if (!condition) throw new Error("Invalid conversation response.");
+}
+function object(value) {
+	valid(value !== null && typeof value === "object" && !Array.isArray(value));
+	return value;
+}
+function keys(row, required, optional = []) {
+	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
+}
+var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
+function cursor$1(value) {
+	const row = object(value);
+	keys(row, ["preparedAtMs", "requestId"]);
+	valid(integer(row.preparedAtMs) && requestId(row.requestId));
+	return {
+		preparedAtMs: row.preparedAtMs,
+		requestId: row.requestId
+	};
+}
+function final(value) {
+	const row = object(value);
+	switch (row.status) {
+		case "not_submitted":
+		case "not_required":
+			keys(row, ["status"]);
+			break;
+		case "withdrawn":
+			keys(row, [
+				"status",
+				"reason",
+				"withdrawnAtMs"
+			]);
+			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
+			break;
+		case "retained":
+			keys(row, [
+				"status",
+				"submittedAtMs",
+				"expiresAtMs",
+				"bodyBytes"
+			]);
+			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs) && integer(row.bodyBytes));
+			break;
+		case "expired":
+		case "unavailable":
+			keys(row, [
+				"status",
+				"submittedAtMs",
+				"expiresAtMs"
+			]);
+			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs));
+			break;
+		default: throw new Error("Invalid conversation final.");
+	}
+	return { ...row };
+}
+/** Called only after signature/correlation verification by the shared Session lane. */
+function parseConversation(value, memberId, input) {
+	return parsePage(value, memberId, input, false);
+}
+function parseRoom(value, roomId, input) {
+	return parsePage(value, roomId, input, true);
+}
+function parsePage(value, scopeId, input, room) {
+	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
+	const row = object(value);
+	keys(row, room ? [
+		"roomId",
+		"items",
+		"nextBefore",
+		"changes"
+	] : [
+		"viewerId",
+		"member",
+		"items",
+		"nextBefore",
+		"changePosition"
+	], input.since === void 0 ? [] : ["changedSince"]);
+	valid((room ? row.roomId === scopeId && row.changes === "unknown" : coreId(row.viewerId) && [
+		"active",
+		"unknown",
+		"retired"
+	].includes(row.member) && conversationPosition(row.changePosition)) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
+	valid(room || row.member === "active" || row.items.length === 0);
+	const ids = /* @__PURE__ */ new Set();
+	const items = row.items.map((value) => {
+		const item = object(value);
+		keys(item, [
+			"requestId",
+			"recipientId",
+			"sender",
+			"kind",
+			"origin",
+			"preparedAtMs",
+			"delivery",
+			"messageState",
+			"final",
+			"preview",
+			"responsePreview",
+			"previewTruncated",
+			"direction",
+			"changePosition"
+		].filter((key) => !room || ![
+			"direction",
+			"changePosition",
+			"responsePreview",
+			"previewTruncated"
+		].includes(key)).concat(room ? ["roomId"] : []), room ? [] : ["responseId"]);
+		const sender = object(item.sender);
+		keys(sender, ["kind", "identityId"]);
+		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && (coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) || room && sender.kind === "unknown" && sender.identityId === null) && ["request", "announcement"].includes(item.kind) && [
+			"person",
+			"automation",
+			"unknown"
+		].includes(item.origin) && [
+			"prepared",
+			"sending",
+			"sent",
+			"queued",
+			"uncertain",
+			"definitely_failed"
+		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && (room ? item.roomId === scopeId : preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition)));
+		ids.add(item.requestId);
+		valid(room || (item.direction === "toMember" ? item.recipientId === scopeId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === scopeId));
+		const settled = final(item.final);
+		valid(room || settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
+		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
+		const { messageState: state } = messageState(item);
+		const { messageState: _rawState, ...rest } = item;
+		return {
+			...rest,
+			sender: { ...sender },
+			final: settled,
+			...state ? { messageState: state } : {}
+		};
+	});
+	let changedSince;
+	if (input.since !== void 0) {
+		valid(Object.hasOwn(row, "changedSince"));
+		if (row.changedSince === "unknown") changedSince = "unknown";
+		else {
+			const changes = object(row.changedSince);
+			keys(changes, ["count", "more"]);
+			valid(integer(changes.count) && changes.count <= CONVERSATION_PAGE_MAX && typeof changes.more === "boolean" && (!changes.more || changes.count === CONVERSATION_PAGE_MAX));
+			changedSince = {
+				count: changes.count,
+				more: changes.more
+			};
+		}
+	}
+	if (room) return {
+		roomId: scopeId,
+		items,
+		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
+		changes: "unknown"
+	};
+	return {
+		viewerId: row.viewerId,
+		member: row.member,
+		items,
+		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
+		changePosition: row.changePosition,
+		...changedSince === void 0 ? {} : { changedSince }
+	};
+}
+function conversations(session, options = {}) {
+	const channel = channelFor(session);
+	if (!channel) throw new TypeError("Use a verified Session.");
+	const call = verifiedSessionRequest(session, options);
+	function readScope(scopeId, value, room) {
+		const allowed = room ? ["limit", "before"] : [
+			"limit",
+			"before",
+			"since"
+		];
+		if (!coreId(scopeId) || Object.keys(value).some((key) => !allowed.includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
+		let before;
+		if (value.before !== void 0) try {
+			before = cursor$1(value.before);
+		} catch {
+			throw new TypeError("Invalid conversation cursor.");
+		}
+		const frozen = {
+			limit: value.limit ?? 20,
+			...before ? { before } : {},
+			...value.since === void 0 ? {} : { since: value.since }
+		};
+		return call("requests.list", crypto.randomUUID(), {
+			version: 1,
+			operation: "requests.list",
+			input: {
+				[room ? "roomId" : "memberId"]: scopeId,
+				...frozen
+			}
+		}, (answer) => room ? parseRoom(answer, scopeId, frozen) : parseConversation(answer, scopeId, frozen));
+	}
+	return {
+		machineId: channel.paired.machineId,
+		read: (memberId, value = {}) => readScope(memberId, value, false),
+		readRoom: (roomId, value = {}) => readScope(roomId, value, true)
+	};
+}
+//#endregion
 //#region src/talk-stream.ts
 /** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
 * anchored at the bottom with day separators, each message's delivery under it and replies as their
@@ -10541,7 +10748,6 @@ var finalLabel = (item) => {
 		case "unavailable": return "The reply is unavailable";
 	}
 };
-/** The delivery line under a message: Core's own words when it has them. */
 var deliveryText = (item) => item.messageState?.reason.text ?? {
 	prepared: "Preparing",
 	sending: "Sending",
@@ -10827,6 +11033,323 @@ function pendingRow(value, to, mentions = []) {
 	return group;
 }
 //#endregion
+//#region src/conversation-seen.ts
+/** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
+function key(scope) {
+	if (![
+		scope.machineId,
+		scope.viewerId,
+		scope.memberId
+	].every(coreId)) throw new TypeError("Invalid conversation scope.");
+	return JSON.stringify([
+		"tmt.dm.seen.v1",
+		scope.machineId,
+		scope.viewerId,
+		scope.memberId
+	]);
+}
+function conversationSeen(storage) {
+	return {
+		read(scope) {
+			try {
+				if (!storage) return {
+					available: false,
+					position: null
+				};
+				const value = storage.getItem(key(scope));
+				return {
+					available: true,
+					position: conversationPosition(value) ? value : null
+				};
+			} catch {
+				return {
+					available: false,
+					position: null
+				};
+			}
+		},
+		markVisibleNewest(scope, page, view) {
+			if (!view.newest || !view.documentVisible || !view.panelVisible || page.viewerId !== scope.viewerId || !conversationPosition(page.changePosition)) return false;
+			try {
+				if (!storage) return false;
+				storage.setItem(key(scope), page.changePosition);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+	};
+}
+/** No baseline or failed storage is unknown; only Core can prove a count, including zero. */
+function conversationUnread(baseline, changes) {
+	if (!baseline.available || baseline.position === null || !changes || changes === "unknown") return { state: "unknown" };
+	return {
+		state: "known",
+		count: changes.count,
+		more: changes.more
+	};
+}
+//#endregion
+//#region src/conversation-history.ts
+/** The DM (#5704; spec 8d17ce7c screen 3): the conversation as a chat anchored at the bottom, with
+* day separators, each message's delivery under it and the member's reply as its own row, and
+* the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
+* read at a time; positions and seen state never leave their owners. */
+/** Runs one read on the owner's signed Session, retiring that Session when the read shows it is
+* gone, so the next read opens a fresh one. Shared by the DM and the channel. */
+async function onSession(shell, run) {
+	if (!shell.session) throw new Error("No signed browser session.");
+	const session = await shell.session();
+	shell.signal.throwIfAborted();
+	try {
+		return await run(session);
+	} catch (error) {
+		if (error instanceof ClientError && [
+			"transport_failure",
+			"timeout",
+			"sequence_unavailable"
+		].includes(error.code) || error instanceof RefusalError && [
+			"REMOTE_SESSION_ENDED",
+			"REMOTE_SESSION_EVICTED",
+			"REMOTE_SERVE_STOPPED",
+			"REMOTE_GRANT_CHANGED"
+		].includes(error.code)) shell.forgetSession?.(session);
+		throw error;
+	}
+}
+function sessionRead(shell) {
+	return (memberId, input) => onSession(shell, async (session) => {
+		const client = conversations(session);
+		return {
+			machineId: client.machineId,
+			page: await client.read(memberId, input)
+		};
+	});
+}
+function sessionTalk(shell) {
+	const client = async () => {
+		if (!shell.session) throw new Error("No signed browser session.");
+		return operations(await shell.session());
+	};
+	return {
+		send: async (input) => (await client()).send(input),
+		operation: async (operationId) => (await client()).operation(operationId)
+	};
+}
+function storage() {
+	try {
+		return localStorage;
+	} catch {
+		return;
+	}
+}
+var UNKNOWN = { state: "unknown" };
+function conversationHistory(shell, observed, read = sessionRead(shell), talk = sessionTalk(shell)) {
+	const node = el("section", "ops-dm");
+	node.setAttribute("aria-label", "Talk history");
+	const olderButton = el("button", "ops-dm-older", "Show older messages");
+	olderButton.type = "button";
+	const status = el("p", "ops-dm-status", "Choose a member to read the retained conversation.");
+	status.setAttribute("role", "status");
+	const stream = talkList("Conversation");
+	const list = stream.list;
+	const compose = el("section", "ops-channel-compose");
+	compose.setAttribute("aria-label", "Message");
+	const composerHost = el("div", "ops-composer-host");
+	const sendNote = el("p", "ops-channel-compose-reason");
+	sendNote.id = "ops-dm-send-note";
+	sendNote.setAttribute("aria-live", "polite");
+	compose.append(composerHost, sendNote);
+	node.append(olderButton, status, list, compose);
+	const composer = composerSlot(composerHost);
+	const seen = conversationSeen(storage());
+	const items = /* @__PURE__ */ new Map();
+	let memberId, memberName = "", panelVisible = false;
+	let generation = 0, running = false, wanted = false;
+	let scope;
+	let olderCursor;
+	let reported = "";
+	const box = outbox(talk, (value) => {
+		draw();
+		showComposer();
+		if (value.state === "accepted") {
+			wanted = true;
+			refresh();
+		}
+	});
+	function report(value) {
+		const fingerprint = JSON.stringify(value);
+		if (fingerprint !== reported) {
+			reported = fingerprint;
+			observed(value);
+		}
+	}
+	function controls() {
+		olderButton.hidden = !memberId || !olderCursor;
+		olderButton.disabled = running;
+		node.setAttribute("aria-busy", String(running));
+	}
+	function draw() {
+		const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : void 0;
+		stream.draw(items.values(), (item) => exchangeRows(item, {
+			me: "You",
+			them: memberName,
+			fromMe: item.direction === "toMember"
+		}), memberName, unlisted && pendingRow(unlisted, memberName));
+	}
+	function showComposer() {
+		if (!memberId) return;
+		const { canSend, busy } = box.box(memberId, sendNote);
+		composer.show({
+			key: memberId,
+			label: `Message ${memberName}`,
+			placeholder: `Message ${memberName}…`,
+			hint: "Enter sends · Shift+Enter for a new line",
+			describedBy: sendNote.id,
+			canSend,
+			busy,
+			cleared: box.cleared,
+			onSend: (message) => {
+				const agentId = memberId;
+				if (!agentId || shell.signal.aborted) return;
+				box.send(agentId, message, (operationId) => ({
+					operationId,
+					agentId,
+					message
+				}));
+			}
+		});
+	}
+	async function load(before) {
+		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
+		if (running) return true;
+		running = true;
+		controls();
+		const selected = memberId, ticket = generation;
+		const input = {
+			limit: 20,
+			...before ? { before } : {}
+		};
+		if (scope?.memberId === selected) {
+			const baseline = seen.read(scope);
+			if (baseline.available && baseline.position) input.since = baseline.position;
+		}
+		const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
+		try {
+			let next = await read(selected, input);
+			if (!current()) return false;
+			let nextScope = {
+				machineId: next.machineId,
+				viewerId: next.page.viewerId,
+				memberId: selected
+			};
+			let baseline = seen.read(nextScope);
+			if (baseline.available && baseline.position && input.since !== baseline.position) {
+				input.since = baseline.position;
+				next = await read(selected, input);
+				if (!current()) return false;
+				const secondScope = {
+					machineId: next.machineId,
+					viewerId: next.page.viewerId,
+					memberId: selected
+				};
+				if (JSON.stringify(secondScope) !== JSON.stringify(nextScope)) baseline = {
+					available: false,
+					position: null
+				};
+				nextScope = secondScope;
+			}
+			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
+				items.clear();
+				stream.reset();
+				olderCursor = void 0;
+			}
+			scope = nextScope;
+			let changes = input.since === baseline.position ? conversationUnread(baseline, next.page.changedSince) : UNKNOWN;
+			for (const item of next.page.items) items.set(item.requestId, item);
+			if (before || olderCursor === void 0) olderCursor = next.page.nextBefore;
+			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
+			status.hidden = status.textContent === "";
+			draw();
+			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
+			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
+				newest: true,
+				documentVisible: true,
+				panelVisible: true
+			})) changes = UNKNOWN;
+			report({
+				scope,
+				unread: changes
+			});
+			return true;
+		} catch {
+			if (current()) {
+				items.clear();
+				stream.reset();
+				olderCursor = void 0;
+				status.hidden = false;
+				status.textContent = "The conversation is unavailable for this browser. Reload the page, or use Ops in this machine’s terminal.";
+				report({ unread: UNKNOWN });
+			}
+			return false;
+		} finally {
+			running = false;
+			controls();
+			if (wanted && !shell.signal.aborted) {
+				wanted = false;
+				refresh();
+			}
+		}
+	}
+	async function refresh() {
+		await box.observe();
+		return load();
+	}
+	olderButton.addEventListener("click", () => {
+		if (!olderCursor || running) return;
+		generation++;
+		load(olderCursor);
+	});
+	shell.signal.addEventListener("abort", () => {
+		generation++;
+		stream.forget();
+		items.clear();
+	}, { once: true });
+	whileVisible(5e3, shell.signal, refresh);
+	controls();
+	return {
+		node,
+		select(member) {
+			const wasVisible = panelVisible;
+			panelVisible = member !== void 0;
+			if (member && member.id !== memberId) {
+				memberId = member.id;
+				memberName = member.name;
+				generation++;
+				scope = void 0;
+				olderCursor = void 0;
+				items.clear();
+				stream.reset();
+				status.hidden = false;
+				status.textContent = "Reading the conversation…";
+				report({ unread: UNKNOWN });
+				showComposer();
+				if (running) wanted = true;
+				else refresh();
+			} else if (member) {
+				if (member.name !== memberName) {
+					memberName = member.name;
+					stream.forget();
+					draw();
+					showComposer();
+				}
+				if (!wasVisible) refresh();
+			}
+			controls();
+		}
+	};
+}
+//#endregion
 //#region src/channel-stream.ts
 /** The channel stream (#5704 A4, spec 8d17ce7c screens 1-2): the squad room's posts, each with its
 * recipients' replies under it, and the box that posts to the room. A post goes to the squad lead,
@@ -10834,6 +11357,15 @@ function pendingRow(value, to, mentions = []) {
 * roster revision comes back refused with Core's reason and the person sends again after the board
 * refreshes. The room read has no change positions yet, so the channel shows no unread count and
 * refreshes by rereading its newest page. */
+/** The channel's calls on the owner's signed Session. */
+function sessionChannel(shell) {
+	return {
+		readRoom: (roomId, input) => onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
+		result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
+		send: (input) => onSession(shell, (session) => operations(session).send(input)),
+		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
+	};
+}
 /** The members a post @mentions, or the lead when it mentions none. */
 function recipients(message, channel) {
 	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
@@ -10854,7 +11386,7 @@ function posts(items) {
 	}
 	return [...out.values()];
 }
-function channelStream(shell, port) {
+function channelStream(shell, port = sessionChannel(shell)) {
 	const node = el("section", "ops-dm");
 	node.setAttribute("aria-label", "Channel messages");
 	const olderButton = el("button", "ops-dm-older", "Show older messages");
@@ -10880,14 +11412,14 @@ function channelStream(shell, port) {
 	let roomId;
 	let olderCursor;
 	let generation = 0, running = false, wanted = false, visible = false, refused = false, known = "";
-	const box = port ? outbox(port, (value) => {
+	const box = outbox(port, (value) => {
 		draw();
 		showComposer();
 		if (value.state === "accepted") {
 			wanted = true;
 			refresh();
 		}
-	}) : void 0;
+	});
 	const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
 	/** Each recipient's side of a post: their reply words, or why there are none. */
 	function answers(post) {
@@ -10905,11 +11437,7 @@ function channelStream(shell, port) {
 	}
 	function postRow(post, inThread = false) {
 		const first = post.items[0];
-		const as = {
-			...first,
-			direction: "toMember",
-			responsePreview: null
-		};
+		const as = first;
 		const row = messageRow({
 			who: "You",
 			to: answers(post).map((side) => side.name).join(", "),
@@ -10917,7 +11445,6 @@ function channelStream(shell, port) {
 			at: new Date(post.preparedAtMs),
 			text: first.preview,
 			mentions: channel?.members.map((member) => member.name) ?? [],
-			...first.previewTruncated ? { note: "Preview shortened" } : {},
 			...inThread ? {
 				state: deliveryText(as),
 				mark: deliveryMark(as)
@@ -11018,7 +11545,7 @@ function channelStream(shell, port) {
 	}
 	function draw() {
 		const target = roomId ?? "";
-		const unlisted = box?.unlisted(target, (id) => items.has(id));
+		const unlisted = box.unlisted(target, (id) => items.has(id));
 		const shown = posts(items.values());
 		stream.draw(shown, (post) => [postRow(post)], [
 			[...names()],
@@ -11036,11 +11563,8 @@ function channelStream(shell, port) {
 		const name = `#${channel.squad}`;
 		const room = channel.room;
 		let canSend = false, busy = false;
-		if (!port) {
-			sendNote.textContent = `Sending to ${name} from the browser needs the next Remote update. Until then, use Ops in this machine’s terminal.`;
-			sendNote.hidden = false;
-		} else if (!room) {
-			sendNote.textContent = room === null ? `${name} has no channel room on this machine yet. Talk to a member directly instead.` : "Reading the channel…";
+		if (!room) {
+			sendNote.textContent = `${name} has no channel room on this machine yet. Talk to a member directly instead.`;
 			sendNote.hidden = false;
 		} else ({canSend, busy} = box.box(room.roomId, sendNote));
 		composer.show({
@@ -11051,9 +11575,9 @@ function channelStream(shell, port) {
 			describedBy: sendNote.id,
 			canSend,
 			busy,
-			cleared: box?.cleared ?? 0,
+			cleared: box.cleared,
 			onSend: (message) => {
-				if (!channel?.room || !box || shell.signal.aborted) return;
+				if (!channel?.room || shell.signal.aborted) return;
 				const target = channel.room;
 				const to = recipients(message, channel);
 				if (!to.length) {
@@ -11086,7 +11610,7 @@ function channelStream(shell, port) {
 		}
 	}
 	async function load(before) {
-		if (!port || !roomId || !visible || refused || shell.signal.aborted) return true;
+		if (!roomId || !visible || refused || shell.signal.aborted) return true;
 		if (document.visibilityState !== "visible") return true;
 		if (running) {
 			wanted = true;
@@ -11139,7 +11663,7 @@ function channelStream(shell, port) {
 		}
 	}
 	async function refresh() {
-		await box?.observe();
+		await box.observe();
 		return load();
 	}
 	olderButton.hidden = true;
@@ -11170,7 +11694,7 @@ function channelStream(shell, port) {
 				stream.reset();
 				olderButton.hidden = true;
 				emptyTitle.textContent = "No channel messages yet";
-				emptyText.textContent = port ? next?.room === null ? "This squad has no channel room on this machine." : "Reading the channel…" : "Messages to this channel appear here. Open a member to read your conversation with them.";
+				emptyText.textContent = next?.room === null ? "This squad has no channel room on this machine." : "Reading the channel…";
 				empty.hidden = false;
 				refresh();
 			} else draw();
@@ -11469,7 +11993,7 @@ function channelView(pathname, shell, port = void 0) {
 				const lead = people.find((agent) => agent.role === "lead");
 				stream.select({
 					squad: place.squad,
-					room: squad?.room,
+					room: squad?.room ?? null,
 					...lead ? { lead: {
 						id: lead.id,
 						name: lead.name
@@ -11481,529 +12005,6 @@ function channelView(pathname, shell, port = void 0) {
 				});
 			}
 			select(selected);
-		}
-	};
-}
-//#endregion
-//#region src/conversations.ts
-var CONVERSATION_PAGE_MAX = 50;
-var CONVERSATION_PREVIEW_BYTES = 640;
-var CONVERSATION_WITHDRAWAL_BYTES = 1024;
-var utf8$1 = new TextEncoder();
-var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
-function valid(condition) {
-	if (!condition) throw new Error("Invalid conversation response.");
-}
-function object(value) {
-	valid(value !== null && typeof value === "object" && !Array.isArray(value));
-	return value;
-}
-function keys(row, required, optional = []) {
-	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
-}
-var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
-function cursor$1(value) {
-	const row = object(value);
-	keys(row, ["preparedAtMs", "requestId"]);
-	valid(integer(row.preparedAtMs) && requestId(row.requestId));
-	return {
-		preparedAtMs: row.preparedAtMs,
-		requestId: row.requestId
-	};
-}
-function final(value) {
-	const row = object(value);
-	switch (row.status) {
-		case "not_submitted":
-		case "not_required":
-			keys(row, ["status"]);
-			break;
-		case "withdrawn":
-			keys(row, [
-				"status",
-				"reason",
-				"withdrawnAtMs"
-			]);
-			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
-			break;
-		case "retained":
-			keys(row, [
-				"status",
-				"submittedAtMs",
-				"expiresAtMs",
-				"bodyBytes"
-			]);
-			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs) && integer(row.bodyBytes));
-			break;
-		case "expired":
-		case "unavailable":
-			keys(row, [
-				"status",
-				"submittedAtMs",
-				"expiresAtMs"
-			]);
-			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs));
-			break;
-		default: throw new Error("Invalid conversation final.");
-	}
-	return { ...row };
-}
-/** Called only after signature/correlation verification by the shared Session lane. */
-function parseConversation(value, memberId, input) {
-	return parsePage(value, memberId, input, false);
-}
-function parseRoom(value, roomId, input) {
-	return parsePage(value, roomId, input, true);
-}
-function parsePage(value, scopeId, input, room) {
-	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
-	const row = object(value);
-	keys(row, room ? [
-		"roomId",
-		"items",
-		"nextBefore",
-		"changes"
-	] : [
-		"viewerId",
-		"member",
-		"items",
-		"nextBefore",
-		"changePosition"
-	], input.since === void 0 ? [] : ["changedSince"]);
-	valid((room ? row.roomId === scopeId && row.changes === "unknown" : coreId(row.viewerId) && [
-		"active",
-		"unknown",
-		"retired"
-	].includes(row.member) && conversationPosition(row.changePosition)) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
-	valid(room || row.member === "active" || row.items.length === 0);
-	const ids = /* @__PURE__ */ new Set();
-	const items = row.items.map((value) => {
-		const item = object(value);
-		keys(item, [
-			"requestId",
-			"recipientId",
-			"sender",
-			"kind",
-			"origin",
-			"preparedAtMs",
-			"delivery",
-			"messageState",
-			"final",
-			"preview",
-			"responsePreview",
-			"previewTruncated",
-			"direction",
-			"changePosition"
-		].filter((key) => !room || ![
-			"direction",
-			"changePosition",
-			"responsePreview",
-			"previewTruncated"
-		].includes(key)).concat(room ? ["roomId"] : []), room ? [] : ["responseId"]);
-		const sender = object(item.sender);
-		keys(sender, ["kind", "identityId"]);
-		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && (coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) || room && sender.kind === "unknown" && sender.identityId === null) && ["request", "announcement"].includes(item.kind) && [
-			"person",
-			"automation",
-			"unknown"
-		].includes(item.origin) && [
-			"prepared",
-			"sending",
-			"sent",
-			"queued",
-			"uncertain",
-			"definitely_failed"
-		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && (room ? item.roomId === scopeId : preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition)));
-		ids.add(item.requestId);
-		valid(room || (item.direction === "toMember" ? item.recipientId === scopeId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === scopeId));
-		const settled = final(item.final);
-		valid(room || settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
-		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
-		const { messageState: state } = messageState(item);
-		const { messageState: _rawState, ...rest } = item;
-		return {
-			...rest,
-			sender: { ...sender },
-			final: settled,
-			...state ? { messageState: state } : {}
-		};
-	});
-	let changedSince;
-	if (input.since !== void 0) {
-		valid(Object.hasOwn(row, "changedSince"));
-		if (row.changedSince === "unknown") changedSince = "unknown";
-		else {
-			const changes = object(row.changedSince);
-			keys(changes, ["count", "more"]);
-			valid(integer(changes.count) && changes.count <= CONVERSATION_PAGE_MAX && typeof changes.more === "boolean" && (!changes.more || changes.count === CONVERSATION_PAGE_MAX));
-			changedSince = {
-				count: changes.count,
-				more: changes.more
-			};
-		}
-	}
-	if (room) return {
-		roomId: scopeId,
-		items,
-		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
-		changes: "unknown"
-	};
-	return {
-		viewerId: row.viewerId,
-		member: row.member,
-		items,
-		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
-		changePosition: row.changePosition,
-		...changedSince === void 0 ? {} : { changedSince }
-	};
-}
-function conversations(session, options = {}) {
-	const channel = channelFor(session);
-	if (!channel) throw new TypeError("Use a verified Session.");
-	const call = verifiedSessionRequest(session, options);
-	function readScope(scopeId, value, room) {
-		const allowed = room ? ["limit", "before"] : [
-			"limit",
-			"before",
-			"since"
-		];
-		if (!coreId(scopeId) || Object.keys(value).some((key) => !allowed.includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
-		let before;
-		if (value.before !== void 0) try {
-			before = cursor$1(value.before);
-		} catch {
-			throw new TypeError("Invalid conversation cursor.");
-		}
-		const frozen = {
-			limit: value.limit ?? 20,
-			...before ? { before } : {},
-			...value.since === void 0 ? {} : { since: value.since }
-		};
-		return call("requests.list", crypto.randomUUID(), {
-			version: 1,
-			operation: "requests.list",
-			input: {
-				[room ? "roomId" : "memberId"]: scopeId,
-				...frozen
-			}
-		}, (answer) => room ? parseRoom(answer, scopeId, frozen) : parseConversation(answer, scopeId, frozen));
-	}
-	return {
-		machineId: channel.paired.machineId,
-		read: (memberId, value = {}) => readScope(memberId, value, false),
-		readRoom: (roomId, value = {}) => readScope(roomId, value, true)
-	};
-}
-//#endregion
-//#region src/conversation-seen.ts
-/** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
-function key(scope) {
-	if (![
-		scope.machineId,
-		scope.viewerId,
-		scope.memberId
-	].every(coreId)) throw new TypeError("Invalid conversation scope.");
-	return JSON.stringify([
-		"tmt.dm.seen.v1",
-		scope.machineId,
-		scope.viewerId,
-		scope.memberId
-	]);
-}
-function conversationSeen(storage) {
-	return {
-		read(scope) {
-			try {
-				if (!storage) return {
-					available: false,
-					position: null
-				};
-				const value = storage.getItem(key(scope));
-				return {
-					available: true,
-					position: conversationPosition(value) ? value : null
-				};
-			} catch {
-				return {
-					available: false,
-					position: null
-				};
-			}
-		},
-		markVisibleNewest(scope, page, view) {
-			if (!view.newest || !view.documentVisible || !view.panelVisible || page.viewerId !== scope.viewerId || !conversationPosition(page.changePosition)) return false;
-			try {
-				if (!storage) return false;
-				storage.setItem(key(scope), page.changePosition);
-				return true;
-			} catch {
-				return false;
-			}
-		}
-	};
-}
-/** No baseline or failed storage is unknown; only Core can prove a count, including zero. */
-function conversationUnread(baseline, changes) {
-	if (!baseline.available || baseline.position === null || !changes || changes === "unknown") return { state: "unknown" };
-	return {
-		state: "known",
-		count: changes.count,
-		more: changes.more
-	};
-}
-//#endregion
-//#region src/conversation-history.ts
-/** The DM (#5704; spec 8d17ce7c screen 3): the conversation as a chat anchored at the bottom, with
-* day separators, each message's delivery under it and the member's reply as its own row, and
-* the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
-* read at a time; positions and seen state never leave their owners. */
-function sessionRead(shell) {
-	return async (memberId, input) => {
-		if (!shell.session) throw new Error("No signed browser session.");
-		const session = await shell.session();
-		shell.signal.throwIfAborted();
-		try {
-			const client = conversations(session);
-			return {
-				machineId: client.machineId,
-				page: await client.read(memberId, input)
-			};
-		} catch (error) {
-			if (error instanceof ClientError && [
-				"transport_failure",
-				"timeout",
-				"sequence_unavailable"
-			].includes(error.code) || error instanceof RefusalError && [
-				"REMOTE_SESSION_ENDED",
-				"REMOTE_SESSION_EVICTED",
-				"REMOTE_SERVE_STOPPED",
-				"REMOTE_GRANT_CHANGED"
-			].includes(error.code)) shell.forgetSession?.(session);
-			throw error;
-		}
-	};
-}
-function sessionTalk(shell) {
-	const client = async () => {
-		if (!shell.session) throw new Error("No signed browser session.");
-		return operations(await shell.session());
-	};
-	return {
-		send: async (input) => (await client()).send(input),
-		operation: async (operationId) => (await client()).operation(operationId)
-	};
-}
-function storage() {
-	try {
-		return localStorage;
-	} catch {
-		return;
-	}
-}
-var UNKNOWN = { state: "unknown" };
-function conversationHistory(shell, observed, read = sessionRead(shell), talk = sessionTalk(shell)) {
-	const node = el("section", "ops-dm");
-	node.setAttribute("aria-label", "Talk history");
-	const olderButton = el("button", "ops-dm-older", "Show older messages");
-	olderButton.type = "button";
-	const status = el("p", "ops-dm-status", "Choose a member to read the retained conversation.");
-	status.setAttribute("role", "status");
-	const stream = talkList("Conversation");
-	const list = stream.list;
-	const compose = el("section", "ops-channel-compose");
-	compose.setAttribute("aria-label", "Message");
-	const composerHost = el("div", "ops-composer-host");
-	const sendNote = el("p", "ops-channel-compose-reason");
-	sendNote.id = "ops-dm-send-note";
-	sendNote.setAttribute("aria-live", "polite");
-	compose.append(composerHost, sendNote);
-	node.append(olderButton, status, list, compose);
-	const composer = composerSlot(composerHost);
-	const seen = conversationSeen(storage());
-	const items = /* @__PURE__ */ new Map();
-	let memberId, memberName = "", panelVisible = false;
-	let generation = 0, running = false, wanted = false;
-	let scope;
-	let olderCursor;
-	let reported = "";
-	const box = outbox(talk, (value) => {
-		draw();
-		showComposer();
-		if (value.state === "accepted") {
-			wanted = true;
-			refresh();
-		}
-	});
-	function report(value) {
-		const fingerprint = JSON.stringify(value);
-		if (fingerprint !== reported) {
-			reported = fingerprint;
-			observed(value);
-		}
-	}
-	function controls() {
-		olderButton.hidden = !memberId || !olderCursor;
-		olderButton.disabled = running;
-		node.setAttribute("aria-busy", String(running));
-	}
-	function draw() {
-		const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : void 0;
-		stream.draw(items.values(), (item) => exchangeRows(item, {
-			me: "You",
-			them: memberName,
-			fromMe: item.direction === "toMember"
-		}), memberName, unlisted && pendingRow(unlisted, memberName));
-	}
-	function showComposer() {
-		if (!memberId) return;
-		const { canSend, busy } = box.box(memberId, sendNote);
-		composer.show({
-			key: memberId,
-			label: `Message ${memberName}`,
-			placeholder: `Message ${memberName}…`,
-			hint: "Enter sends · Shift+Enter for a new line",
-			describedBy: sendNote.id,
-			canSend,
-			busy,
-			cleared: box.cleared,
-			onSend: (message) => {
-				const agentId = memberId;
-				if (!agentId || shell.signal.aborted) return;
-				box.send(agentId, message, (operationId) => ({
-					operationId,
-					agentId,
-					message
-				}));
-			}
-		});
-	}
-	async function load(before) {
-		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
-		if (running) return true;
-		running = true;
-		controls();
-		const selected = memberId, ticket = generation;
-		const input = {
-			limit: 20,
-			...before ? { before } : {}
-		};
-		if (scope?.memberId === selected) {
-			const baseline = seen.read(scope);
-			if (baseline.available && baseline.position) input.since = baseline.position;
-		}
-		const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
-		try {
-			let next = await read(selected, input);
-			if (!current()) return false;
-			let nextScope = {
-				machineId: next.machineId,
-				viewerId: next.page.viewerId,
-				memberId: selected
-			};
-			let baseline = seen.read(nextScope);
-			if (baseline.available && baseline.position && input.since !== baseline.position) {
-				input.since = baseline.position;
-				next = await read(selected, input);
-				if (!current()) return false;
-				const secondScope = {
-					machineId: next.machineId,
-					viewerId: next.page.viewerId,
-					memberId: selected
-				};
-				if (JSON.stringify(secondScope) !== JSON.stringify(nextScope)) baseline = {
-					available: false,
-					position: null
-				};
-				nextScope = secondScope;
-			}
-			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
-				items.clear();
-				stream.reset();
-				olderCursor = void 0;
-			}
-			scope = nextScope;
-			let changes = input.since === baseline.position ? conversationUnread(baseline, next.page.changedSince) : UNKNOWN;
-			for (const item of next.page.items) items.set(item.requestId, item);
-			if (before || olderCursor === void 0) olderCursor = next.page.nextBefore;
-			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
-			status.hidden = status.textContent === "";
-			draw();
-			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
-			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
-				newest: true,
-				documentVisible: true,
-				panelVisible: true
-			})) changes = UNKNOWN;
-			report({
-				scope,
-				unread: changes
-			});
-			return true;
-		} catch {
-			if (current()) {
-				items.clear();
-				stream.reset();
-				olderCursor = void 0;
-				status.hidden = false;
-				status.textContent = "The conversation is unavailable for this browser. Reload the page, or use Ops in this machine’s terminal.";
-				report({ unread: UNKNOWN });
-			}
-			return false;
-		} finally {
-			running = false;
-			controls();
-			if (wanted && !shell.signal.aborted) {
-				wanted = false;
-				refresh();
-			}
-		}
-	}
-	async function refresh() {
-		await box.observe();
-		return load();
-	}
-	olderButton.addEventListener("click", () => {
-		if (!olderCursor || running) return;
-		generation++;
-		load(olderCursor);
-	});
-	shell.signal.addEventListener("abort", () => {
-		generation++;
-		stream.forget();
-		items.clear();
-	}, { once: true });
-	whileVisible(5e3, shell.signal, refresh);
-	controls();
-	return {
-		node,
-		select(member) {
-			const wasVisible = panelVisible;
-			panelVisible = member !== void 0;
-			if (member && member.id !== memberId) {
-				memberId = member.id;
-				memberName = member.name;
-				generation++;
-				scope = void 0;
-				olderCursor = void 0;
-				items.clear();
-				stream.reset();
-				status.hidden = false;
-				status.textContent = "Reading the conversation…";
-				report({ unread: UNKNOWN });
-				showComposer();
-				if (running) wanted = true;
-				else refresh();
-			} else if (member) {
-				if (member.name !== memberName) {
-					memberName = member.name;
-					stream.forget();
-					draw();
-					showComposer();
-				}
-				if (!wasVisible) refresh();
-			}
-			controls();
 		}
 	};
 }

@@ -7,6 +7,7 @@ import { exchangeRows, outbox, pendingRow, talkList } from './talk-stream.js';
 import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
+import type { Session } from './device.js';
 import {
   ClientError,
   RefusalError,
@@ -41,30 +42,39 @@ export interface ConversationObservation {
   scope?: ConversationScope;
   unread: ConversationUnread;
 }
+/** Runs one read on the owner's signed Session, retiring that Session when the read shows it is
+ * gone, so the next read opens a fresh one. Shared by the DM and the channel. */
+export async function onSession<T>(
+  shell: RemoteShell,
+  run: (session: Session) => Promise<T>,
+): Promise<T> {
+  if (!shell.session) throw new Error('No signed browser session.');
+  const session = await shell.session();
+  shell.signal.throwIfAborted();
+  try {
+    return await run(session);
+  } catch (error) {
+    if (
+      (error instanceof ClientError &&
+        ['transport_failure', 'timeout', 'sequence_unavailable'].includes(error.code)) ||
+      (error instanceof RefusalError &&
+        [
+          'REMOTE_SESSION_ENDED',
+          'REMOTE_SESSION_EVICTED',
+          'REMOTE_SERVE_STOPPED',
+          'REMOTE_GRANT_CHANGED',
+        ].includes(error.code))
+    )
+      shell.forgetSession?.(session);
+    throw error;
+  }
+}
 function sessionRead(shell: RemoteShell): ConversationRead {
-  return async (memberId, input) => {
-    if (!shell.session) throw new Error('No signed browser session.');
-    const session = await shell.session();
-    shell.signal.throwIfAborted();
-    try {
+  return (memberId, input) =>
+    onSession(shell, async (session) => {
       const client = conversations(session);
       return { machineId: client.machineId, page: await client.read(memberId, input) };
-    } catch (error) {
-      if (
-        (error instanceof ClientError &&
-          ['transport_failure', 'timeout', 'sequence_unavailable'].includes(error.code)) ||
-        (error instanceof RefusalError &&
-          [
-            'REMOTE_SESSION_ENDED',
-            'REMOTE_SESSION_EVICTED',
-            'REMOTE_SERVE_STOPPED',
-            'REMOTE_GRANT_CHANGED',
-          ].includes(error.code))
-      )
-        shell.forgetSession?.(session);
-      throw error;
-    }
-  };
+    });
 }
 function sessionTalk(shell: RemoteShell): ConversationTalk {
   const client = async () => {

@@ -233,8 +233,9 @@ A Talk-scope refusal shows the Remote settings link and offers no retry.
 board's `room {roomId, revision}`, to the lead or to each @mentioned member. Each post shows its
 thread in one line (reply count, last reply, state). The thread opens beside the channel, or over it
 on a phone, with each recipient's reply from `result(requestId)`. The channel shows no unread count, and a refused room read waits for the
-board to change. Until Remote's room operations land, production passes no channel port and the
-channel box stays disabled with its reason. Timer and idle-reminder writes remain terminal-only.
+board to change. The channel calls run on the owner Session (`sessionChannel`), with the same
+Session retirement as the DM read (`onSession`); a squad whose board row has no room keeps the box
+disabled with that reason. Timer and idle-reminder writes remain terminal-only.
 
 The message box is `ops-composer.ts`, a lazily loaded React island (RichInputCore with
 RichInputControl, Colab's composer pieces), built by `vite.composer.config.ts` into
