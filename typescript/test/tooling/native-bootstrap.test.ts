@@ -318,7 +318,7 @@ function expectCleanStage(stage: string): void {
 }
 
 describe('native curl bootstrap', () => {
-  it.each(['fresh', 'path-missing', 'setup-failure'] as const)(
+  it.each(['path-missing', 'setup-failure'] as const)(
     'captures isolated terminal and piped %s output',
     { timeout: 30_000 },
     async (scenario) => {
@@ -364,10 +364,6 @@ describe('native curl bootstrap', () => {
           }
           const commands = plain.split('Next:\n')[1].trim().split('\n');
           expect(commands.length).toBeLessThanOrEqual(3);
-          if (scenario === 'fresh' && terminal) {
-            expect(run.result.stdout).toContain('\x1b[2m');
-            expect(plain).not.toContain('! ');
-          }
           const directory = process.env.TMT_BOOTSTRAP_CAPTURE_DIR;
           if (directory) {
             expect(path.isAbsolute(directory)).toBe(true);
@@ -399,7 +395,13 @@ describe('native curl bootstrap', () => {
     await withSandbox(async (sandbox) => {
       const fixture = await createFixture(sandbox);
       const script = await generateNativeBootstrap(fixture.manifest, path.dirname(fixture.archive));
-      const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], mode);
+      const run = await runBootstrap(sandbox, script, fixture, ['--no-skill'], {
+        ...mode,
+        systemPath:
+          mode.name === 'terminal'
+            ? `${path.join(sandbox.home, '.local', 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`
+            : undefined,
+      });
       expect(run.result.status).toBe(0);
       const output = run.result.stdout + run.result.stderr;
       expect(output.includes('Downloading tmt ')).toBe(mode.progress);
@@ -416,6 +418,10 @@ describe('native curl bootstrap', () => {
       expect(plain).toContain('✓ Downloaded and verified archive');
       expect(plain).toContain(`✓ Installed tmt ${fixture.version} at `);
       expect(plain).not.toContain('{"installed":true}');
+      if (mode.name === 'terminal') {
+        expect(run.result.stdout).toContain('\x1b[2m');
+        expect(plain).not.toContain('! ');
+      }
       expect(plain.split('Next:\n')[1].trim().split('\n').length).toBeLessThanOrEqual(3);
       if (mode.progress)
         expect(plain).toMatch(/Downloading tmt .* \((macOS|Linux) (arm64|x64), [\d.]+ (B|kB|MB)\)/);
