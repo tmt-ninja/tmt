@@ -589,6 +589,10 @@ opsPage(
     : undefined,
   async () => orchestration,
   {
+    // A request's outcome, for the DM's full replies; the same fixture as the channel's replies.
+    async result(requestId) {
+      return window.roomResults[requestId] ?? { state: 'pending', requestId };
+    },
     async send(input) {
       window.dmSends.push(structuredClone(input));
       return answer(

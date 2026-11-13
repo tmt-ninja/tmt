@@ -426,11 +426,49 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
     window.dmChanges = 'unknown';
     window.dmNewest.items[0]!.sender.identityId = viewer;
     window.dmNewest.items[0]!.preview =
-      '<img src=x onerror="window.unexpected=true">' + 'x'.repeat(100);
+      '<img src=x onerror="window.unexpected=true"> see https://example.test/a?b=1). Run `tmt ls` ' +
+      'not javascript:alert(1) ' +
+      'x'.repeat(40);
   });
   await refresh(page);
   await expect(conversation(page)).toContainText('<img src=x');
   await expect(conversation(page).locator('img')).toHaveCount(0);
+  // Only an http(s) address is a link, built as a node: a new tab, no opener, the address in full.
+  const link = conversation(page).locator('.ops-dm-message-text a');
+  await expect(link).toHaveCount(1);
+  await expect(link).toHaveText('https://example.test/a?b=1');
+  await expect(link).toHaveAttribute('href', 'https://example.test/a?b=1');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(link).toHaveAttribute('title', 'https://example.test/a?b=1');
+  await expect(conversation(page).locator('.ops-dm-message-text code')).toHaveText('tmt ls');
+  // A reply cut to its preview ends in an ellipsis until its full text is read from its result.
+  const reply = conversation(page)
+    .locator('.ops-dm-message')
+    .nth(1)
+    .locator('.ops-dm-message-text');
+  await page.evaluate(() => {
+    const item = window.dmNewest.items[0]!;
+    if (item.final.status === 'retained') item.final.bodyBytes = 4000;
+  });
+  await refresh(page);
+  await expect(reply).toHaveText(/…$/);
+  await expect(reply).toHaveAttribute('title', 'Preview shortened · the full reply is 4,000 bytes');
+  await page.evaluate(() => {
+    const requestId = window.dmNewest.items[0]!.requestId;
+    window.roomResults[requestId] = {
+      state: 'replied',
+      requestId,
+      message: 'The checks passed. The whole reply, past its preview, ends here.',
+    };
+  });
+  await page.evaluate(() => (location.hash = '#channel/sample'));
+  await details(page);
+  await memberLink(page, 'sample-1').click();
+  await expect(reply).toHaveText(
+    'The checks passed. The whole reply, past its preview, ends here.',
+  );
+  await expect(reply).not.toHaveAttribute('title');
   const stored = await positions(page);
   expect(stored).toHaveLength(2);
   expect(
@@ -664,4 +702,97 @@ test('channel posts to the lead or each mention with the board room, and shows r
   ]);
   expect(mentioned!.operationId).not.toBe(lead!.operationId);
   await expect(box).toHaveText('');
+});
+
+test('a busy channel lands at the latest, groups a run, offers the latest when scrolled up, and keeps it above the keyboard', async ({
+  page,
+}) => {
+  await open(page, 390);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const post = (n: number, at: number, recipient: string) => ({
+    requestId: `req_${String(n).padStart(8, '0')}-cccc-4ccc-8ccc-cccccccccccc`,
+    recipientId: recipient,
+    roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+    sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+    kind: 'request',
+    origin: 'person',
+    preparedAtMs: at,
+    delivery: 'sent',
+    final: { status: 'not_submitted' },
+    preview: `Post ${n}`,
+  });
+  await page.evaluate(
+    ({ items }) => {
+      window.channelBoard.squads[0]!.room = {
+        roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        revision: 7,
+      };
+      window.roomPage.items = items as never;
+    },
+    {
+      // Hourly posts, then a run of three to the lead within five minutes.
+      items: [
+        ...Array.from({ length: 30 }, (_, n) =>
+          post(100 + n, 1720000000000 + n * 3_600_000, '00000000-0000-4000-8000-000000000002'),
+        ),
+        ...[0, 1, 2].map((n) =>
+          post(200 + n, 1720200000000 + n * 60_000, '00000000-0000-4000-8000-000000000001'),
+        ),
+      ].map((item) =>
+        // The last of the run reaches Core's 160-character preview.
+        item.preview === 'Post 202' ? { ...item, preview: 'Post 202 '.padEnd(160, 'x') } : item,
+      ),
+    },
+  );
+  await refresh(page);
+  const stream = page.getByRole('list', { name: 'Channel messages' });
+  const gap = () =>
+    stream.evaluate((list) => list.scrollHeight - list.scrollTop - list.clientHeight);
+  await expect(stream.locator('.ops-dm-message')).toHaveCount(33);
+  await expect.poll(gap).toBeLessThan(2);
+  // The run reads as one turn: one face and header, the rest continue it.
+  const run = stream.locator('.ops-dm-message').filter({ hasText: /Post 20[012]/ });
+  await expect(run.nth(0)).not.toHaveAttribute('data-continued');
+  await expect(run.nth(1)).toHaveAttribute('data-continued', '');
+  await expect(run.nth(2)).toHaveAttribute('data-continued', '');
+  await expect(stream.locator('.ops-dm-message').nth(1)).not.toHaveAttribute('data-continued');
+  // Only the current day's line is held at the top: the earlier day's line leaves with its block.
+  await stream.evaluate((list) => (list.scrollTop = list.scrollHeight / 2));
+  const held = await stream.evaluate((list) => {
+    const top = list.getBoundingClientRect().top;
+    return [...list.querySelectorAll('.ops-dm-day')].filter((line) => {
+      const rect = line.getBoundingClientRect();
+      return rect.bottom > top && rect.top < top + rect.height;
+    }).length;
+  });
+  expect(held).toBe(1);
+  // A post cut to Core's preview ends in an ellipsis and says so.
+  const capped = stream.locator('.ops-dm-message-text').filter({ hasText: 'Post 202' });
+  await expect(capped).toHaveText(/…$/);
+  await expect(capped).toHaveAttribute(
+    'title',
+    'Preview shortened · the full message is longer than 160 characters',
+  );
+  // Scrolled up, a new post keeps the reader's place and says it arrived.
+  await stream.evaluate((list) => (list.scrollTop = 0));
+  const latest = page.getByRole('button', { name: /new message|Jump to latest/ });
+  await expect(latest).toHaveText('Jump to latest ↓');
+  await page.evaluate(({ next }) => (window.roomPage.items as unknown[]).push(next), {
+    next: post(300, 1720300000000, '00000000-0000-4000-8000-000000000001'),
+  });
+  await refresh(page);
+  await expect(latest).toHaveText('1 new message ↓');
+  expect(await stream.evaluate((list) => list.scrollTop)).toBe(0);
+  await latest.click();
+  await expect.poll(gap).toBeLessThan(2);
+  await expect(latest).toBeHidden();
+  // Typing on a phone: the header folds to its title and the stream stays at the latest.
+  await page
+    .locator('.ops-composer-host [contenteditable], .ops-composer-host [role="combobox"]')
+    .first()
+    .click();
+  await expect(page.locator('.ops-channel-line')).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 508 });
+  await expect.poll(gap).toBeLessThan(2);
+  await expect(page.locator('.ops-composer-host')).toBeInViewport();
 });

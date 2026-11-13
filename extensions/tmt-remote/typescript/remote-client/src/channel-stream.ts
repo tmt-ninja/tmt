@@ -27,6 +27,8 @@ import {
   talkList,
   deliveryMark,
   deliveryText,
+  PREVIEW_CHARACTERS,
+  SHORTENED_POST,
 } from './talk-stream.js';
 import type { TalkPort } from './talk-stream.js';
 
@@ -164,6 +166,9 @@ export function channelStream(
       at: new Date(post.preparedAtMs),
       text: first.preview,
       mentions: channel?.members.map((member) => member.name) ?? [],
+      ...(first.preview && [...first.preview].length >= PREVIEW_CHARACTERS
+        ? { shortened: SHORTENED_POST }
+        : {}),
       // The thread's header already says how the post stands; the root carries no second line.
     });
     if (inThread) return row;

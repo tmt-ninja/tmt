@@ -1841,10 +1841,9 @@ body:not(:has(.tmt-ui-shell)) {
   padding: 0;
   list-style: none;
 }
-/* The stream scrolls on its own and starts at the bottom, the newest exchange beside the box; a
- * message scrolled under the panel fades out rather than showing a cut edge. */
+/* The stream scrolls on its own and starts at the bottom, the newest exchange beside the box;
+ * messages scroll under the day line held at its top. */
 .ops-dm-stream {
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--tmt-ui-space-l));
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1856,11 +1855,28 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-dm-stream > :first-child {
   margin-top: auto;
 }
+/* A day is a block of its own: its line stays at the top of the stream while its messages scroll
+ * under it, and the next day's line takes over, as in Slack. */
+.ops-dm-dayblock,
+.ops-dm-day-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .ops-dm-day {
+  position: sticky;
+  /* At the stream's top edge, over its top padding. */
+  top: calc(-1 * var(--tmt-ui-space-m));
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-space-m);
   margin-block: var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
+  padding-block: var(--tmt-ui-space-xs);
+  background: var(--tmt-ui-surface-paper);
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
@@ -1964,6 +1980,95 @@ body:not(:has(.tmt-ui-shell)) {
   border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-mention-agent);
   font-weight: 600;
+}
+.ops-dm-link {
+  overflow-wrap: anywhere;
+}
+.ops-dm-code {
+  padding: 0 3px;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-hover);
+  font-family: var(--tmt-ui-font-mono);
+  font-size: 0.9em;
+}
+/* A message that continues the one above (same sender, same people, within five minutes) has no
+ * face or header of its own; its time shows beside it under the pointer. The header stays for
+ * screen readers. */
+.ops-dm-message-side {
+  position: relative;
+  display: grid;
+  align-content: start;
+  width: 24px;
+}
+.ops-dm-message-gutter {
+  display: none;
+}
+.ops-dm-message[data-continued] {
+  padding-block: 1px;
+}
+.ops-dm-message[data-continued] .ops-dm-message-side > :first-child {
+  display: none;
+}
+.ops-dm-message[data-continued] .ops-dm-message-gutter {
+  position: absolute;
+  top: 0.25em;
+  left: 50%;
+  display: block;
+  visibility: hidden;
+  translate: -50% 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.ops-dm-message[data-continued]:hover .ops-dm-message-gutter {
+  visibility: visible;
+}
+.ops-dm-message[data-continued] .ops-dm-message-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ops-dm-exchange:has(> ol > .ops-dm-message[data-continued]:first-child) {
+  margin-top: calc(-1 * var(--tmt-ui-space-xs));
+}
+/* Scrolled up: how many messages arrived since, or the way back to the latest. */
+.ops-dm-jump {
+  position: sticky;
+  bottom: var(--tmt-ui-space-s);
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  /* Centred over the reading column and the message box, not the whole window. */
+  width: min(100%, calc(45rem + 3rem));
+  margin-top: var(--tmt-ui-space-xs);
+  pointer-events: none;
+}
+.ops-dm-jump[hidden] {
+  display: none;
+}
+.ops-dm-jump-button {
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text-action);
+  font: 600 var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-body);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.ops-dm-jump-button:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-dm-jump-button:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
+}
+/* The channel or DM fills the window to its bottom edge: no page margin under the message box. */
+.tmt-page.ops:has(.ops-channel) {
+  margin-bottom: 0;
 }
 .ops-dm-message-text[data-quiet] {
   color: var(--tmt-ui-color-secondary);
@@ -2100,6 +2205,14 @@ body:not(:has(.tmt-ui-shell)) {
   font-style: italic;
 }
 @media (max-width: 760px) {
+  /* Typing on a phone: the on-screen keyboard takes half the view, so the header keeps only its
+   * title line and the stream keeps the rest. */
+  .ops-channel:has(.ops-composer-host:focus-within) :is(.ops-channel-line, .ops-channel-panel) {
+    display: none;
+  }
+  .ops-channel:has(.ops-composer-host:focus-within) .ops-channel-head {
+    padding-bottom: var(--tmt-ui-space-xs);
+  }
   .ops-channel[data-thread] {
     padding-right: 0;
   }

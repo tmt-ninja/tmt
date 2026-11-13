@@ -49,7 +49,7 @@ function hasControl(value) {
 		return point < 32 || point >= 127 && point <= 159;
 	});
 }
-var utf8$3 = new TextDecoder("utf-8", { fatal: true });
+var utf8$4 = new TextDecoder("utf-8", { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
 function decodeDetails(token, now) {
 	valid$8(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
@@ -57,7 +57,7 @@ function decodeDetails(token, now) {
 	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
 	const raw = atob(encoded);
 	valid$8(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$3.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const text = utf8$4.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
 	const value = JSON.parse(text);
 	valid$8(JSON.stringify(value) === text);
 	const invite = object$5(value, [
@@ -94,8 +94,8 @@ function decodeDetails(token, now) {
 		"owner_principal"
 	]);
 	valid$8(binding.backend === "firestore");
-	const project = utf8$3.decode(bytes(binding.reference));
-	const principal = utf8$3.decode(bytes(binding.owner_principal));
+	const project = utf8$4.decode(bytes(binding.reference));
+	const principal = utf8$4.decode(bytes(binding.owner_principal));
 	valid$8(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
 	const config = invite.publicConfig;
 	valid$8(config !== null && typeof config === "object" && !Array.isArray(config));
@@ -578,7 +578,7 @@ var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var coreId = (value) => typeof value === "string" && UUID$3.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$2 = new TextEncoder();
+var utf8$3 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
 function valid$7(condition) {
@@ -593,14 +593,14 @@ function record(value) {
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$7(typeof value.reason === "string" && utf8$2.encode(value.reason).length <= 256);
+	valid$7(typeof value.reason === "string" && utf8$3.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$2.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$3.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -622,7 +622,7 @@ function messageState(value) {
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
 	valid$7(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$2.encode(why.text).length <= 256);
+	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$3.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -640,7 +640,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text$1(value) {
-	return typeof value === "string" && value.length > 0 && utf8$2.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$3.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -935,7 +935,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$2.encode("{}");
+	const payload = utf8$3.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -976,7 +976,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$2.encode(JSON.stringify(value));
+		const payload = utf8$3.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -991,7 +991,7 @@ function operations(session, options = {}) {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
 			const roomSend = "room" in value;
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$3.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
 			const { operationId, message } = value;
 			const frozen = roomSend ? {
 				operationId,
@@ -10200,7 +10200,7 @@ function composerSlot(host) {
 var CONVERSATION_PAGE_MAX = 50;
 var CONVERSATION_PREVIEW_BYTES = 640;
 var CONVERSATION_WITHDRAWAL_BYTES = 1024;
-var utf8$1 = new TextEncoder();
+var utf8$2 = new TextEncoder();
 var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 function valid(condition) {
 	if (!condition) throw new Error("Invalid conversation response.");
@@ -10213,7 +10213,7 @@ function keys(row, required, optional = []) {
 	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
 }
 var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
+var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$2.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
 function cursor$1(value) {
 	const row = object(value);
 	keys(row, ["preparedAtMs", "requestId"]);
@@ -10236,7 +10236,7 @@ function final(value) {
 				"reason",
 				"withdrawnAtMs"
 			]);
-			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
+			valid(typeof row.reason === "string" && utf8$2.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
 			break;
 		case "retained":
 			keys(row, [
@@ -10268,7 +10268,7 @@ function parseRoom(value, roomId, input) {
 	return parsePage(value, roomId, input, true);
 }
 function parsePage(value, scopeId, input, room) {
-	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
+	if (utf8$2.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
 	const row = object(value);
 	keys(row, room ? [
 		"roomId",
@@ -10487,6 +10487,54 @@ function noticeRow(text, at) {
 	}
 	return row;
 }
+var escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+* A message's words as nodes, never as HTML: an http or https address becomes a link that opens in
+* a new tab and shows its full address on hover; words between a pair of backticks on one line
+* become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
+* markup.
+*/
+function richText(words, mentions = []) {
+	const out = [];
+	const named = mentions.length ? new RegExp(`(@(?:${[...mentions].sort((a, b) => b.length - a.length).map(escape).join("|")}))(?![\\w-])`) : void 0;
+	const plain = (text) => {
+		if (!text) return;
+		if (!named) return void out.push(text);
+		text.split(named).forEach((part, at) => {
+			if (part) out.push(at % 2 ? el("span", "ops-dm-mention", part) : part);
+		});
+	};
+	const linked = (text) => {
+		let from = 0;
+		for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
+			const address = match[0].replace(/[.,;:!?)\]}'"]+$/, "");
+			let url;
+			try {
+				url = new URL(address);
+			} catch {
+				continue;
+			}
+			if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+			plain(text.slice(from, match.index));
+			const link = el("a", "ops-dm-link", address);
+			link.href = url.href;
+			link.target = "_blank";
+			link.rel = "noopener noreferrer";
+			link.title = url.href;
+			out.push(link);
+			from = match.index + address.length;
+		}
+		plain(text.slice(from));
+	};
+	let from = 0;
+	for (const match of words.matchAll(/`([^`\n]+)`/g)) {
+		linked(words.slice(from, match.index));
+		out.push(el("code", "ops-dm-code", match[1]));
+		from = match.index + match[0].length;
+	}
+	linked(words.slice(from));
+	return out;
+}
 function messageRow(options) {
 	const row = el("li", "ops-dm-message");
 	if (options.self) row.dataset.self = "";
@@ -10504,18 +10552,32 @@ function messageRow(options) {
 		from.hidden = ownDevice === null || device === ownDevice;
 		head.append(from);
 	}
+	row.dataset.group = JSON.stringify([
+		options.who,
+		options.to,
+		options.self,
+		device ?? ""
+	]);
+	const side = el("span", "ops-dm-message-side");
+	side.append(face);
 	if (options.at && Number.isFinite(options.at.valueOf())) {
 		const time = el("time", "ops-dm-message-time", clock(options.at));
 		time.dateTime = options.at.toISOString();
 		time.title = options.at.toLocaleString();
 		head.append(time);
+		row.dataset.at = String(options.at.valueOf());
+		const gutter = el("span", "ops-dm-message-gutter", clock(options.at));
+		gutter.setAttribute("aria-hidden", "true");
+		side.append(gutter);
 	}
 	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
 	if (words === null || options.quiet) text.dataset.quiet = "";
-	else if (options.mentions?.length) {
-		const names = [...options.mentions].sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-		const parts = words.split(new RegExp(`(@(?:${names.join("|")}))(?![\\w-])`));
-		text.replaceChildren(...parts.map((part, at) => at % 2 ? el("span", "ops-dm-mention", part) : part));
+	else {
+		text.replaceChildren(...richText(words, options.mentions));
+		if (options.shortened) {
+			text.append("…");
+			text.title = options.shortened;
+		}
 	}
 	const content = el("div", "ops-dm-message-body");
 	content.append(head, text);
@@ -10525,11 +10587,19 @@ function messageRow(options) {
 		state.dataset.mark = options.mark ?? "done";
 		content.append(state);
 	}
-	row.append(face, content);
+	row.append(side, content);
 	return row;
 }
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one. */
-function exchangeRows(item, names) {
+/** The hover line of a post cut to its preview; Core does not say how long the whole post is. */
+var SHORTENED_POST = `Preview shortened · the full message is longer than 160 characters`;
+var utf8$1 = new TextEncoder();
+/** A reply preview shorter than the reply Core retained, or nothing when it is whole. */
+function shortenedReply(item) {
+	return item.final.status === "retained" && item.responsePreview !== null && item.final.bodyBytes > utf8$1.encode(item.responsePreview).length ? `Preview shortened · the full reply is ${item.final.bodyBytes.toLocaleString()} bytes` : void 0;
+}
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one: its
+* full text once read (`fullReply`), else its preview. */
+function exchangeRows(item, names, fullReply) {
 	const { fromMe, them } = names;
 	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
@@ -10538,20 +10608,22 @@ function exchangeRows(item, names) {
 		self: fromMe,
 		at: new Date(item.preparedAtMs),
 		text: item.preview,
-		...item.previewTruncated ? { note: "Preview shortened" } : {},
+		...item.previewTruncated ? { shortened: SHORTENED_POST } : {},
 		...fromMe ? {
 			state: deliveryText(item),
 			mark: deliveryMark(item)
 		} : {}
 	})];
-	const replyWords = item.responsePreview ?? finalLabel(item);
+	const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
+	const replyShortened = fullReply === void 0 ? shortenedReply(item) : void 0;
 	if (replyWords !== void 0 && replyWords !== null) out.push(messageRow({
 		who: fromMe ? them : names.me,
 		to: fromMe ? "You" : them,
 		self: !fromMe,
 		...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
 		text: replyWords,
-		quiet: item.responsePreview === null
+		quiet: fullReply === void 0 && item.responsePreview === null,
+		...replyShortened ? { shortened: replyShortened } : {}
 	}));
 	return out;
 }
@@ -10564,15 +10636,44 @@ function talkList(label) {
 	const days = /* @__PURE__ */ new Map();
 	let pinned = true;
 	let placed = -1;
+	let latest = -Infinity, seen = -Infinity, unseen = 0;
+	const jump = el("li", "ops-dm-jump");
+	const jumpButton = el("button", "ops-dm-jump-button");
+	jumpButton.type = "button";
+	jump.append(jumpButton);
+	jump.hidden = true;
+	const showJump = () => {
+		const far = list.scrollHeight - list.scrollTop - list.clientHeight > list.clientHeight;
+		jump.hidden = pinned || unseen === 0 && !far;
+		jumpButton.textContent = unseen ? `${unseen} new message${unseen === 1 ? "" : "s"} ↓` : "Jump to latest ↓";
+	};
+	const caughtUp = () => {
+		seen = latest;
+		unseen = 0;
+	};
 	const toBottom = () => {
 		list.scrollTop = list.scrollHeight;
 		placed = list.scrollTop;
 	};
+	jumpButton.addEventListener("click", () => {
+		pinned = true;
+		caughtUp();
+		jump.hidden = true;
+		toBottom();
+	});
+	let height = 0;
 	list.addEventListener("scroll", () => {
 		if (list.scrollTop === placed) return;
+		if (list.clientHeight !== height) {
+			height = list.clientHeight;
+			if (pinned) return toBottom();
+		}
 		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+		if (pinned) caughtUp();
+		showJump();
 	});
 	const sizes = new ResizeObserver(() => {
+		height = list.clientHeight;
 		if (pinned) toBottom();
 	});
 	sizes.observe(list);
@@ -10585,6 +10686,9 @@ function talkList(label) {
 			sizes.disconnect();
 			sizes.observe(list);
 			pinned = true;
+			latest = seen = -Infinity;
+			unseen = 0;
+			jump.hidden = true;
 		},
 		forget() {
 			rows.clear();
@@ -10593,7 +10697,7 @@ function talkList(label) {
 		draw(items, render, context, tail) {
 			const atBottom = pinned;
 			const ordered = [...items].sort((a, b) => a.preparedAtMs - b.preparedAtMs || a.requestId.localeCompare(b.requestId));
-			const children = [];
+			const blocks = [];
 			let day = "";
 			for (const item of ordered) {
 				const at = new Date(item.preparedAtMs);
@@ -10601,13 +10705,24 @@ function talkList(label) {
 				if (key !== day) {
 					day = key;
 					const label = key === "unknown" ? "Date unknown" : dayLabel(at);
-					let separator = days.get(key);
-					if (separator?.textContent !== label) {
-						separator = el("li", "ops-dm-day");
-						separator.append(el("span", void 0, label));
-						days.set(key, separator);
+					let block = days.get(key);
+					if (!block) {
+						const node = el("li", "ops-dm-dayblock");
+						const line = el("div", "ops-dm-day");
+						const rows = el("ol", "ops-dm-day-rows");
+						node.append(line, rows);
+						block = {
+							node,
+							line,
+							rows
+						};
+						days.set(key, block);
 					}
-					children.push(separator);
+					if (block.line.textContent !== label) block.line.replaceChildren(el("span", void 0, label));
+					blocks.push({
+						block,
+						rows: []
+					});
 				}
 				const fingerprint = JSON.stringify([item, context]);
 				let row = rows.get(item.requestId);
@@ -10623,16 +10738,50 @@ function talkList(label) {
 					};
 					rows.set(item.requestId, row);
 				}
-				children.push(row.node);
+				blocks.at(-1).rows.push(row.node);
 			}
-			if (tail) children.push(tail);
-			if (!(children.length === list.children.length && children.every((child, at) => list.children[at] === child))) {
+			if (tail && blocks.length) blocks.at(-1).rows.push(tail);
+			const children = blocks.map(({ block }) => block.node);
+			if (tail && !blocks.length) children.push(tail);
+			group(blocks.flatMap(({ block, rows }) => [block.line, ...rows]));
+			children.push(jump);
+			latest = ordered.reduce((at, item) => Math.max(at, item.preparedAtMs), latest);
+			if (atBottom) caughtUp();
+			else unseen = ordered.filter((item) => item.preparedAtMs > seen).length;
+			const same = (parent, next) => next.length === parent.children.length && next.every((child, at) => parent.children[at] === child);
+			for (const { block, rows: next } of blocks) if (!same(block.rows, next)) {
+				block.rows.replaceChildren(...next);
+				for (const child of next) sizes.observe(child);
+			}
+			if (!same(list, children)) {
 				list.replaceChildren(...children);
 				for (const child of children) sizes.observe(child);
 			}
 			if (atBottom) toBottom();
+			showJump();
 		}
 	};
+}
+/** Five minutes: Slack's window for messages that read as one turn. */
+var GROUP_MS = 3e5;
+/** A message continues the one above it (no face, no header) when the same sender wrote to the same
+* people within `GROUP_MS`, with no day line or notice between them. */
+function group(children) {
+	let previous;
+	for (const child of children) {
+		const rows = child.matches(".ops-dm-exchange") ? child.querySelectorAll(":scope > ol > .ops-dm-message") : [];
+		if (!rows.length) previous = void 0;
+		for (const row of rows) {
+			const key = row.dataset.group ?? "";
+			const at = Number(row.dataset.at);
+			const continued = previous !== void 0 && previous.key === key && Number.isFinite(at) && at >= previous.at && at - previous.at <= GROUP_MS;
+			row.toggleAttribute("data-continued", continued);
+			previous = Number.isFinite(at) ? {
+				key,
+				at
+			} : void 0;
+		}
+	}
 }
 var GOING = [
 	"sending",
@@ -10864,7 +11013,8 @@ function sessionTalk(shell) {
 	};
 	return {
 		send: async (input) => (await client()).send(input),
-		operation: async (operationId) => (await client()).operation(operationId)
+		operation: async (operationId) => (await client()).operation(operationId),
+		result: async (requestId) => (await client()).result(requestId)
 	};
 }
 function storage() {
@@ -10875,6 +11025,8 @@ function storage() {
 	}
 }
 var UNKNOWN = { state: "unknown" };
+/** How many shortened replies one opened conversation reads in full. */
+var FULL_REPLIES = 10;
 function conversationHistory(shell, observed, read = sessionRead(shell), talk = sessionTalk(shell)) {
 	const node = el("section", "ops-dm");
 	node.setAttribute("aria-label", "Talk history");
@@ -10895,6 +11047,8 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	const composer = composerSlot(composerHost);
 	const seen = conversationSeen(storage());
 	const items = /* @__PURE__ */ new Map();
+	const fullReplies = /* @__PURE__ */ new Map();
+	const asked = /* @__PURE__ */ new Set();
 	let memberId, memberName = "", panelVisible = false;
 	let generation = 0, running = false, wanted = false;
 	let scope;
@@ -10926,7 +11080,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			me: "You",
 			them: memberName,
 			fromMe: item.direction === "toMember"
-		}), memberName, unlisted && pendingRow(unlisted, memberName));
+		}, fullReplies.get(item.requestId)), [memberName, fullReplies.size], unlisted && pendingRow(unlisted, memberName));
 	}
 	function showComposer() {
 		if (!memberId) return;
@@ -10950,6 +11104,22 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 				}));
 			}
 		});
+	}
+	/** The full text of the newest shortened replies, one read at a time; a failed read keeps the
+	* shortened preview and is not asked again until the conversation opens again. */
+	async function readFullReplies(selected, ticket) {
+		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && shortenedReply(item)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
+		for (const item of wanted) {
+			asked.add(item.requestId);
+			try {
+				const value = await talk.result(item.requestId);
+				if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
+				if (value.state === "replied") {
+					fullReplies.set(item.requestId, value.message);
+					draw();
+				}
+			} catch {}
+		}
 	}
 	async function load(before) {
 		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
@@ -10992,6 +11162,8 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			}
 			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
 				items.clear();
+				fullReplies.clear();
+				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
 			}
@@ -11002,6 +11174,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
 			status.hidden = status.textContent === "";
 			draw();
+			readFullReplies(selected, ticket);
 			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
 			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
 				newest: true,
@@ -11016,6 +11189,8 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 		} catch {
 			if (current()) {
 				items.clear();
+				fullReplies.clear();
+				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
 				status.hidden = false;
@@ -11053,6 +11228,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 		select(member) {
 			const wasVisible = panelVisible;
 			panelVisible = member !== void 0;
+			if (member && !wasVisible) asked.clear();
 			if (member && member.id !== memberId) {
 				memberId = member.id;
 				memberName = member.name;
@@ -11060,6 +11236,8 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 				scope = void 0;
 				olderCursor = void 0;
 				items.clear();
+				fullReplies.clear();
+				asked.clear();
 				stream.reset();
 				status.hidden = false;
 				status.textContent = "Reading the conversation…";
@@ -11177,7 +11355,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			self: true,
 			at: new Date(post.preparedAtMs),
 			text: first.preview,
-			mentions: channel?.members.map((member) => member.name) ?? []
+			mentions: channel?.members.map((member) => member.name) ?? [],
+			...first.preview && [...first.preview].length >= 160 ? { shortened: SHORTENED_POST } : {}
 		});
 		if (inThread) return row;
 		const sides = answers(post).filter((side) => side.words !== void 0);
@@ -11459,17 +11638,22 @@ function memberState(agent) {
 	if (agent.activity?.state === "idle") return "Idle";
 	return "Unknown";
 }
+/** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
+function unknownMark() {
+	const alone = mark(MARKS.Unknown);
+	alone.title = "State unknown";
+	alone.setAttribute("role", "img");
+	alone.setAttribute("aria-label", "State unknown");
+	alone.removeAttribute("aria-hidden");
+	return alone;
+}
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent) {
 	const word = memberState(agent);
 	if (word === "Unknown") {
-		const alone = mark(MARKS.Unknown);
+		const alone = unknownMark();
 		alone.classList.add("ops-member-state");
 		alone.dataset.state = "unknown";
-		alone.title = "State unknown";
-		alone.setAttribute("role", "img");
-		alone.setAttribute("aria-label", "State unknown");
-		alone.removeAttribute("aria-hidden");
 		return alone;
 	}
 	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
@@ -11580,15 +11764,17 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const stream = channelStream(shell, port, rereadBoard);
 	page.append(head, panel, history, stream.thread);
 	setOpen(false);
+	const viewHeight = () => visualViewport?.height ?? innerHeight;
 	const fit = () => {
 		if (!page.isConnected) return;
 		const top = page.getBoundingClientRect().top + scrollY;
-		const height = innerHeight - top;
+		const height = viewHeight() - top;
 		page.style.height = `${height}px`;
 		const below = document.documentElement.scrollHeight - innerHeight;
-		if (below > 0) page.style.height = `${Math.max(320, height - below)}px`;
+		if (below > 0) page.style.height = `${Math.max(240, height - below)}px`;
 	};
 	addEventListener("resize", fit);
+	visualViewport?.addEventListener("resize", fit);
 	const missing = el("p", "ops-empty");
 	missing.dataset.opsChannelMissing = "";
 	let identity = "";
@@ -11706,13 +11892,7 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				title.textContent = member.name;
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
-				const stateMark = mark(MARKS[state]);
-				if (state === "Unknown") {
-					stateMark.title = "State unknown";
-					stateMark.setAttribute("role", "img");
-					stateMark.setAttribute("aria-label", "State unknown");
-					stateMark.removeAttribute("aria-hidden");
-				}
+				const stateMark = state === "Unknown" ? unknownMark() : mark(MARKS[state]);
 				facts.append(stateMark, [
 					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",
