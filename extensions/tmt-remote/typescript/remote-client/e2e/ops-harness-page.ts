@@ -46,13 +46,7 @@ export async function buildOpsHarness(): Promise<OpsHarness> {
       'utf8',
     )) +
     (await readFile(new URL('pages.css', assets), 'utf8')) +
-    (await readFile(
-      new URL(
-        '../../../../../design/browser-ui/src/rich-input-control/control.css',
-        import.meta.url,
-      ),
-      'utf8',
-    ));
+    (await readFile(new URL('ops-composer.css', assets), 'utf8'));
   // The committed Ops message box module, as the door serves it.
   const composer = await readFile(new URL('ops-composer-v1.js', assets), 'utf8');
   return {

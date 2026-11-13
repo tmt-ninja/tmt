@@ -32,8 +32,8 @@ const STYLE: &str = concat!(
     "\n",
     include_str!("../assets/pages.css"),
     "\n",
-    // The rich input's field surface, for the Ops message box (#5704).
-    include_str!("../../../../../design/browser-ui/src/rich-input-control/control.css"),
+    // The rich input field surface for the Ops message box (#5704), copied by the composer build.
+    include_str!("../assets/ops-composer.css"),
     "\n",
     include_str!("../assets/tmt-settings.css"),
 );

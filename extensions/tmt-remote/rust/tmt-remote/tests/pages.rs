@@ -426,7 +426,7 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             "\n",
             include_str!("../assets/pages.css"),
             "\n",
-            include_str!("../../../../../design/browser-ui/src/rich-input-control/control.css"),
+            include_str!("../assets/ops-composer.css"),
             "\n",
             include_str!("../assets/tmt-settings.css"),
         )
