@@ -2582,16 +2582,14 @@ impl<A: Admission> State<A> {
                 let mut writers = std::collections::BTreeSet::new();
                 for cut in &cuts {
                     writers.insert(cut.stream.clone());
-                    if cut.tail_hash == [0; 32] && cut.tail_seq == cut.checkpoint_seq {
-                        if let Some(checkpoint) = prior_checkpoint(&self.store, &scope.page, cut) {
-                            if let Ok(envelope) = object::Envelope::from_bytes(&checkpoint.bytes) {
-                                if let Ok(header) = object::Header::decode(envelope.header()) {
-                                    if header.context.kind == object::FOLD {
-                                        writers.insert(header.context.author_device);
-                                    }
-                                }
-                            }
-                        }
+                    if cut.tail_hash == [0; 32]
+                        && cut.tail_seq == cut.checkpoint_seq
+                        && let Some(checkpoint) = prior_checkpoint(&self.store, &scope.page, cut)
+                        && let Ok(envelope) = object::Envelope::from_bytes(&checkpoint.bytes)
+                        && let Ok(header) = object::Header::decode(envelope.header())
+                        && header.context.kind == object::FOLD
+                    {
+                        writers.insert(header.context.author_device);
                     }
                 }
                 for device in writers {

@@ -120,10 +120,7 @@ export class Catchup {
       // The final chain-only frame is optional owner provenance evidence. Invalid evidence must
       // not prevent the ordinary page from opening, and must never authorize a work bundle.
       const priorOnly =
-        !this.reading &&
-        this.#reset !== null &&
-        value.streams.length === 0 &&
-        !Object.hasOwn(value, 'wraps');
+        this.#reset !== null && value.streams.length === 0 && !Object.hasOwn(value, 'wraps');
       if (priorOnly) {
         try {
           await a.chains(value.chains);
@@ -135,11 +132,7 @@ export class Catchup {
     if (Object.hasOwn(value, 'wraps')) await a.wraps(value.wraps);
     if (value.streams.length) {
       if (!this.objects) throw new Error('Live page loading is not available yet');
-      if (
-        !this.reading &&
-        this.#reset !== null &&
-        (await this.objects.admitPriorEvidence(value.streams))
-      ) {
+      if (this.#reset !== null && (await this.objects.admitPriorEvidence(value.streams))) {
         requireValue(value.more === true);
         return false;
       }

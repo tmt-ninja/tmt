@@ -180,6 +180,38 @@ it('keeps the page available and the work-bundle proof closed for a forged optio
   expect(f.a.ownerOnlyPriorEpoch(() => true)).toBe(false);
   catchup.close();
 });
+it('routes prior proof away from current-epoch objects for archive-capable owner reads', async () => {
+  const f = await fixture();
+  vi.spyOn(f.a, 'validateRead').mockImplementation(() => {});
+  const objects = new Objects(f.a);
+  const proof = vi.spyOn(objects, 'admitPriorEvidence').mockResolvedValue(true);
+  const current = vi.spyOn(objects, 'streams');
+  const catchup = new Catchup(f.a, 'private', objects, '2', true);
+  const scope = { version: 1, type: 'catchup', space: v.space, page: v.page, epoch: '2' };
+  await catchup.admitValue({
+    ...scope,
+    membershipHead: {
+      revision: '3',
+      statementHash: c.encodeBinary(f.a.head!.hash),
+      ownerKey: c.encodeBinary(hex(v.public)),
+      statements: [],
+      more: false,
+    },
+    baseline: c.encodeBinary(json(f.descriptor)),
+    baselineObject: f.object,
+    streams: [],
+    more: true,
+  });
+  const evidence = [
+    { streamId: v.page, namespace: 'content', checkpoint: null, anchor: {}, tail: [] },
+  ];
+  expect(await catchup.admitValue({ ...scope, streams: evidence, more: true })).toBe(false);
+  expect(proof).toHaveBeenCalledWith(evidence);
+  expect(current).not.toHaveBeenCalled();
+  expect(await catchup.admitValue({ ...scope, streams: [], more: false })).toBe(true);
+  expect(catchup.baseline?.source).toBe(b.source);
+  catchup.close();
+});
 it('rejects descriptor substitutions, object substitutions and strict body errors', async () => {
   const f = await fixture();
   for (const change of [
