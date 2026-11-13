@@ -1131,20 +1131,8 @@ mod tests {
         assert!(line.contains("C checklist"), "{line}");
         assert!(!line.contains("T talk"), "{line}");
         assert!(line.contains("⏎ talk"), "{line}");
-    }
-
-    #[test]
-    fn label_hint_uses_only_spare_room_after_existing_hints() {
-        use crate::board::app::workspace::tests::{MEMBER, ROOM};
-        let app = selected(crate::board::workspace::OpsTarget::Member {
-            room_id: Some(ROOM.into()),
-            identity_id: MEMBER.into(),
-        });
-        let wide = agents_hints(&app, 1000).unwrap();
-        assert!(wide.contains("l label"), "{wide}");
-        let compact = agents_hints(&app, 100).unwrap();
-        assert!(compact.contains("C checklist"), "{compact}");
-        assert!(!compact.contains("l label"), "{compact}");
+        assert!(!line.contains("l label"), "{line}");
+        assert!(agents_hints(&app, 1000).unwrap().contains("l label"));
     }
 
     #[test]

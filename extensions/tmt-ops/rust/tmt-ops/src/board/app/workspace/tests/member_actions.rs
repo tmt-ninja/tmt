@@ -52,26 +52,15 @@ fn member_actions_with_authored_note() -> App {
 #[test]
 fn agents_shortcuts_keep_authored_keys_without_factory_duplicates() {
     let mut app = configured_member(
-        "[bind]\nr='copy authored-r'\nd='copy authored-d'\na='copy authored-a'\nv='copy authored-v'\n",
+        "[bind]\nr='copy authored-r'\nd='copy authored-d'\na='copy authored-a'\nv='copy authored-v'\nl='copy authored-l'\n",
         json!({"id":MEMBER,"name":"worker"}),
     );
-    for ch in ['r', 'd', 'a', 'v'] {
+    for ch in ['r', 'd', 'a', 'v', 'l'] {
         assert!(matches!(
             key(&mut app, KeyCode::Char(ch)),
             Effect::Act(Request::Copy { text, .. }) if text == format!("authored-{ch}")
         ));
     }
-}
-
-#[test]
-fn authored_l_binding_takes_precedence_over_member_labels() {
-    let mut app = configured_member(
-        "[bind]\nl='copy authored-l'\n",
-        json!({"id":MEMBER,"name":"worker"}),
-    );
-    assert!(
-        matches!(key(&mut app, KeyCode::Char('l')), Effect::Act(Request::Copy { text, .. }) if text == "authored-l")
-    );
     assert!(app.menu.is_none());
     paint(&app, 160, 36);
     app.context_menu();

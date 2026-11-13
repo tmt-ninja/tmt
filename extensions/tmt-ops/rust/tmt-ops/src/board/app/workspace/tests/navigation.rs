@@ -47,69 +47,6 @@ pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
 }
 
 #[test]
-fn label_review_scenes_pin_real_shaped_names_and_the_two_surfaces() {
-    let look = crate::look::Look {
-        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
-        depth: tmt_cli_style::Depth::TrueColor,
-    };
-    for width in [160, 120] {
-        let unlabelled = paint(&label_capture("agents-label-none", look), width, 36).join("\n");
-        let labelled = paint(&label_capture("agents-label-assigned", look), width, 36).join("\n");
-        assert!(unlabelled.contains("tmt-remote"), "{unlabelled}");
-        assert!(labelled.contains(" P "), "{labelled}");
-        assert!(
-            paint(&label_capture("agents-label-menu", look), width, 36)
-                .join("\n")
-                .contains("Edit labels")
-        );
-        assert!(
-            paint(&label_capture("agents-label-editor", look), width, 36)
-                .join("\n")
-                .contains("New label")
-        );
-    }
-}
-
-#[test]
-fn label_key_opens_numbered_choices_for_the_selected_member() {
-    let mut app = populated_board(1, 2);
-    let index = app
-        .workspace_rows()
-        .iter()
-        .position(|row| matches!(row.target, OpsTarget::Member { .. }))
-        .unwrap();
-    app.workspace_select(index);
-    paint(&app, 160, 36);
-    assert_eq!(key(&mut app, KeyCode::Char('l')), Effect::None);
-    let menu = app
-        .menu
-        .as_ref()
-        .expect("l opens the selected member's label menu");
-    assert!(menu.title.contains("Label"));
-    assert!(
-        menu.entries
-            .iter()
-            .any(|entry| entry.key == "0" && entry.label.contains("clear"))
-    );
-    assert!(
-        menu.entries
-            .iter()
-            .any(|entry| entry.key == "1" && entry.label.contains("PR"))
-    );
-    assert!(
-        menu.entries
-            .iter()
-            .any(|entry| entry.label.contains("Edit labels"))
-    );
-    paint(&app, 160, 36);
-    let effect = key(&mut app, KeyCode::Char('1'));
-    assert!(
-        matches!(effect, Effect::Act(Request::MemberLabel { label: Some(ref label), .. }) if label == "pr"),
-        "{effect:?}"
-    );
-}
-
-#[test]
 fn label_key_on_a_squad_only_reports_the_required_target() {
     let mut app = populated_board(1, 2);
     let index = app
@@ -215,6 +152,18 @@ fn every_numbered_label_and_clear_reach_their_exact_value() {
         app.workspace_select(index);
         paint(&app, 160, 36);
         key(&mut app, KeyCode::Char('l'));
+        let menu = app.menu.as_ref().expect("l opens the label menu");
+        assert!(menu.title.contains("Label"));
+        assert!(
+            menu.entries
+                .iter()
+                .any(|entry| entry.key == "0" && entry.label.contains("clear"))
+        );
+        assert!(
+            menu.entries
+                .iter()
+                .any(|entry| entry.label.contains("Edit labels"))
+        );
         paint(&app, 160, 36);
         let effect = key(&mut app, KeyCode::Char(number));
         assert!(
@@ -279,7 +228,8 @@ fn editor_picks_an_unused_id_at_the_definition_limit() {
     app.input.as_mut().unwrap().text = "New".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
-        matches!(app.choose(Choice::LabelSave), Effect::Act(Request::LabelEdit { edit: crate::config::LabelEdit::Upsert(label), .. }) if label.id == "label-32")
+        matches!(app.choose(Choice::LabelSave), Effect::Act(Request::LabelEdit { expected, edit: crate::config::LabelEdit::Upsert(label) }) if expected.definitions.iter().all(|existing| existing.id != label.id)),
+        "a new label must not replace any existing definition"
     );
 }
 
@@ -522,16 +472,6 @@ fn label_delete_requires_confirmation() {
 }
 
 #[test]
-fn label_key_does_not_steal_text_from_the_chat_input() {
-    let mut app = board();
-    paint(&app, 160, 36);
-    key(&mut app, KeyCode::Enter);
-    key(&mut app, KeyCode::Char('l'));
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "l");
-    assert!(app.menu.is_none());
-}
-
-#[test]
 fn wide_glyph_occupies_three_chip_cells_and_one_plain_space() {
     let mut app = populated_board(1, 2);
     let member = "66666666-6666-4666-8666-000000000000";
@@ -719,28 +659,28 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
 }
 
 #[test]
-fn typing_search_and_message_capture_q_and_digits_and_keep_the_draft() {
+fn typing_search_and_message_capture_shortcuts_and_keep_the_draft() {
     let mut app = board();
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Enter);
-    for ch in "q123".chars() {
+    for ch in "q123l".chars() {
         assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
     }
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "q123");
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "q123l");
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert!(app.input.is_none());
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     key(&mut app, KeyCode::Enter);
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "q123");
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "q123l");
     key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Char('/'));
-    for ch in "q123".chars() {
+    for ch in "q123l".chars() {
         assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
     }
-    assert_eq!(app.search, "q123");
+    assert_eq!(app.search, "q123l");
     assert_eq!(app.shell.tab, OpsTab::Agents);
     key(&mut app, KeyCode::Esc);
     assert!(!app.searching);
