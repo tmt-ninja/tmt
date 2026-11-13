@@ -74,7 +74,7 @@ const HOUR: u64 = 3_600_000;
 const MINUTE: u64 = 60_000;
 
 #[test]
-fn completed_links_and_todos_leave_the_display_without_removing_the_source_items() {
+fn todo_and_done_items_remain_visible_without_archived_items() {
     let mut hidden = item(5, None, Completion::Open, None, None);
     hidden.item.archived = true;
     let source = preview(vec![
@@ -102,20 +102,19 @@ fn completed_links_and_todos_leave_the_display_without_removing_the_source_items
             .iter()
             .map(|row| row.title.as_str())
             .collect::<Vec<_>>(),
-        ["item 1", "item 2"]
+        ["item 1", "item 2", "item 3", "item 4"]
     );
     assert_eq!(
         source.current.items.len(),
         5,
         "references retain the full source"
     );
-    assert!(
-        rows(
-            &preview(vec![item(6, None, Completion::Complete, None, None)]),
-            NOW
-        )
-        .is_empty()
+    let done = rows(
+        &preview(vec![item(6, None, Completion::Complete, None, None)]),
+        NOW,
     );
+    assert_eq!(done.len(), 1);
+    assert!(done[0].completed);
 }
 
 #[test]
@@ -146,7 +145,7 @@ fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
 }
 
 #[test]
-fn a_link_row_shows_its_whole_address_and_completed_items_have_no_display_rows() {
+fn a_link_row_shows_its_whole_address_and_done_items_remain_visible() {
     let rows = rows(
         &preview(vec![
             item(
@@ -169,7 +168,7 @@ fn a_link_row_shows_its_whole_address_and_completed_items_have_no_display_rows()
     );
     assert_eq!(
         rows.iter().map(|row| row.kind).collect::<Vec<_>>(),
-        [Kind::Link]
+        [Kind::Link, Kind::Todo, Kind::Todo]
     );
     assert_eq!(rows[0].address, "example.org/pull/4554?x=1");
     assert_eq!(rows[0].byline, "alice · 1h");

@@ -286,7 +286,7 @@ impl Controller {
         let write = Write::Toggle {
             item: row.id.clone(),
             revision,
-            complete: true,
+            complete: !row.completed,
         };
         self.write(&mut app.notes, write)
     }

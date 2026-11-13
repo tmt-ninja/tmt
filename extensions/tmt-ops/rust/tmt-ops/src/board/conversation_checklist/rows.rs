@@ -20,6 +20,7 @@ pub(super) struct Row {
     pub id: Id,
     pub kind: Kind,
     pub title: String,
+    pub completed: bool,
     pub reference: Option<String>,
     /// The reference as the second line shows it, whole; empty for a todo.
     pub address: String,
@@ -27,13 +28,13 @@ pub(super) struct Row {
     pub byline: String,
 }
 
-/// Open, nonarchived items in the list's own order.
+/// Nonarchived items, with open items before completed items in their stored order.
 pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
-    preview
+    let mut rows: Vec<Row> = preview
         .current
         .items
         .iter()
-        .filter(|view| super::open_item(view))
+        .filter(|view| !view.item.archived)
         .map(|view| {
             let item = &view.item;
             let kind = if item.content.reference.is_some() {
@@ -56,12 +57,15 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                 id: item.id.clone(),
                 kind,
                 title: item.content.title.clone(),
+                completed: item.completion == crate::checklist::model::Completion::Complete,
                 reference: item.content.reference.clone(),
                 address,
                 byline,
             }
         })
-        .collect()
+        .collect();
+    rows.sort_by_key(|row| row.completed);
+    rows
 }
 
 /// You, a member of the room by name, or the start of an identity the room no longer lists.
