@@ -302,17 +302,12 @@ export function channelView(
       } else {
         face.replaceChildren();
         title.textContent = `#${place.squad}`;
-        chips.append(
-          chip(
-            squad?.idleAlertMinutes
-              ? `Idle alert ${squad.idleAlertMinutes}m`
-              : 'Idle alert not configured',
-          ),
-        );
+        // A chip says what is set; an unset or unknown value shows nothing (as for #6372).
+        if (squad?.idleAlertMs)
+          chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 60_000)}m`));
         channelFacts(squad, people, board.truncated);
       }
-      if (timerCount === undefined) chips.append(chip('Timers unavailable'));
-      else if (timerCount || !member) chips.append(chip(`Timers ${timerCount}`));
+      if (timerCount) chips.append(chip(`Timers ${timerCount}`));
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;
       const timersWord = timerCount === undefined ? 'Timers unavailable' : `Timers ${timerCount}`;

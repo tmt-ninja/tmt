@@ -216,7 +216,8 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
     window.channelBoard.schedules = null;
   });
   await refresh(page);
-  await expect(page.locator('.ops-channel-chips')).toContainText('Timers unavailable');
+  await expect(page.locator('.ops-channel-chips')).not.toContainText('Timers');
+  await expect(page.locator('.ops-channel-summary')).toContainText('Timers unavailable');
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await details(page);
   await page.getByRole('tab', { name: 'Timers', exact: true }).click();

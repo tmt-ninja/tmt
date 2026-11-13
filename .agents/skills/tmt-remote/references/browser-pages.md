@@ -211,8 +211,8 @@ rail, with Ops settings last. Missing, unavailable, truncated and null evidence 
 shared menu: one channel per squad with member children keyed by canonical UUIDs retained by `ops-source.ts`.
 No name-to-identity resolution, extra board read or product-local rail is added. The route retains squad expansion across observations and navigation; the shared leaf owns
 nesting, disclosure, keyboard traversal and the deepest visible selection on desktop and phone.
-`ops-channel.ts` renders the channel or DM header (title, Idle alert and Timers chips with an
-unavailable state, and one facts line), a collapsible Members/Timers panel, and a view sized to
+`ops-channel.ts` renders the channel or DM header (title, an Idle alert chip when one is set and
+a Timers chip when there is at least one timer, and one facts line), a collapsible Members/Timers panel, and a view sized to
 the window so that only the stream scrolls and the message box stays at the bottom. Members show
 four plain states (Working, Idle, Unknown, Offline) from explicit presence/activity, not attention
 or raw board colour. A DM panel lists only timers whose owner is that member's name. Timer rows
