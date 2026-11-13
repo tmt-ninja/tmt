@@ -43,6 +43,9 @@ for (const width of [1440, 390])
       await expect(page.getByRole('list', { name: 'Talks this hour' })).toContainText(
         '12/12 · 2 held · needs a person',
       );
+      await expect(page.getByRole('region', { name: 'Selected member and route' })).toContainText(
+        'Allowed · Batch 30 min',
+      );
       // The timeline names the date and Core's zone, and the plans in effect at the selected time.
       await expect(page.getByRole('group', { name: 'Time range' })).toBeVisible();
       await expect(page.locator('.ops-orchestration-when')).toHaveText('Tue 10-27Asia/Tokyo');

@@ -9348,7 +9348,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 	const matrixCard = el("section", `${browserUiClasses.card} ops-orchestration-routes`);
 	const matrixHead = el("div", browserUiClasses.cardHead);
 	const matrixMeta = el("span", browserUiClasses.cardMeta);
-	const matrixCue = el("span", "ops-orchestration-scroll-cue", "Scroll →");
+	const matrixCue = el("span", "ops-orchestration-scroll-cue", "Scroll ↔ ↕");
 	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"), matrixMeta, matrixCue);
 	const matrixBody = el("div", "ops-orchestration-matrix-body");
 	const talks = el("div", "ops-orchestration-talks");
@@ -9777,7 +9777,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 				"Sending",
 				fieldWords("sending", row.fields.sending.value),
 				from(row.fields.sending.source)
-			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "✕ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `sent · ${receivingWords(column.fields.receiving.value)}`]]));
+			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "✕ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `Allowed · ${receivingWords(column.fields.receiving.value)}`]]));
 			const actions = el("div", browserUiClasses.actions);
 			if (route?.verdict === "blocked") {
 				const end = Math.min(row.nextChangeAtMs ?? now() + DAY, now() + DAY);
@@ -11386,6 +11386,11 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				empty.hidden = false;
 				refresh();
 			} else draw();
+			if (next?.room === null) {
+				emptyTitle.textContent = "No channel room on this machine yet";
+				emptyText.textContent = "Talk to a member directly instead.";
+				empty.hidden = false;
+			}
 			showComposer();
 		}
 	};

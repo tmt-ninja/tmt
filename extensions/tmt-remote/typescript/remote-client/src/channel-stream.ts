@@ -480,6 +480,11 @@ export function channelStream(
         empty.hidden = false;
         void refresh();
       } else draw();
+      if (next?.room === null) {
+        emptyTitle.textContent = 'No channel room on this machine yet';
+        emptyText.textContent = 'Talk to a member directly instead.';
+        empty.hidden = false;
+      }
       showComposer();
     },
   };
