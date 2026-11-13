@@ -1158,7 +1158,7 @@ time is not): id, owner, title, schedule, next run and state (`● ready`, `◆ 
 with paused and ownerless jobs last. A held job's next run is when its hold ends. The
 line under the sections counts members, plans, pairs and jobs. `Tab` moves between
 Who may message whom, Talks this hour and Jobs; `↑↓` moves within the focused section
-and the footer lists only its keys. With Jobs focused, the inspector shows the selected
+and the footer lists only its keys, at most eight (`q quit` yields first). With Jobs focused, the inspector shows the selected
 job's owner, schedule, next run, what holds it, its last run and message; `p` pauses or
 resumes it and `x` runs it once now, each after a confirm, and `e` and `n` open the
 Timers edit and new-job forms. A job made with `tmt orch job` is shown read-only. The
