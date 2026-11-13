@@ -496,7 +496,14 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         }
     }
     let Some(snapshot) = state.snapshot() else {
-        // Loading or an unsupported Core: nothing to move through or act on yet.
+        // Loading or an unsupported Core: nothing to move through or act on yet. A failed first
+        // read offers the retry its section names.
+        if state.failure.is_some()
+            && !state.unavailable
+            && let Some(key) = effective_key(app, &bindings, Verb::Refresh, "ctrl-r")
+        {
+            hints.push((key_label(&key).to_owned(), "retry".into()));
+        }
         return fit_hints(hints, tail, width);
     };
     let matrix = !state.plans && snapshot.sending.routes.is_some();

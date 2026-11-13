@@ -71,22 +71,12 @@ fn style(look: Look, row: &Row<'_>, value: Style, attention: bool) -> Style {
         style.bg = look.conversation().bg;
         style
     } else {
-        selection(look, row.selected, value)
+        look.selected(row.selected, value)
     };
     if idle && !row.selected && !row.unread && attention {
         result.remove_modifier(Modifier::DIM)
     } else {
         result
-    }
-}
-
-fn selection(look: Look, selected: bool, value: Style) -> Style {
-    if selected {
-        look.selection()
-            .patch(look.row_span(true, value, false))
-            .remove_modifier(Modifier::BOLD)
-    } else {
-        value
     }
 }
 
@@ -101,21 +91,21 @@ pub(in crate::board) fn paint_line(
     look: Look,
 ) {
     let mut line = vec![
-        Span::styled(" ", selection(look, selected, look.role(Role::Text))),
+        Span::styled(" ", look.selected(selected, look.role(Role::Text))),
         Span::styled(
             if expanded { "▾ " } else { "▸ " },
-            selection(look, selected, look.role(Role::Muted)),
+            look.selected(selected, look.role(Role::Muted)),
         ),
     ];
     line.extend(
         spans
             .into_iter()
-            .map(|(text, style)| Span::styled(text, selection(look, selected, style))),
+            .map(|(text, style)| Span::styled(text, look.selected(selected, style))),
     );
     let width: usize = line.iter().map(Span::width).sum();
     line.push(Span::styled(
         " ".repeat(usize::from(area.width).saturating_sub(width)),
-        selection(look, selected, look.role(Role::Text)),
+        look.selected(selected, look.role(Role::Text)),
     ));
     strip::paint_left(buffer, area, Line::from(line));
 }
@@ -141,7 +131,7 @@ pub(in crate::board) fn paint_terminal(
     row: &TerminalRow<'_>,
     look: Look,
 ) {
-    let base = selection(look, row.selected, look.role(Role::Text));
+    let base = look.selected(row.selected, look.role(Role::Text));
     for y in area.y..area.bottom() {
         strip::paint_left(
             buffer,
@@ -188,7 +178,7 @@ pub(in crate::board) fn paint_terminal(
             line.spans
                 .into_iter()
                 .map(|span| {
-                    let style = selection(look, row.selected, span.style);
+                    let style = look.selected(row.selected, span.style);
                     span.style(style)
                 })
                 .collect::<Vec<_>>(),

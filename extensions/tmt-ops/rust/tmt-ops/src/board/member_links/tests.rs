@@ -855,6 +855,7 @@ mod named_surface_tests {
                     let row = crate::board::key_value::Row {
                         key: "task",
                         value: crate::board::key_value::Value::Observed("night-2"),
+                        source: None,
                     };
                     crate::board::key_value::paint(frame, &app, area, &row);
                 })
@@ -1244,6 +1245,7 @@ mod named_surface_tests {
                         &crate::board::key_value::Row {
                             key: "task",
                             value: crate::board::key_value::Value::Observed("night-2"),
+                            source: None,
                         },
                     );
                 })

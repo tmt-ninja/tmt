@@ -183,6 +183,18 @@ impl Look {
         }
     }
 
+    /// A selected row's span: the selection background under the row's own foreground (or the
+    /// plain reverse row without a background colour), never bold. Unselected spans keep `value`.
+    pub fn selected(&self, selected: bool, value: Style) -> Style {
+        if selected {
+            self.selection()
+                .patch(self.row_span(true, value, false))
+                .remove_modifier(Modifier::BOLD)
+        } else {
+            value
+        }
+    }
+
     /// On a real selection background, the fixed role policy paints `muted`,
     /// `dim` and state/`accent`/`link` words in `text`. Single semantic marks
     /// keep their color, except dim or muted marks. This does not classify
