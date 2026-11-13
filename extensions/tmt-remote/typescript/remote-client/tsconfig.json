@@ -19,6 +19,8 @@
     "vite.page.config.ts",
     "vite.invite.config.ts",
     "vite.firebase.config.ts",
+    "vite.composer.config.ts",
     "playwright.config.ts"
-  ]
+  ],
+  "exclude": ["src/ops-composer.ts"]
 }

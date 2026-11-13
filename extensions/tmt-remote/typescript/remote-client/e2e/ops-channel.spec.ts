@@ -14,8 +14,16 @@ test.afterAll(async () => {
 async function open(page: Page, width = 1440, theme = 'light') {
   await serveOpsHarness(page, built!, origin, width, theme);
   await page.goto(`${origin}/ops/#channel/sample`);
-  await expect(page.getByRole('tab', { name: 'Members', exact: true })).toBeVisible();
+  await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
 }
+/** Phones open a channel with its details folded away. */
+async function details(page: Page) {
+  const show = page.getByRole('button', { name: 'Show details', exact: true });
+  if (await show.isVisible()) await show.click();
+}
+const memberLink = (page: Page, name: string) =>
+  page.locator('.ops-member-list').getByRole('link', { name, exact: true });
+const conversation = (page: Page) => page.getByRole('list', { name: 'Conversation' });
 async function refresh(page: Page) {
   await page.clock.runFor(5001);
 }
@@ -69,17 +77,21 @@ for (const width of [1440, 390])
       });
       await refresh(page);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
-      await expect(page.locator('.ops-channel-context .tmt-ui-list-state')).toHaveText([
+      await expect(page.locator('.ops-channel-chips')).toHaveText(/Idle alert 15m\s*Timers 1/);
+      await expect(page.locator('.ops-channel-line')).toContainText('Lead sample-lead · 3 members');
+      await expect(page.locator('.ops-channel-compose')).toContainText(
+        'has no channel room on this machine yet',
+      );
+      await details(page);
+      await expect(page.locator('.ops-member-row .ops-member-state')).toHaveText([
         'Working',
         'Idle',
         'Offline',
       ]);
-      await expect(page.locator('.ops-channel-context [data-tone]')).toHaveCount(0);
-      await expect(page.locator('.ops-channel-summary')).toHaveText('Members 3 · Timers 1');
-      await expect(page.locator('details.ops-channel-context')).toHaveCount(0);
+      await expect(page.locator('.ops-member-row [data-tone]')).toHaveCount(0);
       await expect(page.locator('.tmt-ui-topbar-title-chips')).toHaveCount(0);
       await expect(page.locator('.tmt-ui-topbar-title-current')).toBeVisible();
-      const member = page.locator('.ops-channel-context .tmt-ui-list-title > a').first();
+      const member = page.locator('.ops-member-name').first();
       await expect(member).toHaveCSS('text-decoration-line', 'none');
       await shot(page, `channel-${width}-${theme}`);
       if (width === 390) {
@@ -87,11 +99,11 @@ for (const width of [1440, 390])
         await shot(page, `rail-channel-${width}-${theme}`);
         await page.keyboard.press('Escape');
       }
-      await page.getByRole('tab', { name: 'Members', exact: true }).focus();
+      await page.getByRole('tab', { name: 'Members 3', exact: true }).focus();
       await page.keyboard.press('ArrowRight');
-      await expect(page.getByRole('tab', { name: 'Squad timers', exact: true })).toBeFocused();
-      await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
-        'Sample hourly review',
+      await expect(page.getByRole('tab', { name: 'Timers 1', exact: true })).toBeFocused();
+      await expect(page.getByRole('tabpanel', { name: 'Timers 1', exact: true })).toContainText(
+        'Sample hourly reviewEvery hour at :00',
       );
       await shot(page, `timers-${width}-${theme}`);
       if (width === 390)
@@ -102,21 +114,10 @@ for (const width of [1440, 390])
       await dm.focus();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
-      await expect(page.getByRole('tab', { name: 'About', exact: true })).toBeVisible();
-      await expect(
-        page.getByRole('heading', {
-          name: 'Talk history',
-          exact: true,
-        }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole('button', { name: 'Copy tmt ops ui', exact: true }),
-      ).toBeVisible();
-      for (const label of ['Send', 'New timer', 'Edit idle reminder'])
-        await expect(page.getByRole('button', { name: label, exact: true })).toBeDisabled();
-      await expect(page.locator('.ops-channel-compose')).toContainText(
-        'not available in the browser yet',
-      );
+      await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+      await expect(page.getByRole('region', { name: 'Talk history' })).toBeVisible();
+      await expect(page.locator('.ops-dm [contenteditable="true"]')).toBeVisible();
+      await expect(page.locator('.ops-channel > .ops-channel-history > .ops-dm')).toHaveCount(1);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveCount(1);
       await expect(page.locator('.tmt-ui-rail a[href*="#dm/"] .tmt-ui-shell-count')).toHaveCount(0);
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
@@ -159,18 +160,20 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   page,
 }) => {
   await open(page);
-  const memberLink = page
-    .locator('.ops-channel-context')
-    .getByRole('link', { name: 'sample-1', exact: true });
-  await memberLink.focus();
+  await details(page);
+  const link = memberLink(page, 'sample-1');
+  await link.focus();
   await page.evaluate(() => {
     window.channelBoard.agents[0]!.task = 'A changed observation';
   });
   await refresh(page);
-  await expect(memberLink).toBeFocused();
+  await expect(link).toBeFocused();
   await page.keyboard.press('Enter');
-  await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
-  await page.getByRole('tab', { name: 'Squad timers', exact: true }).focus();
+  await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+  await details(page);
+  const timers = page.getByRole('tab', { name: /^Timers/ });
+  await timers.click();
+  await timers.focus();
   await page.evaluate(() => {
     window.channelBoard.agents = window.channelBoard.agents.map((agent) =>
       agent.name === 'sample-1' ? { ...agent, name: 'renamed-member' } : agent,
@@ -178,11 +181,8 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   });
   await refresh(page);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / renamed-member');
-  await expect(page.getByRole('tab', { name: 'Squad timers', exact: true })).toBeFocused();
-  await expect(page.getByRole('tab', { name: 'Squad timers', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(timers).toBeFocused();
+  await expect(timers).toHaveAttribute('aria-selected', 'true');
   await page.evaluate(() => {
     window.channelBoard.truncated = true;
     window.channelBoard.agents = window.channelBoard.agents.filter(
@@ -202,8 +202,8 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   });
   await refresh(page);
   await expect(page.locator('[data-ops-channel-missing]')).toContainText('no longer listed');
-  await expect(page.locator('.ops-channel-context')).toBeHidden();
-  await expect(page.locator('.ops-channel-context')).not.toContainText('renamed-member');
+  await expect(page.locator('.ops-channel-panel')).toBeHidden();
+  await expect(page.locator('.ops-channel-panel')).not.toContainText('renamed-member');
   await expect(page.locator('.tmt-ui-rail a[href*="#dm/"][aria-current="page"]')).toHaveCount(0);
 });
 
@@ -216,19 +216,21 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
     window.channelBoard.schedules = null;
   });
   await refresh(page);
+  await expect(page.locator('.ops-channel-chips')).not.toContainText('Timers');
   await expect(page.locator('.ops-channel-summary')).toContainText('Timers unavailable');
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
-  await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
-  await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
-    'Squad timers are unavailable',
+  await details(page);
+  await page.getByRole('tab', { name: 'Timers', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Timers', exact: true })).toContainText(
+    'Timers are unavailable',
   );
   await page.evaluate(() => {
     window.channelBoard.schedules = [];
     window.channelBoard.truncated = true;
   });
   await refresh(page);
-  await expect(page.locator('.ops-channel-summary')).toContainText('Members (partial)');
-  await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
+  await expect(page.locator('.ops-channel-line')).toContainText('Members (partial)');
+  await expect(page.getByRole('tabpanel', { name: 'Timers 0', exact: true })).toContainText(
     'partial read',
   );
   await page.evaluate(() => {
@@ -253,13 +255,9 @@ async function openHistory(page: Page, width = 1440, theme = 'light') {
     window.dmEnabled = true;
   });
   await open(page, width, theme);
-  await page
-    .locator('.ops-channel-context')
-    .getByRole('link', { name: 'sample-1', exact: true })
-    .click();
-  await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
-    'release checklist',
-  );
+  await details(page);
+  await memberLink(page, 'sample-1').click();
+  await expect(conversation(page)).toContainText('release checklist');
 }
 async function positions(page: Page) {
   return page.evaluate(() =>
@@ -277,25 +275,15 @@ for (const width of [1440, 390])
       page.on('pageerror', (error) => errors.push(error.message));
       await openHistory(page, width, theme);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
-      await expect(page.getByText('Unread changes: Unknown', { exact: true })).toBeVisible();
       await expect.poll(async () => (await positions(page))[0]?.position).toBe('position_1');
       await refresh(page);
-      await expect(page.getByText('Unread changes: 0', { exact: true })).toBeVisible();
-      await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
-        'Answered by reply',
-      );
+      await expect(conversation(page)).toContainText('The checks passed.');
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
-      for (const label of ['Send', 'New timer', 'Edit idle reminder'])
-        await expect(page.getByRole('button', { name: label, exact: true })).toBeDisabled();
       await shot(page, `history-newest-${width}-${theme}`);
-      await page.getByRole('button', { name: 'Older', exact: true }).click();
-      await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
-        'An earlier review request.',
-      );
-      await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
-        'Reply expired',
-      );
-      await expect(page.getByRole('button', { name: 'No older page', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: 'Show older messages', exact: true }).click();
+      await expect(conversation(page)).toContainText('An earlier review request.');
+      await expect(conversation(page)).toContainText('The reply has expired');
+      await expect(page.getByRole('button', { name: 'Show older messages' })).toBeHidden();
       expect((await positions(page))[0]?.position).toBe('position_1');
       const before = await page.evaluate(() => window.dmCalls.at(-1)!.input.before);
       expect(before).toEqual({
@@ -309,8 +297,7 @@ for (const width of [1440, 390])
         const key = Object.keys(localStorage).find((key) => key.includes('tmt.dm.seen.v1'))!;
         localStorage.setItem(key, 'foreign_position');
       });
-      await page.getByRole('button', { name: 'Newest page', exact: true }).click();
-      await expect(page.getByText('Unread changes: Unknown', { exact: true })).toBeVisible();
+      await refresh(page);
       await expect.poll(async () => (await positions(page))[0]?.position).toBe('fresh_position');
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
       await shot(page, `history-unknown-${width}-${theme}`);
@@ -349,13 +336,10 @@ test('DM history leaves a late older final unread in the background, then openin
   await refresh(page);
   await expect(dm).toContainText('50+');
   expect((await positions(page))[0]?.position).toBe('position_1');
-  await page
-    .locator('.ops-channel-context')
-    .getByRole('link', { name: 'sample-1', exact: true })
-    .click();
+  await details(page);
+  await memberLink(page, 'sample-1').click();
   await expect.poll(async () => (await positions(page))[0]?.position).toBe('more_changes');
   await refresh(page);
-  await expect(page.getByText('Unread changes: 0', { exact: true })).toBeVisible();
   await expect(dm).not.toHaveAttribute('data-emphasis');
 });
 
@@ -428,13 +412,8 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
       '<img src=x onerror="window.unexpected=true">' + 'x'.repeat(100);
   });
   await refresh(page);
-  await expect(page.getByText('Unread changes: Unknown', { exact: true })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
-    '<img src=x',
-  );
-  await expect(
-    page.getByRole('list', { name: 'Conversation previews' }).locator('img'),
-  ).toHaveCount(0);
+  await expect(conversation(page)).toContainText('<img src=x');
+  await expect(conversation(page).locator('img')).toHaveCount(0);
   const stored = await positions(page);
   expect(stored).toHaveLength(2);
   expect(
@@ -450,15 +429,9 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
 test('DM history long names and stable previews stay readable at 390', async ({ page }) => {
   await openHistory(page, 390);
   await refresh(page);
-  const text = await page
-    .getByRole('list', { name: 'Conversation previews' })
-    .locator('.tmt-ui-list-description')
-    .first()
-    .textContent();
+  const text = await conversation(page).locator('.ops-dm-message-text').first().textContent();
   await page.evaluate(() => {
-    const node = document.querySelector(
-      '[aria-label="Conversation previews"] .tmt-ui-list-description',
-    )!;
+    const node = document.querySelector('[aria-label="Conversation"] .ops-dm-message-text')!;
     const range = document.createRange();
     range.selectNodeContents(node);
     const selection = getSelection()!;
@@ -487,4 +460,148 @@ test('DM history long names and stable previews stay readable at 390', async ({ 
   );
   expect(overflow).toEqual([]);
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+});
+
+test('DM send freezes its operation, only observes an unknown outcome and links the Talk setting', async ({
+  page,
+}) => {
+  await openHistory(page);
+  const box = page.locator('.ops-dm [contenteditable="true"]');
+  const note = page.locator('#ops-dm-send-note');
+  await box.click();
+  await page.keyboard.type('Take the 390 capture next.');
+  await page.evaluate(() => {
+    window.dmSendState = { state: 'refused', operationId: '', reason: 'ROOM_ROSTER_CHANGED' };
+  });
+  await page.keyboard.press('Enter');
+  await expect(note).toContainText(
+    'Not sent: the squad changed. Check the recipients and send again.',
+  );
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(2);
+  const sends = await page.evaluate(() => window.dmSends);
+  // Remote replays a refused id without asking Core, so the retry is a new operation.
+  expect(sends[1]).toEqual({ ...sends[0], operationId: sends[1]!.operationId });
+  expect(sends[1]!.operationId).not.toBe(sends[0]!.operationId);
+  expect(sends[0]).toMatchObject({
+    agentId: '00000000-0000-4000-8000-000000000002',
+    message: 'Take the 390 capture next.',
+  });
+  // Cancelled on the machine is settled too: its retry is another new operation.
+  await page.evaluate(() => {
+    window.dmSendState = { state: 'cancelled', operationId: '' };
+  });
+  await page.keyboard.press('Enter');
+  await expect(note).toContainText('Not sent: it was cancelled on the machine.');
+  await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(3);
+  const afterCancel = await page.evaluate(() => window.dmSends.map((send) => send.operationId));
+  expect(new Set(afterCancel).size).toBe(3);
+  await page.evaluate(() => {
+    window.dmSendState = { state: 'uncertain', operationId: '' };
+  });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ops-dm-exchange[data-pending="uncertain"]')).toContainText(
+    'nothing is sent again',
+  );
+  await expect(note).toContainText('never sent twice');
+  await refresh(page);
+  await refresh(page);
+  expect(await page.evaluate(() => window.dmSends.length)).toBe(4);
+  expect(await page.evaluate(() => window.dmObserved)).toBeGreaterThanOrEqual(2);
+  await page.evaluate(() => {
+    window.dmSendState = {
+      state: 'refused',
+      operationId: '',
+      reason: 'Talk is off for this browser.',
+      scope: 'talk',
+      settingsUrl: '/remote/settings#talk',
+    };
+  });
+  await refresh(page);
+  await expect(note.getByRole('link', { name: 'Turn on Talk in Remote settings' })).toHaveAttribute(
+    'href',
+    '/remote/settings#talk',
+  );
+  await expect(page.locator('.ops-dm').getByRole('button', { name: 'Send' })).toBeDisabled();
+  expect(await page.evaluate(() => window.dmSends.length)).toBe(4);
+});
+
+test('channel posts to the lead or each mention with the board room, and shows replies under the post', async ({
+  page,
+}) => {
+  await open(page);
+  await page.evaluate(() => {
+    window.channelBoard.squads[0]!.room = {
+      roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+      revision: 7,
+    };
+    const at = 1720000000000;
+    window.roomPage.items = [
+      {
+        requestId: 'req_00000011-cccc-4ccc-8ccc-cccccccccccc',
+        recipientId: '00000000-0000-4000-8000-000000000001',
+        roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+        kind: 'request',
+        origin: 'person',
+        preparedAtMs: at,
+        delivery: 'sent',
+        final: {
+          status: 'retained',
+          submittedAtMs: at + 60000,
+          expiresAtMs: at + 1e9,
+          bodyBytes: 9,
+        },
+        // Remote's device line (colab-v1) moves to the header; the bubble keeps the words.
+        preview: '[remote: Work laptop]\nAsk @sample-2 <b>about</b> the plan',
+      },
+    ];
+    window.roomResults = {
+      'req_00000011-cccc-4ccc-8ccc-cccccccccccc': {
+        state: 'replied',
+        requestId: 'req_00000011-cccc-4ccc-8ccc-cccccccccccc',
+        message: 'On it.',
+      },
+    };
+  });
+  await refresh(page);
+  const stream = page.getByRole('list', { name: 'Channel messages' });
+  await expect(stream).toContainText('You→ sample-lead · from Work laptop');
+  await expect(stream.locator('.ops-dm-message-text')).toHaveText(
+    'Ask @sample-2 <b>about</b> the plan',
+  );
+  await expect(stream.locator('.ops-dm-mention')).toHaveText('@sample-2');
+  await expect(stream.locator('b')).toHaveCount(0);
+  const summary = stream.getByRole('button', { name: /1 reply/ });
+  await expect(summary).toContainText('Answered');
+  await expect(stream).not.toContainText('On it.');
+  await summary.click();
+  const thread = page.getByRole('complementary', { name: 'Thread' });
+  await expect(thread).toContainText('sample-lead→ You');
+  await expect(thread).toContainText('On it.');
+  await expect(thread.getByRole('heading')).toHaveText('Ask @sample-2 <b>about</b> the plan');
+  await expect(summary).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(thread).toBeHidden();
+  await expect(summary).toBeFocused();
+  const box = page.locator('.ops-channel-compose [contenteditable="true"]');
+  await box.click();
+  await page.keyboard.type('Plan the week.');
+  await page.keyboard.press('Enter');
+  await box.click();
+  await page.keyboard.type('@sample-1 and @sample-2, take the captures.');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.roomSends.length)).toBe(2);
+  const [lead, mentioned] = await page.evaluate(() => window.roomSends);
+  expect(lead).toMatchObject({
+    message: 'Plan the week.',
+    room: { roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001', revision: 7 },
+    recipientIds: ['00000000-0000-4000-8000-000000000001'],
+  });
+  expect(mentioned!.recipientIds).toEqual([
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+  ]);
+  expect(mentioned!.operationId).not.toBe(lead!.operationId);
+  await expect(box).toHaveText('');
 });

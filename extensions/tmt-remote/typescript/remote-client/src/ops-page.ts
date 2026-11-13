@@ -11,7 +11,12 @@ import { orchestrationApi } from './orchestration-client.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
-import { conversationHistory, type ConversationRead } from './conversation-history.js';
+import type { ChannelPort } from './channel-stream.js';
+import {
+  conversationHistory,
+  type ConversationRead,
+  type ConversationTalk,
+} from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
 import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
 
@@ -28,6 +33,8 @@ export function opsPage(
     if (!shell.session) throw new Error('No signed browser session.');
     return orchestrationApi(await shell.session());
   },
+  historyTalk?: ConversationTalk,
+  channelPort?: ChannelPort,
 ): void {
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
@@ -45,7 +52,9 @@ export function opsPage(
     orchestrationAt = Date.now();
     return orchestration.refresh();
   };
-  const channel = channelView(location.pathname);
+  // A stale-roster refusal reads the board again at once (set once the board read exists below).
+  let rereadBoard = () => {};
+  const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
   const collapsedSquads = new Set<string>();
   const unread = new Map<string, ConversationUnread>();
   let unreadScope = '';
@@ -61,6 +70,7 @@ export function opsPage(
       paintMenu();
     },
     historyRead,
+    historyTalk,
   );
   const paintMenu = () => {
     const section = current();
@@ -131,7 +141,7 @@ export function opsPage(
   // The board while the route is visible, at the board's own cadence; a page repaints only when
   // the board changed, so a reader's place and selection stay.
   let last = '';
-  whileVisible(REFRESH_MS, shell.signal, async () => {
+  const readBoard = async (): Promise<boolean> => {
     const next = await source.board(shell.signal);
     if (shell.signal.aborted) return true;
     const seen = JSON.stringify(next);
@@ -154,5 +164,7 @@ export function opsPage(
       paint();
     }
     return next.unavailable === undefined;
-  });
+  };
+  rereadBoard = () => void readBoard();
+  whileVisible(REFRESH_MS, shell.signal, readBoard);
 }

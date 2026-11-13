@@ -4011,6 +4011,10 @@ var browserUiClasses = Object.freeze({
 function countText(value) {
 	return value > 99 ? "99+" : String(value);
 }
+/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
+function avatarInitials(name) {
+	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
+}
 /**
 * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
 * left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
@@ -8886,7 +8890,7 @@ function el(tag, className, text) {
 	return node;
 }
 /** A sentence in place of a list: why there is nothing to show, with any command as code. */
-function sentence(text) {
+function sentence$1(text) {
 	const node = document.createElement("p");
 	node.className = "ops-empty";
 	notAvailable(node, text);
@@ -8899,12 +8903,6 @@ function mark(shape, tone) {
 	if (tone) node.dataset.tone = tone === "neutral" ? "muted" : tone;
 	node.setAttribute("aria-hidden", "true");
 	return node;
-}
-/** The line under every Ops page: what the page is and that it keeps itself current. */
-function pageFoot(text = "Read-only · Refreshes while visible") {
-	const foot = el("p", "ops-foot");
-	foot.append(mark("dot", "working"), text);
-	return foot;
 }
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
 * squad only an agent names), each lead first; a squad with no agents only when asked for. */
@@ -9573,11 +9571,11 @@ function orchestrationView(connect, now = () => Date.now()) {
 		const count = view.members.length;
 		matrixMeta.textContent = memberQuery ? `${count} matching “${memberQuery}”` : `${count} × ${count}`;
 		if (!sending?.routes) {
-			matrixBody.replaceChildren(sentence("Routes are not available on this Core. Member policies are shown beside it."));
+			matrixBody.replaceChildren(sentence$1("Routes are not available on this Core. Member policies are shown beside it."));
 			return;
 		}
 		if (!count) {
-			matrixBody.replaceChildren(sentence("No members match."));
+			matrixBody.replaceChildren(sentence$1("No members match."));
 			return;
 		}
 		const scroll = el("div", "ops-orchestration-scroll");
@@ -9835,7 +9833,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 			parts.push(section);
 			loadJobs(row.identityId);
 		}
-		if (!parts.length) parts.push(sentence("No members match."));
+		if (!parts.length) parts.push(sentence$1("No members match."));
 		const focused = document.activeElement;
 		const kept = focused instanceof HTMLHeadingElement && inspector.contains(focused) ? focused.textContent : null;
 		inspector.replaceChildren(...parts);
@@ -10042,208 +10040,134 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 	};
 }
 //#endregion
-//#region src/ops-channel.ts
-/** Local channel / DM context. The board owns members/timers; admitted conversation reads
-* own DM history. Channel messages and all writes remain unavailable. */
-function memberState(agent) {
-	if (agent.presence === "offline") return "Offline";
-	if (agent.activity?.state === "working") return "Working";
-	if (agent.activity?.state === "idle") return "Idle";
-	return "Unknown";
-}
-function channelView(pathname) {
-	const page = el("div", "ops-channel");
-	const context = el("p", browserUiClasses.pageSubtitle, "This machine");
-	const panel = el("section", `${browserUiClasses.tabs} ops-channel-context`);
-	panel.dataset.variant = "flat";
-	panel.dataset.presentation = "compact";
-	const summary = el("p", `${browserUiClasses.sectionHeading} ops-channel-summary`);
-	summary.tabIndex = -1;
-	const tabs = el("div", browserUiClasses.tabList);
-	tabs.setAttribute("role", "tablist");
-	tabs.setAttribute("aria-label", "Channel details");
-	const facts = el("section", browserUiClasses.tabPanel);
-	facts.id = "ops-channel-about";
-	facts.setAttribute("role", "tabpanel");
-	const timers = el("section", browserUiClasses.tabPanel);
-	timers.id = "ops-channel-timers";
-	timers.setAttribute("role", "tabpanel");
-	let selected = 0;
-	const buttons = [0, 1].map((index) => {
-		const button = el("button", browserUiClasses.tab);
-		button.type = "button";
-		button.id = `ops-channel-tab-${index}`;
-		button.setAttribute("role", "tab");
-		button.setAttribute("aria-controls", index ? timers.id : facts.id);
-		button.addEventListener("click", () => select(index));
-		button.addEventListener("keydown", (event) => {
-			if (![
-				"ArrowLeft",
-				"ArrowRight",
-				"Home",
-				"End"
-			].includes(event.key)) return;
-			event.preventDefault();
-			const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
-			select(next);
-			buttons[next].focus();
-		});
-		return button;
-	});
-	function select(index) {
-		selected = index;
-		buttons.forEach((button, at) => {
-			button.tabIndex = at === index ? 0 : -1;
-			button.setAttribute("aria-selected", String(at === index));
-		});
-		facts.hidden = index !== 0;
-		timers.hidden = index !== 1;
+//#region src/ops-timers.ts
+var DAYS = {
+	mon: "Mon",
+	tue: "Tue",
+	wed: "Wed",
+	thu: "Thu",
+	fri: "Fri",
+	sat: "Sat",
+	sun: "Sun"
+};
+var UNITS = {
+	s: ["second", "seconds"],
+	m: ["minute", "minutes"],
+	h: ["hour", "hours"],
+	d: ["day", "days"]
+};
+var two = (value) => value.padStart(2, "0");
+/**
+* A board schedule in words: `every 30m from 09:00`, `daily 09:00`, `weekdays 09:00`,
+* `mon,thu 10:00` and the simple cron shapes read as a sentence; anything else stays as written.
+*/
+function scheduleWords(text) {
+	const every = /^every (\d+)([smhd])(?: from (\S+))?$/.exec(text);
+	if (every) {
+		const [, count, unit, from] = every;
+		const [one, many] = UNITS[unit];
+		const step = count === "1" ? `Every ${one}` : `Every ${count} ${many}`;
+		return from ? `${step} from ${from}` : step;
 	}
-	facts.setAttribute("aria-labelledby", buttons[0].id);
-	timers.setAttribute("aria-labelledby", buttons[1].id);
-	tabs.append(...buttons);
-	panel.append(summary, tabs, facts, timers);
-	const history = el("section", "ops-channel-history");
-	const unavailable = el("h2", browserUiClasses.sectionHeading);
-	const explanation = el("p");
-	const terminalHistory = commandCopy("tmt ops ui");
-	history.append(unavailable, explanation, terminalHistory);
-	const compose = el("section", "ops-channel-compose");
-	const reason = el("p", "ops-detail-note");
-	reason.id = "ops-channel-write-reason";
-	const actions = el("div", browserUiClasses.actions);
-	for (const label of [
-		"Send",
-		"New timer",
-		"Edit idle reminder"
-	]) {
-		const button = el("button", browserUiClasses.action, label);
-		button.type = "button";
-		button.disabled = true;
-		button.setAttribute("aria-describedby", reason.id);
-		actions.append(button);
+	const at = /^(daily|weekdays|[a-z]{3}(?:,[a-z]{3})*) (\d{1,2}:\d{2})$/.exec(text);
+	if (at) {
+		const [, on, time] = at;
+		if (on === "daily") return `Every day at ${time}`;
+		if (on === "weekdays") return `Weekdays at ${time}`;
+		const days = on.split(",").map((day) => DAYS[day]);
+		if (days.every(Boolean)) return `${days.join(", ")} at ${time}`;
 	}
-	compose.append(actions, reason);
-	page.append(context, panel, history, compose, pageFoot());
-	select(0);
-	let identity = "";
-	let fingerprint = "";
-	const memberList = el("ul", browserUiClasses.list);
-	const memberRows = /* @__PURE__ */ new Map();
-	function memberRow(agent) {
-		const row = el("li", browserUiClasses.listRow);
-		const title = el("div", browserUiClasses.listTitle);
-		const name = el("a", void 0, agent.name);
-		title.append(name);
-		name.href = opsHref(pathname, {
-			squad: agent.squad,
-			memberId: agent.id
-		});
-		const detail = el("div", browserUiClasses.listMeta);
-		detail.append(el("span", browserUiClasses.listUpdated, agent.role === "lead" ? "Lead" : "Member"), el("span", browserUiClasses.listState, memberState(agent)));
-		row.append(title, detail);
-		return row;
-	}
-	return {
-		node: page,
-		history,
-		update(board, place) {
-			const key = opsHref(pathname, place);
-			const people = board.agents.filter((agent) => agent.squad === place.squad).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
-			const member = place.memberId ? people.find((agent) => agent.id === place.memberId) : void 0;
-			const squad = board.squads.find((squad) => squad.name === place.squad);
-			const known = place.memberId ? !!member : !!squad || people.length > 0;
-			const jobs = board.schedules?.filter((job) => job.squad === place.squad);
-			const seen = JSON.stringify({
-				key,
-				people,
-				squad,
-				jobs,
-				known,
-				truncated: board.truncated
-			});
-			if (seen === fingerprint) return;
-			fingerprint = seen;
-			if (identity !== key) {
-				identity = key;
-				memberRows.clear();
-				memberList.replaceChildren();
-				select(0);
-			}
-			context.textContent = `This machine · ${place.squad}`;
-			panel.hidden = !known;
-			history.hidden = !known;
-			compose.hidden = !known;
-			let missing = page.querySelector("[data-ops-channel-missing]");
-			if (!known) {
-				missing ??= el("p", "ops-empty");
-				missing.dataset.opsChannelMissing = "";
-				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
-				if (!missing.isConnected) page.append(missing);
-				summary.textContent = "Details unavailable";
-				memberRows.clear();
-				memberList.replaceChildren();
-				facts.replaceChildren();
-				timers.replaceChildren();
-				return;
-			}
-			missing?.remove();
-			const timerCount = jobs && !board.truncated ? ` · Timers ${jobs.length}` : " · Timers unavailable";
-			summary.textContent = place.memberId ? `About ${member.name}${timerCount}` : `Members ${board.truncated ? "(partial)" : people.length}${timerCount}`;
-			buttons[0].textContent = place.memberId ? "About" : "Members";
-			buttons[1].textContent = "Squad timers";
-			tabs.setAttribute("aria-label", place.memberId ? "Member details" : "Channel details");
-			if (member) {
-				const details = el("dl", browserUiClasses.facts);
-				for (const [term, value] of [
-					["Name", member.name],
-					["Squad", member.squad],
-					["Role", member.role === "lead" ? "Lead" : "Member"],
-					["State", memberState(member)],
-					["Model", member.model || "Not reported"],
-					["Task", member.task || "Not reported"],
-					["Next step", member.next || "Not reported"]
-				]) details.append(el("dt", void 0, term), el("dd", void 0, value));
-				facts.replaceChildren(details);
-			} else {
-				const ids = new Set(people.map((agent) => agent.id));
-				for (const [id, row] of memberRows) if (!ids.has(id)) {
-					const heldFocus = row.contains(document.activeElement);
-					row.remove();
-					memberRows.delete(id);
-					if (heldFocus) summary.focus();
-				}
-				people.forEach((agent, index) => {
-					let row = memberRows.get(agent.id);
-					if (!row) {
-						row = memberRow(agent);
-						memberRows.set(agent.id, row);
-					}
-					row.querySelector("a").textContent = agent.name;
-					row.querySelector(`.${browserUiClasses.listState}`).textContent = memberState(agent);
-					row.querySelector(`.${browserUiClasses.listUpdated}`).textContent = agent.role === "lead" ? "Lead" : "Member";
-					if (memberList.children[index] !== row) memberList.insertBefore(row, memberList.children[index] ?? null);
-				});
-				if (people.length) {
-					if (memberList.parentElement !== facts) facts.replaceChildren(memberList);
-				} else facts.replaceChildren(el("p", "ops-empty", "No members listed."));
-			}
-			const timerRows = el("ul", browserUiClasses.list);
-			for (const job of jobs ?? []) {
-				const row = el("li", browserUiClasses.listRow);
-				const meta = el("div", browserUiClasses.listMeta);
-				meta.append(el("span", browserUiClasses.listUpdated, job.when));
-				row.append(el("span", browserUiClasses.listTitle, job.what || job.id), meta);
-				timerRows.append(row);
-			}
-			timers.replaceChildren(el("p", "ops-detail-note", "Squad timers · Shown for the whole squad."), jobs === void 0 ? el("p", "ops-empty", "Squad timers are unavailable.") : jobs.length ? timerRows : el("p", "ops-empty", board.truncated ? "No squad timers in this partial read." : "No squad timers are set."), ...board.truncated ? [el("p", "ops-detail-note", "Partial board; totals are not known.")] : []);
-			if (!place.memberId) history.replaceChildren(unavailable, explanation, terminalHistory);
-			unavailable.textContent = place.memberId ? "History isn't available in the browser yet" : "Channel messages aren't available in the browser yet";
-			explanation.textContent = place.memberId ? "Open Ops in this machine’s terminal, choose this member and open Talk to read the retained conversation." : "This browser shows members and squad timers. Channel messages and threads are not available yet.";
-			reason.textContent = "Sending, timer changes and idle-reminder changes are not available in the browser yet. Use this machine’s terminal.";
-			select(selected);
+	const cron = /^cron (\S+) (\S+) (\S+) (\S+) (\S+)$/.exec(text);
+	if (cron) {
+		const [, minute, hour, dom, month, dow] = cron;
+		const plain = dom === "*" && month === "*";
+		const step = /^\*\/(\d+)$/.exec(minute);
+		if (plain && dow === "*" && hour === "*" && step) return `Every ${step[1]} minutes`;
+		if (plain && dow === "*" && hour === "*" && /^\d+$/.test(minute)) return `Every hour at :${two(minute)}`;
+		if (plain && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+			const time = `${two(hour)}:${two(minute)}`;
+			if (dow === "*") return `Every day at ${time}`;
+			if (dow === "1-5") return `Weekdays at ${time}`;
 		}
-	};
+	}
+	return text;
+}
+/** One timer row: what it sends, its schedule in words, and whose it is. */
+function timerRow(job) {
+	const row = el("li", "ops-timer-row");
+	row.dataset.timerId = job.id;
+	const icon = el("span", "ops-timer-icon");
+	icon.setAttribute("aria-hidden", "true");
+	const name = el("span", "ops-timer-name", job.what || job.id);
+	const words = scheduleWords(job.when);
+	const when = el("span", "ops-timer-when", words);
+	if (words !== job.when) when.title = job.when;
+	const meta = el("span", "ops-timer-meta");
+	meta.append(when);
+	if (job.nextMs !== null) {
+		const next = el("time", "ops-timer-next", nextIn(job.nextMs));
+		next.dateTime = new Date(job.nextMs).toISOString();
+		next.title = new Date(job.nextMs).toLocaleString();
+		meta.append(next);
+	}
+	if (job.owner) meta.append(el("span", "ops-timer-owner", job.owner));
+	row.append(icon, name, meta);
+	if (job.state) {
+		row.dataset.state = job.state;
+		row.append(el("span", "ops-timer-state", job.state === "on" ? "On" : "Paused"));
+	}
+	return row;
+}
+/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
+function nextIn(at, now = Date.now()) {
+	const minutes = Math.round((at - now) / 6e4);
+	if (minutes <= 0) return "Due now";
+	if (minutes < 60) return `Next in ${minutes}m`;
+	if (minutes < 1440) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+	return `Next ${new Date(at).toLocaleString(void 0, {
+		weekday: "short",
+		hour: "2-digit",
+		minute: "2-digit"
+	})}`;
+}
+/** The panel's timers: a list, or a sentence that never reads an unknown as none. */
+function timerList(jobs, truncated) {
+	if (jobs === null) return sentence$1("Timers are unavailable from this machine right now.");
+	if (!jobs.length) return sentence$1(truncated ? "No timers in this partial read." : "No timers are set.");
+	const list = el("ul", "ops-timer-list");
+	list.setAttribute("aria-label", "Timers");
+	list.append(...jobs.map(timerRow));
+	return list;
+}
+//#endregion
+//#region src/ops-composer-slot.ts
+/** The Ops message box slot (#5704): loads the composer island on first use and holds its place
+* with a still box of the same height until it arrives. */
+/** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
+var COMPOSER = "/sdk/ops-composer-v1.js";
+/** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
+function composerSlot(host) {
+	let handle;
+	let wanted;
+	let loading = false;
+	return { show(options) {
+		wanted = options;
+		if (handle) return handle.update(options);
+		if (loading) return;
+		loading = true;
+		const still = el("div", "ops-composer-still");
+		still.setAttribute("aria-hidden", "true");
+		still.append(el("span", "ops-composer-still-text", options.placeholder));
+		host.replaceChildren(still);
+		import(
+			/* @vite-ignore */
+			COMPOSER
+).then(({ mountComposer }) => {
+			handle = mountComposer(host, wanted);
+		}, () => {
+			host.replaceChildren(el("p", "ops-empty", "The message box could not load. Reload the page to try again."));
+		});
+	} };
 }
 //#endregion
 //#region src/conversations.ts
@@ -10457,6 +10381,337 @@ function conversations(session, options = {}) {
 	};
 }
 //#endregion
+//#region src/talk-stream.ts
+/** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
+* anchored at the bottom with day separators, each message's delivery under it and replies as their
+* own rows; and the one outbox both send through. The outbox keeps Talk's rules in one place: an
+* operation id frozen with its draft and reused by a retry of the same words while its outcome is
+* open, a refused or cancelled one retried under a new id (Remote replays a settled id and never
+* asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
+* retry. Untrusted words stay text. */
+/** Core's words start a line, so they start with a capital. */
+var sentence = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : void 0;
+/** What a reply row says when there is no reply text to show. */
+var finalLabel = (item) => {
+	switch (item.final.status) {
+		case "not_submitted":
+		case "retained": return;
+		case "not_required": return "No reply needed";
+		case "withdrawn": return `Withdrawn · ${item.final.reason}`;
+		case "expired": return "The reply has expired";
+		case "unavailable": return "The reply is unavailable";
+	}
+};
+var deliveryText = (item) => sentence(item.messageState?.reason.text) ?? {
+	prepared: "Preparing",
+	sending: "Sending",
+	sent: "Sent",
+	queued: "Queued",
+	uncertain: "Delivery unknown",
+	definitely_failed: "Not delivered"
+}[item.delivery] ?? item.delivery;
+var deliveryMark = (item) => item.final.status !== "not_submitted" || item.messageState?.state === "answered" ? "answered" : item.delivery === "definitely_failed" ? "failed" : item.delivery === "uncertain" ? "unknown" : item.delivery === "sent" ? "done" : "wait";
+var dayKey = (at) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
+function dayLabel(at, now = /* @__PURE__ */ new Date()) {
+	if (dayKey(at) === dayKey(now)) return "Today";
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	if (dayKey(at) === dayKey(yesterday)) return "Yesterday";
+	return at.toLocaleDateString(void 0, {
+		weekday: "long",
+		month: "long",
+		day: "numeric",
+		...at.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }
+	});
+}
+var clock = (at) => at.toLocaleTimeString(void 0, {
+	hour: "2-digit",
+	minute: "2-digit"
+});
+/** One sender's row: avatar, "who → whom", time, the words in a box and their delivery. */
+/**
+* Remote prepends `[remote: <device name>]` and LF to a browser's message (colab-v1). The chat
+* already says "You", so the bubble shows the words and the device moves to the header.
+*/
+function attributed(text) {
+	const match = text === null ? null : /^\[remote: ([^\]\n]+)\]\n/.exec(text);
+	return match ? {
+		device: match[1],
+		words: text.slice(match[0].length)
+	} : { words: text };
+}
+function messageRow(options) {
+	const row = el("li", "ops-dm-message");
+	if (options.self) row.dataset.self = "";
+	const face = el("span", browserUiClasses.avatar, options.self ? "Y" : avatarInitials(options.who));
+	face.dataset.size = "s";
+	face.setAttribute("aria-hidden", "true");
+	const { device, words } = attributed(options.text);
+	const head = el("div", "ops-dm-message-head");
+	head.append(el("strong", "ops-dm-message-who", options.self ? "You" : options.who), el("span", "ops-dm-message-to", device ? `→ ${options.to} · from ${device}` : `→ ${options.to}`));
+	if (options.at && Number.isFinite(options.at.valueOf())) {
+		const time = el("time", "ops-dm-message-time", clock(options.at));
+		time.dateTime = options.at.toISOString();
+		time.title = options.at.toLocaleString();
+		head.append(time);
+	}
+	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
+	if (words === null || options.quiet) text.dataset.quiet = "";
+	else if (options.mentions?.length) {
+		const names = [...options.mentions].sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+		const parts = words.split(new RegExp(`(@(?:${names.join("|")}))(?![\\w-])`));
+		text.replaceChildren(...parts.map((part, at) => at % 2 ? el("span", "ops-dm-mention", part) : part));
+	}
+	const content = el("div", "ops-dm-message-body");
+	content.append(head, text);
+	if (options.note) content.append(el("p", "ops-dm-message-note", options.note));
+	if (options.state) {
+		const state = el("p", "ops-dm-message-state", options.state);
+		state.dataset.mark = options.mark ?? "done";
+		content.append(state);
+	}
+	row.append(face, content);
+	return row;
+}
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one. */
+function exchangeRows(item, names) {
+	const { fromMe, them } = names;
+	const out = [messageRow({
+		who: fromMe ? names.me : them,
+		to: fromMe ? them : "You",
+		self: fromMe,
+		at: new Date(item.preparedAtMs),
+		text: item.preview,
+		...item.previewTruncated ? { note: "Preview shortened" } : {},
+		...fromMe ? {
+			state: deliveryText(item),
+			mark: deliveryMark(item)
+		} : {}
+	})];
+	const replyWords = item.responsePreview ?? finalLabel(item);
+	if (replyWords !== void 0 && replyWords !== null) out.push(messageRow({
+		who: fromMe ? them : names.me,
+		to: fromMe ? "You" : them,
+		self: !fromMe,
+		...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
+		text: replyWords,
+		quiet: item.responsePreview === null
+	}));
+	return out;
+}
+/** The scrolling list: day separators, cached exchange rows, and a hold on the newest exchange
+* while the reader is there, also when the view resizes. Scrolling up releases it. */
+function talkList(label) {
+	const list = el("ol", "ops-dm-stream");
+	list.setAttribute("aria-label", label);
+	const rows = /* @__PURE__ */ new Map();
+	const days = /* @__PURE__ */ new Map();
+	let pinned = true;
+	let placed = -1;
+	const toBottom = () => {
+		list.scrollTop = list.scrollHeight;
+		placed = list.scrollTop;
+	};
+	list.addEventListener("scroll", () => {
+		if (list.scrollTop === placed) return;
+		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+	});
+	const sizes = new ResizeObserver(() => {
+		if (pinned) toBottom();
+	});
+	sizes.observe(list);
+	return {
+		list,
+		reset() {
+			rows.clear();
+			days.clear();
+			list.replaceChildren();
+			sizes.disconnect();
+			sizes.observe(list);
+			pinned = true;
+		},
+		forget() {
+			rows.clear();
+			days.clear();
+		},
+		draw(items, render, context, tail) {
+			const atBottom = pinned;
+			const ordered = [...items].sort((a, b) => a.preparedAtMs - b.preparedAtMs || a.requestId.localeCompare(b.requestId));
+			const children = [];
+			let day = "";
+			for (const item of ordered) {
+				const at = new Date(item.preparedAtMs);
+				const key = Number.isFinite(at.valueOf()) ? dayKey(at) : "unknown";
+				if (key !== day) {
+					day = key;
+					const label = key === "unknown" ? "Date unknown" : dayLabel(at);
+					let separator = days.get(key);
+					if (separator?.textContent !== label) {
+						separator = el("li", "ops-dm-day");
+						separator.append(el("span", void 0, label));
+						days.set(key, separator);
+					}
+					children.push(separator);
+				}
+				const fingerprint = JSON.stringify([item, context]);
+				let row = rows.get(item.requestId);
+				if (!row || row.fingerprint !== fingerprint) {
+					const group = el("li", "ops-dm-exchange");
+					group.dataset.requestId = item.requestId;
+					const inner = el("ol", "ops-dm-exchange-rows");
+					inner.append(...render(item));
+					group.append(inner);
+					row = {
+						node: group,
+						fingerprint
+					};
+					rows.set(item.requestId, row);
+				}
+				children.push(row.node);
+			}
+			if (tail) children.push(tail);
+			if (!(children.length === list.children.length && children.every((child, at) => list.children[at] === child))) {
+				list.replaceChildren(...children);
+				for (const child of children) sizes.observe(child);
+			}
+			if (atBottom) toBottom();
+		}
+	};
+}
+var GOING = [
+	"sending",
+	"held",
+	"uncertain"
+];
+/** The outbox: at most one post on its way. `changed` runs after every state change. */
+function outbox(port, changed) {
+	let pending;
+	let cleared = 0;
+	function settle(value) {
+		if (!pending || pending.operationId !== value.operationId) return;
+		if (value.state === "accepted") {
+			pending = {
+				...pending,
+				state: "accepted",
+				requestId: value.requestId
+			};
+			cleared++;
+		} else if (value.state === "held") pending = {
+			...pending,
+			state: "held"
+		};
+		else if (value.state === "uncertain") pending = {
+			...pending,
+			state: "uncertain",
+			...value.requestId ? { requestId: value.requestId } : {}
+		};
+		else if (value.state === "cancelled") pending = {
+			...pending,
+			state: "cancelled"
+		};
+		else pending = {
+			...pending,
+			state: "refused",
+			...value.reason ? { reason: value.reason } : {},
+			...value.settingsUrl ? { settingsUrl: value.settingsUrl } : {},
+			grant: value.scope === "talk"
+		};
+		changed(pending);
+	}
+	return {
+		get pending() {
+			return pending;
+		},
+		get cleared() {
+			return cleared;
+		},
+		async send(target, message, input, version = "") {
+			if (pending && GOING.includes(pending.state)) return;
+			if (!pending || pending.target !== target || pending.message !== message || pending.version !== version || pending.state === "accepted" || pending.state === "refused" || pending.state === "cancelled") pending = {
+				operationId: crypto.randomUUID(),
+				message,
+				target,
+				version,
+				state: "sending"
+			};
+			else pending = {
+				...pending,
+				state: "sending"
+			};
+			const { operationId } = pending;
+			changed(pending);
+			try {
+				settle(await port.send(input(operationId)));
+			} catch {
+				if (pending?.operationId === operationId) {
+					pending = {
+						...pending,
+						state: "uncertain"
+					};
+					changed(pending);
+				}
+			}
+		},
+		async observe() {
+			if (!pending || !["held", "uncertain"].includes(pending.state)) return;
+			try {
+				settle(await port.operation(pending.operationId));
+			} catch {}
+		},
+		/** The post for `target` that its stream does not list yet. */
+		unlisted(target, listed) {
+			return pending?.target === target && !(pending.requestId && listed(pending.requestId)) ? pending : void 0;
+		},
+		/** What the box can do for `target`, and the line under it. */
+		box(target, note) {
+			const mine = pending?.target === target ? pending : void 0;
+			const busy = !!mine && GOING.includes(mine.state);
+			note.replaceChildren();
+			if (mine?.grant) {
+				note.append(`${mine.reason ?? "Talk is off for this browser."} `);
+				if (mine.settingsUrl) {
+					const link = el("a", void 0, "Turn on Talk in Remote settings");
+					link.href = mine.settingsUrl;
+					note.append(link);
+				}
+			} else if (mine?.state === "refused") note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
+			else if (mine?.state === "cancelled") note.textContent = "Not sent: it was cancelled on the machine. Send again to send it anew.";
+			else if (busy && mine.state !== "sending") note.textContent = mine.state === "uncertain" ? "Checking whether the message arrived. It is never sent twice." : "Waiting for approval on the machine.";
+			note.hidden = !note.textContent;
+			return {
+				canSend: !mine?.grant,
+				busy
+			};
+		}
+	};
+}
+/** Core's refusal in words, with what the person can do; an unknown code is named as it is. */
+function refusalWords(reason) {
+	switch (reason) {
+		case "ROOM_ROSTER_CHANGED": return "the squad changed. Check the recipients and send again.";
+		case void 0: return "the machine refused it. Send again to send it anew.";
+		default: return `the machine refused it (${reason}). Send again to send it anew.`;
+	}
+}
+/** The row of a post on its way, under the stream until the stream lists it. */
+function pendingRow(value, to, mentions = []) {
+	const group = el("li", "ops-dm-exchange");
+	group.dataset.pending = value.state;
+	const inner = el("ol", "ops-dm-exchange-rows");
+	inner.append(messageRow({
+		who: "You",
+		to,
+		self: true,
+		at: /* @__PURE__ */ new Date(),
+		text: value.message,
+		mentions,
+		state: value.state === "sending" ? "Sending…" : value.state === "held" ? "Waiting for approval on the machine" : value.state === "uncertain" ? "Delivery unknown · checking, nothing is sent again" : value.state === "accepted" ? "Sent" : "Not sent",
+		mark: value.state === "uncertain" ? "unknown" : value.state === "accepted" ? "done" : value.state === "refused" || value.state === "cancelled" ? "failed" : "wait"
+	}));
+	group.append(inner);
+	return group;
+}
+//#endregion
 //#region src/conversation-seen.ts
 /** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
 function key(scope) {
@@ -10515,31 +10770,49 @@ function conversationUnread(baseline, changes) {
 }
 //#endregion
 //#region src/conversation-history.ts
-/** One bounded DM read at a time; positions and seen state never leave their owners. */
+/** The DM (#5704; spec 8d17ce7c screen 3): the conversation as a chat anchored at the bottom, with
+* day separators, each message's delivery under it and the member's reply as its own row, and
+* the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
+* read at a time; positions and seen state never leave their owners. */
+/** Runs one read on the owner's signed Session, retiring that Session when the read shows it is
+* gone, so the next read opens a fresh one. Shared by the DM and the channel. */
+async function onSession(shell, run) {
+	if (!shell.session) throw new Error("No signed browser session.");
+	const session = await shell.session();
+	shell.signal.throwIfAborted();
+	try {
+		return await run(session);
+	} catch (error) {
+		if (error instanceof ClientError && [
+			"transport_failure",
+			"timeout",
+			"sequence_unavailable"
+		].includes(error.code) || error instanceof RefusalError && [
+			"REMOTE_SESSION_ENDED",
+			"REMOTE_SESSION_EVICTED",
+			"REMOTE_SERVE_STOPPED",
+			"REMOTE_GRANT_CHANGED"
+		].includes(error.code)) shell.forgetSession?.(session);
+		throw error;
+	}
+}
 function sessionRead(shell) {
-	return async (memberId, input) => {
+	return (memberId, input) => onSession(shell, async (session) => {
+		const client = conversations(session);
+		return {
+			machineId: client.machineId,
+			page: await client.read(memberId, input)
+		};
+	});
+}
+function sessionTalk(shell) {
+	const client = async () => {
 		if (!shell.session) throw new Error("No signed browser session.");
-		const session = await shell.session();
-		shell.signal.throwIfAborted();
-		try {
-			const client = conversations(session);
-			return {
-				machineId: client.machineId,
-				page: await client.read(memberId, input)
-			};
-		} catch (error) {
-			if (error instanceof ClientError && [
-				"transport_failure",
-				"timeout",
-				"sequence_unavailable"
-			].includes(error.code) || error instanceof RefusalError && [
-				"REMOTE_SESSION_ENDED",
-				"REMOTE_SESSION_EVICTED",
-				"REMOTE_SERVE_STOPPED",
-				"REMOTE_GRANT_CHANGED"
-			].includes(error.code)) shell.forgetSession?.(session);
-			throw error;
-		}
+		return operations(await shell.session());
+	};
+	return {
+		send: async (input) => (await client()).send(input),
+		operation: async (operationId) => (await client()).operation(operationId)
 	};
 }
 function storage() {
@@ -10550,97 +10823,87 @@ function storage() {
 	}
 }
 var UNKNOWN = { state: "unknown" };
-var finalLabel = (item) => {
-	switch (item.final.status) {
-		case "not_submitted": return "No reply submitted";
-		case "not_required": return "No reply required";
-		case "withdrawn": return `Withdrawn · ${item.final.reason}`;
-		case "expired": return "Reply expired";
-		case "unavailable": return "Reply unavailable";
-		case "retained": return item.previewTruncated ? "Reply preview · truncated" : "Reply preview";
-	}
-};
-function conversationHistory(shell, observed, read = sessionRead(shell)) {
-	const node = el("section", "ops-channel-history");
+function conversationHistory(shell, observed, read = sessionRead(shell), talk = sessionTalk(shell)) {
+	const node = el("section", "ops-dm");
 	node.setAttribute("aria-label", "Talk history");
-	const heading = el("h2", browserUiClasses.sectionHeading, "Talk history");
-	const unread = el("p", "ops-detail-note", "Unread changes: Unknown");
-	const status = el("p", "ops-empty", "Choose a member to read the retained conversation.");
-	status.setAttribute("role", "status");
-	const list = el("ul", browserUiClasses.list);
-	list.setAttribute("aria-label", "Conversation previews");
-	const actions = el("div", browserUiClasses.actions);
-	const refreshButton = el("button", browserUiClasses.action, "Refresh history");
-	refreshButton.type = "button";
-	const olderButton = el("button", browserUiClasses.action, "Older");
+	const olderButton = el("button", "ops-dm-older", "Show older messages");
 	olderButton.type = "button";
-	const footer = el("p", "ops-foot", "Reading here does not acknowledge requests or send messages. Seen state stays in this browser.");
-	actions.append(refreshButton, olderButton);
-	node.append(heading, unread, status, list, actions, footer);
-	const terminal = commandCopy("tmt ops ui");
-	terminal.hidden = true;
-	node.append(terminal);
+	const status = el("p", "ops-dm-status", "Choose a member to read the retained conversation.");
+	status.setAttribute("role", "status");
+	const stream = talkList("Conversation");
+	const list = stream.list;
+	const compose = el("section", "ops-channel-compose");
+	compose.setAttribute("aria-label", "Message");
+	const composerHost = el("div", "ops-composer-host");
+	const sendNote = el("p", "ops-channel-compose-reason");
+	sendNote.id = "ops-dm-send-note";
+	sendNote.setAttribute("aria-live", "polite");
+	compose.append(composerHost, sendNote);
+	node.append(olderButton, status, list, compose);
+	const composer = composerSlot(composerHost);
 	const seen = conversationSeen(storage());
-	const rows = /* @__PURE__ */ new Map();
-	let memberId, memberName = "", panelVisible = false, newest = true;
+	const items = /* @__PURE__ */ new Map();
+	let memberId, memberName = "", panelVisible = false;
 	let generation = 0, running = false, wanted = false;
-	let scope, page;
+	let scope;
+	let olderCursor;
 	let reported = "";
+	const box = outbox(talk, (value) => {
+		draw();
+		showComposer();
+		if (value.state === "accepted") {
+			wanted = true;
+			refresh();
+		}
+	});
 	function report(value) {
 		const fingerprint = JSON.stringify(value);
-		unread.textContent = value.unread.state === "unknown" ? "Unread changes: Unknown" : `Unread changes: ${value.unread.more ? "50+" : value.unread.count}`;
 		if (fingerprint !== reported) {
 			reported = fingerprint;
 			observed(value);
 		}
 	}
-	function buttons() {
-		refreshButton.disabled = running || !memberId;
-		refreshButton.textContent = newest ? "Refresh history" : "Newest page";
-		olderButton.disabled = running || !page?.nextBefore;
-		olderButton.textContent = page && !page.nextBefore ? "No older page" : "Older";
+	function controls() {
+		olderButton.hidden = !memberId || !olderCursor;
+		olderButton.disabled = running;
 		node.setAttribute("aria-busy", String(running));
 	}
-	function draw(next) {
-		terminal.hidden = true;
-		page = next;
-		status.textContent = next.member === "unknown" ? "This member is unknown on this machine." : next.member === "retired" ? "This member has been retired." : next.items.length ? "" : "No retained conversation in this page.";
-		status.hidden = status.textContent === "";
-		const remaining = new Set(next.items.map((item) => item.requestId));
-		for (const [id, row] of rows) if (!remaining.has(id)) {
-			row.node.remove();
-			rows.delete(id);
-		}
-		next.items.forEach((item, index) => {
-			const fingerprint = JSON.stringify([item, memberName]);
-			let row = rows.get(item.requestId);
-			if (!row) {
-				row = {
-					node: el("li", browserUiClasses.listRow),
-					fingerprint: ""
-				};
-				row.node.dataset.requestId = item.requestId;
-				rows.set(item.requestId, row);
+	function draw() {
+		const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : void 0;
+		stream.draw(items.values(), (item) => exchangeRows(item, {
+			me: "You",
+			them: memberName,
+			fromMe: item.direction === "toMember"
+		}), memberName, unlisted && pendingRow(unlisted, memberName));
+	}
+	function showComposer() {
+		if (!memberId) return;
+		const { canSend, busy } = box.box(memberId, sendNote);
+		composer.show({
+			key: memberId,
+			label: `Message ${memberName}`,
+			placeholder: `Message ${memberName}…`,
+			hint: "Enter sends · Shift+Enter for a new line",
+			describedBy: sendNote.id,
+			canSend,
+			busy,
+			cleared: box.cleared,
+			onSend: (message) => {
+				const agentId = memberId;
+				if (!agentId || shell.signal.aborted) return;
+				box.send(agentId, message, (operationId) => ({
+					operationId,
+					agentId,
+					message
+				}));
 			}
-			if (row.fingerprint !== fingerprint) {
-				row.fingerprint = fingerprint;
-				const title = el("div", `${browserUiClasses.listTitle} ops-detail-block`);
-				title.append(el("strong", browserUiClasses.listLabel, item.direction === "toMember" ? `You → ${memberName}` : `${memberName} → You`), el("p", browserUiClasses.listDescription, item.preview ?? "Request preview unavailable"), el("p", browserUiClasses.listDescription, item.responsePreview === null ? finalLabel(item) : `${finalLabel(item)} · ${item.responsePreview}`));
-				const meta = el("div", browserUiClasses.listMeta);
-				const at = new Date(item.preparedAtMs);
-				const time = el("time", browserUiClasses.listUpdated, Number.isFinite(at.valueOf()) ? at.toLocaleString() : "Time unavailable");
-				if (Number.isFinite(at.valueOf())) time.dateTime = at.toISOString();
-				meta.append(time, el("span", browserUiClasses.listState, item.messageState?.reason.text ?? item.delivery.replaceAll("_", " ")));
-				row.node.replaceChildren(title, meta);
-			}
-			if (list.children[index] !== row.node) list.insertBefore(row.node, list.children[index] ?? null);
 		});
 	}
 	async function load(before) {
 		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
 		if (running) return true;
 		running = true;
-		buttons();
+		controls();
 		const selected = memberId, ticket = generation;
 		const input = {
 			limit: 20,
@@ -10676,15 +10939,19 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 				nextScope = secondScope;
 			}
 			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
-				rows.clear();
-				list.replaceChildren();
+				items.clear();
+				stream.reset();
+				olderCursor = void 0;
 			}
 			scope = nextScope;
 			let changes = input.since === baseline.position ? conversationUnread(baseline, next.page.changedSince) : UNKNOWN;
-			const renderedNewest = !before && newest;
-			if (before && !newest || renderedNewest) draw(next.page);
+			for (const item of next.page.items) items.set(item.requestId, item);
+			if (before || olderCursor === void 0) olderCursor = next.page.nextBefore;
+			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
+			status.hidden = status.textContent === "";
+			draw();
 			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
-			if (renderedNewest && visible && !seen.markVisibleNewest(scope, next.page, {
+			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
 				newest: true,
 				documentVisible: true,
 				panelVisible: true
@@ -10696,18 +10963,17 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 			return true;
 		} catch {
 			if (current()) {
-				page = void 0;
-				rows.clear();
-				list.replaceChildren();
-				terminal.hidden = false;
+				items.clear();
+				stream.reset();
+				olderCursor = void 0;
 				status.hidden = false;
-				status.textContent = "Conversation history is unavailable for this browser. Use Ops in this machine’s terminal.";
+				status.textContent = "The conversation is unavailable for this browser. Reload the page, or use Ops in this machine’s terminal.";
 				report({ unread: UNKNOWN });
 			}
 			return false;
 		} finally {
 			running = false;
-			buttons();
+			controls();
 			if (wanted && !shell.signal.aborted) {
 				wanted = false;
 				refresh();
@@ -10715,27 +10981,21 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 		}
 	}
 	async function refresh() {
-		if (panelVisible && !newest) return true;
+		await box.observe();
 		return load();
 	}
-	refreshButton.addEventListener("click", () => {
-		newest = true;
-		generation++;
-		load();
-	});
 	olderButton.addEventListener("click", () => {
-		const before = page?.nextBefore;
-		if (!before || running) return;
-		newest = false;
+		if (!olderCursor || running) return;
 		generation++;
-		load(before);
+		load(olderCursor);
 	});
 	shell.signal.addEventListener("abort", () => {
 		generation++;
-		rows.clear();
+		stream.forget();
+		items.clear();
 	}, { once: true });
 	whileVisible(5e3, shell.signal, refresh);
-	buttons();
+	controls();
 	return {
 		node,
 		select(member) {
@@ -10744,22 +11004,686 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 			if (member && member.id !== memberId) {
 				memberId = member.id;
 				memberName = member.name;
-				newest = true;
 				generation++;
 				scope = void 0;
-				page = void 0;
-				rows.clear();
-				list.replaceChildren();
+				olderCursor = void 0;
+				items.clear();
+				stream.reset();
 				status.hidden = false;
-				status.textContent = "Reading retained conversation…";
+				status.textContent = "Reading the conversation…";
 				report({ unread: UNKNOWN });
+				showComposer();
 				if (running) wanted = true;
 				else refresh();
 			} else if (member) {
-				memberName = member.name;
+				if (member.name !== memberName) {
+					memberName = member.name;
+					stream.forget();
+					draw();
+					showComposer();
+				}
 				if (!wasVisible) refresh();
 			}
-			buttons();
+			controls();
+		}
+	};
+}
+//#endregion
+//#region src/channel-stream.ts
+/** The channel stream (#5704 A4, spec 8d17ce7c screens 1-2): the squad room's posts, each with its
+* recipients' replies under it, and the box that posts to the room. A post goes to the squad lead,
+* or to each member it @mentions; it carries the room exactly as the board names it, so a stale
+* roster revision comes back refused with Core's reason and the person sends again after the board
+* refreshes. The room read has no change positions yet, so the channel shows no unread count and
+* refreshes by rereading its newest page. */
+/** The channel's calls on the owner's signed Session. */
+function sessionChannel(shell) {
+	return {
+		readRoom: (roomId, input) => onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
+		result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
+		send: (input) => onSession(shell, (session) => operations(session).send(input)),
+		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
+	};
+}
+/** The members a post @mentions, or the lead when it mentions none. */
+function recipients(message, channel) {
+	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
+	if (named.length) return named;
+	return channel.lead ? [channel.lead] : [];
+}
+function posts(items) {
+	const out = /* @__PURE__ */ new Map();
+	for (const item of items) {
+		const key = `${item.preparedAtMs}\u0000${item.sender.identityId}\u0000${item.preview}`;
+		const post = out.get(key);
+		if (post) post.items.push(item);
+		else out.set(key, {
+			requestId: item.requestId,
+			preparedAtMs: item.preparedAtMs,
+			items: [item]
+		});
+	}
+	return [...out.values()];
+}
+function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => {}) {
+	const node = el("section", "ops-dm");
+	node.setAttribute("aria-label", "Channel messages");
+	const olderButton = el("button", "ops-dm-older", "Show older messages");
+	olderButton.type = "button";
+	const empty = el("div", "ops-channel-empty");
+	const emptyTitle = el("p", "ops-channel-empty-title", "No channel messages yet");
+	const emptyText = el("p", "ops-channel-empty-text");
+	empty.append(emptyTitle, emptyText);
+	empty.setAttribute("role", "status");
+	const stream = talkList("Channel messages");
+	const compose = el("section", "ops-channel-compose");
+	compose.setAttribute("aria-label", "Message");
+	const composerHost = el("div", "ops-composer-host");
+	const sendNote = el("p", "ops-channel-compose-reason");
+	sendNote.id = "ops-channel-write-reason";
+	sendNote.setAttribute("aria-live", "polite");
+	compose.append(composerHost, sendNote);
+	node.append(olderButton, empty, stream.list, compose);
+	const composer = composerSlot(composerHost);
+	const items = /* @__PURE__ */ new Map();
+	const replies = /* @__PURE__ */ new Map();
+	let channel;
+	let roomId;
+	let olderCursor;
+	let generation = 0, running = false, wanted = false, visible = false, refused = false, known = "";
+	const box = outbox(port, (value) => {
+		if (value.state === "refused" && value.reason === "ROOM_ROSTER_CHANGED") rereadBoard();
+		draw();
+		showComposer();
+		if (value.state === "accepted") {
+			wanted = true;
+			refresh();
+		}
+	});
+	const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
+	/** Each recipient's side of a post: their reply words, or why there are none. */
+	function answers(post) {
+		const who = names();
+		return post.items.map((item) => {
+			const reply = replies.get(item.requestId);
+			return {
+				item,
+				name: who.get(item.recipientId) ?? "a former member",
+				at: item.final.status === "retained" ? new Date(item.final.submittedAtMs) : void 0,
+				words: reply?.state === "replied" ? reply.message : item.final.status === "retained" ? reply?.state === "unavailable" ? "The reply is unavailable" : null : item.final.status === "expired" ? "The reply has expired" : void 0,
+				read: reply?.state === "replied"
+			};
+		});
+	}
+	function postRow(post, inThread = false) {
+		const first = post.items[0];
+		const as = first;
+		const row = messageRow({
+			who: "You",
+			to: answers(post).map((side) => side.name).join(", "),
+			self: true,
+			at: new Date(post.preparedAtMs),
+			text: first.preview,
+			mentions: channel?.members.map((member) => member.name) ?? [],
+			...inThread ? {
+				state: deliveryText(as),
+				mark: deliveryMark(as)
+			} : {}
+		});
+		if (inThread) return row;
+		const sides = answers(post).filter((side) => side.words !== void 0);
+		const last = sides.map((side) => side.at?.valueOf() ?? 0).reduce((a, b) => Math.max(a, b), 0);
+		const open = el("button", "ops-thread-open");
+		open.type = "button";
+		open.dataset.requestId = post.requestId;
+		open.append(el("span", "ops-thread-count", sides.length ? `${sides.length} repl${sides.length === 1 ? "y" : "ies"}` : "No replies yet"));
+		if (last) open.append(el("span", "ops-thread-last", `Last reply ${new Date(last).toLocaleTimeString(void 0, {
+			hour: "2-digit",
+			minute: "2-digit"
+		})}`));
+		const state = el("span", "ops-dm-message-state", sides.length ? "Answered" : deliveryText(as));
+		state.dataset.mark = sides.length ? "answered" : deliveryMark(as);
+		open.append(state);
+		open.setAttribute("aria-expanded", String(threadKey === post.requestId));
+		open.addEventListener("click", () => openThread(post.requestId));
+		row.querySelector(".ops-dm-message-body").append(open);
+		if (threadKey === post.requestId) row.dataset.selected = "";
+		return row;
+	}
+	const thread = el("aside", "ops-thread");
+	thread.hidden = true;
+	thread.setAttribute("aria-label", "Thread");
+	const threadHead = el("header", "ops-thread-head");
+	const threadTitle = el("h3", "ops-thread-title");
+	threadTitle.tabIndex = -1;
+	const threadClose = el("button", "ops-thread-close", "×");
+	threadClose.type = "button";
+	threadClose.setAttribute("aria-label", "Close thread");
+	const threadMeta = el("p", "ops-thread-meta");
+	threadHead.append(threadTitle, threadClose, threadMeta);
+	const threadList = el("ol", "ops-dm-stream ops-thread-stream");
+	threadList.setAttribute("aria-label", "Thread messages");
+	const threadNote = el("p", "ops-thread-note", "Each member answers a post once. To follow up, post again or open their DM.");
+	thread.append(threadHead, threadList, threadNote);
+	let threadKey;
+	let threadFrom = null;
+	function openThread(key) {
+		threadFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		threadKey = key;
+		draw();
+		threadTitle.focus();
+	}
+	function closeThread() {
+		if (!threadKey) return;
+		const key = threadKey;
+		threadKey = void 0;
+		draw();
+		(threadFrom?.isConnected ? threadFrom : node.querySelector(`.ops-thread-open[data-request-id="${key}"]`))?.focus();
+	}
+	threadClose.addEventListener("click", closeThread);
+	thread.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			closeThread();
+		}
+	});
+	function drawThread(shown) {
+		const post = threadKey ? shown.find((each) => each.requestId === threadKey) : void 0;
+		if (!post) threadKey = void 0;
+		thread.hidden = !post;
+		thread.parentElement?.toggleAttribute("data-thread", !!post);
+		if (!post) return;
+		const words = attributed(post.items[0].preview).words ?? "Message preview unavailable";
+		const line = words.split("\n")[0];
+		threadTitle.textContent = line.length > 60 ? `${line.slice(0, 60).trimEnd()}…` : line;
+		threadTitle.title = words;
+		const sides = answers(post);
+		const replied = sides.filter((side) => side.words !== void 0);
+		const waiting = sides.length - replied.length;
+		const state = el("span", "ops-dm-message-state", waiting ? `Waiting on ${waiting} of ${sides.length}` : "Answered");
+		state.dataset.mark = waiting ? "wait" : "answered";
+		threadMeta.replaceChildren(el("span", "ops-thread-count", replied.length ? `${replied.length} repl${replied.length === 1 ? "y" : "ies"}` : "No replies yet"), state);
+		const rows = [postRow(post, true)];
+		const divider = el("li", "ops-dm-day");
+		divider.append(el("span", void 0, replied.length ? `${replied.length} repl${replied.length === 1 ? "y" : "ies"}` : "No replies yet"));
+		rows.push(divider);
+		for (const side of sides) {
+			if (side.words === void 0) {
+				rows.push(el("li", "ops-thread-waiting", `Waiting on ${side.name}`));
+				continue;
+			}
+			rows.push(messageRow({
+				who: side.name,
+				to: "You",
+				self: false,
+				...side.at ? { at: side.at } : {},
+				text: side.words ?? "Reading the reply…",
+				quiet: !side.read
+			}));
+		}
+		threadList.replaceChildren(...rows);
+	}
+	function draw() {
+		const target = roomId ?? "";
+		const unlisted = box.unlisted(target, (id) => items.has(id));
+		const shown = posts(items.values());
+		stream.draw(shown, (post) => [postRow(post)], [
+			[...names()],
+			[...replies],
+			threadKey
+		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
+		empty.hidden = shown.length > 0 || !!unlisted;
+		drawThread(shown);
+	}
+	function recipientsLabel(message) {
+		return channel ? recipients(message, channel).map((member) => member.name).join(", ") : "";
+	}
+	function showComposer() {
+		if (!channel) return;
+		const name = `#${channel.squad}`;
+		const room = channel.room;
+		let canSend = false, busy = false;
+		if (!room) {
+			sendNote.textContent = `${name} has no channel room on this machine yet. Talk to a member directly instead.`;
+			sendNote.hidden = false;
+		} else ({canSend, busy} = box.box(room.roomId, sendNote));
+		composer.show({
+			key: `channel:${channel.squad}`,
+			label: `Message ${name}`,
+			placeholder: `Message ${name} — @ to mention agents`,
+			hint: "Enter sends · Shift+Enter for a new line",
+			describedBy: sendNote.id,
+			canSend,
+			busy,
+			cleared: box.cleared,
+			onSend: (message) => {
+				if (!channel?.room || shell.signal.aborted) return;
+				const target = channel.room;
+				const to = recipients(message, channel);
+				if (!to.length) {
+					sendNote.textContent = `${name} has no lead to take a message. Mention a member with @name.`;
+					sendNote.hidden = false;
+					return;
+				}
+				box.send(target.roomId, message, (operationId) => ({
+					operationId,
+					message,
+					room: {
+						roomId: target.roomId,
+						revision: target.revision
+					},
+					recipientIds: to.map((member) => member.id),
+					kind: "request"
+				}), `${target.revision}:${to.map((member) => member.id).join(",")}`);
+			}
+		});
+	}
+	async function readReplies(ticket) {
+		for (const item of items.values()) {
+			const known = replies.get(item.requestId)?.state;
+			if (item.final.status !== "retained" || known === "replied" || known === "unavailable") continue;
+			try {
+				const value = await port.result(item.requestId);
+				if (ticket !== generation) return;
+				replies.set(item.requestId, value);
+			} catch {}
+		}
+	}
+	async function load(before) {
+		if (!roomId || !visible || refused || shell.signal.aborted) return true;
+		if (document.visibilityState !== "visible") return true;
+		if (running) {
+			wanted = true;
+			return true;
+		}
+		running = true;
+		olderButton.disabled = true;
+		const ticket = generation, reading = roomId;
+		try {
+			const page = await port.readRoom(reading, {
+				limit: 20,
+				...before ? { before } : {}
+			});
+			if (ticket !== generation || reading !== roomId) return true;
+			for (const item of page.items) items.set(item.requestId, item);
+			if (before || olderCursor === void 0) olderCursor = page.nextBefore;
+			emptyTitle.textContent = "No channel messages yet";
+			emptyText.textContent = `Post to the lead, or @mention members. Their replies show under your post.`;
+			draw();
+			await readReplies(ticket);
+			if (ticket === generation) draw();
+			return true;
+		} catch (error) {
+			if (ticket === generation) {
+				empty.hidden = false;
+				if (error instanceof RefusalError) {
+					refused = true;
+					const reason = error.reason;
+					emptyTitle.textContent = "This browser cannot read the channel";
+					emptyText.replaceChildren(reason === "owner_browser_required" ? "Open this channel from your own browser, the one paired as the owner." : reason === "all_agents_required" ? "This browser needs access to every agent. Change it in Remote settings." : "This browser may not read replies and channel messages. Allow it in Remote settings.");
+					if (error.settingsUrl) {
+						const link = el("a", void 0, "Open Remote settings");
+						link.href = error.settingsUrl;
+						emptyText.append(" ", link);
+					}
+					return true;
+				}
+				emptyTitle.textContent = "The channel could not be read";
+				emptyText.textContent = "Reload the page, or use Ops in this machine’s terminal.";
+			}
+			return false;
+		} finally {
+			running = false;
+			olderButton.disabled = false;
+			olderButton.hidden = !olderCursor;
+			if (wanted && !shell.signal.aborted) {
+				wanted = false;
+				refresh();
+			}
+		}
+	}
+	async function refresh() {
+		await box.observe();
+		return load();
+	}
+	olderButton.hidden = true;
+	olderButton.addEventListener("click", () => {
+		if (olderCursor && !running) load(olderCursor);
+	});
+	whileVisible(5e3, shell.signal, refresh);
+	return {
+		node,
+		thread,
+		select(next) {
+			visible = next !== void 0;
+			channel = next;
+			const seen = JSON.stringify([next?.room, next?.members]);
+			if (seen !== known) {
+				known = seen;
+				refused = false;
+			}
+			const nextRoom = next?.room?.roomId;
+			if (nextRoom !== roomId) {
+				roomId = nextRoom;
+				generation++;
+				items.clear();
+				replies.clear();
+				threadKey = void 0;
+				drawThread([]);
+				olderCursor = void 0;
+				stream.reset();
+				olderButton.hidden = true;
+				emptyTitle.textContent = "No channel messages yet";
+				emptyText.textContent = next?.room === null ? "This squad has no channel room on this machine." : "Reading the channel…";
+				empty.hidden = false;
+				refresh();
+			} else draw();
+			showComposer();
+		}
+	};
+}
+//#endregion
+//#region src/ops-channel.ts
+/** The Ops channel and DM (#5704; spec Colab 8d17ce7c screens 1, 3 and 5): a header with the
+* channel's facts, a collapsible Members/Timers panel, the conversation stream anchored at the
+* bottom and the composer fixed under it. The board owns members and timers; admitted
+* conversation reads own the DM stream. Writes stay unavailable until Remote names them. */
+var MARKS = {
+	Working: "dot",
+	Idle: "dashed",
+	Offline: "ring",
+	Unknown: "unknown"
+};
+function memberState(agent) {
+	if (agent.presence === "offline") return "Offline";
+	if (agent.activity?.state === "working") return "Working";
+	if (agent.activity?.state === "idle") return "Idle";
+	return "Unknown";
+}
+/** A member's state as the spec draws it: an uncoloured mark and its word. */
+function stateBadge(agent) {
+	const word = memberState(agent);
+	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
+	badge.dataset.state = word.toLowerCase();
+	badge.append(mark(MARKS[word]), el("span", browserUiClasses.chipLabel, word));
+	return badge;
+}
+/** The last day's tokens (#6372) as "~1.4B 1d"; nothing when the machine did not say. */
+function usage(agent) {
+	if (!agent.tokens1d) return "";
+	return `~${new Intl.NumberFormat("en", {
+		notation: "compact",
+		maximumFractionDigits: 1
+	}).format(agent.tokens1d.tokens)} 1d${agent.tokens1d.complete ? "" : " (partial)"}`;
+}
+function avatar(name, size) {
+	const node = el("span", browserUiClasses.avatar, avatarInitials(name));
+	node.dataset.size = size;
+	node.setAttribute("aria-hidden", "true");
+	return node;
+}
+function chip(text) {
+	const node = el("span", `${browserUiClasses.chip} ops-channel-chip`);
+	node.append(el("span", browserUiClasses.chipLabel, text));
+	return node;
+}
+function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
+	const page = el("div", "ops-channel");
+	const head = el("header", "ops-channel-head");
+	const titleRow = el("div", "ops-channel-titlebar");
+	const face = el("span", "ops-channel-face");
+	const title = el("h2", "ops-channel-name");
+	title.tabIndex = -1;
+	const chips = el("span", "ops-channel-chips");
+	titleRow.append(face, title, chips);
+	const line = el("p", "ops-channel-line");
+	head.append(titleRow, line);
+	const panel = el("section", "ops-channel-panel");
+	const bar = el("div", "ops-channel-panel-bar");
+	const tabs = el("div", "ops-channel-tabs");
+	tabs.setAttribute("role", "tablist");
+	const membersPanel = el("div", "ops-channel-tabpanel");
+	membersPanel.id = "ops-channel-members";
+	membersPanel.setAttribute("role", "tabpanel");
+	const timersPanel = el("div", "ops-channel-tabpanel");
+	timersPanel.id = "ops-channel-timers";
+	timersPanel.setAttribute("role", "tabpanel");
+	const panels = [membersPanel, timersPanel];
+	const toggle = el("button", "ops-channel-collapse");
+	toggle.type = "button";
+	toggle.setAttribute("aria-controls", `${membersPanel.id} ${timersPanel.id}`);
+	let selected = 0;
+	let open = true;
+	const buttons = panels.map((target, index) => {
+		const button = el("button", "ops-channel-tab");
+		button.type = "button";
+		button.id = `ops-channel-tab-${index}`;
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", target.id);
+		target.setAttribute("aria-labelledby", button.id);
+		button.addEventListener("click", () => {
+			select(index);
+			setOpen(true);
+		});
+		button.addEventListener("keydown", (event) => {
+			if (![
+				"ArrowLeft",
+				"ArrowRight",
+				"Home",
+				"End"
+			].includes(event.key)) return;
+			const shown = buttons.filter((other) => !other.hidden);
+			const at = shown.indexOf(button);
+			const next = event.key === "Home" ? shown[0] : event.key === "End" ? shown[shown.length - 1] : shown[(at + (event.key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length];
+			if (!next || next === button) return;
+			event.preventDefault();
+			select(buttons.indexOf(next));
+			setOpen(true);
+			next.focus();
+		});
+		return button;
+	});
+	tabs.append(...buttons);
+	const summary = el("button", "ops-channel-summary");
+	summary.type = "button";
+	summary.addEventListener("click", () => setOpen(true));
+	bar.append(summary, tabs, toggle);
+	panel.append(bar, ...panels);
+	function select(index) {
+		selected = index;
+		buttons.forEach((button, at) => {
+			button.tabIndex = at === index ? 0 : -1;
+			button.setAttribute("aria-selected", String(open && at === index));
+		});
+		panels.forEach((target, at) => target.hidden = !open || at !== index);
+	}
+	function setOpen(value) {
+		open = value;
+		panel.dataset.open = String(value);
+		tabs.hidden = !value;
+		summary.hidden = value;
+		toggle.setAttribute("aria-expanded", String(value));
+		toggle.setAttribute("aria-label", value ? "Hide details" : "Show details");
+		select(selected);
+	}
+	toggle.addEventListener("click", () => setOpen(!open));
+	const history = el("section", "ops-channel-history");
+	const stream = channelStream(shell, port, rereadBoard);
+	page.append(head, panel, history, stream.thread);
+	setOpen(false);
+	const fit = () => {
+		if (!page.isConnected) return;
+		const top = page.getBoundingClientRect().top + scrollY;
+		const height = innerHeight - top;
+		page.style.height = `${height}px`;
+		const below = document.documentElement.scrollHeight - innerHeight;
+		if (below > 0) page.style.height = `${Math.max(320, height - below)}px`;
+	};
+	addEventListener("resize", fit);
+	const missing = el("p", "ops-empty");
+	missing.dataset.opsChannelMissing = "";
+	let identity = "";
+	let fingerprint = "";
+	const memberList = el("ul", "ops-member-list");
+	memberList.setAttribute("aria-label", "Members");
+	const memberRows = /* @__PURE__ */ new Map();
+	function memberRow(agent) {
+		const row = el("li", "ops-member-row");
+		row.dataset.memberId = agent.id;
+		const name = el("a", "ops-member-name", agent.name);
+		name.href = opsHref(pathname, {
+			squad: agent.squad,
+			memberId: agent.id
+		});
+		const who = el("span", "ops-member-who");
+		who.append(avatar(agent.name, "s"), name);
+		if (agent.role === "lead") who.append(el("span", "ops-member-role", "Lead"));
+		const task = el("span", "ops-member-task", agent.task || "No task reported");
+		if (!agent.task) task.dataset.empty = "";
+		row.append(who, task, el("span", "ops-member-usage", usage(agent)), stateBadge(agent));
+		return row;
+	}
+	function drawMembers(people, truncated) {
+		const ids = new Set(people.map((agent) => agent.id));
+		for (const [id, row] of memberRows) if (!ids.has(id)) {
+			const heldFocus = row.node.contains(document.activeElement);
+			row.node.remove();
+			memberRows.delete(id);
+			if (heldFocus) title.focus();
+		}
+		people.forEach((agent, index) => {
+			const seen = JSON.stringify([
+				agent.name,
+				agent.role,
+				agent.task,
+				memberState(agent)
+			]);
+			let row = memberRows.get(agent.id);
+			if (!row || row.fingerprint !== seen) {
+				const next = memberRow(agent);
+				const heldFocus = row?.node.contains(document.activeElement);
+				if (row) row.node.replaceWith(next);
+				row = {
+					node: next,
+					fingerprint: seen
+				};
+				memberRows.set(agent.id, row);
+				if (heldFocus) next.querySelector("a").focus();
+			}
+			if (memberList.children[index] !== row.node) memberList.insertBefore(row.node, memberList.children[index] ?? null);
+		});
+		const content = people.length ? [memberList] : [el("p", "ops-empty", "No members listed.")];
+		if (truncated) content.push(el("p", "ops-detail-note", "Partial board; some members may be missing."));
+		if (membersPanel.firstChild !== content[0] || membersPanel.childNodes.length !== content.length) membersPanel.replaceChildren(...content);
+	}
+	function channelFacts(squad, people, truncated) {
+		const lead = people.find((agent) => agent.role === "lead")?.name ?? squad?.lead;
+		line.replaceChildren();
+		if (lead) line.append("Lead ", el("strong", void 0, lead), " · ");
+		const count = truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`;
+		line.append(`${count} · This machine`);
+	}
+	return {
+		node: page,
+		history,
+		update(board, place) {
+			requestAnimationFrame(fit);
+			const key = opsHref(pathname, place);
+			const people = board.agents.filter((agent) => agent.squad === place.squad).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+			const member = place.memberId ? people.find((agent) => agent.id === place.memberId) : void 0;
+			const squad = board.squads.find((entry) => entry.name === place.squad);
+			const known = place.memberId ? !!member : !!squad || people.length > 0;
+			const squadJobs = board.schedules?.filter((job) => job.squad === place.squad) ?? null;
+			const jobs = squadJobs && member ? squadJobs.filter((job) => job.owner === member.name) : squadJobs;
+			const seen = JSON.stringify({
+				key,
+				people,
+				squad,
+				jobs,
+				known,
+				truncated: board.truncated
+			});
+			if (seen === fingerprint) return;
+			fingerprint = seen;
+			if (identity !== key) {
+				identity = key;
+				memberRows.clear();
+				memberList.replaceChildren();
+				selected = place.memberId ? 1 : 0;
+				setOpen(false);
+			}
+			page.dataset.view = place.memberId ? "dm" : "channel";
+			for (const part of [
+				head,
+				panel,
+				history
+			]) part.hidden = !known;
+			if (!known) {
+				stream.select(void 0);
+				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
+				if (!missing.isConnected) page.append(missing);
+				memberRows.clear();
+				memberList.replaceChildren();
+				timersPanel.replaceChildren();
+				return;
+			}
+			missing.remove();
+			const timerCount = jobs === null ? void 0 : jobs.length;
+			chips.replaceChildren();
+			if (member) {
+				face.replaceChildren(avatar(member.name, "m"));
+				title.textContent = member.name;
+				const state = memberState(member);
+				line.replaceChildren(mark(MARKS[state]), [
+					state,
+					member.role === "lead" ? "Lead" : "Member",
+					member.model,
+					usage(member) || void 0,
+					`#${member.squad}`,
+					"This machine"
+				].filter(Boolean).join(" · "));
+				if (member.task) line.append(el("span", "ops-channel-line-task", member.task));
+			} else {
+				face.replaceChildren();
+				title.textContent = `#${place.squad}`;
+				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
+				channelFacts(squad, people, board.truncated);
+			}
+			if (timerCount) chips.append(chip(`Timers ${timerCount}`));
+			const working = people.filter((agent) => memberState(agent) === "Working").length;
+			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
+			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
+			summary.replaceChildren(...member ? [] : [el("span", void 0, [
+				board.truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`,
+				`${working} working`,
+				`${idle} idle`
+			].join(" · "))], el("span", "ops-channel-summary-timers", timersWord));
+			buttons[0].hidden = !!member;
+			buttons[0].textContent = board.truncated ? "Members" : `Members ${people.length}`;
+			buttons[1].textContent = timerCount === void 0 ? "Timers" : `Timers ${timerCount}`;
+			const label = member ? "Member details" : "Channel details";
+			tabs.setAttribute("aria-label", label);
+			panel.setAttribute("aria-label", label);
+			if (!member) drawMembers(people, board.truncated);
+			timersPanel.replaceChildren(timerList(jobs, board.truncated));
+			if (member) stream.select(void 0);
+			else {
+				if (stream.node.parentElement !== history) history.replaceChildren(stream.node);
+				const lead = people.find((agent) => agent.role === "lead");
+				stream.select({
+					squad: place.squad,
+					room: squad?.room ?? null,
+					...lead ? { lead: {
+						id: lead.id,
+						name: lead.name
+					} } : {},
+					members: people.map((agent) => ({
+						id: agent.id,
+						name: agent.name
+					}))
+				});
+			}
+			select(selected);
 		}
 	};
 }
@@ -10776,7 +11700,7 @@ var ORCHESTRATION_REFRESH_MS = 3e4;
 function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = async () => {
 	if (!shell.session) throw new Error("No signed browser session.");
 	return orchestrationApi(await shell.session());
-}) {
+}, historyTalk, channelPort) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
@@ -10793,7 +11717,8 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		orchestrationAt = Date.now();
 		return orchestration.refresh();
 	};
-	const channel = channelView(location.pathname);
+	let rereadBoard = () => {};
+	const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
 	const collapsedSquads = /* @__PURE__ */ new Set();
 	const unread = /* @__PURE__ */ new Map();
 	let unreadScope = "";
@@ -10805,7 +11730,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		}
 		if (value.scope) unread.set(value.scope.memberId, value.unread);
 		paintMenu();
-	}, historyRead);
+	}, historyRead, historyTalk);
 	const paintMenu = () => {
 		const section = current();
 		shell.setMenu(opsMenu(section, board, location.pathname, {
@@ -10852,7 +11777,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		return true;
 	});
 	let last = "";
-	whileVisible(REFRESH_MS, shell.signal, async () => {
+	const readBoard = async () => {
 		const next = await source.board(shell.signal);
 		if (shell.signal.aborted) return true;
 		const seen = JSON.stringify(next);
@@ -10868,7 +11793,9 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			paint();
 		}
 		return next.unavailable === void 0;
-	});
+	};
+	rereadBoard = () => void readBoard();
+	whileVisible(REFRESH_MS, shell.signal, readBoard);
 }
 //#endregion
 //#region src/members.ts

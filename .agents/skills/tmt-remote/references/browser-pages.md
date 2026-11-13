@@ -211,15 +211,38 @@ rail, with Ops settings last. Missing, unavailable, truncated and null evidence 
 shared menu: one channel per squad with member children keyed by canonical UUIDs retained by `ops-source.ts`.
 No name-to-identity resolution, extra board read or product-local rail is added. The route retains squad expansion across observations and navigation; the shared leaf owns
 nesting, disclosure, keyboard traversal and the deepest visible selection on desktop and phone.
-`ops-channel.ts` renders local channel Members and DM About panels with four plain states
-(Working, Idle, Unknown, Offline) from explicit presence/activity, not attention or raw board
-colour. Both panels label timers as squad timers; an owner display name never associates one
-to a member UUID. Failed timer reads and partial boards retain unavailable/partial wording.
-DM history is explicitly unavailable with a terminal reference; unread is not shown. The
-browser never discovers request IDs or treats the Remote journal as conversation history.
-Sending and timer/idle-reminder writes remain disabled with their reason. Existing workspace
-sections remain reachable. Unchanged observations retain the selected tab in its always-open panel;
-removed members clear their old facts rather than selecting a namesake.
+`ops-channel.ts` renders the channel or DM header (title, an Idle alert chip when one is set and
+a Timers chip when there is at least one timer, and one facts line), a collapsible Members/Timers panel, and a view sized to
+the window so that only the stream scrolls and the message box stays at the bottom. Members show
+four plain states (Working, Idle, Unknown, Offline) from explicit presence/activity, not attention
+or raw board colour. A DM panel lists only timers whose owner is that member's name. Timer rows
+show the schedule in words (`ops-timers.ts`). Failed timer reads and partial boards keep their
+unavailable/partial wording. Unchanged observations keep the selected tab; removed members clear
+their old facts rather than selecting a namesake. The panel opens folded to one summary line
+(members, working, idle, timers). A member row shows the last day's tokens and a timer row its
+next run and On/Paused only when the board reports them (#6372); an unreported value shows nothing,
+never 0, and the browser never derives a next run from the schedule.
+
+`talk-stream.ts` owns the stream shared by the DM and the channel: bottom-anchored rows with day
+separators, delivery marks, replies as rows, unchanged rows kept in place across refreshes, and
+the one outbox. The outbox freezes an operation ID with its draft and reuses it only for a retry
+of the same words and send input. It only observes an unknown or held outcome, never resending it.
+A Talk-scope refusal shows the Remote settings link and offers no retry.
+`conversation-history.ts` reads the DM through `conversations` and sends with
+`operations(session).send`. `channel-stream.ts` reads the squad room and posts to it with the
+board's `room {roomId, revision}`, to the lead or to each @mentioned member. Each post shows its
+thread in one line (reply count, last reply, state). The thread opens beside the channel, or over it
+on a phone, with each recipient's reply from `result(requestId)`. The channel shows no unread count, and a refused room read waits for the
+board to change. The channel calls run on the owner Session (`sessionChannel`), with the same
+Session retirement as the DM read (`onSession`); a squad whose board row has no room keeps the box
+disabled with that reason. Timer and idle-reminder writes remain terminal-only.
+
+The message box is `ops-composer.ts`, a lazily loaded React island (RichInputCore with
+RichInputControl, Colab's composer pieces), built by `vite.composer.config.ts` into
+`/sdk/ops-composer-v1.js`; the same build copies the field surface (rich-input-control's
+`control.css`) to `assets/ops-composer.css`, which the door's stylesheet embeds, so the crate reads
+only its own tree. `ops-composer-slot.ts` holds its place with a box of the same height
+until it loads. Pages that never open a channel or DM do not load it.
 
 `ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,
 `ops-squads.ts` and `ops-timers.ts` render the observed board through shared
@@ -267,7 +290,8 @@ resetting unsent text during async failure/read refresh. Refresh retains the cur
 page; navigation focuses and refuses to leave an unsent device name until saved or restored,
 so only one bounded page of forms is retained. The separately generated
 `settings-v1.js` imports the single served public SDK, without another key/channel owner.
-Both generated modules must pass rebuild byte equality. The owning
+`ops-composer-v1.js` is generated the same way; every generated module must pass rebuild byte
+equality. The owning
 [management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
 defines the unlimited default/source, capacity, durable last use and atomic remove-others behavior.
 Settings combines opening/session controls, Name in this browser (catalog-only CAS), and the honestly labelled current browser/device name. Remote-wide and person names have no new setter. My devices filters the same admitted page to this browser; a missing row is reported, never inferred. One state-aware pairing guidance owner replaces the repeated status/Connect blocks. Only the locally designated browser may remove devices; read-only pages show its exact designation

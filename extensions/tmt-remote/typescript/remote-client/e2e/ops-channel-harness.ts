@@ -11,6 +11,9 @@ import {
   type ConversationChanges,
   type ConversationInput,
 } from '../src/conversations.js';
+import type { ResultState, RoomSendInput, SendInput, SendState } from '../src/operations.js';
+import type { ChannelPort } from '../src/channel-stream.js';
+import type { RoomPage } from '../src/conversations.js';
 
 declare global {
   interface Window {
@@ -22,6 +25,14 @@ declare global {
     dmHold: boolean;
     dmRelease(): void;
     channelBoard: OpsBoard;
+    dmSends: SendInput[];
+    dmObserved: number;
+    roomPage: RoomPage;
+    roomReads: number;
+    roomSends: RoomSendInput[];
+    roomSendState: SendState | null;
+    roomResults: Record<string, ResultState>;
+    dmSendState: SendState | null;
     channelReads: number;
     channelStop(): void;
     channelHold: boolean;
@@ -88,6 +99,19 @@ window.channelBoard = {
 };
 // Deterministic UI source only: native admission and signed SDK transport have separate proofs.
 window.dmCalls = [];
+window.dmSends = [];
+window.dmObserved = 0;
+window.dmSendState = null;
+window.roomPage = {
+  roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+  items: [],
+  nextBefore: null,
+  changes: 'unknown',
+};
+window.roomReads = 0;
+window.roomSends = [];
+window.roomSendState = null;
+window.roomResults = {};
 window.dmHold = false;
 window.dmChanges = { count: 1, more: false };
 const memberId = '00000000-0000-4000-8000-000000000002';
@@ -482,6 +506,29 @@ const orchestration = {
     return { applied: true, configurationRevision: 4 };
   },
 };
+/** A Talk answer for the operation asked about: the fixture's state, else accepted. */
+const answer = (state: SendState | null, operationId: string, requestId: string): SendState =>
+  state ? ({ ...state, operationId } as SendState) : { state: 'accepted', operationId, requestId };
+const room: ChannelPort = {
+  async readRoom() {
+    window.roomReads++;
+    return structuredClone(window.roomPage);
+  },
+  async result(requestId) {
+    return window.roomResults[requestId] ?? { state: 'pending', requestId };
+  },
+  async send(input) {
+    window.roomSends.push(structuredClone(input));
+    return answer(
+      window.roomSendState,
+      input.operationId,
+      'req_00000010-cccc-4ccc-8ccc-cccccccccccc',
+    );
+  },
+  async operation(operationId) {
+    return answer(window.roomSendState, operationId, 'req_00000010-cccc-4ccc-8ccc-cccccccccccc');
+  },
+};
 applyStoredTheme();
 const controller = new AbortController();
 window.channelStop = () => controller.abort();
@@ -541,4 +588,19 @@ opsPage(
       }
     : undefined,
   async () => orchestration,
+  {
+    async send(input) {
+      window.dmSends.push(structuredClone(input));
+      return answer(
+        window.dmSendState,
+        input.operationId,
+        'req_00000009-cccc-4ccc-8ccc-cccccccccccc',
+      );
+    },
+    async operation(operationId) {
+      window.dmObserved++;
+      return answer(window.dmSendState, operationId, 'req_00000009-cccc-4ccc-8ccc-cccccccccccc');
+    },
+  },
+  room,
 );

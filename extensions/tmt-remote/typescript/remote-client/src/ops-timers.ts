@@ -1,6 +1,7 @@
-/** The timers page: the schedules as the board records them, and how to manage them. */
+/** Timers: the channel and DM panel's timer rows (#5704), and the retired timers page, which ops-page
+ * drops in its own change. Schedules are the board's text put into words, never computed. */
 import { browserUiClasses } from '@tmt/browser-ui/static';
-import type { OpsBoard } from './ops-source.js';
+import type { OpsBoard, OpsSchedule } from './ops-source.js';
 import { el, pageFoot, pageHead, readOnlyBadge, sentence, terminalCard } from './ops-parts.js';
 
 export function timersView(): { node: HTMLElement; update(board: OpsBoard): void } {
@@ -75,4 +76,105 @@ export function timersView(): { node: HTMLElement; update(board: OpsBoard): void
       body.replaceChildren(scroll, el('p', 'ops-note', 'Schedules are shown as recorded.'));
     },
   };
+}
+
+const DAYS: Record<string, string> = {
+  mon: 'Mon',
+  tue: 'Tue',
+  wed: 'Wed',
+  thu: 'Thu',
+  fri: 'Fri',
+  sat: 'Sat',
+  sun: 'Sun',
+};
+const UNITS: Record<string, [string, string]> = {
+  s: ['second', 'seconds'],
+  m: ['minute', 'minutes'],
+  h: ['hour', 'hours'],
+  d: ['day', 'days'],
+};
+const two = (value: string) => value.padStart(2, '0');
+/**
+ * A board schedule in words: `every 30m from 09:00`, `daily 09:00`, `weekdays 09:00`,
+ * `mon,thu 10:00` and the simple cron shapes read as a sentence; anything else stays as written.
+ */
+export function scheduleWords(text: string): string {
+  const every = /^every (\d+)([smhd])(?: from (\S+))?$/.exec(text);
+  if (every) {
+    const [, count, unit, from] = every;
+    const [one, many] = UNITS[unit!]!;
+    const step = count === '1' ? `Every ${one}` : `Every ${count} ${many}`;
+    return from ? `${step} from ${from}` : step;
+  }
+  const at = /^(daily|weekdays|[a-z]{3}(?:,[a-z]{3})*) (\d{1,2}:\d{2})$/.exec(text);
+  if (at) {
+    const [, on, time] = at;
+    if (on === 'daily') return `Every day at ${time}`;
+    if (on === 'weekdays') return `Weekdays at ${time}`;
+    const days = on!.split(',').map((day) => DAYS[day]);
+    if (days.every(Boolean)) return `${days.join(', ')} at ${time}`;
+  }
+  const cron = /^cron (\S+) (\S+) (\S+) (\S+) (\S+)$/.exec(text);
+  if (cron) {
+    const [, minute, hour, dom, month, dow] = cron;
+    const plain = dom === '*' && month === '*';
+    const step = /^\*\/(\d+)$/.exec(minute!);
+    if (plain && dow === '*' && hour === '*' && step) return `Every ${step[1]} minutes`;
+    if (plain && dow === '*' && hour === '*' && /^\d+$/.test(minute!))
+      return `Every hour at :${two(minute!)}`;
+    if (plain && /^\d+$/.test(minute!) && /^\d+$/.test(hour!)) {
+      const time = `${two(hour!)}:${two(minute!)}`;
+      if (dow === '*') return `Every day at ${time}`;
+      if (dow === '1-5') return `Weekdays at ${time}`;
+    }
+  }
+  return text;
+}
+
+/** One timer row: what it sends, its schedule in words, and whose it is. */
+export function timerRow(job: OpsSchedule): HTMLElement {
+  const row = el('li', 'ops-timer-row');
+  row.dataset.timerId = job.id;
+  const icon = el('span', 'ops-timer-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  const name = el('span', 'ops-timer-name', job.what || job.id);
+  const words = scheduleWords(job.when);
+  const when = el('span', 'ops-timer-when', words);
+  if (words !== job.when) when.title = job.when;
+  const meta = el('span', 'ops-timer-meta');
+  meta.append(when);
+  // The machine says when it next runs; the browser never works it out from the schedule.
+  if (job.nextMs !== null) {
+    const next = el('time', 'ops-timer-next', nextIn(job.nextMs));
+    next.dateTime = new Date(job.nextMs).toISOString();
+    next.title = new Date(job.nextMs).toLocaleString();
+    meta.append(next);
+  }
+  if (job.owner) meta.append(el('span', 'ops-timer-owner', job.owner));
+  row.append(icon, name, meta);
+  if (job.state) {
+    row.dataset.state = job.state;
+    row.append(el('span', 'ops-timer-state', job.state === 'on' ? 'On' : 'Paused'));
+  }
+  return row;
+}
+
+/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
+export function nextIn(at: number, now = Date.now()): string {
+  const minutes = Math.round((at - now) / 60_000);
+  if (minutes <= 0) return 'Due now';
+  if (minutes < 60) return `Next in ${minutes}m`;
+  if (minutes < 24 * 60) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `Next ${new Date(at).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/** The panel's timers: a list, or a sentence that never reads an unknown as none. */
+export function timerList(jobs: readonly OpsSchedule[] | null, truncated: boolean): HTMLElement {
+  if (jobs === null) return sentence('Timers are unavailable from this machine right now.');
+  if (!jobs.length)
+    return sentence(truncated ? 'No timers in this partial read.' : 'No timers are set.');
+  const list = el('ul', 'ops-timer-list');
+  list.setAttribute('aria-label', 'Timers');
+  list.append(...jobs.map(timerRow));
+  return list;
 }
