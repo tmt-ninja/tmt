@@ -79,12 +79,18 @@ for (const width of [1440, 390])
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
       await expect(page.locator('.ops-channel-chips')).toHaveText(/Idle alert 15m\s*Timers 1/);
       await expect(page.locator('.ops-channel-line')).toContainText('Lead sample-lead · 3 members');
-      await expect(page.locator('.ops-channel-compose')).toContainText(
-        'has no channel room on this machine yet',
-      );
+      await expect(page.locator('.ops-channel-compose')).toBeHidden();
       await expect(page.locator('.ops-channel-empty')).toContainText(
         'No channel room on this machine yet',
       );
+      await expect(page.getByRole('link', { name: 'Talk to sample-lead' })).toHaveAttribute(
+        'href',
+        '/ops/#dm/00000000-0000-4000-8000-000000000001/sample',
+      );
+      await page.getByRole('link', { name: 'Talk to sample-lead' }).click();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-lead');
+      await page.goBack();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
       await details(page);
       const usage = page.locator('.ops-member-row').first().locator('.ops-member-usage');
       await expect(usage).toBeEmpty();

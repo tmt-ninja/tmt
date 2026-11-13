@@ -11250,11 +11250,9 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		if (!channel) return;
 		const name = `#${channel.squad}`;
 		const room = channel.room;
-		let canSend = false, busy = false;
-		if (!room) {
-			sendNote.textContent = `${name} has no channel room on this machine yet. Talk to a member directly instead.`;
-			sendNote.hidden = false;
-		} else ({canSend, busy} = box.box(room.roomId, sendNote));
+		compose.hidden = !room;
+		if (!room) return;
+		const { canSend, busy } = box.box(room.roomId, sendNote);
 		composer.show({
 			key: `channel:${channel.squad}`,
 			label: `Message ${name}`,
@@ -11388,7 +11386,14 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			} else draw();
 			if (next?.room === null) {
 				emptyTitle.textContent = "No channel room on this machine yet";
-				emptyText.textContent = "Talk to a member directly instead.";
+				if (next.lead) {
+					const link = el("a", void 0, `Talk to ${next.lead.name}`);
+					link.href = opsHref(location.pathname, {
+						squad: next.squad,
+						memberId: next.lead.id
+					});
+					emptyText.replaceChildren(link, " directly instead.");
+				} else emptyText.textContent = "Choose a member from the sidebar to talk directly.";
 				empty.hidden = false;
 			}
 			showComposer();
