@@ -678,6 +678,7 @@ pub(super) enum Overlay {
     Checklist,
     QuotaDetails,
     EstimateBasis,
+    OrchestrationWhy,
     Unread,
     Discovery,
     MemberSession,
@@ -691,7 +692,7 @@ pub(super) enum Overlay {
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 23] = [
+    pub(super) const ALL: [Self; 24] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -705,6 +706,7 @@ impl Overlay {
         Self::Checklist,
         Self::QuotaDetails,
         Self::EstimateBasis,
+        Self::OrchestrationWhy,
         Self::Unread,
         Self::Discovery,
         Self::MemberSession,
@@ -732,6 +734,7 @@ impl Overlay {
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
                 Self::EstimateBasis => "estimate-basis",
+                Self::OrchestrationWhy => "orchestration-why",
                 Self::Unread => "unread",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
@@ -4027,6 +4030,8 @@ impl App {
             Some(Overlay::QuotaDetails)
         } else if self.estimate_basis.is_some() {
             Some(Overlay::EstimateBasis)
+        } else if self.orchestration.why.is_some() {
+            Some(Overlay::OrchestrationWhy)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
         } else if self.switch_tool_shown() {
@@ -4094,6 +4099,7 @@ impl App {
                 Some(Effect::None)
             }
             Overlay::EstimateBasis => self.estimate_basis_event(event),
+            Overlay::OrchestrationWhy => self.orchestration_why_event(event),
             Overlay::Unread => self.unread_overlay_event(event),
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::Notes => self.notes_event(event),
@@ -4516,6 +4522,9 @@ impl App {
         }
         if let Some(basis) = &self.estimate_basis {
             basis.borrow_mut().invalidate();
+        }
+        if let Some(why) = &self.orchestration.why {
+            why.borrow_mut().invalidate();
         }
         if let Some(unread) = &self.unread_overlay {
             unread.invalidate();

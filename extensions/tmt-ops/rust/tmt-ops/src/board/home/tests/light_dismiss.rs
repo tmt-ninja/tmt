@@ -181,7 +181,7 @@ fn the_agent_details_and_subscription_windows_close_on_an_outside_press() {
 fn every_peek_follows_the_close_rule() {
     use crate::board::app::Overlay;
     type Open = fn(&mut App);
-    let opens: [(Overlay, Open); 6] = [
+    let opens: [(Overlay, Open); 7] = [
         (Overlay::Help, |app| app.help = true),
         (Overlay::CronList, open_timers),
         (Overlay::MonitorDetails, |app| {
@@ -194,6 +194,11 @@ fn every_peek_follows_the_close_rule() {
         }),
         (Overlay::EstimateBasis, |app| {
             app.open_estimate_basis();
+        }),
+        (Overlay::OrchestrationWhy, |app| {
+            app.orchestration.why = Some(std::cell::RefCell::new(
+                crate::board::orchestration::why::Why::new("m".into(), "worker".into(), None, None),
+            ));
         }),
         (Overlay::PastePreview, |app| {
             press(app, KeyCode::Enter);

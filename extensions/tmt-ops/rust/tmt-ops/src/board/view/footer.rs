@@ -540,26 +540,33 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         let keys = format!("{}{}", a.unwrap_or_default(), b.unwrap_or_default());
         (!keys.is_empty()).then(|| (keys, word.to_owned()))
     };
-    hints.extend(pair(
-        key(Ui::Previous, "up"),
-        key(Ui::Next, "down"),
-        if jobs {
-            "job"
-        } else if !routes {
-            "pair"
-        } else if state.plans {
-            "plan"
-        } else {
-            "member"
-        },
-    ));
-    // In the plans list `[` and `]` move the time; `←→` still do, unlisted.
-    if routes && !state.plans {
+    // On the matrix the four arrows move one cell: one hint, as the page writes it.
+    let rows = pair(key(Ui::Previous, "up"), key(Ui::Next, "down"), "cell");
+    let columns = pair(key(Ui::Fold, "left"), key(Ui::Expand, "right"), "cell");
+    if matrix && let (Some((a, _)), Some((b, _))) = (&rows, &columns) {
+        hints.push((format!("{a}{b}"), "cell".into()));
+    } else {
         hints.extend(pair(
-            key(Ui::Fold, "left"),
-            key(Ui::Expand, "right"),
-            if matrix { "cell" } else { "time" },
+            key(Ui::Previous, "up"),
+            key(Ui::Next, "down"),
+            if jobs {
+                "job"
+            } else if !routes {
+                "pair"
+            } else if state.plans {
+                "plan"
+            } else {
+                "member"
+            },
         ));
+        // In the plans list `[` and `]` move the time; `←→` still do, unlisted.
+        if routes && !state.plans {
+            hints.extend(pair(
+                key(Ui::Fold, "left"),
+                key(Ui::Expand, "right"),
+                "time",
+            ));
+        }
     }
     if state.enlarge.get() {
         // The tab asks for room: nothing it cannot show is offered, only the moves.

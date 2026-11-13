@@ -5,6 +5,7 @@ mod model;
 pub(super) mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;
+pub(in crate::board) mod why;
 pub(in crate::board) mod write;
 pub(in crate::board) use load::{Observation, Read};
 use model::{Query, Snapshot};
@@ -31,7 +32,8 @@ pub(in crate::board) struct State {
     /// The matrix column: the recipient of the selected route.
     pub target: Option<String>,
     /// The last journal read, for the member it was read for.
-    pub why: Option<(String, Vec<String>)>,
+    /// The Why dialog, while open.
+    pub why: Option<std::cell::RefCell<why::Why>>,
     pub plans: bool,
     pub plan_selection: Option<String>,
     /// `⏎` on a plan: the matrix and member rows show only the members it applies to at the
