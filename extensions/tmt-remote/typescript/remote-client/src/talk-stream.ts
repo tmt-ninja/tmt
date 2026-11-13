@@ -82,6 +82,30 @@ export function attributed(text: string | null): { device?: string; words: strin
   return match ? { device: match[1]!, words: text!.slice(match[0].length) } : { words: text };
 }
 
+/** This browser's device name, once Remote says it; until then every device stays in a tooltip. */
+let ownDevice: string | null = null;
+/** Learn this browser's device name: a message names its device only when another one sent it. */
+export function knowOwnDevice(name: string | null, root: ParentNode = document) {
+  ownDevice = name;
+  for (const node of root.querySelectorAll<HTMLElement>('.ops-dm-message-device'))
+    node.hidden = ownDevice === null || node.dataset.device === ownDevice;
+}
+
+/** An announcement (a timer added, a member joined) is a quiet line in the stream, not a message
+ * someone said, and it asks for no reply. */
+export function noticeRow(text: string | null, at?: Date): HTMLElement {
+  const row = el('li', 'ops-dm-notice');
+  const { words } = attributed(text);
+  row.append(el('span', 'ops-dm-notice-text', words ?? 'Notice unavailable'));
+  if (at && Number.isFinite(at.valueOf())) {
+    const time = el('time', 'ops-dm-message-time', clock(at));
+    time.dateTime = at.toISOString();
+    time.title = at.toLocaleString();
+    row.append(time);
+  }
+  return row;
+}
+
 export function messageRow(options: {
   who: string;
   to: string;
@@ -102,14 +126,16 @@ export function messageRow(options: {
   face.setAttribute('aria-hidden', 'true');
   const { device, words } = attributed(options.text);
   const head = el('div', 'ops-dm-message-head');
-  head.append(
-    el('strong', 'ops-dm-message-who', options.self ? 'You' : options.who),
-    el(
-      'span',
-      'ops-dm-message-to',
-      device ? `→ ${options.to} · from ${device}` : `→ ${options.to}`,
-    ),
-  );
+  const who = el('strong', 'ops-dm-message-who', options.self ? 'You' : options.who);
+  head.append(who, el('span', 'ops-dm-message-to', `→ ${options.to}`));
+  if (device) {
+    // Named only when another device sent it; this browser's own device stays in the tooltip.
+    who.title = `Sent from ${device}`;
+    const from = el('span', 'ops-dm-message-device', `· from ${device}`);
+    from.dataset.device = device;
+    from.hidden = ownDevice === null || device === ownDevice;
+    head.append(from);
+  }
   if (options.at && Number.isFinite(options.at.valueOf())) {
     const time = el('time', 'ops-dm-message-time', clock(options.at));
     time.dateTime = options.at.toISOString();
@@ -145,6 +171,7 @@ export function exchangeRows(
   names: { me: string; them: string; fromMe: boolean },
 ): HTMLElement[] {
   const { fromMe, them } = names;
+  if (item.kind === 'announcement') return [noticeRow(item.preview, new Date(item.preparedAtMs))];
   const out = [
     messageRow({
       who: fromMe ? names.me : them,

@@ -77,7 +77,8 @@ for (const width of [1440, 390])
       });
       await refresh(page);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
-      await expect(page.locator('.ops-channel-chips')).toHaveText(/Idle alert 15m\s*Timers 1/);
+      // One Timers count: in the summary row, not again as a chip.
+      await expect(page.locator('.ops-channel-chips')).toHaveText('Idle alert 15m');
       await expect(page.locator('.ops-channel-line')).toContainText('Lead sample-lead · 3 members');
       await expect(page.locator('.ops-channel-compose')).toContainText(
         'has no channel room on this machine yet',
@@ -562,6 +563,30 @@ test('channel posts to the lead or each mention with the board room, and shows r
         // Remote's device line (colab-v1) moves to the header; the bubble keeps the words.
         preview: '[remote: Work laptop]\nAsk @sample-2 <b>about</b> the plan',
       },
+      {
+        requestId: 'req_00000012-cccc-4ccc-8ccc-cccccccccccc',
+        recipientId: '00000000-0000-4000-8000-000000000001',
+        roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+        kind: 'request',
+        origin: 'person',
+        preparedAtMs: at + 120000,
+        delivery: 'sent',
+        final: { status: 'not_submitted' },
+        preview: '[remote: This laptop]\nAnd the 390 pass.',
+      },
+      {
+        requestId: 'req_00000013-cccc-4ccc-8ccc-cccccccccccc',
+        recipientId: '00000000-0000-4000-8000-000000000001',
+        roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+        kind: 'announcement',
+        origin: 'automation',
+        preparedAtMs: at + 180000,
+        delivery: 'sent',
+        final: { status: 'not_required' },
+        preview: 'sample c1 · every 30m · added',
+      },
     ];
     window.roomResults = {
       'req_00000011-cccc-4ccc-8ccc-cccccccccccc': {
@@ -573,8 +598,26 @@ test('channel posts to the lead or each mention with the board room, and shows r
   });
   await refresh(page);
   const stream = page.getByRole('list', { name: 'Channel messages' });
-  await expect(stream).toContainText('You→ sample-lead · from Work laptop');
-  await expect(stream.locator('.ops-dm-message-text')).toHaveText(
+  // Another device is named; this browser's own device only in the tooltip.
+  const first = stream.locator('.ops-dm-message').first();
+  await expect(first.locator('.ops-dm-message-device')).toBeVisible();
+  await expect(first.locator('.ops-dm-message-device')).toHaveText('· from Work laptop');
+  await expect(first.locator('.ops-dm-message-who')).toHaveAttribute(
+    'title',
+    'Sent from Work laptop',
+  );
+  // This browser's own device: no device words, the tooltip keeps it.
+  const own = stream.locator('.ops-dm-message').nth(1);
+  await expect(own.locator('.ops-dm-message-device')).toBeHidden();
+  await expect(own.locator('.ops-dm-message-who')).toHaveAttribute(
+    'title',
+    'Sent from This laptop',
+  );
+  // An announcement is one quiet line, not a message with a reply.
+  await expect(stream.locator('.ops-dm-notice')).toContainText('sample c1 · every 30m · added');
+  await expect(stream.locator('.ops-dm-message')).toHaveCount(2);
+  await expect(stream).not.toContainText('No reply needed');
+  await expect(stream.locator('.ops-dm-message-text').first()).toHaveText(
     'Ask @sample-2 <b>about</b> the plan',
   );
   await expect(stream.locator('.ops-dm-mention')).toHaveText('@sample-2');

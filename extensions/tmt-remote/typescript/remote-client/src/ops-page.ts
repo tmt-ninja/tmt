@@ -11,6 +11,8 @@ import { orchestrationApi } from './orchestration-client.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
+import { knowOwnDevice } from './talk-stream.js';
+import { management } from './management.js';
 import type { ChannelPort } from './channel-stream.js';
 import {
   conversationHistory,
@@ -35,10 +37,21 @@ export function opsPage(
   },
   historyTalk?: ConversationTalk,
   channelPort?: ChannelPort,
+  // This browser's device name from Remote's device list: messages name only other devices.
+  ownDevice: () => Promise<string | null> = async () => {
+    if (!shell.session) return null;
+    const page = await management(await shell.session()).devices({ cursor: null, limit: 100 });
+    return page.devices.find((device) => device.thisBrowser)?.name ?? null;
+  },
 ): void {
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
   if (!main || !note) return;
+  // Unknown (a refused or failed read) leaves every device in the tooltip only.
+  void ownDevice().then(
+    (name) => knowOwnDevice(name),
+    () => knowOwnDevice(null),
+  );
   let board: OpsBoard | undefined;
   const current = (): OpsPlace => {
     const place = opsPlace(location.hash);

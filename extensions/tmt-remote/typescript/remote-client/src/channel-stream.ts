@@ -20,6 +20,7 @@ import { onSession } from './conversation-history.js';
 import {
   attributed,
   messageRow,
+  noticeRow,
   outbox,
   pendingRow,
   talkList,
@@ -151,6 +152,8 @@ export function channelStream(
   function postRow(post: Post, inThread = false): HTMLElement {
     const first = post.items[0]!;
     const as = first;
+    if (!inThread && first.kind === 'announcement')
+      return noticeRow(first.preview, new Date(post.preparedAtMs));
     const row = messageRow({
       who: 'You',
       to: answers(post)

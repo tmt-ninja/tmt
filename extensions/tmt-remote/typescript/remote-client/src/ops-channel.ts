@@ -293,10 +293,18 @@ export function channelView(
         title.textContent = member.name;
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
+        // An unknown state is the mark alone, its word in the tooltip; a known one is said.
+        const stateMark = mark(MARKS[state]);
+        if (state === 'Unknown') {
+          stateMark.title = 'State unknown';
+          stateMark.setAttribute('role', 'img');
+          stateMark.setAttribute('aria-label', 'State unknown');
+          stateMark.removeAttribute('aria-hidden');
+        }
         facts.append(
-          mark(MARKS[state]),
+          stateMark,
           [
-            state,
+            state === 'Unknown' ? undefined : state,
             member.role === 'lead' ? 'Lead' : 'Member',
             member.model,
             usage(member) || undefined,
@@ -316,7 +324,7 @@ export function channelView(
           chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 60_000)}m`));
         channelFacts(squad, people, board.truncated);
       }
-      if (timerCount) chips.append(chip(`Timers ${timerCount}`));
+      // The Timers count lives once, in the summary row below the title.
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;
       const timersWord = timerCount === undefined ? 'Timers unavailable' : `Timers ${timerCount}`;
