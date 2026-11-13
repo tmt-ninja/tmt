@@ -24,6 +24,17 @@ export function memberState(agent: Pick<OpsAgent, 'presence' | 'activity'>): Mem
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent: OpsAgent): HTMLElement {
   const word = memberState(agent);
+  if (word === 'Unknown') {
+    // As in the DM header: an unknown state is its mark alone, the word in the tooltip.
+    const alone = mark(MARKS.Unknown);
+    alone.classList.add('ops-member-state');
+    alone.dataset.state = 'unknown';
+    alone.title = 'State unknown';
+    alone.setAttribute('role', 'img');
+    alone.setAttribute('aria-label', 'State unknown');
+    alone.removeAttribute('aria-hidden');
+    return alone;
+  }
   const badge = el('span', `${c.chip} ops-member-state`);
   badge.dataset.state = word.toLowerCase();
   badge.append(mark(MARKS[word]), el('span', c.chipLabel, word));

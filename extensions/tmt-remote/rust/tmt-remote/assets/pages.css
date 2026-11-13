@@ -1699,10 +1699,8 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
 }
 .ops-timer-icon {
-  width: 0.875rem;
-  height: 0.875rem;
-  border: 1.5px solid var(--tmt-ui-color-secondary);
-  border-radius: 50%;
+  color: var(--tmt-ui-color-secondary);
+  line-height: 1;
 }
 .ops-timer-name {
   overflow: hidden;
@@ -2051,13 +2049,11 @@ body:not(:has(.tmt-ui-shell)) {
   border-bottom: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
 }
 .ops-thread-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  /* One line: the post's first line, at most 60 characters, cut with an ellipsis if still wide. */
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   font-size: var(--tmt-ui-header-title-size);
   outline: none;
 }

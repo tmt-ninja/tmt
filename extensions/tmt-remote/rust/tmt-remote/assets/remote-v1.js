@@ -10108,7 +10108,7 @@ function scheduleWords(text) {
 function timerRow(job) {
 	const row = el("li", "ops-timer-row");
 	row.dataset.timerId = job.id;
-	const icon = el("span", "ops-timer-icon");
+	const icon = el("span", "ops-timer-icon", "⏱");
 	icon.setAttribute("aria-hidden", "true");
 	const name = el("span", "ops-timer-name", job.what || job.id);
 	const words = scheduleWords(job.when);
@@ -11163,11 +11163,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			self: true,
 			at: new Date(post.preparedAtMs),
 			text: first.preview,
-			mentions: channel?.members.map((member) => member.name) ?? [],
-			...inThread ? {
-				state: deliveryText(as),
-				mark: deliveryMark(as)
-			} : {}
+			mentions: channel?.members.map((member) => member.name) ?? []
 		});
 		if (inThread) return row;
 		const sides = answers(post).filter((side) => side.words !== void 0);
@@ -11442,6 +11438,16 @@ function memberState(agent) {
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent) {
 	const word = memberState(agent);
+	if (word === "Unknown") {
+		const alone = mark(MARKS.Unknown);
+		alone.classList.add("ops-member-state");
+		alone.dataset.state = "unknown";
+		alone.title = "State unknown";
+		alone.setAttribute("role", "img");
+		alone.setAttribute("aria-label", "State unknown");
+		alone.removeAttribute("aria-hidden");
+		return alone;
+	}
 	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
 	badge.dataset.state = word.toLowerCase();
 	badge.append(mark(MARKS[word]), el("span", browserUiClasses.chipLabel, word));

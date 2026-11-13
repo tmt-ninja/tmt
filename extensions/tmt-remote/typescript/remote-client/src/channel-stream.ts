@@ -163,7 +163,7 @@ export function channelStream(
       at: new Date(post.preparedAtMs),
       text: first.preview,
       mentions: channel?.members.map((member) => member.name) ?? [],
-      ...(inThread ? { state: deliveryText(as), mark: deliveryMark(as) } : {}),
+      // The thread's header already says how the post stands; the root carries no second line.
     });
     if (inThread) return row;
     // Under the post, the thread in one line; the replies open beside the channel.
