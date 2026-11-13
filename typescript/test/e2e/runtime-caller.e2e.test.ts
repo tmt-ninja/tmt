@@ -105,7 +105,11 @@ describe(
         expect(calls).toHaveLength(2);
         for (const args of calls) {
           expect(args.filter((word) => word === '--no-daemon')).toHaveLength(1);
-          expect(args).not.toContain('--add-dir');
+          // No sandbox_mode is set, so Codex picks its own policy and TMT keeps its
+          // storage grant (#6269); the provider configuration is still not changed.
+          const grant = args.indexOf('--add-dir');
+          expect(args.slice(grant, grant + 2)).toEqual(['--add-dir', fixture.globalDir]);
+          expect(args.filter((word) => word === '--add-dir')).toHaveLength(1);
         }
         expect(calls[0]).toContain('fixture-model');
         expect(calls[1][0]).toBe('resume');

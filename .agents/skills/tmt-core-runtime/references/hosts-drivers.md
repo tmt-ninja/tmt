@@ -581,9 +581,10 @@ The runtime lifecycle owns final foreground argv policy, after optional hooks an
 channel composition, so plain fallbacks retain it. Managed Codex interactive launches
 use `--no-daemon`. Their `--add-dir` grant names only `ConfigPaths.global_dir`, including
 exact resume and Ops launches through Core. A narrow read-only sandbox-mode check omits
-that synthetic grant for confirmed read-only/full-access policy and fresh default
-configuration. Inherited workspace-write retains it. Unknown policy, config-read failure,
-and ambiguous overrides retain the existing grant; no provider defaults are rewritten.
+that synthetic grant only for explicit read-only or full-access policy. Inherited
+workspace-write retains it. An unset mode is left to Codex, which ignores an unusable
+root with a warning, so it, unknown policy, config-read failure and ambiguous overrides
+retain the existing grant; no provider defaults are rewritten.
 Selected profile reads follow the child's replayed provider home and are local evidence,
 not a copy of the provider's config resolver.
 User-supplied roots and options remain unchanged. Explicit remote connections and provider

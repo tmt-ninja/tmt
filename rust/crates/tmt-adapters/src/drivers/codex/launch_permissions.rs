@@ -200,9 +200,11 @@ fn inspect(home: &Path, selected: Option<&str>) -> Option<Mode> {
             None => mode(&document),
         };
     }
-    // A fresh/readable config without any selected sandbox policy is the
-    // confirmed default that rejects --add-dir. No provider settings are written.
-    Some(mode(&document).unwrap_or(Mode::ReadOnly))
+    // Without a selected sandbox_mode, Codex resolves the policy itself through
+    // trust, project and managed layers, giving workspace-write by default, and it
+    // warns about and ignores an unusable --add-dir rather than refusing to start.
+    // Unset is therefore unknown, which keeps the grant. No settings are written.
+    mode(&document)
 }
 
 #[cfg(test)]
@@ -273,10 +275,15 @@ mod tests {
             Vec::new(),
             [("CODEX_HOME", Path::new("selected").to_owned())],
         );
-        assert!(!keep_state_root(&[], &env, &[]));
+        // No config file: Codex picks its own default, so the grant is kept.
+        assert!(keep_state_root(&[], &env, &[]));
         assert!(!home.join("config.toml").exists());
         let path = home.join("config.toml");
         for (text, expected) in [
+            ("", true),
+            ("[projects.\"/work\"]\ntrust_level = \"trusted\"\n", true),
+            ("[projects.\"/work\"]\ntrust_level = \"untrusted\"\n", true),
+            ("approval_policy = \"never\"\n", true),
             (
                 "sandbox_mode = \"workspace-write\"\napproval_policy = \"on-request\"\n",
                 true,
@@ -326,11 +333,70 @@ mod tests {
         )
         .unwrap();
         let env = ProviderEnvironment::from_parts(&fixture.path, &fixture.path, Vec::new(), []);
-        assert!(!keep_state_root(&[], &env, &[]));
-        assert!(keep_state_root(
-            &[],
-            &env,
-            &[("CODEX_HOME".into(), selected.into_os_string())]
-        ));
+        let replayed = [("CODEX_HOME".into(), selected.clone().into_os_string())];
+        // The caller's default home has no config: unknown policy keeps the grant.
+        assert!(keep_state_root(&[], &env, &[]));
+        assert!(keep_state_root(&[], &env, &replayed));
+        // The replayed home decides, not the caller's default.
+        std::fs::write(selected.join("config.toml"), "sandbox_mode=\"read-only\"\n").unwrap();
+        assert!(!keep_state_root(&[], &env, &replayed));
+        std::fs::write(
+            selected.join("config.toml"),
+            "[projects.\"/work\"]\ntrust_level = \"trusted\"\n",
+        )
+        .unwrap();
+        assert!(keep_state_root(&[], &env, &replayed));
+    }
+
+    #[test]
+    fn a_default_run_and_an_exact_resume_without_a_sandbox_mode_get_the_state_root() {
+        use crate::{runtime::RuntimeCommand, test_support::TestDirectory};
+        let fixture = TestDirectory::new();
+        let home = fixture.path.join("codex");
+        std::fs::create_dir(&home).unwrap();
+        let env = ProviderEnvironment::from_parts(
+            &fixture.path,
+            &fixture.path,
+            Vec::new(),
+            [("CODEX_HOME", Path::new("codex").to_owned())],
+        );
+        let launch = |args: &[&str], exact_resume: bool| {
+            let mut command = RuntimeCommand {
+                executable: super::super::NAME.into(),
+                args: args.iter().map(OsString::from).collect(),
+            };
+            let keep = keep_state_root(&command.args, &env, &[]);
+            super::super::prepare_managed_launch(
+                &mut command,
+                Path::new("/state"),
+                exact_resume,
+                keep,
+            );
+            command.args
+        };
+        let run = ["-m", "model"];
+        let resume = ["resume", "session", "--no-daemon"];
+        for config in [
+            None,
+            Some("[projects.\"/work\"]\ntrust_level = \"trusted\"\n"),
+        ] {
+            if let Some(config) = config {
+                std::fs::write(home.join("config.toml"), config).unwrap();
+            }
+            assert_eq!(
+                launch(&run, false),
+                ["--no-daemon", "--add-dir", "/state", "-m", "model"].map(OsString::from)
+            );
+            assert_eq!(
+                launch(&resume, true),
+                ["resume", "--add-dir", "/state", "session", "--no-daemon"].map(OsString::from)
+            );
+        }
+        std::fs::write(home.join("config.toml"), "sandbox_mode = \"read-only\"\n").unwrap();
+        assert_eq!(
+            launch(&run, false),
+            ["--no-daemon", "-m", "model"].map(OsString::from)
+        );
+        assert_eq!(launch(&resume, true), resume.map(OsString::from));
     }
 }
