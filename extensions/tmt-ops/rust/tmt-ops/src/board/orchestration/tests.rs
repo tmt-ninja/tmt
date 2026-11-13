@@ -83,6 +83,15 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
             ),
         ]
     );
+    // The range keys change the one overview read's range.
+    let mut app = matrix_app();
+    for (press, days) in ['7', '0', 'd'].into_iter().zip([7, 30, 1]) {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char(press),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(app.orchestration.read().query.input()["rangeDays"], days);
+    }
 }
 #[test]
 fn unsupported_core_is_not_an_empty_or_direct_observation() {
@@ -154,6 +163,38 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
     assert!(!state.tick(2001), "the pending boundary read must not spin");
     state.follow_now = false;
     assert!(!state.tick(4000), "a historical selection stays fixed");
+
+    // `[` before the first boundary of the held range reads the previous day once and lands on
+    // its last change; with no change there the selection stays, with no further read.
+    let day = |start: u64, end: u64, at: u64, timeline: Value| {
+        let mut wire = document();
+        wire["range"] = json!({"startMs":start,"endMs":end});
+        wire["atMs"] = at.into();
+        wire["observedAtMs"] = at.into();
+        wire["members"][0]["nextChangeAtMs"] = Value::Null;
+        wire["timeline"] = timeline;
+        model::Snapshot::new(model::Overview::decode(wire).unwrap(), model::Sending::default(), true)
+            .unwrap()
+    };
+    let today = || day(1000, 3000, 1000, json!([{"startMs":1000,"endMs":3000,"planIds":[]}]));
+    for (earlier, lands_on, note) in [
+        (json!([{"startMs":1,"endMs":500,"planIds":[]},{"startMs":500,"endMs":1000,"planIds":[]}]), 500, None),
+        (json!([]), 1000, Some("no earlier change")),
+    ] {
+        let mut state = state();
+        state.follow_now = false;
+        state.apply(state.read(), Observation::Ready(Box::new(today())));
+        let original = state.read();
+        assert!(state.step(false), "the edge step asks for the previous day");
+        assert_eq!(state.query.at_ms, 999);
+        assert!(state.snapshot().is_none(), "one read is pending");
+        state.apply(state.read(), Observation::Ready(Box::new(day(1, 1000, 999, earlier))));
+        assert_eq!(state.query.at_ms, lands_on);
+        assert_eq!(state.note.as_deref(), note);
+        if note.is_some() {
+            assert!(state.read() == original && state.snapshot().is_some(), "no further read");
+        }
+    }
 }
 #[test]
 fn first_orchestration_demand_does_not_need_a_workspace_snapshot() {
@@ -819,4 +860,24 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
         columns.len() > 1 && distinct.len() == columns.len(),
         "{header}"
     );
+    drop(hits);
+    // A strip cell selects the start of its interval, as `[` and `]` would.
+    let rect = app
+        .orchestration
+        .hits
+        .borrow()
+        .iter()
+        .find(|(_, control)| matches!(control, Control::At(2000)))
+        .map(|(rect, _)| *rect)
+        .expect("a strip cell for the interval at 2000");
+    app.orchestration_mouse(ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: rect.x,
+        row: rect.y,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    });
+    assert_eq!(app.orchestration.query.at_ms, 2000);
+    assert!(!app.orchestration.follow_now);
 }
