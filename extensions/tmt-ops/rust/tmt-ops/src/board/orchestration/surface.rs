@@ -611,8 +611,8 @@ fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
     }
     labels
 }
-/// The route matrix: one row per sender, one column per recipient, each column as wide as the
-/// longest name (capped). The selected sender's row carries the selection, the selected route the
+/// The route matrix: one row per sender, one column per recipient, each column as wide as its
+/// own name or receiving word (capped). The selected sender's row carries the selection, the selected route the
 /// crosshair and its recipient a bold name. Every cell is Core's verdict (`✕` blocked, `◆` needs a
 /// person) or, when allowed, the recipient's receiving. Nothing is inferred here. Returns the
 /// section rule's note (how many senders and recipients lie outside the view) and the rows used.
@@ -623,22 +623,26 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     let sending = &snapshot.sending;
     let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
     let widest = names.iter().map(|n| safe(n).width()).max().unwrap_or(0);
-    // The column header label and the receiving words set the floors.
+    // The column header label sets the name column's floor.
     let name_width = widest.clamp("From ↓ To →".width(), NAME_CAP);
-    let column_width = widest.clamp(4, COLUMN_CAP);
     let (rows_labels, column_labels) = (
         distinct_labels(&names, name_width),
-        distinct_labels(&names, column_width),
+        distinct_labels(&names, COLUMN_CAP),
     );
     let name_cells = (name_width + 2) as u16;
-    let cell_cells = (column_width + 1) as u16;
+    // Each recipient column is as wide as its own label or the receiving word its cells show,
+    // whichever is wider, plus a one-cell gutter.
+    let widths: Vec<u16> = members
+        .iter()
+        .zip(&column_labels)
+        .map(|(to, label)| {
+            let word = receiving_cell(to.effective.receiving.value.as_ref()).width();
+            (label.width().max(word).max(1) + 1) as u16
+        })
+        .collect();
     // Column names and up to two legend lines take three rows.
     let rows = usize::from(area.height.saturating_sub(3).max(area.height.min(1)));
-    let columns = usize::from(area.width.saturating_sub(name_cells + 1) / cell_cells);
-    if members.is_empty() || rows == 0 || columns == 0 {
-        empty(frame, app, area, "No members match this query", None);
-        return (String::new(), area.height.min(1));
-    }
+    let room = area.width.saturating_sub(name_cells + 1);
     let index = |id: &Option<String>| {
         members
             .iter()
@@ -646,8 +650,39 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
             .unwrap_or(0)
     };
     let (row, column) = (index(&state.selected), index(&state.target));
+    // The selected recipient stays in view: from the first column when it fits, else as the
+    // last column shown.
+    let mut first_column = 0;
+    if widths.iter().take(column + 1).sum::<u16>() > room {
+        first_column = column;
+        let mut used = widths.get(column).copied().unwrap_or(0);
+        while first_column > 0 && used + widths[first_column - 1] <= room {
+            first_column -= 1;
+            used += widths[first_column];
+        }
+    }
+    let mut used = 0;
+    let columns = widths[first_column.min(widths.len())..]
+        .iter()
+        .take_while(|width| {
+            used += **width;
+            used <= room
+        })
+        .count();
+    if members.is_empty() || rows == 0 || columns == 0 {
+        empty(frame, app, area, "No members match this query", None);
+        return (String::new(), area.height.min(1));
+    }
     let first_row = row.saturating_sub(rows.saturating_sub(1));
-    let first_column = column.saturating_sub(columns.saturating_sub(1));
+    // Where each shown column starts, from the name column's edge.
+    let starts: Vec<u16> = widths[first_column..first_column + columns]
+        .iter()
+        .scan(0, |at, width| {
+            let start = *at;
+            *at += width;
+            Some(start)
+        })
+        .collect();
     let pad = |text: &str, width: usize| grid::fit(text, width, Align::Left, Truncate::End);
     let mut header = vec![Span::styled(
         format!(" {} ", pad("From ↓ To →", name_width)),
@@ -655,7 +690,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     )];
     for c in (first_column..members.len()).take(columns) {
         header.push(Span::styled(
-            format!("{} ", pad(&column_labels[c], column_width)),
+            pad(&column_labels[c], usize::from(widths[c])),
             if c == column {
                 look.role(Role::Text).add_modifier(Modifier::BOLD)
             } else {
@@ -695,8 +730,8 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
                     },
                 }
             };
-            let x = area.x + name_cells + ((c - first_column) as u16) * cell_cells;
-            let rect = Rect::new(x, y, cell_cells, 1);
+            let x = area.x + name_cells + starts[c - first_column];
+            let rect = Rect::new(x, y, widths[c], 1);
             let style = if selected && c == column {
                 crosshair(look, look.role(role))
             } else {
@@ -705,7 +740,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
             strip::paint_left(
                 frame.buffer_mut(),
                 rect,
-                Line::styled(pad(&word, usize::from(cell_cells)), style),
+                Line::styled(pad(&word, usize::from(widths[c])), style),
             );
             if selected && matches!(role, Role::Blocked | Role::Waiting) {
                 // A verdict keeps its colour on the selection: the frame pass's state-cell contract.
