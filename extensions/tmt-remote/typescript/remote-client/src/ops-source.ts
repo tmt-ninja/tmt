@@ -7,22 +7,12 @@ import { coreId } from './operations.js';
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
  * (`tmt-ui-state-mark`), the same box for every state. */
-export type AgentState =
-  | 'working'
-  | 'idle'
-  | 'needs-you'
-  | 'blocked'
-  | 'offline'
-  | 'idle-alert'
-  | 'unknown';
-export type AgentMark = 'dot' | 'ring' | 'dashed' | 'clock' | 'diamond' | 'cross' | 'unknown';
+export type AgentState = 'working' | 'idle' | 'offline' | 'unknown';
+export type AgentMark = 'dot' | 'ring' | 'dashed' | 'unknown';
 export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
-  working: { mark: 'dot', word: 'Working', tone: 'working' },
+  working: { mark: 'dot', word: 'Working', tone: 'neutral' },
   idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
-  'needs-you': { mark: 'diamond', word: 'Needs you', tone: 'waiting' },
-  blocked: { mark: 'cross', word: 'Blocked', tone: 'blocked' },
   offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
-  'idle-alert': { mark: 'clock', word: 'Idle alert', tone: 'neutral' },
   unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
@@ -50,8 +40,8 @@ export interface OpsSquad {
   name: string;
   room: { roomId: string; revision: number } | null;
   lead?: string;
-  /** Minutes before an idle alert, when the squad sets one. */
-  idleAlertMinutes?: number;
+  /** Effective squad alert interval, as supplied by the owner read. */
+  idleAlertMs?: number;
 }
 export interface OpsSchedule {
   id: string;
@@ -64,6 +54,8 @@ export interface OpsSchedule {
 export interface OpsBoard {
   agents: readonly OpsAgent[];
   squads: readonly OpsSquad[];
+  /** Workspace default, absent when the owner cannot report it. */
+  defaultIdleAlertMs?: number;
   /** `null` when the owner could not read the schedules: never shown as no timers. */
   schedules: readonly OpsSchedule[] | null;
   /** The owner cut the board to the read's bounds. */
@@ -77,6 +69,7 @@ export interface OpsSource {
 
 /** The `x/-/ops` payload (contract: Ops payload); every text field is already bounded and inert. */
 export interface OpsPayload {
+  defaultIdleAlertMs?: number | null;
   squads: readonly {
     name: string;
     room?: { roomId: string; revision: number } | null;
@@ -104,13 +97,9 @@ export interface OpsPayload {
   truncated: boolean;
 }
 
-/** A row's mark: what it owes the person first, then the board's colour token, then activity. */
+/** The four uncoloured states exposed by the board; pending is not presence. */
 function agentState(agent: OpsPayload['agents'][number]): AgentState {
   if (agent.presence === 'offline') return 'offline';
-  if (agent.pending || agent.waitingOnYou > 0) return 'needs-you';
-  if (agent.stateTone === 'blocked') return 'blocked';
-  if (agent.stateTone === 'working') return 'working';
-  if (agent.stateTone === 'dim') return 'idle';
   const activity = agent.activity?.state;
   return activity === 'working' || activity === 'idle' ? activity : 'unknown';
 }
@@ -147,6 +136,10 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
   )
     return unavailableBoard('read_failed');
   return {
+    ...(typeof payload.defaultIdleAlertMs === 'number' &&
+    Number.isFinite(payload.defaultIdleAlertMs)
+      ? { defaultIdleAlertMs: payload.defaultIdleAlertMs }
+      : {}),
     squads: payload.squads.map((squad) => ({
       name: squad.name,
       room:
@@ -157,7 +150,9 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
           ? { roomId: squad.room.roomId, revision: squad.room.revision }
           : null,
       ...(squad.lead ? { lead: squad.lead.name } : {}),
-      ...(squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 60_000) } : {}),
+      ...(typeof squad.idleAlertMs === 'number' && Number.isFinite(squad.idleAlertMs)
+        ? { idleAlertMs: squad.idleAlertMs }
+        : {}),
     })),
     agents: payload.agents.map((agent) => {
       const state = agentState(agent);
@@ -169,9 +164,6 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
         squad: agent.squad,
         role: agent.role,
         state,
-        ...(agent.state && agent.state.toLowerCase() !== AGENT_STATES[state].word.toLowerCase()
-          ? { stateText: agent.state }
-          : {}),
         ...(agent.task ? { task: agent.task } : {}),
         ...(agent.next ? { next: agent.next } : {}),
         ...(agent.pending ? { pending: agent.pending } : {}),

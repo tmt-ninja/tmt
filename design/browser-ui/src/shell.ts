@@ -58,6 +58,10 @@ export interface ShellMenuItem {
   href: string;
   count?: ShellCount;
   current: boolean;
+  /** Up to two short neutral trailing badges, in place of the row's counts. */
+  badges?: readonly string[];
+  /** Host-owned decorative node in the glyph slot, with its accessible description. */
+  leading?: { node: Node; label: string };
   /** Plain total beside an attention dot; zero is hidden. */
   total?: number;
   /** Decorative host-selected icon; omitted on ordinary text rows. */
@@ -659,7 +663,15 @@ export function mountShell(
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
     const mark = item.icon ?? fallbackIcon;
-    if (mark) anchor.append(icon(document, mark));
+    if (item.leading) {
+      const slot = document.createElement('span');
+      slot.className = 'tmt-ui-shell-icon';
+      slot.style.display = 'inline-grid';
+      slot.style.placeItems = 'center';
+      slot.setAttribute('aria-hidden', 'true');
+      slot.append(item.leading.node.cloneNode(true));
+      anchor.append(slot);
+    } else if (mark) anchor.append(icon(document, mark));
     anchor.append(label);
     if (item.emphasis === 'unread') {
       anchor.dataset.emphasis = 'unread';
@@ -668,28 +680,31 @@ export function mountShell(
       spoken.textContent = ' unread';
       anchor.append(spoken);
     }
-    const shown = entryCounts(item);
+    const badges =
+      item.badges?.slice(0, 2).map((badge) => Array.from(badge).slice(0, 24).join('')) ?? [];
+    const shown = badges.length ? [] : entryCounts(item);
     const total = shown.find((value) => !value.needsYou);
     const waiting = shown.find((value) => value.needsYou);
-    if (shown.length || item.actions?.length) {
+    if (badges.length || shown.length || item.actions?.length) {
       const counts = document.createElement('span');
       counts.className = 'tmt-ui-shell-counts';
+      for (const badge of badges) counts.append(count(document, badge));
       if (waiting) counts.append(attention(document));
       if (total) counts.append(count(document, total.text));
       anchor.append(counts);
     }
-    if (shown.length) {
-      const summary = [
-        total && `${item.total ?? total.text} total`,
-        waiting && `${waiting.text} need you`,
-      ]
-        .filter(Boolean)
-        .join(', ');
+    if (item.leading || badges.length || shown.length) {
+      const summary = badges.length
+        ? badges.join(', ')
+        : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`]
+            .filter(Boolean)
+            .join(', ');
+      const details = [item.leading?.label, summary, item.note].filter(Boolean).join(' · ');
       anchor.setAttribute(
         'aria-label',
-        `${item.label}${item.emphasis === 'unread' ? ' unread' : ''} · ${summary}`,
+        `${item.label}${item.emphasis === 'unread' ? ' unread' : ''} · ${details}`,
       );
-      anchor.title = item.note ? `${summary} · ${item.note}` : summary;
+      anchor.title = details;
       tipFor(anchor, `${item.label} · ${anchor.title}`);
     }
     return anchor;
@@ -959,7 +974,15 @@ export function mountShell(
   const render = (next: ShellView) => {
     latest = next;
     // Callback identity is not view state, but adding/removing a reorder affordance is.
-    const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))]);
+    const key = JSON.stringify(
+      [next, next.menu?.groups.map((group) => Boolean(group.reorder))],
+      (_key, value: unknown) =>
+        value instanceof Element
+          ? value.outerHTML
+          : value instanceof Node
+            ? value.textContent
+            : value,
+    );
     if (key === shown) return;
     shown = key;
     const focused = rail.contains(document.activeElement)

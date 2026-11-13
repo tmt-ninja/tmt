@@ -4011,10 +4011,6 @@ var browserUiClasses = Object.freeze({
 function countText(value) {
 	return value > 99 ? "99+" : String(value);
 }
-/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
-function avatarInitials(name) {
-	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
-}
 /**
 * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
 * left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
@@ -6247,7 +6243,15 @@ function mountShell(root, view, select, layerHost) {
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
 		const mark = item.icon ?? fallbackIcon;
-		if (mark) anchor.append(icon(document, mark));
+		if (item.leading) {
+			const slot = document.createElement("span");
+			slot.className = "tmt-ui-shell-icon";
+			slot.style.display = "inline-grid";
+			slot.style.placeItems = "center";
+			slot.setAttribute("aria-hidden", "true");
+			slot.append(item.leading.node.cloneNode(true));
+			anchor.append(slot);
+		} else if (mark) anchor.append(icon(document, mark));
 		anchor.append(label);
 		if (item.emphasis === "unread") {
 			anchor.dataset.emphasis = "unread";
@@ -6256,20 +6260,27 @@ function mountShell(root, view, select, layerHost) {
 			spoken.textContent = " unread";
 			anchor.append(spoken);
 		}
-		const shown = entryCounts(item);
+		const badges = item.badges?.slice(0, 2).map((badge) => Array.from(badge).slice(0, 24).join("")) ?? [];
+		const shown = badges.length ? [] : entryCounts(item);
 		const total = shown.find((value) => !value.needsYou);
 		const waiting = shown.find((value) => value.needsYou);
-		if (shown.length || item.actions?.length) {
+		if (badges.length || shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
+			for (const badge of badges) counts.append(count(document, badge));
 			if (waiting) counts.append(attention(document));
 			if (total) counts.append(count(document, total.text));
 			anchor.append(counts);
 		}
-		if (shown.length) {
-			const summary = [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
-			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${summary}`);
-			anchor.title = item.note ? `${summary} · ${item.note}` : summary;
+		if (item.leading || badges.length || shown.length) {
+			const summary = badges.length ? badges.join(", ") : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
+			const details = [
+				item.leading?.label,
+				summary,
+				item.note
+			].filter(Boolean).join(" · ");
+			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${details}`);
+			anchor.title = details;
 			tipFor(anchor, `${item.label} · ${anchor.title}`);
 		}
 		return anchor;
@@ -6466,7 +6477,7 @@ function mountShell(root, view, select, layerHost) {
 	let latest = view;
 	const render = (next) => {
 		latest = next;
-		const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))]);
+		const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))], (_key, value) => value instanceof Element ? value.outerHTML : value instanceof Node ? value.textContent : value);
 		if (key === shown) return;
 		shown = key;
 		const focused = rail.contains(document.activeElement) ? document.activeElement : void 0;
@@ -8719,131 +8730,6 @@ function extraModuleLoad(answer, family, here) {
 	};
 }
 //#endregion
-//#region src/ops-source.ts
-/**
-* What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
-* `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
-* on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
-*/
-var AGENT_STATES = {
-	working: {
-		mark: "dot",
-		word: "Working",
-		tone: "working"
-	},
-	idle: {
-		mark: "dashed",
-		word: "Idle",
-		tone: "neutral"
-	},
-	"needs-you": {
-		mark: "diamond",
-		word: "Needs you",
-		tone: "waiting"
-	},
-	blocked: {
-		mark: "cross",
-		word: "Blocked",
-		tone: "blocked"
-	},
-	offline: {
-		mark: "ring",
-		word: "Offline",
-		tone: "neutral"
-	},
-	"idle-alert": {
-		mark: "clock",
-		word: "Idle alert",
-		tone: "neutral"
-	},
-	unknown: {
-		mark: "unknown",
-		word: "Unknown",
-		tone: "neutral"
-	}
-};
-/** A row's mark: what it owes the person first, then the board's colour token, then activity. */
-function agentState(agent) {
-	if (agent.presence === "offline") return "offline";
-	if (agent.pending || agent.waitingOnYou > 0) return "needs-you";
-	if (agent.stateTone === "blocked") return "blocked";
-	if (agent.stateTone === "working") return "working";
-	if (agent.stateTone === "dim") return "idle";
-	const activity = agent.activity?.state;
-	return activity === "working" || activity === "idle" ? activity : "unknown";
-}
-/** One plain sentence per reason, each saying what the person can do. */
-var REASONS = {
-	not_installed: "Ops is not installed on your machine. Run `tmt extension install ops`, then reload this page.",
-	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
-	timeout: "Your machine took too long to read the board. This page tries again shortly.",
-	read_failed: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
-	too_large: "The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.",
-	not_sampled: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
-	unknown: "The board is not available right now. Run `tmt ops ui` in a terminal to see it.",
-	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see the board.",
-	unreachable: "Your machine did not answer. This page tries again shortly."
-};
-function unavailableBoard(reason) {
-	return {
-		agents: [],
-		squads: [],
-		schedules: [],
-		truncated: false,
-		unavailable: REASONS[reason]
-	};
-}
-/** The page's board from one `ok` payload; a payload off the contract is a failed read. */
-function opsBoard(payload) {
-	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
-	return {
-		squads: payload.squads.map((squad) => ({
-			name: squad.name,
-			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
-				roomId: squad.room.roomId,
-				revision: squad.room.revision
-			} : null,
-			...squad.lead ? { lead: squad.lead.name } : {},
-			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {}
-		})),
-		agents: payload.agents.map((agent) => {
-			const state = agentState(agent);
-			return {
-				id: agent.id,
-				...agent.presence ? { presence: agent.presence } : {},
-				...agent.activity ? { activity: { state: agent.activity.state } } : {},
-				name: agent.name,
-				squad: agent.squad,
-				role: agent.role,
-				state,
-				...agent.state && agent.state.toLowerCase() !== AGENT_STATES[state].word.toLowerCase() ? { stateText: agent.state } : {},
-				...agent.task ? { task: agent.task } : {},
-				...agent.next ? { next: agent.next } : {},
-				...agent.pending ? { pending: agent.pending } : {},
-				...agent.model ? { model: agent.model } : {},
-				waitingOnYou: agent.waitingOnYou ?? 0
-			};
-		}),
-		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
-			id: timer.id,
-			squad: timer.squad,
-			when: timer.scheduleText,
-			what: timer.what ?? "",
-			...timer.owner ? { owner: timer.owner } : {}
-		})) : null,
-		truncated: payload.truncated === true
-	};
-}
-/** The board from an owner read's answer. */
-function boardFromAnswer(answer) {
-	if (answer.state === "ok") return opsBoard(answer.payload);
-	return unavailableBoard(answer.state === "unavailable" ? answer.reason : answer.state);
-}
-/** The source the page reads: the owner's board through `x/-/ops`. */
-var opsSource = { async board(signal) {
-	return boardFromAnswer(await ownerRead("ops", signal));
-} };
-//#endregion
 //#region src/command-copy.ts
 /** A terminal reference with best-effort Copy and inline status; it never executes the command. */
 function commandCopy(text) {
@@ -8872,8 +8758,114 @@ function commandCopy(text) {
 	return command;
 }
 //#endregion
+//#region src/ops-source.ts
+/**
+* What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
+* `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
+* on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
+*/
+var AGENT_STATES = {
+	working: {
+		mark: "dot",
+		word: "Working",
+		tone: "neutral"
+	},
+	idle: {
+		mark: "dashed",
+		word: "Idle",
+		tone: "neutral"
+	},
+	offline: {
+		mark: "ring",
+		word: "Offline",
+		tone: "neutral"
+	},
+	unknown: {
+		mark: "unknown",
+		word: "Unknown",
+		tone: "neutral"
+	}
+};
+/** The four uncoloured states exposed by the board; pending is not presence. */
+function agentState(agent) {
+	if (agent.presence === "offline") return "offline";
+	const activity = agent.activity?.state;
+	return activity === "working" || activity === "idle" ? activity : "unknown";
+}
+/** One plain sentence per reason, each saying what the person can do. */
+var REASONS = {
+	not_installed: "Ops is not installed on your machine. Run `tmt extension install ops`, then reload this page.",
+	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
+	timeout: "Your machine took too long to read the board. This page tries again shortly.",
+	read_failed: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
+	too_large: "The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.",
+	not_sampled: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
+	unknown: "The board is not available right now. Run `tmt ops ui` in a terminal to see it.",
+	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see the board.",
+	unreachable: "Your machine did not answer. This page tries again shortly."
+};
+function unavailableBoard(reason) {
+	return {
+		agents: [],
+		squads: [],
+		schedules: [],
+		truncated: false,
+		unavailable: REASONS[reason]
+	};
+}
+/** The page's board from one `ok` payload; a payload off the contract is a failed read. */
+function opsBoard(payload) {
+	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
+	return {
+		...typeof payload.defaultIdleAlertMs === "number" && Number.isFinite(payload.defaultIdleAlertMs) ? { defaultIdleAlertMs: payload.defaultIdleAlertMs } : {},
+		squads: payload.squads.map((squad) => ({
+			name: squad.name,
+			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
+				roomId: squad.room.roomId,
+				revision: squad.room.revision
+			} : null,
+			...squad.lead ? { lead: squad.lead.name } : {},
+			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? { idleAlertMs: squad.idleAlertMs } : {}
+		})),
+		agents: payload.agents.map((agent) => {
+			const state = agentState(agent);
+			return {
+				id: agent.id,
+				...agent.presence ? { presence: agent.presence } : {},
+				...agent.activity ? { activity: { state: agent.activity.state } } : {},
+				name: agent.name,
+				squad: agent.squad,
+				role: agent.role,
+				state,
+				...agent.task ? { task: agent.task } : {},
+				...agent.next ? { next: agent.next } : {},
+				...agent.pending ? { pending: agent.pending } : {},
+				...agent.model ? { model: agent.model } : {},
+				waitingOnYou: agent.waitingOnYou ?? 0
+			};
+		}),
+		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
+			id: timer.id,
+			squad: timer.squad,
+			when: timer.scheduleText,
+			what: timer.what ?? "",
+			...timer.owner ? { owner: timer.owner } : {}
+		})) : null,
+		truncated: payload.truncated === true
+	};
+}
+/** The board from an owner read's answer. */
+function boardFromAnswer(answer) {
+	if (answer.state === "ok") return opsBoard(answer.payload);
+	return unavailableBoard(answer.state === "unavailable" ? answer.reason : answer.state);
+}
+/** The source the page reads: the owner's board through `x/-/ops`. */
+var opsSource = { async board(signal) {
+	return boardFromAnswer(await ownerRead("ops", signal));
+} };
+//#endregion
 //#region src/ops-parts.ts
-/** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
+/** The pieces the Ops sections share: element and mark helpers, the state chip,
 * the page head and the board's squads in display order. */
 function el(tag, className, text) {
 	const node = document.createElement(tag);
@@ -8896,88 +8888,11 @@ function mark(shape, tone) {
 	node.setAttribute("aria-hidden", "true");
 	return node;
 }
-/** A state as a chip: the mark and its word on the state's soft surface. */
-function stateChip(state, text) {
-	const info = AGENT_STATES[state];
-	const chip = el("span", browserUiClasses.chip);
-	chip.dataset.tone = info.tone;
-	chip.append(mark(info.mark), el("span", browserUiClasses.chipLabel, text ?? info.word));
-	return chip;
-}
-var STATS = [
-	{
-		label: "working",
-		caption: "Actively running",
-		tone: "working",
-		shape: "dot",
-		states: ["working"]
-	},
-	{
-		label: "needs you",
-		caption: "Requires attention",
-		tone: "waiting",
-		shape: "diamond",
-		states: ["needs-you"]
-	},
-	{
-		label: "blocked",
-		caption: "Cannot continue",
-		tone: "blocked",
-		shape: "cross",
-		states: ["blocked"]
-	},
-	{
-		label: "idle",
-		caption: "Waiting for work",
-		tone: "muted",
-		shape: "dashed",
-		states: ["idle", "idle-alert"]
-	},
-	{
-		label: "offline",
-		caption: "Not running",
-		tone: "muted",
-		shape: "ring",
-		states: ["offline"]
-	},
-	{
-		label: "unknown",
-		caption: "Status unavailable",
-		tone: "muted",
-		shape: "unknown",
-		states: ["unknown"]
-	}
-];
-var plural = (count, one, many) => count === 1 ? one : many;
-/** One strip of counts: the totals, then each agent state (idle alert counts as idle). */
-function statsStrip(agents, totals) {
-	const strip = el("div", browserUiClasses.stats);
-	strip.setAttribute("role", "group");
-	strip.setAttribute("aria-label", "Agents by state");
-	const cell = (lead, count, label, caption, tone) => {
-		const node = el("div", browserUiClasses.stat);
-		if (tone) node.dataset.tone = tone;
-		const text = el("div");
-		const value = el("p", browserUiClasses.statValue);
-		value.append(el("span", browserUiClasses.statNumber, String(count)), ` ${label}`);
-		text.append(value, el("p", browserUiClasses.statCaption, caption));
-		node.append(lead, text);
-		return node;
-	};
-	strip.append(...totals.map((total) => cell(createIcon("users"), total.count, total.label, total.caption)), ...STATS.map((stat) => cell(mark(stat.shape), agents.filter((agent) => stat.states.includes(agent.state)).length, stat.label, stat.caption, stat.tone)));
-	return strip;
-}
 /** The content's one-line subtitle; route identity lives in the top bar. */
 function pageHead(subtitle) {
 	const head = el("header", browserUiClasses.pageHead);
 	if (subtitle) head.append(el("p", browserUiClasses.pageSubtitle, subtitle));
 	return head;
-}
-/** The passive chip a read-only page puts where a control would be. */
-function readOnlyBadge() {
-	const chip = el("span", browserUiClasses.chip);
-	chip.append(createIcon("lock"), el("span", browserUiClasses.chipLabel, "Read only"));
-	return chip;
 }
 /** The line under every Ops page: what the page is and that it keeps itself current. */
 function pageFoot(text = "Read-only · Refreshes while visible") {
@@ -8985,21 +8900,6 @@ function pageFoot(text = "Read-only · Refreshes while visible") {
 	foot.append(mark("dot", "working"), text);
 	return foot;
 }
-/** A card that says what the terminal does for this page: a terminal tile, a title and a sentence,
-* then the one command that opens the Ops workspace with a Copy button that says what happened.
-* `hero` centres it as the page's whole point. */
-function terminalCard(options) {
-	const card = el("section", browserUiClasses.card);
-	if (options.hero) card.dataset.hero = "";
-	card.setAttribute("aria-labelledby", options.id);
-	const tile = el("span", browserUiClasses.glyphTile);
-	tile.append(createIcon("terminal"));
-	const title = el("h3", browserUiClasses.cardTitle, options.title);
-	title.id = options.id;
-	card.append(tile, title, el("p", void 0, options.text), commandCopy("tmt ops ui"));
-	return card;
-}
-var keyOf = (agent) => `${agent.squad}/${agent.id}`;
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
 * squad only an agent names), each lead first; a squad with no agents only when asked for. */
 function bySquad(board, keepEmpty = false) {
@@ -9007,644 +8907,6 @@ function bySquad(board, keepEmpty = false) {
 		name,
 		agents: board.agents.filter((agent) => agent.squad === name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
 	})).filter((group) => keepEmpty || group.agents.length);
-}
-//#endregion
-//#region src/ops-agents.ts
-/** The agents page: the counts, what needs the person, the agents by squad and the chosen one. */
-var FILTERS = [
-	{
-		id: "all",
-		label: "All",
-		states: []
-	},
-	{
-		id: "needs-you",
-		label: "Needs you",
-		states: ["needs-you"]
-	},
-	{
-		id: "working",
-		label: "Working",
-		states: ["working"]
-	},
-	{
-		id: "idle",
-		label: "Idle",
-		states: ["idle", "idle-alert"]
-	},
-	{
-		id: "blocked",
-		label: "Blocked",
-		states: ["blocked"]
-	},
-	{
-		id: "offline",
-		label: "Offline",
-		states: ["offline"]
-	},
-	{
-		id: "unknown",
-		label: "Unknown",
-		states: ["unknown"]
-	}
-];
-/** How long typing in the search box waits before the table filters; clearing and Enter apply at once. */
-var SEARCH_DEBOUNCE_MS = 200;
-/** Puts exactly `wanted` under `parent` in order, moving only nodes that are out of place, so a
-* node that stays keeps its focus, text selection and scroll. */
-function reconcile(parent, wanted) {
-	const keep = new Set(wanted);
-	for (let child = parent.firstChild; child;) {
-		const next = child.nextSibling;
-		if (!keep.has(child)) child.remove();
-		child = next;
-	}
-	wanted.forEach((node, index) => {
-		const at = parent.childNodes[index];
-		if (at !== node) parent.insertBefore(node, at ?? null);
-	});
-}
-function agentsView() {
-	const state = {
-		filter: "all",
-		query: "",
-		collapsed: /* @__PURE__ */ new Set()
-	};
-	let board;
-	const page = el("div", "ops-agents-page");
-	const head = pageHead("A clear view of every squad and agent.");
-	const stats = el("div");
-	const banner = el("div");
-	const grid = el("div", "ops-grid");
-	const card = el("section", browserUiClasses.card);
-	card.dataset.flush = "";
-	card.setAttribute("aria-labelledby", "ops-agents-title");
-	const cardHead = el("div", browserUiClasses.cardHead);
-	const title = el("h3", browserUiClasses.cardTitle, "Agents");
-	title.id = "ops-agents-title";
-	const tools = el("div", "ops-agents-tools");
-	const tabs = el("div", browserUiClasses.tabs);
-	const tabsHeader = el("div", browserUiClasses.tabsHeader);
-	const tabList = el("div", browserUiClasses.tabList);
-	tabList.setAttribute("role", "tablist");
-	tabList.setAttribute("aria-label", "Show agents by state");
-	const tabButtons = FILTERS.map((filter) => {
-		const tab = el("button", browserUiClasses.tab, filter.label);
-		tab.type = "button";
-		tab.id = `ops-filter-${filter.id}`;
-		tab.setAttribute("role", "tab");
-		tab.setAttribute("aria-controls", "ops-agents-panel");
-		tab.addEventListener("click", () => choose(filter.id));
-		tab.addEventListener("keydown", (event) => {
-			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-			if (!step) return;
-			event.preventDefault();
-			const next = FILTERS[(FILTERS.findIndex((item) => item.id === state.filter) + step + FILTERS.length) % FILTERS.length];
-			choose(next.id);
-			document.getElementById(`ops-filter-${next.id}`)?.focus();
-		});
-		return tab;
-	});
-	tabList.append(...tabButtons);
-	tabsHeader.append(tabList);
-	tabs.append(tabsHeader);
-	const search = el("input", browserUiClasses.fieldControl);
-	search.type = "search";
-	search.placeholder = "Filter agents";
-	search.setAttribute("aria-label", "Filter agents");
-	search.value = state.query;
-	let typing;
-	const applySearch = () => {
-		clearTimeout(typing);
-		typing = void 0;
-		if (state.query === search.value) return;
-		state.query = search.value;
-		renderTable();
-	};
-	search.addEventListener("input", () => {
-		clearTimeout(typing);
-		if (search.value) typing = setTimeout(applySearch, SEARCH_DEBOUNCE_MS);
-		else applySearch();
-	});
-	search.addEventListener("keydown", (event) => {
-		if (event.key === "Enter") applySearch();
-	});
-	const searchField = el("div", browserUiClasses.searchField);
-	searchField.append(createIcon("search"), search);
-	tools.append(tabs, searchField);
-	cardHead.append(title, tools);
-	const scroll = el("div", browserUiClasses.tableScroll);
-	scroll.id = "ops-agents-panel";
-	scroll.setAttribute("role", "tabpanel");
-	const detail = el("aside", browserUiClasses.card);
-	detail.id = "ops-detail";
-	detail.classList.add("ops-detail");
-	detail.setAttribute("aria-label", "Selected agent");
-	card.append(cardHead, scroll);
-	grid.append(card, detail);
-	const foot = el("p", "ops-foot", "Read-only · Refreshes while visible");
-	page.append(head, stats, banner, grid, foot);
-	function choose(filter) {
-		state.filter = filter;
-		renderTable();
-	}
-	function select(key) {
-		state.selected = key;
-		renderTable();
-		renderDetail();
-	}
-	const matches = (agent) => {
-		const filter = FILTERS.find((item) => item.id === state.filter);
-		if (filter.states.length && !filter.states.includes(agent.state)) return false;
-		const query = state.query.trim().toLowerCase();
-		if (!query) return true;
-		return [
-			agent.name,
-			agent.squad,
-			agent.task,
-			agent.next,
-			agent.model,
-			agent.stateText
-		].filter(Boolean).some((value) => value.toLowerCase().includes(query));
-	};
-	let bannerShown = "";
-	function renderBanner() {
-		const waiting = (board?.agents ?? []).filter((agent) => agent.state === "needs-you");
-		const shown = JSON.stringify(waiting.map((agent) => [
-			keyOf(agent),
-			agent.name,
-			agent.pending,
-			agent.task,
-			agent.next
-		]));
-		if (shown === bannerShown) return;
-		bannerShown = shown;
-		banner.replaceChildren();
-		if (!waiting.length) return;
-		const band = el("section", browserUiClasses.banner);
-		band.dataset.tone = "waiting";
-		band.setAttribute("aria-label", "Needs your attention");
-		const bandHead = el("div", browserUiClasses.bannerHead);
-		const viewAll = el("button", browserUiClasses.action);
-		viewAll.type = "button";
-		viewAll.dataset.variant = "text";
-		viewAll.append(el("span", browserUiClasses.actionLabel, "View all"), createIcon("chevron-right"));
-		viewAll.addEventListener("click", () => choose("needs-you"));
-		bandHead.append(createIcon("triangle-alert"), el("span", void 0, `${waiting.length} ${waiting.length === 1 ? "agent needs" : "agents need"} your attention`), viewAll);
-		band.append(bandHead);
-		for (const agent of waiting) {
-			const row = el("button", browserUiClasses.bannerRow);
-			row.type = "button";
-			const key = keyOf(agent);
-			row.addEventListener("click", () => select(key));
-			const word = el("span");
-			word.append(mark("diamond"), AGENT_STATES["needs-you"].word);
-			row.append(mark("diamond", "waiting"), el("span", void 0, agent.name), word, el("span", void 0, agent.pending ?? agent.task ?? ""), el("span", void 0, agent.next ?? ""), createIcon("chevron-right"));
-			band.append(row);
-		}
-		banner.append(band);
-	}
-	const table = el("table", browserUiClasses.table);
-	table.dataset.roomy = "";
-	const thead = el("thead");
-	const headRow = el("tr");
-	for (const text of [
-		"Agent",
-		"Status",
-		"Current work",
-		"Model",
-		"Waiting on you"
-	]) {
-		const cell = el("th");
-		cell.scope = "col";
-		if (text === "Model" || text === "Waiting on you") cell.dataset.compactHide = "";
-		if (text === "Waiting on you") cell.append(el("span", browserUiClasses.visuallyHidden, text));
-		else cell.textContent = text;
-		headRow.append(cell);
-	}
-	thead.append(headRow);
-	table.append(thead);
-	const empty = el("p", "ops-empty");
-	let groups = /* @__PURE__ */ new Map();
-	let rows = /* @__PURE__ */ new Map();
-	let nextRows = /* @__PURE__ */ new Map();
-	function groupHead(name, count, open) {
-		const groupRow = el("tr", browserUiClasses.tableGroup);
-		const group = el("th");
-		group.colSpan = 5;
-		group.scope = "colgroup";
-		const toggle = el("button", browserUiClasses.tableGroupToggle);
-		toggle.type = "button";
-		toggle.setAttribute("aria-expanded", String(open));
-		toggle.append(createIcon("chevron-down"), document.createTextNode(name), el("span", browserUiClasses.tableGroupCount, `· ${count} ${count === 1 ? "agent" : "agents"}`));
-		toggle.addEventListener("click", () => {
-			if (state.collapsed.has(name)) state.collapsed.delete(name);
-			else state.collapsed.add(name);
-			renderTable();
-		});
-		group.append(toggle);
-		groupRow.append(group);
-		return groupRow;
-	}
-	/** The row's five cells, each with the inputs it shows; equal inputs keep the cell. */
-	function agentCells(agent) {
-		const info = AGENT_STATES[agent.state];
-		const key = keyOf(agent);
-		return [
-			[JSON.stringify([agent.name, agent.state]), () => {
-				const who = el("td");
-				const pick = el("button", browserUiClasses.tableSelect);
-				pick.type = "button";
-				pick.append(mark(info.mark, info.tone), document.createTextNode(agent.name));
-				pick.addEventListener("click", () => select(key));
-				who.append(pick);
-				return who;
-			}],
-			[JSON.stringify([agent.state]), () => {
-				const status = el("td");
-				status.append(stateChip(agent.state));
-				return status;
-			}],
-			[JSON.stringify([
-				agent.task,
-				agent.model,
-				agent.waitingOnYou
-			]), () => {
-				const work = el("td", void 0, agent.task || "—");
-				work.append(el("span", browserUiClasses.tableCompactMeta, [agent.model, agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting on you` : ""].filter(Boolean).join(" · ")));
-				return work;
-			}],
-			[JSON.stringify([agent.model]), () => {
-				const model = el("td", void 0, agent.model || "—");
-				model.dataset.compactHide = "";
-				return model;
-			}],
-			[JSON.stringify([agent.waitingOnYou]), () => {
-				const waiting = el("td");
-				waiting.dataset.compactHide = "";
-				if (agent.waitingOnYou > 0) {
-					const count = el("span", browserUiClasses.chip);
-					count.dataset.tone = "waiting";
-					count.title = `${agent.waitingOnYou} waiting on you`;
-					count.append(el("span", browserUiClasses.chipLabel, String(agent.waitingOnYou)));
-					waiting.append(count);
-				}
-				return waiting;
-			}]
-		];
-	}
-	function agentRow(agent) {
-		const key = keyOf(agent);
-		const selected = key === state.selected;
-		const cells = agentCells(agent);
-		const kept = rows.get(key);
-		const row = kept?.row ?? el("tr");
-		if (selected) row.dataset.selected = "";
-		else delete row.dataset.selected;
-		const shown = cells.map(([inputs], index) => {
-			const old = row.children[index];
-			if (!old || kept?.shown[index] !== inputs) {
-				const cell = cells[index][1]();
-				if (old) old.replaceWith(cell);
-				else row.append(cell);
-			}
-			return inputs;
-		});
-		row.querySelector("button")?.setAttribute("aria-pressed", String(selected));
-		nextRows.set(key, {
-			row,
-			shown
-		});
-		return row;
-	}
-	function renderTable() {
-		for (const [index, filter] of FILTERS.entries()) {
-			const on = filter.id === state.filter;
-			tabButtons[index].setAttribute("aria-selected", String(on));
-			tabButtons[index].tabIndex = on ? 0 : -1;
-		}
-		scroll.setAttribute("aria-labelledby", `ops-filter-${state.filter}`);
-		if (!board) return;
-		nextRows = /* @__PURE__ */ new Map();
-		const nextGroups = /* @__PURE__ */ new Map();
-		const bodies = [];
-		let shown = 0;
-		for (const { name, agents: all } of bySquad(board)) {
-			const agents = all.filter(matches);
-			if (!agents.length) continue;
-			shown += agents.length;
-			const open = !state.collapsed.has(name);
-			const inputs = JSON.stringify([agents.length, open]);
-			const kept = groups.get(name);
-			const body = kept?.body ?? el("tbody");
-			const head = kept && kept.shown === inputs ? kept.head : groupHead(name, agents.length, open);
-			nextGroups.set(name, {
-				body,
-				head,
-				shown: inputs
-			});
-			reconcile(body, [head, ...open ? agents.map(agentRow) : []]);
-			bodies.push(body);
-		}
-		groups = nextGroups;
-		rows = nextRows;
-		reconcile(table, [thead, ...bodies]);
-		if (shown) reconcile(scroll, [table]);
-		else {
-			empty.textContent = board.agents.length ? "No agents match." : "No agents yet.";
-			reconcile(scroll, [empty]);
-		}
-	}
-	let detailShown;
-	function renderDetail() {
-		const agent = board?.agents.find((item) => keyOf(item) === state.selected);
-		const inputs = JSON.stringify(agent ?? null);
-		if (inputs === detailShown) return;
-		detailShown = inputs;
-		if (!agent) {
-			detail.replaceChildren(el("h3", browserUiClasses.cardTitle, "Agent"), el("p", "ops-empty", "No agents yet."), el("p", "ops-detail-note", "Observation only, no agent controls"));
-			return;
-		}
-		const info = AGENT_STATES[agent.state];
-		const headline = el("div", browserUiClasses.cardHead);
-		const name = el("h3", browserUiClasses.cardTitle);
-		name.append(mark(info.mark, info.tone), " ", agent.name);
-		headline.append(name);
-		const facts = el("dl", browserUiClasses.facts);
-		const fact = (term, value) => {
-			const dd = el("dd");
-			dd.append(value);
-			facts.append(el("dt", void 0, term), dd);
-		};
-		fact("Name", agent.name);
-		fact("Squad", agent.squad);
-		fact("Role", agent.role === "lead" ? "Lead" : "Member");
-		fact("Model", agent.model || "—");
-		fact("State", stateChip(agent.state, agent.stateText || void 0));
-		const block = (term, value) => {
-			const part = el("div", "ops-detail-block");
-			part.append(el("p", "ops-detail-label", term), el("p", void 0, value));
-			return part;
-		};
-		detail.replaceChildren(headline, facts, block("Task", agent.task || "—"), block("Next step", agent.next || "—"), ...agent.pending ? [block("Waiting on you", agent.pending)] : [], el("p", "ops-detail-note", "Observation only, no agent controls"));
-	}
-	let statsShown;
-	return {
-		node: page,
-		update(next) {
-			board = next;
-			if (!next.agents.some((agent) => keyOf(agent) === state.selected)) {
-				const rows = bySquad(next).flatMap((group) => group.agents);
-				const first = rows.find((agent) => agent.state === "needs-you") ?? rows[0];
-				state.selected = first && keyOf(first);
-			}
-			const counted = JSON.stringify(next.agents.map((agent) => agent.state));
-			if (counted !== statsShown) {
-				statsShown = counted;
-				stats.replaceChildren(statsStrip(next.agents, [{
-					count: next.agents.length,
-					label: plural(next.agents.length, "agent", "agents"),
-					caption: "Total in workspace"
-				}]));
-			}
-			renderBanner();
-			renderTable();
-			renderDetail();
-		}
-	};
-}
-//#endregion
-//#region src/ops-settings.ts
-/** The Ops settings page. The board's settings have no browser read, so the page says where they
-* are (the terminal workspace, one command to copy) and points at the Ops views that are here. */
-function settingsView(href) {
-	const page = el("div", "ops-settings-page");
-	const keep = el("section", `${browserUiClasses.card} ops-settings-keep`);
-	keep.setAttribute("aria-labelledby", "ops-keep-title");
-	const text = el("div");
-	const title = el("h3", browserUiClasses.cardTitle, "Keep a clear view of your team");
-	title.id = "ops-keep-title";
-	text.append(title, el("p", "ops-settings-note", "Agents, squads and timers are available as read-only web views."));
-	const links = el("div", "ops-settings-links");
-	const link = (section, label, next) => {
-		const anchor = el("a", browserUiClasses.action);
-		anchor.href = href(section);
-		anchor.append(el("span", browserUiClasses.actionLabel, label));
-		if (next) anchor.append(createIcon("chevron-right"));
-		return anchor;
-	};
-	links.append(link("agents", "View agents", true), link("squads", "View squads"));
-	keep.append(text, links);
-	page.append(pageHead("Manage your workspace from the terminal."), terminalCard({
-		id: "ops-settings-title",
-		title: "The right controls, in your terminal.",
-		text: "Ops settings are not available in the browser yet. Open the terminal workspace to view and manage them.",
-		hero: true
-	}), keep, pageFoot("CLI-managed settings"));
-	return page;
-}
-//#endregion
-//#region src/ops-drawer.ts
-/** The agent's details in a drawer: what the squads page opens for a member. Read-only. */
-function agentDrawer(focus) {
-	const dialog = el("dialog", browserUiClasses.drawer);
-	dialog.setAttribute("aria-labelledby", "ops-drawer-title");
-	const title = el("h2");
-	title.id = "ops-drawer-title";
-	const close = el("button", `${browserUiClasses.action} ${browserUiClasses.iconActionControl}`);
-	close.type = "button";
-	close.dataset.variant = "text";
-	const closeIcon = el("span", browserUiClasses.iconActionIcon);
-	closeIcon.append(createIcon("x"));
-	close.append(closeIcon);
-	const closeHost = el("span", browserUiClasses.iconAction);
-	closeHost.append(close);
-	const header = el("header", browserUiClasses.drawerHeader);
-	header.append(title, closeHost);
-	const body = el("div", browserUiClasses.drawerBody);
-	dialog.append(header, body);
-	let selected;
-	close.addEventListener("click", () => dialog.close());
-	dialog.addEventListener("click", (event) => {
-		if (event.target !== dialog) return;
-		const box = dialog.getBoundingClientRect();
-		if (!(event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom)) dialog.close();
-	});
-	dialog.addEventListener("close", () => {
-		const agent = selected;
-		selected = void 0;
-		if (!agent || !dialog.isConnected) return;
-		const target = focus.returnFocus(agent);
-		target?.focus({ preventScroll: true });
-		if (!target || document.activeElement !== target) focus.fallback().focus({ preventScroll: true });
-	});
-	function render(agent) {
-		if (!agent) {
-			body.replaceChildren(el("p", void 0, "This agent is no longer on the board."));
-			return;
-		}
-		selected = agent;
-		title.textContent = agent.name;
-		close.setAttribute("aria-label", `Close ${agent.name}`);
-		const top = el("div", "ops-drawer-top");
-		top.append(stateChip(agent.state, agent.stateText || void 0), readOnlyBadge());
-		const facts = el("dl", browserUiClasses.facts);
-		for (const [term, value] of [
-			["Squad", agent.squad],
-			["Role", agent.role === "lead" ? "Lead" : "Member"],
-			["Model", agent.model || "—"]
-		]) facts.append(el("dt", void 0, term), el("dd", void 0, value));
-		const block = (label, value, tone) => {
-			const part = el("div", "ops-drawer-block");
-			const name = el("p", "ops-detail-label", label);
-			if (tone) name.dataset.tone = tone;
-			part.append(name, el("p", void 0, value));
-			return part;
-		};
-		body.replaceChildren(top, facts, block("Task", agent.task || "No task recorded"), block("Next step", agent.next || "No next step recorded"), ...agent.pending ? [block("Waiting on you", agent.pending, "waiting")] : [], el("p", "ops-detail-note", "Read-only observation. This panel does not control an agent."));
-	}
-	return {
-		node: dialog,
-		open(agent) {
-			render(agent);
-			if (!dialog.open) dialog.showModal();
-		},
-		update(agents) {
-			const key = selected && keyOf(selected);
-			if (dialog.open && key) render(agents.find((agent) => keyOf(agent) === key));
-		},
-		close() {
-			selected = void 0;
-			if (dialog.open) dialog.close();
-		}
-	};
-}
-//#endregion
-//#region src/ops-squads.ts
-/** The squads page: each squad as a card with its lead, its people and its idle alert. */
-var minutes = (count) => `${count} ${plural(count, "minute", "minutes")}`;
-var idleAlert = (squad) => squad?.idleAlertMinutes ? `after ${minutes(squad.idleAlertMinutes)}` : "not configured";
-function squadsView() {
-	const members = /* @__PURE__ */ new Map();
-	const heading = pageHead("Every team, its lead and the people moving work forward.");
-	const fallback = heading;
-	fallback.tabIndex = -1;
-	const drawer = agentDrawer({
-		returnFocus: (agent) => members.get(keyOf(agent)),
-		fallback: () => document.querySelector(".tmt-ui-topbar-title h1") ?? fallback
-	});
-	const page = el("div", "ops-squads-page");
-	const stats = el("div");
-	const cards = el("div", "ops-squad-cards");
-	page.append(heading, stats, cards, pageFoot(), drawer.node);
-	function member(agent) {
-		const button = el("button", "ops-squad-member");
-		button.type = "button";
-		button.setAttribute("aria-label", `${agent.name}, ${AGENT_STATES[agent.state].word}`);
-		button.append(mark(AGENT_STATES[agent.state].mark, AGENT_STATES[agent.state].tone), el("strong", void 0, agent.name), stateChip(agent.state));
-		button.addEventListener("click", () => drawer.open(agent));
-		members.set(keyOf(agent), button);
-		return button;
-	}
-	return {
-		node: page,
-		close: drawer.close,
-		update(board) {
-			members.clear();
-			const groups = bySquad(board, true);
-			stats.replaceChildren(statsStrip(board.agents, [{
-				count: board.agents.length,
-				label: plural(board.agents.length, "agent", "agents"),
-				caption: "Total in workspace"
-			}]));
-			cards.replaceChildren(...groups.map((group) => {
-				const squad = board.squads.find((item) => item.name === group.name);
-				const card = el("section", `${browserUiClasses.card} ops-squad-card`);
-				card.setAttribute("aria-label", group.name);
-				const top = el("div", "ops-squad-top");
-				const names = el("div");
-				names.append(el("h3", browserUiClasses.cardTitle, group.name), el("p", "ops-squad-meta", [squad?.lead ? `Lead ${squad.lead}` : "", `${group.agents.length} ${plural(group.agents.length, "agent", "agents")}`].filter(Boolean).join(" · ")));
-				const people = el("div", browserUiClasses.avatarStack);
-				people.setAttribute("aria-hidden", "true");
-				for (const agent of group.agents) {
-					const avatar = el("span", browserUiClasses.avatar, avatarInitials(agent.name));
-					avatar.dataset.size = "s";
-					people.append(avatar);
-				}
-				top.append(names, people);
-				const members = el("div", "ops-squad-members");
-				if (group.agents.length) members.append(...group.agents.map(member));
-				else members.append(el("p", "ops-empty", "No agents in this squad."));
-				const bottom = el("div", "ops-squad-bottom");
-				bottom.append(createIcon("clock"), el("span", void 0, `Idle alert ${idleAlert(squad)}`), readOnlyBadge());
-				card.append(top, members, bottom);
-				return card;
-			}));
-			if (!groups.length) cards.append(el("p", "ops-empty", "No squads yet."));
-			drawer.update(board.agents);
-		}
-	};
-}
-//#endregion
-//#region src/ops-timers.ts
-/** The timers page: the schedules as the board records them, and how to manage them. */
-function timersView() {
-	const page = el("div", "ops-timers-page");
-	const grid = el("div", "ops-grid");
-	const card = el("section", browserUiClasses.card);
-	card.setAttribute("aria-labelledby", "ops-timers-title");
-	const head = el("div", browserUiClasses.cardHead);
-	const title = el("h3", browserUiClasses.cardTitle, "Timers");
-	title.id = "ops-timers-title";
-	head.append(title, readOnlyBadge());
-	const body = el("div");
-	card.append(head, body);
-	grid.append(card, terminalCard({
-		id: "ops-manage-title",
-		title: "Manage in the terminal",
-		text: "Use the Ops workspace to manage your timers. This web view does not change schedules."
-	}));
-	page.append(pageHead("A simple view of the schedules that keep your team moving."), grid, pageFoot());
-	return {
-		node: page,
-		update(board) {
-			if (board.schedules === null) return body.replaceChildren(sentence("Your machine could not read the timers. Run `tmt ops ui` to see them."));
-			if (!board.schedules.length) return body.replaceChildren(sentence("No timers are set."));
-			const scroll = el("div", browserUiClasses.tableScroll);
-			const table = el("table", browserUiClasses.table);
-			table.dataset.roomy = "";
-			const headRow = el("tr");
-			for (const text of [
-				"Timer name",
-				"Squad",
-				"Schedule",
-				"Owner",
-				"Timer ID"
-			]) {
-				const cell = el("th", void 0, text);
-				cell.scope = "col";
-				if (text === "Owner" || text === "Timer ID") cell.dataset.compactHide = "";
-				headRow.append(cell);
-			}
-			const thead = el("thead");
-			thead.append(headRow);
-			const rows = el("tbody");
-			for (const timer of board.schedules) {
-				const name = el("td", void 0, timer.what || timer.id);
-				name.append(el("span", browserUiClasses.tableCompactMeta, [timer.owner, timer.id].filter(Boolean).join(" · ")));
-				const when = el("td", browserUiClasses.tableMono, timer.when);
-				const owner = el("td", void 0, timer.owner || "—");
-				const id = el("td", `${browserUiClasses.tableMono} ${browserUiClasses.tableQuiet}`, timer.id);
-				for (const cell of [owner, id]) cell.dataset.compactHide = "";
-				const tr = el("tr");
-				tr.append(name, el("td", void 0, timer.squad), when, owner, id);
-				rows.append(tr);
-			}
-			table.append(thead, rows);
-			scroll.append(table);
-			body.replaceChildren(scroll, el("p", "ops-note", "Schedules are shown as recorded."));
-		}
-	};
 }
 //#endregion
 //#region src/orchestration-client.ts
@@ -10287,31 +9549,12 @@ function orchestrationView(connect, now = () => Date.now()) {
 }
 //#endregion
 //#region src/ops-menu.ts
-/** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
-var OPS_SECTIONS = [
-	{
-		id: "agents",
-		label: "Agents"
-	},
-	{
-		id: "squads",
-		label: "Squads"
-	},
-	{
-		id: "orchestration",
-		label: "Orchestration"
-	},
-	{
-		id: "schedules",
-		label: "Timers"
-	},
-	{
-		id: "settings",
-		label: "Ops settings"
-	}
-];
+var OPS_SECTIONS = [{
+	id: "orchestration",
+	label: "Orchestration"
+}];
 function opsSection(hash) {
-	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "agents";
+	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "home";
 }
 function opsPlace(hash) {
 	try {
@@ -10333,19 +9576,6 @@ function opsHref(pathname, place) {
 	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
 }
 function opsMenu(section, board, pathname, disclosure, unread) {
-	const observed = board && !board.unavailable && !board.truncated ? board : void 0;
-	const totals = {
-		agents: observed?.agents.length,
-		squads: observed?.squads.length,
-		schedules: observed?.schedules?.length
-	};
-	const attention = observed?.agents.filter((agent) => agent.state === "needs-you").length;
-	const item = (id, label) => ({
-		id,
-		label,
-		href: `${pathname}#${id}`,
-		current: section === id
-	});
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
 		return value?.state === "known" && value.count > 0 ? {
@@ -10356,31 +9586,55 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 			}
 		} : {};
 	};
+	const stateMark = (state) => {
+		const node = mark(AGENT_STATES[state].mark);
+		node.style.width = "9px";
+		node.style.height = "9px";
+		return node;
+	};
+	const channelMark = () => {
+		const node = document.createElement("span");
+		node.textContent = "#";
+		return node;
+	};
 	return {
 		title: "Ops",
-		groups: [{ items: OPS_SECTIONS.filter((entry) => entry.id !== "settings").map((entry) => ({
-			...item(entry.id, entry.label),
-			total: totals[entry.id],
-			count: entry.id === "agents" && attention ? shellCount(attention) : void 0
-		})) }, ...!board?.unavailable && board ? bySquad(board, true).map((group) => ({ items: [{
-			id: `channel:${group.name}`,
-			label: `#${group.name}`,
-			href: opsHref(pathname, { squad: group.name }),
-			current: typeof section !== "string" && section.squad === group.name && !section.memberId,
-			expanded: !disclosure?.collapsed.has(group.name),
-			toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
-			children: group.agents.map((agent) => ({
-				id: `dm:${group.name}:${agent.id}`,
-				label: agent.name,
-				...unreadItem(agent.id),
-				href: opsHref(pathname, {
-					squad: group.name,
-					memberId: agent.id
-				}),
-				current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
-			}))
-		}] })) : []],
-		settings: item("settings", "Ops settings")
+		groups: !board?.unavailable && board ? [{
+			label: "THIS MACHINE",
+			items: bySquad(board, true).map((group) => {
+				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
+				const badges = timers ? [`⏱ ${timers}`] : [];
+				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
+				if (idle !== void 0 && board.defaultIdleAlertMs !== void 0 && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
+				return {
+					id: `channel:${group.name}`,
+					label: group.name,
+					leading: {
+						node: channelMark(),
+						label: "Channel"
+					},
+					...badges.length ? { badges } : {},
+					href: opsHref(pathname, { squad: group.name }),
+					current: typeof section !== "string" && section.squad === group.name && !section.memberId,
+					expanded: !disclosure?.collapsed.has(group.name),
+					toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
+					children: group.agents.map((agent) => ({
+						id: `dm:${group.name}:${agent.id}`,
+						label: agent.name,
+						leading: {
+							node: stateMark(agent.state),
+							label: AGENT_STATES[agent.state].word
+						},
+						...unreadItem(agent.id),
+						href: opsHref(pathname, {
+							squad: group.name,
+							memberId: agent.id
+						}),
+						current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
+					}))
+				};
+			})
+		}] : []
 	};
 }
 //#endregion
@@ -11107,7 +10361,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 }
 //#endregion
 //#region src/ops-page.ts
-/** The Ops web view: Agents, Squads, Orchestration, Timers and Ops settings, one section at a time
+/** The Ops web view: local squad channels and Orchestration, one section at a time
 * from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
 * (#4894). Every state is a mark and a word; what the reader sets on a section stays across the
 * board's refreshes. */
@@ -11122,15 +10376,13 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
-	const href = (id) => `${location.pathname}#${id}`;
-	const current = () => opsPlace(location.hash);
 	let board;
-	const views = {
-		agents: agentsView(),
-		squads: squadsView(),
-		schedules: timersView()
+	const current = () => {
+		const place = opsPlace(location.hash);
+		if (place !== "home" || !board || board.unavailable) return place;
+		const first = bySquad(board, true)[0];
+		return first ? { squad: first.name } : "home";
 	};
-	let settings;
 	const orchestration = orchestrationView(orchestrationConnect);
 	let orchestrationAt = 0;
 	const refreshOrchestration = () => {
@@ -11163,21 +10415,14 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	};
 	const paint = () => {
 		const section = current();
-		if (section !== "squads") views.squads.close();
 		paintMenu();
 		const member = board && !board.unavailable && typeof section !== "string" && section.memberId ? board.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad) : void 0;
 		history.select(member ? {
 			id: member.id,
 			name: member.name
 		} : void 0);
-		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section).label : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
-		const chips = [];
-		if (board && !board.unavailable && typeof section !== "string") {
-			const squad = board.squads.find((item) => item.name === section.squad);
-			const timers = board.schedules?.filter((item) => item.squad === section.squad);
-			chips.push(squad ? squad.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes} min` : "Idle alert not configured" : "Idle alert unavailable", timers && !board.truncated ? `Timers ${timers.length}` : "Timers unavailable", "Read only");
-		}
-		shell.setTitle(label, ["Ops"], "Ops", chips);
+		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section)?.label ?? "Ops" : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
+		shell.setTitle(label, label === "Ops" ? [] : ["Ops"], "Ops");
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();
 		else if (typeof section !== "string") {
@@ -11189,17 +10434,14 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 				main.replaceChildren(orchestration.node);
 				refreshOrchestration();
 			}
-		} else if (section === "settings") {
-			settings ??= settingsView(href);
-			if (settings.parentElement !== main) main.replaceChildren(settings);
 		} else {
-			const view = views[section];
-			if (view.node.parentElement !== main) main.replaceChildren(view.node);
-			view.update(board);
+			const empty = document.createElement("p");
+			empty.className = "ops-empty";
+			empty.textContent = "No squads yet.";
+			main.replaceChildren(empty);
 		}
 	};
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
-	shell.signal.addEventListener("abort", () => views.squads.close(), { once: true });
 	paint();
 	whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
 		if (Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS && current() === "orchestration" && orchestration.node.parentElement === main) await refreshOrchestration();

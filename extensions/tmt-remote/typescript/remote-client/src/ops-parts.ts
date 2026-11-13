@@ -1,4 +1,4 @@
-/** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
+/** The pieces the Ops sections share: element and mark helpers, the state chip,
  * the page head and the board's squads in display order. */
 import { browserUiClasses } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
@@ -47,91 +47,6 @@ export function stateChip(state: AgentState, text?: string): HTMLSpanElement {
   chip.dataset.tone = info.tone;
   chip.append(mark(info.mark), el('span', browserUiClasses.chipLabel, text ?? info.word));
   return chip;
-}
-
-const STATS: readonly {
-  label: string;
-  caption: string;
-  tone: string;
-  shape: AgentMark;
-  states: readonly AgentState[];
-}[] = [
-  {
-    label: 'working',
-    caption: 'Actively running',
-    tone: 'working',
-    shape: 'dot',
-    states: ['working'],
-  },
-  {
-    label: 'needs you',
-    caption: 'Requires attention',
-    tone: 'waiting',
-    shape: 'diamond',
-    states: ['needs-you'],
-  },
-  {
-    label: 'blocked',
-    caption: 'Cannot continue',
-    tone: 'blocked',
-    shape: 'cross',
-    states: ['blocked'],
-  },
-  {
-    label: 'idle',
-    caption: 'Waiting for work',
-    tone: 'muted',
-    shape: 'dashed',
-    states: ['idle', 'idle-alert'],
-  },
-  { label: 'offline', caption: 'Not running', tone: 'muted', shape: 'ring', states: ['offline'] },
-  {
-    label: 'unknown',
-    caption: 'Status unavailable',
-    tone: 'muted',
-    shape: 'unknown',
-    states: ['unknown'],
-  },
-];
-
-/** One leading cell of the strip: a total with its own icon. */
-export interface TotalStat {
-  count: number;
-  /** The word after the count, singular or plural. */
-  label: string;
-  caption: string;
-}
-export const plural = (count: number, one: string, many: string): string =>
-  count === 1 ? one : many;
-
-/** One strip of counts: the totals, then each agent state (idle alert counts as idle). */
-export function statsStrip(agents: readonly OpsAgent[], totals: readonly TotalStat[]): HTMLElement {
-  const strip = el('div', browserUiClasses.stats);
-  strip.setAttribute('role', 'group');
-  strip.setAttribute('aria-label', 'Agents by state');
-  const cell = (lead: Node, count: number, label: string, caption: string, tone?: string) => {
-    const node = el('div', browserUiClasses.stat);
-    if (tone) node.dataset.tone = tone;
-    const text = el('div');
-    const value = el('p', browserUiClasses.statValue);
-    value.append(el('span', browserUiClasses.statNumber, String(count)), ` ${label}`);
-    text.append(value, el('p', browserUiClasses.statCaption, caption));
-    node.append(lead, text);
-    return node;
-  };
-  strip.append(
-    ...totals.map((total) => cell(createIcon('users'), total.count, total.label, total.caption)),
-    ...STATS.map((stat) =>
-      cell(
-        mark(stat.shape),
-        agents.filter((agent) => stat.states.includes(agent.state)).length,
-        stat.label,
-        stat.caption,
-        stat.tone,
-      ),
-    ),
-  );
-  return strip;
 }
 
 /** The content's one-line subtitle; route identity lives in the top bar. */

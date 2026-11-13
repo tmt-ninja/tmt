@@ -192,6 +192,10 @@ hover or keyboard focus, never a press.
 A child can carry `total` and `count`: one muted, right-aligned tabular total and a waiting-colour
 attention dot before it. The tooltip and accessible name retain the attention count. Zero and
 unknown totals stay hidden; visible values above 99 read `99+`. Selection retains these roles.
+`ShellMenuItem.badges` optionally replaces those counts with up to two short, neutral trailing
+labels. Each label is bounded to 24 characters and is included in the row's accessible name.
+An optional `leading` node replaces the glyph in its column; its `label` is included in the
+accessible name. The shell clones the decorative node and leaves its meaning to the host.
 Module rows show nonzero attention as a dot with its count in the accessible name and tooltip.
 Optional `ShellMenuItem.icon` adds a decorative leading icon; rows without one retain their indent.
 A group may supply `fallbackIcon` for iconless rows; an explicit row icon wins. Colab uses

@@ -10,7 +10,7 @@ const ops = vectors.cases.filter((vector) => vector.target === 'ops');
 const answer = (document: Record<string, unknown>) =>
   boardFromAnswer(ownerAnswer<OpsPayload>({ ...document, observedAtMs: 1 }));
 
-it('turns the contract board into rows: lead first, a mark for each state, the board text kept', () => {
+it('turns the contract board into rows with uncoloured activity states', () => {
   const board = answer(ops[0]!.expect);
   expect(board.unavailable).toBeUndefined();
   const room = { roomId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', revision: 3 };
@@ -19,8 +19,14 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
   expect(answer(withRoom).squads[0]!.room).toEqual(room);
   withRoom.squads[0]!.room = { ...room, revision: 0 };
   expect(answer(withRoom).squads[0]!.room).toBeNull();
+  expect(answer({ ...ops[0]!.expect, defaultIdleAlertMs: 900_000 }).defaultIdleAlertMs).toBe(
+    900_000,
+  );
+  expect(
+    answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs,
+  ).toBeUndefined();
   expect(board.squads).toEqual([
-    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMinutes: 30 },
+    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1_800_000 },
   ]);
   expect(board.agents).toEqual([
     {
@@ -40,9 +46,8 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
       name: 'core-3',
       squad: 'tmt-core',
       role: 'member',
-      // Offline wins over what it waits for; the board's own words stay beside the mark.
+      // Offline wins over what it waits for; raw board text is not another state.
       state: 'offline',
-      stateText: 'blocked: waits on CI now',
       task: '#4325',
       next: 'contract',
       pending: 'approve the plan',
@@ -62,9 +67,11 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
   for (const agent of board.agents) expect(AGENT_STATES[agent.state].word).toBeTruthy();
 });
 
-it('gives every agent state its own mark, so no two states look alike', () => {
-  const marks = Object.values(AGENT_STATES).map((state) => state.mark);
-  expect(new Set(marks).size).toBe(marks.length);
+it('maps legacy states to the four neutral labels', () => {
+  expect(new Set(Object.values(AGENT_STATES).map((state) => state.word))).toEqual(
+    new Set(['Working', 'Idle', 'Unknown', 'Offline']),
+  );
+  expect(Object.values(AGENT_STATES).every((state) => state.tone === 'neutral')).toBe(true);
 });
 
 it('keeps a failed schedule read apart from no timers, and an empty board ok', () => {

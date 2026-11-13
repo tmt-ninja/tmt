@@ -33,7 +33,7 @@ declare global {
 window.channelReads = 0;
 window.channelHold = false;
 window.channelBoard = {
-  squads: [{ room: null, name: 'sample', lead: 'sample-lead', idleAlertMinutes: 15 }],
+  squads: [{ room: null, name: 'sample', lead: 'sample-lead', idleAlertMs: 900_000 }],
   agents: [
     {
       id: '00000000-0000-4000-8000-000000000001',
@@ -51,7 +51,7 @@ window.channelBoard = {
       name: 'sample-1',
       squad: 'sample',
       role: 'member',
-      state: 'needs-you',
+      state: 'idle',
       presence: 'active',
       activity: { state: 'idle' },
       waitingOnYou: 4,

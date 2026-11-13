@@ -1,14 +1,11 @@
-/** The Ops web view: Agents, Squads, Orchestration, Timers and Ops settings, one section at a time
+/** The Ops web view: local squad channels and Orchestration, one section at a time
  * from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
  * (#4894). Every state is a mark and a word; what the reader sets on a section stays across the
  * board's refreshes. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
 import { notAvailable } from './not-available.js';
-import { agentsView } from './ops-agents.js';
-import { settingsView } from './ops-settings.js';
-import { squadsView } from './ops-squads.js';
-import { timersView } from './ops-timers.js';
+import { bySquad } from './ops-parts.js';
 import { orchestrationView, type OrchestrationConnect } from './ops-orchestration.js';
 import { orchestrationApi } from './orchestration-client.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
@@ -16,7 +13,7 @@ import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
 import { conversationHistory, type ConversationRead } from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
-import { OPS_SECTIONS, opsMenu, opsPlace, type OpsSection, type OpsPlace } from './ops-menu.js';
+import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
 
 /** The board's own reload cadence (`tmt ops ui`). */
 const REFRESH_MS = 5000;
@@ -35,17 +32,13 @@ export function opsPage(
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
   if (!main || !note) return;
-  const href = (id: OpsSection) => `${location.pathname}#${id}`;
-  const current = (): OpsPlace => opsPlace(location.hash);
   let board: OpsBoard | undefined;
-  // Each section keeps what the reader set (filter, search, collapsed squads, selection) across
-  // repaints and across leaving and coming back.
-  const views = {
-    agents: agentsView(),
-    squads: squadsView(),
-    schedules: timersView(),
+  const current = (): OpsPlace => {
+    const place = opsPlace(location.hash);
+    if (place !== 'home' || !board || board.unavailable) return place;
+    const first = bySquad(board, true)[0];
+    return first ? { squad: first.name } : 'home';
   };
-  let settings: HTMLElement | undefined;
   const orchestration = orchestrationView(orchestrationConnect);
   let orchestrationAt = 0;
   const refreshOrchestration = () => {
@@ -90,7 +83,6 @@ export function opsPage(
   };
   const paint = () => {
     const section = current();
-    if (section !== 'squads') views.squads.close();
     paintMenu();
     const member =
       board && !board.unavailable && typeof section !== 'string' && section.memberId
@@ -101,27 +93,13 @@ export function opsPage(
     history.select(member ? { id: member.id, name: member.name } : undefined);
     const label =
       typeof section === 'string'
-        ? OPS_SECTIONS.find((item) => item.id === section)!.label
+        ? (OPS_SECTIONS.find((item) => item.id === section)?.label ?? 'Ops')
         : section.memberId
           ? (board?.agents.find(
               (agent) => agent.id === section.memberId && agent.squad === section.squad,
             )?.name ?? 'Member unavailable')
           : `#${section.squad}`;
-    const chips: string[] = [];
-    if (board && !board.unavailable && typeof section !== 'string') {
-      const squad = board.squads.find((item) => item.name === section.squad);
-      const timers = board.schedules?.filter((item) => item.squad === section.squad);
-      chips.push(
-        squad
-          ? squad.idleAlertMinutes
-            ? `Idle alert ${squad.idleAlertMinutes} min`
-            : 'Idle alert not configured'
-          : 'Idle alert unavailable',
-        timers && !board.truncated ? `Timers ${timers.length}` : 'Timers unavailable',
-        'Read only',
-      );
-    }
-    shell.setTitle(label, ['Ops'], 'Ops', chips);
+    shell.setTitle(label, label === 'Ops' ? [] : ['Ops'], 'Ops');
     if (!board) main.replaceChildren(pageLoading());
     else if (board.unavailable) main.replaceChildren();
     else if (typeof section !== 'string') {
@@ -135,18 +113,14 @@ export function opsPage(
         main.replaceChildren(orchestration.node);
         void refreshOrchestration();
       }
-    } else if (section === 'settings') {
-      // The board's settings have no browser read: the page says where they are.
-      settings ??= settingsView(href);
-      if (settings.parentElement !== main) main.replaceChildren(settings);
     } else {
-      const view = views[section];
-      if (view.node.parentElement !== main) main.replaceChildren(view.node);
-      view.update(board);
+      const empty = document.createElement('p');
+      empty.className = 'ops-empty';
+      empty.textContent = 'No squads yet.';
+      main.replaceChildren(empty);
     }
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
-  shell.signal.addEventListener('abort', () => views.squads.close(), { once: true });
   paint();
   whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
     const due = Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS;
