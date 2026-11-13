@@ -200,9 +200,9 @@ fn inspect(home: &Path, selected: Option<&str>) -> Option<Mode> {
             None => mode(&document),
         };
     }
-    // A fresh/readable config without any selected sandbox policy is the
-    // confirmed default that rejects --add-dir. No provider settings are written.
-    Some(mode(&document).unwrap_or(Mode::ReadOnly))
+    // An absent mode leaves policy unknown: Codex owns trust and default
+    // resolution, so retain the grant without rewriting provider settings.
+    mode(&document)
 }
 
 #[cfg(test)]
@@ -273,15 +273,19 @@ mod tests {
             Vec::new(),
             [("CODEX_HOME", Path::new("selected").to_owned())],
         );
-        assert!(!keep_state_root(&[], &env, &[]));
+        assert!(keep_state_root(&[], &env, &[]));
         assert!(!home.join("config.toml").exists());
         let path = home.join("config.toml");
         for (text, expected) in [
+            ("", true),
+            ("[projects.\"/x\"]\ntrust_level = \"trusted\"\n", true),
+            ("[projects.\"/x\"]\ntrust_level = \"untrusted\"\n", true),
             (
                 "sandbox_mode = \"workspace-write\"\napproval_policy = \"on-request\"\n",
                 true,
             ),
             ("sandbox_mode = \"read-only\"\n", false),
+            ("sandbox_mode = \"danger-full-access\"\n", false),
             ("sandbox_mode = \"future-mode\"\n", true),
             ("sandbox_mode = 42\n", true),
             ("not valid TOML {", true),
@@ -299,6 +303,12 @@ mod tests {
         .unwrap();
         let args = ["-p", "reader"].map(OsString::from);
         assert!(!keep_state_root(&args, &env, &[]));
+        fs::write(
+            &path,
+            "sandbox_mode=\"workspace-write\"\n[profiles.reader]\nmodel=\"example\"\n",
+        )
+        .unwrap();
+        assert!(keep_state_root(&args, &env, &[]));
         assert!(keep_state_root(
             &["-p", "missing"].map(OsString::from),
             &env,
@@ -325,8 +335,23 @@ mod tests {
             "sandbox_mode=\"workspace-write\"\n",
         )
         .unwrap();
-        let env = ProviderEnvironment::from_parts(&fixture.path, &fixture.path, Vec::new(), []);
+        let caller = fixture.path.join("caller");
+        let env = ProviderEnvironment::from_parts(
+            &fixture.path,
+            &fixture.path,
+            Vec::new(),
+            [("CODEX_HOME", caller.clone())],
+        );
+        assert!(keep_state_root(&[], &env, &[]));
+        std::fs::create_dir(&caller).unwrap();
+        std::fs::write(caller.join("config.toml"), "sandbox_mode=\"read-only\"\n").unwrap();
         assert!(!keep_state_root(&[], &env, &[]));
+        assert!(keep_state_root(
+            &[],
+            &env,
+            &[("CODEX_HOME".into(), selected.clone().into_os_string())]
+        ));
+        std::fs::write(selected.join("config.toml"), "").unwrap();
         assert!(keep_state_root(
             &[],
             &env,

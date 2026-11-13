@@ -4,7 +4,7 @@
 pub(crate) fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
     if args.first().is_some_and(|arg| arg == "--no-daemon") {
         args.remove(0);
-        // Fresh defaults and explicit non-workspace modes omit the managed root.
+        // Confirmed read-only/full-access policy omits the managed root.
         // Consume it only when present; scenario arguments remain literal.
         if args.first().is_some_and(|arg| arg == "--add-dir") {
             assert!(

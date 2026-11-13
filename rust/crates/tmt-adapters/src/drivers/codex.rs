@@ -1232,6 +1232,62 @@ mod tests {
     }
 
     #[test]
+    fn default_run_and_exact_resume_keep_the_grant_unless_config_confirms_read_only() {
+        use crate::{
+            runtime::RuntimeCommand, skill_installation::ProviderEnvironment,
+            test_support::TestDirectory,
+        };
+        use std::{ffi::OsString, fs};
+
+        let fixture = TestDirectory::new();
+        let home = fixture.path.join("provider");
+        fs::create_dir(&home).unwrap();
+        let environment = ProviderEnvironment::from_parts(
+            &fixture.path,
+            &fixture.path,
+            Vec::new(),
+            [("CODEX_HOME", home.clone())],
+        );
+        let state = fixture.path.join("state");
+        let session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        for config in [None, Some(""), Some("sandbox_mode = \"read-only\"\n")] {
+            if let Some(config) = config {
+                fs::write(home.join("config.toml"), config).unwrap();
+            }
+            for exact_resume in [false, true] {
+                let mut command = RuntimeCommand {
+                    executable: NAME.into(),
+                    args: if exact_resume {
+                        ["resume", session, "--no-daemon"]
+                            .map(OsString::from)
+                            .to_vec()
+                    } else {
+                        Vec::new()
+                    },
+                };
+                let keep = launch_permissions::keep_state_root(&command.args, &environment, &[]);
+                prepare_managed_launch(&mut command, &state, exact_resume, keep);
+                let mut expected: Vec<OsString> = if exact_resume {
+                    vec!["resume".into()]
+                } else {
+                    vec!["--no-daemon".into()]
+                };
+                if config != Some("sandbox_mode = \"read-only\"\n") {
+                    expected.extend(["--add-dir".into(), state.as_os_str().to_owned()]);
+                }
+                if exact_resume {
+                    expected.extend([session.into(), "--no-daemon".into()]);
+                }
+                assert_eq!(command.args, expected);
+                assert_eq!(
+                    fs::read_to_string(home.join("config.toml")).ok().as_deref(),
+                    config
+                );
+            }
+        }
+    }
+
+    #[test]
     fn sandbox_diagnosis_requires_the_marker_and_does_not_infer_it_from_a_thread() {
         assert!(sandbox_refusal(None).is_none());
         for value in ["", "seatbelt", "other-platform"] {
