@@ -27,7 +27,7 @@
               {
                 "squad": {
                   "name": "tmt-core",
-                  "roomId": "ROOM-SECRET",
+                  "roomId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                   "layout": "team",
                   "lead": {
                     "id": "00000000-0000-4000-8000-000000000001",
@@ -77,6 +77,18 @@
             "you": { "id": "YOU-SECRET", "name": "ben", "source": "recorded" }
           }
         },
+        "ops squad checklist counts --room aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa --json": {
+          "exit": 0,
+          "stdout": {
+            "action": "counts",
+            "room": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "available": true,
+            "members": [
+              { "id": "00000000-0000-4000-8000-000000000001", "open": 2 },
+              { "id": "00000000-0000-4000-8000-000000000002", "open": 0 }
+            ]
+          }
+        },
         "ops squad cron ls --json": {
           "exit": 0,
           "stdout": {
@@ -124,7 +136,7 @@
             "task": "review",
             "waitingOnYou": 0,
             "tokens1d": null,
-            "checklistCount": null,
+            "checklistCount": 2,
             "digest": { "active": false, "remainingMs": 0, "heldCount": 0 },
             "staleness": "fresh"
           },
@@ -143,7 +155,7 @@
             "pending": "approve the plan",
             "waitingOnYou": 2,
             "tokens1d": null,
-            "checklistCount": null,
+            "checklistCount": 0,
             "staleness": "stale"
           }
         ],

@@ -115,6 +115,8 @@ pub const READ_OPS_BYTES: usize = 512 * 1024;
 pub const READ_DIGEST_BYTES: usize = 1024 * 1024;
 pub const READ_LIMITS_BYTES: usize = 512 * 1024;
 pub const READ_OPS_SQUADS: usize = 32;
+/// Bound optional checklist pipe/process pressure within the shared board deadline.
+pub const READ_OPS_CHECKLIST_PARALLEL: usize = 4;
 pub const READ_OPS_AGENTS: usize = 256;
 /// Core's public consumption.history admits at most 32 UUIDs per read. The board
 /// therefore starts at most READ_OPS_AGENTS / READ_OPS_USAGE_IDENTITIES parallel reads.

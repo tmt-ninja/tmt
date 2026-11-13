@@ -34,7 +34,7 @@ it('turns the contract board into rows with uncoloured activity states', () => {
     agents: enriched.agents.map((agent) => ({
       ...agent,
       tokens1d: { tokens: 50, complete: false },
-      checklistCount: null,
+      checklistCount: 5,
     })),
     timers:
       enriched.timers?.map((timer) => ({ ...timer, state: 'paused' as const, nextMs: 123 })) ??
@@ -43,7 +43,14 @@ it('turns the contract board into rows with uncoloured activity states', () => {
   const mapped = answer(withFields as unknown as Record<string, unknown>);
   expect(mapped.defaultIdleAlertMs).toBe(1_200_000);
   expect(mapped.agents[0]!.tokens1d).toEqual({ tokens: 50, complete: false });
-  expect(mapped.agents[0]!.checklistCount).toBeNull();
+  expect(mapped.agents[0]!.checklistCount).toBe(5);
+  for (const count of [null, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, '2']) {
+    const malformed = structuredClone(withFields);
+    (malformed.agents[0] as unknown as { checklistCount: unknown }).checklistCount = count;
+    expect(
+      answer(malformed as unknown as Record<string, unknown>).agents[0]!.checklistCount,
+    ).toBeNull();
+  }
   expect(mapped.schedules![0]!.nextMs).toBeNull();
   expect(mapped.schedules![0]!.state).toBe('paused');
   expect(board.agents).toEqual([
@@ -58,7 +65,7 @@ it('turns the contract board into rows with uncoloured activity states', () => {
       task: 'review',
       waitingOnYou: 0,
       tokens1d: null,
-      checklistCount: null,
+      checklistCount: 2,
     },
     {
       id: '00000000-0000-4000-8000-000000000002',
@@ -74,7 +81,7 @@ it('turns the contract board into rows with uncoloured activity states', () => {
       model: 'sonnet',
       waitingOnYou: 2,
       tokens1d: null,
-      checklistCount: null,
+      checklistCount: 0,
     },
   ]);
   expect(board.schedules).toEqual([

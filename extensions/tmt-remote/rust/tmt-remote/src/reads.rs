@@ -236,13 +236,48 @@ impl Reads {
                 // select telemetry; no new roster/config/provider reader is introduced.
                 let roster = ops::project(&board, None, None).ok_or(Reason::ReadFailed)?;
                 let mut seen = std::collections::HashSet::new();
-                let ids: Vec<String> = roster["agents"]
+                let ids: Vec<String> = roster.payload["agents"]
                     .as_array()
                     .expect("projected agents")
                     .iter()
                     .filter_map(|agent| agent["id"].as_str())
                     .filter(|id| crate::canonical::is_core_id(id) && seen.insert((*id).to_owned()))
                     .map(str::to_owned)
+                    .collect();
+                // One read per admitted squad room (at most READ_OPS_SQUADS), never
+                // --member or the list reader. Every source shares this read's deadline.
+                // Keep pipe descriptors bounded even at the 32-room board cap.
+                let rooms_per_worker = roster
+                    .checklist_rooms
+                    .len()
+                    .div_ceil(limits::READ_OPS_CHECKLIST_PARALLEL)
+                    .max(1);
+                let checklists: Vec<_> = roster
+                    .checklist_rooms
+                    .chunks(rooms_per_worker)
+                    .map(|rooms| {
+                        let rooms = rooms.to_vec();
+                        scope.spawn(move || {
+                            rooms
+                                .into_iter()
+                                .map(|room| {
+                                    let answer = self.json(
+                                        &[
+                                            "ops",
+                                            "squad",
+                                            "checklist",
+                                            "counts",
+                                            "--room",
+                                            &room.room_id,
+                                            "--json",
+                                        ],
+                                        deadline,
+                                    );
+                                    (room, answer)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
                     .collect();
                 let usage: Vec<_> = ids
                     .chunks(limits::READ_OPS_USAGE_IDENTITIES)
@@ -262,7 +297,8 @@ impl Reads {
                 let settings = settings.join().ok().and_then(Result::ok);
                 let rooms = rooms.join().ok().flatten();
                 let mut payload = ops::project(&board, timers.as_ref(), rooms.as_ref())
-                    .ok_or(Reason::ReadFailed)?;
+                    .ok_or(Reason::ReadFailed)?
+                    .payload;
                 let idle = settings.as_ref().and_then(ops::idle_default);
                 payload.insert(
                     "defaultIdleAlertMs".into(),
@@ -279,6 +315,24 @@ impl Reads {
                             if ids.iter().any(|selected| selected == id) {
                                 agent["tokens1d"] =
                                     ops::tokens1d(&document, id).unwrap_or(Value::Null);
+                            }
+                        }
+                    }
+                }
+                for worker in checklists {
+                    for (room, answer) in worker.join().unwrap_or_default() {
+                        if let Ok(document) = answer {
+                            for agent in payload
+                                .get_mut("agents")
+                                .and_then(Value::as_array_mut)
+                                .expect("projected agents")
+                            {
+                                if agent["squad"] == room.squad {
+                                    let id = agent["id"].as_str().expect("projected identity");
+                                    agent["checklistCount"] =
+                                        ops::checklist_count(&document, &room.room_id, id)
+                                            .map_or(Value::Null, |open| json!(open));
+                                }
                             }
                         }
                     }

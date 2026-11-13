@@ -257,9 +257,94 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
     assert_eq!(unknown["state"], "ok");
     assert!(unknown["defaultIdleAlertMs"].is_null());
     assert!(unknown["timers"][0]["state"].is_null());
+    let count_argv = format!("ops squad checklist counts --room {room_id} --json");
+    let counts = json!({"action":"counts", "room":room_id, "available":true,
+        "members":[{"id":"00000000-0000-4000-8000-000000000001","open":2},
+                   {"id":"00000000-0000-4000-8000-000000000002","open":0}]});
+    fake.answer(&count_argv, &counts.to_string());
+    // Checklist observations do not depend on Core's optional composer revision.
+    fake.set("room list --json", "exit", "1");
+    let counted = body(&fake.reads(), Target::Ops);
+    assert!(counted["squads"][0]["room"].is_null());
+    assert_eq!(counted["agents"][0]["checklistCount"], 2);
+    assert_eq!(counted["agents"][1]["checklistCount"], 0);
+    for reason in [
+        "no-person",
+        "core-unsupported",
+        "member-unavailable",
+        "room-unavailable",
+        "future",
+    ] {
+        let mut refused = counts.clone();
+        refused["members"][0]["reason"] = json!(reason);
+        fake.answer(&count_argv, &refused.to_string());
+        let projected = body(&fake.reads(), Target::Ops);
+        assert!(projected["agents"][0]["checklistCount"].is_null());
+        assert_eq!(projected["agents"][1]["checklistCount"], 0);
+        refused = counts.clone();
+        refused["available"] = json!(false);
+        refused["reason"] = json!(reason);
+        fake.answer(&count_argv, &refused.to_string());
+        let projected = body(&fake.reads(), Target::Ops);
+        assert!(
+            projected["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|agent| agent["checklistCount"].is_null())
+        );
+    }
+    for invalid in [
+        json!(-1),
+        json!(0.5),
+        json!(9007199254740992u64),
+        Value::Null,
+    ] {
+        let mut malformed = counts.clone();
+        malformed["members"][0]["open"] = invalid;
+        fake.answer(&count_argv, &malformed.to_string());
+        assert!(body(&fake.reads(), Target::Ops)["agents"][0]["checklistCount"].is_null());
+    }
+    for malformed in [
+        json!({"action":"counts","room":"other","available":true,"members":counts["members"]}),
+        json!({"action":"ls","room":room_id,"available":true,"members":counts["members"]}),
+        json!({"action":"counts","room":room_id,"available":true,"members":[]}),
+        json!({"action":"counts","room":room_id,"available":true,"members":[counts["members"][0],counts["members"][0]]}),
+    ] {
+        fake.answer(&count_argv, &malformed.to_string());
+        assert!(body(&fake.reads(), Target::Ops)["agents"][0]["checklistCount"].is_null());
+    }
+    // The same member in two rooms has independent counts; a failed room call
+    // (including an older Ops' unknown command) never blanks the other room.
+    let second_room = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let mut two = with_room.clone();
+    let mut second = two["squads"][0].clone();
+    second["squad"]["name"] = json!("tmt-other");
+    second["squad"]["roomId"] = json!(second_room);
+    two["squads"].as_array_mut().unwrap().push(second);
+    fake.answer(LS, &two.to_string());
+    fake.answer(&count_argv, &counts.to_string());
+    let second_argv = format!("ops squad checklist counts --room {second_room} --json");
+    fake.answer(
+        &second_argv,
+        &json!({"action":"counts","room":second_room,"available":true,
+        "members":[{"id":"00000000-0000-4000-8000-000000000001","open":7}]})
+        .to_string(),
+    );
+    let independent = body(&fake.reads(), Target::Ops);
+    assert_eq!(independent["agents"][0]["checklistCount"], 2);
+    assert_eq!(independent["agents"][2]["checklistCount"], 7);
+    fake.set(&second_argv, "exit", "1");
+    fake.answer(&second_argv, r#"{"error":{"code":"USAGE_ERROR"}}"#);
+    let failed_room = body(&fake.reads(), Target::Ops);
+    assert_eq!(failed_room["state"], "ok");
+    assert_eq!(failed_room["agents"][0]["checklistCount"], 2);
+    assert!(failed_room["agents"][2]["checklistCount"].is_null());
     assert!(
-        fake.calls().iter().all(|argv| !argv.contains("checklist")),
-        "no per-member or effectful checklist read"
+        fake.calls()
+            .iter()
+            .filter(|argv| argv.contains("checklist"))
+            .all(|argv| argv == &count_argv || argv == &second_argv)
     );
 
     // The board cap needs at most eight 32-UUID Core reads, never per-member calls.
@@ -367,6 +452,7 @@ fn the_board_is_capped_by_squads_agents_and_timers_and_says_so() {
     for index in 0..limits::READ_OPS_SQUADS + 3 {
         let mut squad = one.clone();
         squad["squad"]["name"] = json!(format!("s{index}"));
+        squad["squad"]["roomId"] = json!(format!("aaaaaaaa-aaaa-4aaa-8aaa-{index:012x}"));
         many.push(squad);
     }
     fake.answer(LS, &json!({"squads": many}).to_string());
@@ -389,6 +475,17 @@ fn the_board_is_capped_by_squads_agents_and_timers_and_says_so() {
     );
     assert!(document["agents"].as_array().unwrap().len() <= limits::READ_OPS_AGENTS);
     assert_eq!(document["truncated"], true);
+    let calls = fake.calls();
+    let checklist: Vec<_> = calls
+        .iter()
+        .filter(|argv| argv.contains("checklist"))
+        .collect();
+    assert_eq!(checklist.len(), limits::READ_OPS_SQUADS);
+    for index in 0..limits::READ_OPS_SQUADS {
+        assert!(checklist.contains(&&format!(
+            "ops squad checklist counts --room aaaaaaaa-aaaa-4aaa-8aaa-{index:012x} --json"
+        )));
+    }
 }
 
 #[test]
