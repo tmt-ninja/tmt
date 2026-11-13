@@ -276,14 +276,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 table(frame, app, snapshot, top);
             }
+            // A folded Talks is its rule alone, so a blank row parts it from the Jobs rule below
+            // even when nothing else is parted: every boundary is a blank row, then one rule.
+            let jobs_gap = if talks_folded && full[2] > 0 { 1 } else { gap };
             // The stack takes what the first section left, up to its lines, after the rows Talks
             // and Jobs keep below it.
             let stack_y = top.bottom() + gap * stack_gap;
-            let tail = [1, 2]
-                .into_iter()
-                .filter(|index| full[*index] > 0)
-                .map(|index| sizes[index] + gap)
-                .sum::<u16>();
+            let tail = (if full[1] > 0 { sizes[1] + gap } else { 0 })
+                + (if full[2] > 0 { sizes[2] + jobs_gap } else { 0 });
             let stack_area = Rect::new(
                 list.x,
                 stack_y,
@@ -311,7 +311,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     focused_rule = line(talk_area, talk_area.y);
                 }
             }
-            let job_y = talk_area.bottom() + if full[2] > 0 { gap } else { 0 };
+            // With no row left for that blank row, the lower folded rule goes; the totals line
+            // still says Tab opens it.
+            let job_y = talk_area.bottom() + if full[2] > 0 { jobs_gap } else { 0 };
             let job_area = Rect::new(
                 list.x,
                 job_y,
