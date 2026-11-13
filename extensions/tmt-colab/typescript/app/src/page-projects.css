@@ -129,13 +129,16 @@
 }
 /* A phone bar (≤900px) keeps only the title: the leaf hides the chips slot, but the page's picker,
    New project dialog and failure notice still open from More, so the slot stays laid out and only
-   the group, the pin and the caption are hidden. Stacked phone rows retain their project disclosure. */
+   the group, the pin and the other chips (Template, sub-pages, the caption) are hidden (#6359).
+   Name each chip: the dialog is a sibling in the slot. Stacked phone rows retain their project
+   disclosure. */
 @media (max-width: 900px) {
   .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.page-header-projects) {
     display: contents;
   }
   .tmt-ui-topbar-title-chips :is(.page-project-group[data-location='header'], .page-header-pin),
-  .tmt-ui-topbar-title-chips:has(.page-header-projects) > .tmt-ui-caption {
+  .tmt-ui-topbar-title-chips:has(.page-header-projects)
+    :is(.template-badge, .page-hierarchy-subpages, .tmt-ui-caption) {
     display: none;
   }
   /* The hidden group's anchor takes no room in the title; More's anchor is fixed and the picker

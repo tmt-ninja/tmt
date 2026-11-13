@@ -65,19 +65,27 @@ for (const renderer of ['react', 'native', 'hosted'])
             : page
                 .locator('nav.tmt-ui-rail')
                 .getByRole('button', { name: 'Search TMT', exact: true });
+        await expect(search).toHaveAttribute('aria-haspopup', 'dialog');
         await search.click();
         const dialog = page.getByRole('dialog', { name: 'Search TMT', exact: true });
         await expect(dialog).toBeVisible();
+        // The root reports its dialog's state; both Search buttons mirror it (#5253).
+        const searchButtons = page.getByRole('button', { name: 'Search TMT', exact: true });
+        for (const button of await searchButtons.all())
+          await expect(button).toHaveAttribute('aria-expanded', 'true');
         await expect(
           dialog.getByRole('button', { name: 'Colab pages', exact: true }),
         ).toBeVisible();
         await page.keyboard.press('Escape');
         await expect(search).toBeFocused();
+        await expect(search).toHaveAttribute('aria-expanded', 'false');
         await page.keyboard.press(await shortcut(page));
+        await expect(search).toHaveAttribute('aria-expanded', 'true');
         await dialog.getByLabel('Search', { exact: true }).fill('digest');
         await expect(dialog.getByRole('button', { name: 'Digest', exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
         await expect(search).toBeFocused();
+        await expect(search).toHaveAttribute('aria-expanded', 'false');
         const frames = await focusFrames(page, '.tmt-ui-topbar');
         expect(frames.checked).toBeGreaterThan(2);
         expect(frames.clipped).toEqual([]);
