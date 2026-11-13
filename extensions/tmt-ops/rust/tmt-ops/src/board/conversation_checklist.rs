@@ -11,6 +11,7 @@ mod draft;
 mod summary;
 pub(in crate::board) use summary::{Counts, Summary, Total, open_item};
 pub(in crate::board) mod overlay;
+mod page;
 mod rows;
 mod surface;
 mod work;
@@ -140,6 +141,15 @@ struct Entry {
     writing: bool,
 }
 
+pub(in crate::board) const ASK_TEXT: &str = "Please review and update your checklist. You may complete any item, including those added by others, and add new items. In your reply, list what you changed.";
+
+#[derive(Debug, Clone)]
+pub(super) enum AskState {
+    Sending { sender: String },
+    Waiting { sender: String, request: String },
+    Updated { at_ms: u64 },
+}
+
 /// A board built without a lane (a test, a preview) reads nothing; the running board is
 /// started with [`State::enable`].
 #[derive(Default)]
@@ -155,9 +165,77 @@ pub(in crate::board) struct State {
     total: Option<Total>,
     /// An unsent form outlives the overlay that showed it.
     drafts: BTreeMap<Key, Draft>,
+    asks: BTreeMap<String, AskState>,
 }
 
 impl State {
+    pub(in crate::board) fn ask_finished(
+        &mut self,
+        recipient: &str,
+        outcome: &Result<crate::send::Accepted, crate::core::SquadError>,
+    ) {
+        let Some(AskState::Sending { sender }) = self.asks.remove(recipient) else {
+            return;
+        };
+        if let Ok(accepted) = outcome
+            && accepted.disposition != crate::send::Disposition::Uncertain
+        {
+            self.asks.insert(
+                recipient.into(),
+                AskState::Waiting {
+                    sender,
+                    request: accepted.request.clone(),
+                },
+            );
+        }
+    }
+
+    pub(in crate::board) fn awaiting_ask(&self, sender: &str, recipient: &str) -> bool {
+        matches!(self.asks.get(recipient), Some(AskState::Waiting { sender: expected, .. }) if expected == sender)
+    }
+
+    pub(in crate::board) fn observe_ask_finals(
+        &mut self,
+        sender: &str,
+        recipient: &str,
+        replies: &[serde_json::Value],
+    ) {
+        let Some(AskState::Waiting {
+            sender: expected,
+            request,
+        }) = self.asks.get(recipient)
+        else {
+            return;
+        };
+        if expected != sender {
+            return;
+        }
+        let Some(at_ms) = replies
+            .iter()
+            .find(|reply| {
+                reply["recipientId"].as_str() == Some(recipient)
+                    && reply["requestId"].as_str() == Some(request.as_str())
+                    && reply["response"].as_str().is_some()
+            })
+            .and_then(|reply| reply["submittedAtMs"].as_u64())
+        else {
+            return;
+        };
+        self.asks
+            .insert(recipient.into(), AskState::Updated { at_ms });
+    }
+
+    pub(super) fn ask_caption(&self, recipient: &str, name: &str, now_ms: u64) -> String {
+        match self.asks.get(recipient) {
+            None => format!("U  Ask {name} to update"),
+            Some(AskState::Sending { .. }) => "Sending…".into(),
+            Some(AskState::Waiting { .. }) => "◆ asked · waiting".into(),
+            Some(AskState::Updated { at_ms }) => {
+                format!("✓ updated {} ago", crate::requests::age(now_ms, *at_ms))
+            }
+        }
+    }
+
     /// Unchanged rosters compare borrowed UUIDs without rebuilding the admission inventory.
     pub fn observe_roster<'a>(
         &mut self,

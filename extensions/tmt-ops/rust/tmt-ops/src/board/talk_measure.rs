@@ -43,6 +43,7 @@ pub(in crate::board) fn paint(
         let (action, preferred) = match tab {
             RightTab::Talk => (crate::action::OpsUiAction::PaneTalk, "T"),
             RightTab::Measure => (crate::action::OpsUiAction::PaneMeasure, "M"),
+            RightTab::Checklist => unreachable!("Checklist is painted by its own control"),
         };
         let cap =
             keycap::key(app, action, preferred).map(|key| keycap::control_span(app, &key, action));

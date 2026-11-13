@@ -53,7 +53,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 
 #[test]
 fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
-    let (mut app, _) = read_with(vec![todo(1)]);
+    let (mut app, key) = read_with(vec![todo(1), done(2)]);
     press(&mut app, KeyCode::Enter);
     assert!(app.input.is_some(), "Talk opens the editor");
     type_text(&mut app, "draft words");
@@ -63,6 +63,97 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     assert!(paint(&app).contains("^L"));
     press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
     assert!(app.notes_overlay.is_some(), "Ctrl+L opens member Checklist");
+    let checklist_page = paint(&app);
+    assert!(
+        checklist_page.contains("Todo · 1"),
+        "Checklist is a right-pane page: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("Done · 1"),
+        "done items remain visible: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("✓ item 2"),
+        "done rows have a mark: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("SQUAD / AGENT"),
+        "the tree stays visible"
+    );
+    assert!(checklist_page.contains("U  Ask worker to update"));
+    let ask = press(&mut app, KeyCode::Char('U'));
+    let Effect::Act(Request::ChecklistAsk {
+        sender,
+        recipient,
+        squad,
+        name,
+    }) = ask
+    else {
+        panic!("U must request a checklist update: {ask:?}");
+    };
+    assert_eq!(name, "worker");
+    assert_eq!(squad, "product");
+    assert_eq!(recipient, key.member().unwrap());
+    assert_eq!(
+        super::super::ASK_TEXT,
+        "Please review and update your checklist. You may complete any item, including those added by others, and add new items. In your reply, list what you changed."
+    );
+    app.finished_send(crate::board::conversation::outgoing::Completed {
+        ticket: None,
+        outcome: Ok(crate::send::Accepted {
+            request: "req_checklist".into(),
+            disposition: crate::send::Disposition::Sent,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: false,
+            fallback: None,
+            warning: None,
+        }),
+        what: format!("Checklist update/{recipient}"),
+        to: name,
+    });
+    assert!(paint(&app).contains("asked · waiting"));
+    let finals = crate::board::home_leads::FinalsKey {
+        sender: sender.clone(),
+        agent: recipient.clone(),
+    };
+    app.apply_finals(
+        finals.clone(),
+        Ok(vec![serde_json::json!({
+            "requestId": "some-other-request", "recipientId": recipient,
+            "response": "done", "submittedAtMs": crate::status::now_ms() - 120_000,
+        })]),
+    );
+    assert!(paint(&app).contains("asked · waiting"));
+    app.apply_finals(
+        finals,
+        Ok(vec![serde_json::json!({
+            "requestId": "req_checklist", "recipientId": recipient,
+            "response": "completed one item", "submittedAtMs": crate::status::now_ms() - 120_000,
+        })]),
+    );
+    assert!(paint(&app).contains("updated 2m ago"));
+    assert!(matches!(
+        press(&mut app, KeyCode::Char('U')),
+        Effect::Act(Request::ChecklistAsk { .. })
+    ));
+    app.finished_send(crate::board::conversation::outgoing::Completed {
+        ticket: None,
+        outcome: Ok(crate::send::Accepted {
+            request: "req_uncertain".into(),
+            disposition: crate::send::Disposition::Uncertain,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: false,
+            fallback: None,
+            warning: None,
+        }),
+        what: format!("Checklist update/{recipient}"),
+        to: "worker".into(),
+    });
+    assert!(paint(&app).contains("U  Ask worker to update"));
     press(&mut app, KeyCode::Esc);
     let input = app.input.as_ref().expect("Esc returns to the editor");
     assert_eq!(input.text.to_string(), before);
@@ -97,6 +188,54 @@ fn authored_ctrl_l_wins_over_checklist_while_composing() {
         "authored key must not open Checklist"
     );
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Measure);
+    app.open_notes_from_input();
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert(
+            "U".into(),
+            crate::action::Action::parse("pane-measure").unwrap(),
+        );
+    }
+    press(&mut app, KeyCode::Char('U'));
+    assert_eq!(
+        app.right_tab,
+        crate::board::shell::RightTab::Measure,
+        "authored U wins over the update request"
+    );
+    assert!(app.notes.asks.is_empty());
+    app.open_notes_from_input();
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert(
+            "u".into(),
+            crate::action::Action::parse("pane-measure").unwrap(),
+        );
+    }
+    press(&mut app, KeyCode::Char('u'));
+    assert_eq!(
+        app.right_tab,
+        crate::board::shell::RightTab::Measure,
+        "lowercase u keeps its authored action"
+    );
+    assert!(app.notes.asks.is_empty());
 }
 
 #[test]

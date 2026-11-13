@@ -819,6 +819,15 @@ impl App {
     }
 
     pub(in crate::board) fn finished_send(&mut self, completed: Completed) {
+        if let Some(recipient) = completed.what.strip_prefix("Checklist update/") {
+            self.notes.ask_finished(recipient, &completed.outcome);
+            let notice = completed.outcome.as_ref().map_or_else(
+                |error| error.message.clone(),
+                |accepted| accepted.describe("Checklist update", &completed.to),
+            );
+            self.set_notice(Some(notice), false);
+            return;
+        }
         let Some(ticket) = completed.ticket.as_ref() else {
             self.set_notice(Some(completed.notice()), false);
             return;

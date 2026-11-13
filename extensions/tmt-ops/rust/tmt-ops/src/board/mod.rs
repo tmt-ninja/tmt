@@ -597,6 +597,27 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 },
             )));
         }
+        Request::ChecklistAsk {
+            sender,
+            recipient,
+            squad,
+            name,
+        } => {
+            return Ok(ActionOutcome::Send(Box::new(
+                conversation::outgoing::Completed {
+                    ticket: None,
+                    outcome: send::talk(
+                        core,
+                        &squad,
+                        &sender,
+                        &recipient,
+                        conversation_checklist::ASK_TEXT,
+                    ),
+                    what: format!("Checklist update/{recipient}"),
+                    to: name,
+                },
+            )));
+        }
         Request::Chat {
             sender,
             recipient,

@@ -26,6 +26,7 @@ pub enum RightTab {
     #[default]
     Talk,
     Measure,
+    Checklist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

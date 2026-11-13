@@ -641,7 +641,8 @@ impl App {
     pub(in crate::board) fn conversation_finals(&self) -> Option<FinalsKey> {
         if self.loading()
             || !self.pane_output_enabled()
-            || !self.scrolls.visible(crate::config::Pane::Replies)
+            || (!self.scrolls.visible(crate::config::Pane::Replies)
+                && self.right_tab != crate::board::shell::RightTab::Checklist)
         {
             return None;
         }
@@ -716,6 +717,11 @@ impl App {
     pub(super) fn observe_cursor(&mut self, cursor: Option<u64>) {
         let unchanged = cursor.is_some() && cursor == self.row_details.source_cursor;
         self.row_details.source_cursor = cursor;
+        if !unchanged {
+            self.row_details
+                .agent_finals
+                .retain(|(key, _)| !self.notes.awaiting_ask(&key.sender, &key.agent));
+        }
         if !unchanged || self.shown_send_is_time_derived() {
             self.refresh_sent();
         }
@@ -762,6 +768,10 @@ impl App {
             .push((key, result.unwrap_or_default()));
     }
     pub(super) fn apply_finals(&mut self, key: FinalsKey, result: Result<Vec<Value>, String>) {
+        if let Ok(replies) = &result {
+            self.notes
+                .observe_ask_finals(&key.sender, &key.agent, replies);
+        }
         if self.conversation_finals().as_ref() != Some(&key) {
             return;
         }
