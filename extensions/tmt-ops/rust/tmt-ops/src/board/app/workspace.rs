@@ -158,8 +158,15 @@ impl App {
         &self,
         row: &OpsTreeRow,
     ) -> Option<crate::board::activity::Label> {
-        let label =
-            self.activity_label_at(row, std::time::Instant::now(), crate::status::now_ms())?;
+        self.activity_label_in_frame(row, std::time::Instant::now(), crate::status::now_ms())
+    }
+    pub(in crate::board) fn activity_label_in_frame(
+        &self,
+        row: &OpsTreeRow,
+        now: std::time::Instant,
+        now_ms: u64,
+    ) -> Option<crate::board::activity::Label> {
+        let label = self.activity_label_at(row, now, now_ms)?;
         self.admit_activity_clock(label.at);
         Some(label)
     }
@@ -330,22 +337,29 @@ impl App {
     }
     /// The list-price estimate of the input tokens of `ids` in the shared TOK range, as a
     /// TOK cell: complete prices or explicitly partial prices over fully covered hours.
-    pub(in crate::board) fn tok_money_text(&self, ids: &[&str]) -> String {
+    pub(in crate::board) fn tok_money_reading(&self, ids: &[&str]) -> Option<(u64, bool)> {
         use crate::board::usage_report::{View, valuation};
         let report = match self.usage_report.view_for(self.tok_range()) {
             View::Report(report) => Some(report),
             View::Loading | View::Failed(_) => None,
         };
-        if let Some(value) = valuation::input_price(self, report, ids) {
-            return crate::board::savings::usd_compact(value);
-        }
-        valuation::partial_input_price(self, report, ids).map_or_else(
+        valuation::input_price(self, report, ids)
+            .map(|value| (value, false))
+            .or_else(|| {
+                valuation::partial_input_price(self, report, ids).map(|(value, _, _)| (value, true))
+            })
+    }
+    #[cfg(test)]
+    pub(in crate::board) fn tok_money_text(&self, ids: &[&str]) -> String {
+        self.tok_money_reading(ids).map_or_else(
             || "—".into(),
-            |(value, _, _)| {
-                format!(
-                    "~{}",
-                    crate::board::savings::usd_compact(value).trim_start_matches('≈')
-                )
+            |(value, partial)| {
+                let text = crate::board::savings::usd_compact(value);
+                if partial {
+                    format!("~{}", text.trim_start_matches('≈'))
+                } else {
+                    text
+                }
             },
         )
     }

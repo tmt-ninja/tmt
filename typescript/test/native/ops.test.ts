@@ -6779,10 +6779,13 @@ describe('send now chip', () => {
           `exec env -u NO_COLOR ${shellQuote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
         ]);
         tmux(['send-keys', '-t', pane, 'Enter']);
-        await vi.waitFor(() => expect(screen()).toContain('SQUAD / AGENT'), {
-          timeout: 30_000,
-          interval: 50,
-        });
+        await vi.waitFor(
+          () =>
+            expect(screen()).toMatch(
+              /SQUAD \/ AGENT[^\n]*STATE\s+ACTIVITY 1h\s+TOK\/min\s+TOK 1h\s+◷/
+            ),
+          { timeout: 30_000, interval: 50 }
+        );
         tmux(['send-keys', '-t', pane, 'Right']);
         await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
           timeout: 10_000,

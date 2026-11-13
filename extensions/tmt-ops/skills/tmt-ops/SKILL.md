@@ -504,17 +504,17 @@ to retry. A newer answer revision stays unread until that answer is seen. Existi
 local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
 keeping a capture settled after the cutoff unread.
 
-The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and MODEL. A Muted `*`
-directly before the name marks a lead. Model cells show the observed completed-turn
-model, falling back to the session-start model, only with a running driver; a leading
-`claude-` is omitted and unknown is `—`. Narrow tables drop the whole model column
-before TOK 1h; long models end in `…`. Member token values and squad sums use
-the same observed hour. ◷ is the total **timers owned** by that member in the row's
+The Agents tree shows SQUAD / AGENT, STATE, HOST, ACTIVITY 1h, TOK/min,
+TOK for the selected range, and ◷ when space permits. A Muted `*` before a name
+marks a lead. Activity uses twelve five-minute cells. TOK/min always shows tokens,
+including in cost mode; the TOK range column switches between tokens and cost.
+Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
+Narrow tables drop HOST, ACTIVITY and TOK/min in that order. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
 appear in selection-driven focus. Working has a green mark and bright text; idle
 rows are dim. Unread, idle-alert and blocked marks retain their colours. Selected
 rows keep the neutral selection background or NO_COLOR reverse cue. Search sits
-above the squad tree; Common pool comes first, then the selected sort order.
+on the `Squads` rule above the squad tree; Common pool comes first, then the selected sort order.
 The optional HOST column shows the observed host and host session. The member
 session dialog keeps remembered-session details. `v` opens the reply reader.
 `/` edits the retained query and filters live; Up/Down move between matches.
@@ -1410,11 +1410,10 @@ The scan needs an Ops worker: an open board or `tmt ops sq cron run` in a pane.
 It stays active when another Core clock holds scheduling. A Core-only timer runs jobs,
 Digest and capture without Ops idle alerts.
 
-In Agents, the squad row's MODEL / ALERT cell shows `◷ 30m` when enabled or `○ off`
-when disabled; Common pool has no setting. Hover highlights the editable cell. Click it, or
-use squad `e` to edit Idle alert and After together with the squad's name and visibility.
-The cell's quick Idle alert editor remains available; a flat-list member in several
-squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
+In Agents, the selected squad's detail pane shows `Idle alert  ◷ 30m` when enabled
+or `Idle alert  ○ off` when disabled; Common pool has no setting. Click the control
+for its quick editor, or use squad `e` to edit Idle alert and After together with the
+squad's name and visibility. Authored bindings take precedence. Use On/Off chips, type After or
 choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
 no longer count as over. Invalid times refuse Save; Esc/Cancel saves nothing and keeps an
 unsaved change, which the same key reopens with Discard to drop it. Esc during a save hides the dialog;

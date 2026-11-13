@@ -16,9 +16,12 @@ pub(crate) struct Counters {
 struct Field {
     counter: Counter,
     partial: bool,
+    money: bool,
     requested: bool,
     visible: Option<Visible>,
     next_visible: Option<Visible>,
+    live_last: Option<(u128, bool)>,
+    emphasis_until: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -29,10 +32,30 @@ struct Visible {
     body: bool,
 }
 
+impl Field {
+    fn text(&self) -> String {
+        if !self.money {
+            return self.counter.digits(self.partial);
+        }
+        self.counter.displayed().map_or_else(
+            || "—".into(),
+            |micros| {
+                let text =
+                    crate::board::savings::usd_compact(micros.min(u128::from(u64::MAX)) as u64);
+                if self.partial {
+                    format!("~{}", text.trim_start_matches('≈'))
+                } else {
+                    text
+                }
+            },
+        )
+    }
+}
+
 impl Visible {
     fn text(&self, field: &Field) -> String {
         tmt_tui::text::fit_line(
-            &format!("{}{}", self.prefix, field.counter.digits(field.partial)),
+            &format!("{}{}", self.prefix, field.text()),
             self.area.width,
             TextFlow::Truncate,
             self.align,
@@ -62,9 +85,12 @@ impl Counters {
         let field = self.fields.entry(key).or_insert_with(|| Field {
             counter: Counter::default(),
             partial: false,
+            money: false,
             requested: false,
             visible: None,
             next_visible: None,
+            live_last: None,
+            emphasis_until: None,
         });
         field.requested = true;
         field.partial = reading.is_some_and(|reading| reading.partial);
@@ -77,16 +103,63 @@ impl Counters {
         field.counter.digits(field.partial)
     }
 
+    /// The live row's digits and whether their recent change is emphasized.
+    pub(crate) fn live_digits(
+        &mut self,
+        key: String,
+        reading: Option<Reading>,
+        reduced: bool,
+        now: Instant,
+    ) -> (String, bool) {
+        let prior = self.fields.get(&key).and_then(|field| field.live_last);
+        let visible = self
+            .fields
+            .get(&key)
+            .is_some_and(|field| field.visible.is_some());
+        let current = reading.map(|reading| (reading.tokens, reading.partial));
+        let digits = self.digits(key.clone(), reading, reduced, now);
+        let field = self.fields.get_mut(&key).expect("requested counter cell");
+        if reduced || !visible || current.is_none() {
+            field.emphasis_until = None;
+        } else if prior.is_some() && prior != current {
+            field.emphasis_until = Some(now + Duration::from_secs(2));
+        }
+        field.live_last = current;
+        (
+            digits,
+            field.emphasis_until.is_some_and(|until| now < until),
+        )
+    }
+
+    /// Price remains based on the held report; only its displayed digits move.
+    pub(crate) fn live_money(
+        &mut self,
+        key: String,
+        price: Option<(u64, bool)>,
+        reduced: bool,
+        now: Instant,
+    ) -> (String, bool) {
+        let reading = price.map(|(micros, partial)| Reading {
+            tokens: u128::from(micros),
+            partial,
+            span: 0,
+        });
+        let (_, bold) = self.live_digits(key.clone(), reading, reduced, now);
+        let field = self.fields.get_mut(&key).expect("requested counter cell");
+        field.money = true;
+        (field.text(), bold)
+    }
+
     /// Fit motion to the painter's admitted numeric budget.
     /// An animated value that outgrows that cell settles instead of moving its
     /// neighbours or showing a truncated token total.
     pub(crate) fn admitted_digits(&mut self, key: &str, width: u16) -> String {
         let field = self.fields.get_mut(key).expect("requested counter cell");
-        let digits = field.counter.digits(field.partial);
+        let digits = field.text();
         if unicode_width::UnicodeWidthStr::width(digits.as_str()) > usize::from(width) {
             field.counter.stop();
         }
-        field.counter.digits(field.partial)
+        field.text()
     }
 
     /// The painter supplies its admitted cell after normal geometry/scrolling.
@@ -133,6 +206,7 @@ impl Counters {
             });
             if field.visible.is_none() {
                 field.counter.stop();
+                field.emphasis_until = None;
             }
         }
     }
@@ -141,6 +215,10 @@ impl Counters {
         let mut changed = false;
         for field in self.fields.values_mut() {
             if let Some(visible) = field.visible.clone() {
+                if field.emphasis_until.is_some_and(|until| now >= until) {
+                    field.emphasis_until = None;
+                    changed = true;
+                }
                 let before = visible.text(field);
                 field.counter.tick(now);
                 changed |= before != visible.text(field);
@@ -153,7 +231,18 @@ impl Counters {
         self.fields
             .values()
             .filter(|field| field.visible.is_some())
-            .filter_map(|field| field.counter.wait(now))
+            .filter_map(|field| {
+                field
+                    .counter
+                    .wait(now)
+                    .into_iter()
+                    .chain(
+                        field
+                            .emphasis_until
+                            .map(|until| until.saturating_duration_since(now)),
+                    )
+                    .min()
+            })
             .min()
     }
 }

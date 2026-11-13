@@ -3,6 +3,7 @@
 
 pub(crate) mod activity;
 mod agents_focus;
+mod agents_live;
 mod app;
 mod buttons;
 mod changes;
@@ -3437,6 +3438,104 @@ print(json.dumps(out))
         )
         .unwrap_err();
         assert_eq!(error.to_string(), "terminal gone");
+    }
+
+    #[test]
+    fn home_usage_receipt_paints_the_new_member_rate_on_the_next_draw() {
+        fn input(tokens: u64) -> rate::Input {
+            let mut input = rate::tests::input(tokens);
+            let member = app::workspace::tests::MEMBER.to_owned();
+            let resume = input.resumes.remove("a").unwrap();
+            input.resumes.insert(member.clone(), resume);
+            input.names.remove("a");
+            input.names.insert(member, "worker".into());
+            input
+        }
+
+        let mut app = app::workspace::tests::board();
+        let initial = input(100);
+        let settings = crate::config::TokenRate {
+            enabled: true,
+            ..Default::default()
+        };
+        let view = app.view.as_mut().unwrap();
+        view.refresh = None;
+        view.home_rate.insert(
+            "product".into(),
+            app::RateView {
+                input: initial.clone(),
+                settings,
+                history: None,
+            },
+        );
+        app.seed_home_meter_for_test(
+            "product",
+            meter::Meter::new(settings, &initial, Instant::now() - Duration::from_secs(10)),
+        );
+        let (events, receiver) = channel();
+        let loads = std::cell::Cell::new(0);
+        let draws = std::cell::Cell::new(0);
+        let baseline = std::cell::Cell::new(0);
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(240, 40)).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &receiver,
+            |_, _, _, _| loads.set(loads.get() + 1),
+            |_, _| {},
+            |_| {},
+            |_| {},
+            |app| {
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                let count = draws.get();
+                draws.set(count + 1);
+                if count == 0 {
+                    baseline.set(loads.get());
+                    events
+                        .send(BoardEvent::HomeUsage {
+                            cancellation: crate::runner::Cancellation::default(),
+                            input: Ok(input(200).resumes),
+                            limits: None,
+                        })
+                        .unwrap();
+                } else {
+                    let buffer = terminal.backend().buffer();
+                    let rows: Vec<_> = buffer.content.chunks(240).collect();
+                    let header = rows
+                        .iter()
+                        .find(|cells| {
+                            cells.windows(7).any(|part| {
+                                part.iter().map(|cell| cell.symbol()).collect::<String>()
+                                    == "TOK/min"
+                            })
+                        })
+                        .expect("visible per-minute heading");
+                    let start = header
+                        .windows(7)
+                        .position(|part| {
+                            part.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min"
+                        })
+                        .unwrap();
+                    let row = rows
+                        .iter()
+                        .find(|cells| {
+                            let text: String = cells.iter().map(|cell| cell.symbol()).collect();
+                            text.contains("└ worker") && text.contains("working")
+                        })
+                        .expect("visible worker row");
+                    let value: String = row[start..start + 7]
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect();
+                    assert_eq!(value.trim(), "~150", "sample must paint on the next draw");
+                    assert_eq!(loads.get(), baseline.get(), "no roster/config reload");
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(draws.get() >= 2);
     }
 
     /// Each event must cause a frame even after a silent interval. Receiving

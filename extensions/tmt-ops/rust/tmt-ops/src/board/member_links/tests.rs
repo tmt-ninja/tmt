@@ -1075,8 +1075,13 @@ mod named_surface_tests {
         if scene == "task" || scene == "notice" {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
 
-            // The agents list shows no free text; a squad's "now" line is the task surface.
-
+            // The selected squad detail owns the lead's task surface.
+            if scene == "task" {
+                snapshot.roster.squads[0].lead = Some(MEMBER.into());
+                app.workspace.selected =
+                    Some(crate::board::workspace::OpsTarget::Squad(ROOM.into()));
+                app.workspace_reconcile();
+            }
             app.focus = 0;
         } else {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
@@ -1088,12 +1093,6 @@ mod named_surface_tests {
         if scene == "notice" {
             app.say("Saved view for night-2");
         }
-        // A squad's "now" text needs a MODEL column wide enough to name a member whole.
-        let width = if scene == "task" {
-            width.max(300)
-        } else {
-            width
-        };
         let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
@@ -1326,7 +1325,7 @@ mod named_surface_tests {
         }
     }
     #[test]
-    fn squad_now_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
+    fn squad_detail_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
         let (mut app, mut terminal) = rendered_scene("task", 160, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
@@ -1347,14 +1346,14 @@ mod named_surface_tests {
         let task_links: Vec<_> = links
             .hits
             .iter()
-            .filter(|hit| !hit.reader && hit.area.y == row.y)
+            .filter(|hit| !hit.reader && hit.area.y != row.y)
             .collect();
         assert_eq!(task_links.len(), 2);
         assert!(
             task_links
                 .iter()
-                .all(|hit| hit.surface.x > row.x + 13 && hit.area.x >= hit.surface.x),
-            "task links must stay in the Now column, not the same named NAME column: {task_links:?}"
+                .all(|hit| hit.surface.x >= row.x + row.width && hit.area.x >= hit.surface.x),
+            "task links must stay in the squad detail, not the same named row: {task_links:?}"
         );
     }
 }

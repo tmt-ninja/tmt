@@ -295,7 +295,7 @@ fn second_write_failure_reports_after_saved_rereads_and_never_claims_saved() {
 }
 
 #[test]
-fn compact_cell_hover_matches_header_highlight_and_click_targets_its_squad() {
+fn squad_detail_hover_and_click_target_its_squad() {
     use ratatui::crossterm::event::MouseEvent;
     let mut app = board();
     app.view.as_mut().unwrap().look = crate::look::Look::default();
@@ -321,9 +321,11 @@ fn compact_cell_hover_matches_header_highlight_and_click_targets_its_squad() {
         enabled: true,
         after_ms: 1_800_000,
     });
+    app.workspace.selected = Some(crate::board::workspace::OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
     let _commands = crate::runner::forbid_commands();
     let screen = paint(&app, 160, 36);
-    assert!(screen.contains("MODEL / ALERT"));
+    assert!(screen.contains("Idle alert"));
     assert!(screen.contains("◷ 30m"));
     let area = app
         .workspace_strip_hits

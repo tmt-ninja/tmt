@@ -26,8 +26,10 @@ pub(in crate::board) struct Row<'a> {
     pub state_primary_width: Option<usize>,
     pub state_attention: Vec<bool>,
     pub tokens: String,
+    pub tokens_bold: bool,
+    pub minute: String,
+    pub minute_bold: bool,
     pub session: String,
-    pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
     pub unread: bool,
@@ -40,7 +42,6 @@ pub(in crate::board) struct Painted {
     pub state: Option<Rect>,
     pub task: Option<Rect>,
     pub timers: Option<Rect>,
-    pub model: Option<Rect>,
     /// The TOK figure, whichever unit it shows: a click switches the unit.
     pub tokens: Option<Rect>,
 }
@@ -290,6 +291,15 @@ pub(in crate::board) fn paint(
             AgentsField::Session => {
                 Line::styled(fit(&row.session, Align::Left), look.role(Role::Muted))
             }
+            AgentsField::Activity => Line::styled("", look.role(Role::Muted)),
+            AgentsField::PerMinute => Line::styled(
+                fit(&row.minute, Align::Right),
+                look.role(if row.minute == "—" {
+                    Role::Dim
+                } else {
+                    Role::Text
+                }),
+            ),
             AgentsField::Tokens => {
                 painted.tokens = Some(cell);
                 Line::styled(
@@ -313,16 +323,20 @@ pub(in crate::board) fn paint(
                     look.role(Role::Muted),
                 )
             }
-            AgentsField::Model => {
-                painted.model = Some(cell);
-                Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
-            }
         };
         line.style = style(look, row, line.style, false);
         for (index, span) in line.spans.iter_mut().enumerate() {
             let attention = matches!(field, AgentsField::State)
                 && row.state_attention.get(index).copied().unwrap_or(false);
             span.style = style(look, row, span.style, attention);
+        }
+        if (matches!(field, AgentsField::PerMinute) && row.minute_bold)
+            || (matches!(field, AgentsField::Tokens) && row.tokens_bold)
+        {
+            line.style = line.style.add_modifier(Modifier::BOLD);
+            for span in &mut line.spans {
+                span.style = span.style.add_modifier(Modifier::BOLD);
+            }
         }
         if row.in_conversation
             && matches!(field, AgentsField::Agent)
@@ -398,8 +412,11 @@ mod tests {
                         true,
                     ],
                     tokens: "1".into(),
+                    tokens_bold: false,
+                    minute: "—".into(),
+                    minute_bold: false,
                     session: String::new(),
-                    model: String::new(),
+
                     timers: None,
                     selected,
                     unread,
@@ -458,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn lead_mark_uses_the_name_budget_and_model_text_is_muted_and_ellipsized() {
+    fn lead_mark_uses_the_name_budget() {
         use crate::board::workspace::OpsObservation;
         let source = OpsTreeRow {
             target: OpsTarget::Member {
@@ -480,10 +497,7 @@ mod tests {
             depth: tmt_cli_style::Depth::TrueColor,
         };
         let area = Rect::new(0, 0, 34, 1);
-        let slots = [
-            (AgentsField::Agent, Rect::new(0, 0, 25, 1)),
-            (AgentsField::Model, Rect::new(26, 0, 8, 1)),
-        ];
+        let slots = [(AgentsField::Agent, Rect::new(0, 0, 25, 1))];
         let mut buffer = Buffer::empty(area);
         paint(
             &mut buffer,
@@ -498,8 +512,11 @@ mod tests {
                 state_primary_width: None,
                 state_attention: Vec::new(),
                 tokens: "—".into(),
+                tokens_bold: false,
+                minute: "—".into(),
+                minute_bold: false,
                 session: String::new(),
-                model: "gpt-6.1-sol".into(),
+
                 timers: None,
                 selected: false,
                 unread: false,
@@ -512,8 +529,6 @@ mod tests {
         assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
         assert_eq!(buffer[(24, 0)].symbol(), "…");
         assert_eq!(buffer[(25, 0)].symbol(), " ");
-        assert_eq!(buffer[(33, 0)].symbol(), "…");
-        assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
     }
 
     #[test]
@@ -556,8 +571,11 @@ mod tests {
                 state_primary_width: Some(10),
                 state_attention: vec![true, false],
                 tokens: "12.3K".into(),
+                tokens_bold: false,
+                minute: "—".into(),
+                minute_bold: false,
                 session: String::new(),
-                model: "gpt-6.1-sol".into(),
+
                 timers: Some(0),
                 selected: true,
                 unread: false,
@@ -624,8 +642,11 @@ mod tests {
                         state_primary_width: Some(10),
                         state_attention: vec![true, false],
                         tokens: "—".into(),
+                        tokens_bold: false,
+                        minute: "—".into(),
+                        minute_bold: false,
                         session: String::new(),
-                        model: String::new(),
+
                         timers: None,
                         selected,
                         unread: false,

@@ -307,3 +307,56 @@ fn capture_agents_cost_cells_at_160_columns() {
         println!("--- {name} ---\n{}", paint(&app, 160, 36).join("\n"));
     }
 }
+
+#[test]
+fn cost_mode_keeps_minute_tokens_and_only_range_unit_is_clickable() {
+    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
+    let mut app = valued_board();
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    hold(&mut app, SavingsUnit::Cost);
+    report_for_member(&mut app);
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.get_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: Some(Reading {
+                tokens: 1_234,
+                partial: false,
+                span: 60,
+            }),
+            activity: [None; 12],
+        },
+    );
+    let shown = paint(&app, 240, 40);
+    let (y, heading) = shown
+        .iter()
+        .enumerate()
+        .find(|(_, row)| row.contains("TOK/min") && row.contains("≈$ 1d"))
+        .expect("cost range and token minute headings");
+    let x = heading
+        .chars()
+        .collect::<Vec<_>>()
+        .windows(7)
+        .position(|chars| chars.iter().collect::<String>() == "TOK/min")
+        .unwrap();
+    let row = shown
+        .iter()
+        .find(|row| row.contains("└ worker") && row.contains("working"))
+        .expect("member row");
+    assert!(
+        row.contains("1.2k") && row.contains("≈$2.00"),
+        "minute tokens and range cost: {row}"
+    );
+    let hits = app.workspace_strip_hits.borrow();
+    assert!(
+        hits.iter().any(|(_, choice)| *choice == Choice::TokUnit),
+        "range unit is clickable"
+    );
+    assert!(
+        !hits.iter().any(|(area, choice)| *choice == Choice::TokUnit
+            && area.y == y as u16
+            && area.x <= x as u16
+            && area.right() > x as u16),
+        "minute heading has no unit hit"
+    );
+}

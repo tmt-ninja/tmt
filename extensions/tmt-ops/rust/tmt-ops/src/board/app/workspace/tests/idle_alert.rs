@@ -66,13 +66,18 @@ fn only_a_member_shown_as_idle_keeps_the_over_mark() {
 }
 
 #[test]
-fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on() {
-    let on = screen(&idle_board(32 * MINUTE, true, alert(30)), 160);
-    // The MODEL cell is 12 wide: the full words do not fit, the value stays.
-    assert!(on.contains("◷ 30m"), "{on}");
+fn squad_detail_names_the_alert_and_the_row_counts_members_over_only_while_on() {
+    let detail = |over, setting| {
+        let mut app = idle_board(32 * MINUTE, over, setting);
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        screen(&app, 160)
+    };
+    let on = detail(true, alert(30));
+    assert!(on.contains("Idle alert  ◷ 30m"), "{on}");
     assert!(on.contains("◷ 1 idle"), "{on}");
-    let excepted = screen(&idle_board(32 * MINUTE, false, alert(30)), 160);
-    assert!(excepted.contains("◷ 30m"), "{excepted}");
+    let excepted = detail(false, alert(30));
+    assert!(excepted.contains("Idle alert  ◷ 30m"), "{excepted}");
     assert!(!excepted.contains("1 idle"), "{excepted}");
     for off in [
         None,
@@ -81,12 +86,18 @@ fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on
             after_ms: 30 * MINUTE,
         }),
     ] {
-        let screen = screen(&idle_board(32 * MINUTE, false, off), 160);
-        assert_eq!(screen.contains("○ off"), off.is_some(), "{screen}");
-        // The ◷ column caption stays; no row or count carries the idle mark.
+        let shown = detail(false, off);
         assert!(
-            !screen.contains("◷ idle") && !screen.contains("1 idle"),
-            "{screen}"
+            shown.contains(if off.is_some() {
+                "Idle alert  ○ off"
+            } else {
+                "Idle alert  —"
+            }),
+            "{shown}"
+        );
+        assert!(
+            !shown.contains("◷ idle") && !shown.contains("1 idle"),
+            "{shown}"
         );
     }
 }
@@ -345,4 +356,75 @@ fn disabled_alert_is_visible_and_direct_action_is_in_the_catalog() {
         action.is_ok(),
         "idle-alert must be a bindable catalog action"
     );
+}
+
+#[test]
+fn selected_squad_detail_shows_its_idle_alert_threshold() {
+    let mut app = idle_board(32 * MINUTE, true, alert(30));
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    let shown = screen(&app, 240);
+    let squad = shown
+        .lines()
+        .find(|line| line.contains("◷ 30m"))
+        .unwrap_or_else(|| panic!("squad alert is visible: {shown}"));
+    let divider = squad.find('│').expect("side-layout divider");
+    let alert = squad.find("◷ 30m").unwrap();
+    assert!(
+        alert > divider,
+        "alert belongs in selected squad detail: {squad}"
+    );
+}
+
+#[test]
+fn selected_squad_idle_alert_detail_retains_its_editor_hit() {
+    let mut app = idle_board(32 * MINUTE, true, alert(30));
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    let shown = screen(&app, 240);
+    let divider = shown
+        .lines()
+        .find(|line| line.contains("Idle alert"))
+        .unwrap()
+        .chars()
+        .position(|ch| ch == '│')
+        .unwrap();
+    let hits = app.workspace_strip_hits.borrow();
+    let area = hits
+        .iter()
+        .find_map(|(area, choice)| {
+            matches!(choice, Choice::IdleAlert(room) if room == ROOM).then_some(*area)
+        })
+        .expect("selected squad's alert editor hit");
+    assert!(
+        usize::from(area.x) > divider,
+        "alert editor hit belongs to detail pane: {area:?}"
+    );
+}
+
+#[test]
+fn squad_idle_alert_line_has_the_detail_panes_left_padding() {
+    for layout in [
+        crate::config::OpsLayout::Side,
+        crate::config::OpsLayout::Stack,
+    ] {
+        let mut app = idle_board(32 * MINUTE, true, alert(30));
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .layout = layout;
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        let lines = paint(&app, 160, 40);
+        let alert = lines
+            .iter()
+            .find(|line| line.contains("Idle alert  ◷ 30m"))
+            .unwrap();
+        assert!(alert.contains(" Idle alert  ◷ 30m"), "{layout:?}: {alert}");
+    }
 }

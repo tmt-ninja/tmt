@@ -563,7 +563,7 @@ fn narrow_layout_drops_session_before_existing_tracks() {
     assert!(wide.iter().any(|(f, _)| *f == AgentsField::Session));
     let narrow = layout.slots(Rect::new(0, 0, 75, 1));
     assert!(!narrow.iter().any(|(f, _)| *f == AgentsField::Session));
-    assert!(narrow.iter().any(|(f, _)| *f == AgentsField::Model));
+    assert!(narrow.iter().any(|(f, _)| *f == AgentsField::Activity));
 }
 
 pub(in crate::board) const SCENES: &[&str] = &[

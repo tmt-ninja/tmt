@@ -59,56 +59,6 @@ pub(in crate::board) struct Cache {
 pub(in crate::board) struct Scene {
     pub summary: super::summary::Summary,
 }
-/// What a squad is doing now: its lead's (else any member's) open request,
-/// otherwise their task line, and whether that is a request waiting on you.
-pub(in crate::board) fn squad_now(
-    snapshot: &OpsWorkspaceSnapshot,
-    squad: &crate::board::workspace::OpsSquad,
-) -> (String, bool) {
-    let rows: Vec<_> = squad
-        .lead
-        .iter()
-        .chain(
-            squad
-                .members
-                .iter()
-                .filter(|id| Some(*id) != squad.lead.as_ref()),
-        )
-        .filter_map(|id| {
-            snapshot.rows.get(&OpsTarget::Member {
-                room_id: Some(squad.room_id.clone()),
-                identity_id: id.clone(),
-            })
-        })
-        .collect();
-    let pending = rows.iter().find_map(|row| pending(row));
-    let task = rows.iter().find_map(|row| {
-        row["fields"]["task"]
-            .as_str()
-            .filter(|text| !text.trim().is_empty())
-    });
-    (
-        pending
-            .or(task)
-            .and_then(|text| text.lines().next())
-            .unwrap_or("—")
-            .to_owned(),
-        pending.is_some(),
-    )
-}
-
-fn pending(row: &serde_json::Value) -> Option<&str> {
-    row["pending"]
-        .as_str()
-        .filter(|text| !text.trim().is_empty())
-        .or_else(|| {
-            row["waitingOnYou"].as_array()?.iter().find_map(|request| {
-                request["preview"]
-                    .as_str()
-                    .filter(|text| !text.trim().is_empty())
-            })
-        })
-}
 #[derive(PartialEq, Eq)]
 struct Key {
     hidden: std::collections::BTreeSet<String>,

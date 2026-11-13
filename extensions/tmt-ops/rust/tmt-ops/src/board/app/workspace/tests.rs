@@ -3617,20 +3617,15 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
                 .agents_layout
                 .borrow_mut()
                 .slots(Rect::new(0, row.y, 160, 1));
-            for (field, expected) in [
-                (
-                    crate::board::workspace::columns::AgentsField::Model,
-                    "—".to_owned(),
+            let (field, expected) = (
+                crate::board::workspace::columns::AgentsField::Tokens,
+                format!(
+                    "{}{}",
+                    if missing || reading.partial { "~" } else { "" },
+                    crate::source::tokens(reading.tokens)
                 ),
-                (
-                    crate::board::workspace::columns::AgentsField::Tokens,
-                    format!(
-                        "{}{}",
-                        if missing || reading.partial { "~" } else { "" },
-                        crate::source::tokens(reading.tokens)
-                    ),
-                ),
-            ] {
+            );
+            {
                 let slot = slots
                     .iter()
                     .find(|(candidate, _)| *candidate == field)
@@ -3751,44 +3746,42 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
                 // A cell too narrow for the whole task drops it; it is never painted for "working".
-                let tail = match state {
-                    "idle" => " · idle",
-                    "offline" | "waiting" | "blocked" => "",
-                    "working" => "",
-                    _ => unreachable!(),
-                };
+                let rows = app.workspace_rows();
+                let row = rows.iter().find(|row| row.target == target).unwrap();
+                let label = app.activity_label(row).unwrap();
+                let wide =
+                    crate::board::workspace::columns::activity_projection(&app, row, &label, 40);
+                if let Some(expected) = role {
+                    let task = wide
+                        .task
+                        .as_ref()
+                        .expect("the whole task fits the wide state cell");
+                    assert_eq!(task.role.0, expected);
+                    shown_tasks += 1;
+                } else {
+                    assert!(wide.task.is_none(), "a repeated activity word is omitted");
+                }
+                let tail = "";
                 assert!(
                     painted_row.contains(&format!("● working{tail}")),
                     "{painted_row}"
                 );
                 assert!(!painted_row.contains("· working"));
-                shown_tasks += usize::from(!tail.is_empty());
                 let task = tail.chars().count() as u16;
-                for x in hit.x..hit.x + hit.width {
-                    if terminal.backend().buffer()[(x, hit.y)]
-                        .symbol()
-                        .trim()
-                        .is_empty()
-                    {
+                for x in state_area.x..state_area.right() + task {
+                    let cell = &terminal.backend().buffer()[(x, hit.y)];
+                    if cell.symbol().trim().is_empty() {
                         continue;
                     }
-                    let in_task = (state_area.right()..state_area.right() + task).contains(&x);
+                    let in_task = x >= state_area.right();
+                    let expected = match role {
+                        Some(role) if in_task => role,
+                        _ if cell.symbol() == "●" => Role::Working,
+                        _ => Role::Text,
+                    };
                     assert_eq!(
-                        terminal.backend().buffer()[(x, hit.y)].fg,
-                        look.role(match role {
-                            Some(role) if in_task => role,
-                            _ if terminal.backend().buffer()[(x, hit.y)].symbol() == "●" =>
-                                Role::Working,
-                            _ if selected => Role::Text,
-                            _ if x == 52 => {
-                                assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
-                                Role::Dim
-                            }
-                            _ if x >= 56 => Role::Muted,
-                            _ => Role::Text,
-                        })
-                        .fg
-                        .unwrap(),
+                        cell.fg,
+                        look.role(expected).fg.unwrap(),
                         "{base:?}/{role:?}/selected={selected} x{x}"
                     );
                 }
@@ -5401,11 +5394,8 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        // The 18-cell track drops the whole blocked task; the wider focus retains it.
-        assert!(
-            tree.contains("● working") && !tree.contains("· blocked"),
-            "tree: {tree}"
-        );
+        // The widened state track shows the whole blocked task.
+        assert!(tree.contains(words), "tree: {tree}");
         assert!(!tree.contains("· bl…"), "tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(words),
@@ -5679,14 +5669,11 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         };
         let mut app = disagreeing_board(false, look);
         let before = painted_member_row(&app, 160, 36);
-        assert!(
-            before.contains("● working") && !before.contains("· b"),
-            "{before}"
-        );
+        assert!(before.contains("● working · blocked"), "{before}");
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains("● 2 unread") && !tree.contains("· b"),
+            tree.contains("● 2 unread · blocked"),
             "{depth:?} tree: {tree}"
         );
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
@@ -5778,19 +5765,16 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
             tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
-        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
+        assert_eq!(
+            tree.contains(&format!("· {word}")),
+            word != shown,
+            "{word} tree: {tree}"
+        );
 
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        if word == "idle" {
-            assert!(tree.contains(&unread), "{word} tree: {tree}");
-        } else {
-            assert!(
-                tree.contains("● 2 unread") && !tree.contains(&format!("· {word}")),
-                "{word} tree: {tree}"
-            );
-        }
+        assert!(tree.contains(&unread), "{word} tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(&unread),
             "{word} member focus"
@@ -5878,7 +5862,11 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
             .find(|line| line.starts_with(" ▸ product"))
             .unwrap();
         assert_eq!(
-            group.chars().nth(26),
+            group
+                .trim_start_matches(" ▸ product")
+                .trim_start()
+                .chars()
+                .next(),
             Some(glyph),
             "{phase:?}/{waiting}/{stale}: {group}"
         );

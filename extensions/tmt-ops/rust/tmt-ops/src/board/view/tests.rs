@@ -753,12 +753,26 @@ fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_to
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
                     let row_text = cells.concat();
-                    assert!(
-                        !row_text.contains(state),
-                        "the 16-cell STATE track drops the task it cannot show whole"
-                    );
+                    if state.len() <= 7 {
+                        assert!(row_text.contains(&format!("· {state}")), "{row_text}");
+                    } else {
+                        assert!(
+                            !row_text.contains("· blocked"),
+                            "a task that does not fit is dropped whole: {row_text}"
+                        );
+                    }
                     assert!(row_text.contains("● working"), "{row_text}");
-                    assert!(!row_text.contains("· "), "{row_text}");
+                    let state_area = app
+                        .workspace_state_cells
+                        .borrow()
+                        .iter()
+                        .find(|area| area.y == hit.y)
+                        .copied()
+                        .unwrap();
+                    let state_text: String = (state_area.x..state_area.right())
+                        .map(|x| buffer[(x, hit.y)].symbol())
+                        .collect();
+                    assert!(!state_text.contains("· "), "{state_text}");
                 }
             }
         }

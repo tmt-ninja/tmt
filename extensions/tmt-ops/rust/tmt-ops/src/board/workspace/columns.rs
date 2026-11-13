@@ -85,9 +85,10 @@ fn solve_tracks<K: Copy>(width: u16, tracks: &[(K, u16, &str, u16)]) -> Vec<(K, 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentsField {
     Agent,
-    Model,
     State,
     Session,
+    Activity,
+    PerMinute,
     Tokens,
     Cron,
 }
@@ -96,9 +97,10 @@ impl AgentsField {
     pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
         match self {
             Self::Agent => "SQUAD / AGENT",
-            Self::Model => "MODEL / ALERT",
             Self::State => "STATE",
             Self::Session => "HOST",
+            Self::Activity => "ACTIVITY 1h",
+            Self::PerMinute => "TOK/min",
             Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
@@ -108,21 +110,17 @@ impl AgentsField {
     }
     fn minimum(self) -> u16 {
         match self {
-            Self::Agent => 25,
-            Self::State => 18,
+            Self::Agent => 18,
+            Self::State => 15,
             Self::Session => 20,
+            Self::Activity => 12,
+            Self::PerMinute => 7,
             Self::Tokens => 7,
-            Self::Cron => 4,
-            Self::Model => 13,
+            Self::Cron => 3,
         }
     }
     fn gap(self) -> u16 {
-        match self {
-            Self::State => 2,
-            Self::Tokens => 3,
-            Self::Cron => 1,
-            _ => 1,
-        }
+        1
     }
 }
 
@@ -195,9 +193,10 @@ impl AgentsLayout {
                 AgentsField::Agent,
                 AgentsField::State,
                 AgentsField::Session,
+                AgentsField::Activity,
+                AgentsField::PerMinute,
                 AgentsField::Tokens,
                 AgentsField::Cron,
-                AgentsField::Model,
             ];
             let demand = |fields: &[AgentsField]| {
                 fields.iter().map(|f| f.minimum()).sum::<u16>()
@@ -209,21 +208,29 @@ impl AgentsLayout {
             };
             for optional in [
                 AgentsField::Session,
-                AgentsField::Model,
-                AgentsField::Cron,
-                AgentsField::Tokens,
+                AgentsField::Activity,
+                AgentsField::PerMinute,
             ] {
                 if demand(&fields) <= width {
                     break;
                 }
                 fields.retain(|f| *f != optional);
             }
-            let state_width = AgentsField::State.minimum().min(width.saturating_sub(2));
-            let name_width = if fields.len() == 2 {
-                width.saturating_sub(state_width + 1)
-            } else {
-                AgentsField::Agent.minimum()
-            };
+            let mut state_width = AgentsField::State.minimum().min(width.saturating_sub(2));
+            let mut name_width = AgentsField::Agent.minimum();
+            let mut spare = width.saturating_sub(demand(&fields));
+            // Approved Agents mock: first widen names, then state, then names again.
+            const NAME_FIRST_TARGET: u16 = 21;
+            const STATE_TARGET: u16 = 20;
+            const NAME_FINAL_TARGET: u16 = 24;
+            let name_first = spare.min(NAME_FIRST_TARGET.saturating_sub(name_width));
+            name_width += name_first;
+            spare -= name_first;
+            let state_extra = spare.min(STATE_TARGET.saturating_sub(state_width));
+            state_width += state_extra;
+            spare -= state_extra;
+            let name_last = spare.min(NAME_FINAL_TARGET.saturating_sub(name_width));
+            name_width += name_last;
             let tracks: Vec<_> = fields
                 .iter()
                 .copied()
@@ -250,13 +257,7 @@ impl AgentsLayout {
             .1
             .iter()
             .map(|(field, slot)| {
-                // MODEL takes what the other columns leave, so a squad's "now"
-                // text has room on a wide list.
-                let width = if *field == AgentsField::Model {
-                    inside.width.saturating_sub(slot.x)
-                } else {
-                    slot.width
-                };
+                let width = slot.width;
                 (
                     *field,
                     Rect::new(inside.x.saturating_add(slot.x), inside.y, width, 1)
@@ -348,7 +349,7 @@ pub fn paint_agents_header(
         } else {
             word.to_owned()
         };
-        let align = if *field == AgentsField::Tokens {
+        let align = if matches!(*field, AgentsField::Tokens | AgentsField::PerMinute) {
             tmt_cli_style::grid::Align::Right
         } else if *field == AgentsField::Cron {
             tmt_cli_style::grid::Align::Center
@@ -535,10 +536,9 @@ fn todo_text(
     width: usize,
 ) -> Option<String> {
     use unicode_width::UnicodeWidthStr;
-    app.notes
-        .row_label(&row.target)
-        .map(|text| format!(" · {text}"))
-        .filter(|text| used + text.width() <= width)
+    let label = app.notes.row_label(&row.target)?;
+    let full = format!(" · {label}");
+    (used + full.width() <= width).then_some(full)
 }
 
 /// Counts are optional: the existing state and task keep their whole width first.
@@ -766,27 +766,6 @@ pub struct WorkspaceColumnValues {
     pub basic: bool,
 }
 
-/// Dense model cells use the acquired model only while its driver is running.
-/// Keep the original inventory value intact for rate attribution and Details.
-pub(in crate::board) fn model_text(runtime: Option<&str>, model: Option<&str>) -> String {
-    runtime
-        .filter(|runtime| !runtime.is_empty())
-        .and(model)
-        .map(|model| model.strip_prefix("claude-").unwrap_or(model))
-        .filter(|model| !model.is_empty())
-        .map(super::render::safe)
-        .unwrap_or_else(|| "—".into())
-}
-
-/// A dense Model cell: a plain program's name, else the running agent's model.
-pub(in crate::board) fn dense_model(
-    plain: Option<&str>,
-    runtime: Option<&str>,
-    model: Option<&str>,
-) -> String {
-    plain.map_or_else(|| model_text(runtime, model), super::render::safe)
-}
-
 impl WorkspaceColumnValues {
     pub fn text(&self, column: Column, row: &OpsTreeRow) -> String {
         match column {
@@ -883,24 +862,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dense_model_text_requires_a_running_driver_and_shortens_only_the_leading_provider() {
-        for (runtime, model, expected) in [
-            (Some("claude"), Some("claude-opus-5-5"), "opus-5-5"),
-            (Some("codex"), Some("gpt-6.1-sol"), "gpt-6.1-sol"),
+    fn live_activity_tracks_drop_optional_columns_in_spec_order() {
+        use crate::board::overview::cron_counts::GlyphSet;
+        let mut layout = AgentsLayout::default();
+        for (width, expected) in [
             (
-                Some("claude"),
-                Some("other-claude-model"),
-                "other-claude-model",
+                88,
+                vec![
+                    "SQUAD / AGENT",
+                    "STATE",
+                    "HOST",
+                    "ACTIVITY 1h",
+                    "TOK/min",
+                    "TOK 1h",
+                    "◷",
+                ],
             ),
-            (None, Some("claude-opus-5-5"), "—"),
-            (Some(""), Some("gpt-6.1-sol"), "—"),
-            (Some("claude"), None, "—"),
-            (Some("claude"), Some("claude-"), "—"),
+            (
+                67,
+                vec![
+                    "SQUAD / AGENT",
+                    "STATE",
+                    "ACTIVITY 1h",
+                    "TOK/min",
+                    "TOK 1h",
+                    "◷",
+                ],
+            ),
+            (54, vec!["SQUAD / AGENT", "STATE", "TOK/min", "TOK 1h", "◷"]),
+            (46, vec!["SQUAD / AGENT", "STATE", "TOK 1h", "◷"]),
         ] {
-            assert_eq!(model_text(runtime, model), expected);
+            let slots = layout.slots(Rect::new(0, 0, width, 1));
+            assert_eq!(
+                slots
+                    .iter()
+                    .map(|(field, _)| field.caption(GlyphSet::Unicode))
+                    .collect::<Vec<_>>(),
+                expected,
+                "width {width}"
+            );
         }
-        let shown = model_text(Some("codex"), Some("gpt-6.1-sol"));
-        assert_eq!(crate::board::view::fit(&shown, 8), "gpt-6.1…");
     }
 
     #[test]
@@ -912,11 +913,12 @@ mod tests {
                 .map(|(field, slot)| (*field, slot.x, slot.width))
                 .collect::<Vec<_>>(),
             vec![
-                (AgentsField::Agent, 0, 25),
-                (AgentsField::State, 26, 18),
-                (AgentsField::Tokens, 46, 7),
-                (AgentsField::Cron, 56, 4),
-                (AgentsField::Model, 61, 14),
+                (AgentsField::Agent, 0, 21),
+                (AgentsField::State, 22, 20),
+                (AgentsField::Activity, 43, 12),
+                (AgentsField::PerMinute, 56, 7),
+                (AgentsField::Tokens, 64, 7),
+                (AgentsField::Cron, 72, 3),
             ]
         );
         for width in 0..=160 {
@@ -932,31 +934,32 @@ mod tests {
                     .windows(2)
                     .all(|pair| pair[0].1.right() <= pair[1].1.x)
             );
-            assert_eq!(
-                slots.iter().any(|(field, _)| *field == AgentsField::Model),
-                width >= 74
-            );
-            for (field, slot) in &slots {
-                if matches!(
-                    field,
-                    AgentsField::Tokens | AgentsField::Cron | AgentsField::Model
-                ) {
-                    // MODEL, the last field, also takes what the others leave.
-                    assert!(slot.width >= field.minimum(), "optional fields fit whole");
-                    if *field != AgentsField::Model {
-                        assert_eq!(slot.width, field.minimum());
-                    }
+            for (field, threshold) in [
+                (AgentsField::Session, 88),
+                (AgentsField::Activity, 67),
+                (AgentsField::PerMinute, 54),
+            ] {
+                let slot = slots.iter().find(|(held, _)| *held == field);
+                assert_eq!(slot.is_some(), width >= threshold, "{field:?} at {width}");
+                if let Some((_, slot)) = slot {
+                    assert_eq!(slot.width, field.minimum(), "optional fields fit whole");
+                }
+            }
+            if width >= 46 {
+                for field in [AgentsField::Tokens, AgentsField::Cron] {
+                    assert_eq!(
+                        slots
+                            .iter()
+                            .find(|(held, _)| *held == field)
+                            .unwrap()
+                            .1
+                            .width,
+                        field.minimum()
+                    );
                 }
             }
         }
         assert_eq!(AgentsField::Cron.caption(Default::default()), "◷");
-        let narrow = layout.slots(Rect::new(0, 0, 73, 1));
-        assert!(!narrow.iter().any(|(field, _)| *field == AgentsField::Model));
-        assert!(
-            narrow
-                .iter()
-                .any(|(field, _)| *field == AgentsField::Tokens)
-        );
     }
 
     #[test]
@@ -1066,7 +1069,7 @@ mod tests {
             .agents
             .remove("a")
             .unwrap();
-            let values = project(WorkspaceColumnInput {
+            project(WorkspaceColumnInput {
                 row,
                 snapshot: app.workspace_snapshot().unwrap(),
                 labels: &app.labels,
@@ -1074,27 +1077,16 @@ mod tests {
                 agent: Some(&agent),
                 timers: None,
             })
-            .unwrap();
-            let tree_model = dense_model(
-                agent.plain_program(),
-                agent.runtime.as_deref(),
-                agent.model.as_deref(),
-            );
-            (values, tree_model)
+            .unwrap()
         };
-        let (agent, tree_model) = cells(serde_json::json!({"id": "a", "name": "w",
+        let agent = cells(serde_json::json!({"id": "a", "name": "w",
             "runningDriver": "codex", "resume": {"model": "gpt-6.1-sol"}}));
         assert_eq!(agent.text(Column::Model, row), "gpt-6.1-sol");
         assert_eq!(agent.text(Column::TokensPerHour, row), "1.2k");
-        assert_eq!(tree_model, "gpt-6.1-sol");
-        let (plain, tree_model) =
-            cells(serde_json::json!({"id": "a", "name": "w", "plainProgram": "zsh"}));
+        let plain = cells(serde_json::json!({"id": "a", "name": "w", "plainProgram": "zsh"}));
         assert_eq!(plain.text(Column::Model, row), "zsh");
         assert_eq!(plain.text(Column::TokensPerHour, row), "—");
         assert_eq!(plain.text(Column::Digest, row), "—");
-        assert_eq!(tree_model, "zsh");
-        // A hostile program name is sanitized in the dense cell.
-        assert!(!dense_model(Some("a\u{1b}[31m"), None, None).contains('\u{1b}'));
     }
 
     #[test]
@@ -1179,5 +1171,34 @@ mod tests {
         assert_eq!(values(Some("pi"), true).text(Column::Runtime, &row), "pi");
         assert_eq!(values(None, true).text(Column::Model, &row), "—");
         assert_eq!(values(None, true).text(Column::State, &row), "—");
+    }
+}
+
+#[cfg(test)]
+mod live_width_review {
+    use super::*;
+    #[test]
+    fn spare_cells_first_widen_the_name_then_state_then_name_again() {
+        let mut layout = AgentsLayout::default();
+        for (width, name, state) in [
+            (67, 18, 15),
+            (70, 21, 15),
+            (75, 21, 20),
+            (78, 24, 20),
+            (100, 24, 20),
+        ] {
+            let slots = layout.slots(Rect::new(0, 0, width, 1));
+            let get = |field| slots.iter().find(|(f, _)| *f == field).unwrap().1;
+            assert_eq!(
+                (get(AgentsField::Agent).width, get(AgentsField::State).width),
+                (name, state),
+                "width {width}"
+            );
+            assert_eq!(
+                get(AgentsField::Cron).x,
+                get(AgentsField::Tokens).right() + 1,
+                "timer stays adjacent to the TOK range"
+            );
+        }
     }
 }

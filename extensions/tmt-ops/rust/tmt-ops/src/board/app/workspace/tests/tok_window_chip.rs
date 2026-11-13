@@ -178,6 +178,6 @@ fn the_agents_range_and_the_digest_window_are_separate_settings() {
 fn a_column_header_too_narrow_for_tok_has_no_window_hit() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
-    paint(&app, 44, 20);
+    paint(&app, 39, 20);
     assert_eq!(chip(&app), None);
 }

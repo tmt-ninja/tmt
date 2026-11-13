@@ -851,6 +851,7 @@ pub struct App {
     pub(in crate::board) cron_review_generation: u64,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
+    pub(in crate::board) agents_live: super::agents_live::Projection,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
@@ -1236,6 +1237,15 @@ impl App {
         super::rate::resume_model(view.home_rate.get(squad)?.input.resumes.get(id)?)
     }
 
+    #[cfg(test)]
+    pub(in crate::board) fn seed_home_meter_for_test(
+        &mut self,
+        squad: &str,
+        meter: super::meter::Meter,
+    ) {
+        self.meters.insert(squad.to_owned(), meter);
+    }
+
     pub(in crate::board) fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
         let rate = self.view.as_ref()?.home_rate.get(squad)?;
         self.meters
@@ -1550,6 +1560,7 @@ impl App {
         }
         if sampled {
             self.usage_chart.get_mut().invalidate_data();
+            self.agents_live.invalidate();
         }
         sampled
     }
@@ -1861,6 +1872,7 @@ impl App {
                         .legacy(actor, &home.workspace.read_markers);
                 }
                 let previous = self.view.replace(view);
+                self.agents_live.invalidate();
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
                 if let (Some(previous), Some(name)) = (previous, previous_squad)
@@ -6213,6 +6225,78 @@ mod token_window_tests {
     }
 
     #[test]
+    fn accepted_home_history_receipt_invalidates_live_projection() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let first = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), first));
+        app.agents_live.begin(&app, first);
+        assert!(app.agents_live.member(&app, "a").is_some());
+        assert!(!app.agents_live.usage.borrow().is_empty());
+        let rate = &app.view.as_ref().unwrap().home_rate["product"];
+        let read = super::super::refresh::HistoryRead {
+            owner: super::super::ALL.into(),
+            targets: [("product".into(), (rate.settings, rate.input.clone()))].into(),
+            seeds: BTreeMap::new(),
+            observed: Ok(super::super::rate::tests::input(400).resumes),
+            retained: None,
+            quota: app.quota_history_visible().then(Default::default),
+        };
+        assert!(app.apply_history(read, now + Duration::from_secs(20)));
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
+        let current = app.meters["product"]
+            .observation("a", TokenWindow::MINUTE, now + Duration::from_secs(20))
+            .map(|(reading, _)| reading);
+        assert_eq!(
+            app.agents_live.member(&app, "a").unwrap().minute,
+            current,
+            "a history receipt must refresh the cached member"
+        );
+    }
+
+    #[test]
+    fn suspended_and_resumed_meter_refreshes_painted_live_values() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let at = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        app.agents_live.begin(&app, at);
+        let before = app.agents_live.member(&app, "a").unwrap();
+        let later = now + Duration::from_secs(20);
+        app.meters.get_mut("product").unwrap().suspend(later);
+        app.meters
+            .get_mut("product")
+            .unwrap()
+            .resume(TokenWindow::MINUTE, later);
+        app.agents_live.begin(&app, later);
+        let actual = app.meters["product"]
+            .observation("a", TokenWindow::MINUTE, later)
+            .map(|(reading, _)| reading);
+        assert_ne!(before.minute, actual, "fixture must change coverage");
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
+    }
+
+    #[test]
+    fn live_projection_ages_on_bucket_boundary_without_new_receipt() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let at = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        app.agents_live.begin(&app, at);
+        let before = app.agents_live.member(&app, "a").unwrap();
+        let later = now + Duration::from_secs(75);
+        app.agents_live.begin(&app, later);
+        let actual = app.meters["product"]
+            .observation("a", TokenWindow::MINUTE, later)
+            .map(|(reading, _)| reading);
+        assert_ne!(
+            before.minute, actual,
+            "fixture must cross the minute window"
+        );
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
+    }
+
+    #[test]
     fn delayed_history_rejects_changed_owner_room_settings_and_membership() {
         for mismatch in ["owner", "room", "settings", "members", "none"] {
             let now = Instant::now();
@@ -6244,6 +6328,94 @@ mod token_window_tests {
                 "{mismatch}"
             );
         }
+    }
+
+    #[test]
+    fn live_sample_does_not_project_unpainted_identities() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let template = super::super::rate::tests::input(100)
+            .resumes
+            .remove("a")
+            .unwrap();
+        let mut input = super::super::rate::Input {
+            room: "product".into(),
+            resumes: BTreeMap::new(),
+            names: BTreeMap::new(),
+        };
+        for index in 0..10_000 {
+            let id = format!("member-{index:05}");
+            input.resumes.insert(id.clone(), template.clone());
+            input.names.insert(id.clone(), id);
+        }
+        let rate = app
+            .view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap();
+        rate.input = input.clone();
+        let settings = rate.settings;
+        app.meters.insert(
+            "product".into(),
+            super::super::meter::Meter::new(settings, &input, now),
+        );
+        assert!(app.sample_home(Ok(&input.resumes), now + Duration::from_secs(10)));
+        app.agents_live.begin(&app, now + Duration::from_secs(10));
+        assert!(
+            app.agents_live.usage.borrow().len() <= 30,
+            "a receipt projected {} unpainted identities",
+            app.agents_live.usage.borrow().len()
+        );
+        for index in 0..30 {
+            let id = format!("member-{index:05}");
+            assert!(app.agents_live.member(&app, &id).is_some());
+            assert!(app.agents_live.member(&app, &id).is_some());
+        }
+        assert_eq!(app.agents_live.usage.borrow().len(), 30);
+        assert!(app.sample_home(Ok(&input.resumes), now + Duration::from_secs(20)));
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
+        assert!(app.agents_live.usage.borrow().is_empty());
+        assert!(app.agents_live.member(&app, "member-00000").is_some());
+        app.apply(super::tests::snapshot(
+            super::super::ALL,
+            serde_json::json!([]),
+        ));
+        assert!(app.agents_live.usage.borrow().is_empty());
+        app.agents_live.begin(&app, now + Duration::from_secs(20));
+        assert!(app.agents_live.member(&app, "member-00000").is_none());
+    }
+
+    #[test]
+    fn home_sample_retains_live_member_tracks_without_reloading_the_view() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let before = app.view.as_ref().unwrap().document.clone();
+        let at = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        app.agents_live.begin(&app, at);
+        let reading = app.agents_live.member(&app, "a").expect("sampled identity");
+        assert_eq!(reading.minute.unwrap().tokens, 150);
+        assert!(reading.activity.iter().flatten().any(|value| *value > 0.0));
+        assert_eq!(
+            app.view.as_ref().unwrap().document,
+            before,
+            "receipt does not reload the view"
+        );
+        let at = now + Duration::from_secs(75);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+        app.agents_live.begin(&app, at);
+        assert_eq!(
+            app.agents_live
+                .member(&app, "a")
+                .unwrap()
+                .minute
+                .unwrap()
+                .tokens,
+            0
+        );
+        assert_eq!(app.view.as_ref().unwrap().document, before);
     }
 
     #[test]
