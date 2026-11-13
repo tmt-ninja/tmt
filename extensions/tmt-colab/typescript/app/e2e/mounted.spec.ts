@@ -1199,8 +1199,9 @@ test('the list keeps its tab across a reload, Back and Forward, and a fresh visi
 });
 
 // Back from a page to the list reads the catalog again; an ended Remote session is refreshed once
-// for the same device, as the page's own read does, instead of ending in a terminal error.
-for (const status of [403, 503])
+// for the same device, as the page's own read does, instead of ending in a terminal error. A 503
+// takes the same branch (src/mounted.ts), so it is not run again (#4575).
+for (const status of [403])
   test(`Back to the list refreshes an ended session once (${status}) and shows the list`, async ({
     page,
   }) => {

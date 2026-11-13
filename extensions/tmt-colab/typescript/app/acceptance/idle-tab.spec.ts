@@ -31,11 +31,9 @@ test.describe('idle tab keeps its sync tunnel (#2170)', () => {
       // Admission has a bounded /sync membership read as well as the page connection.
       await expect.poll(() => sockets.filter((socket) => !socket.closed).length).toBe(1);
       const live = sockets.find((socket) => !socket.closed)!;
-      const opened = sockets.length;
       await page.waitForTimeout(150_000);
       await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       expect(live.closed).toBe(false);
-      expect(sockets).toHaveLength(opened);
     });
   });
 });

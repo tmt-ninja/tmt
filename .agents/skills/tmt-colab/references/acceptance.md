@@ -70,21 +70,6 @@ an interrupted report. The private execution verdict, raw JSON, traces and gener
 uploaded. Weight provenance lives in `acceptance/shard-weights.json`; its balance is a model until
 an actual hosted run measures the new split.
 
-The one synthetic detached-eviction/refused-tab soak case additionally emits a separate
-`colab-soak-failure-N` artifact only on failure, retained for seven days. It contains at most
-16 KiB: a fixed assertion ID/sentence, allowlisted owner-source error codes/messages,
-owned child exit/signal and socket/door liveness, up to 40 timestamped error/exit records,
-and up to 128 closed Playwright API spans from the last 30 seconds. The reporter never
-retains test-authored step titles, action arguments, network payloads, DOM, URLs or raw
-trace archives. Unknown text becomes unrecognized; truncation is explicit. Only exact
-owned-world regular log files are read, from at most their last 64 KiB, without following
-symlinks. The public report reconstructs every field independently and keeps this artifact
-separate from the unchanged outcome-only results directory. The vocabulary extractor reads
-explicit owner files and named static literals; source drift fails tests instead of widening
-what can be published. World and collector share one lazily loaded vocabulary; a load failure
-disables this optional evidence without changing the scenario outcome. This evidence observes
-failure and never retries an operation.
-
 An own-publication timeout may also retain its closed diagnostic: record root/kind, own stream
 ID, submitted/admitted sequence numbers and whether a leader receipt arrived. A replayed receipt
 may have no retained submitted sequence. The failure hook reads only this typed parent attribute
@@ -234,7 +219,7 @@ native publication/decoding), with one dispatch and no reload.
 
 `ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
-device revocation and two tabs of one browser staying live at once. They
+and device revocation (two tabs sharing one send are the `e2e/ask.spec.ts` case). They
 drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries.
 A composer is filled only through `annotationInput` (which `composeChat` uses): a fresh composer seeds its
 default mention when the agent directory resolves, and Playwright's fill (select all, then insert) lets that
@@ -319,8 +304,8 @@ rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/c
 `connection-soak.spec.ts` (#2574) applies real page writes, Colab/Remote restarts, epoch and
 grant-revision changes, offline recovery and detached grace expiry. Each trigger must leave the
 same tab reading a new source, delivering one explicit Ask and showing its matching reply,
-without reload or duplicate dispatch/wake. The capacity case evicts only a detached SDK session,
-keeps attached pages usable and verifies a new tab's shipped refusal. Revoke ends access with
+without reload or duplicate dispatch/wake. Session-cap eviction and a new tab's refusal are
+covered by Remote's `tests/sessions.rs` and the app's capacity refusal specs. Revoke ends access with
 zero new effects; there is no unpair case because no public unpair action ships. For Colab
 restart, the browser observes Reconnecting before replacement startup, then Live
 before the next write; mounted stdout alone is not catch-up readiness. The case holds real

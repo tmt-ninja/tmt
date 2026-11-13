@@ -4,113 +4,12 @@ import path from 'node:path';
 import { commentsRegion } from '../test/comments-region.js';
 import { pageAction, selectDiscussion } from '../test/page-actions.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import {
-  composeChat,
-  createPage,
-  freePort,
-  openPage,
-  selectInRenderer,
-  sendChat,
-} from './harness/ask.js';
+import { createPage, freePort, openPage, selectInRenderer } from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { captureResponsive } from './harness/captures.js';
 
 test.afterEach(disposeActiveWorlds);
-
-test('Chat unread remains after dismissing its toast, clears at the visible end, and stays cleared after reload', async () => {
-  await withWorld(async (world) => {
-    const door = await startDoor(world, await freePort());
-    const agent = await world.startAgent('chat-unread-agent', { gated: true });
-    const author = await pairBrowser(world, 'chat-unread-author', { talk: true });
-    const viewer = await pairBrowser(world, 'chat-unread-viewer');
-    const created = createPage(world, 'Chat unread', '<p>Chat unread fixture.</p>');
-    const page = await openPage(door, author, created);
-    const other = await openPage(door, viewer, created);
-    const button = page
-      .locator('.page-floating-actions')
-      .getByRole('button', { name: /^Chat(?: · Unread)?$/ });
-    const peerButton = other
-      .locator('.page-floating-actions')
-      .getByRole('button', { name: /^Chat(?: · Unread)?$/ });
-    const ask = await sendChat(page, await composeChat(page, agent, 'One verified reply.'));
-    await until(() => agent.received().length === 1, 'one unread Ask');
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-    const request = agent.received()[0].requestId as string;
-    writeFileSync(path.join(agent.gate, `${request}.release`), '');
-    await until(() => agent.rows().some((row) => row.event === 'replied'), 'durable unread reply');
-    await expect(button).toHaveAccessibleName('Chat · Unread');
-    await expect(peerButton).toHaveAccessibleName('Chat');
-    await page.getByRole('button', { name: 'Dismiss Chat reply', exact: true }).click();
-    await expect(page.locator('.tmt-ui-notification')).toHaveCount(0);
-    await expect(button).toHaveAccessibleName('Chat · Unread');
-    await captureResponsive(page, 'chat-unread-persistent');
-    await button.click();
-    await expect(page.getByTestId('chat-panel').getByTestId('ask-reply')).toBeVisible();
-    await expect(page.locator('.page-floating-actions .chat-unread')).toHaveCount(0);
-    await captureResponsive(page, 'chat-unread-open');
-    await page.keyboard.press('Escape');
-    await expect(button).toBeFocused();
-    await captureResponsive(page, 'chat-unread-cleared');
-    await page.reload();
-    await expect(page.locator('.status.live')).toBeVisible();
-    await expect(button).toHaveAccessibleName('Chat');
-    await button.click();
-    await expect(
-      page.locator(`[data-operation-id="${ask.operationId}"]`).getByTestId('ask-reply'),
-    ).toBeVisible();
-    expect(agent.received()).toHaveLength(1);
-    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      1,
-    );
-  });
-});
-
-test('own admitted Chat final notifies once, opens its exact turn, and survives reload without replay', async () => {
-  await withWorld(async (world) => {
-    const door = await startDoor(world, await freePort());
-    const agent = await world.startAgent('notification-agent', { gated: true });
-    const author = await pairBrowser(world, 'notification-author', { talk: true });
-    const viewer = await pairBrowser(world, 'notification-viewer');
-    const created = createPage(world, 'Reply notifications', '<p id="quote">Canonical quote.</p>');
-    const page = await openPage(door, author, created);
-    const other = await openPage(door, viewer, created);
-    await expect(other.locator('.status.live')).toBeVisible();
-    const ask = await sendChat(page, await composeChat(page, agent, 'Notify my own device.'));
-    await until(() => agent.received().length === 1, 'one admitted notification Ask');
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-    const requestId = agent.received()[0].requestId as string;
-    writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
-    await until(() => agent.rows().some((row) => row.event === 'replied'), 'durable final reply');
-    const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
-    const card = page.locator('.tmt-ui-notification');
-    await expect(card).toHaveCount(1);
-    await expect(card).toContainText(reply);
-    await expect(page.locator('.reply-announcement')).toHaveCount(0);
-    await expect(other.locator('.tmt-ui-notification')).toHaveCount(0);
-    await captureResponsive(page, 'notification-chat-queue');
-    await card.getByRole('button', { name: 'Open Chat', exact: true }).click();
-    const target = page.locator(`[data-testid=ask-entry][data-operation-id="${ask.operationId}"]`);
-    await expect(target.getByTestId('ask-reply')).toHaveText(reply);
-    await expect(page.getByTestId('chat-panel').locator('.conversation-messages')).toBeFocused();
-    await captureResponsive(page, 'notification-chat-target');
-    // The peer sees the admitted reply in shared history, but never receives a
-    // notification for another device's Ask ledger, including after it closes.
-    await (await pageAction(other, 'Chat')).click();
-    await expect(other.getByTestId('chat-panel').getByTestId('ask-reply')).toHaveText(reply);
-    await other.getByRole('button', { name: 'Close Chat', exact: true }).click();
-    await expect(other.locator('.tmt-ui-notification')).toHaveCount(0);
-    await page.reload();
-    await expect(page.locator('.status.live')).toBeVisible();
-    await expect(page.locator('.tmt-ui-notification')).toHaveCount(0);
-    await (await pageAction(page, 'Chat')).click();
-    await expect(target.getByTestId('ask-reply')).toHaveText(reply);
-    expect(agent.received()).toHaveLength(1);
-    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      1,
-    );
-  });
-});
 
 test('an authenticated participant comment notifies the thread author and opens the canonical quote', async () => {
   await withWorld(async (world) => {

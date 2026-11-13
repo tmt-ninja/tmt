@@ -58,34 +58,17 @@ async function park(phase) {
 }
 
 await park('before');
-const diagnostic = process.env.TMT_ACCEPTANCE_SOAK_DIAGNOSTICS === '1';
 const child = spawn(realCore, argv, {
-  stdio: ['pipe', gated || diagnostic ? 'pipe' : 'inherit', 'inherit'],
+  stdio: ['pipe', gated ? 'pipe' : 'inherit', 'inherit'],
 });
 child.stdin.on('error', () => {});
 child.stdin.end(input);
 const output = [];
-let diagnosticTail = Buffer.alloc(0);
-if (gated || diagnostic)
-  child.stdout.on('data', (chunk) => {
-    if (gated) output.push(chunk);
-    else process.stdout.write(chunk);
-    if (diagnostic) diagnosticTail = Buffer.concat([diagnosticTail, chunk]).subarray(-65536);
-  });
+if (gated) child.stdout.on('data', (chunk) => output.push(chunk));
 const exit = await new Promise((resolve, reject) => {
   child.once('error', reject);
   child.once('close', (code, signal) => resolve({ code, signal }));
 });
-if (diagnostic) {
-  const { appendSoakInvocation } = await import('./soak-diagnostics.ts');
-  appendSoakInvocation(
-    path.dirname(directory),
-    'core',
-    exit.code,
-    exit.signal,
-    diagnosticTail.toString('utf8'),
-  );
-}
 // Colab's live discovery for each object-channel handshake.
 if (argv.join(' ') === 'remote status --machine --json') {
   fs.appendFileSync(

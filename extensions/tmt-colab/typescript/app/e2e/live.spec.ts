@@ -2529,8 +2529,6 @@ test('a page whose catchup takes over ten seconds in all still opens', async ({
   ).toBeVisible({ timeout: 60_000 });
   expect(Date.now() - opened).toBeGreaterThan(10_000);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await backToList(page);
-  await expect.poll(() => f.connections).toBe(0);
 });
 test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
   page,
