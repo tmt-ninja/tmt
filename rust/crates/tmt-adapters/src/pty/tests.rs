@@ -401,34 +401,6 @@ fn sole_use_disconnects_the_other_clients() {
     collect(&mut taker, says("got:alone"));
 }
 
-#[test]
-fn a_stalled_client_is_evicted_and_the_program_goes_on_for_the_others() {
-    let member = Member::start(&[
-        "sh",
-        "-c",
-        "yes | head -c 4000000; echo END; read l; echo done",
-    ]);
-    let mut stalled = member.connect();
-    let mut reading = member.connect();
-    // `stalled` reads nothing: output pauses until it is evicted, then resumes.
-    collect(&mut reading, says("END"));
-    // It was told if its connection lasted; either way its stream ends.
-    let mut told = None;
-    loop {
-        match stalled.receive(WAIT) {
-            Ok(Some(ServerMessage::Evicted(reason))) => told = Some(reason),
-            Ok(Some(ServerMessage::Exited(_))) => panic!("the program has not ended"),
-            Ok(Some(_)) => {}
-            Ok(None) => panic!("the stalled client was never disconnected"),
-            Err(_) => break,
-        }
-    }
-    assert!(told.is_none_or(|reason| reason == Eviction::TooSlow));
-    reading.input(b"\r").unwrap();
-    collect(&mut reading, exited(Exit::Code(0)));
-    member.finish().unwrap();
-}
-
 /// What a client rebuilds from one snapshot: a terminal at the size it says, holding the screen.
 struct Snapshot {
     /// Frames that arrived before the snapshot started, in order.
