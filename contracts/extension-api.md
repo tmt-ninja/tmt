@@ -1275,8 +1275,9 @@ contracts own channel readiness, receipts and recovery.
 IDs are canonical UUIDs, except request IDs, which use TMT's `req_...` format.
 `dispatch.create.kind` defaults to `request`; `announcement` does not expect a
 reply. Optional room scope is `{kind:"direct",roomId}` or
-`{kind:"roster",roomId,revision}`. Roster dispatch checks exact membership and
-revision. Persist a new operation UUID before sending; retries must retain that
+`{kind:"roster",roomId,revision}`. Roster dispatch sends to any non-empty subset of
+the room's current members at that revision; a different revision or a recipient
+outside the current roster is `ROOM_ROSTER_CHANGED` and nothing is enqueued. Persist a new operation UUID before sending; retries must retain that
 UUID and the exact normalized intent and originator. Changed intent conflicts.
 An acceptance receipt is not proof of delivery or processing. An absent `wake`
 on replay is intentional; an offline request remains queued without automatic

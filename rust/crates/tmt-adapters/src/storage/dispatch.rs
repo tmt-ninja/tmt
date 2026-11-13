@@ -144,9 +144,16 @@ pub(super) fn dispatch_in_transaction(
         return Ok((receipt, false));
     }
     if let Some(DispatchRoom::Roster { room_id, revision }) = &input.room {
-        let room = super::room::read_room(transaction, room_id)?;
-        if !room.is_some_and(|room| {
-            room.revision == *revision && room.member_ids == input.recipient_ids
+        // The revision fences the roster the sender saw; the audience is any non-empty
+        // subset of it (a channel post to the lead or to mentioned members, #5704).
+        // A recipient missing from the current roster means the sender's view is stale
+        // (a retirement leaves the revision unchanged), so both cases refuse alike.
+        if !super::room::read_room(transaction, room_id)?.is_some_and(|room| {
+            room.revision == *revision
+                && input
+                    .recipient_ids
+                    .iter()
+                    .all(|id| room.member_ids.contains(id))
         }) {
             return Err(DispatchError::RoomRosterChanged);
         }

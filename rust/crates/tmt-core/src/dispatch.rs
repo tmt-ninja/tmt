@@ -25,7 +25,7 @@ pub struct DispatchInput {
 pub enum DispatchRoom {
     /// One identified recipient; membership is checked by RequestService at enqueue.
     Direct { room_id: String },
-    /// Explicit full-room fan-out, fenced to the roster the sender reviewed.
+    /// Fan-out to any non-empty subset of the roster the sender reviewed, fenced to its revision.
     Roster { room_id: String, revision: u64 },
 }
 

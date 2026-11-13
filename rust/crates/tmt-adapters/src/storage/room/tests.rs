@@ -221,6 +221,37 @@ fn dispatch_records_the_fenced_room_on_each_canonical_request_after_leave() {
     storage.close().unwrap();
 }
 
+#[test]
+fn a_roster_post_reaches_only_the_addressed_members() {
+    // A channel post to the lead or to mentioned members (#5704): a subset of the roster.
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("rooms.db")).unwrap();
+    let alice = identity(&mut storage, "Alice");
+    let bob = identity(&mut storage, "Bob");
+    let carol = identity(&mut storage, "Carol");
+    let room = storage
+        .save_meeting_room(ROOM, write(0, vec![alice.clone(), bob.clone()]))
+        .unwrap();
+    let mut input = dispatch(&room);
+    input.recipient_ids = vec![bob.clone()];
+    let receipt = storage
+        .dispatch_request(input.clone(), 90, || 1000)
+        .unwrap();
+    assert_eq!(receipt.items.len(), 1);
+    assert_eq!(receipt.items[0].recipient_id, bob);
+    let mut outsider = input;
+    outsider.operation_id = uuid::Uuid::new_v4().to_string();
+    outsider.recipient_ids = vec![bob, carol];
+    assert_eq!(
+        storage
+            .dispatch_request(outsider, 90, || panic!("a non-member must not create work"))
+            .unwrap_err()
+            .code(),
+        "ROOM_ROSTER_CHANGED"
+    );
+    storage.close().unwrap();
+}
+
 fn write(revision: u64, member_ids: Vec<String>) -> RoomWrite {
     RoomWrite {
         expected_revision: revision,
