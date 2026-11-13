@@ -515,7 +515,7 @@ fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 format!(
                     " {} {}",
                     cell(sending_word(&member.effective.sending.value), 9),
-                    member.effective.routine.value
+                    safe(&member.effective.routine.value)
                 ),
                 base,
             ));
@@ -567,15 +567,21 @@ fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
             .to_owned()
     };
     let mut labels: Vec<String> = names.iter().map(|n| cut(n, Truncate::Middle)).collect();
+    // Indices whose label another, different name also shows: one pass over a map, so the cost
+    // grows with the roster, not its square.
     let clashes = |labels: &[String]| -> Vec<usize> {
-        (0..labels.len())
-            .filter(|&i| {
-                labels
-                    .iter()
-                    .enumerate()
-                    .any(|(j, l)| j != i && *l == labels[i] && names[j] != names[i])
-            })
-            .collect()
+        let mut groups: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::with_capacity(labels.len());
+        for (index, label) in labels.iter().enumerate() {
+            groups.entry(label.as_str()).or_default().push(index);
+        }
+        let mut clashing: Vec<usize> = groups
+            .into_values()
+            .filter(|group| group.iter().any(|&i| names[i] != names[group[0]]))
+            .flatten()
+            .collect();
+        clashing.sort_unstable();
+        clashing
     };
     for index in clashes(&labels) {
         let name = safe(names[index]);
@@ -1169,19 +1175,16 @@ impl InspectorLine {
                 look,
             ),
             Self::Row(key, value, role, source) => {
-                let mut shown = super::super::key_value::line(
+                let shown = super::super::key_value::line(
                     &super::super::key_value::Row {
                         key,
-                        value: super::super::key_value::Value::Observed(&value),
+                        value: super::super::key_value::Value::InRole(&value, role),
                         // Every inspector row keeps the sourced columns, with or without a source.
                         source: Some(source.as_deref().unwrap_or_default()),
                     },
                     usize::from(area.width),
                     look,
                 );
-                if let Some(span) = shown.spans.get_mut(3) {
-                    span.style = look.role(role);
-                }
                 strip::paint_left(frame.buffer_mut(), area, shown);
             }
             Self::Button(key, label, control) => {

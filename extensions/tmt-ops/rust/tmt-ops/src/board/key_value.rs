@@ -14,12 +14,24 @@ use unicode_width::UnicodeWidthStr;
 pub(in crate::board) enum Value<'a> {
     Observed(&'a str),
     Unreported(&'a str),
+    /// An observed value in its own role, such as a member state in its state colour.
+    InRole(&'a str, Role),
 }
 impl Value<'_> {
     fn text(&self) -> &str {
         match self {
-            Self::Observed(value) | Self::Unreported(value) => value,
+            Self::Observed(value) | Self::Unreported(value) | Self::InRole(value, _) => value,
         }
+    }
+    fn role(&self) -> Role {
+        match self {
+            Self::Observed(_) => Role::Text,
+            Self::Unreported(_) => Role::Dim,
+            Self::InRole(_, role) => *role,
+        }
+    }
+    fn observed(&self) -> bool {
+        !matches!(self, Self::Unreported(_))
     }
 }
 pub(in crate::board) struct Row<'a> {
@@ -40,11 +52,7 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
     let key = crate::board::notes::sanitize(row.key);
     let value = crate::board::notes::sanitize(row.value.text());
     let inner = width - 2;
-    let value_role = if matches!(row.value, Value::Observed(_)) {
-        Role::Text
-    } else {
-        Role::Dim
-    };
+    let value_role = row.value.role();
     if let Some(source) = row.source {
         // An empty source keeps the columns of its neighbours without an arrow.
         let source = if source.is_empty() {
@@ -157,7 +165,7 @@ pub(in crate::board) fn paint_value(
     look: Look,
 ) -> Option<Rect> {
     let painted = line(row, usize::from(area.width), look);
-    let value = if area.height > 0 && matches!(row.value, Value::Observed(_)) {
+    let value = if area.height > 0 && row.value.observed() {
         painted.spans.get(3).map(|span| {
             Rect::new(
                 area.x + painted.spans.iter().take(3).map(Span::width).sum::<usize>() as u16,
@@ -242,7 +250,27 @@ mod tests {
                 .starts_with(" State       ● Awake                 ← Shift B · Night"),
             "{wide}"
         );
-        assert_eq!(wide.spans[3].style, look.role(Role::Text));
+        let style_of = |line: &Line<'_>, text: &str| {
+            line.spans
+                .iter()
+                .find(|span| span.content.contains(text))
+                .map(|span| span.style)
+        };
+        assert_eq!(style_of(&wide, "● Awake"), Some(look.role(Role::Text)));
+        assert_eq!(style_of(&wide, "← Shift B"), Some(look.role(Role::Muted)));
+        let in_role = line(
+            &Row {
+                key: "State",
+                value: Value::InRole("● Awake", Role::Working),
+                source: Some("Base"),
+            },
+            60,
+            look,
+        );
+        assert_eq!(
+            style_of(&in_role, "● Awake"),
+            Some(look.role(Role::Working))
+        );
         for width in [0, 3, 12, 20, 24, 36, 40] {
             let narrow = line(&row, width, look);
             assert_eq!(narrow.width(), width, "{width}");
