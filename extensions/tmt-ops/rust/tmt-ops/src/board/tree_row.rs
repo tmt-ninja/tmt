@@ -34,12 +34,14 @@ pub(in crate::board) fn role_chip(glyph: &str, role: Role, look: Look) -> Span<'
     );
     let style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
         Style::new().add_modifier(Modifier::REVERSED)
+    } else if !matches!(fill.bg, Some(ratatui::style::Color::Rgb(..))) {
+        let mut style = look.role(role);
+        style.bg = None;
+        style
+            .add_modifier(Modifier::REVERSED)
+            .remove_modifier(Modifier::DIM)
     } else {
-        fill.fg(fill
-            .fg
-            .or_else(|| tmt_cli_style::theme::screen::keycap(&look.theme, look.depth, false).fg)
-            .unwrap_or(ratatui::style::Color::Reset))
-            .remove_modifier(Modifier::DIM | Modifier::REVERSED)
+        fill.remove_modifier(Modifier::DIM | Modifier::REVERSED)
     };
     let text = if glyph.width() == 1 {
         format!(" {} ", glyph)

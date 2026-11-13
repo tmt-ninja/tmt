@@ -326,6 +326,11 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
             );
             if depth == Depth::None {
                 assert!(chip.style.add_modifier.contains(Modifier::REVERSED));
+            } else if depth == Depth::Ansi16 {
+                assert_eq!(chip.style.fg, look.role(role).fg, "{base:?} {}", label.id);
+                assert_eq!(chip.style.bg, None);
+                assert!(chip.style.add_modifier.contains(Modifier::REVERSED));
+                assert!(chip.style.sub_modifier.contains(Modifier::DIM));
             } else {
                 let fg = fill
                     .fg
@@ -342,6 +347,8 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
             .members
             .insert("66666666-6666-4666-8666-000000000000".into(), "pr".into());
         workspace.set_preferences(preferences);
+        let index = app.workspace_rows().iter().position(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "66666666-6666-4666-8666-000000000000")).unwrap();
+        app.workspace_select(index);
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
@@ -355,12 +362,17 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
                     .map(|cell| cell.symbol())
                     .collect::<String>()
                     .contains("agent-00000")
+                    && row.iter().any(|cell| cell.symbol() == "P")
             })
             .unwrap();
         let glyph = row.iter().position(|cell| cell.symbol() == "P").unwrap();
         if depth == Depth::None {
             assert!(row[glyph].modifier.contains(Modifier::REVERSED));
-            assert!(!row[glyph + 2].modifier.contains(Modifier::REVERSED));
+        } else if depth == Depth::Ansi16 {
+            assert_eq!(row[glyph].fg, look.role(Role::Waiting).fg.unwrap());
+            assert_eq!(row[glyph].bg, ratatui::style::Color::Reset);
+            assert!(row[glyph].modifier.contains(Modifier::REVERSED));
+            assert!(!row[glyph].modifier.contains(Modifier::DIM));
         } else {
             assert_eq!(row[glyph].bg, look.role(Role::Waiting).fg.unwrap());
             let fill = tmt_cli_style::theme::screen::fill(
