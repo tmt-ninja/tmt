@@ -391,8 +391,18 @@ fn header(frame: &mut Frame, app: &App, area: Rect) {
         (full, controls_width as u16)
     } else if fits(&short) {
         (short, controls_width as u16)
-    } else {
+    } else if full.width() <= room {
         (full, 0)
+    } else {
+        // Without the controls: the short words, then whole trailing parts drop; a part is
+        // never cut mid-phrase.
+        let mut spans = short.spans;
+        while Line::from(spans.clone()).width() > room
+            && let Some(at) = spans.iter().rposition(|span| span.content == " · ")
+        {
+            spans.truncate(at);
+        }
+        (Line::from(spans), 0)
     };
     strip::paint_left(
         frame.buffer_mut(),

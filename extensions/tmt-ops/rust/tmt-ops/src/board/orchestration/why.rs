@@ -19,16 +19,20 @@ use tmt_tui::{
 use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "orchestration.why.xml";
-/// What Core's journal records today: the dialog says so rather than implying it is complete.
-const COVERS: &str = "holds, claims and settlements";
+/// What Core's journal holds for a member: its Digest claims and settlements. Holds are recorded
+/// per request, so a member's page never lists them; the dialog says so.
+const COVERS: &str = "claims and settlements";
 
 /// The dialog's state: whose decisions, the pages read so far and where the view is.
 pub(in crate::board) struct Why {
+    /// The member whose decisions are read: Core's `why` subject.
     pub identity_id: String,
     pub name: String,
-    /// The matrix cell's recipient: only decisions to them, until `a` shows all.
-    pub recipient: Option<(String, String)>,
-    pub all: bool,
+    /// Opened on a matrix cell: (sender, recipient) names. The page is then the recipient's,
+    /// since what Core records on delivery belongs to the receiving member.
+    pub route: Option<(String, String)>,
+    /// The member `a` switches to: the cell's sender, and back.
+    pub other: Option<(String, String)>,
     pub items: Vec<Value>,
     pub next_before: Option<u64>,
     pub loading: bool,
@@ -39,12 +43,17 @@ pub(in crate::board) struct Why {
 }
 
 impl Why {
-    pub fn new(identity_id: String, name: String, recipient: Option<(String, String)>) -> Self {
+    pub fn new(
+        identity_id: String,
+        name: String,
+        route: Option<(String, String)>,
+        other: Option<(String, String)>,
+    ) -> Self {
         Self {
             identity_id,
             name,
-            recipient,
-            all: false,
+            route,
+            other,
             items: Vec::new(),
             next_before: None,
             loading: true,
@@ -70,13 +79,31 @@ impl Why {
         self.loading = false;
         self.failure = Some(reason);
     }
-    fn filtered(&self) -> Option<&(String, String)> {
-        self.recipient.as_ref().filter(|_| !self.all)
+    /// `a`: read the other member of the cell instead.
+    pub fn switch(&mut self) -> bool {
+        let Some((id, name)) = self.other.take() else {
+            return false;
+        };
+        let current = (
+            std::mem::replace(&mut self.identity_id, id),
+            std::mem::replace(&mut self.name, name),
+        );
+        self.other = Some(current);
+        self.items.clear();
+        self.next_before = None;
+        self.loading = true;
+        self.failure = None;
+        true
+    }
+    fn on_recipient(&self) -> bool {
+        self.route.as_ref().is_some_and(|(_, to)| to == &self.name)
     }
     fn title(&self) -> String {
-        match self.filtered() {
-            Some((_, to)) => format!("Why · {} → {to}", self.name),
-            None => format!("Why · {}", self.name),
+        match &self.route {
+            Some((from, to)) if self.on_recipient() => {
+                format!("Why · {from} → {to} · {to}'s receiving")
+            }
+            _ => format!("Why · {}", self.name),
         }
     }
     /// The rows shown: each decision as pieces with their roles.
@@ -175,28 +202,18 @@ impl Why {
         let rows: Vec<Value> = self
             .items
             .iter()
-            .filter(|item| {
-                self.filtered()
-                    .is_none_or(|(id, _)| item["recipientId"].as_str() == Some(id.as_str()))
-            })
             .map(|item| {
+                // Core's outcome words: allowed, held, sent, uncertain, failed, completed.
                 let outcome = item["outcome"].as_str().unwrap_or("?");
-                let (mark, role) = if outcome.contains("block") {
-                    ("✕", Role::Blocked)
-                } else if outcome.contains("held") || outcome.contains("hold") {
-                    ("◆", Role::Waiting)
-                } else if outcome.contains("deliver")
-                    || outcome.contains("accept")
-                    || outcome.contains("claim")
-                    || outcome.contains("settle")
-                {
-                    ("✓", Role::Working)
-                } else {
-                    ("·", Role::Text)
+                let (mark, role) = match outcome {
+                    "allowed" | "sent" | "completed" => ("✓", Role::Working),
+                    "held" | "uncertain" => ("◆", Role::Waiting),
+                    "failed" => ("✕", Role::Blocked),
+                    _ => ("·", Role::Text),
                 };
                 let to = item["recipientId"]
                     .as_str()
-                    .filter(|_| self.filtered().is_none())
+                    .filter(|to| *to != self.identity_id)
                     .map_or_else(String::new, |to| format!("{} ", name(to)));
                 let sources: Vec<String> = item["sources"]
                     .as_array()
@@ -214,7 +231,11 @@ impl Why {
                     clock(item["recordedAtMs"].as_u64().unwrap_or(0))
                 );
                 let result = format!("{mark} {outcome:<10} ");
-                let reason = format!("{} ", item["reason"].as_str().unwrap_or("?"));
+                // Core's reason codes (`digest_delivered`) read as words.
+                let reason = format!(
+                    "{} ",
+                    item["reason"].as_str().unwrap_or("?").replace('_', " ")
+                );
                 let source = sources.join(" ");
                 // What does not fit is cut with `…`: the source yields first, then the reason.
                 let left = inner.saturating_sub(time.width() + result.width() + to.width());
@@ -243,13 +264,9 @@ impl Why {
             })
             .collect();
         if rows.is_empty() && !self.loading {
-            let whom = match self.filtered() {
-                Some((_, to)) => format!("{} to {to}", self.name),
-                None => self.name.clone(),
-            };
             return vec![note(
                 "empty",
-                format!("No recorded decision for {whom} in the last 30 days"),
+                format!("No recorded decision for {} in the last 30 days", self.name),
                 Role::Muted,
             )];
         }
@@ -259,11 +276,11 @@ impl Why {
         rows
     }
     fn footer(&self, shown: usize) -> String {
-        let all = self.recipient.as_ref().map(|(_, to)| {
-            if self.all {
-                format!(" · a only {to}")
+        let all = self.other.as_ref().map(|(_, other)| {
+            if self.on_recipient() {
+                format!(" · a {other}'s decisions")
             } else {
-                " · a all decisions".to_owned()
+                format!(" · a {other}'s receiving")
             }
         });
         let more = if self.next_before.is_some() {
@@ -396,11 +413,11 @@ impl App {
                 }
                 KeyCode::Char('a') if key.modifiers.is_empty() => {
                     let mut why = why.borrow_mut();
-                    if why.recipient.is_some() {
-                        why.all = !why.all;
-                        why.invalidate();
+                    if !why.switch() {
+                        return Some(Effect::None);
                     }
-                    return Some(Effect::None);
+                    why.invalidate();
+                    return Some(read(&why, None));
                 }
                 KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     let mut why = why.borrow_mut();

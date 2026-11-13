@@ -232,11 +232,21 @@ impl App {
                 let cell = snapshot.sending.routes.is_some()
                     && !state.plans
                     && state.focus() == super::Section::Routes;
-                let recipient = find(&state.target)
+                // On a cell, what Core records on delivery belongs to the recipient: its page
+                // first, and `a` reads the sender's.
+                let why = match find(&state.target)
                     .filter(|to| cell && to.identity_id != who.identity_id)
-                    .map(|to| (to.identity_id.clone(), to.name.clone()));
-                let why =
-                    super::why::Why::new(who.identity_id.clone(), who.name.clone(), recipient);
+                {
+                    Some(to) => super::why::Why::new(
+                        to.identity_id.clone(),
+                        to.name.clone(),
+                        Some((who.name.clone(), to.name.clone())),
+                        Some((who.identity_id.clone(), who.name.clone())),
+                    ),
+                    None => {
+                        super::why::Why::new(who.identity_id.clone(), who.name.clone(), None, None)
+                    }
+                };
                 let effect = super::why::read(&why, None);
                 state.why = Some(std::cell::RefCell::new(why));
                 self.invalidate_frame_geometry();

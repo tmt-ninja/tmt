@@ -1183,10 +1183,11 @@ confirm: `a` allows a blocked route once until the sender's current slot ends (a
 most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
 and `r` releases a held pair's messages through normal delivery. `w` opens **Why** over the
 frame at any width: Core's recorded decisions for the selected member, newest first,
-each with its time, result, reason and the plan and slot behind it; with a matrix cell
-selected it lists those to that recipient, and `a` shows all. `↓` at the end reads
-the next page, `Esc` closes. Core records holds, claims and settlements, and the
-dialog says so. If Orchestration changed after the
+each with its time, result, reason and the plan and slot behind it. With a matrix cell
+selected it reads the recipient's page, since what Core records on delivery belongs to
+the receiving member, and `a` reads the sender's. `↓` at the end reads the next page,
+`Esc` closes. A member's page holds its Digest claims and settlements (holds are
+recorded per request), and the dialog says so. If Orchestration changed after the
 preview, nothing is saved; preview again. A Core without `orchestration.write`
 refuses changes with a notice. The tab never interrupts running work. `--tab` and
 `board.startup_tab` do not offer it yet.

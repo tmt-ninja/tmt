@@ -744,8 +744,9 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
             "Edit with tmt orch plan set 'Bob'\\''s $(rm -rf x) `y` $HOME' --file plan.json (its current plan: tmt orch plan show 'Bob'\\''s $(rm -rf x) `y` $HOME' --json)"
         )
     );
-    // `w` on the night-1 → core-1 cell opens Why over the frame: Core's decisions to core-1, each
-    // with the plan and slot from its sources; `a` shows every decision; Esc closes.
+    // `w` on the night-1 → core-1 cell opens Why over the frame: core-1's page, since what Core
+    // records on delivery belongs to the recipient, each row with the plan and slot from its
+    // sources; `a` reads night-1's own page; Esc closes.
     let mut app = captures::case("orchestration-why", crate::look::Look::default());
     assert_eq!(
         app.overlay(),
@@ -753,21 +754,30 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     );
     let painted = screen(&app);
     for text in [
-        "Why · night-1 → core-1",
-        "◆ held",
-        "receiving hold all ← Shift B · Night (22:00–06:00)",
-        "✓ claimed",
-        "4 recorded decisions, newest first",
-        "a all decisions",
+        "Why · night-1 → core-1 · core-1's receiving",
+        "✓ allowed",
+        "digest claim ← Quiet hours (22:00–08:00)",
+        "✕ failed",
+        "5 recorded decisions, newest first",
+        "a night-1's decisions",
     ] {
         assert!(painted.contains(text), "{text}");
     }
-    app.key(key('a'));
-    let painted = screen(&app);
-    assert!(
-        painted.contains("Why · night-1 ") && painted.contains("night-2 receiving hold all"),
-        "all decisions name their recipient"
+    let Effect::Orchestration(Task {
+        step: Step::Why {
+            identity_id,
+            before,
+        },
+    }) = app.key(key('a'))
+    else {
+        panic!("a reads the sender's page")
+    };
+    assert_eq!(
+        (identity_id.as_str(), before),
+        ("10000000-0000-4000-8000-000000000107", None)
     );
+    assert!(screen(&app).contains("Why · night-1 "));
+    let mut app = captures::case("orchestration-why", crate::look::Look::default());
     // At the last row `↓` reads the page before, once; the dialog keeps the rows it has.
     app.orchestration
         .why
@@ -798,15 +808,13 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     app.finished_orchestration(super::write::Completed {
         task: Task {
             step: Step::Why {
-                identity_id: app.orchestration.selected.clone().unwrap(),
+                identity_id: app.orchestration.target.clone().unwrap(),
                 before: None,
             },
         },
         result: Ok(json!({"items": [], "nextBefore": null})),
     });
-    assert!(
-        screen(&app).contains("No recorded decision for night-1 to core-1 in the last 30 days")
-    );
+    assert!(screen(&app).contains("No recorded decision for core-1 in the last 30 days"));
 }
 #[test]
 fn a_confirmed_preview_applies_exactly_it_and_a_conflict_saves_nothing() {
@@ -1027,6 +1035,22 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
     assert!(
         at(&rows, " ID OWNER").is_some() && at(&rows, "PAIR").is_none(),
         "{rows:#?}"
+    );
+    // At 60 columns the header takes its short words and drops whole parts, never mid-phrase.
+    let header = row_text(
+        &paint(
+            &captures::case("orchestration-roster", crate::look::Look::default()),
+            60,
+            36,
+        ),
+        3,
+    )
+    .into_iter()
+    .map(|(_, s)| s)
+    .collect::<String>();
+    assert_eq!(
+        header.trim_end(),
+        " Orchestration · Wed 23:00 Asia/Tokyo · ● now · 2 plans"
     );
     assert!(
         !routes.contains("q quit") && !routes.contains("end focus"),
@@ -1438,34 +1462,32 @@ pub(in crate::board) mod captures {
                 app.orchestration.selected = Some(roster_id(6));
                 app.orchestration.target = Some(roster_id(2));
                 let _ = app.orchestration_bound(crate::action::OpsUiAction::Why);
-                let night = json!({"field":"receiving","source":{"kind":"plan","planId":NIGHT,
-                    "identityId":null,"revision":4,"slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},
+                // Core's page for core-1, the cell's recipient: its own Digest claims and
+                // settlements (holds are journaled per request, never on a member's page), with
+                // core-1's receiving from Quiet hours overnight and Base by day.
+                let quiet = json!({"field":"receiving","source":{"kind":"plan","planId":QUIET,
+                    "identityId":null,"revision":2,"slot":{"startMs":NIGHT_START,"endMs":NIGHT_END + 2 * HOUR},
                     "defaulted":false}});
                 let base = json!({"field":"receiving","source":{"kind":"base","planId":null,
                     "identityId":null,"revision":3,"slot":null,"defaulted":false}});
-                let item = |id: u64,
-                            minutes: u64,
-                            to: usize,
-                            outcome: &str,
-                            reason: &str,
-                            source: &Value| {
+                let item = |id: u64, minutes: u64, outcome: &str, reason: &str, source: &Value| {
                     json!({"id":id,"recordedAtMs":WED_23 - minutes * 60_000,
-                        "subject":{"kind":"identity","id":roster_id(6)},"actorId":null,
-                        "recipientId":roster_id(to),"action":"receiving_hold","outcome":outcome,
+                        "subject":{"kind":"identity","id":roster_id(2)},"actorId":null,
+                        "recipientId":roster_id(2),"action":"send","outcome":outcome,
                         "reason":reason,"configurationRevision":9,"timeZone":"Asia/Tokyo",
                         "sources":[source]})
                 };
                 let page = json!({"schemaVersion":1,"items":[
-                    item(9, 2, 2, "held", "receiving hold all", &night),
-                    item(8, 21, 7, "held", "receiving hold all", &night),
-                    item(7, 73, 2, "claimed", "digest claim", &base),
-                    item(6, 74, 2, "settled", "digest delivered", &base),
-                    item(5, 150, 2, "held", "receiving batch 30m", &base)],
+                    item(9, 2, "allowed", "digest_claim", &quiet),
+                    item(8, 21, "sent", "digest_delivered", &quiet),
+                    item(7, 73, "allowed", "digest_claim", &quiet),
+                    item(6, 74, "failed", "digest_unsent", &quiet),
+                    item(5, 150, "sent", "digest_delivered", &base)],
                     "nextBefore":if scene == "orchestration-why-paged" { json!(5) } else { Value::Null }});
                 let _ = app.finished_orchestration(Completed {
                     task: Task {
                         step: Step::Why {
-                            identity_id: roster_id(6),
+                            identity_id: roster_id(2),
                             before: None,
                         },
                     },
@@ -1474,13 +1496,13 @@ pub(in crate::board) mod captures {
                 if scene == "orchestration-why-paged" {
                     // `↓` at the end read one more page; it has more before it still.
                     let older = json!({"schemaVersion":1,"items":[
-                        item(4, 26 * 60, 2, "held", "receiving hold all", &night),
-                        item(3, 27 * 60, 2, "settled", "digest delivered", &base)],
+                        item(4, 26 * 60, "uncertain", "digest_uncertain", &quiet),
+                        item(3, 27 * 60, "sent", "digest_delivered", &base)],
                         "nextBefore":2});
                     let _ = app.finished_orchestration(Completed {
                         task: Task {
                             step: Step::Why {
-                                identity_id: roster_id(6),
+                                identity_id: roster_id(2),
                                 before: Some(5),
                             },
                         },

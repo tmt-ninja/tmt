@@ -197,7 +197,7 @@ fn every_peek_follows_the_close_rule() {
         }),
         (Overlay::OrchestrationWhy, |app| {
             app.orchestration.why = Some(std::cell::RefCell::new(
-                crate::board::orchestration::why::Why::new("m".into(), "worker".into(), None),
+                crate::board::orchestration::why::Why::new("m".into(), "worker".into(), None, None),
             ));
         }),
         (Overlay::PastePreview, |app| {
