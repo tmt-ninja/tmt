@@ -16,7 +16,7 @@ fi
 if [ "$1 $2 $3" = "__tmt-hooks 1 context" ]; then
   cat > "$dir/ctxfix-input"
   printf 'context\\n' >> "$dir/ctxfix-calls"
-  if [ -f "$dir/ctxfix-unbind-second" ] && [ "$(wc -l < "$dir/ctxfix-calls")" -eq 2 ]; then
+  if [ -f "$dir/ctxfix-unbind-third" ] && [ "$(wc -l < "$dir/ctxfix-calls")" -eq 3 ]; then
     "$TMT_EXECUTABLE" unbind --json > "$dir/ctxfix-unbound"
   fi
   if [ -f "$dir/ctxfix-slow" ]; then exec sleep 5.75; fi
@@ -126,7 +126,7 @@ it.each([
       );
       expect((await fixture.runJsonCli(['name', 'Fixture Owner', '-s'])).code).toBe(0);
       expect((await fixture.runJsonCli(['extension', 'hooks', 'enable', 'ctxfix'])).code).toBe(0);
-      if (unbind) fs.writeFileSync(path.join(fixture.wrapperDir, 'ctxfix-unbind-second'), '');
+      if (unbind) fs.writeFileSync(path.join(fixture.wrapperDir, 'ctxfix-unbind-third'), '');
       const session = '11111111-1111-4111-8111-111111111111';
       const foreign = '22222222-2222-4222-8222-222222222222';
       const hook = (event: string, id = session) => ({
@@ -148,7 +148,7 @@ it.each([
           [
             hook('UserPromptSubmit'), // unbound: no naming hint and no callback
             { args: ['name', 'Prompt Reader', '-s', '--json'] },
-            hook('UserPromptSubmit'), // bound, but no admitted provider session
+            hook('UserPromptSubmit'), // first verified prompt admits the session
             hook('SessionStart'),
             hook('UserPromptSubmit'),
             hook('UserPromptSubmit', foreign),
@@ -186,10 +186,10 @@ it.each([
       }>;
       expect(results).toHaveLength(unbind ? 5 : 14);
       expect(results.every((item) => item.code === 0)).toBe(true);
-      // Only SessionStart and the admitted, enabled prompts invoke the callback. Keep
+      // The first admitted prompt, SessionStart and enabled prompts invoke the callback. Keep
       // repeated latency sampling out of this required correctness scenario.
       expect(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-calls'), 'utf8')).toBe(
-        'context\n'.repeat(unbind ? 2 : 3)
+        'context\n'.repeat(unbind ? 3 : 4)
       );
       if (unbind) {
         // The live agent's identity cannot be removed (AGENT_RUNNING), so the
@@ -215,8 +215,9 @@ it.each([
             'Extension ctxfix (informational): "Next turn: \\"quoted\\"\\nsecond line"\n',
         },
       });
+      expect(results[2].stdout).toBe(results[4].stdout);
       expect(results[11].stdout).toBe(results[4].stdout);
-      for (const index of [0, 2, 5, 6, 9, 12, 13]) expect(results[index].stdout).toBe('');
+      for (const index of [0, 5, 6, 9, 12, 13]) expect(results[index].stdout).toBe('');
       expect(JSON.parse(results[7].stdout)).toMatchObject({ id, sessionState: 'running' });
       expect(
         JSON.parse(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-input'), 'utf8'))

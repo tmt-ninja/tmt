@@ -125,9 +125,17 @@ fn a_live_or_stopped_old_session_refuses_and_a_later_verified_start_clears_the_r
                     "previous_session_live"
                 }
             );
+            let listed = fixture.json(&["ls", "--json"]);
+            let named = fixture.json(&["ls", "worker", "--json"]);
+            assert_eq!(worker(&listed)["session"]["unbound"], true);
+            assert_eq!(named["session"]["unbound"], true);
             assert_eq!(
-                worker(&fixture.json(&["ls", "--json"]))["session"]["unbound"],
-                true
+                named["session"]["startRefusal"],
+                observation.reason.as_str()
+            );
+            assert_eq!(
+                worker(&listed)["session"]["startRefusal"],
+                named["session"]["startRefusal"]
             );
             if stopped {
                 nix::sys::signal::kill(owned.pid(), nix::sys::signal::Signal::SIGCONT).unwrap();
@@ -149,6 +157,9 @@ fn a_live_or_stopped_old_session_refuses_and_a_later_verified_start_clears_the_r
                 worker(&fixture.json(&["ls", "--json"]))["session"]["unbound"],
                 false
             );
+            let named = fixture.json(&["ls", "worker", "--json"]);
+            assert_eq!(named["session"]["unbound"], false);
+            assert!(named["session"]["startRefusal"].is_null());
         }
     }
 }
@@ -403,4 +414,74 @@ fn add_from_elsewhere_never_borrows_the_callers_session_and_explains_the_next_st
         after.entry.binding.unwrap().session.key,
         before.entry.binding.unwrap().session.key
     );
+}
+
+#[test]
+fn first_named_listing_reports_the_same_unknown_session_as_the_full_listing() {
+    register();
+    let fixture = Fixture::new("named-session-unknown");
+    bind(&fixture, fixture.approve());
+    let full = fixture.json(&["ls", "--json"]);
+    let named = fixture.json(&["ls", "worker", "--json"]);
+    let listed = worker(&full);
+    assert!(listed["session"]["unbound"].is_null());
+    assert!(listed["session"]["learning"].is_null());
+    assert_eq!(named["session"], listed["session"]);
+}
+
+#[test]
+fn explicit_name_and_add_routes_learn_the_first_verified_claude_hook() {
+    const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
+    register();
+    for route in ["name", "add-target", "add-other"] {
+        for event in ["UserPromptSubmit", "Stop"] {
+            let fixture = Fixture::new(&format!("first-claude-{route}-{event}"));
+            fixture.approve();
+            super::move_session::destination(&fixture);
+            let mut agent = SteppedProvider::start_in(&fixture, "claude", "first-hook", "f1", true);
+            let shell = agent.child.id().to_string();
+            fs::write(fixture.root.join("driver/pid"), &shell).unwrap();
+            fs::write(fixture.root.join("driver/shell"), &shell).unwrap();
+            let process = live_provider(&agent);
+            match route {
+                "name" | "add-target" => {
+                    let args: &[&str] = if route == "name" {
+                        &["name", "worker", "--json"]
+                    } else {
+                        &["add", "f1", "worker", "--json"]
+                    };
+                    let output = agent.command(&[], args);
+                    assert_eq!(output.0, 0, "{output:?}");
+                }
+                _ => {
+                    let output = fixture.tmt_in(Some("f2"), &["add", "f1", "worker", "--json"]);
+                    assert!(output.status.success(), "{output:?}");
+                }
+            }
+            let before = stored(&fixture);
+            assert!(before.preferences.remembered.is_none(), "{route}/{event}");
+            assert!(before.entry.binding.as_ref().unwrap().session.key.is_none());
+            let mut payload = codex_event(event, Some("turn-a"));
+            payload["session_id"] = SESSION.into();
+            let pid = process.incarnation.pid().to_string().into_bytes();
+            let output = agent.hook_with_env(payload, &[("CLAUDE_PID", &pid)]);
+            assert_eq!(output.0, 0, "{route}/{event}: {output:?}");
+            let after = stored(&fixture);
+            assert_eq!(
+                after
+                    .preferences
+                    .remembered
+                    .unwrap()
+                    .provider_session
+                    .as_str(),
+                SESSION
+            );
+            let key = after.entry.binding.unwrap().session.key.unwrap();
+            assert_eq!(key.incarnation, process.incarnation);
+            assert_eq!(key.provider_session.unwrap().as_str(), SESSION);
+            drop(agent);
+            assert_eq!(process.seen(), Seen::Ended);
+            assert_drivers_ended(&fixture);
+        }
+    }
 }

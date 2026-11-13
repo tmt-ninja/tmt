@@ -146,6 +146,7 @@ describe('native identity binding process contract', () => {
             session: {
               unbound: null,
               learning: null,
+              startRefusal: null,
               activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
             },
           },
@@ -176,6 +177,7 @@ describe('native identity binding process contract', () => {
         pane: null,
         address: null,
         driver: null,
+        session: globalRow.session,
       });
       expect(Object.keys(parseWholeStdout(named)).sort()).toEqual([
         'address',
@@ -183,6 +185,7 @@ describe('native identity binding process contract', () => {
         'identity',
         'pane',
         'presence',
+        'session',
         'target',
       ]);
 
@@ -273,6 +276,7 @@ describe('native identity binding process contract', () => {
           session: {
             unbound: null,
             learning: null,
+            startRefusal: null,
             activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
           },
         })),

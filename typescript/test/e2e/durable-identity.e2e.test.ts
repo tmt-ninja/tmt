@@ -149,7 +149,12 @@ describe('durable identity lifecycle', { concurrent: false }, () => {
             presence: 'offline',
             pane: null,
             command: '',
-            session: { activity: unknownActivity, unbound: null, learning: null },
+            session: {
+              activity: unknownActivity,
+              unbound: null,
+              learning: null,
+              startRefusal: null,
+            },
           },
         ],
       });
