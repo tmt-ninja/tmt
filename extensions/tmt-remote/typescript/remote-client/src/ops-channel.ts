@@ -78,6 +78,7 @@ export function channelView(
 ): {
   node: HTMLElement;
   history: HTMLElement;
+  focusTitle(): void;
   update(board: OpsBoard, place: ChannelPlace): void;
 } {
   const page = el('div', 'ops-channel');
@@ -88,7 +89,10 @@ export function channelView(
   const title = el('h2', 'ops-channel-name');
   title.tabIndex = -1;
   const chips = el('span', 'ops-channel-chips');
-  titleRow.append(face, title, chips);
+  // On a phone a DM leads with the way back to its channel, as Slack's back chevron does.
+  const back = el('a', 'ops-channel-back', '‹');
+  back.hidden = true;
+  titleRow.append(back, face, title, chips);
   const line = el('p', 'ops-channel-line');
   head.append(titleRow, line);
 
@@ -263,6 +267,10 @@ export function channelView(
   return {
     node: page,
     history,
+    /** After a route the person chose: the title takes focus, so reading starts at the new place. */
+    focusTitle() {
+      if (title.isConnected && !head.hidden) title.focus({ preventScroll: true });
+    },
     update(board, place) {
       requestAnimationFrame(fit);
       const key = opsHref(pathname, place);
@@ -313,22 +321,30 @@ export function channelView(
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
         const stateMark = state === 'Unknown' ? unknownMark() : mark(MARKS[state]);
+        // The member's channel is a link back to it.
+        const channelHref = opsHref(pathname, { squad: member.squad });
+        const squadLink = el('a', 'ops-channel-squad-link', `#${member.squad}`);
+        squadLink.href = channelHref;
         facts.append(
           stateMark,
-          [
+          `${[
             state === 'Unknown' ? undefined : state,
             member.role === 'lead' ? 'Lead' : 'Member',
             member.model,
             usage(member) || undefined,
-            `#${member.squad}`,
-            'This machine',
           ]
             .filter(Boolean)
-            .join(' · '),
+            .join(' · ')} · `,
+          squadLink,
+          ' · This machine',
         );
+        back.href = channelHref;
+        back.setAttribute('aria-label', `Back to #${member.squad}`);
+        back.hidden = false;
         line.replaceChildren(facts);
         if (member.task) line.append(el('span', 'ops-channel-line-task', member.task));
       } else {
+        back.hidden = true;
         face.replaceChildren();
         title.textContent = `#${place.squad}`;
         // A chip says what is set; an unset or unknown value shows nothing (as for #6372).
@@ -336,6 +352,8 @@ export function channelView(
           chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 60_000)}m`));
         channelFacts(squad, people, board.truncated);
       }
+      // A DM with no timers has no Timers bar: an empty line on a phone says nothing.
+      panel.hidden = !!member && timerCount === 0;
       // The Timers count lives once, in the summary row below the title.
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;

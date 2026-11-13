@@ -10004,7 +10004,9 @@ function opsHref(pathname, place) {
 	const squad = encodeURIComponent(place.squad);
 	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
 }
-function opsMenu(section, board, pathname, disclosure, unread) {
+/** The rail's mark for a channel or DM whose message box holds unsent words. */
+var DRAFT = "✎ Draft";
+function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false) {
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
 		return value?.state === "known" && value.count > 0 ? {
@@ -10013,7 +10015,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 				text: value.more ? "50+" : String(value.count),
 				needsYou: false
 			}
-		} : {};
+		} : hasDraft(id) ? { badges: [DRAFT] } : {};
 	};
 	const stateMark = (state) => {
 		const node = mark(AGENT_STATES[state].mark);
@@ -10039,7 +10041,8 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 			label: "THIS MACHINE",
 			items: bySquad(board, true).map((group) => {
 				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
-				const badges = timers ? [`⏱ ${timers}`] : [];
+				const badges = hasDraft(`channel:${group.name}`) ? [DRAFT] : [];
+				if (timers) badges.push(`⏱ ${timers}`);
 				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
 				if (idle !== void 0 && board.defaultIdleAlertMs !== null && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
 				return {
@@ -10049,7 +10052,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 						node: channelMark(),
 						label: "Channel"
 					},
-					...badges.length ? { badges } : {},
+					...badges.length ? { badges: badges.slice(0, 2) } : {},
 					href: opsHref(pathname, { squad: group.name }),
 					current: typeof section !== "string" && section.squad === group.name && !section.memberId,
 					expanded: !disclosure?.collapsed.has(group.name),
@@ -10179,12 +10182,32 @@ function timerList(jobs, truncated) {
 * with a still box of the same height until it arrives. */
 /** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
 var COMPOSER = "/sdk/ops-composer-v1.js";
+/** The places (`channel:<squad>` or a member id) whose message box holds unsent words, for the
+* rail's draft mark; every box on the page reports here. */
+var drafts = /* @__PURE__ */ new Set();
+var draftListeners = /* @__PURE__ */ new Set();
+var hasDraft = (key) => drafts.has(key);
+/** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
+function onDrafts(listener) {
+	draftListeners.add(listener);
+	return () => draftListeners.delete(listener);
+}
+function noteDraft(key, present) {
+	if (drafts.has(key) === present) return;
+	if (present) drafts.add(key);
+	else drafts.delete(key);
+	for (const listener of draftListeners) listener();
+}
 /** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
 function composerSlot(host) {
 	let handle;
 	let wanted;
 	let loading = false;
-	return { show(options) {
+	return { show(shown) {
+		const options = {
+			...shown,
+			onDraft: noteDraft
+		};
 		wanted = options;
 		if (handle) return handle.update(options);
 		if (loading) return;
@@ -11696,7 +11719,9 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const title = el("h2", "ops-channel-name");
 	title.tabIndex = -1;
 	const chips = el("span", "ops-channel-chips");
-	titleRow.append(face, title, chips);
+	const back = el("a", "ops-channel-back", "‹");
+	back.hidden = true;
+	titleRow.append(back, face, title, chips);
 	const line = el("p", "ops-channel-line");
 	head.append(titleRow, line);
 	const panel = el("section", "ops-channel-panel");
@@ -11851,6 +11876,10 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	return {
 		node: page,
 		history,
+		/** After a route the person chose: the title takes focus, so reading starts at the new place. */
+		focusTitle() {
+			if (title.isConnected && !head.hidden) title.focus({ preventScroll: true });
+		},
 		update(board, place) {
 			requestAnimationFrame(fit);
 			const key = opsHref(pathname, place);
@@ -11901,22 +11930,28 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
 				const stateMark = state === "Unknown" ? unknownMark() : mark(MARKS[state]);
-				facts.append(stateMark, [
+				const channelHref = opsHref(pathname, { squad: member.squad });
+				const squadLink = el("a", "ops-channel-squad-link", `#${member.squad}`);
+				squadLink.href = channelHref;
+				facts.append(stateMark, `${[
 					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
-					usage(member) || void 0,
-					`#${member.squad}`,
-					"This machine"
-				].filter(Boolean).join(" · "));
+					usage(member) || void 0
+				].filter(Boolean).join(" · ")} · `, squadLink, " · This machine");
+				back.href = channelHref;
+				back.setAttribute("aria-label", `Back to #${member.squad}`);
+				back.hidden = false;
 				line.replaceChildren(facts);
 				if (member.task) line.append(el("span", "ops-channel-line-task", member.task));
 			} else {
+				back.hidden = true;
 				face.replaceChildren();
 				title.textContent = `#${place.squad}`;
 				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
 				channelFacts(squad, people, board.truncated);
 			}
+			panel.hidden = !!member && timerCount === 0;
 			const working = people.filter((agent) => memberState(agent) === "Working").length;
 			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
 			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
@@ -12014,7 +12049,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 				else collapsedSquads.add(squad);
 				paint();
 			}
-		}, unread));
+		}, unread, hasDraft));
 	};
 	const paint = () => {
 		const section = current();
@@ -12044,7 +12079,11 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			main.replaceChildren(empty);
 		}
 	};
-	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	window.addEventListener("hashchange", () => {
+		paint();
+		if (!document.activeElement?.closest(".ops-composer-host")) channel.focusTitle();
+	}, { signal: shell.signal });
+	shell.signal.addEventListener("abort", onDrafts(paintMenu));
 	paint();
 	whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
 		if (Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS && current() === "orchestration" && orchestration.node.parentElement === main) await refreshOrchestration();

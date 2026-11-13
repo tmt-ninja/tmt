@@ -37,12 +37,15 @@ export function opsHref(pathname: string, place: OpsPlace): string {
     : `${pathname}#channel/${squad}`;
 }
 
+/** The rail's mark for a channel or DM whose message box holds unsent words. */
+export const DRAFT = '✎ Draft';
 export function opsMenu(
   section: OpsPlace,
   board: OpsBoard | undefined,
   pathname: string,
   disclosure?: { collapsed: ReadonlySet<string>; toggle(squad: string): void },
   unread?: ReadonlyMap<string, ConversationUnread>,
+  hasDraft: (key: string) => boolean = () => false,
 ): ShellMenu {
   const unreadItem = (id: string) => {
     const value = unread?.get(id);
@@ -51,7 +54,10 @@ export function opsMenu(
           emphasis: 'unread' as const,
           count: { text: value.more ? '50+' : String(value.count), needsYou: false },
         }
-      : {};
+      : // Unsent words are a quiet neutral badge, never the unread weight or a count.
+        hasDraft(id)
+        ? { badges: [DRAFT] }
+        : {};
   };
   const stateMark = (state: keyof typeof AGENT_STATES) => {
     const node = mark(AGENT_STATES[state].mark);
@@ -87,7 +93,8 @@ export function opsMenu(
                   !board.truncated && board.schedules
                     ? board.schedules.filter((item) => item.squad === group.name).length
                     : undefined;
-                const badges = timers ? [`⏱ ${timers}`] : [];
+                const badges = hasDraft(`channel:${group.name}`) ? [DRAFT] : [];
+                if (timers) badges.push(`⏱ ${timers}`);
                 const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
                 if (
                   idle !== undefined &&
@@ -99,7 +106,7 @@ export function opsMenu(
                   id: `channel:${group.name}`,
                   label: group.name,
                   leading: { node: channelMark(), label: 'Channel' },
-                  ...(badges.length ? { badges } : {}),
+                  ...(badges.length ? { badges: badges.slice(0, 2) } : {}),
                   href: opsHref(pathname, { squad: group.name }),
                   current:
                     typeof section !== 'string' &&

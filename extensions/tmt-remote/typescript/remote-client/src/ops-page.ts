@@ -12,6 +12,7 @@ import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
 import { knowOwnDevice } from './talk-stream.js';
+import { onDrafts, hasDraft } from './ops-composer-slot.js';
 import { management } from './management.js';
 import type { ChannelPort } from './channel-stream.js';
 import {
@@ -101,6 +102,7 @@ export function opsPage(
           },
         },
         unread,
+        hasDraft,
       ),
     );
   };
@@ -143,7 +145,17 @@ export function opsPage(
       main.replaceChildren(empty);
     }
   };
-  window.addEventListener('hashchange', paint, { signal: shell.signal });
+  // A route the person chose (the rail, a link, back): the view's title takes focus, so the
+  // keyboard and a screen reader start at the new place; a refresh or a person typing keeps it.
+  window.addEventListener(
+    'hashchange',
+    () => {
+      paint();
+      if (!document.activeElement?.closest('.ops-composer-host')) channel.focusTitle();
+    },
+    { signal: shell.signal },
+  );
+  shell.signal.addEventListener('abort', onDrafts(paintMenu));
   paint();
   whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
     const due = Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS;

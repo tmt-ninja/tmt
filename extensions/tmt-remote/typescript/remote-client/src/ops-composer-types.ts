@@ -16,6 +16,8 @@ export interface ComposerOptions {
   cleared: number;
   /** Enter or Send with a nonblank draft. */
   onSend?(message: string): void;
+  /** Whether the place `key` now holds unsent words, each time that changes. */
+  onDraft?(key: string, present: boolean): void;
 }
 export interface ComposerHandle {
   update(options: ComposerOptions): void;

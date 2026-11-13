@@ -182,6 +182,16 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   await link.focus();
   await page.evaluate(() => {
     window.channelBoard.agents[0]!.task = 'A changed observation';
+    // The member owns a timer, so its DM has a Timers bar (a DM without timers shows none).
+    window.channelBoard.schedules = [
+      ...window.channelBoard.schedules!,
+      {
+        ...window.channelBoard.schedules![0]!,
+        id: 'timer2',
+        owner: 'sample-1',
+        what: 'Member check',
+      },
+    ];
   });
   await refresh(page);
   await expect(link).toBeFocused();
@@ -194,6 +204,9 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   await page.evaluate(() => {
     window.channelBoard.agents = window.channelBoard.agents.map((agent) =>
       agent.name === 'sample-1' ? { ...agent, name: 'renamed-member' } : agent,
+    );
+    window.channelBoard.schedules = window.channelBoard.schedules!.map((job) =>
+      job.owner === 'sample-1' ? { ...job, owner: 'renamed-member' } : job,
     );
   });
   await refresh(page);
@@ -795,4 +808,36 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
   await page.setViewportSize({ width: 390, height: 508 });
   await expect.poll(gap).toBeLessThan(2);
   await expect(page.locator('.ops-composer-host')).toBeInViewport();
+});
+
+test('a phone DM leads back to its channel, the rail marks drafts quietly, and a chosen route focuses its title', async ({
+  page,
+}) => {
+  await openHistory(page, 390);
+  const rail = page.locator('.tmt-ui-rail');
+  // The DM leads back to its channel; with no timers it shows no Timers bar.
+  const back = page.getByRole('link', { name: 'Back to #sample', exact: true });
+  await expect(back).toBeVisible();
+  await expect(page.locator('.ops-channel-panel')).toBeHidden();
+  await expect(page.locator('.ops-channel-squad-link')).toHaveText('#sample');
+  // Unsent words mark the DM in the rail as a draft, never as unread.
+  await page.locator('.ops-dm [contenteditable="true"]').click();
+  await page.keyboard.type('Half a thought');
+  await back.click();
+  await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
+  await expect(page.locator('.ops-channel-name')).toBeFocused();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  const dm = rail.getByRole('link', { name: /^sample-1/ });
+  await expect(dm).toContainText('✎ Draft');
+  await expect(dm).not.toHaveAttribute('data-emphasis');
+  await dm.click();
+  await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+  await expect(page.locator('.ops-channel-name')).toBeFocused();
+  await expect(page.locator('.ops-dm [contenteditable="true"]')).toHaveText('Half a thought');
+  // Clearing the words clears the mark.
+  await page.locator('.ops-dm [contenteditable="true"]').click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Backspace');
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await expect(rail.getByRole('link', { name: /^sample-1/ })).not.toContainText('Draft');
 });
