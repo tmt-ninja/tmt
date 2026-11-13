@@ -1531,6 +1531,18 @@ body:not(:has(.tmt-ui-shell)) {
   gap: var(--tmt-ui-space-s);
   min-width: 0;
 }
+/* A DM's way back to its channel: the chevron on a phone, the channel name in the facts line. */
+.ops-channel-back {
+  display: none;
+}
+.ops-channel-squad-link {
+  color: inherit;
+}
+/* The title takes focus after a chosen route; a keyboard reader sees it framed, as a link is. */
+.ops-channel-name:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
 .ops-channel-face:empty {
   display: none;
 }
@@ -2251,6 +2263,21 @@ body:not(:has(.tmt-ui-shell)) {
   font-style: italic;
 }
 @media (max-width: 760px) {
+  .ops-channel-back:not([hidden]) {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    margin-left: calc(-1 * var(--tmt-ui-space-xs));
+    border-radius: var(--tmt-ui-radius);
+    color: var(--tmt-ui-color-text);
+    font-size: 1.5rem;
+    line-height: 1;
+    text-decoration: none;
+  }
+  .ops-channel-back:hover {
+    background: var(--tmt-ui-surface-hover);
+  }
   /* Typing on a phone: the on-screen keyboard takes half the view, so the header keeps only its
    * title line and the stream keeps the rest. */
   .ops-channel:has(.ops-composer-host:focus-within) :is(.ops-channel-line, .ops-channel-panel) {

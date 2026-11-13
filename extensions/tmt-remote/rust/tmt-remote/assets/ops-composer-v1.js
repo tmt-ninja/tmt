@@ -18222,7 +18222,7 @@ function km({ options: e }) {
 		a.current !== e.cleared && (a.current = e.cleared, n((t) => ({
 			...t,
 			[e.key]: ""
-		})), i((e) => e + 1));
+		})), e.onDraft?.(e.key, !1), i((e) => e + 1));
 	}, [e.cleared, e.key]);
 	let o = t[e.key] ?? "", s = e.canSend && !e.busy && o.trim() !== "", c = () => {
 		s && e.onSend?.(o);
@@ -18251,10 +18251,12 @@ function km({ options: e }) {
 	});
 	return (0, y.createElement)(wm, {
 		edit: { value: o },
-		onChange: (t) => n((n) => ({
-			...n,
-			[e.key]: t.value
-		})),
+		onChange: (t) => {
+			n((n) => ({
+				...n,
+				[e.key]: t.value
+			})), e.onDraft?.(e.key, t.value.trim() !== "");
+		},
 		document: Dm,
 		disabled: e.busy,
 		resetKey: `${e.key}:${r}`,

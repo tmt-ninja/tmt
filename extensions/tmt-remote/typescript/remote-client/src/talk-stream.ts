@@ -246,12 +246,13 @@ export function shortenedReply(item: Pick<ConversationItem, 'final' | 'responseP
     : undefined;
 }
 
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one: its
- * full text once read (`fullReply`), else its preview. */
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
+ * shows its full text once read (`fullPost`, `fullReply`), else its preview. */
 export function exchangeRows(
   item: ConversationItem,
   names: { me: string; them: string; fromMe: boolean },
   fullReply?: string,
+  fullPost?: string,
 ): HTMLElement[] {
   const { fromMe, them } = names;
   if (item.kind === 'announcement') return [noticeRow(item.preview, new Date(item.preparedAtMs))];
@@ -261,8 +262,8 @@ export function exchangeRows(
       to: fromMe ? them : 'You',
       self: fromMe,
       at: new Date(item.preparedAtMs),
-      text: item.preview,
-      ...(item.previewTruncated ? { shortened: SHORTENED_POST } : {}),
+      text: fullPost ?? item.preview,
+      ...(item.previewTruncated && fullPost === undefined ? { shortened: SHORTENED_POST } : {}),
       ...(fromMe ? { state: deliveryText(item), mark: deliveryMark(item) } : {}),
     }),
   ];

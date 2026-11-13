@@ -10037,7 +10037,9 @@ function opsHref(pathname, place) {
 	const squad = encodeURIComponent(place.squad);
 	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
 }
-function opsMenu(section, board, pathname, disclosure, unread) {
+/** The rail's mark for a channel or DM whose message box holds unsent words. */
+var DRAFT = "✎ Draft";
+function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false) {
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
 		return value?.state === "known" && value.count > 0 ? {
@@ -10046,7 +10048,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 				text: value.more ? "50+" : String(value.count),
 				needsYou: false
 			}
-		} : {};
+		} : hasDraft(id) ? { badges: [DRAFT] } : {};
 	};
 	const stateMark = (state) => {
 		const node = mark(AGENT_STATES[state].mark);
@@ -10072,7 +10074,8 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 			label: "THIS MACHINE",
 			items: bySquad(board, true).map((group) => {
 				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
-				const badges = timers ? [`⏱ ${timers}`] : [];
+				const badges = hasDraft(`channel:${group.name}`) ? [DRAFT] : [];
+				if (timers) badges.push(`⏱ ${timers}`);
 				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
 				if (idle !== void 0 && board.defaultIdleAlertMs !== null && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
 				return {
@@ -10082,7 +10085,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 						node: channelMark(),
 						label: "Channel"
 					},
-					...badges.length ? { badges } : {},
+					...badges.length ? { badges: badges.slice(0, 2) } : {},
 					href: opsHref(pathname, { squad: group.name }),
 					current: typeof section !== "string" && section.squad === group.name && !section.memberId,
 					expanded: !disclosure?.collapsed.has(group.name),
@@ -10212,12 +10215,32 @@ function timerList(jobs, truncated) {
 * with a still box of the same height until it arrives. */
 /** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
 var COMPOSER = "/sdk/ops-composer-v1.js";
+/** The places (`channel:<squad>` or a member id) whose message box holds unsent words, for the
+* rail's draft mark; every box on the page reports here. */
+var drafts = /* @__PURE__ */ new Set();
+var draftListeners = /* @__PURE__ */ new Set();
+var hasDraft = (key) => drafts.has(key);
+/** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
+function onDrafts(listener) {
+	draftListeners.add(listener);
+	return () => draftListeners.delete(listener);
+}
+function noteDraft(key, present) {
+	if (drafts.has(key) === present) return;
+	if (present) drafts.add(key);
+	else drafts.delete(key);
+	for (const listener of draftListeners) listener();
+}
 /** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
 function composerSlot(host) {
 	let handle;
 	let wanted;
 	let loading = false;
-	return { show(options) {
+	return { show(shown) {
+		const options = {
+			...shown,
+			onDraft: noteDraft
+		};
 		wanted = options;
 		if (handle) return handle.update(options);
 		if (loading) return;
@@ -10638,9 +10661,9 @@ var utf8$1 = new TextEncoder();
 function shortenedReply(item) {
 	return item.final.status === "retained" && item.responsePreview !== null && item.final.bodyBytes > utf8$1.encode(item.responsePreview).length ? `Preview shortened · the full reply is ${item.final.bodyBytes.toLocaleString()} bytes` : void 0;
 }
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one: its
-* full text once read (`fullReply`), else its preview. */
-function exchangeRows(item, names, fullReply) {
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
+* shows its full text once read (`fullPost`, `fullReply`), else its preview. */
+function exchangeRows(item, names, fullReply, fullPost) {
 	const { fromMe, them } = names;
 	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
@@ -10648,8 +10671,8 @@ function exchangeRows(item, names, fullReply) {
 		to: fromMe ? them : "You",
 		self: fromMe,
 		at: new Date(item.preparedAtMs),
-		text: item.preview,
-		...item.previewTruncated ? { shortened: SHORTENED_POST } : {},
+		text: fullPost ?? item.preview,
+		...item.previewTruncated && fullPost === void 0 ? { shortened: SHORTENED_POST } : {},
 		...fromMe ? {
 			state: deliveryText(item),
 			mark: deliveryMark(item)
@@ -11089,6 +11112,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	const seen = conversationSeen(storage());
 	const items = /* @__PURE__ */ new Map();
 	const fullReplies = /* @__PURE__ */ new Map();
+	const fullPosts = /* @__PURE__ */ new Map();
 	const asked = /* @__PURE__ */ new Set();
 	let memberId, memberName = "", panelVisible = false;
 	let generation = 0, running = false, wanted = false;
@@ -11121,7 +11145,11 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			me: "You",
 			them: memberName,
 			fromMe: item.direction === "toMember"
-		}, fullReplies.get(item.requestId)), [memberName, fullReplies.size], unlisted && pendingRow(unlisted, memberName));
+		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId)), [
+			memberName,
+			fullReplies.size,
+			fullPosts.size
+		], unlisted && pendingRow(unlisted, memberName));
 	}
 	function showComposer() {
 		if (!memberId) return;
@@ -11146,19 +11174,19 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			}
 		});
 	}
-	/** The full text of the newest shortened replies, one read at a time; a failed read keeps the
-	* shortened preview and is not asked again until the conversation opens again. */
+	/** The full text of the newest shortened replies and of the person's own cut messages, one read
+	* at a time; a failed read keeps the shortened preview and is not asked again until the
+	* conversation opens again. */
 	async function readFullReplies(selected, ticket) {
-		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && shortenedReply(item)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
+		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && (shortenedReply(item) || item.previewTruncated && item.direction === "toMember")).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
 		for (const item of wanted) {
 			asked.add(item.requestId);
 			try {
 				const value = await talk.result(item.requestId);
 				if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-				if (value.state === "replied") {
-					fullReplies.set(item.requestId, value.message);
-					draw();
-				}
+				if (value.state === "replied" && shortenedReply(item)) fullReplies.set(item.requestId, value.message);
+				if (typeof value.requestMessage === "string" && item.previewTruncated) fullPosts.set(item.requestId, value.requestMessage);
+				draw();
 			} catch {}
 		}
 	}
@@ -11204,6 +11232,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
@@ -11231,6 +11260,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			if (current()) {
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
@@ -11278,6 +11308,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 				olderCursor = void 0;
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				status.hidden = false;
@@ -11316,6 +11347,8 @@ function sessionChannel(shell) {
 		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
 	};
 }
+/** How many cut posts one opened channel reads in full. */
+var FULL_POSTS = 10;
 /** The members a post @mentions, or the lead when it mentions none. */
 function recipients(message, channel) {
 	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
@@ -11358,6 +11391,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	const composer = composerSlot(composerHost);
 	const items = /* @__PURE__ */ new Map();
 	const replies = /* @__PURE__ */ new Map();
+	const fullPosts = /* @__PURE__ */ new Map();
+	const askedPosts = /* @__PURE__ */ new Set();
 	let channel;
 	let roomId;
 	let olderCursor;
@@ -11386,8 +11421,14 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			};
 		});
 	}
+	const capped = (post) => {
+		const preview = post.items[0].preview;
+		return !!preview && [...preview].length >= 160;
+	};
+	const fullText = (post) => post.items.map((item) => fullPosts.get(item.requestId)).find((text) => text !== void 0);
 	function postRow(post, inThread = false) {
 		const first = post.items[0];
+		const whole = fullText(post);
 		const as = first;
 		if (!inThread && first.kind === "announcement") return noticeRow(first.preview, new Date(post.preparedAtMs));
 		const row = messageRow({
@@ -11395,9 +11436,9 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			to: answers(post).map((side) => side.name).join(", "),
 			self: true,
 			at: new Date(post.preparedAtMs),
-			text: first.preview,
+			text: whole ?? first.preview,
 			mentions: channel?.members.map((member) => member.name) ?? [],
-			...first.preview && [...first.preview].length >= 160 ? { shortened: SHORTENED_POST } : {}
+			...whole === void 0 && capped(post) ? { shortened: SHORTENED_POST } : {}
 		});
 		if (inThread) return row;
 		const sides = answers(post).filter((side) => side.words !== void 0);
@@ -11499,7 +11540,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		stream.draw(shown, (post) => [postRow(post)], [
 			[...names()],
 			[...replies],
-			threadKey
+			threadKey,
+			[...fullPosts]
 		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
 		empty.hidden = shown.length > 0 || !!unlisted;
 		drawThread(shown);
@@ -11545,6 +11587,21 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			}
 		});
 	}
+	/** The whole text of the newest posts cut at the preview, one read at a time. */
+	async function readFullPosts(ticket) {
+		const wanted = posts(items.values()).filter((post) => capped(post) && fullText(post) === void 0 && !askedPosts.has(post.requestId)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_POSTS - askedPosts.size));
+		for (const post of wanted) {
+			askedPosts.add(post.requestId);
+			try {
+				const value = await port.result(post.items[0].requestId);
+				if (ticket !== generation) return;
+				if (typeof value.requestMessage === "string") {
+					fullPosts.set(post.items[0].requestId, value.requestMessage);
+					draw();
+				}
+			} catch {}
+		}
+	}
 	async function readReplies(ticket) {
 		for (const item of items.values()) {
 			const known = replies.get(item.requestId)?.state;
@@ -11553,6 +11610,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				const value = await port.result(item.requestId);
 				if (ticket !== generation) return;
 				replies.set(item.requestId, value);
+				if (typeof value.requestMessage === "string") fullPosts.set(item.requestId, value.requestMessage);
 			} catch {}
 		}
 	}
@@ -11579,6 +11637,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			draw();
 			await readReplies(ticket);
 			if (ticket === generation) draw();
+			await readFullPosts(ticket);
 			return true;
 		} catch (error) {
 			if (ticket === generation) {
@@ -11622,6 +11681,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		node,
 		thread,
 		select(next) {
+			if (next && !visible) askedPosts.clear();
 			visible = next !== void 0;
 			channel = next;
 			const seen = JSON.stringify([next?.room, next?.members]);
@@ -11635,6 +11695,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				generation++;
 				items.clear();
 				replies.clear();
+				fullPosts.clear();
+				askedPosts.clear();
 				threadKey = void 0;
 				drawThread([]);
 				olderCursor = void 0;
@@ -11729,7 +11791,9 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const title = el("h2", "ops-channel-name");
 	title.tabIndex = -1;
 	const chips = el("span", "ops-channel-chips");
-	titleRow.append(face, title, chips);
+	const back = el("a", "ops-channel-back", "‹");
+	back.hidden = true;
+	titleRow.append(back, face, title, chips);
 	const line = el("p", "ops-channel-line");
 	head.append(titleRow, line);
 	const panel = el("section", "ops-channel-panel");
@@ -11884,6 +11948,10 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	return {
 		node: page,
 		history,
+		/** After a route the person chose: the title takes focus, so reading starts at the new place. */
+		focusTitle() {
+			if (title.isConnected && !head.hidden) title.focus({ preventScroll: true });
+		},
 		update(board, place) {
 			requestAnimationFrame(fit);
 			const key = opsHref(pathname, place);
@@ -11934,22 +12002,28 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
 				const stateMark = state === "Unknown" ? unknownMark() : mark(MARKS[state]);
-				facts.append(stateMark, [
+				const channelHref = opsHref(pathname, { squad: member.squad });
+				const squadLink = el("a", "ops-channel-squad-link", `#${member.squad}`);
+				squadLink.href = channelHref;
+				facts.append(stateMark, `${[
 					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
-					usage(member) || void 0,
-					`#${member.squad}`,
-					"This machine"
-				].filter(Boolean).join(" · "));
+					usage(member) || void 0
+				].filter(Boolean).join(" · ")} · `, squadLink, " · This machine");
+				back.href = channelHref;
+				back.setAttribute("aria-label", `Back to #${member.squad}`);
+				back.hidden = false;
 				line.replaceChildren(facts);
 				if (member.task) line.append(el("span", "ops-channel-line-task", member.task));
 			} else {
+				back.hidden = true;
 				face.replaceChildren();
 				title.textContent = `#${place.squad}`;
 				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
 				channelFacts(squad, people, board.truncated);
 			}
+			panel.hidden = !!member && timerCount === 0;
 			const working = people.filter((agent) => memberState(agent) === "Working").length;
 			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
 			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
@@ -12047,7 +12121,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 				else collapsedSquads.add(squad);
 				paint();
 			}
-		}, unread));
+		}, unread, hasDraft));
 	};
 	const paint = () => {
 		const section = current();
@@ -12077,7 +12151,11 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			main.replaceChildren(empty);
 		}
 	};
-	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	window.addEventListener("hashchange", () => {
+		paint();
+		if (!document.activeElement?.closest(".ops-composer-host")) channel.focusTitle();
+	}, { signal: shell.signal });
+	shell.signal.addEventListener("abort", onDrafts(paintMenu));
 	paint();
 	whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
 		if (Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS && current() === "orchestration" && orchestration.node.parentElement === main) await refreshOrchestration();

@@ -129,6 +129,8 @@ export function conversationHistory(
   // A reply's preview is capped; its full text comes from the request's result, read once per
   // shortened reply and at most `FULL_REPLIES` of them per conversation opened.
   const fullReplies = new Map<string, string>();
+  // The same result carries the whole text of the person's own message cut at the preview.
+  const fullPosts = new Map<string, string>();
   const asked = new Set<string>();
   let memberId: string | undefined,
     memberName = '',
@@ -172,8 +174,9 @@ export function conversationHistory(
             fromMe: item.direction === 'toMember',
           },
           fullReplies.get(item.requestId),
+          fullPosts.get(item.requestId),
         ),
-      [memberName, fullReplies.size],
+      [memberName, fullReplies.size, fullPosts.size],
       unlisted && pendingRow(unlisted, memberName),
     );
   }
@@ -196,11 +199,16 @@ export function conversationHistory(
       },
     });
   }
-  /** The full text of the newest shortened replies, one read at a time; a failed read keeps the
-   * shortened preview and is not asked again until the conversation opens again. */
+  /** The full text of the newest shortened replies and of the person's own cut messages, one read
+   * at a time; a failed read keeps the shortened preview and is not asked again until the
+   * conversation opens again. */
   async function readFullReplies(selected: string, ticket: number) {
     const wanted = [...items.values()]
-      .filter((item) => !asked.has(item.requestId) && shortenedReply(item))
+      .filter(
+        (item) =>
+          !asked.has(item.requestId) &&
+          (shortenedReply(item) || (item.previewTruncated && item.direction === 'toMember')),
+      )
       .sort((a, b) => b.preparedAtMs - a.preparedAtMs)
       .slice(0, Math.max(0, FULL_REPLIES - asked.size));
     for (const item of wanted) {
@@ -208,10 +216,11 @@ export function conversationHistory(
       try {
         const value = await talk.result(item.requestId);
         if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-        if (value.state === 'replied') {
+        if (value.state === 'replied' && shortenedReply(item))
           fullReplies.set(item.requestId, value.message);
-          draw();
-        }
+        if (typeof value.requestMessage === 'string' && item.previewTruncated)
+          fullPosts.set(item.requestId, value.requestMessage);
+        draw();
       } catch {
         // The preview stays, with its ellipsis.
       }
@@ -260,6 +269,7 @@ export function conversationHistory(
       ) {
         items.clear();
         fullReplies.clear();
+        fullPosts.clear();
         asked.clear();
         stream.reset();
         olderCursor = undefined;
@@ -299,6 +309,7 @@ export function conversationHistory(
       if (current()) {
         items.clear();
         fullReplies.clear();
+        fullPosts.clear();
         asked.clear();
         stream.reset();
         olderCursor = undefined;
@@ -352,6 +363,7 @@ export function conversationHistory(
         olderCursor = undefined;
         items.clear();
         fullReplies.clear();
+        fullPosts.clear();
         asked.clear();
         stream.reset();
         status.hidden = false;

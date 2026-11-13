@@ -60,6 +60,7 @@ function Composer({ options }: { options: ComposerOptions }): ReactNode {
     if (cleared.current === options.cleared) return;
     cleared.current = options.cleared;
     setDrafts((all) => ({ ...all, [options.key]: '' }));
+    options.onDraft?.(options.key, false);
     setReset((value) => value + 1);
   }, [options.cleared, options.key]);
   const value = drafts[options.key] ?? '';
@@ -102,7 +103,10 @@ function Composer({ options }: { options: ComposerOptions }): ReactNode {
   });
   return h(RichInputCore<RichInputEdit>, {
     edit: { value },
-    onChange: (next) => setDrafts((all) => ({ ...all, [options.key]: next.value })),
+    onChange: (next) => {
+      setDrafts((all) => ({ ...all, [options.key]: next.value }));
+      options.onDraft?.(options.key, next.value.trim() !== '');
+    },
     document: plain,
     disabled: options.busy,
     resetKey: `${options.key}:${reset}`,
