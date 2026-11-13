@@ -3,6 +3,7 @@
  * `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
  * on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
  */
+import { coreId } from './operations.js';
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
  * (`tmt-ui-state-mark`), the same box for every state. */
@@ -47,6 +48,7 @@ export interface OpsAgent {
 }
 export interface OpsSquad {
   name: string;
+  room: { roomId: string; revision: number } | null;
   lead?: string;
   /** Minutes before an idle alert, when the squad sets one. */
   idleAlertMinutes?: number;
@@ -75,7 +77,12 @@ export interface OpsSource {
 
 /** The `x/-/ops` payload (contract: Ops payload); every text field is already bounded and inert. */
 export interface OpsPayload {
-  squads: readonly { name: string; lead?: { id: string; name: string }; idleAlertMs?: number }[];
+  squads: readonly {
+    name: string;
+    room?: { roomId: string; revision: number } | null;
+    lead?: { id: string; name: string };
+    idleAlertMs?: number;
+  }[];
   agents: readonly {
     id: string;
     name: string;
@@ -142,6 +149,13 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
   return {
     squads: payload.squads.map((squad) => ({
       name: squad.name,
+      room:
+        squad.room &&
+        coreId(squad.room.roomId) &&
+        Number.isSafeInteger(squad.room.revision) &&
+        squad.room.revision > 0
+          ? { roomId: squad.room.roomId, revision: squad.room.revision }
+          : null,
       ...(squad.lead ? { lead: squad.lead.name } : {}),
       ...(squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 60_000) } : {}),
     })),

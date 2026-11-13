@@ -1599,10 +1599,10 @@ applies its published public Core mapping after narrowing supported operations a
 | `squads.summary`                                                                                | Native-only one-way metadata, gated by `agents.read` and filtered by the `agents.list` canonical UUID allowlist; never a Core final, agent message or talk grant.                                                                                         |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --capture-only --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
-| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
+| `dispatch.create`                                                                               | `talk`; one permitted direct recipient or 1–64 distinct permitted recipients with a roster room, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. Request or announcement; roster admission remains Core-owned. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
-| `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID; fixed Core `requests.list` `view:"conversation"` below.                                                                                                                   |
+| `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID for DM history, or a room UUID with an every-agent grant; fixed public Core queries below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
 | `orchestration.read`                                                                            | `agents.read`; the owner's own-origin browser holding every agent only; Core's input passes through unchanged (Owner-browser orchestration below).                                                                              |
 | `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow` and `talks.resume`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
@@ -1624,12 +1624,51 @@ The owner browser is the person, so a mutation naming an `actorId` is refused. P
 stay two calls: the browser sends Core's `expectedConfigurationRevision`, `previewAtMs`,
 `previewDigest` and `consent:true` itself, and Remote never synthesizes consent or a preview.
 
+**Room posts.** `dispatch.create` retains the ordinary operation envelope and anonymous
+client originator. Its input is `{operationId,recipientIds,message,kind,room?}`; `kind`
+is `request` or `announcement`. Without a room there is exactly one recipient. A room
+is exactly `{kind:"roster",roomId,revision}`, with a canonical room UUID and positive
+JavaScript-safe integer revision. A room post has 1–64 distinct canonical recipient UUIDs.
+Every recipient must pass the device's talk allowlist again under the existing effect
+fence; the browser cannot grant roster membership. Core validates the selected roster
+revision and each recipient's membership. `ROOM_ROSTER_CHANGED` and
+`ROOM_RECIPIENT_NOT_MEMBER` become durable `state:"refused"` with the original code.
+A malformed or uncertain Core answer remains uncertain, never permission to send again.
+Room accepted state adds `requestIds` in the frozen `recipientIds` order, one Core
+request per recipient, while retaining `requestId = requestIds[0]`. A DM's accepted
+state is unchanged. Held previews name every recipient, the room and message kind;
+confirmation charges each recipient in the same transaction. All paths retain one
+operation ID, frozen room/revision/audience, original lookup and single dispatch;
+recovery never partially resends to a recipient.
+
+**Owner-browser room history.** Signed `requests.list` also takes
+`{version:1,operation:"requests.list",input:{roomId,limit?,before?}}`. It requires the
+same own-origin owner browser and `results.read`, with an every-agent grant because
+a room can include any member. A refusal is `REMOTE_SCOPE_DENIED` with
+`scope:"results.read"` and a closed `reason`: `owner_browser_required` or
+`all_agents_required`. An absent `results.read` returns `code:"REMOTE_SCOPE_DENIED"`,
+`scope:"results.read"` and no `reason`; the SDK exposes that code and scope with
+`RefusalError.reason` undefined. The SDK retains these fields so
+the browser can explain the missing authority. It maps only to Core's public `{roomId,limit,before?}`
+history scope, excluding unscoped DM traffic. Page default, maximum, response byte
+bound and prepared-time `before` cursor match the DM page. `since` is not admitted.
+The result is `{roomId,items,nextBefore,changes:"unknown"}`. There is no invented
+change position or change count; refresh re-reads the newest page. Room items allow
+only `roomId`, `requestId`, `recipientId`, `sender`, `kind`, `origin`, `preparedAtMs`,
+`delivery`, `messageState`, `final` and `preview`. Core's anonymous sender remains
+`{kind:"unknown",identityId:null}`. Final metadata is projected without nested body;
+there is no `direction`, `changePosition`, `responsePreview`, `previewTruncated` or
+`responseId`. Read replies through the existing `result(requestId)` operation.
+The SDK exposes `send({operationId,message,room:{roomId,revision},recipientIds,kind?})`
+and `conversations(session).readRoom(roomId,{limit?,before?})`. It uses the same signed
+Session lane and original operation recovery as DMs, without new state or authority.
+
 **Owner-browser DM history.** Signed `requests.list` takes
 `{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
 Only this machine's own-origin browser grant with `results.read` and the selected
 canonical member UUID is admitted, under the existing live-grant observation fence.
 Native, CLI, add-on and foreign-browser grants refuse before Core. Browser input cannot
-choose a viewer, originator, room or another view. Remote fixes Core's `view:"conversation"`;
+choose a viewer, originator or another view in a DM query. Remote fixes Core's `view:"conversation"`;
 Core resolves only the existing configured person, without identity creation, and filters
 the viewer/member pair before pagination. Missing Core support/person or a failed or
 malformed read is unavailable; there is no broader-history fallback or compatibility probe.
@@ -1643,7 +1682,7 @@ browser; `member` is `active`, `unknown` or `retired` (the latter two have no it
 Items allow only the Core results-view fields `requestId`, `recipientId`, `sender`, `kind`,
 `origin`, `preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
 `previewTruncated`, plus `direction` (`toMember`/`fromMember`), `changePosition` and optional
-`responseId`. Remote checks both parties against the resolved viewer/selected member.
+`responseId`. Remote checks both parties against the resolved viewer/selected member. Room-dispatched rows are excluded from the DM stream.
 Final states and metadata keep their Core meanings; nested final text, receipts, pane/cwd,
 provider data and unknown fields are excluded. Previews are at most 160 Unicode scalars /
 640 UTF-8 bytes; unavailable content stays null. Reads never renew retention, acknowledge
@@ -2273,7 +2312,7 @@ channel, and dispatch stays unreachable from them. They are siblings of the comp
 
 | Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)        |
 | --------------------------------- | --------------------------------------------------------------------------------- |
-| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel             |
+| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel; then one bounded `room list --json` for nonempty squads             |
 | `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
 
@@ -2306,7 +2345,7 @@ a generic unavailable. `observedAtMs` is the owner's clock when the read finishe
 **Ops payload** (`state:"ok"`) is an allowlist projection, not the board document:
 
 - `squads[]`: `name`, `layout?`, `lead? {id,name}`, `idleAlertMs?` (only when the squad's idle alert is
-  enabled), `attention? {state,waiting,blocked}`.
+  enabled), `attention? {state,waiting,blocked}`, `room: {roomId,revision} | null`. The room joins the squad's stable UUID to Core's existing room list by exact ID and `squad-<name>`; it is null when missing, retired, malformed or unavailable. A stale revision is Core's roster refusal when posting.
 - `agents[]`, the squad's lead first (`role:"lead"`) then its members (`role:"member"`): `id`, `name`,
   `squad`, `role`, `presence?`, `activity? {state,sinceMs}` (the four-state rule of `agents.list`),
   `state?` (the board's raw state text, at most 80 scalars, so free text stays readable), `stateTone?`
@@ -2317,7 +2356,7 @@ a generic unavailable. `observedAtMs` is the owner's clock when the read finishe
   `nextMs?` (the first only) and `what?` (the first line of the job message).
 - `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
 
-Never forwarded: a pane's id, target, cwd or location, process data, room IDs, owner IDs, unlisted row
+Never forwarded: a pane's id, target, cwd or location, process data, unrelated room IDs, owner IDs, unlisted row
 fields, the rest of a schedule message and the person's own identity. Text has control and
 bidirectional-control characters removed (controls become spaces), is trimmed and is cut to the limit
 below; the browser renders it as inert text.

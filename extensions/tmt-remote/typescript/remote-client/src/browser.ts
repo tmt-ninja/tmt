@@ -95,6 +95,9 @@ import { RefusalError, parseCapabilities, verifiedSessionRequest } from './opera
 export { operations, ClientError, RefusalError } from './operations.js';
 export { conversations } from './conversations.js';
 export type {
+  RoomInput,
+  RoomPage,
+  RoomItem,
   RemoteConversations,
   ConversationInput,
   ConversationPage,
@@ -148,6 +151,8 @@ export type {
   RemoteOperations,
   RemoteAgent,
   SendInput,
+  DirectSendInput,
+  RoomSendInput,
   SendState,
   ResultState,
   MessageState,

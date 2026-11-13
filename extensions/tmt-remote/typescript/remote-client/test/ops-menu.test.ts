@@ -13,7 +13,7 @@ const agent = (state: OpsAgent['state']): OpsAgent => ({
 });
 const board = (): OpsBoard => ({
   agents: [agent('working'), agent('needs-you'), agent('offline')],
-  squads: [{ name: 'sample' }],
+  squads: [{ room: null, name: 'sample' }],
   schedules: null,
   truncated: false,
 });

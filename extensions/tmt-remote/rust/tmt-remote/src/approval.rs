@@ -42,11 +42,14 @@ impl Approval {
             id,
             owned.frozen.as_deref().ok_or_else(invalid)?,
         )?;
-        Ok((
-            grant.clone(),
-            json!({"event":"held","operationId":id,"clientId":grant.client_id,"deviceName":grant.name,
-            "recipientId":frozen.recipient_ids[0],"message":frozen.message}),
-        ))
+        let mut preview = json!({"event":"held","operationId":id,"clientId":grant.client_id,"deviceName":grant.name,
+            "recipientId":frozen.recipient_ids[0],"message":frozen.message});
+        if let Some(room) = frozen.room {
+            preview["recipientIds"] = json!(frozen.recipient_ids);
+            preview["room"] = serde_json::to_value(room).map_err(|_| invalid())?;
+            preview["kind"] = json!(frozen.kind);
+        }
+        Ok((grant.clone(), preview))
     }
     pub(crate) fn confirm(&self, id: &str, grant: &Grant) -> Result<Value, RemoteError> {
         let payload = self.sessions.with_operation_store(|store| {
@@ -169,12 +172,9 @@ impl Store {
             ));
         }
         let intent = crate::operations::held_intent(grant, id, &frozen)?;
-        crate::budgets::charge(
-            &tx,
-            &intent.recipient_ids[0],
-            crate::budgets::Budget::Approval,
-            now,
-        )?;
+        for recipient in &intent.recipient_ids {
+            crate::budgets::charge(&tx, recipient, crate::budgets::Budget::Approval, now)?;
+        }
         let changed=tx.execute("UPDATE operations SET phase='dispatching' WHERE id=?1 AND client_id=?2 AND phase='held'",params![id,grant.client_id]).map_err(database)?;
         if changed != 1 {
             return Err(invalid());

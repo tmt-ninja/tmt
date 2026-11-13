@@ -370,3 +370,6 @@ pub const CONVERSATION_RESPONSE_BYTES: usize = CONVERSATION_PAGE_MAX as usize
 /// The largest Core answer the owner browser's orchestration read or write returns (#4894): an
 /// overview of every member, or one 256-row routes page, with room to spare.
 pub const ORCHESTRATION_RESPONSE_BYTES: usize = 1024 * 1024;
+
+/// Maximum audience of one Core roster dispatch.
+pub const DISPATCH_RECIPIENTS: usize = 64;

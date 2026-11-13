@@ -232,6 +232,7 @@ export class Door {
             recipientIds: string[];
             message: string;
             kind: string;
+            room?: { kind: string; roomId: string; revision: number };
           };
           assert.deepEqual(Object.keys(payload).sort(), [
             'input',
@@ -247,17 +248,21 @@ export class Door {
             'message',
             'operationId',
             'recipientIds',
+            ...(input.room ? ['room'] : []),
           ]);
           assert.equal(input.operationId, body.id);
-          assert.equal(input.kind, 'request');
-          assert.equal(input.recipientIds.length, 1);
+          assert.ok(['request', 'announcement'].includes(input.kind));
+          assert.ok(input.room ? input.recipientIds.length >= 1 : input.recipientIds.length === 1);
           if (this.intents.has(input.operationId))
             assert.equal(this.intents.get(input.operationId), bytes.toString('utf8'));
           this.intents.set(input.operationId, bytes.toString('utf8'));
+          const requestIds = input.recipientIds.map(() => `req_${crypto.randomUUID()}`);
           result = {
             state: this.sendState,
             operationId: body.id,
-            ...(this.sendState === 'accepted' ? { requestId: `req_${crypto.randomUUID()}` } : {}),
+            ...(this.sendState === 'accepted'
+              ? { requestId: requestIds[0], ...(input.room ? { requestIds } : {}) }
+              : {}),
           };
           result = this.receipts.get(input.operationId) ?? result;
           this.receipts.set(input.operationId, result as Record<string, unknown>);

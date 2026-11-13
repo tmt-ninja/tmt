@@ -8,14 +8,20 @@ use serde_json::{Value, json};
 pub(super) fn request(input: &Value) -> Result<Value, RemoteError> {
     let invalid = super::invalid;
     let fields = input.as_object().ok_or_else(invalid)?;
-    if fields
-        .keys()
-        .any(|key| !matches!(key.as_str(), "memberId" | "limit" | "before" | "since"))
-    {
+    if fields.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "memberId" | "roomId" | "limit" | "before" | "since"
+        )
+    }) {
         return Err(invalid());
     }
-    let member = fields
-        .get("memberId")
+    let room = fields.contains_key("roomId");
+    if room && (fields.contains_key("memberId") || fields.contains_key("since")) {
+        return Err(invalid());
+    }
+    let scope = fields
+        .get(if room { "roomId" } else { "memberId" })
         .and_then(Value::as_str)
         .filter(|id| canonical::is_core_id(id))
         .ok_or_else(invalid)?;
@@ -43,7 +49,11 @@ pub(super) fn request(input: &Value) -> Result<Value, RemoteError> {
             .ok_or_else(invalid)?;
         super::request_reference(cursor["requestId"].as_str().ok_or_else(invalid)?)?;
     }
-    let mut query = json!({"view":"conversation", "memberId":member, "limit":limit});
+    let mut query = if room {
+        json!({"roomId":scope,"limit":limit})
+    } else {
+        json!({"view":"conversation", "memberId":scope, "limit":limit})
+    };
     for key in ["before", "since"] {
         if let Some(value) = fields.get(key) {
             query[key] = value.clone();
@@ -101,29 +111,43 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
             .len()
             <= limits::CONVERSATION_RESPONSE_BYTES,
     )?;
-    require(
-        id(&value["viewerId"])
-            && position(&value["changePosition"])
-            && word(&value["member"], &["active", "unknown", "retired"]),
-    )?;
+    let room = query["input"].get("roomId");
+    if room.is_none() {
+        require(
+            id(&value["viewerId"])
+                && position(&value["changePosition"])
+                && word(&value["member"], &["active", "unknown", "retired"]),
+        )?;
+    }
     let viewer = &value["viewerId"];
     let member = &query["input"]["memberId"];
     let limit = query["input"]["limit"]
         .as_u64()
         .ok_or_else(super::invalid)?;
     let rows = value["items"].as_array().ok_or_else(super::invalid)?;
-    require(rows.len() as u64 <= limit && (value["member"] == "active" || rows.is_empty()))?;
+    require(
+        rows.len() as u64 <= limit
+            && (room.is_some() || value["member"] == "active" || rows.is_empty()),
+    )?;
     let mut items = Vec::new();
     let mut ids = std::collections::HashSet::new();
     for row in rows {
+        // Core already excludes room rows before pagination. Keep the projection scoped
+        // too: any received room row belongs only to its room stream, never the DM.
+        if room.is_none() && row.get("roomId").is_some_and(|room| !room.is_null()) {
+            continue;
+        }
         require(
             request_id(&row["requestId"])
                 && ids.insert(row["requestId"].as_str().unwrap())
                 && id(&row["recipientId"])
-                && id(&row["sender"]["identityId"])
-                && word(&row["sender"]["kind"], &["explicit", "verified"])
+                && (id(&row["sender"]["identityId"])
+                    && word(&row["sender"]["kind"], &["explicit", "verified"])
+                    || room.is_some()
+                        && row["sender"]["kind"] == "unknown"
+                        && row["sender"]["identityId"].is_null())
                 && millis(&row["preparedAtMs"])
-                && position(&row["changePosition"])
+                && (room.is_some() || position(&row["changePosition"]))
                 && word(&row["kind"], &["request", "announcement"])
                 && word(&row["origin"], &["person", "automation", "unknown"])
                 && word(
@@ -138,9 +162,10 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
                     ],
                 )
                 && row.get("preview").is_some_and(preview)
-                && row.get("responsePreview").is_some_and(preview)
-                && row["previewTruncated"].is_boolean()
-                && row.get("roomId").is_none_or(Value::is_null),
+                && (room.is_some()
+                    || row.get("responsePreview").is_some_and(preview)
+                        && row["previewTruncated"].is_boolean())
+                && room.is_none_or(|room| &row["roomId"] == room),
         )?;
         let in_pair = match row["direction"].as_str() {
             Some("toMember") => {
@@ -151,10 +176,10 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
             }
             _ => false,
         };
-        require(in_pair)?;
+        require(room.is_some() || in_pair)?;
         let message = super::message_state(row, true).ok_or_else(super::invalid)?;
         let final_value = final_state(&row["final"])?;
-        if row["final"]["status"] != "retained" {
+        if room.is_none() && row["final"]["status"] != "retained" {
             require(row["responsePreview"].is_null() && row["previewTruncated"] == false)?;
         }
         let mut item = json!({"requestId":row["requestId"],"recipientId":row["recipientId"],
@@ -163,7 +188,19 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
             "delivery":row["delivery"],"messageState":message,"final":final_value,
             "preview":row["preview"],"responsePreview":row["responsePreview"],"previewTruncated":row["previewTruncated"],
             "direction":row["direction"],"changePosition":row["changePosition"]});
-        if let Some(response_id) = row.get("responseId") {
+        if let Some(room) = room {
+            let fields = item.as_object_mut().expect("projected item");
+            for field in [
+                "direction",
+                "changePosition",
+                "responsePreview",
+                "previewTruncated",
+            ] {
+                fields.remove(field);
+            }
+            fields.insert("roomId".into(), room.clone());
+        }
+        if let Some(response_id) = row.get("responseId").filter(|_| room.is_none()) {
             require(response_id.as_str().is_some_and(|id| {
                 !id.is_empty()
                     && id.len() <= limits::CONVERSATION_RESPONSE_ID_BYTES
@@ -182,8 +219,12 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
         require(millis(&cursor["preparedAtMs"]) && request_id(&cursor["requestId"]))?;
         json!({"preparedAtMs":cursor["preparedAtMs"],"requestId":cursor["requestId"]})
     };
-    let mut result = json!({"viewerId":viewer,"member":value["member"],"items":items,
-        "nextBefore":next,"changePosition":value["changePosition"]});
+    let mut result = if let Some(room) = room {
+        json!({"roomId":room,"items":items,"nextBefore":next,"changes":"unknown"})
+    } else {
+        json!({"viewerId":viewer,"member":value["member"],"items":items,
+        "nextBefore":next,"changePosition":value["changePosition"]})
+    };
     if query["input"].get("since").is_some() {
         let changed = value.get("changedSince").ok_or_else(super::invalid)?;
         result["changedSince"] = if changed == "unknown" {

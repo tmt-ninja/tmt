@@ -426,6 +426,19 @@ pub(crate) fn refusal_with_limit(
     )
 }
 
+pub(crate) fn missing_room_results(
+    sessions: &DoorSessions,
+    message: &SignedMessage,
+) -> MessageRefusal {
+    signed_refusal(
+        sessions,
+        message,
+        json!({"code":"REMOTE_SCOPE_DENIED","message":"Room history requires results.read.",
+            "scope":"results.read"}),
+        None,
+    )
+}
+
 pub(crate) fn missing_talk(sessions: &DoorSessions, message: &SignedMessage) -> MessageRefusal {
     signed_refusal(
         sessions,

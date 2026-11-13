@@ -80,8 +80,11 @@ bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is 
 
 `operations::conversation` validates the fixed viewer-resolved public Core query and
 allowlists its bounded response. The operation owner admits only the owner's own-origin
-browser with `results.read` and the selected member UUID, under the existing permit
-checks. Core positions remain opaque; no identity creation, acknowledgment or new store
+browser with `results.read` and the selected member UUID for a DM, or an every-agent
+grant for a room, under the existing permit checks. Room reads project only Core's
+room history and prepared-time cursor; unavailable change tracking stays unknown.
+Room dispatch keeps roster revision and every recipient in the existing frozen intent,
+held approval and transactional effect fence. Core positions remain opaque; no identity creation, acknowledgment or new store
 belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
 bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
 

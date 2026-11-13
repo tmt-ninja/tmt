@@ -250,6 +250,84 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
         "REMOTE_INTENT_CONFLICT"
     );
     assert_eq!(core.sends(), 1);
+
+    // Roster fan-out freezes one operation, retains all receipts and never partially resends.
+    let core = Core::new();
+    let operations = core.operations();
+    let id = uuid_v4().unwrap();
+    let recipients = vec![
+        "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    ];
+    let room = json!({"kind":"roster","roomId":uuid_v4().unwrap(),"revision":1});
+    let mut payload = input(&id, recipients[0], "room post");
+    payload["input"]["recipientIds"] = json!(recipients);
+    payload["input"]["room"] = room.clone();
+    payload["input"]["kind"] = json!("announcement");
+    let room_wire = |sequence: &str| {
+        let mut wire = owner.wire(
+            &session,
+            sequence,
+            "dispatch.create",
+            payload.to_string().as_bytes(),
+        );
+        wire["id"] = json!(id);
+        owner.resign(&mut wire);
+        wire
+    };
+    let accepted = append(&owner, Arc::clone(&operations), &room_wire("4"));
+    assert_eq!(accepted["state"], "accepted", "{accepted}");
+    assert_eq!(accepted["requestIds"].as_array().unwrap().len(), 2);
+    assert_eq!(accepted["requestId"], accepted["requestIds"][0]);
+    assert_eq!(
+        accepted["requestIds"][0],
+        "req_11111111-1111-4111-8111-111111111110"
+    );
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &room_wire("5")),
+        accepted
+    );
+    assert_eq!(core.sends(), 1);
+    let create = core
+        .calls()
+        .into_iter()
+        .find(|call| call["operation"] == "dispatch.create")
+        .unwrap();
+    assert_eq!(create["input"]["room"], room);
+    assert_eq!(create["input"]["recipientIds"], json!(recipients));
+    assert_eq!(create["input"]["kind"], "announcement");
+    let owned = owner
+        .store
+        .lock()
+        .unwrap()
+        .owned(&owner.grant, &id, tmt_remote::pairing::now_ms().unwrap())
+        .unwrap();
+    for request in accepted["requestIds"].as_array().unwrap() {
+        assert!(
+            owned
+                .references
+                .contains(&request.as_str().unwrap()[4..].to_owned())
+        );
+    }
+    for (sequence, code) in [(6, "ROOM_RECIPIENT_NOT_MEMBER"), (7, "ROOM_ROSTER_CHANGED")] {
+        fs::write(core.root.join("dispatch-error"), code).unwrap();
+        fs::remove_file(core.root.join("receipt")).unwrap_or(());
+        let id = uuid_v4().unwrap();
+        payload["input"]["operationId"] = json!(id);
+        let mut wire = owner.wire(
+            &session,
+            &sequence.to_string(),
+            "dispatch.create",
+            payload.to_string().as_bytes(),
+        );
+        wire["id"] = json!(id);
+        owner.resign(&mut wire);
+        let refused = append(&owner, Arc::clone(&operations), &wire);
+        assert_eq!(
+            refused,
+            json!({"state":"refused","operationId":id,"reason":code})
+        );
+    }
 }
 fn message_state(can_send_now: bool) -> Value {
     json!({"state":"sent","reason":{"code":"held_to_save_usage","text":"held to save usage"},
@@ -680,7 +758,13 @@ fn a_held_send_is_attributed_when_it_is_frozen_and_replays_as_frozen() {
         .unwrap();
     writeln!(stream, "{}", json!({"op":"approve","operationId":id})).unwrap();
     let mut events = BufReader::new(stream.try_clone().unwrap());
-    assert_eq!(line(&mut events)["event"], "held");
+    assert_eq!(
+        line(&mut events),
+        json!({"event":"held","operationId":id,
+        "clientId":owner.grant.client_id,"deviceName":owner.grant.name,
+        "recipientId":recipient,"message":"[remote: Test device]\nheld for the owner"}),
+        "the ordinary DM approval preview retains its exact contract shape"
+    );
     writeln!(stream, "{}", json!({"op":"confirm"})).unwrap();
     assert_eq!(line(&mut events)["state"], "accepted");
     assert_eq!(asked(&core), 1, "approval never resolves the person again");
@@ -770,12 +854,20 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
     let session = owner.open();
     let id = uuid_v4().unwrap();
     let recipient = uuid_v4().unwrap();
+    let recipients = vec![recipient.clone(), uuid_v4().unwrap()];
+    let mut payload = input(&id, &recipient, "frozen");
+    payload["input"]["recipientIds"] = json!(recipients);
+    payload["input"]["room"] = json!({"kind":"roster","roomId":uuid_v4().unwrap(),"revision":1});
+    let mut held = owner.wire(
+        &session,
+        "1",
+        "dispatch.create",
+        payload.to_string().as_bytes(),
+    );
+    held["id"] = json!(id);
+    owner.resign(&mut held);
     assert_eq!(
-        append(
-            &owner,
-            Arc::clone(&operations),
-            &wire(&owner, &session, 1, &id, &recipient, "frozen")
-        ),
+        append(&owner, Arc::clone(&operations), &held),
         json!({"state":"held","operationId":id})
     );
     assert_undispatched(&core);
@@ -801,6 +893,8 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
     assert_eq!(preview["event"], "held");
     assert_eq!(preview["clientId"], owner.grant.client_id);
     assert_eq!(preview["recipientId"], recipient);
+    assert_eq!(preview["recipientIds"], json!(recipients));
+    assert_eq!(preview["room"], payload["input"]["room"]);
     assert_eq!(preview["message"], "[remote: Test device]\nfrozen");
     assert_undispatched(&core);
     writeln!(stream, "{}", json!({"op":"confirm"})).unwrap();
@@ -808,6 +902,7 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
     assert_eq!(ended["event"], "ended");
     assert_eq!(ended["state"], "accepted");
     assert_eq!(ended["operationId"], id);
+    assert_eq!(ended["requestIds"].as_array().unwrap().len(), 2);
     assert_eq!(core.sends(), 1);
     let mut repeated = control::connect(owner._serving.layout().directory.as_path()).unwrap();
     writeln!(repeated, "{}", json!({"op":"approve","operationId":id})).unwrap();
@@ -988,6 +1083,23 @@ fn allowlist_and_strict_intent_refuse_before_any_core_call() {
         "REMOTE_SCOPE_DENIED"
     );
     assert_eq!(core.calls().len(), calls);
+    let id = uuid_v4().unwrap();
+    let mut payload = input(&id, &permitted, "room hidden recipient");
+    payload["input"]["recipientIds"] = json!([permitted, uuid_v4().unwrap()]);
+    payload["input"]["room"] = json!({"kind":"roster","roomId":uuid_v4().unwrap(),"revision":1});
+    let mut request = owner.wire(
+        &session,
+        "3",
+        "dispatch.create",
+        payload.to_string().as_bytes(),
+    );
+    request["id"] = json!(id);
+    owner.resign(&mut request);
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &request)["error"]["code"],
+        "REMOTE_SCOPE_DENIED"
+    );
+    assert_eq!(core.calls().len(), calls);
     let owner = OwnerDoor::new();
     let session = owner.open();
     for (sequence, field) in (1..).zip(["identity", "kind", "fanout", "room", "operation", "extra"])
@@ -997,7 +1109,7 @@ fn allowlist_and_strict_intent_refuse_before_any_core_call() {
         let mut payload = input(&id, &recipient, "valid base");
         match field {
             "identity" => payload["identity"] = json!("forged"),
-            "kind" => payload["input"]["kind"] = json!("announcement"),
+            "kind" => payload["input"]["kind"] = json!("unsupported"),
             "fanout" => payload["input"]["recipientIds"] = json!([recipient, uuid_v4().unwrap()]),
             "room" => payload["input"]["room"] = json!(uuid_v4().unwrap()),
             "operation" => payload["operation"] = json!("rooms.write"),
@@ -2386,6 +2498,42 @@ fn conversation_refuses_nonbrowser_missing_scope_and_hidden_members_before_core(
     let reply = append(&owner, core.operations(), &wire);
     assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{reply}");
     assert!(core.calls().is_empty());
+    for (kind, scopes, agents, reason) in [
+        (
+            "cli",
+            vec!["results.read".into()],
+            "all".to_owned(),
+            "owner_browser_required",
+        ),
+        ("browser", vec!["agents.read".into()], "all".to_owned(), ""),
+        (
+            "browser",
+            vec!["results.read".into()],
+            format!("[\"{member}\"]"),
+            "all_agents_required",
+        ),
+    ] {
+        let owner = OwnerDoor::with_device(scopes, "direct", agents, None, kind);
+        let core = Core::new();
+        let session = owner.open();
+        let payload = json!({"version":1,"operation":"requests.list","input":{"roomId":member}});
+        let wire = owner.wire(
+            &session,
+            "1",
+            "requests.list",
+            payload.to_string().as_bytes(),
+        );
+        let reply = append(&owner, core.operations(), &wire);
+        assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{reply}");
+        if reason.is_empty() {
+            assert_eq!(reply["error"]["scope"], "results.read", "{reply}");
+            assert!(reply["error"].get("reason").is_none());
+        } else {
+            assert_eq!(reply["error"]["scope"], "results.read", "{reply}");
+            assert_eq!(reply["error"]["reason"], reason, "{reply}");
+        }
+        assert!(core.calls().is_empty());
+    }
 }
 
 #[test]
@@ -2411,12 +2559,43 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
             json!({"version":1,"operation":"requests.list","input":{"view":"conversation","memberId":member,"limit":20}})
         ]
     );
+    let room = uuid_v4().unwrap();
+    let payload_room = json!({"version":1,"operation":"requests.list","input":{"roomId":room}});
+    let room_item = json!({"requestId":"req_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","roomId":room,
+        "recipientId":member,"sender":{"kind":"unknown","identityId":null},"kind":"announcement",
+        "origin":"person","preparedAtMs":1,"delivery":"queued","messageState":message_state(false),
+        "final":{"status":"not_required"},"preview":"room post",
+        "urgent":false,"digestKind":"request","mode":"request","recipientAcknowledged":false});
+    let mut projected_room_item = room_item.clone();
+    for field in ["urgent", "digestKind", "mode", "recipientAcknowledged"] {
+        projected_room_item.as_object_mut().unwrap().remove(field);
+    }
+    fs::write(
+        core.root.join("conversation"),
+        json!({"items":[room_item],"nextBefore":null}).to_string(),
+    )
+    .unwrap();
+    let room_wire = owner.wire(
+        &session,
+        "2",
+        "requests.list",
+        payload_room.to_string().as_bytes(),
+    );
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &room_wire),
+        json!({"roomId":room,"items":[projected_room_item],"nextBefore":null,"changes":"unknown"})
+    );
+    assert_eq!(
+        core.calls()[1],
+        json!({"version":1,"operation":"requests.list","input":{"roomId":room,"limit":20}})
+    );
+    fs::write(core.root.join("conversation"), page.to_string()).unwrap();
     let mut bad = page.clone();
     bad["viewerId"] = json!("not-a-person");
     fs::write(core.root.join("conversation"), bad.to_string()).unwrap();
     let wire = owner.wire(
         &session,
-        "2",
+        "3",
         "requests.list",
         payload.to_string().as_bytes(),
     );
@@ -2424,20 +2603,20 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
         append(&owner, Arc::clone(&operations), &wire)["error"]["code"],
         "REMOTE_CORE_UNAVAILABLE"
     );
-    assert_eq!(core.calls().len(), 2);
+    assert_eq!(core.calls().len(), 3);
     let mut huge = page.clone();
     huge["private"] = json!("x".repeat(tmt_remote::limits::CONVERSATION_RESPONSE_BYTES));
     fs::write(core.root.join("conversation"), huge.to_string()).unwrap();
     let wire = owner.wire(
         &session,
-        "3",
+        "4",
         "requests.list",
         payload.to_string().as_bytes(),
     );
     let refused = append(&owner, Arc::clone(&operations), &wire);
     assert_eq!(refused["error"]["code"], "REMOTE_CORE_UNAVAILABLE");
     assert_eq!(refused["error"]["message"], "Remote request refused.");
-    assert_eq!(core.calls().len(), 3);
+    assert_eq!(core.calls().len(), 4);
     fs::write(
         core.root.join("conversation-error"),
         "OLD-CORE-PRIVATE-ERROR",
@@ -2445,7 +2624,7 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
     .unwrap();
     let wire = owner.wire(
         &session,
-        "4",
+        "5",
         "requests.list",
         payload.to_string().as_bytes(),
     );
@@ -2454,7 +2633,7 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
     assert!(!unavailable.to_string().contains("OLD-CORE-PRIVATE-ERROR"));
     assert_eq!(
         core.calls().len(),
-        4,
+        5,
         "old Core refusal never falls back to broader history or creates a viewer"
     );
     assert!(

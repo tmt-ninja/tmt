@@ -560,6 +560,11 @@ impl DoorSessions {
             .map_err(|(code, text)| {
                 if code == "REMOTE_SCOPE_DENIED" && text == "talk" {
                     admission::missing_talk(self, &message)
+                } else if code == "REMOTE_SCOPE_DENIED"
+                    && message.envelope().operation == "requests.list"
+                    && message.input["input"].get("roomId").is_some()
+                {
+                    admission::missing_room_results(self, &message)
                 } else {
                     deny(code, text)
                 }

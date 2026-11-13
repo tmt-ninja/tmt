@@ -79,6 +79,8 @@ if wire['operation']=='dispatch.show':
     else:
         print(json.dumps({'error':{'code':'DISPATCH_NOT_FOUND','message':'absent'}}));sys.exit(1)
 elif wire['operation']=='dispatch.create':
+    if (root/'dispatch-error').exists():
+        print(json.dumps({'error':{'code':(root/'dispatch-error').read_text(),'message':'fixture roster refused'}}));sys.exit(1)
     if (root/'gate').exists():
         (root/'entered').write_text('blocked')
         with (root/'gate').open() as gate: gate.readline()
@@ -87,7 +89,7 @@ elif wire['operation']=='dispatch.create':
     if receipt_file.exists():
         print(json.dumps({'error':{'code':'DUPLICATE_TEST_SEND','message':'second create'}}));sys.exit(1)
     request_id='req_'+str(uuid.UUID(int=uuid.UUID(wire['input']['operationId']).int ^ 1)) if (root/'multi').exists() else 'req_11111111-1111-4111-8111-111111111111'
-    receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':wire['input']['recipientIds'][0],'requestId':request_id,'acceptance':'queued'}]}
+    receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':recipient,'requestId':request_id if index==0 else 'req_'+str(uuid.UUID(int=uuid.UUID(request_id[4:]).int ^ index)),'acceptance':'queued'} for index,recipient in enumerate(sorted(wire['input']['recipientIds']))]}
     receipt_file.write_text(json.dumps(receipt))
     if (root/'lost').exists(): print('broken')
     else:

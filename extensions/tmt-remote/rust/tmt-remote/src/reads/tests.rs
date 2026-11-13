@@ -177,9 +177,22 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
     assert_eq!(document["state"], "ok");
     assert!(document["observedAtMs"].as_u64().unwrap() > 0);
     assert_eq!(document["truncated"], false);
+    let mut with_room = board();
+    let room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    with_room["squads"][0]["squad"]["roomId"] = json!(room_id);
+    fake.answer(LS, &with_room.to_string());
+    for (revision, retired, expected) in [
+        (3, false, json!({"roomId":room_id,"revision":3})),
+        (0, false, Value::Null),
+        (3, true, Value::Null),
+    ] {
+        fake.answer("room list --json", &json!({"rooms":[{"id":room_id,"name":"squad-tmt-core","revision":revision,"retired":retired}]}).to_string());
+        let room_board = body(&fake.reads(), Target::Ops);
+        assert_eq!(room_board["squads"][0]["room"], expected);
+    }
     assert_eq!(
         document["squads"],
-        json!([{"name": "tmt-core", "layout": "team",
+        json!([{"name": "tmt-core", "room":null, "layout": "team",
                 "lead": {"id": "00000000-0000-4000-8000-000000000001", "name": "tmt-lead"},
                 "idleAlertMs": 1800000,
                 "attention": {"state": "normal", "waiting": 1, "blocked": 0}}])
@@ -217,6 +230,10 @@ fn an_unusable_cron_read_leaves_timers_null_and_never_an_empty_list() {
     assert_eq!(document["state"], "ok");
     assert!(document["timers"].is_null());
     assert_eq!(document["agents"].as_array().unwrap().len(), 2);
+    assert!(
+        document["squads"][0]["room"].is_null(),
+        "failed room evidence never fails the board"
+    );
 }
 
 #[test]

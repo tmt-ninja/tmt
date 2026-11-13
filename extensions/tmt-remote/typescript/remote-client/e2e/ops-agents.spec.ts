@@ -49,7 +49,10 @@ const agent = (name: string, squad: string, extra: Partial<OpsAgent> = {}): OpsA
 });
 const board = (agents: OpsAgent[]): OpsBoard => ({
   agents,
-  squads: [{ name: 'alpha' }, { name: 'beta' }],
+  squads: [
+    { name: 'alpha', room: null },
+    { name: 'beta', room: null },
+  ],
   schedules: [],
   truncated: false,
 });

@@ -224,7 +224,18 @@ impl Reads {
                 });
                 // Timers are optional: a failed cron read leaves them null, never empty.
                 let timers = timers.ok().and_then(Result::ok);
-                ops::project(&board?, timers.as_ref()).ok_or(Reason::ReadFailed)
+                let board = board?;
+                // Ops supplies the stable room UUID; Core alone owns its current revision.
+                // One bounded snapshot, no per-squad lookup or parallel room registry.
+                let rooms = if board["squads"]
+                    .as_array()
+                    .is_some_and(|squads| !squads.is_empty())
+                {
+                    self.json(&["room", "list", "--json"], deadline).ok()
+                } else {
+                    None
+                };
+                ops::project(&board, timers.as_ref(), rooms.as_ref()).ok_or(Reason::ReadFailed)
             }
             Target::Limits => {
                 let history = self.json(&["ops", "limits", "--json"], deadline)?;

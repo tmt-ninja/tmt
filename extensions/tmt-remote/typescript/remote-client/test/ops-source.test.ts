@@ -13,7 +13,15 @@ const answer = (document: Record<string, unknown>) =>
 it('turns the contract board into rows: lead first, a mark for each state, the board text kept', () => {
   const board = answer(ops[0]!.expect);
   expect(board.unavailable).toBeUndefined();
-  expect(board.squads).toEqual([{ name: 'tmt-core', lead: 'tmt-lead', idleAlertMinutes: 30 }]);
+  const room = { roomId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', revision: 3 };
+  const withRoom = structuredClone(ops[0]!.expect) as { squads: { room?: unknown }[] };
+  withRoom.squads[0]!.room = room;
+  expect(answer(withRoom).squads[0]!.room).toEqual(room);
+  withRoom.squads[0]!.room = { ...room, revision: 0 };
+  expect(answer(withRoom).squads[0]!.room).toBeNull();
+  expect(board.squads).toEqual([
+    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMinutes: 30 },
+  ]);
   expect(board.agents).toEqual([
     {
       id: '00000000-0000-4000-8000-000000000001',
