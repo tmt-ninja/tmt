@@ -39,7 +39,7 @@ for (const width of [1440, 390])
         'every other week Tue Thu 22:00–06:00 · night-*',
       );
       await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText('On');
-      await expect(plans.getByRole('switch')).toHaveCount(0);
+      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute('aria-checked', 'false');
       const matrix = page.locator('.ops-orchestration-matrix');
       await expect(
         matrix.getByRole('button', { name: /^sample-1 to sample-lead: / }),
@@ -202,4 +202,24 @@ test('a stale apply saves nothing and says so', async ({ page }) => {
     'Orchestration changed since the preview; nothing was saved. Try again.',
   );
   await expect(page.getByRole('dialog')).toBeHidden();
+});
+
+test('a plan switch previews the exact plans-view row and applies only after consent', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Running work is never interrupted.');
+  let all = await calls(page);
+  const read = all.find((call) => call.input.view === 'plans');
+  expect(read).toBeDefined();
+  const writes = all.filter((call) => call.kind === 'write');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.input).toMatchObject({ phase: 'preview', mutation: { kind: 'plan.set', plan: 'plan-freeze', candidate: { enabled: true } } });
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await calls(page)).filter((call) => call.kind === 'write')).toHaveLength(1);
+  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute('aria-checked', 'true');
+  all = await calls(page);
+  expect(all.filter((call) => call.kind === 'write').at(-1)!.input).toMatchObject({ phase: 'apply', expectedConfigurationRevision: 3, consent: true });
 });
