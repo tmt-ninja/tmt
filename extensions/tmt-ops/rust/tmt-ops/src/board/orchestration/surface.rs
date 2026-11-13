@@ -395,9 +395,10 @@ fn header(frame: &mut Frame, app: &App, area: Rect) {
         (full, 0)
     } else {
         // Without the controls: the short words, then whole parts drop from the end, never
-        // mid-phrase. A refresh failure stays last and is the one part cut with `…`.
+        // mid-phrase. A refresh failure stays last: its own trailing parts drop the same way,
+        // and its reason, the last part left, is the one part cut with `…`.
         let mut spans = short.spans;
-        let failure = spans
+        let mut failure = spans
             .iter()
             .position(|span| span.content.starts_with("◆ Refresh failed"))
             .map(|at| spans.split_off(at.saturating_sub(1)))
@@ -407,6 +408,12 @@ fn header(frame: &mut Frame, app: &App, area: Rect) {
             && let Some(at) = spans.iter().rposition(|span| span.content == " · ")
         {
             spans.truncate(at);
+        }
+        while Line::from(spans.clone()).width() + Line::from(failure.clone()).width() > room
+            && failure.len() > 4
+            && let Some(at) = failure.iter().rposition(|span| span.content == " · ")
+        {
+            failure.truncate(at);
         }
         spans.extend(failure);
         let mut line = Line::from(spans);
@@ -503,14 +510,18 @@ fn status(app: &App, short: bool) -> Vec<Span<'static>> {
         part(vec![Span::styled(safe(note), look.role(Role::Muted))]);
     }
     if let Some(reason) = &state.failure {
-        part(vec![Span::styled(
-            format!(
-                "◆ Refresh failed · {} · showing {}",
-                safe(reason),
-                snapshot.clock(document.observed_at_ms)
+        // Separate spans so the header can drop `showing` whole when the row is short.
+        let waiting = look.role(Role::Waiting);
+        part(vec![
+            Span::styled("◆ Refresh failed", waiting),
+            Span::styled(" · ", waiting),
+            Span::styled(safe(reason), waiting),
+            Span::styled(" · ", waiting),
+            Span::styled(
+                format!("showing {}", snapshot.clock(document.observed_at_ms)),
+                waiting,
             ),
-            look.role(Role::Waiting),
-        )]);
+        ]);
     }
     status
 }

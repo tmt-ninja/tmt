@@ -1066,6 +1066,13 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
         .map(|(_, s)| s)
         .collect::<String>();
         assert!(header.contains("◆ Refresh fail"), "{width}: {header}");
+        // Parts that do not fit drop whole: no part ends cut except the reason at 60.
+        if width == 80 {
+            assert_eq!(
+                header.trim_end(),
+                " Orchestration · ◆ Refresh failed · Core did not answer within 10 s"
+            );
+        }
     }
     assert!(
         !routes.contains("q quit") && !routes.contains("end focus"),
