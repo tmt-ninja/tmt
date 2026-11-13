@@ -24,6 +24,17 @@ export function memberState(agent: Pick<OpsAgent, 'presence' | 'activity'>): Mem
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent: OpsAgent): HTMLElement {
   const word = memberState(agent);
+  if (word === 'Unknown') {
+    // As in the DM header: an unknown state is its mark alone, the word in the tooltip.
+    const alone = mark(MARKS.Unknown);
+    alone.classList.add('ops-member-state');
+    alone.dataset.state = 'unknown';
+    alone.title = 'State unknown';
+    alone.setAttribute('role', 'img');
+    alone.setAttribute('aria-label', 'State unknown');
+    alone.removeAttribute('aria-hidden');
+    return alone;
+  }
   const badge = el('span', `${c.chip} ops-member-state`);
   badge.dataset.state = word.toLowerCase();
   badge.append(mark(MARKS[word]), el('span', c.chipLabel, word));
@@ -293,10 +304,18 @@ export function channelView(
         title.textContent = member.name;
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
+        // An unknown state is the mark alone, its word in the tooltip; a known one is said.
+        const stateMark = mark(MARKS[state]);
+        if (state === 'Unknown') {
+          stateMark.title = 'State unknown';
+          stateMark.setAttribute('role', 'img');
+          stateMark.setAttribute('aria-label', 'State unknown');
+          stateMark.removeAttribute('aria-hidden');
+        }
         facts.append(
-          mark(MARKS[state]),
+          stateMark,
           [
-            state,
+            state === 'Unknown' ? undefined : state,
             member.role === 'lead' ? 'Lead' : 'Member',
             member.model,
             usage(member) || undefined,
@@ -316,7 +335,7 @@ export function channelView(
           chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 60_000)}m`));
         channelFacts(squad, people, board.truncated);
       }
-      if (timerCount) chips.append(chip(`Timers ${timerCount}`));
+      // The Timers count lives once, in the summary row below the title.
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;
       const timersWord = timerCount === undefined ? 'Timers unavailable' : `Timers ${timerCount}`;

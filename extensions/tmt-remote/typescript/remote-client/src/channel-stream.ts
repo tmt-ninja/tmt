@@ -20,6 +20,7 @@ import { onSession } from './conversation-history.js';
 import {
   attributed,
   messageRow,
+  noticeRow,
   outbox,
   pendingRow,
   talkList,
@@ -151,6 +152,8 @@ export function channelStream(
   function postRow(post: Post, inThread = false): HTMLElement {
     const first = post.items[0]!;
     const as = first;
+    if (!inThread && first.kind === 'announcement')
+      return noticeRow(first.preview, new Date(post.preparedAtMs));
     const row = messageRow({
       who: 'You',
       to: answers(post)
@@ -160,7 +163,7 @@ export function channelStream(
       at: new Date(post.preparedAtMs),
       text: first.preview,
       mentions: channel?.members.map((member) => member.name) ?? [],
-      ...(inThread ? { state: deliveryText(as), mark: deliveryMark(as) } : {}),
+      // The thread's header already says how the post stands; the root carries no second line.
     });
     if (inThread) return row;
     // Under the post, the thread in one line; the replies open beside the channel.

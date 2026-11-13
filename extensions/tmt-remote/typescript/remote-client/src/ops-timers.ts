@@ -135,7 +135,8 @@ export function scheduleWords(text: string): string {
 export function timerRow(job: OpsSchedule): HTMLElement {
   const row = el('li', 'ops-timer-row');
   row.dataset.timerId = job.id;
-  const icon = el('span', 'ops-timer-icon');
+  // The same timer mark as the sidebar's count, not a circle that reads as an empty radio.
+  const icon = el('span', 'ops-timer-icon', '⏱');
   icon.setAttribute('aria-hidden', 'true');
   const name = el('span', 'ops-timer-name', job.what || job.id);
   const words = scheduleWords(job.when);

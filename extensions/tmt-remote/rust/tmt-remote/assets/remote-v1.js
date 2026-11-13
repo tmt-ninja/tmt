@@ -10108,7 +10108,7 @@ function scheduleWords(text) {
 function timerRow(job) {
 	const row = el("li", "ops-timer-row");
 	row.dataset.timerId = job.id;
-	const icon = el("span", "ops-timer-icon");
+	const icon = el("span", "ops-timer-icon", "⏱");
 	icon.setAttribute("aria-hidden", "true");
 	const name = el("span", "ops-timer-name", job.what || job.id);
 	const words = scheduleWords(job.when);
@@ -10452,6 +10452,27 @@ function attributed(text) {
 		words: text.slice(match[0].length)
 	} : { words: text };
 }
+/** This browser's device name, once Remote says it; until then every device stays in a tooltip. */
+var ownDevice = null;
+/** Learn this browser's device name: a message names its device only when another one sent it. */
+function knowOwnDevice(name, root = document) {
+	ownDevice = name;
+	for (const node of root.querySelectorAll(".ops-dm-message-device")) node.hidden = ownDevice === null || node.dataset.device === ownDevice;
+}
+/** An announcement (a timer added, a member joined) is a quiet line in the stream, not a message
+* someone said, and it asks for no reply. */
+function noticeRow(text, at) {
+	const row = el("li", "ops-dm-notice");
+	const words = attributed(text).words?.replace(/^▚\s*/, "") ?? null;
+	row.append(el("span", "ops-dm-notice-text", words ?? "Notice unavailable"));
+	if (at && Number.isFinite(at.valueOf())) {
+		const time = el("time", "ops-dm-message-time", clock(at));
+		time.dateTime = at.toISOString();
+		time.title = at.toLocaleString();
+		row.append(time);
+	}
+	return row;
+}
 function messageRow(options) {
 	const row = el("li", "ops-dm-message");
 	if (options.self) row.dataset.self = "";
@@ -10460,7 +10481,15 @@ function messageRow(options) {
 	face.setAttribute("aria-hidden", "true");
 	const { device, words } = attributed(options.text);
 	const head = el("div", "ops-dm-message-head");
-	head.append(el("strong", "ops-dm-message-who", options.self ? "You" : options.who), el("span", "ops-dm-message-to", device ? `→ ${options.to} · from ${device}` : `→ ${options.to}`));
+	const who = el("strong", "ops-dm-message-who", options.self ? "You" : options.who);
+	head.append(who, el("span", "ops-dm-message-to", `→ ${options.to}`));
+	if (device) {
+		who.title = `Sent from ${device}`;
+		const from = el("span", "ops-dm-message-device", `· from ${device}`);
+		from.dataset.device = device;
+		from.hidden = ownDevice === null || device === ownDevice;
+		head.append(from);
+	}
 	if (options.at && Number.isFinite(options.at.valueOf())) {
 		const time = el("time", "ops-dm-message-time", clock(options.at));
 		time.dateTime = options.at.toISOString();
@@ -10488,6 +10517,7 @@ function messageRow(options) {
 /** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one. */
 function exchangeRows(item, names) {
 	const { fromMe, them } = names;
+	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
 		who: fromMe ? names.me : them,
 		to: fromMe ? them : "You",
@@ -11126,17 +11156,14 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	function postRow(post, inThread = false) {
 		const first = post.items[0];
 		const as = first;
+		if (!inThread && first.kind === "announcement") return noticeRow(first.preview, new Date(post.preparedAtMs));
 		const row = messageRow({
 			who: "You",
 			to: answers(post).map((side) => side.name).join(", "),
 			self: true,
 			at: new Date(post.preparedAtMs),
 			text: first.preview,
-			mentions: channel?.members.map((member) => member.name) ?? [],
-			...inThread ? {
-				state: deliveryText(as),
-				mark: deliveryMark(as)
-			} : {}
+			mentions: channel?.members.map((member) => member.name) ?? []
 		});
 		if (inThread) return row;
 		const sides = answers(post).filter((side) => side.words !== void 0);
@@ -11411,6 +11438,16 @@ function memberState(agent) {
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent) {
 	const word = memberState(agent);
+	if (word === "Unknown") {
+		const alone = mark(MARKS.Unknown);
+		alone.classList.add("ops-member-state");
+		alone.dataset.state = "unknown";
+		alone.title = "State unknown";
+		alone.setAttribute("role", "img");
+		alone.setAttribute("aria-label", "State unknown");
+		alone.removeAttribute("aria-hidden");
+		return alone;
+	}
 	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
 	badge.dataset.state = word.toLowerCase();
 	badge.append(mark(MARKS[word]), el("span", browserUiClasses.chipLabel, word));
@@ -11645,8 +11682,15 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				title.textContent = member.name;
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
-				facts.append(mark(MARKS[state]), [
-					state,
+				const stateMark = mark(MARKS[state]);
+				if (state === "Unknown") {
+					stateMark.title = "State unknown";
+					stateMark.setAttribute("role", "img");
+					stateMark.setAttribute("aria-label", "State unknown");
+					stateMark.removeAttribute("aria-hidden");
+				}
+				facts.append(stateMark, [
+					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
 					usage(member) || void 0,
@@ -11661,7 +11705,6 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
 				channelFacts(squad, people, board.truncated);
 			}
-			if (timerCount) chips.append(chip(`Timers ${timerCount}`));
 			const working = people.filter((agent) => memberState(agent) === "Working").length;
 			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
 			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
@@ -11712,10 +11755,17 @@ var ORCHESTRATION_REFRESH_MS = 3e4;
 function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = async () => {
 	if (!shell.session) throw new Error("No signed browser session.");
 	return orchestrationApi(await shell.session());
-}, historyTalk, channelPort) {
+}, historyTalk, channelPort, ownDevice = async () => {
+	if (!shell.session) return null;
+	return (await management(await shell.session()).devices({
+		cursor: null,
+		limit: 100
+	})).devices.find((device) => device.thisBrowser)?.name ?? null;
+}) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
+	ownDevice().then((name) => knowOwnDevice(name), () => knowOwnDevice(null));
 	let board;
 	const current = () => {
 		const place = opsPlace(location.hash);

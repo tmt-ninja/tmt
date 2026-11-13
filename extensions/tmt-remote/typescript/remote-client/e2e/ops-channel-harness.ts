@@ -603,4 +603,6 @@ opsPage(
     },
   },
   room,
+  // This browser is "This laptop": messages from another device name it.
+  async () => 'This laptop',
 );
