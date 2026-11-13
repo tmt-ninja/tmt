@@ -1154,7 +1154,12 @@ test.describe('the Ops route on the owner read', () => {
             'tmt-core',
             'tmt-lead',
             'core-3',
+            'Orchestration',
           ]);
+          await expect(tree.locator('a[data-id="orchestration"]')).not.toHaveAttribute(
+            'aria-current',
+            'page',
+          );
           await expect(tree.locator('.tmt-ui-rail-sub-group')).toContainText('THIS MACHINE');
           await expect(tree.locator('a[data-id="channel:tmt-core"]')).toHaveAttribute(
             'aria-current',
