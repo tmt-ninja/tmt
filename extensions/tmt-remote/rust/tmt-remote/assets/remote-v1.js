@@ -8961,17 +8961,18 @@ function source(value) {
 }
 function target(value) {
 	const row = value && typeof value === "object" ? value : {};
-	if (row.kind === "all") return [{ kind: "all" }];
-	if (row.kind === "identity" && text(row.id)) return [{
+	if (row.kind === "all") return { kind: "all" };
+	if (row.kind === "identity" && text(row.id)) return {
 		kind: "identity",
 		id: row.id
-	}];
-	if (row.kind === "pattern" && text(row.pattern)) return [{
+	};
+	if (row.kind === "pattern" && text(row.pattern)) return {
 		kind: "pattern",
 		pattern: row.pattern
-	}];
-	return [];
+	};
+	return null;
 }
+var weekday = (day) => safe(day) && day >= 1 && day <= 7;
 function schedule(value) {
 	const row = value && typeof value === "object" ? value : {};
 	if (row.kind === "always") return { kind: "always" };
@@ -8980,10 +8981,10 @@ function schedule(value) {
 		startMs: row.startMs,
 		endMs: row.endMs
 	};
-	if (row.kind === "weekly" && safe(row.intervalWeeks) && Array.isArray(row.weekdays) && text(row.start) && text(row.end)) return {
+	if (row.kind === "weekly" && safe(row.intervalWeeks) && Array.isArray(row.weekdays) && row.weekdays.every(weekday) && text(row.start) && text(row.end)) return {
 		kind: "weekly",
 		intervalWeeks: row.intervalWeeks,
-		weekdays: row.weekdays.filter((day) => safe(day) && day >= 1 && day <= 7),
+		weekdays: row.weekdays,
 		start: row.start,
 		end: row.end,
 		allDay: row.allDay === true
@@ -9008,14 +9009,16 @@ function decodeOverview(value) {
 		selectedPlanId: text(value.selectedPlanId) ? value.selectedPlanId : null,
 		plans: plans.flatMap((plan) => {
 			const row = object$1(plan);
-			if (!text(row.id) || !text(row.name)) return [];
+			const targets = Array.isArray(row.targets) ? row.targets.map(target) : [null];
+			const rule = schedule(row.schedule);
+			if (!text(row.id) || !text(row.name) || !Number.isSafeInteger(row.priority) || typeof row.enabled !== "boolean" || targets.includes(null) || !rule) return [];
 			return [{
 				id: row.id,
 				name: row.name,
-				priority: Number.isSafeInteger(row.priority) ? Number(row.priority) : 0,
-				enabled: row.enabled !== false,
-				targets: Array.isArray(row.targets) ? row.targets.flatMap(target) : [],
-				schedule: schedule(row.schedule)
+				priority: Number(row.priority),
+				enabled: row.enabled,
+				targets,
+				schedule: rule
 			}];
 		}),
 		members: members.map((member) => {
@@ -9172,23 +9175,17 @@ function decodeJobs(rows) {
 		}];
 	});
 }
-/** One member's jobs, first page only (`more` when Core has another); `null` when this Core has no
-* jobs view. */
+/** One member's jobs, first page only (`more` when Core has another). */
 async function readJobs(api, ownerIdentityId) {
-	try {
-		const answer = await api.read({
-			view: "jobs",
-			ownerIdentityId,
-			limit: 50
-		});
-		return {
-			jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
-			more: text(answer.nextCursor)
-		};
-	} catch (error) {
-		if (unknownView(error)) return null;
-		throw error;
-	}
+	const answer = await api.read({
+		view: "jobs",
+		ownerIdentityId,
+		limit: 50
+	});
+	return {
+		jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
+		more: text(answer.nextCursor)
+	};
 }
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
 function previewLines(preview, name) {
@@ -9374,6 +9371,8 @@ function orchestrationView(connect, now = () => Date.now()) {
 	let target;
 	let why;
 	const jobs = /* @__PURE__ */ new Map();
+	const reading = /* @__PURE__ */ new Set();
+	let jobsRound = 0;
 	let generation = 0;
 	const say = (text) => {
 		status.textContent = text;
@@ -9419,10 +9418,9 @@ function orchestrationView(connect, now = () => Date.now()) {
 	/** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
 	const planSummary = (p) => {
 		const rule = p.schedule;
-		let when = "schedule not shown";
-		if (rule?.kind === "always") when = "always";
-		else if (rule?.kind === "once") when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
-		else if (rule?.kind === "weekly") {
+		let when = "always";
+		if (rule.kind === "once") when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
+		else if (rule.kind === "weekly") {
 			const set = [...rule.weekdays].sort();
 			const dayWords = set.length === 7 ? "every day" : set.join() === "1,2,3,4,5" ? "weekdays" : set.map((d) => WEEKDAYS[d - 1]).join(" ");
 			when = `${rule.intervalWeeks === 2 ? "every other week " : rule.intervalWeeks > 2 ? `every ${rule.intervalWeeks} weeks ` : ""}${dayWords} ${rule.allDay ? "all day" : `${rule.start}–${rule.end}`}`;
@@ -9445,7 +9443,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 			const next = decodeOverview(await api.read(input));
 			const nextSending = await readSending(api, memberQuery || void 0);
 			if (mine !== generation) return;
-			if (overview?.configurationRevision !== next.configurationRevision) jobs.clear();
+			jobsRound += 1;
 			overview = next;
 			sending = nextSending;
 			if (!member(selected)) selected = next.members[0]?.identityId;
@@ -9728,10 +9726,9 @@ function orchestrationView(connect, now = () => Date.now()) {
 		return list;
 	};
 	function drawJobs(row) {
-		const entry = jobs.get(row.identityId);
-		if (entry === void 0 || entry === "loading") return [el("p", "ops-orchestration-caption", "Jobs · reading…")];
+		const entry = jobs.get(row.identityId)?.value;
+		if (entry === void 0) return [el("p", "ops-orchestration-caption", "Jobs · reading…")];
 		if (entry === "failed") return [el("p", "ops-orchestration-caption", "Jobs · Core could not read them right now.")];
-		if (entry === null) return [el("p", "ops-orchestration-caption", "Jobs · not available on this Core.")];
 		const head = el("h4", browserUiClasses.sectionHeading, `Jobs ${entry.jobs.length}${entry.more ? "+" : ""}`);
 		if (!entry.jobs.length) return [head, el("p", "ops-orchestration-caption", "No jobs.")];
 		const list = el("ul", "ops-orchestration-jobs");
@@ -9748,13 +9745,21 @@ function orchestrationView(connect, now = () => Date.now()) {
 		return [head, list];
 	}
 	async function loadJobs(id) {
-		if (jobs.has(id) || !api) return;
-		jobs.set(id, "loading");
+		if (jobs.get(id)?.round === jobsRound || reading.has(id) || !api) return;
+		const round = jobsRound;
+		reading.add(id);
 		try {
-			jobs.set(id, await readJobs(api, id));
+			jobs.set(id, {
+				round,
+				value: await readJobs(api, id)
+			});
 		} catch {
-			jobs.set(id, "failed");
+			jobs.set(id, {
+				round,
+				value: "failed"
+			});
 		}
+		reading.delete(id);
 		if (selected === id) drawInspector();
 	}
 	function drawInspector() {
@@ -9905,7 +9910,6 @@ function orchestrationView(connect, now = () => Date.now()) {
 		try {
 			await api.write(applyInput(previewed));
 			dialog.close();
-			jobs.clear();
 			await load();
 			if (!status.textContent) say("Orchestration saved.");
 		} catch (error) {

@@ -159,6 +159,12 @@ test('a change shows Core’s preview and saves only that preview after Save', a
   await inspector.getByRole('button', { name: 'Focus now 1h', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Orchestration saved.');
+  // Each reread (here the next 30 s refresh after the save) reads the shown member’s jobs again.
+  const jobReads = async () =>
+    (await calls(page)).filter((call) => call.input.view === 'jobs').length;
+  const before = await jobReads();
+  await page.clock.runFor(61_000);
+  await expect.poll(jobReads).toBe(before + 1);
   writes = (await calls(page)).filter((call) => call.kind === 'write');
   expect(writes.map((call) => call.input.phase)).toEqual(['preview', 'preview', 'apply']);
   expect(writes[2]!.input).toMatchObject({
