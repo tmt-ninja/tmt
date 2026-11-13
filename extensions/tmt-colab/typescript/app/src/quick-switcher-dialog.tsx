@@ -101,6 +101,7 @@ export function QuickSwitcherHost({
   search,
   shortcut = true,
   onReady,
+  onClosed,
   children,
 }: {
   transport: PageTransport;
@@ -115,6 +116,8 @@ export function QuickSwitcherHost({
   shortcut?: boolean;
   /** Hands the opener to a host that opens the switcher from its own control. */
   onReady?(open: (opener: HTMLButtonElement) => boolean): void;
+  /** Called each time an open switcher closes. */
+  onClosed?(): void;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -164,6 +167,11 @@ export function QuickSwitcherHost({
       return activate();
     });
   }, [onReady, activate]);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) onClosed?.();
+    wasOpen.current = open;
+  }, [open, onClosed]);
   const presentation = useMemo(
     () => (allowed ? { open, activate, control } : null),
     [allowed, open, activate],

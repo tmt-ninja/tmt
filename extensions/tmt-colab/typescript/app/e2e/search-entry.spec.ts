@@ -258,11 +258,22 @@ test('disposal closes the dialog, adds no shortcut and leaves the entry inert', 
   await mount(page);
   await page.keyboard.press('ControlOrMeta+k');
   await expect(dialog(page)).toHaveCount(0);
+  // The opening settles when the dialog closes, so the host's Search says whether it is open.
   await opener(page).click();
   await expect(dialog(page)).toBeVisible();
+  await expect(opener(page)).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(opener(page)).toHaveAttribute('aria-expanded', 'false');
+  await opener(page).click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(opener(page)).toHaveAttribute('aria-expanded', 'true');
+  // Disposal settles the open one too.
   await call(page, 'disposeEntryOnly');
   await expect(dialog(page)).toHaveCount(0);
+  await expect(opener(page)).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#search-host')).toBeEmpty();
   await call(page, 'openDirect');
   await expect(dialog(page)).toHaveCount(0);
+  await expect(opener(page)).toHaveAttribute('aria-expanded', 'false');
 });

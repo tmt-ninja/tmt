@@ -29,8 +29,13 @@ export interface SearchEntryOptions {
 }
 
 export interface SearchEntry {
-  /** Opens the dialog; closing it returns focus to `opener`. Inert after `dispose`. */
-  open(opener: HTMLButtonElement): void;
+  /**
+   * Opens the dialog; closing it returns focus to `opener`. The promise settles when the dialog
+   * closes, at once when it does not open, and on `dispose`, so a host can mirror the open state
+   * (`aria-expanded`). An opening while the dialog is open returns the same promise. Inert after
+   * `dispose`.
+   */
+  open(opener: HTMLButtonElement): Promise<void>;
   /** Closes the dialog and removes the React root. Later calls are inert. */
   dispose(): void;
 }
@@ -40,9 +45,16 @@ export function mount(container: HTMLElement, options: SearchEntryOptions): Sear
   let disposed = false;
   let opener: ((button: HTMLButtonElement) => boolean) | undefined;
   let pending: HTMLButtonElement | undefined;
+  // The current opening: its promise, and what settles it.
+  let current: { closed: Promise<void>; settle(): void } | undefined;
+  const settle = () => {
+    const done = current;
+    current = undefined;
+    done?.settle();
+  };
   const ready = (open: (button: HTMLButtonElement) => boolean) => {
     opener = open;
-    if (pending) open(pending);
+    if (pending && !open(pending)) settle();
     pending = undefined;
   };
   root.render(
@@ -63,20 +75,27 @@ export function mount(container: HTMLElement, options: SearchEntryOptions): Sear
         }}
         shortcut={false}
         onReady={ready}
+        onClosed={settle}
       />
     </StrictMode>,
   );
   return {
     open(button) {
-      if (disposed) return;
-      if (opener) opener(button);
-      else pending = button;
+      if (disposed) return Promise.resolve();
+      if (current) return current.closed;
+      let resolve!: () => void;
+      const closed = new Promise<void>((done) => (resolve = done));
+      current = { closed, settle: resolve };
+      if (!opener) pending = button;
+      else if (!opener(button)) settle();
+      return closed;
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       opener = undefined;
       pending = undefined;
+      settle();
       root.unmount();
     },
   };

@@ -75,7 +75,10 @@ it('starts the transport when mounted and hands the entry the host options plus 
 it('opens at once before the transport is ready; the pages arrive when it is, with no second open', async () => {
   const { attempts, entry, session, transport } = harness();
   const button = opener();
-  session.open(button);
+  // The host awaits the entry's own close promise (aria-expanded on its Search button).
+  const closed = Promise.resolve();
+  entry.open.mockReturnValueOnce(closed);
+  expect(session.open(button)).toBe(closed);
   expect(entry.open).toHaveBeenCalledTimes(1);
   expect(entry.open).toHaveBeenCalledWith(button);
   const read = transport().spaceHome();
@@ -126,7 +129,7 @@ it('disposing a ready session closes its transport once, and a second dispose is
   session.dispose();
   expect(ready.close).toHaveBeenCalledTimes(1);
   expect(entry.dispose).toHaveBeenCalledTimes(1);
-  session.open(opener());
+  await expect(session.open(opener())).resolves.toBeUndefined();
   expect(entry.open).not.toHaveBeenCalled();
 });
 
