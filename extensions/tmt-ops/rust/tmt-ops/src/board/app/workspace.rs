@@ -48,16 +48,12 @@ impl App {
         let Some(snapshot) = self.workspace_snapshot() else {
             return Effect::None;
         };
+        let title = snapshot.roster.members.get(&member).map_or_else(
+            || "Label".to_owned(),
+            |value| format!("Label · {}", crate::board::notes::single_line(&value.name)),
+        );
         let labels = std::sync::Arc::new(snapshot.preferences.labels.clone());
-        let mut entries = vec![MenuEntry {
-            key: "0".into(),
-            label: "clear label".into(),
-            choice: Choice::MemberLabel {
-                expected: labels.clone(),
-                member: member.clone(),
-                label: None,
-            },
-        }];
+        let mut entries = Vec::new();
         for (index, label) in labels.definitions.iter().enumerate() {
             entries.push(MenuEntry {
                 key: if index < 9 {
@@ -65,7 +61,7 @@ impl App {
                 } else {
                     String::new()
                 },
-                label: format!("{} {}", label.glyph, label.name),
+                label: label.name.clone(),
                 choice: Choice::MemberLabel {
                     expected: labels.clone(),
                     member: member.clone(),
@@ -74,16 +70,30 @@ impl App {
             });
         }
         entries.push(MenuEntry {
+            key: "0".into(),
+            label: "clear".into(),
+            choice: Choice::MemberLabel {
+                expected: labels,
+                member,
+                label: None,
+            },
+        });
+        entries.push(MenuEntry {
             key: String::new(),
+            label: "────────────────".into(),
+            choice: Choice::Rule,
+        });
+        entries.push(MenuEntry {
+            key: "e".into(),
             label: "Edit labels…".into(),
             choice: Choice::EditLabels,
         });
         self.menu = Some(Menu {
             link: None,
             prefill: String::new(),
-            title: "Label".into(),
+            title,
             entries,
-            selected: 1,
+            selected: 0,
             anchor: None,
             surface: Default::default(),
         });
@@ -124,7 +134,7 @@ impl App {
             .iter()
             .map(|label| MenuEntry {
                 key: String::new(),
-                label: format!("{} {}", label.glyph, label.name),
+                label: label.name.clone(),
                 choice: Choice::LabelDefinition(label.id.clone()),
             })
             .collect();
@@ -1732,7 +1742,7 @@ impl App {
         Effect::None
     }
 
-    pub(super) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
+    pub(in crate::board) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {

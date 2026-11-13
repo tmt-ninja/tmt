@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
-    let mut app = populated_board(1, 5);
+    let mut app = populated_board(1, 6);
     let first = "66666666-6666-4666-8666-000000000000";
     let second = "66666666-6666-4666-8666-000000000001";
     let view = app.view.as_mut().unwrap();
@@ -21,26 +21,49 @@ pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
     }
     if scene != "agents-label-none" {
         let mut preferences = workspace.preferences.clone();
+        preferences
+            .labels
+            .definitions
+            .push(crate::config::BoardLabel {
+                id: "custom-wide".into(),
+                glyph: "界".into(),
+                color: "blocked".into(),
+                name: "wide".into(),
+            });
         preferences.labels.members.insert(first.into(), "pr".into());
         preferences
             .labels
             .members
             .insert(second.into(), "review".into());
-        for (index, id) in [(2, "waiting"), (3, "blocked"), (4, "watch")] {
+        for (index, id) in [
+            (2, "waiting"),
+            (3, "blocked"),
+            (4, "watch"),
+            (5, "custom-wide"),
+        ] {
             preferences
                 .labels
                 .members
                 .insert(format!("66666666-6666-4666-8666-{index:012}"), id.into());
         }
+        if scene == "agents-label-stack" {
+            preferences.layout = crate::config::OpsLayout::Stack;
+        }
         workspace.set_preferences(preferences);
     }
     let index = app.workspace_rows().iter().position(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == first)).unwrap();
     app.workspace_select(index);
-    if matches!(scene, "agents-label-menu" | "agents-label-editor") {
+    if matches!(
+        scene,
+        "agents-label-menu" | "agents-label-editor" | "agents-label-form"
+    ) {
         paint(&app, 160, 36);
         key(&mut app, KeyCode::Char('l'));
-        if scene == "agents-label-editor" {
+        if matches!(scene, "agents-label-editor" | "agents-label-form") {
             app.choose(Choice::EditLabels);
+        }
+        if scene == "agents-label-form" {
+            app.choose(Choice::LabelDefinition("pr".into()));
         }
     }
     app
@@ -100,8 +123,8 @@ fn labels_after_nine_remain_reachable_without_digit_bindings() {
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Char('l'));
     let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries[9].key, "9");
-    assert_eq!(menu.entries[10].key, "");
+    assert_eq!(menu.entries[8].key, "9");
+    assert_eq!(menu.entries[9].key, "");
     paint(&app, 160, 36);
     for _ in 0..9 {
         key(&mut app, KeyCode::Down);
@@ -154,6 +177,7 @@ fn every_numbered_label_and_clear_reach_their_exact_value() {
         key(&mut app, KeyCode::Char('l'));
         let menu = app.menu.as_ref().expect("l opens the label menu");
         assert!(menu.title.contains("Label"));
+        assert_eq!(menu.entries.first().unwrap().key, "1");
         assert!(
             menu.entries
                 .iter()
@@ -162,7 +186,7 @@ fn every_numbered_label_and_clear_reach_their_exact_value() {
         assert!(
             menu.entries
                 .iter()
-                .any(|entry| entry.label.contains("Edit labels"))
+                .any(|entry| entry.key == "e" && entry.label.contains("Edit labels"))
         );
         paint(&app, 160, 36);
         let effect = key(&mut app, KeyCode::Char(number));
@@ -265,7 +289,13 @@ fn assigned_labels_reserve_aligned_chips_for_member_rows_only() {
         after_plain.find("agent-00001").unwrap(),
         before_plain.find("agent-00001").unwrap() + 4
     );
-    assert_eq!(line(&before, "squad-00"), line(&after, "squad-00"));
+    let before_squad = line(&before, "squad-00");
+    let after_squad = line(&after, "squad-00");
+    assert_eq!(
+        before_squad.split('◌').next().unwrap().trim_end(),
+        after_squad.split('◌').next().unwrap().trim_end()
+    );
+    assert!(after_squad.contains("◌ ●"));
 }
 
 #[test]
@@ -318,6 +348,46 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
         }
         assert_eq!(row[glyph - 1].bg, row[glyph].bg);
         assert_eq!(row[glyph + 1].bg, row[glyph].bg);
+        let expected = row[glyph].clone();
+        let index = app.workspace_rows().iter().position(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "66666666-6666-4666-8666-000000000000")).unwrap();
+        app.workspace_select(index);
+        paint(&app, 160, 36);
+        key(&mut app, KeyCode::Char('l'));
+        for editor in [false, true] {
+            if editor {
+                app.choose(Choice::EditLabels);
+            }
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let line = buffer
+                .content
+                .chunks(160)
+                .find(|line| {
+                    let text = line.iter().map(|cell| cell.symbol()).collect::<String>();
+                    text.contains("PR") && text.contains('›')
+                })
+                .expect("label menu row");
+            let cursor = line.iter().position(|cell| cell.symbol() == "›").unwrap();
+            let chip = line
+                .iter()
+                .enumerate()
+                .skip(cursor + 1)
+                .find(|(_, cell)| cell.symbol() == "P")
+                .unwrap()
+                .0;
+            if !editor {
+                assert_eq!(line[cursor + 2].symbol(), "1");
+            }
+            assert_eq!(line[chip].bg, expected.bg, "{base:?} {editor}");
+            assert_eq!(line[chip].fg, expected.fg, "{base:?} {editor}");
+            assert_eq!(
+                line[chip].modifier.contains(Modifier::REVERSED),
+                expected.modifier.contains(Modifier::REVERSED),
+                "{base:?} {editor}"
+            );
+        }
     }
 }
 
@@ -393,7 +463,8 @@ fn label_editor_offers_definition_edits_and_preserves_a_cancelled_draft() {
     app.workspace_select(index);
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Char('l'));
-    app.choose(Choice::EditLabels);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Char('e'));
     let menu = app.menu.as_ref().expect("label editor list");
     assert!(menu.entries.iter().any(|entry| entry.label.contains("PR")));
     assert!(
@@ -479,8 +550,17 @@ fn wide_glyph_occupies_three_chip_cells_and_one_plain_space() {
     let mut preferences = workspace.preferences.clone();
     preferences
         .labels
+        .definitions
+        .push(crate::config::BoardLabel {
+            id: "custom-wide".into(),
+            glyph: "界".into(),
+            color: "blocked".into(),
+            name: "wide".into(),
+        });
+    preferences
+        .labels
         .members
-        .insert(member.into(), "blocked".into());
+        .insert(member.into(), "custom-wide".into());
     workspace.set_preferences(preferences);
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     terminal
@@ -498,7 +578,7 @@ fn wide_glyph_occupies_three_chip_cells_and_one_plain_space() {
                 .contains("agent-00000")
         })
         .unwrap();
-    let at = row.iter().position(|cell| cell.symbol() == "！").unwrap();
+    let at = row.iter().position(|cell| cell.symbol() == "界").unwrap();
     assert_eq!(row[at + 2].bg, row[at].bg);
     assert_ne!(row[at + 3].bg, row[at].bg);
 }
@@ -663,6 +743,10 @@ fn typing_search_and_message_capture_shortcuts_and_keep_the_draft() {
     let mut app = board();
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Enter);
+    assert!(
+        crate::board::view::footer::agents_hints(&app, 160)
+            .is_none_or(|hints| !hints.contains("l label"))
+    );
     for ch in "q123l".chars() {
         assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
     }

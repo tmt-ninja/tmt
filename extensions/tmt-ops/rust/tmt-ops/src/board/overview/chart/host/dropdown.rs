@@ -267,7 +267,7 @@ impl Dropdown {
             ),
         );
         self.surface
-            .render(&self.entries, self.selected, frame, look, area);
+            .render(&self.entries, self.selected, frame, look, area, None);
         area
     }
 }

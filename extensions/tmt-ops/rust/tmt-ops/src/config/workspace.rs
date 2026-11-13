@@ -191,7 +191,7 @@ impl Default for WorkspaceLabels {
             ("pr", "P", "waiting", "PR"),
             ("review", "R", "unread", "review"),
             ("waiting", "W", "muted", "waiting"),
-            ("blocked", "！", "blocked", "blocked"),
+            ("blocked", "!", "blocked", "blocked"),
             ("watch", "★", "working", "watch"),
         ]
         .into_iter()

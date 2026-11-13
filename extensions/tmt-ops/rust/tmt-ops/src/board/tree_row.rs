@@ -16,6 +16,29 @@ use unicode_width::UnicodeWidthStr;
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
 const NAME_SPAN: usize = 5;
 
+/// The same three-cell label chip is used in the tree and label menus.
+pub(in crate::board) fn label_chip(label: &crate::config::BoardLabel, look: Look) -> Span<'static> {
+    let role = crate::look::role(&label.color).expect("validated label role");
+    let fill = tmt_cli_style::theme::screen::fill(
+        &look.theme,
+        role,
+        look.depth,
+        tmt_cli_style::theme::screen::Fill::Solid,
+    );
+    let style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
+        Style::new().add_modifier(Modifier::REVERSED)
+    } else {
+        fill.fg(ratatui::style::Color::Black)
+            .remove_modifier(Modifier::DIM | Modifier::REVERSED)
+    };
+    let text = if label.glyph.width() == 1 {
+        format!(" {} ", label.glyph)
+    } else {
+        format!("{} ", label.glyph)
+    };
+    Span::styled(text, style)
+}
+
 pub(in crate::board) struct Row<'a> {
     pub source: &'a OpsTreeRow,
     /// None means no slot; Some(None) reserves an empty slot.
@@ -346,19 +369,7 @@ pub(in crate::board) fn paint(
             && let Some(Some(label)) = row.label
             && let Some(span) = line.spans.get_mut(2)
         {
-            let role = crate::look::role(&label.color).expect("validated label role");
-            let fill = tmt_cli_style::theme::screen::fill(
-                &look.theme,
-                role,
-                look.depth,
-                tmt_cli_style::theme::screen::Fill::Solid,
-            );
-            span.style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
-                Style::new().add_modifier(Modifier::REVERSED)
-            } else {
-                fill.fg(ratatui::style::Color::Black)
-                    .remove_modifier(Modifier::DIM | Modifier::REVERSED)
-            };
+            span.style = label_chip(label, look).style;
         }
         if (matches!(field, AgentsField::PerMinute) && row.minute_bold)
             || (matches!(field, AgentsField::Tokens) && row.tokens_bold)

@@ -124,9 +124,11 @@ impl AgentsField {
     }
 }
 
+type AgentSlots = Vec<(AgentsField, Rect)>;
+
 #[derive(Default)]
 pub(in crate::board) struct AgentsLayout {
-    held: Option<(u16, Vec<(AgentsField, Rect)>)>,
+    held: Option<(u16, bool, AgentSlots)>,
     roster: Option<(u16, Vec<(RosterField, Rect)>)>,
 }
 
@@ -182,11 +184,16 @@ impl AgentsLayout {
             .collect()
     }
     /// `inside` is the list rectangle after canonical placement and pane chrome.
+    #[cfg(test)]
     pub fn slots(&mut self, inside: Rect) -> Vec<(AgentsField, Rect)> {
+        self.slots_with_labels(inside, false)
+    }
+
+    pub fn slots_with_labels(&mut self, inside: Rect, labels: bool) -> Vec<(AgentsField, Rect)> {
         if self
             .held
             .as_ref()
-            .is_none_or(|(width, _)| *width != inside.width)
+            .is_none_or(|(width, held_labels, _)| *width != inside.width || *held_labels != labels)
         {
             let width = inside.width;
             let mut fields = vec![
@@ -223,13 +230,15 @@ impl AgentsLayout {
             const NAME_FIRST_TARGET: u16 = 21;
             const STATE_TARGET: u16 = 20;
             const NAME_FINAL_TARGET: u16 = 24;
-            let name_first = spare.min(NAME_FIRST_TARGET.saturating_sub(name_width));
+            let name_first = spare
+                .min((NAME_FIRST_TARGET + if labels { 4 } else { 0 }).saturating_sub(name_width));
             name_width += name_first;
             spare -= name_first;
             let state_extra = spare.min(STATE_TARGET.saturating_sub(state_width));
             state_width += state_extra;
             spare -= state_extra;
-            let name_last = spare.min(NAME_FINAL_TARGET.saturating_sub(name_width));
+            let name_last = spare
+                .min((NAME_FINAL_TARGET + if labels { 4 } else { 0 }).saturating_sub(name_width));
             name_width += name_last;
             let tracks: Vec<_> = fields
                 .iter()
@@ -249,12 +258,12 @@ impl AgentsLayout {
                     )
                 })
                 .collect();
-            self.held = Some((inside.width, solve_tracks(width, &tracks)));
+            self.held = Some((inside.width, labels, solve_tracks(width, &tracks)));
         }
         self.held
             .as_ref()
             .unwrap()
-            .1
+            .2
             .iter()
             .map(|(field, slot)| {
                 let width = slot.width;
@@ -920,6 +929,45 @@ mod tests {
                 (AgentsField::Tokens, 64, 7),
                 (AgentsField::Cron, 72, 3),
             ]
+        );
+        let labelled = layout.slots_with_labels(Rect::new(0, 7, 75, 1), true);
+        assert_eq!(
+            labelled
+                .iter()
+                .find(|(field, _)| *field == AgentsField::Agent)
+                .unwrap()
+                .1
+                .width,
+            25
+        );
+        assert_eq!(
+            labelled
+                .iter()
+                .find(|(field, _)| *field == AgentsField::State)
+                .unwrap()
+                .1
+                .width,
+            16
+        );
+        assert_eq!(layout.slots(Rect::new(0, 7, 75, 1)), wide);
+        let stacked = layout.slots_with_labels(Rect::new(0, 7, 160, 1), true);
+        assert_eq!(
+            stacked
+                .iter()
+                .find(|(field, _)| *field == AgentsField::Agent)
+                .unwrap()
+                .1
+                .width,
+            28
+        );
+        assert_eq!(
+            stacked
+                .iter()
+                .find(|(field, _)| *field == AgentsField::State)
+                .unwrap()
+                .1
+                .width,
+            20
         );
         for width in 0..=160 {
             let area = Rect::new(4, 8, width, 1);

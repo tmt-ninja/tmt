@@ -296,10 +296,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
     // The section rule yields before the table header, range and last target.
     let rule_height = u16::from(inside.height >= 4);
     let header_height = u16::from(inside.height >= 3);
-    let slots = app.agents_layout.borrow_mut().slots(Rect {
-        y: inside.y + rule_height,
-        ..inside
-    });
+    let slots = app.agents_layout.borrow_mut().slots_with_labels(
+        Rect {
+            y: inside.y + rule_height,
+            ..inside
+        },
+        snapshot.labels_present,
+    );
     let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
         Line::styled(
             format!("Moving {} · ↑↓ choose a squad", moving.name),

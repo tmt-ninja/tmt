@@ -180,9 +180,17 @@ pub(in crate::board) fn agents_hints(app: &App, width: usize) -> Option<String> 
 /// The Agents tab's one footer line: the keys the selected row needs, then help and quit.
 fn agents_line(app: &App, width: usize) -> Option<Vec<Hint>> {
     let hints = agents_legend(app)?;
-    let tail_len = hints.tail.len();
     let mut fitted = fit_hints(hints.keys, hints.tail, width);
-    if app.workspace_selected_member().is_some()
+    if app.moving.is_none()
+        && matches!(
+            app.workspace_input_owner(),
+            crate::board::shell::OpsInputOwner::List
+        )
+        && app.workspace_selected_member().is_some()
+        && let Some(at) = fitted
+            .iter()
+            .position(|(key, word)| key == "⏎" && word == "talk")
+            .map(|at| at + 1)
         && let Some(key) = effective_key(
             app,
             &app.bindings(),
@@ -190,7 +198,6 @@ fn agents_line(app: &App, width: usize) -> Option<Vec<Hint>> {
             "l",
         )
     {
-        let at = fitted.len().saturating_sub(tail_len);
         let mut candidate = fitted.clone();
         candidate.insert(at, (key_label(&key).into(), "label".into()));
         if hint_text(&candidate).width() <= width {
@@ -1069,7 +1076,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  l label  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ talk  l label  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
@@ -1132,7 +1139,11 @@ mod tests {
         assert!(!line.contains("T talk"), "{line}");
         assert!(line.contains("⏎ talk"), "{line}");
         assert!(!line.contains("l label"), "{line}");
-        assert!(agents_hints(&app, 1000).unwrap().contains("l label"));
+        assert!(
+            agents_hints(&app, 1000)
+                .unwrap()
+                .contains("⏎ talk  l label")
+        );
     }
 
     #[test]
@@ -1151,13 +1162,15 @@ mod tests {
                 "{width}: {line}"
             );
             let kept = line.trim_end_matches("/ search  ? help  q quit");
+            let kept = kept.replace("l label  ", "");
             let ordered = kept.replace("C checklist  ", "");
             let original = whole
+                .replace("l label  ", "")
                 .replace("T talk  ", "")
                 .replace("M measure  ", "")
                 .replace("C checklist  ", "");
             assert!(
-                whole.starts_with(kept) || original.starts_with(&ordered),
+                whole.replace("l label  ", "").starts_with(&kept) || original.starts_with(&ordered),
                 "{width}: row keys retain display order: {line}"
             );
         }

@@ -430,8 +430,16 @@ fn label_frames(styles: &mut Styles) -> Vec<Value> {
             "agents-label-assigned",
             "agents-label-menu",
             "agents-label-editor",
+            "agents-label-form",
+            "agents-label-stack",
         ],
-        |_| grid(&[160, 120], &[36]),
+        |scene| {
+            if scene == "agents-label-stack" {
+                grid(&[160], &[36])
+            } else {
+                grid(&[160, 120], &[36])
+            }
+        },
         |scene, look, _, _| capture_case(scene, look),
         |_, _| {},
     )
@@ -1267,7 +1275,7 @@ macro_rules! oracle_groups {
         $group!(7, 80, terminal_tab_frames($styles));
         $group!(7, 16, member_terminals_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
-        $group!(7, 32, label_frames($styles));
+        $group!(7, 44, label_frames($styles));
         $group!(7, 16, quota_details_frames($styles));
         $group!(8, 448, unread_overlay_frames($styles));
         $group!(7, 192, account_limits_frames($styles));
