@@ -227,7 +227,7 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
     paused["jobs"][0]["state"] = json!("paused");
     fake.answer(CRON, &paused.to_string());
     fake.answer(
-        "ops config show --json",
+        "ops squad config show --json",
         &json!({"context":null,"entries":[{"key":"idle_alert.after","value":"1200s"}]}).to_string(),
     );
     fake.answer(
@@ -241,6 +241,13 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
         json!({"roomId":room_id,"revision":4})
     );
     assert_eq!(paused_board["defaultIdleAlertMs"], 1_200_000);
+    assert!(
+        fake.calls()
+            .iter()
+            .filter(|argv| argv.contains("config"))
+            .all(|argv| argv == "ops squad config show --json"),
+        "configuration is read only through the exact public Ops squad route"
+    );
     assert_eq!(paused_board["timers"][0]["state"], "paused");
     assert!(
         paused_board["timers"][0]["nextMs"].is_null(),
@@ -249,7 +256,7 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
     paused["jobs"][0]["state"] = json!("future-state");
     fake.answer(CRON, &paused.to_string());
     fake.answer(
-        "ops config show --json",
+        "ops squad config show --json",
         &json!({"context":"other-squad","entries":[{"key":"idle_alert.after","value":"1200s"}]})
             .to_string(),
     );

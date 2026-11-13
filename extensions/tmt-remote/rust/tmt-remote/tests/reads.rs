@@ -95,6 +95,7 @@ impl Fixture {
                  case \"$*\" in\n\
                  'ops squad ls --json') printf '{{\"squads\":[]}}';;\n\
                  'ops squad cron ls --json') printf '{{\"jobs\":[]}}';;\n\
+                 'ops squad config show --json') printf '{{\"context\":null,\"entries\":[{{\"key\":\"idle_alert.after\",\"value\":\"1800s\"}}]}}';;\n\
                  'ops limits --json') printf '{{\"version\":1,\"limitHistory\":[{{\"provider\":\"codex\"}}]}}';;\n\
                  'digest usage report --since 7d --json') printf '{{\"version\":1,\"since\":\"7d\"}}';;\n\
                  'digest usage report --since 24h --json') printf '{{\"version\":1,\"since\":\"24h\"}}';;\n\
@@ -182,6 +183,10 @@ fn an_owner_session_reads_the_board_and_the_requested_usage_range() {
         (1.into(), "ok".into())
     );
     assert_eq!(board["squads"], serde_json::json!([]));
+    assert_eq!(
+        board["defaultIdleAlertMs"], 1_800_000,
+        "the exact public config argv supplies the workspace default"
+    );
     let (status, body) = door.get("/x/-/limits");
     assert_eq!(status, 200, "{body}");
     assert_eq!(
@@ -307,7 +312,7 @@ fn a_session_revoked_or_regranted_during_the_read_gets_the_generic_404_not_the_d
         assert_eq!(
             calls,
             [
-                "ops config show --json",
+                "ops squad config show --json",
                 "ops squad cron ls --json",
                 "ops squad ls --json"
             ],

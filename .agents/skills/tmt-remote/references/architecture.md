@@ -90,8 +90,9 @@ bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata 
 
 `reads::ops` projects only the bounded board's members into at most eight parallel
 32-UUID `consumption.history` reads. Core owns each closed-day cut and coverage;
-Remote adds no sampler or cross-chunk aggregate. Cron owns next-run/state, Ops config
-owns the no-squad idle default, and failures leave only their source fields unavailable.
+Remote adds no sampler or cross-chunk aggregate. Cron owns next-run/state;
+`ops squad config show --json` owns the no-squad idle default. Failures leave only
+their source fields unavailable.
 Checklist counts use Ops' public read-only `squad checklist counts` route, one call
 per admitted squad room (at most 32), with at most four concurrent calls under the
 same read deadline. The existing projection supplies private acquisition targets;

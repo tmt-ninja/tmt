@@ -2330,7 +2330,7 @@ channel, and dispatch stays unreachable from them. They are siblings of the comp
 
 | Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)        |
 | --------------------------------- | --------------------------------------------------------------------------------- |
-| `GET <prefix>/x/-/ops` | `ops squad ls --json`, `ops squad cron ls --json` and `ops config show --json` in parallel; then one bounded `room list --json` for nonempty squads and bounded Core `consumption.history` batches |
+| `GET <prefix>/x/-/ops` | `ops squad ls --json`, `ops squad cron ls --json` and `ops squad config show --json` in parallel; then one bounded `room list --json` for nonempty squads and bounded Core `consumption.history` batches |
 | `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
 
@@ -2387,7 +2387,7 @@ a generic unavailable. `observedAtMs` is the owner's clock when the read finishe
   state or unavailable next-run evidence stays null.
 - `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
 - `defaultIdleAlertMs: number | null`: the effective workspace default, once per payload, from
-  `ops config show --json` with no squad or tab context (`idle_alert.after`). Unknown context,
+  `ops squad config show --json` with no squad or tab context (`idle_alert.after`). Unknown context,
   duplicate/malformed setting or a failed read is null; Remote never guesses a default.
 
 Board, cron and configuration reads share the existing deadline. Once the bounded board supplies

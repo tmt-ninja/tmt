@@ -218,8 +218,8 @@ impl Reads {
             Target::Ops => thread::scope(|scope| {
                 let timers =
                     scope.spawn(|| self.json(&["ops", "squad", "cron", "ls", "--json"], deadline));
-                let settings =
-                    scope.spawn(|| self.json(&["ops", "config", "show", "--json"], deadline));
+                let settings = scope
+                    .spawn(|| self.json(&["ops", "squad", "config", "show", "--json"], deadline));
                 let board = self.json(&["ops", "squad", "ls", "--json"], deadline)?;
                 // Core owns the room revision; one optional snapshot serves all squads.
                 let needs_rooms = board["squads"]
