@@ -2864,6 +2864,155 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
             .count(),
         7
     );
+    // The browser mirrors the TUI: clone the complete current plan and change only enabled.
+    let mut plan = json!({"id":ORCH_MEMBER,"name":"Quiet","revision":2,"priority":1,"enabled":true,
+        "targets":[{"kind":"all"}],"schedule":{"kind":"always"},"fields":{"sending":"paused"},"members":[]});
+    let mut sequence = 9;
+    for enabled in [false, true] {
+        plan["enabled"] = json!(!enabled);
+        fs::write(
+            core.root.join("orchestration-plans"),
+            json!({"configurationRevision":3,"plans":[plan.clone()]}).to_string(),
+        )
+        .unwrap();
+        let mut candidate = plan.clone();
+        candidate["enabled"] = json!(enabled);
+        let mutation = json!({"kind":"plan.set","plan":ORCH_MEMBER,"candidate":candidate});
+        let preview = json!({"configurationRevision":3,"previewAtMs":4,"previewDigest":"fixture-original","mutation":mutation});
+        fs::write(core.root.join("orchestration-write"), preview.to_string()).unwrap();
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            json!({"phase":"preview","mutation":mutation}),
+        );
+        sequence += 1;
+        assert_eq!(reply, preview);
+        let calls = core.calls();
+        assert_eq!(calls.len(), before + 2);
+        assert_eq!(calls[before]["operation"], "orchestration.read");
+        assert_eq!(calls[before]["input"], json!({"view":"plans"}));
+        assert_eq!(
+            calls[before + 1]["input"],
+            json!({"phase":"preview","mutation":mutation})
+        );
+        let apply = json!({"phase":"apply","mutation":mutation,"expectedConfigurationRevision":3,
+            "previewAtMs":4,"previewDigest":"fixture-original","consent":true});
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            apply.clone(),
+        );
+        sequence += 1;
+        assert_eq!(reply, preview);
+        assert_eq!(
+            core.calls().len(),
+            before + 1,
+            "apply makes no second plans read"
+        );
+        assert_eq!(core.calls().last().unwrap()["input"], apply);
+        // A changed candidate is still passed to Core with the ORIGINAL digest, never silently
+        // re-previewed by Remote. Core's digest refusal is preserved. Real-Core evidence in the
+        // PR separately qualifies this boundary; this fixture proves forwarding, not Core policy.
+        let mut changed = apply.clone();
+        changed["mutation"]["candidate"]["name"] = json!("Changed after preview");
+        fs::write(
+            core.root.join("orchestration-error"),
+            "ORCH_CONFLICT|changed mutation",
+        )
+        .unwrap();
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            changed.clone(),
+        );
+        sequence += 1;
+        assert_eq!(reply["refused"]["code"], "ORCH_CONFLICT");
+        assert_eq!(core.calls().len(), before + 1);
+        assert_eq!(core.calls().last().unwrap()["input"], changed);
+        fs::remove_file(core.root.join("orchestration-error")).unwrap();
+    }
+    // All fields, including nested and future ones, stay outside the browser's authority.
+    let mut candidate = plan.clone();
+    candidate["enabled"] = json!(!plan["enabled"].as_bool().unwrap());
+    for (field, value) in [
+        ("id", json!("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")),
+        ("name", json!("Renamed")),
+        ("revision", json!(3)),
+        ("priority", json!(4)),
+        ("targets", json!([])),
+        ("schedule", json!({"kind":"once"})),
+        ("fields", json!({"sending":"anyone"})),
+        ("members", json!([{"identityId":ORCH_MEMBER}])),
+        ("futureField", json!(true)),
+    ] {
+        let mut edited = candidate.clone();
+        edited[field] = value;
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            json!({"phase":"preview","mutation":{"kind":"plan.set","plan":ORCH_MEMBER,"candidate":edited}}),
+        );
+        sequence += 1;
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_SCOPE_DENIED",
+            "{field}: {reply}"
+        );
+        assert_eq!(core.calls().len(), before + 1, "{field}: only a plans read");
+        assert_eq!(
+            core.calls().last().unwrap()["operation"],
+            "orchestration.read"
+        );
+    }
+    let mut missing = candidate.clone();
+    missing.as_object_mut().unwrap().remove("members");
+    for (id, edited) in [
+        (ORCH_MEMBER, missing),
+        ("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", candidate.clone()),
+    ] {
+        let before = core.calls().len();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            json!({"phase":"preview","mutation":{"kind":"plan.set","plan":id,"candidate":edited}}),
+        );
+        sequence += 1;
+        assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{reply}");
+        assert_eq!(core.calls().len(), before + 1);
+    }
+    // No preview from a later configuration may escape the comparison's snapshot.
+    fs::write(
+        core.root.join("orchestration-write"),
+        json!({"configurationRevision":4,"previewDigest":"later"}).to_string(),
+    )
+    .unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        sequence,
+        "orchestration.write",
+        json!({"phase":"preview","mutation":{"kind":"plan.set","plan":ORCH_MEMBER,"candidate":candidate}}),
+    );
+    assert_eq!(reply["refused"]["code"], "ORCH_CONFLICT", "{reply}");
 }
 #[test]
 fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
@@ -2897,6 +3046,18 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
             read.clone(),
         );
         assert!(reply.get("error").is_some(), "{kind} {agents}: {reply}");
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            2,
+            "orchestration.write",
+            json!({"phase":"preview","mutation":{"kind":"plan.set","plan":ORCH_MEMBER,"candidate":{"enabled":false}}}),
+        );
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_SCOPE_DENIED",
+            "{kind} {agents}: {reply}"
+        );
         assert!(
             core.calls().is_empty(),
             "{kind} {agents}: Core was not called"
@@ -2909,6 +3070,8 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
     let session = owner.open();
     for (sequence, write) in [
         json!({"phase":"preview","mutation":{"kind":"plan.add","name":"x"}}),
+        json!({"phase":"preview","mutation":{"kind":"plan.rm","plan":ORCH_MEMBER}}),
+        json!({"phase":"preview","mutation":{"kind":"plan.set","plan":ORCH_MEMBER,"candidate":{"enabled":"false"}}}),
         json!({"phase":"preview","mutation":{"kind":"leads.set","roomId":ORCH_MEMBER}}),
         json!({"phase":"preview","mutation":{"kind":"talks.resume","aId":ORCH_MEMBER,"bId":ORCH_MEMBER,"actorId":ORCH_MEMBER}}),
         json!({"phase":"commit","mutation":{"kind":"focus.clear","identityId":ORCH_MEMBER}}),
@@ -2923,7 +3086,7 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
         &owner,
         &operations,
         &session,
-        5,
+        7,
         "orchestration.read",
         json!({"view":"jobs"}),
     );

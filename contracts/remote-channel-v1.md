@@ -1621,7 +1621,7 @@ applies its published public Core mapping after narrowing supported operations a
 | `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID for DM history, or a room UUID with an every-agent grant; fixed public Core queries below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
 | `orchestration.read`                                                                            | `agents.read`; the owner's own-origin browser holding every agent only; Core's input passes through unchanged (Owner-browser orchestration below).                                                                              |
-| `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow` and `talks.resume`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
+| `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow`, `talks.resume` and on/off-only `plan.set`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
 | global `changes.cursor`, `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
@@ -1635,10 +1635,21 @@ returned as `{refused:{code,message?}}`, its sentence only when it is one bounde
 this machine's own-origin owner browser whose grant permits every agent is admitted: a cli, add-on
 or foreign-origin browser grant, or one limited to some agents, is refused `REMOTE_SCOPE_DENIED`
 before Core. A read names one of Core's views. A write is a mutation the browser page offers
-(`focus.set`, `focus.clear`, `route.allow`, `talks.resume`); plan and leads changes stay local-only.
+(`focus.set`, `focus.clear`, `route.allow`, `talks.resume`, and the on/off-only `plan.set` below);
+plan creation/removal/other edits and leads changes stay local-only.
 The owner browser is the person, so a mutation naming an `actorId` is refused. Preview and apply
 stay two calls: the browser sends Core's `expectedConfigurationRevision`, `previewAtMs`,
 `previewDigest` and `consent:true` itself, and Remote never synthesizes consent or a preview.
+
+For `plan.set`, the preview candidate must equal Core's current plan in every field except the
+boolean `enabled`. Remote reads `orchestration.read` `{view:"plans"}` through the existing bounded
+Core API with permit revalidation before and after the read, then compares the full candidate
+(including nested and unknown fields) with the matching plan. A different field, missing plan,
+`plan.add` or `plan.rm` is `REMOTE_SCOPE_DENIED`. Core's preview `configurationRevision` must equal
+the observed plans revision; otherwise the existing `ORCH_CONFLICT` refusal asks for a new preview.
+Apply needs no second Remote comparison: Core's `previewDigest` binds the exact mutation, and its
+`expectedConfigurationRevision` binds that configuration. An apply carrying a different candidate
+fails Core's digest check. The existing Store effect fence still encloses Core writes.
 
 **Room posts.** `dispatch.create` retains the ordinary operation envelope and anonymous
 client originator. Its input is `{operationId,recipientIds,message,kind,room?}`; `kind`

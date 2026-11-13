@@ -118,7 +118,12 @@ elif wire['operation'] in ('orchestration.read','orchestration.write'):
     if (root/'orchestration-error').exists():
         code,message=(root/'orchestration-error').read_text().split('|',1)
         print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
-    print(json.dumps({'echo':wire['input']}))
+    if wire['operation']=='orchestration.read' and wire['input'].get('view')=='plans' and (root/'orchestration-plans').exists():
+        print((root/'orchestration-plans').read_text())
+    elif wire['operation']=='orchestration.write' and (root/'orchestration-write').exists():
+        print((root/'orchestration-write').read_text())
+    else:
+        print(json.dumps({'echo':wire['input']}))
 elif wire['operation']=='requests.sendNow':
     answer=(root/'send-now').read_text() if (root/'send-now').exists() else 'ok|sent'
     kind,value=answer.split('|',1)
