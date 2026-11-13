@@ -448,7 +448,12 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     }
     // The selected time: a marker under it, what is in effect then, and the step controls.
     let at = snapshot.document.at_ms;
-    let marker = column(at).min(width - 1);
+    // One cell per Core interval (1 day) places the marker in proportion; a bucketed range puts
+    // it under the first column of the selected bucket, where its count stands.
+    let marker = selected
+        .filter(|_| !strip.spans)
+        .and_then(|index| shown.iter().position(|slot| *slot == Some(index)))
+        .map_or_else(|| column(at).min(width - 1), |x| x as u16);
     let mut controls = Vec::new();
     for (action, preferred, label, control) in [
         (
