@@ -21,7 +21,7 @@ fn ready() -> model::Snapshot {
         model::Overview::decode(document()).unwrap(),
         model::Sending::default(),
         true,
-        None,
+        Ok(None),
     )
     .unwrap()
 }
@@ -100,9 +100,10 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
         ]
     );
     // Ordered by next run (a held job by its hold's end), then paused; a held job names why.
-    let jobs = snapshot.jobs.as_ref().unwrap();
+    let listed = snapshot.jobs.listed().unwrap();
     assert_eq!(
-        jobs.rows
+        listed
+            .rows
             .iter()
             .map(|job| (job.display_id.as_str(), job.next_ms()))
             .collect::<Vec<_>>(),
@@ -113,8 +114,57 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
             ("j3", None)
         ]
     );
-    assert!(!jobs.more);
-    assert!(jobs.rows[3].key.is_some() && jobs.rows[2].key.is_none());
+    assert!(!listed.more);
+    assert!(listed.rows[3].key.is_some() && listed.rows[2].key.is_none());
+    // A jobs read that fails, or a job row Core sends that does not read, stays in the Jobs
+    // section: the matrix and Talks still show, Jobs names the reason with its retry key, and
+    // the job keys answer with that reason.
+    let mut bad_row = jobs();
+    bad_row["jobs"][0]["state"] = "unknown".into();
+    for (failure, reason) in [
+        (
+            Err(crate::core::SquadError::new(
+                "CORE_TIMEOUT",
+                "Core timed out.",
+            )),
+            "Core timed out.",
+        ),
+        (Ok(bad_row), "Invalid Core job row."),
+    ] {
+        let mut app = matrix_app();
+        let snapshot = observe(|op, input| match input["view"].as_str() {
+            Some("jobs") => failure.clone(),
+            _ => pair_api(op, input),
+        });
+        app.orchestration.apply(
+            app.orchestration.read(),
+            Observation::Ready(Box::new(snapshot)),
+        );
+        let painted = screen(&app);
+        assert!(painted.contains("Who may message whom"), "{reason}");
+        assert!(painted.contains("Talks this hour"), "{reason}");
+        assert!(
+            painted.contains(&format!("✕ Could not read jobs · {reason}")),
+            "{reason}"
+        );
+        assert!(painted.contains("Retry"), "{reason}");
+        for _ in 0..2 {
+            app.key(ratatui::crossterm::event::KeyEvent::new(
+                ratatui::crossterm::event::KeyCode::Tab,
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            ));
+        }
+        assert_eq!(app.orchestration.focus(), super::Section::Jobs);
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char('n'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(app.confirm.is_none());
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(format!("Could not read jobs · {reason}").as_str())
+        );
+    }
     // The range keys change the one overview read's range.
     let mut app = matrix_app();
     for (press, days) in ['7', '0', 'd'].into_iter().zip([7, 30, 1]) {
@@ -209,7 +259,7 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
             model::Overview::decode(wire).unwrap(),
             model::Sending::default(),
             true,
-            None,
+            Ok(None),
         )
         .unwrap()
     };
@@ -428,7 +478,10 @@ fn an_older_core_without_sending_views_reads_them_as_not_available() {
     });
     assert!(snapshot.sending.routes.is_none());
     assert!(snapshot.sending.talks.is_none());
-    assert!(snapshot.jobs.is_none(), "no jobs view: not an empty list");
+    assert!(
+        matches!(snapshot.jobs, model::Jobs::Unavailable),
+        "no jobs view: not an empty list"
+    );
 }
 #[test]
 fn routes_pages_follow_next_after_until_core_says_the_end() {

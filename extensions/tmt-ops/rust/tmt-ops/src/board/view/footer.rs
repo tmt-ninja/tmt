@@ -567,6 +567,10 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     let (blocked, held) = state.cell_actions();
     let sections = state.sections().len() > 1;
     let job = state.selected_job().filter(|_| jobs);
+    let jobs_failed = jobs && state.jobs_failure().is_some();
+    if jobs_failed && let Some(key) = effective_key(app, &bindings, Verb::Refresh, "ctrl-r") {
+        hints.push((key_label(&key).to_owned(), "retry".into()));
+    }
     let writable = job.is_some_and(|job| job.key.is_some());
     let owned = job.is_some_and(|job| job.state != crate::cron_service::rows::JobState::NoOwner);
     // Only what the focused section offers, at most eight with the moves.
@@ -577,7 +581,7 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         (Ui::JobPause, "p", writable && owned),
         (Ui::JobRun, "x", writable),
         (Ui::JobEdit, "e", writable),
-        (Ui::JobNew, "n", jobs),
+        (Ui::JobNew, "n", jobs && !jobs_failed),
         (Ui::FocusHour, "f", routes && !state.plans),
         (Ui::EndFocus, "F", routes && !state.plans),
         (Ui::Why, "w", !state.plans && !jobs),

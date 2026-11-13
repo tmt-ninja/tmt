@@ -103,7 +103,8 @@ impl Read {
             .and_then(Overview::decode)
             .and_then(|document| {
                 let sending = self.sending(&mut api)?;
-                let jobs = crate::cron_service::rows::read(&mut api)?;
+                // A failed jobs read stays in the Jobs section; the rest of the tab still shows.
+                let jobs = crate::cron_service::rows::read(&mut api);
                 Snapshot::new(document, sending, supports("orchestration.write"), jobs)
             });
         match result {

@@ -149,32 +149,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             None,
         ),
         None => match &state.failure {
-            Some(reason) => {
-                empty(
-                    frame,
-                    app,
-                    list,
-                    &format!("✕ Could not read Orchestration · {reason}"),
-                    None,
-                );
-                frame.buffer_mut()[(list.x + 1, list.y)].set_style(look.role(Role::Blocked));
-                let retry = super::super::view::footer::effective_key(
-                    app,
-                    &app.workspace_bindings(),
-                    crate::action::Verb::Refresh,
-                    "ctrl-r",
-                )
-                .map(|key| super::super::view::footer::key_label(&key).to_owned());
-                if let Some(key) = retry
-                    && list.height > 2
-                {
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        Rect::new(list.x + 1, list.y + 2, list.width.saturating_sub(2), 1),
-                        super::super::keycap::label(Some(&key), "Retry", false, look),
-                    );
-                }
-            }
+            Some(reason) => failed(
+                frame,
+                app,
+                list,
+                &format!("✕ Could not read Orchestration · {reason}"),
+            ),
             None => empty(frame, app, list, "◌ Loading Orchestration…", None),
         },
         Some(snapshot) if state.plans => plans(frame, app, snapshot, list),
@@ -205,10 +185,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .talks
                     .as_ref()
                     .map_or(0, |pairs| 2 + pairs.len().max(1) as u16),
-                snapshot
-                    .jobs
-                    .as_ref()
-                    .map_or(0, |jobs| 2 + jobs.rows.len().max(1) as u16),
+                match &snapshot.jobs {
+                    super::model::Jobs::Listed(jobs) => 2 + jobs.rows.len().max(1) as u16,
+                    // The rule, the reason and the retry key.
+                    super::model::Jobs::Failed(_) => 3,
+                    super::model::Jobs::Unavailable => 0,
+                },
             ];
             let (sizes, gap) = section_rows(full, focus, list.height);
             let mut top = Rect {
@@ -272,6 +254,31 @@ fn empty(frame: &mut Frame, app: &App, area: Rect, message: &str, action: Option
             message,
             action,
             app.look(),
+        );
+    }
+}
+/// A read that failed: the reason, its `✕` in the Blocked role, and the retry key under it.
+fn failed(frame: &mut Frame, app: &App, area: Rect, message: &str) {
+    let look = app.look();
+    empty(frame, app, area, message, None);
+    if area.height == 0 {
+        return;
+    }
+    frame.buffer_mut()[(area.x + 1, area.y)].set_style(look.role(Role::Blocked));
+    let retry = super::super::view::footer::effective_key(
+        app,
+        &app.workspace_bindings(),
+        crate::action::Verb::Refresh,
+        "ctrl-r",
+    )
+    .map(|key| super::super::view::footer::key_label(&key).to_owned());
+    if let Some(key) = retry
+        && area.height > 2
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(area.x + 1, area.y + 2, area.width.saturating_sub(2), 1),
+            super::super::keycap::label(Some(&key), "Retry", false, look),
         );
     }
 }
@@ -1241,7 +1248,7 @@ fn totals_line(snapshot: &Snapshot) -> String {
     if let Some(pairs) = &snapshot.sending.talks {
         parts.push(format!("{} pairs", pairs.len()));
     }
-    if let Some(jobs) = &snapshot.jobs {
+    if let Some(jobs) = snapshot.jobs.listed() {
         parts.push(format!("{} jobs", job_count(jobs)));
     }
     parts.join(" · ")
@@ -1299,8 +1306,32 @@ fn job_next(snapshot: &Snapshot, job: &JobRow) -> String {
 fn job_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let look = app.look();
     let state = &app.orchestration;
-    let Some(jobs) = &snapshot.jobs else {
-        return;
+    let jobs = match &snapshot.jobs {
+        super::model::Jobs::Listed(jobs) => jobs,
+        super::model::Jobs::Unavailable => return,
+        super::model::Jobs::Failed(reason) => {
+            super::super::section_rule::paint(
+                frame.buffer_mut(),
+                line(area, area.y),
+                "Jobs",
+                Line::default(),
+                state.focus() == super::Section::Jobs,
+                look,
+            );
+            let body = Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1),
+            );
+            failed(
+                frame,
+                app,
+                body,
+                &format!("✕ Could not read jobs · {reason}"),
+            );
+            return;
+        }
     };
     let count = |s: JobState| jobs.rows.iter().filter(|j| j.state == s).count();
     let mut note: Vec<String> = [
@@ -1707,7 +1738,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             None,
         ));
     }
-    if let Some(jobs) = &snapshot.jobs {
+    if let Some(jobs) = snapshot.jobs.listed() {
         let own: Vec<&JobRow> = jobs
             .rows
             .iter()

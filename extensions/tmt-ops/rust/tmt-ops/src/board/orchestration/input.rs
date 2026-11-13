@@ -101,7 +101,7 @@ impl App {
                 let snapshot = state.snapshot()?;
                 let jobs = state.focus() == super::Section::Jobs;
                 let (count, index) = if jobs {
-                    let rows = snapshot.jobs.as_ref().map_or(&[][..], |j| &j.rows[..]);
+                    let rows = snapshot.jobs.listed().map_or(&[][..], |j| &j.rows[..]);
                     (
                         rows.len(),
                         rows.iter()
@@ -223,7 +223,7 @@ impl App {
             Control::Job(index) => {
                 let job = state
                     .snapshot()
-                    .and_then(|s| s.jobs.as_ref()?.rows.get(index))
+                    .and_then(|s| s.jobs.listed()?.rows.get(index))
                     .map(|job| job.job_id.clone());
                 if job.is_some() {
                     state.section = super::Section::Jobs;
@@ -320,8 +320,14 @@ impl App {
         }
         let state = &self.orchestration;
         let snapshot = state.snapshot()?;
-        if snapshot.jobs.is_none() {
-            return Some(Err("This Core does not list jobs.".into()));
+        match &snapshot.jobs {
+            super::model::Jobs::Listed(_) => {}
+            super::model::Jobs::Unavailable => {
+                return Some(Err("This Core does not list jobs.".into()));
+            }
+            super::model::Jobs::Failed(reason) => {
+                return Some(Err(format!("Could not read jobs · {reason}")));
+            }
         }
         if matches!(control, Control::JobNew) {
             let member = snapshot
@@ -553,9 +559,16 @@ impl App {
                 Effect::None
             }
             (Step::JobForm(form), Ok(found)) => {
+                // The worker always sends the actor it resolved; a missing one opens no form,
+                // so an unattributed write can never start here.
+                let (Some(id), Some(name)) =
+                    (found["actorId"].as_str(), found["actorName"].as_str())
+                else {
+                    return self.say("Could not tell who is changing the job.");
+                };
                 let actor = crate::cron_service::CronActor {
-                    id: found["actorId"].as_str().unwrap_or_default().to_owned(),
-                    name: found["actorName"].as_str().unwrap_or_default().to_owned(),
+                    id: id.to_owned(),
+                    name: name.to_owned(),
                 };
                 match form {
                     super::write::JobForm::New {

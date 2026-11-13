@@ -123,10 +123,17 @@ impl State {
         let id = self.job.as_ref()?;
         self.snapshot()?
             .jobs
-            .as_ref()?
+            .listed()?
             .rows
             .iter()
             .find(|job| &job.job_id == id)
+    }
+    /// Why the jobs read failed, when it did; the rest of the tab still shows.
+    pub fn jobs_failure(&self) -> Option<&str> {
+        match &self.snapshot()?.jobs {
+            model::Jobs::Failed(reason) => Some(reason),
+            _ => None,
+        }
     }
     /// The sections Tab moves through: Talks and Jobs only when Core reports them.
     pub fn sections(&self) -> Vec<Section> {
@@ -143,7 +150,7 @@ impl State {
         {
             sections.push(Section::Talks);
         }
-        if snapshot.jobs.is_some() && !self.plans {
+        if !matches!(snapshot.jobs, model::Jobs::Unavailable) && !self.plans {
             sections.push(Section::Jobs);
         }
         sections
@@ -228,7 +235,11 @@ impl State {
                         .first()
                         .and_then(|plan| plan["id"].as_str().map(str::to_owned));
                 }
-                let jobs = snapshot.jobs.iter().flat_map(|jobs| &jobs.rows);
+                let jobs = snapshot
+                    .jobs
+                    .listed()
+                    .into_iter()
+                    .flat_map(|jobs| &jobs.rows);
                 if self
                     .job
                     .as_ref()
