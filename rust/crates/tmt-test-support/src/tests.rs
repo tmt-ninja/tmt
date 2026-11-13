@@ -83,8 +83,13 @@ fn blocked_fifo_writer_times_out_with_confirmed_group_cleanup() {
             .unwrap()
             .success()
     );
-    let started = Instant::now();
-    let error = write_executable(&path, b"payload", 0o700).unwrap_err();
+    let error = write_executable_with_deadline(
+        &path,
+        b"payload",
+        0o700,
+        Instant::now() + Duration::from_secs(1),
+    )
+    .unwrap_err();
     let cause = error
         .get_ref()
         .unwrap()
@@ -92,7 +97,6 @@ fn blocked_fifo_writer_times_out_with_confirmed_group_cleanup() {
         .unwrap();
     assert!(matches!(cause.kind, tmt_invoke::FailureKind::Deadline));
     assert!(matches!(cause.cleanup, tmt_invoke::Cleanup::Confirmed));
-    assert!(started.elapsed() < Duration::from_secs(35));
     // No reader existed: the shell was blocked before opening the FIFO for writing.
     assert!(fs::symlink_metadata(&path).unwrap().file_type().is_fifo());
     assert_eq!(fs::read_dir(&root.0).unwrap().count(), 1);

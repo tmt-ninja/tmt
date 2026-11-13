@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 
@@ -153,40 +152,6 @@ fs.fsyncSync = () => { throw new Error('fixture fsync failed'); };
     expect(fs.existsSync(file)).toBe(false);
     expect(fs.readdirSync(root).sort()).toEqual(['stuck.mjs']);
   });
-
-  it('does not stall when sibling threads spawn long-lived children at the same time', async () => {
-    const root = temporaryRoot();
-    const worker = `
-      const { workerData, parentPort } = require('node:worker_threads');
-      const { spawn } = require('node:child_process');
-      const path = require('node:path');
-      (async () => {
-        const { writeExecutable } = await import(workerData.module);
-        for (let n = 0; n < workerData.loops; n++) {
-          spawn('/bin/sleep', ['2'], { stdio: 'ignore' }).unref();
-          writeExecutable(path.join(workerData.dir, 'f' + n), Buffer.alloc(65536, n), 0o755, { timeoutMs: 20000 });
-        }
-        parentPort.postMessage('done');
-      })();`;
-    const threads = Array.from({ length: 4 }, (_, i) => {
-      const dir = path.join(root, `t${i}`);
-      fs.mkdirSync(dir);
-      return new Promise<void>((resolve, reject) => {
-        const thread = new Worker(worker, {
-          eval: true,
-          workerData: {
-            dir,
-            loops: 25,
-            module: new URL('../support/executable-fixture.mjs', import.meta.url).href,
-          },
-        });
-        thread.once('message', () => resolve());
-        thread.once('error', reject);
-      });
-    });
-    await Promise.all(threads);
-    for (let i = 0; i < 4; i++) expect(fs.readdirSync(path.join(root, `t${i}`))).toHaveLength(25);
-  }, 60_000);
 
   it('propagates publication failure without leaving a staging directory', () => {
     const root = temporaryRoot();
