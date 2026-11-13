@@ -604,11 +604,33 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
             hints.push((key, word.into()));
         }
     }
-    // Moves and help/quit lead and stay; each action follows only while the whole line fits.
+    // At most eight hints: the section's own keys first, so board-wide `q quit` yields first,
+    // then `F end focus` unless the selected member is in a focus.
     let moves = hints.len().min(2);
-    let actions = hints.split_off(moves);
+    let mut actions = hints.split_off(moves);
+    let in_focus = state.selected.as_ref().is_some_and(|id| {
+        snapshot
+            .document
+            .members
+            .iter()
+            .any(|m| &m.identity_id == id && m.effective.routine.source.kind == "focus")
+    });
+    let end_focus = key(Ui::EndFocus, "F");
+    if moves + tail.len() + actions.len() > 8 {
+        tail.retain(|(_, word)| word != "quit");
+    }
+    if moves + tail.len() + actions.len() > 8
+        && !in_focus
+        && let Some(at) = actions
+            .iter()
+            .position(|(k, _)| Some(k) == end_focus.as_ref())
+    {
+        actions.remove(at);
+    }
+    let room = 8usize.saturating_sub(moves + tail.len());
+    // Moves and help lead and stay; each action follows only while the whole line fits.
     let mut line = fit_hints(hints, tail, width);
-    for action in actions.into_iter().take(8usize.saturating_sub(moves)) {
+    for action in actions.into_iter().take(room) {
         line.push(action);
         if hint_text(&line).width() > width {
             line.pop();

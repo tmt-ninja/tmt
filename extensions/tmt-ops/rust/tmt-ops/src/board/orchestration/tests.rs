@@ -725,6 +725,23 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
         !jobs.contains("allow once") && !jobs.contains("[ earlier"),
         "{jobs}"
     );
+    // Every section offers at most eight hints, its own keys first: board-wide quit yields
+    // before them, and End focus while no focus is active.
+    let hints = |line: &str| line.split("  ").filter(|h| !h.trim().is_empty()).count();
+    assert!(hints(&jobs) <= 8, "{jobs}");
+    app.key(tab);
+    let routes = footer(&app);
+    assert!(hints(&routes) <= 8, "{routes}");
+    for hint in ["↑↓ member", "←→ cell", "a allow once", "f focus", "? help"] {
+        assert!(routes.contains(hint), "{hint}: {routes}");
+    }
+    assert!(
+        !routes.contains("q quit") && !routes.contains("end focus"),
+        "{routes}"
+    );
+    app.key(tab);
+    let talks = footer(&app);
+    assert!(hints(&talks) <= 8 && talks.contains("↑↓ pair"), "{talks}");
 }
 #[test]
 fn job_keys_confirm_pause_and_run_and_leave_a_tmt_orch_job_read_only() {

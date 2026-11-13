@@ -1368,9 +1368,9 @@ fn job_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let next_w = widest("NEXT", &mut nexts.iter().map(String::as_str));
     let title_full = widest("TITLE", &mut jobs.rows.iter().map(JobRow::name));
     let state_full = widest("STATE", &mut states.iter().map(|(w, _)| w.as_str()));
-    // A leading space and one between columns.
+    // A leading space, one between columns and one gutter before the divider.
     let fixed = 1 + id_w + 1 + owner_w + 1 + schedule_w + 1 + next_w + 1;
-    let room_w = usize::from(area.width).saturating_sub(fixed + 1);
+    let room_w = usize::from(area.width).saturating_sub(fixed + 2);
     let title_w = room_w
         .saturating_sub(state_full)
         .clamp(5.min(title_full), title_full);
