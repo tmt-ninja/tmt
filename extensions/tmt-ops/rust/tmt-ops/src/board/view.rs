@@ -49,7 +49,6 @@ pub fn render(frame: &mut Frame, app: &App) {
         super::home::limits_of(app, frame.area().width, app.look())
     };
     render_frame(frame, app, home_usage, home_limits);
-    super::member_links::paint_colab_card(frame, app);
     // In a member's frame its program has the caret; a hidden one is moved after the draw by
     // the board loop.
     if let Some(caret) = app.terminal.caret().filter(|caret| caret.shown) {
@@ -304,7 +303,7 @@ pub(in crate::board) fn render_frame(
 }
 
 /// Lines painted over a finished frame in `area`, each cell reset first so nothing beneath
-/// shows through: the Colab chip card and Jump to latest. A double-width character cut by either
+/// shows through: Jump to latest. A double-width character cut by either
 /// edge is blanked too, so its other half cannot draw over the overlay's border (#6051).
 pub(in crate::board) fn overlay_lines(
     frame: &mut Frame,

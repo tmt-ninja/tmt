@@ -49,8 +49,6 @@ struct Part {
     source: usize,
     member: Option<(super::member_links::Target, usize)>,
     source_range: Option<std::ops::Range<usize>>,
-    /// A fixed caption that never wraps or splits, like a file chip (#6008 Colab chips).
-    chip: bool,
 }
 impl Part {
     fn new(
@@ -65,17 +63,15 @@ impl Part {
             source,
             member,
             source_range: None,
-            chip: false,
         }
     }
 
-    /// One caption laid out whole: a file reference or a Colab chip.
+    /// One caption laid out whole: a file reference.
     fn is_atomic(&self) -> bool {
-        self.chip
-            || matches!(
-                &self.member,
-                Some((super::member_links::Target::File(_), _))
-            )
+        matches!(
+            &self.member,
+            Some((super::member_links::Target::File(_), _))
+        )
     }
 
     fn width(&self) -> usize {
@@ -179,33 +175,6 @@ impl Renderer<'_> {
                 Some((super::member_links::Target::Url(url.into()), occurrence)),
             ));
         }
-    }
-
-    /// A local Colab page link as its chip; `source` is the address's bytes in the message.
-    fn push_chip(&mut self, id: &str, url: &str, source: Option<std::ops::Range<usize>>) {
-        if self.current.is_none() {
-            let indent = self.lists.len() * 2;
-            self.start(" ".repeat(indent), indent);
-        }
-        let mut part = Part::new(
-            super::member_links::colab::chip(id),
-            self.style()
-                .patch(self.look.role(Role::Code))
-                .patch(self.look.role(Role::Track)),
-            self.source_line,
-            Some((
-                super::member_links::Target::Url(url.into()),
-                self.next_mention,
-            )),
-        );
-        part.chip = true;
-        part.source_range = source;
-        self.next_mention += 1;
-        self.current
-            .as_mut()
-            .expect("a block is open")
-            .spans
-            .push(part);
     }
 
     fn push_file(&mut self, file: files::Reference) {
@@ -1007,22 +976,17 @@ mod tests {
     }
 
     #[test]
-    fn a_link_glued_to_cjk_prose_is_a_link_or_chip_and_the_prose_stays_text() {
+    fn a_link_glued_to_cjk_prose_is_a_link_and_the_prose_stays_text() {
         use super::super::member_links::Target;
         // Ben's 11-05 case: no space before the address, a full-width colon joins it.
         let source = "Night 頁連結：http://127.0.0.1:50711/colab/p/36b98efb";
         let mapped = render_conversation_with_members(source, 200, Look::default(), None);
-        assert_eq!(text(&mapped.lines), ["Night 頁連結：▤ Colab · 36b98efb ↗"]);
+        assert_eq!(text(&mapped.lines), [source]);
         let references: Vec<_> = mapped.mentions.iter().flatten().collect();
         assert_eq!(references.len(), 1);
         assert_eq!(
             references[0].target,
             Target::Url("http://127.0.0.1:50711/colab/p/36b98efb".into())
-        );
-        let origin = references[0].source.as_ref().unwrap();
-        assert_eq!(
-            &source[origin.source.clone()],
-            "http://127.0.0.1:50711/colab/p/36b98efb"
         );
         // A web link after CJK text ends before full-width punctuation.
         let source = "請看https://example.com/a。下一步";

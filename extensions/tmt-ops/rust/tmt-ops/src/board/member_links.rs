@@ -227,8 +227,6 @@ pub(super) struct State {
     /// The opened link's checklist entry survives Show full and a background transcript refresh.
     /// A new hit replaces it, including another occurrence of the same URL.
     link_note: Option<(String, Choice)>,
-    /// Local Colab page titles for the chip card (#6008).
-    pub(in crate::board) titles: colab::Titles,
     #[cfg(test)]
     builds: usize,
 }
@@ -427,33 +425,6 @@ pub(super) fn paint_hits(
             }
             state.hits.push(hit);
         }
-    }
-}
-
-/// The card of a hovered or focused Colab chip (#6008), painted over the finished frame.
-pub(super) fn paint_colab_card(frame: &mut Frame, app: &App) {
-    if app.modal_open() || app.menu.is_some() {
-        return;
-    }
-    let state = app.member_links.borrow();
-    let card = state
-        .hits
-        .iter()
-        .rev()
-        .find(|hit| {
-            matches!(&hit.target, Target::Url(url) if colab::page(url).is_some())
-                && (state.hovered.as_ref() == Some(*hit)
-                    || state.focused.as_ref().is_some_and(|focused| {
-                        focused.reader == hit.reader
-                            && focused.surface == hit.surface
-                            && focused.target == hit.target
-                            && focused.occurrence == hit.occurrence
-                    }))
-        })
-        .cloned();
-    drop(state);
-    if let Some(hit) = card {
-        colab::paint_card(frame, app, frame.area(), &hit);
     }
 }
 
@@ -1071,7 +1042,6 @@ pub(super) fn capture_menu(app: &mut App) {
     }
 }
 
-pub(in crate::board) mod colab;
 pub(in crate::board) mod popover;
 #[cfg(test)]
 pub(in crate::board) mod tests;

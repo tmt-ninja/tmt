@@ -960,14 +960,6 @@ WSL, `xdg-open` with a graphical session. Over SSH there is none unless `opener`
 set: Open shows "no browser here" and Copy stays. A failure to start it is reported in
 the status line.
 
-A bare address of a page on this machine's Colab (`http://127.0.0.1:PORT/colab/p/ID` or
-the older `/p/ID`, also `localhost` and `[::1]`) shows in a conversation as a fixed-width chip
-`▤ Colab · ID ↗` (the first eight characters of the page ID). Hovering or focusing it
-shows a card with the page title, read from `tmt colab show` (or "Title unavailable" when
-Colab is not serving or has no access, read again after ten seconds); a click or Enter opens the
-page with the same opener, without the popover. Copying a selection over the chip
-copies the address.
-
 A terminal that supports OSC 8 hyperlinks also makes an `http(s)` label itself clickable
 (its own modifier-click, usually Cmd or Ctrl); the popover, Enter and selection stay as
 above. The board turns them on only on a positive signal: iTerm2, WezTerm, Ghostty, VS
