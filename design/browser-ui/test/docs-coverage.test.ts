@@ -69,6 +69,7 @@ const entries: Record<string, string> = {
   './search': 'search query parsing for hosts, not a visual part',
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
+  './rich-input-control': 'Components entry rich-input (Core for host inputs)',
   './rich-input.css': 'Styles for the rich-input entry',
   './data-table': 'Components entry data-table',
   './data-table.css': 'Styles for the data-table entry',

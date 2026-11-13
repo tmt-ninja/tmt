@@ -1,18 +1,6 @@
-import { BrowserField } from '../react.js';
-import {
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useId,
-  useRef,
-  type HTMLAttributes,
-  type KeyboardEvent,
-  type ReactNode,
-  type Ref,
-} from 'react';
+import { useEffect, useLayoutEffect, useReducer, useRef, type ReactNode } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
-import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
@@ -24,7 +12,6 @@ import {
 } from 'lexical';
 import { RichInputChipNode } from './chip-node.js';
 import { $emptyRichInput } from './document.js';
-import './core.css';
 
 // The rich input's core (#5830): one Lexical editing lifetime and one editable surface. The
 // high-level RichInput and host plugins (Colab's composer and page-list filter) build on it; hosts
@@ -40,32 +27,19 @@ export type RichInputDocument<Edit extends RichInputEdit> = {
   replace(edit: Edit): void;
   equal(a: Edit, b: Edit): boolean;
 };
-export type RichInputControlProps = {
-  label: string;
-  className?: string;
-  placeholder?: string;
+export type RichInputCoreProps<Edit extends RichInputEdit> = {
   disabled: boolean;
-  /** `disabled` only because a write is in flight: not editable and marked busy, never greyed. */
-  busy?: boolean;
-  describedBy?: string;
-  /** Presentation only, inside the input below text; grants no editor or send authority. */
-  accessory?: ReactNode;
-  /** Presentation only, inside the input above text, as `accessory` is below it. */
-  header?: ReactNode;
-  trigger?: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> };
-  onKeyDownCapture?(event: KeyboardEvent<HTMLDivElement>): void;
-};
-export type RichInputCoreProps<Edit extends RichInputEdit> = RichInputControlProps & {
   edit: Edit;
   onChange(edit: Edit): void;
   autoFocus?: boolean;
   resetKey?: string | number;
   document: RichInputDocument<Edit>;
-  children?: ReactNode;
+  /** The host's surface: a RichInputControl or its own editable markup. */
+  children: ReactNode;
 };
 
 // Stable module identity; every mount owns its own editor and undo history.
-export const richInputExtension = defineExtension({
+const richInputExtension = defineExtension({
   name: 'TmtRichInput',
   namespace: 'TmtRichInput',
   nodes: [RichInputChipNode],
@@ -81,7 +55,7 @@ export function RichInputCore<Edit extends RichInputEdit>(props: RichInputCorePr
   return (
     <LexicalExtensionComposer extension={richInputExtension} contentEditable={null}>
       <EditingLifetime {...props} />
-      {props.children ?? <RichInputControl {...props} />}
+      {props.children}
     </LexicalExtensionComposer>
   );
 }
@@ -147,59 +121,4 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputCoreProps<E
     [editor],
   );
   return null;
-}
-
-/** One editable surface and composition/trust guard, reused by each caller's keyboard policy. */
-export function RichInputControl(props: RichInputControlProps) {
-  const [editor] = useLexicalComposerContext();
-  const controlId = useId();
-  return (
-    <BrowserField
-      controlId={controlId}
-      label={props.label}
-      describedByIds={props.describedBy ? [props.describedBy] : []}
-      renderControl={(field) => {
-        const editable = (
-          <ContentEditable
-            {...props.trigger}
-            {...field}
-            onKeyDown={undefined}
-            placeholder={null}
-            aria-placeholder={undefined}
-            className={`${field.className} rich-input-field ${props.className ?? ''}`}
-            aria-multiline="true"
-            aria-disabled={props.disabled && !props.busy}
-            aria-busy={props.busy || undefined}
-            ref={props.trigger?.ref as Ref<HTMLDivElement>}
-            data-placeholder={props.placeholder}
-            onKeyDownCapture={(event) => {
-              const native = event.nativeEvent;
-              if (
-                !native.isTrusted ||
-                native.isComposing ||
-                editor.isComposing() ||
-                native.keyCode === 229 ||
-                props.disabled
-              )
-                return;
-              props.onKeyDownCapture?.(event);
-            }}
-          />
-        );
-        // The surface never changes the editable's parent: adding/removing a row must
-        // keep the mounted root, focus and DOM selection, including during typing.
-        return (
-          <div
-            className="rich-input-surface"
-            data-accessory={Boolean(props.accessory) || undefined}
-            data-disabled={(props.disabled && !props.busy) || undefined}
-          >
-            {props.header}
-            {editable}
-            {props.accessory && <div className="rich-input-accessory">{props.accessory}</div>}
-          </div>
-        );
-      }}
-    />
-  );
 }

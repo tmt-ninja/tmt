@@ -30,6 +30,7 @@
     "./test-fixtures/*": "./test/fixtures/*",
     "./list-table": "./src/list-table-host.ts",
     "./rich-input": "./src/rich-input/index.ts",
+    "./rich-input-control": "./src/rich-input-control/index.ts",
     "./blocks": "./src/blocks/index.ts",
     "./blocks.css": "./src/blocks/blocks.css",
     "./data-table": "./src/data-table/index.ts",

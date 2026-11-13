@@ -212,7 +212,6 @@ export function RichInput(props: RichInputProps) {
         document={valueDocument}
         resetKey={props.resetKey}
         disabled={props.disabled ?? false}
-        label={props.label}
       >
         <Editor {...props} edited={edited} />
       </RichInputCore>

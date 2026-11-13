@@ -56,6 +56,11 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
       '@lexical/history',
     ],
   },
+  // The host field surface: Lexical's editable inside the Browser field (root graph) it renders.
+  './rich-input-control': {
+    packages: ['react', 'lucide-react', 'lexical', '@lexical/react'],
+    graphs: ['./react'],
+  },
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './pattern-parts': { packages: ['react', 'lucide-react'], graphs: ['./react', './ui'] },

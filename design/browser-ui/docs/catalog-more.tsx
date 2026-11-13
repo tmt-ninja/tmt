@@ -625,9 +625,10 @@ export const moreComponents: ComponentDoc[] = [
                   <code>RichInputControl</code>, <code>RICH_INPUT_RESET_TAG</code>
                 </td>
                 <td>
-                  The editable surface: field label, header and accessory rows, busy and disabled
-                  states, and the composition guard before the host's keys. Update listeners skip
-                  edits tagged as a host replacement.
+                  From <code>@tmt/browser-ui/rich-input-control</code>, so the page runtime's
+                  RichInput never loads Browser field parts: the editable surface with field label,
+                  header and accessory rows, busy and disabled states, and the composition guard
+                  before the host's keys. Update listeners skip edits tagged as a host replacement.
                 </td>
               </tr>
               <tr>

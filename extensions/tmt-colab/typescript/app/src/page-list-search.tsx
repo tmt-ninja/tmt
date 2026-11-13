@@ -10,13 +10,13 @@ import {
   RichInput as SharedRichInput,
   RichInputChipNode,
   RichInputChipView,
-  RichInputControl,
   RichInputCore,
   type RichInputChipViewProps,
   type RichInputDocument,
   type RichInputRange,
   type RichInputValue as SharedRichInputValue,
 } from '@tmt/browser-ui/rich-input';
+import { RichInputControl } from '@tmt/browser-ui/rich-input-control';
 import { Search } from 'lucide-react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
@@ -272,7 +272,6 @@ export function PageListSearch(props: PageListSearchProps) {
           resetKey={props.resetKey}
           document={searchDocument}
           disabled={false}
-          label={props.label ?? text.pageList.searchLabel}
         >
           <SearchField {...props} />
         </RichInputCore>

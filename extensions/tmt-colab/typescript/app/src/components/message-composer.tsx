@@ -29,12 +29,8 @@ import {
   fuzzyMessageCandidates,
   mentionQuery,
 } from './message-composer-document.js';
-import {
-  RichInputChipView,
-  RichInputControl,
-  RichInputCore,
-  RICH_INPUT_RESET_TAG,
-} from '@tmt/browser-ui/rich-input';
+import { RichInputChipView, RichInputCore, RICH_INPUT_RESET_TAG } from '@tmt/browser-ui/rich-input';
+import { RichInputControl } from '@tmt/browser-ui/rich-input-control';
 import type { ComposerEdit } from './message-composer-edit.js';
 import './message-composer.css';
 
