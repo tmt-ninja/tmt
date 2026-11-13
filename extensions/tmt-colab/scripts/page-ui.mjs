@@ -22,7 +22,11 @@ import { readFile } from 'node:fs/promises';
 // Stripping remains #5809.
 // #5963: global palette B removes the superseded palette: 145,773 -> 133,338 (-12,435), exact.
 // Measured by buildPageUi() with Node v26.12.0; no headroom.
-export const PAGE_UI_LIMIT = 133_338;
+// Phone drawer scrim: the shell's `.tmt-ui-shell[data-drawer='open']::before` rule and its stage
+// @container copy (#5981): 133,338 -> 133,660 (+322), exact, no headroom (GUI lead approval).
+// A page frame never opens the shell drawer, so #5809's stripping recovers these bytes.
+// Measured by buildPageUi() with Node v26.12.1.
+export const PAGE_UI_LIMIT = 133_660;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
