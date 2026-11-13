@@ -56,6 +56,8 @@ export interface ChannelRoom {
   members: readonly { id: string; name: string }[];
 }
 
+/** How many cut posts one opened channel reads in full. */
+const FULL_POSTS = 10;
 /** The members a post @mentions, or the lead when it mentions none. */
 export function recipients(message: string, channel: ChannelRoom): { id: string; name: string }[] {
   const named = channel.members.filter((member) =>
@@ -111,6 +113,11 @@ export function channelStream(
   const composer = composerSlot(composerHost);
   const items = new Map<string, RoomItem>();
   const replies = new Map<string, ResultState>();
+  // A post cut at the preview shows its whole text from its result's `requestMessage`, read once
+  // per post and at most `FULL_POSTS` of them per channel opened; until then, or when the read
+  // fails or Core no longer keeps the words, the preview stays with its ellipsis.
+  const fullPosts = new Map<string, string>();
+  const askedPosts = new Set<string>();
   let channel: ChannelRoom | undefined;
   let roomId: string | undefined;
   let olderCursor: ConversationCursor | null | undefined;
@@ -152,8 +159,15 @@ export function channelStream(
       return { item, name, at, words, read: reply?.state === 'replied' };
     });
   }
+  const capped = (post: Post) => {
+    const preview = post.items[0]!.preview;
+    return !!preview && [...preview].length >= PREVIEW_CHARACTERS;
+  };
+  const fullText = (post: Post) =>
+    post.items.map((item) => fullPosts.get(item.requestId)).find((text) => text !== undefined);
   function postRow(post: Post, inThread = false): HTMLElement {
     const first = post.items[0]!;
+    const whole = fullText(post);
     const as = first;
     if (!inThread && first.kind === 'announcement')
       return noticeRow(first.preview, new Date(post.preparedAtMs));
@@ -164,11 +178,9 @@ export function channelStream(
         .join(', '),
       self: true,
       at: new Date(post.preparedAtMs),
-      text: first.preview,
+      text: whole ?? first.preview,
       mentions: channel?.members.map((member) => member.name) ?? [],
-      ...(first.preview && [...first.preview].length >= PREVIEW_CHARACTERS
-        ? { shortened: SHORTENED_POST }
-        : {}),
+      ...(whole === undefined && capped(post) ? { shortened: SHORTENED_POST } : {}),
       // The thread's header already says how the post stands; the root carries no second line.
     });
     if (inThread) return row;
@@ -316,7 +328,7 @@ export function channelStream(
     stream.draw(
       shown,
       (post) => [postRow(post)],
-      [[...names()], [...replies], threadKey],
+      [[...names()], [...replies], threadKey, [...fullPosts]],
       unlisted &&
         pendingRow(
           unlisted,
@@ -374,6 +386,28 @@ export function channelStream(
       },
     });
   }
+  /** The whole text of the newest posts cut at the preview, one read at a time. */
+  async function readFullPosts(ticket: number) {
+    const wanted = posts(items.values())
+      .filter(
+        (post) => capped(post) && fullText(post) === undefined && !askedPosts.has(post.requestId),
+      )
+      .sort((a, b) => b.preparedAtMs - a.preparedAtMs)
+      .slice(0, Math.max(0, FULL_POSTS - askedPosts.size));
+    for (const post of wanted) {
+      askedPosts.add(post.requestId);
+      try {
+        const value = await port.result(post.items[0]!.requestId);
+        if (ticket !== generation) return;
+        if (typeof value.requestMessage === 'string') {
+          fullPosts.set(post.items[0]!.requestId, value.requestMessage);
+          draw();
+        }
+      } catch {
+        // The preview stays, with its ellipsis.
+      }
+    }
+  }
   async function readReplies(ticket: number) {
     for (const item of items.values()) {
       const known = replies.get(item.requestId)?.state;
@@ -383,6 +417,8 @@ export function channelStream(
         const value = await port.result(item.requestId);
         if (ticket !== generation) return;
         replies.set(item.requestId, value);
+        if (typeof value.requestMessage === 'string')
+          fullPosts.set(item.requestId, value.requestMessage);
       } catch {
         // Left as "Reading the reply…"; the next refresh asks again.
       }
@@ -409,6 +445,7 @@ export function channelStream(
       draw();
       await readReplies(ticket);
       if (ticket === generation) draw();
+      await readFullPosts(ticket);
       return true;
     } catch (error) {
       if (ticket === generation) {
@@ -459,6 +496,8 @@ export function channelStream(
     node,
     thread,
     select(next: ChannelRoom | undefined) {
+      // Opening the channel again asks again for posts whose whole text could not be read.
+      if (next && !visible) askedPosts.clear();
       visible = next !== undefined;
       channel = next;
       // A board change (room, revision or roster) may lift a refused read.
@@ -473,6 +512,8 @@ export function channelStream(
         generation++;
         items.clear();
         replies.clear();
+        fullPosts.clear();
+        askedPosts.clear();
         threadKey = undefined;
         drawThread([]);
         olderCursor = undefined;

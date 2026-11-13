@@ -10628,9 +10628,9 @@ var utf8$1 = new TextEncoder();
 function shortenedReply(item) {
 	return item.final.status === "retained" && item.responsePreview !== null && item.final.bodyBytes > utf8$1.encode(item.responsePreview).length ? `Preview shortened · the full reply is ${item.final.bodyBytes.toLocaleString()} bytes` : void 0;
 }
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one: its
-* full text once read (`fullReply`), else its preview. */
-function exchangeRows(item, names, fullReply) {
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
+* shows its full text once read (`fullPost`, `fullReply`), else its preview. */
+function exchangeRows(item, names, fullReply, fullPost) {
 	const { fromMe, them } = names;
 	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
@@ -10638,8 +10638,8 @@ function exchangeRows(item, names, fullReply) {
 		to: fromMe ? them : "You",
 		self: fromMe,
 		at: new Date(item.preparedAtMs),
-		text: item.preview,
-		...item.previewTruncated ? { shortened: SHORTENED_POST } : {},
+		text: fullPost ?? item.preview,
+		...item.previewTruncated && fullPost === void 0 ? { shortened: SHORTENED_POST } : {},
 		...fromMe ? {
 			state: deliveryText(item),
 			mark: deliveryMark(item)
@@ -11079,6 +11079,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	const seen = conversationSeen(storage());
 	const items = /* @__PURE__ */ new Map();
 	const fullReplies = /* @__PURE__ */ new Map();
+	const fullPosts = /* @__PURE__ */ new Map();
 	const asked = /* @__PURE__ */ new Set();
 	let memberId, memberName = "", panelVisible = false;
 	let generation = 0, running = false, wanted = false;
@@ -11111,7 +11112,11 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			me: "You",
 			them: memberName,
 			fromMe: item.direction === "toMember"
-		}, fullReplies.get(item.requestId)), [memberName, fullReplies.size], unlisted && pendingRow(unlisted, memberName));
+		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId)), [
+			memberName,
+			fullReplies.size,
+			fullPosts.size
+		], unlisted && pendingRow(unlisted, memberName));
 	}
 	function showComposer() {
 		if (!memberId) return;
@@ -11136,19 +11141,19 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			}
 		});
 	}
-	/** The full text of the newest shortened replies, one read at a time; a failed read keeps the
-	* shortened preview and is not asked again until the conversation opens again. */
+	/** The full text of the newest shortened replies and of the person's own cut messages, one read
+	* at a time; a failed read keeps the shortened preview and is not asked again until the
+	* conversation opens again. */
 	async function readFullReplies(selected, ticket) {
-		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && shortenedReply(item)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
+		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && (shortenedReply(item) || item.previewTruncated && item.direction === "toMember")).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
 		for (const item of wanted) {
 			asked.add(item.requestId);
 			try {
 				const value = await talk.result(item.requestId);
 				if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-				if (value.state === "replied") {
-					fullReplies.set(item.requestId, value.message);
-					draw();
-				}
+				if (value.state === "replied" && shortenedReply(item)) fullReplies.set(item.requestId, value.message);
+				if (typeof value.requestMessage === "string" && item.previewTruncated) fullPosts.set(item.requestId, value.requestMessage);
+				draw();
 			} catch {}
 		}
 	}
@@ -11194,6 +11199,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
@@ -11221,6 +11227,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			if (current()) {
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				olderCursor = void 0;
@@ -11268,6 +11275,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 				olderCursor = void 0;
 				items.clear();
 				fullReplies.clear();
+				fullPosts.clear();
 				asked.clear();
 				stream.reset();
 				status.hidden = false;
@@ -11306,6 +11314,8 @@ function sessionChannel(shell) {
 		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
 	};
 }
+/** How many cut posts one opened channel reads in full. */
+var FULL_POSTS = 10;
 /** The members a post @mentions, or the lead when it mentions none. */
 function recipients(message, channel) {
 	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
@@ -11348,6 +11358,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	const composer = composerSlot(composerHost);
 	const items = /* @__PURE__ */ new Map();
 	const replies = /* @__PURE__ */ new Map();
+	const fullPosts = /* @__PURE__ */ new Map();
+	const askedPosts = /* @__PURE__ */ new Set();
 	let channel;
 	let roomId;
 	let olderCursor;
@@ -11376,8 +11388,14 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			};
 		});
 	}
+	const capped = (post) => {
+		const preview = post.items[0].preview;
+		return !!preview && [...preview].length >= 160;
+	};
+	const fullText = (post) => post.items.map((item) => fullPosts.get(item.requestId)).find((text) => text !== void 0);
 	function postRow(post, inThread = false) {
 		const first = post.items[0];
+		const whole = fullText(post);
 		const as = first;
 		if (!inThread && first.kind === "announcement") return noticeRow(first.preview, new Date(post.preparedAtMs));
 		const row = messageRow({
@@ -11385,9 +11403,9 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			to: answers(post).map((side) => side.name).join(", "),
 			self: true,
 			at: new Date(post.preparedAtMs),
-			text: first.preview,
+			text: whole ?? first.preview,
 			mentions: channel?.members.map((member) => member.name) ?? [],
-			...first.preview && [...first.preview].length >= 160 ? { shortened: SHORTENED_POST } : {}
+			...whole === void 0 && capped(post) ? { shortened: SHORTENED_POST } : {}
 		});
 		if (inThread) return row;
 		const sides = answers(post).filter((side) => side.words !== void 0);
@@ -11489,7 +11507,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		stream.draw(shown, (post) => [postRow(post)], [
 			[...names()],
 			[...replies],
-			threadKey
+			threadKey,
+			[...fullPosts]
 		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
 		empty.hidden = shown.length > 0 || !!unlisted;
 		drawThread(shown);
@@ -11535,6 +11554,21 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			}
 		});
 	}
+	/** The whole text of the newest posts cut at the preview, one read at a time. */
+	async function readFullPosts(ticket) {
+		const wanted = posts(items.values()).filter((post) => capped(post) && fullText(post) === void 0 && !askedPosts.has(post.requestId)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_POSTS - askedPosts.size));
+		for (const post of wanted) {
+			askedPosts.add(post.requestId);
+			try {
+				const value = await port.result(post.items[0].requestId);
+				if (ticket !== generation) return;
+				if (typeof value.requestMessage === "string") {
+					fullPosts.set(post.items[0].requestId, value.requestMessage);
+					draw();
+				}
+			} catch {}
+		}
+	}
 	async function readReplies(ticket) {
 		for (const item of items.values()) {
 			const known = replies.get(item.requestId)?.state;
@@ -11543,6 +11577,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				const value = await port.result(item.requestId);
 				if (ticket !== generation) return;
 				replies.set(item.requestId, value);
+				if (typeof value.requestMessage === "string") fullPosts.set(item.requestId, value.requestMessage);
 			} catch {}
 		}
 	}
@@ -11569,6 +11604,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			draw();
 			await readReplies(ticket);
 			if (ticket === generation) draw();
+			await readFullPosts(ticket);
 			return true;
 		} catch (error) {
 			if (ticket === generation) {
@@ -11612,6 +11648,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		node,
 		thread,
 		select(next) {
+			if (next && !visible) askedPosts.clear();
 			visible = next !== void 0;
 			channel = next;
 			const seen = JSON.stringify([next?.room, next?.members]);
@@ -11625,6 +11662,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				generation++;
 				items.clear();
 				replies.clear();
+				fullPosts.clear();
+				askedPosts.clear();
 				threadKey = void 0;
 				drawThread([]);
 				olderCursor = void 0;

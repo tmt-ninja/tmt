@@ -752,11 +752,23 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
           post(200 + n, 1720200000000 + n * 60_000, '00000000-0000-4000-8000-000000000001'),
         ),
       ].map((item) =>
-        // The last of the run reaches Core's 160-character preview.
-        item.preview === 'Post 202' ? { ...item, preview: 'Post 202 '.padEnd(160, 'x') } : item,
+        // The last two of the run reach Core's 160-character preview.
+        /Post 20[12]/.test(item.preview)
+          ? { ...item, preview: `${item.preview} `.padEnd(160, 'x') }
+          : item,
       ),
     },
   );
+  // Post 202's result carries its whole text; Core no longer keeps Post 201's words.
+  await page.evaluate(() => {
+    const id = (n: number) => `req_${String(n).padStart(8, '0')}-cccc-4ccc-8ccc-cccccccccccc`;
+    window.roomResults[id(201)] = { state: 'pending', requestId: id(201), requestMessage: null };
+    window.roomResults[id(202)] = {
+      state: 'pending',
+      requestId: id(202),
+      requestMessage: `Post 202 ${'x'.repeat(151)} and the rest of the post, past its preview.`,
+    };
+  });
   await refresh(page);
   const stream = page.getByRole('list', { name: 'Channel messages' });
   const gap = () =>
@@ -779,8 +791,12 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
     }).length;
   });
   expect(held).toBe(1);
-  // A post cut to Core's preview ends in an ellipsis and says so.
-  const capped = stream.locator('.ops-dm-message-text').filter({ hasText: 'Post 202' });
+  // A post cut at Core's preview shows its whole text from its result; one whose words Core no
+  // longer keeps ends in an ellipsis and says so.
+  const whole = stream.locator('.ops-dm-message-text').filter({ hasText: 'Post 202' });
+  await expect(whole).toHaveText(/and the rest of the post, past its preview\.$/);
+  await expect(whole).not.toHaveAttribute('title');
+  const capped = stream.locator('.ops-dm-message-text').filter({ hasText: 'Post 201' });
   await expect(capped).toHaveText(/…$/);
   await expect(capped).toHaveAttribute(
     'title',
