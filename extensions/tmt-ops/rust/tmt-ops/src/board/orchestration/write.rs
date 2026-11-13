@@ -11,6 +11,37 @@ pub(in crate::board) enum Step {
     Apply(Box<Value>),
     /// Read the decision journal for one identity.
     Why { identity_id: String, name: String },
+    /// A confirmed job change, through the Timers' own write owner (`cron_service`).
+    Job {
+        key: crate::cron_service::JobKey,
+        revision: u64,
+        squad: String,
+        op: JobOp,
+    },
+    /// Read one job's full message for the inspector.
+    JobMessage { job_id: String },
+    /// Resolve who acts (and, for an edit, the stored job) before a Timers form opens.
+    JobForm(JobForm),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) enum JobOp {
+    Pause,
+    Resume,
+    Run,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum JobForm {
+    Edit {
+        key: crate::cron_service::JobKey,
+        revision: u64,
+        squad: String,
+        job_id: String,
+    },
+    New {
+        squad: String,
+        room_id: String,
+        owner: String,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Task {
@@ -58,6 +89,48 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
                 "consent": true,
             }),
         ),
+        Step::Job {
+            key,
+            revision,
+            squad,
+            op,
+        } => (|| {
+            use super::super::cronboard::{CronRequest, Op, act};
+            let actor = crate::cron_service::actor(core, None)?;
+            let op = match op {
+                JobOp::Pause => Op::Pause,
+                JobOp::Resume => Op::Resume,
+                JobOp::Run => Op::Send,
+            };
+            act(
+                core,
+                CronRequest::Existing {
+                    actor,
+                    squad: squad.clone(),
+                    key: key.clone(),
+                    revision: *revision,
+                    op,
+                },
+            )
+            .map(|done| json!({ "done": done }))
+            .map_err(|message| SquadError::new("SQUAD_CRON_FAILED", &message))
+        })(),
+        Step::JobMessage { job_id } => core.api(
+            "orchestration.read",
+            json!({"view": "job", "jobId": job_id}),
+        ),
+        Step::JobForm(form) => (|| {
+            let actor = crate::cron_service::actor(core, None)?;
+            let mut value = json!({"actorId": actor.id, "actorName": actor.name});
+            if let JobForm::Edit { job_id, .. } = form {
+                value["job"] = core.api(
+                    "orchestration.read",
+                    json!({"view": "job", "jobId": job_id}),
+                )?["job"]
+                    .take();
+            }
+            Ok(value)
+        })(),
         Step::Why { identity_id, .. } => core.api(
             "orchestration.read",
             json!({"view": "why", "subject": {"kind": "identity", "id": identity_id}, "limit": 20}),

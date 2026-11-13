@@ -532,7 +532,10 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         }
         return fit_hints(hints, tail, width);
     };
-    let matrix = !state.plans && snapshot.sending.routes.is_some();
+    let focus = state.focus();
+    let routes = focus == crate::board::orchestration::Section::Routes;
+    let jobs = focus == crate::board::orchestration::Section::Jobs;
+    let matrix = routes && !state.plans && snapshot.sending.routes.is_some();
     let pair = |a: Option<String>, b: Option<String>, word: &str| {
         let keys = format!("{}{}", a.unwrap_or_default(), b.unwrap_or_default());
         (!keys.is_empty()).then(|| (keys, word.to_owned()))
@@ -540,45 +543,98 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     hints.extend(pair(
         key(Ui::Previous, "up"),
         key(Ui::Next, "down"),
-        if state.plans { "plan" } else { "member" },
+        if jobs {
+            "job"
+        } else if !routes {
+            "pair"
+        } else if state.plans {
+            "plan"
+        } else {
+            "member"
+        },
     ));
-    hints.extend(pair(
-        key(Ui::Fold, "left"),
-        key(Ui::Expand, "right"),
-        if matrix { "cell" } else { "time" },
-    ));
+    if routes {
+        hints.extend(pair(
+            key(Ui::Fold, "left"),
+            key(Ui::Expand, "right"),
+            if matrix { "cell" } else { "time" },
+        ));
+    }
     if state.enlarge.get() {
         // The tab asks for room: nothing it cannot show is offered, only the moves.
         return fit_hints(hints, tail, width);
     }
     let (blocked, held) = state.cell_actions();
+    let sections = state.sections().len() > 1;
+    let job = state.selected_job().filter(|_| jobs);
+    let jobs_failed = jobs && state.jobs_failure().is_some();
+    if jobs_failed && let Some(key) = effective_key(app, &bindings, Verb::Refresh, "ctrl-r") {
+        hints.push((key_label(&key).to_owned(), "retry".into()));
+    }
+    let writable = job.is_some_and(|job| job.key.is_some());
+    let owned = job.is_some_and(|job| job.state != crate::cron_service::rows::JobState::NoOwner);
+    // Only what the focused section offers, at most eight with the moves.
     let actions = [
-        (Ui::AllowOnce, "a", blocked),
-        (Ui::ReleaseHeld, "r", held),
-        (Ui::FocusHour, "f", !state.plans),
-        (Ui::EndFocus, "F", !state.plans),
-        (Ui::Why, "w", !state.plans),
-        (Ui::OrchestrationPlans, "P", true),
-        (Ui::OrchestrationEarlier, "[", true),
-        (Ui::OrchestrationLater, "]", true),
+        (Ui::OrchestrationSection, "tab", sections),
+        (Ui::AllowOnce, "a", blocked && !jobs),
+        (Ui::ReleaseHeld, "r", held && !jobs),
+        (Ui::JobPause, "p", writable && owned),
+        (Ui::JobRun, "x", writable),
+        (Ui::JobEdit, "e", writable),
+        (Ui::JobNew, "n", jobs && !jobs_failed),
+        (Ui::FocusHour, "f", routes && !state.plans),
+        (Ui::EndFocus, "F", routes && !state.plans),
+        (Ui::Why, "w", !state.plans && !jobs),
+        (Ui::OrchestrationPlans, "P", routes),
+        (Ui::OrchestrationEarlier, "[", routes),
+        (Ui::OrchestrationLater, "]", routes),
         (Ui::OrchestrationNow, "N", !state.follow_now),
-        (Ui::Search, "/", true),
+        (Ui::Search, "/", routes),
     ];
     for (action, preferred, applies) in actions {
         if applies && let Some(key) = key(action, preferred) {
             let word = match action {
                 Ui::Search if app.search.is_empty() => "filter",
                 Ui::OrchestrationPlans if state.plans => "members",
+                Ui::JobPause
+                    if job.is_some_and(|job| {
+                        job.state == crate::cron_service::rows::JobState::Paused
+                    }) =>
+                {
+                    "resume"
+                }
                 _ => action.spec().label,
             };
             hints.push((key, word.into()));
         }
     }
-    // Moves and help/quit lead and stay; each action follows only while the whole line fits.
+    // At most eight hints: the section's own keys first, so board-wide `q quit` yields first,
+    // then `F end focus` unless the selected member is in a focus.
     let moves = hints.len().min(2);
-    let actions = hints.split_off(moves);
+    let mut actions = hints.split_off(moves);
+    let in_focus = state.selected.as_ref().is_some_and(|id| {
+        snapshot
+            .document
+            .members
+            .iter()
+            .any(|m| &m.identity_id == id && m.effective.routine.source.kind == "focus")
+    });
+    let end_focus = key(Ui::EndFocus, "F");
+    if moves + tail.len() + actions.len() > 8 {
+        tail.retain(|(_, word)| word != "quit");
+    }
+    if moves + tail.len() + actions.len() > 8
+        && !in_focus
+        && let Some(at) = actions
+            .iter()
+            .position(|(k, _)| Some(k) == end_focus.as_ref())
+    {
+        actions.remove(at);
+    }
+    let room = 8usize.saturating_sub(moves + tail.len());
+    // Moves and help lead and stay; each action follows only while the whole line fits.
     let mut line = fit_hints(hints, tail, width);
-    for action in actions {
+    for action in actions.into_iter().take(room) {
         line.push(action);
         if hint_text(&line).width() > width {
             line.pop();

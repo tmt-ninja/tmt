@@ -18,7 +18,7 @@ use crate::cron_service::{CronActor, JobView};
 use tmt_ops::cron::ClockStatus;
 
 pub(super) use act::{CronRequest, Op, act};
-pub(super) use forms::Draft;
+pub(super) use forms::{Draft, Kind as FormKind};
 pub(in crate::board) use line::countdown;
 #[cfg(test)]
 pub(super) use line::tests::{

@@ -13,6 +13,7 @@ mod canonical;
 mod notices;
 mod owners;
 mod retirement;
+pub mod rows;
 pub use retirement::drain_retired;
 
 impl From<cron::Error> for SquadError {

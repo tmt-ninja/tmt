@@ -21,6 +21,7 @@ fn ready() -> model::Snapshot {
         model::Overview::decode(document()).unwrap(),
         model::Sending::default(),
         true,
+        Ok(None),
     )
     .unwrap()
 }
@@ -41,6 +42,12 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
             }
             (_, Some("routes")) => json!({"routes":[],"nextAfter":null}),
             (_, Some("talks")) => json!({"pairs":[]}),
+            (_, Some("jobs")) if input["cursor"].is_null() => {
+                let mut page = jobs();
+                page["nextCursor"] = "c1".into();
+                page
+            }
+            (_, Some("jobs")) => json!({"jobs":[],"nextCursor":null}),
             _ => document(),
         })
     });
@@ -81,8 +88,83 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
                 "orchestration.read".into(),
                 json!({"view":"talks","limit":256})
             ),
+            // Jobs: one list read per page, never a read per job.
+            (
+                "orchestration.read".into(),
+                json!({"view":"jobs","limit":64,"cursor":null})
+            ),
+            (
+                "orchestration.read".into(),
+                json!({"view":"jobs","limit":64,"cursor":"c1"})
+            ),
         ]
     );
+    // Ordered by next run (a held job by its hold's end), then paused; a held job names why.
+    let listed = snapshot.jobs.listed().unwrap();
+    assert_eq!(
+        listed
+            .rows
+            .iter()
+            .map(|job| (job.display_id.as_str(), job.next_ms()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("j2", Some(2000)),
+            ("j1", Some(2500)),
+            ("j4", Some(2900)),
+            ("j3", None)
+        ]
+    );
+    assert!(!listed.more);
+    assert!(listed.rows[3].key.is_some() && listed.rows[2].key.is_none());
+    // A jobs read that fails, or a job row Core sends that does not read, stays in the Jobs
+    // section: the matrix and Talks still show, Jobs names the reason with its retry key, and
+    // the job keys answer with that reason.
+    let mut bad_row = jobs();
+    bad_row["jobs"][0]["state"] = "unknown".into();
+    for (failure, reason) in [
+        (
+            Err(crate::core::SquadError::new(
+                "CORE_TIMEOUT",
+                "Core timed out.",
+            )),
+            "Core timed out.",
+        ),
+        (Ok(bad_row), "Invalid Core job row."),
+    ] {
+        let mut app = matrix_app();
+        let snapshot = observe(|op, input| match input["view"].as_str() {
+            Some("jobs") => failure.clone(),
+            _ => pair_api(op, input),
+        });
+        app.orchestration.apply(
+            app.orchestration.read(),
+            Observation::Ready(Box::new(snapshot)),
+        );
+        let painted = screen(&app);
+        assert!(painted.contains("Who may message whom"), "{reason}");
+        assert!(painted.contains("Talks this hour"), "{reason}");
+        assert!(
+            painted.contains(&format!("✕ Could not read jobs · {reason}")),
+            "{reason}"
+        );
+        assert!(painted.contains("Retry"), "{reason}");
+        for _ in 0..2 {
+            app.key(ratatui::crossterm::event::KeyEvent::new(
+                ratatui::crossterm::event::KeyCode::Tab,
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            ));
+        }
+        assert_eq!(app.orchestration.focus(), super::Section::Jobs);
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char('n'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(app.confirm.is_none());
+        assert_eq!(
+            app.notice.as_deref(),
+            Some(format!("Could not read jobs · {reason}").as_str())
+        );
+    }
     // The range keys change the one overview read's range.
     let mut app = matrix_app();
     for (press, days) in ['7', '0', 'd'].into_iter().zip([7, 30, 1]) {
@@ -177,6 +259,7 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
             model::Overview::decode(wire).unwrap(),
             model::Sending::default(),
             true,
+            Ok(None),
         )
         .unwrap()
     };
@@ -328,6 +411,44 @@ fn talks() -> Value {
         {"identityId":OTHER,"name":"peer","talkLimit":{"value":null,"source":source()}}],
         "count":2,"limit":2,"lastAtMs":900,"windowStartMs":0,"state":"held","heldCount":1,"held":[]}]})
 }
+const JOB_ROOM: &str = "40000000-0000-4000-8000-000000000001";
+/// One Core job row as the public `jobs` view lists it; callers patch the state they need.
+fn job(number: u64, owner: Option<(&str, &str)>, title: &str, schedule: &str) -> Value {
+    let schedule = crate::cron_service::parse_schedule_text(schedule, "Asia/Tokyo", 0)
+        .unwrap()
+        .document();
+    json!({"jobId":format!("30000000-0000-4000-8000-{number:012}"),"displayId":format!("j{number}"),
+        "revision":2,"legacy":{"roomId":JOB_ROOM,"cronId":number},
+        "target":{"squadRoomId":JOB_ROOM,"identityId":owner.map(|o| o.0),"identityName":owner.map(|o| o.1)},
+        "title":title,"messagePreview":format!("{title}: list open PRs, oldest first."),
+        "schedule":schedule,"state":if owner.is_some() { "on" } else { "no_owner" },
+        "manualPause":null,"heldSlot":null,"routine":null,"nextRunAtMs":null,"lastRun":null})
+}
+/// The pair's jobs: worker's held by its focus until 2500, peer's ready, a paused one and one
+/// made with `tmt orch job` (no Ops key).
+fn jobs() -> Value {
+    let mut held = job(1, Some((MEMBER, "worker")), "Queue review", "every 30m");
+    held["state"] = "held".into();
+    held["routine"] = json!({"value":"hold","source":{"kind":"focus","planId":null,"identityId":MEMBER,
+        "revision":1,"slot":{"startMs":1000,"endMs":2500},"defaulted":false}});
+    held["nextRunAtMs"] = 1800.into();
+    held["lastRun"] = json!({"recordedAtMs":900,"acceptance":"queued"});
+    let mut ready = job(2, Some((OTHER, "peer")), "UI check", "every 1h");
+    ready["nextRunAtMs"] = 2000.into();
+    let mut paused = job(3, Some((OTHER, "peer")), "Archive review", "daily 23:30");
+    paused["state"] = "paused".into();
+    paused["manualPause"] = json!({"by":MEMBER,"atMs":500});
+    let mut native = job(
+        4,
+        Some((MEMBER, "worker")),
+        "Weekly report",
+        "weekdays 09:00",
+    );
+    native["legacy"] = Value::Null;
+    native["nextRunAtMs"] = 2900.into();
+    json!({"schemaVersion":1,"observedAtMs":1000,"configurationRevision":0,
+        "jobs":[paused, native, ready, held],"nextCursor":null,"historyCoverage":"recorded_only"})
+}
 fn observe(
     api: impl FnMut(&str, Value) -> Result<Value, crate::core::SquadError>,
 ) -> model::Snapshot {
@@ -341,6 +462,7 @@ fn pair_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
         ("capabilities", _) => json!({"operations":["orchestration.read","orchestration.write"]}),
         (_, Some("routes")) => routes(),
         (_, Some("talks")) => talks(),
+        (_, Some("jobs")) => jobs(),
         _ => pair_document(),
     })
 }
@@ -348,7 +470,7 @@ fn pair_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
 fn an_older_core_without_sending_views_reads_them_as_not_available() {
     let snapshot = observe(|op, input| match (op, input["view"].as_str()) {
         ("capabilities", _) => Ok(json!({"operations":["orchestration.read"]})),
-        (_, Some("routes" | "talks")) => Err(crate::core::SquadError::new(
+        (_, Some("routes" | "talks" | "jobs")) => Err(crate::core::SquadError::new(
             "ORCH_INPUT_INVALID",
             "Invalid orchestration input or calendar selection.",
         )),
@@ -356,6 +478,10 @@ fn an_older_core_without_sending_views_reads_them_as_not_available() {
     });
     assert!(snapshot.sending.routes.is_none());
     assert!(snapshot.sending.talks.is_none());
+    assert!(
+        matches!(snapshot.jobs, model::Jobs::Unavailable),
+        "no jobs view: not an empty list"
+    );
 }
 #[test]
 fn routes_pages_follow_next_after_until_core_says_the_end() {
@@ -505,6 +631,7 @@ fn assert_selected_row_differs(scene: &str, first: &str, second: &str) {
 fn the_selected_plan_and_member_rows_are_visible_in_every_look() {
     assert_selected_row_differs("orchestration-plans", "Night shift", "Review week");
     assert_selected_row_differs("orchestration-table-selection", "worker", "peer");
+    assert_selected_row_differs("orchestration-jobs", "j1 core-1", "j2 gui-1");
 }
 #[test]
 fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_blocked_cell() {
@@ -606,6 +733,142 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
     let bindings = app.bindings();
     assert_eq!(bindings["r"].text, "release-held");
     assert_eq!(bindings["a"].text, "allow-once");
+    // Tab moves Who may message whom → Talks → Jobs → back; the footer offers only what the
+    // focused section does.
+    let mut app = app;
+    let tab = ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Tab,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    );
+    let footer = |app: &super::super::app::App| {
+        let buffer = paint(app, 160, 36);
+        row_text(&buffer, 35)
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect::<String>()
+    };
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        app.key(tab);
+        seen.push(app.orchestration.focus());
+    }
+    assert_eq!(
+        seen,
+        vec![
+            super::Section::Talks,
+            super::Section::Jobs,
+            super::Section::Routes
+        ]
+    );
+    app.key(tab);
+    app.key(tab);
+    let jobs = footer(&app);
+    for hint in [
+        "↑↓ job",
+        "Tab section",
+        "p pause",
+        "x run now",
+        "e edit",
+        "n new",
+        "? help",
+    ] {
+        assert!(jobs.contains(hint), "{hint}: {jobs}");
+    }
+    assert!(
+        !jobs.contains("allow once") && !jobs.contains("[ earlier"),
+        "{jobs}"
+    );
+    // Every section offers at most eight hints, its own keys first: board-wide quit yields
+    // before them, and End focus while no focus is active.
+    let hints = |line: &str| line.split("  ").filter(|h| !h.trim().is_empty()).count();
+    assert!(hints(&jobs) <= 8, "{jobs}");
+    app.key(tab);
+    let routes = footer(&app);
+    assert!(hints(&routes) <= 8, "{routes}");
+    for hint in ["↑↓ member", "←→ cell", "a allow once", "f focus", "? help"] {
+        assert!(routes.contains(hint), "{hint}: {routes}");
+    }
+    assert!(
+        !routes.contains("q quit") && !routes.contains("end focus"),
+        "{routes}"
+    );
+    app.key(tab);
+    let talks = footer(&app);
+    assert!(hints(&talks) <= 8 && talks.contains("↑↓ pair"), "{talks}");
+}
+#[test]
+fn job_keys_confirm_pause_and_run_and_leave_a_tmt_orch_job_read_only() {
+    use super::super::app::Effect;
+    use super::write::{JobOp, Step, Task};
+    let mut app = matrix_app();
+    let press = |app: &mut super::super::app::App, code| {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            code,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+    };
+    use ratatui::crossterm::event::KeyCode::{Char, Down, Tab};
+    // A confirm applies only through a button it painted.
+    let confirm = |app: &mut super::super::app::App| {
+        paint(app, 160, 36);
+        press(app, Char('y'))
+    };
+    // Outside Jobs the job keys name where they act.
+    assert!(matches!(press(&mut app, Char('p')), Effect::None));
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|n| n.contains("Tab to Jobs"))
+    );
+    press(&mut app, Tab);
+    press(&mut app, Tab);
+    // The first job by next run: peer's ready j2. Pause confirms first, then sends exactly it.
+    assert!(matches!(press(&mut app, Char('p')), Effect::None));
+    assert_eq!(
+        app.confirm.as_ref().unwrap().title(),
+        "Pause j2 · UI check?"
+    );
+    let Effect::Orchestration(Task {
+        step: Step::Job {
+            key, revision, op, ..
+        },
+    }) = confirm(&mut app)
+    else {
+        panic!("the confirmed pause runs on the lane")
+    };
+    assert_eq!((key.id.as_str(), revision, op), ("c2", 2, JobOp::Pause));
+    press(&mut app, Char('x'));
+    assert_eq!(
+        app.confirm.as_ref().unwrap().title(),
+        "Run j2 · UI check now?"
+    );
+    let Effect::Orchestration(Task {
+        step: Step::Job { op, .. },
+    }) = confirm(&mut app)
+    else {
+        panic!("the confirmed run runs on the lane")
+    };
+    assert_eq!(op, JobOp::Run);
+    // j1 is next; then j4, made with `tmt orch job`: read-only, with where to change it.
+    press(&mut app, Down);
+    press(&mut app, Down);
+    assert_eq!(app.orchestration.selected_job().unwrap().display_id, "j4");
+    assert!(matches!(press(&mut app, Char('x')), Effect::None));
+    assert!(app.confirm.is_none());
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|n| n.contains("tmt orch job")),
+        "{:?}",
+        app.notice
+    );
+    // A paused job resumes.
+    press(&mut app, Down);
+    press(&mut app, Char('p'));
+    assert_eq!(
+        app.confirm.as_ref().unwrap().title(),
+        "Resume j3 · Archive review?"
+    );
 }
 
 #[test]
@@ -656,6 +919,8 @@ pub(in crate::board) mod captures {
         "orchestration-week",
         "orchestration-month",
         "orchestration-history",
+        "orchestration-jobs",
+        "orchestration-jobs-paused",
     ];
     const WED_23: u64 = 1_794_405_600_000;
     /// Wed 00:00 Asia/Tokyo: the local day every roster range starts from.
@@ -760,6 +1025,7 @@ pub(in crate::board) mod captures {
                 }
                 json!({"routes":routes,"nextAfter":null})
             }
+            (_, Some("jobs")) => roster_jobs(),
             (_, Some("talks")) => {
                 let member = |index: usize| {
                     json!({"identityId":roster_id(index),"name":ROSTER[index].0,
@@ -783,10 +1049,52 @@ pub(in crate::board) mod captures {
                 "timeline":timeline}),
         })
     }
+    /// The squad's jobs as the page's Jobs mock lists them, with an ownerless job and one made
+    /// with `tmt orch job`.
+    fn roster_jobs() -> Value {
+        let owner = |index: usize| Some((ROSTER[index].0, ROSTER[index].0));
+        let mut rows = Vec::new();
+        let hold = |row: &mut Value, kind: &str, plan: Option<&str>, until: u64| {
+            row["state"] = "held".into();
+            row["routine"] = json!({"value":"hold","source":{"kind":kind,"planId":plan,"identityId":null,
+                "revision":2,"slot":{"startMs":WED_23 - HOUR,"endMs":until},"defaulted":false}});
+        };
+        let mut j1 = job(1, owner(2), "Queue review", "every 30m");
+        hold(&mut j1, "plan", Some(QUIET), WED_00 + 32 * HOUR);
+        j1["nextRunAtMs"] = (WED_23 + HOUR / 2).into();
+        j1["lastRun"] = json!({"recordedAtMs":WED_23 - 90 * 60_000,"acceptance":"queued"});
+        let mut j2 = job(2, owner(5), "UI check", "every 1h");
+        hold(&mut j2, "focus", None, WED_23 + 2 * HOUR);
+        j2["nextRunAtMs"] = WED_23.into();
+        let mut j3 = job(3, owner(6), "Night review", "every 1h");
+        j3["nextRunAtMs"] = (WED_23 + HOUR).into();
+        let mut j4 = job(4, owner(7), "Queue check", "every 1h");
+        j4["nextRunAtMs"] = (WED_23 + HOUR / 2).into();
+        let mut j5 = job(5, owner(6), "Archive review", "daily 23:30");
+        j5["state"] = "paused".into();
+        j5["manualPause"] = json!({"by":roster_id(0),"atMs":WED_23 - DAY});
+        let mut j6 = job(6, owner(0), "Status check", "weekdays 09:00");
+        j6["nextRunAtMs"] = (WED_00 + 33 * HOUR).into();
+        let j7 = job(7, None, "Old digest", "daily 07:00");
+        let mut j8 = job(8, owner(10), "Weekly report", "weekdays 10:00");
+        j8["legacy"] = Value::Null;
+        j8["nextRunAtMs"] = (WED_00 + 34 * HOUR).into();
+        rows.extend([j1, j2, j3, j4, j5, j6, j7, j8]);
+        for (index, row) in rows.iter_mut().enumerate() {
+            // Owners are roster members by UUID, as Core names them.
+            if let Some(name) = row["target"]["identityName"].as_str() {
+                let at = ROSTER.iter().position(|(n, _)| *n == name).unwrap();
+                row["target"]["identityId"] = roster_id(at).into();
+            }
+            row["revision"] = (index as u64 + 3).into();
+        }
+        json!({"schemaVersion":1,"observedAtMs":WED_23,"configurationRevision":9,"jobs":rows,
+            "nextCursor":null,"historyCoverage":"recorded_only"})
+    }
     fn older_core_pair(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
         match (op, input["view"].as_str()) {
             ("capabilities", _) => Ok(json!({"operations":["orchestration.read"]})),
-            (_, Some("routes" | "talks")) => Err(crate::core::SquadError::new(
+            (_, Some("routes" | "talks" | "jobs")) => Err(crate::core::SquadError::new(
                 "ORCH_INPUT_INVALID",
                 "Invalid orchestration input or calendar selection.",
             )),
@@ -836,7 +1144,9 @@ pub(in crate::board) mod captures {
             "orchestration-roster"
             | "orchestration-week"
             | "orchestration-month"
-            | "orchestration-history" => app.orchestration.read().read_with(roster_api),
+            | "orchestration-history"
+            | "orchestration-jobs"
+            | "orchestration-jobs-paused" => app.orchestration.read().read_with(roster_api),
             "orchestration-table-selection" => {
                 Observation::Ready(Box::new(observe(older_core_pair)))
             }
@@ -853,6 +1163,12 @@ pub(in crate::board) mod captures {
                 app.orchestration.target = Some(roster_id(4));
             }
             "orchestration-table-selection" => app.orchestration.selected = Some(OTHER.into()),
+            "orchestration-jobs" | "orchestration-jobs-paused" => {
+                let number = if scene == "orchestration-jobs" { 1 } else { 5 };
+                app.orchestration.section = super::super::Section::Jobs;
+                app.orchestration.job = Some(format!("30000000-0000-4000-8000-{number:012}"));
+                app.orchestration.selected = Some(roster_id(6));
+            }
             "orchestration-refresh-failed" => app.orchestration.apply(
                 read,
                 Observation::Failed("Core did not answer within 10 s".into()),

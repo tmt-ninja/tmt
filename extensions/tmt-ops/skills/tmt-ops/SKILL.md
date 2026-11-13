@@ -1152,6 +1152,18 @@ focus`). While loading, after a failed first read (with `ctrl-r` to retry) and w
 no plans configured, the section says so; a failed refresh keeps the last data and
 says so in the header.
 
+**Jobs** lists Core's jobs as they stand now (the rule says `now` when the selected
+time is not): id, owner, title, schedule, next run and state (`● ready`, `◆ held ·
+<plan>` or `<member> focus`, `⏸ paused by <name>`, `○ no owner`), ordered by next run
+with paused and ownerless jobs last. A held job's next run is when its hold ends. The
+line under the sections counts members, plans, pairs and jobs. `Tab` moves between
+Who may message whom, Talks this hour and Jobs; `↑↓` moves within the focused section
+and the footer lists only its keys, at most eight (`q quit` yields first). With Jobs focused, the inspector shows the selected
+job's owner, schedule, next run, what holds it, its last run and message; `p` pauses or
+resumes it and `x` runs it once now, each after a confirm, and `e` and `n` open the
+Timers edit and new-job forms. A job made with `tmt orch job` is shown read-only. The
+selected member's own jobs follow its settings in the inspector.
+
 Changes always show Core's preview first and save only that exact preview after you
 confirm: `a` allows a blocked route once until the sender's current slot ends (at
 most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
@@ -1165,8 +1177,9 @@ These keys are the defaults of the tab's own key scope, so `?` lists them and a
 `[bind]` entry can move them: `orchestration-day`, `orchestration-week`,
 `orchestration-month`, `orchestration-earlier`, `orchestration-later`,
 `orchestration-now`, `orchestration-plans`, `allow-once`, `focus-hour`, `end-focus`,
-`release-held` and `why`; the list moves (`previous`, `next`, `fold`, `expand`,
-`first`, `last`) move through members, plans or matrix cells there.
+`release-held`, `why`, `orchestration-section`, `job-pause`, `job-run`, `job-edit` and
+`job-new`; the list moves (`previous`, `next`, `fold`, `expand`,
+`first`, `last`) move through members, plans, matrix cells, talk pairs or jobs there.
 
 ## Cron on the board
 

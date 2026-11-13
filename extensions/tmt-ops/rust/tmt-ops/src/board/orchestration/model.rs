@@ -1,4 +1,5 @@
 //! Typed observations of Core's public API. No schedule or policy resolution lives here.
+use crate::cron_service::rows::{JobRows, JobState};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -612,9 +613,37 @@ pub(in crate::board) struct Snapshot {
     pub clock: BTreeMap<u64, String>,
     pub strip: Strip,
     pub writes: bool,
+    /// Core's jobs, evaluated now, ordered by next run; paused, then ownerless, last.
+    pub jobs: Jobs,
+}
+/// The jobs read, scoped to the Jobs section: a jobs problem never hides the rest of the tab.
+#[derive(Clone, Debug)]
+pub(in crate::board) enum Jobs {
+    Listed(JobRows),
+    /// An older Core without the jobs view.
+    Unavailable,
+    Failed(String),
+}
+impl Jobs {
+    pub fn listed(&self) -> Option<&JobRows> {
+        match self {
+            Self::Listed(jobs) => Some(jobs),
+            _ => None,
+        }
+    }
 }
 impl Snapshot {
-    pub fn new(document: Overview, sending: Sending, writes: bool) -> Result<Self, String> {
+    pub fn new(
+        document: Overview,
+        sending: Sending,
+        writes: bool,
+        jobs: Result<Option<JobRows>, String>,
+    ) -> Result<Self, String> {
+        let mut jobs = match jobs {
+            Ok(Some(jobs)) => Jobs::Listed(jobs),
+            Ok(None) => Jobs::Unavailable,
+            Err(reason) => Jobs::Failed(reason),
+        };
         let zone = jiff::tz::TimeZone::get(&document.time_zone)
             .map_err(|_| "Orchestration calendar zone is unavailable.".to_owned())?;
         let mut instants = BTreeSet::from([
@@ -649,6 +678,20 @@ impl Snapshot {
                 }
             }
         }
+        for job in jobs.listed().into_iter().flat_map(|jobs| &jobs.rows) {
+            instants.extend(job.next_ms());
+            instants.extend(job.last_run.as_ref().map(|run| run.at_ms));
+        }
+        if let Jobs::Listed(jobs) = &mut jobs {
+            jobs.rows.sort_by_key(|job| {
+                let rank = match job.state {
+                    JobState::Paused => 1,
+                    JobState::NoOwner => 2,
+                    _ => 0,
+                };
+                (rank, job.next_ms().is_none(), job.next_ms())
+            });
+        }
         let zoned = |ms: u64| {
             jiff::Timestamp::from_millisecond(ms as i64)
                 .map(|t| t.to_zoned(zone.clone()))
@@ -678,6 +721,7 @@ impl Snapshot {
             clock,
             strip,
             writes,
+            jobs,
         })
     }
     pub fn short(&self, ms: u64) -> String {

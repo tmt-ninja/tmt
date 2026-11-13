@@ -78,6 +78,11 @@ pub enum OpsUiAction {
     EndFocus,
     ReleaseHeld,
     Why,
+    OrchestrationSection,
+    JobPause,
+    JobRun,
+    JobEdit,
+    JobNew,
 }
 
 pub struct OpsUiSpec {
@@ -534,6 +539,41 @@ const SPECS: &[OpsUiSpec] = &[
         9
     ),
     spec!(
+        OrchestrationSection,
+        "orchestration-section",
+        "section",
+        "move to the next Orchestration section",
+        6
+    ),
+    spec!(
+        JobPause,
+        "job-pause",
+        "pause",
+        "pause or resume the selected job, after a confirm",
+        7
+    ),
+    spec!(
+        JobRun,
+        "job-run",
+        "run now",
+        "run the selected job once now, after a confirm",
+        7
+    ),
+    spec!(
+        JobEdit,
+        "job-edit",
+        "edit",
+        "edit the selected job's message and schedule",
+        8
+    ),
+    spec!(
+        JobNew,
+        "job-new",
+        "new",
+        "add a job for the selected member",
+        8
+    ),
+    spec!(
         MoveMembership,
         "move-membership",
         "move",
@@ -597,6 +637,11 @@ impl OpsUiAction {
                 | Self::EndFocus
                 | Self::ReleaseHeld
                 | Self::Why
+                | Self::OrchestrationSection
+                | Self::JobPause
+                | Self::JobRun
+                | Self::JobEdit
+                | Self::JobNew
         )
     }
     pub fn acts_on_member(self) -> bool {

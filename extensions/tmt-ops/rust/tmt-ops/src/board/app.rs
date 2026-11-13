@@ -388,6 +388,8 @@ pub enum Choice {
     IdleAlert(String),
     /// Apply the Orchestration preview the person confirmed.
     OrchestrationApply(Box<serde_json::Value>),
+    /// Run an Orchestration task the person confirmed (a job's pause, resume or run now).
+    OrchestrationTask(Box<super::orchestration::write::Task>),
     /// A rule between menu groups: painted, never chosen.
     Rule,
     /// The muted line above a menu's rows: painted, never chosen, not counted.
@@ -3298,6 +3300,7 @@ impl App {
                     step: super::orchestration::write::Step::Apply(preview),
                 })
             }
+            Choice::OrchestrationTask(task) => Effect::Orchestration(*task),
             Choice::Unavailable(reason) => self.say(reason),
             Choice::CloseTerminal { identity, terminal } => {
                 self.close_terminal_confirmed(&identity, &terminal)

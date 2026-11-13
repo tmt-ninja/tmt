@@ -4,6 +4,7 @@ use super::{
     input::Control,
     model::{Member, Receiving, RouteSource, Snapshot, Source, Verdict},
 };
+use crate::cron_service::rows::{JobRow, JobState};
 use crate::{action::OpsUiAction as Ui, look::Look};
 use ratatui::{
     Frame,
@@ -120,12 +121,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         None => "Who may message whom".into(),
     };
     let rule = line(left, left.y);
+    let focus = state.focus();
+    let mut focused_rule = rule;
     super::super::section_rule::paint(
         frame.buffer_mut(),
         rule,
         &title,
         Line::default(),
-        true,
+        focus == super::Section::Routes,
         look,
     );
     let list = Rect::new(left.x, left.y + 1, left.width, left.height - 1);
@@ -146,54 +149,55 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             None,
         ),
         None => match &state.failure {
-            Some(reason) => {
-                empty(
-                    frame,
-                    app,
-                    list,
-                    &format!("✕ Could not read Orchestration · {reason}"),
-                    None,
-                );
-                frame.buffer_mut()[(list.x + 1, list.y)].set_style(look.role(Role::Blocked));
-                let retry = super::super::view::footer::effective_key(
-                    app,
-                    &app.workspace_bindings(),
-                    crate::action::Verb::Refresh,
-                    "ctrl-r",
-                )
-                .map(|key| super::super::view::footer::key_label(&key).to_owned());
-                if let Some(key) = retry
-                    && list.height > 2
-                {
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        Rect::new(list.x + 1, list.y + 2, list.width.saturating_sub(2), 1),
-                        super::super::keycap::label(Some(&key), "Retry", false, look),
-                    );
-                }
-            }
+            Some(reason) => failed(
+                frame,
+                app,
+                list,
+                &format!("✕ Could not read Orchestration · {reason}"),
+            ),
             None => empty(frame, app, list, "◌ Loading Orchestration…", None),
         },
         Some(snapshot) if state.plans => plans(frame, app, snapshot, list),
         Some(snapshot) => {
-            let talks = snapshot.sending.talks.as_ref().map_or(0, |pairs| {
-                // Rule, column header and one row per pair (or the empty line).
-                2 + pairs.len().max(1) as u16
-            });
-            let gap = u16::from(talks > 0 && list.height >= 12);
-            let members = snapshot.document.members.len() as u16;
-            let room = list.height.saturating_sub(talks + gap);
-            let own = if snapshot.sending.routes.is_some() {
-                // Column names, one row per sender and up to two legend lines.
-                (members + 3).min(room.max(3.min(list.height)))
-            } else {
-                (members + 1).min(room.max(2.min(list.height)))
-            };
-            let mut top = Rect {
-                height: own,
+            // The totals line closes the column when it has room for it.
+            let totals = u16::from(list.height >= 10);
+            let list = Rect {
+                height: list.height - totals,
                 ..list
             };
-            if snapshot.sending.routes.is_some() {
+            if totals > 0 {
+                text(
+                    frame,
+                    app,
+                    Rect::new(list.x + 1, list.bottom(), list.width.saturating_sub(2), 1),
+                    &totals_line(snapshot),
+                    Role::Muted,
+                );
+            }
+            let routes = snapshot.sending.routes.is_some();
+            let members = snapshot.document.members.len() as u16;
+            // Each section's whole content: rule (Talks, Jobs), column names and rows; the matrix
+            // also has up to two legend lines.
+            let full = [
+                if routes { members + 3 } else { members + 1 },
+                snapshot
+                    .sending
+                    .talks
+                    .as_ref()
+                    .map_or(0, |pairs| 2 + pairs.len().max(1) as u16),
+                match &snapshot.jobs {
+                    super::model::Jobs::Listed(jobs) => 2 + jobs.rows.len().max(1) as u16,
+                    // The rule, the reason and the retry key.
+                    super::model::Jobs::Failed(_) => 3,
+                    super::model::Jobs::Unavailable => 0,
+                },
+            ];
+            let (sizes, gap) = section_rows(full, focus, list.height);
+            let mut top = Rect {
+                height: sizes[0],
+                ..list
+            };
+            if routes {
                 let (note, used) = matrix(frame, app, snapshot, top);
                 top.height = used;
                 if !note.is_empty() {
@@ -202,25 +206,42 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         rule,
                         &title,
                         Line::styled(note, look.role(Role::Muted)),
-                        true,
+                        focus == super::Section::Routes,
                         look,
                     );
                 }
             } else {
                 table(frame, app, snapshot, top);
             }
-            let rest = Rect::new(
+            let talk_y = top.bottom() + if full[1] > 0 { gap } else { 0 };
+            let talk_area = Rect::new(
                 list.x,
-                top.bottom() + gap,
+                talk_y,
                 list.width,
-                list.bottom().saturating_sub(top.bottom() + gap),
+                sizes[1].min(list.bottom().saturating_sub(talk_y)),
             );
-            if talks > 0 && !rest.is_empty() {
-                talk_rows(frame, app, snapshot, rest);
+            if full[1] > 0 && !talk_area.is_empty() {
+                talk_rows(frame, app, snapshot, talk_area);
+                if focus == super::Section::Talks {
+                    focused_rule = line(talk_area, talk_area.y);
+                }
+            }
+            let job_y = talk_area.bottom() + if full[2] > 0 { gap } else { 0 };
+            let job_area = Rect::new(
+                list.x,
+                job_y,
+                list.width,
+                list.bottom().saturating_sub(job_y),
+            );
+            if full[2] > 0 && !job_area.is_empty() {
+                job_rows(frame, app, snapshot, job_area);
+                if focus == super::Section::Jobs {
+                    focused_rule = line(job_area, job_area.y);
+                }
             }
         }
     }
-    super::super::pane_chrome::mark_focused_rule(frame.buffer_mut(), app, Some(rule), None);
+    super::super::pane_chrome::mark_focused_rule(frame.buffer_mut(), app, Some(focused_rule), None);
     if !right.is_empty() {
         inspector(frame, app, snapshot.filter(|_| !state.unavailable), right);
     }
@@ -233,6 +254,31 @@ fn empty(frame: &mut Frame, app: &App, area: Rect, message: &str, action: Option
             message,
             action,
             app.look(),
+        );
+    }
+}
+/// A read that failed: the reason, its `✕` in the Blocked role, and the retry key under it.
+fn failed(frame: &mut Frame, app: &App, area: Rect, message: &str) {
+    let look = app.look();
+    empty(frame, app, area, message, None);
+    if area.height == 0 {
+        return;
+    }
+    frame.buffer_mut()[(area.x + 1, area.y)].set_style(look.role(Role::Blocked));
+    let retry = super::super::view::footer::effective_key(
+        app,
+        &app.workspace_bindings(),
+        crate::action::Verb::Refresh,
+        "ctrl-r",
+    )
+    .map(|key| super::super::view::footer::key_label(&key).to_owned());
+    if let Some(key) = retry
+        && area.height > 2
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(area.x + 1, area.y + 2, area.width.saturating_sub(2), 1),
+            super::super::keycap::label(Some(&key), "Retry", false, look),
         );
     }
 }
@@ -1021,6 +1067,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
         note.push("too many to read · filter with /".into());
     }
     for (hidden, direction) in [
+        (first_row, MoreDirection::Up),
         (hidden_rows, MoreDirection::Down),
         (hidden_columns, MoreDirection::Right),
     ] {
@@ -1029,6 +1076,30 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
         }
     }
     (note.join(" · "), y - area.y)
+}
+/// Rows for the left column's sections (routes, talks, jobs) from their whole content `full`, and
+/// whether a blank row parts them. Everything fits: each gets its content and a blank row parts
+/// them. Otherwise nothing is parted, the focused section takes its rows first, up to its content,
+/// and the others keep their rule, column names and one row before sharing what is left in order.
+fn section_rows(full: [u16; 3], focus: super::Section, height: u16) -> ([u16; 3], u16) {
+    let gaps = full[1..].iter().filter(|rows| **rows > 0).count() as u16;
+    if full.iter().sum::<u16>() + gaps <= height {
+        return (full, 1);
+    }
+    // The matrix notes its hidden rows in its rule; Talks and Jobs need a row for their count.
+    let mut sizes = [full[0].min(3), full[1].min(4), full[2].min(4)];
+    let mut left = height.saturating_sub(sizes.iter().sum::<u16>());
+    let first = match focus {
+        super::Section::Routes => 0,
+        super::Section::Talks => 1,
+        super::Section::Jobs => 2,
+    };
+    for index in std::iter::once(first).chain(0..3) {
+        let more = (full[index] - sizes[index]).min(left);
+        sizes[index] += more;
+        left -= more;
+    }
+    (sizes, 0)
 }
 /// Talks this hour: one row per pair Core counts, its limit, last message and whether it is held.
 fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
@@ -1050,7 +1121,7 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         } else {
             Line::default()
         },
-        false,
+        app.orchestration.focus() == super::Section::Talks,
         look,
     );
     if pairs.is_empty() {
@@ -1076,11 +1147,35 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         Role::Muted,
     );
     let at = snapshot.document.at_ms;
-    for (offset, pair) in pairs.iter().enumerate() {
-        let y = area.y + 2 + offset as u16;
-        if y >= area.bottom() {
-            break;
-        }
+    let focused = app.orchestration.focus() == super::Section::Talks;
+    let chosen_pair = pairs.iter().position(|pair| {
+        let (from, to) = (
+            app.orchestration.selected.as_ref(),
+            app.orchestration.target.as_ref(),
+        );
+        (Some(&pair.ids.0), Some(&pair.ids.1)) == (from, to)
+            || (Some(&pair.ids.1), Some(&pair.ids.0)) == (from, to)
+    });
+    let room = usize::from(area.height.saturating_sub(2));
+    let (start, shown, above, below) = window(pairs.len(), room, chosen_pair.filter(|_| focused));
+    let hint = |frame: &mut Frame, y: u16, hidden: usize, direction| {
+        text(
+            frame,
+            app,
+            Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+            &MoreHint::label(hidden as u64, direction, false),
+            Role::Muted,
+        );
+    };
+    let first_y = area.y + 2 + u16::from(above > 0);
+    if above > 0 {
+        hint(frame, area.y + 2, above, MoreDirection::Up);
+    }
+    if below > 0 {
+        hint(frame, first_y + shown as u16, below, MoreDirection::Down);
+    }
+    for (offset, pair) in pairs.iter().enumerate().skip(start).take(shown) {
+        let y = first_y + (offset - start) as u16;
         let limit = pair.limit.map_or_else(|| "—".to_owned(), |l| l.to_string());
         let last = pair.last_at_ms.map_or_else(
             || "—".to_owned(),
@@ -1098,9 +1193,29 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         } else {
             ("● open".to_owned(), Role::Working)
         };
+        let state = &app.orchestration;
+        let chosen = state.focus() == super::Section::Talks && {
+            let (from, to) = (state.selected.as_ref(), state.target.as_ref());
+            (Some(&pair.ids.0), Some(&pair.ids.1)) == (from, to)
+                || (Some(&pair.ids.1), Some(&pair.ids.0)) == (from, to)
+        };
+        let row = Rect::new(area.x, y, area.width, 1);
+        state.hits.borrow_mut().push((row, Control::Talk(offset)));
+        if chosen {
+            app.workspace_state_cells.borrow_mut().push(Rect::new(
+                row.x + 46,
+                row.y,
+                row.width.saturating_sub(46),
+                1,
+            ));
+        }
+        let (base, role_style) = (
+            look.selected(chosen, look.role(Role::Text)),
+            look.selected(chosen, look.role(role)),
+        );
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(area.x, y, area.width, 1),
+            row,
             Line::from(vec![
                 Span::styled(
                     format!(
@@ -1114,12 +1229,292 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                         ),
                         cell(&last, 9)
                     ),
-                    look.role(Role::Text),
+                    base,
                 ),
-                Span::styled(status, look.role(role)),
+                Span::styled(
+                    cell(&status, usize::from(area.width.saturating_sub(46))),
+                    role_style,
+                ),
             ]),
         );
     }
+}
+/// The bottom line of the left column: what the tab counts.
+fn totals_line(snapshot: &Snapshot) -> String {
+    let mut parts = vec![
+        format!("{} members", snapshot.document.members.len()),
+        format!("{} plans", snapshot.document.plans.len()),
+    ];
+    if let Some(pairs) = &snapshot.sending.talks {
+        parts.push(format!("{} pairs", pairs.len()));
+    }
+    if let Some(jobs) = snapshot.jobs.listed() {
+        parts.push(format!("{} jobs", job_count(jobs)));
+    }
+    parts.join(" · ")
+}
+/// How many jobs the read holds: past the bounded read, `256+`.
+fn job_count(jobs: &crate::cron_service::rows::JobRows) -> String {
+    format!("{}{}", jobs.rows.len(), if jobs.more { "+" } else { "" })
+}
+/// Why a held job waits, by name: the plan, the owner's focus, a member setting or Base.
+fn hold_reason(snapshot: &Snapshot, job: &JobRow) -> Option<String> {
+    let hold = job.hold.as_ref()?;
+    Some(match hold.kind.as_str() {
+        "plan" => hold.plan_id.as_deref().map_or_else(
+            || "a plan".to_owned(),
+            |id| snapshot.document.plan_name(id).to_owned(),
+        ),
+        "focus" => format!("{} focus", job.owner_name.as_deref().unwrap_or("owner")),
+        "member" => "member setting".to_owned(),
+        _ => "Base".to_owned(),
+    })
+}
+/// A job's state as its words and role: the one place these are chosen.
+fn job_state(snapshot: &Snapshot, job: &JobRow) -> (String, &'static str, Role) {
+    match job.state {
+        JobState::Ready => ("● ready".into(), "● ready", Role::Working),
+        JobState::Held => (
+            hold_reason(snapshot, job)
+                .map_or_else(|| "◆ held".to_owned(), |why| format!("◆ held · {why}")),
+            "◆ held",
+            Role::Waiting,
+        ),
+        JobState::Paused => {
+            let by = job.paused_by.as_deref().and_then(|id| {
+                snapshot
+                    .document
+                    .members
+                    .iter()
+                    .find(|m| m.identity_id == id)
+                    .map(|m| m.name.clone())
+            });
+            (
+                by.map_or_else(|| "⏸ paused".to_owned(), |by| format!("⏸ paused by {by}")),
+                "⏸ paused",
+                Role::Muted,
+            )
+        }
+        JobState::NoOwner => ("○ no owner".into(), "○ no owner", Role::Muted),
+    }
+}
+fn job_next(snapshot: &Snapshot, job: &JobRow) -> String {
+    job.next_ms()
+        .map_or_else(|| "—".to_owned(), |at| snapshot.clock(at))
+}
+/// The Jobs section: one row per job Core lists, in the snapshot's order.
+fn job_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let look = app.look();
+    let state = &app.orchestration;
+    let jobs = match &snapshot.jobs {
+        super::model::Jobs::Listed(jobs) => jobs,
+        super::model::Jobs::Unavailable => return,
+        super::model::Jobs::Failed(reason) => {
+            super::super::section_rule::paint(
+                frame.buffer_mut(),
+                line(area, area.y),
+                "Jobs",
+                Line::default(),
+                state.focus() == super::Section::Jobs,
+                look,
+            );
+            let body = Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1),
+            );
+            failed(
+                frame,
+                app,
+                body,
+                &format!("✕ Could not read jobs · {reason}"),
+            );
+            return;
+        }
+    };
+    let count = |s: JobState| jobs.rows.iter().filter(|j| j.state == s).count();
+    let mut note: Vec<String> = [
+        (count(JobState::Ready), "ready"),
+        (count(JobState::Held), "held"),
+        (count(JobState::Paused), "paused"),
+        (count(JobState::NoOwner), "no owner"),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, word)| format!("{n} {word}"))
+    .collect();
+    if !state.follow_now {
+        note.push("now".into());
+    }
+    super::super::section_rule::paint(
+        frame.buffer_mut(),
+        line(area, area.y),
+        &format!("Jobs · {}", job_count(jobs)),
+        Line::styled(note.join(" · "), look.role(Role::Muted)),
+        state.focus() == super::Section::Jobs,
+        look,
+    );
+    let body = Rect::new(
+        area.x,
+        area.y + 1,
+        area.width,
+        area.height.saturating_sub(1),
+    );
+    if jobs.rows.is_empty() {
+        empty(frame, app, body, "No jobs · tmt ops sq cron add …", None);
+        return;
+    }
+    // Columns sized to their widest value; the title yields first, and any cut ends in `…`.
+    let states: Vec<(String, Role)> = jobs
+        .rows
+        .iter()
+        .map(|job| {
+            let (words, _, role) = job_state(snapshot, job);
+            (words, role)
+        })
+        .collect();
+    let nexts: Vec<String> = jobs
+        .rows
+        .iter()
+        .map(|job| job_next(snapshot, job))
+        .collect();
+    let widest = |header: &str, values: &mut dyn Iterator<Item = &str>| {
+        values
+            .map(UnicodeWidthStr::width)
+            .fold(header.width(), usize::max)
+    };
+    let id_w = widest("ID", &mut jobs.rows.iter().map(|j| j.display_id.as_str()));
+    let owner_w = widest(
+        "OWNER",
+        &mut jobs
+            .rows
+            .iter()
+            .map(|j| j.owner_name.as_deref().unwrap_or("—")),
+    );
+    let schedule_w = widest(
+        "SCHEDULE",
+        &mut jobs.rows.iter().map(|j| j.schedule.as_str()),
+    );
+    let next_w = widest("NEXT", &mut nexts.iter().map(String::as_str));
+    let title_full = widest("TITLE", &mut jobs.rows.iter().map(JobRow::name));
+    let state_full = widest("STATE", &mut states.iter().map(|(w, _)| w.as_str()));
+    // A leading space, one between columns and one gutter before the divider.
+    let fixed = 1 + id_w + 1 + owner_w + 1 + schedule_w + 1 + next_w + 1;
+    let room_w = usize::from(area.width).saturating_sub(fixed + 2);
+    let title_w = room_w
+        .saturating_sub(state_full)
+        .clamp(5.min(title_full), title_full);
+    let state_w = room_w.saturating_sub(title_w);
+    let columns = |id: &str, owner: &str, title: &str, schedule: &str, next: &str| {
+        format!(
+            " {} {} {} {} {} ",
+            cell(id, id_w),
+            cell(owner, owner_w),
+            cell(title, title_w),
+            cell(schedule, schedule_w),
+            cell(next, next_w),
+        )
+    };
+    let state_x = (fixed + title_w + 1) as u16;
+    text(
+        frame,
+        app,
+        line(body, body.y),
+        &format!(
+            "{}STATE",
+            columns("ID", "OWNER", "TITLE", "SCHEDULE", "NEXT")
+        ),
+        Role::Muted,
+    );
+    let room = usize::from(body.height.saturating_sub(1));
+    let selected = jobs
+        .rows
+        .iter()
+        .position(|job| Some(&job.job_id) == state.job.as_ref())
+        .unwrap_or(0);
+    let focused = state.focus() == super::Section::Jobs;
+    let (start, shown, above, below) = window(jobs.rows.len(), room, focused.then_some(selected));
+    let mut y = body.y + 1;
+    let hint = |frame: &mut Frame, y: u16, hidden: usize, direction| {
+        text(
+            frame,
+            app,
+            Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+            &MoreHint::label(hidden as u64, direction, false),
+            Role::Muted,
+        );
+    };
+    if above > 0 {
+        hint(frame, y, above, MoreDirection::Up);
+        y += 1;
+    }
+    for (index, job) in jobs.rows.iter().enumerate().skip(start).take(shown) {
+        let chosen = focused && index == selected;
+        let row = Rect::new(area.x, y, area.width, 1);
+        let (words, role) = &states[index];
+        let base = look.selected(chosen, look.role(Role::Text));
+        strip::paint_left(
+            frame.buffer_mut(),
+            row,
+            Line::from(vec![
+                Span::styled(
+                    columns(
+                        &job.display_id,
+                        job.owner_name.as_deref().unwrap_or("—"),
+                        job.name(),
+                        &job.schedule,
+                        &nexts[index],
+                    ),
+                    base,
+                ),
+                Span::styled(
+                    cell(words, state_w),
+                    look.selected(chosen, look.role(*role)),
+                ),
+            ]),
+        );
+        if chosen {
+            app.workspace_state_cells.borrow_mut().push(Rect::new(
+                row.x + state_x,
+                row.y,
+                state_w as u16,
+                1,
+            ));
+        }
+        state.hits.borrow_mut().push((row, Control::Job(index)));
+        y += 1;
+    }
+    if below > 0 {
+        hint(frame, y, below, MoreDirection::Down);
+    }
+}
+/// Which rows of `len` fit in `room` with `selected` shown: (first, shown, hidden above, hidden
+/// below). A count of hidden rows takes a row of its own at the top or bottom.
+fn window(len: usize, room: usize, selected: Option<usize>) -> (usize, usize, usize, usize) {
+    if len <= room {
+        return (0, len, 0, 0);
+    }
+    if room < 2 {
+        // No room for a count: the selected row alone.
+        let at = selected.unwrap_or(0).min(len - 1);
+        return (at, room, 0, 0);
+    }
+    let selected = selected.unwrap_or(0);
+    // Room for rows with a count below only.
+    let rows = room.saturating_sub(1);
+    if selected < rows {
+        return (0, rows, 0, len - rows);
+    }
+    // Room with a count above; and below, unless the window reaches the end.
+    let rows = room.saturating_sub(2).max(1);
+    let start = selected + 1 - rows.min(selected + 1);
+    if start + rows >= len {
+        let rows = room.saturating_sub(1).max(1);
+        let start = len - rows;
+        return (start, rows, start, 0);
+    }
+    (start, rows, start, len - start - rows)
 }
 /// The inspector: the selected route, then the selected member, one key/value line per field with
 /// where it comes from. Lines that do not fit end in a count of what is below.
@@ -1132,6 +1527,16 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             .iter()
             .find(|m| Some(&m.identity_id) == app.orchestration.selected.as_ref())
     });
+    if let Some(snapshot) = snapshot
+        && let Some(job) = app
+            .orchestration
+            .selected_job()
+            .filter(|_| app.orchestration.focus() == super::Section::Jobs)
+    {
+        let lines = job_lines(app, snapshot, job, area.width);
+        place(frame, app, lines, area);
+        return;
+    }
     let (Some(snapshot), Some(member)) = (snapshot, member) else {
         super::super::section_rule::paint(
             frame.buffer_mut(),
@@ -1333,6 +1738,36 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             None,
         ));
     }
+    if let Some(jobs) = snapshot.jobs.listed() {
+        let own: Vec<&JobRow> = jobs
+            .rows
+            .iter()
+            .filter(|job| job.owner_id.as_ref() == Some(&member.identity_id))
+            .collect();
+        if !own.is_empty() {
+            lines.push(InspectorLine::Blank);
+            lines.push(InspectorLine::Rule(
+                format!("Jobs of {} · {}", member.name, own.len()),
+                Line::default(),
+            ));
+            for job in own {
+                let (words, _, role) = job_state(snapshot, job);
+                lines.push(InspectorLine::Styled(Line::from(vec![
+                    Span::styled(
+                        format!(
+                            " {} {} {} {} ",
+                            cell(&job.display_id, 4),
+                            cell(job.name(), 16),
+                            cell(&job.schedule, 13),
+                            cell(&job_next(snapshot, job), 9),
+                        ),
+                        look.role(Role::Text),
+                    ),
+                    Span::styled(words, look.role(role)),
+                ])));
+            }
+        }
+    }
     if let Some((id, why)) = &app.orchestration.why
         && id == &member.identity_id
     {
@@ -1344,6 +1779,10 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             }
         }
     }
+    place(frame, app, lines, area);
+}
+/// The inspector lines from the top of `area`; what does not fit ends in a count of what is below.
+fn place(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: Rect) {
     let rows = usize::from(area.height);
     let (shown, hidden) = if lines.len() > rows {
         (rows.saturating_sub(1), lines.len() - rows.saturating_sub(1))
@@ -1366,12 +1805,121 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
         );
     }
 }
+/// The selected job: its schedule and next run, what holds it, its last run and message, then
+/// what it offers. A job made with `tmt orch job` is read-only here.
+fn job_lines(app: &App, snapshot: &Snapshot, job: &JobRow, width: u16) -> Vec<InspectorLine> {
+    let look = app.look();
+    let (_, mark, role) = job_state(snapshot, job);
+    let mut lines = vec![InspectorLine::Rule(
+        format!("{} · {}", job.display_id, job.name()),
+        Line::styled(mark, look.role(role)),
+    )];
+    lines.push(InspectorLine::Row(
+        "Owner",
+        job.owner_name.clone().unwrap_or_else(|| "no owner".into()),
+        if job.owner_name.is_some() {
+            Role::Text
+        } else {
+            Role::Muted
+        },
+        None,
+    ));
+    lines.push(InspectorLine::Row(
+        "Schedule",
+        job.schedule.clone(),
+        Role::Text,
+        None,
+    ));
+    let reason = hold_reason(snapshot, job);
+    lines.push(InspectorLine::Row(
+        "Next",
+        job_next(snapshot, job),
+        Role::Text,
+        match (
+            &job.state,
+            &reason,
+            job.hold.as_ref().and_then(|h| h.until_ms),
+        ) {
+            (JobState::Held, Some(why), Some(_)) => Some(format!("when {why} ends")),
+            _ => None,
+        },
+    ));
+    if let (Some(why), Some(hold)) = (reason, &job.hold) {
+        lines.push(InspectorLine::Row(
+            "Held by",
+            why,
+            Role::Waiting,
+            Some(hold.kind.clone()),
+        ));
+    }
+    if job.state == JobState::Paused {
+        let (words, _, _) = job_state(snapshot, job);
+        lines.push(InspectorLine::Row(
+            "Paused",
+            words.trim_start_matches("⏸ paused").trim().to_owned(),
+            Role::Muted,
+            None,
+        ));
+    }
+    let (last, last_role) = match &job.last_run {
+        None => ("no run recorded".to_owned(), Role::Muted),
+        Some(run) => {
+            let (words, role) = match run.acceptance.as_str() {
+                "queued" => ("✓ accepted", Role::Text),
+                "recipient_unavailable" => ("✕ not accepted · owner unavailable", Role::Blocked),
+                "route_restricted" => ("✕ not accepted · route restricted", Role::Blocked),
+                "held_for_person" => ("◆ held for a person", Role::Waiting),
+                other => (other, Role::Text),
+            };
+            (format!("{} {words}", snapshot.clock(run.at_ms)), role)
+        }
+    };
+    lines.push(InspectorLine::Row("Last run", last, last_role, None));
+    let message = app
+        .orchestration
+        .job_message
+        .as_ref()
+        .filter(|(id, _)| id == &job.job_id)
+        .map_or(job.message_preview.as_str(), |(_, message)| {
+            message.as_str()
+        });
+    let wrapped = super::super::notes::wrap(&safe(message), usize::from(width.saturating_sub(14)));
+    for (index, part) in wrapped.into_iter().enumerate() {
+        if index == 0 {
+            lines.push(InspectorLine::Row("Message", part, Role::Text, None));
+        } else {
+            lines.push(InspectorLine::Row("", part, Role::Text, None));
+        }
+    }
+    if job.key.is_none() {
+        lines.push(InspectorLine::Text(
+            "Made with tmt orch job; change it there.".into(),
+            Role::Muted,
+        ));
+        return lines;
+    }
+    let key = |action, preferred| super::super::keycap::key(app, action, preferred);
+    let mut buttons = Vec::new();
+    match job.state {
+        JobState::Paused => buttons.push((key(Ui::JobPause, "p"), "Resume", Control::JobPause)),
+        JobState::NoOwner => {}
+        _ => buttons.push((key(Ui::JobPause, "p"), "Pause", Control::JobPause)),
+    }
+    buttons.push((key(Ui::JobRun, "x"), "Run now", Control::JobRun));
+    buttons.push((key(Ui::JobEdit, "e"), "Edit…", Control::JobEdit));
+    buttons.push((key(Ui::JobNew, "n"), "New job…", Control::JobNew));
+    lines.push(InspectorLine::Buttons(buttons));
+    lines
+}
 /// One inspector line before it is placed.
 enum InspectorLine {
     Rule(String, Line<'static>),
     Row(&'static str, String, Role, Option<String>),
     Button(Option<String>, String, Control),
+    /// Several keycap buttons on one line, as far as they fit.
+    Buttons(Vec<(Option<String>, &'static str, Control)>),
     Text(String, Role),
+    Styled(Line<'static>),
     Blank,
 }
 impl InspectorLine {
@@ -1418,6 +1966,30 @@ impl InspectorLine {
                     .borrow_mut()
                     .push((Rect { width, ..area }, control));
             }
+            Self::Buttons(buttons) => {
+                let mut x = area.x + 1;
+                for (key, label, control) in buttons {
+                    let mut spans = Vec::new();
+                    if let Some(key) = key {
+                        spans.push(super::super::keycap::span(&key, false, look));
+                        spans.push(Span::raw(" "));
+                    }
+                    spans.push(Span::styled(label, look.role(Role::Text)));
+                    let width = Line::from(spans.clone()).width() as u16;
+                    if x + width > area.right() {
+                        break;
+                    }
+                    let rect = Rect::new(x, area.y, width, 1);
+                    strip::paint_left(frame.buffer_mut(), rect, Line::from(spans));
+                    app.orchestration.hits.borrow_mut().push((rect, control));
+                    x += width + 3;
+                }
+            }
+            Self::Styled(value) => strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.x, area.y, area.width, 1),
+                value,
+            ),
             Self::Text(value, role) => text(
                 frame,
                 app,

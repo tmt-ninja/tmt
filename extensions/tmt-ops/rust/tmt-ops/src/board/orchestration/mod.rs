@@ -10,8 +10,22 @@ pub(in crate::board) use load::{Observation, Read};
 use model::{Query, Snapshot};
 use std::sync::Arc;
 
+/// The left column's sections, in Tab order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::board) enum Section {
+    /// Who may message whom, the Members table or the plans list.
+    #[default]
+    Routes,
+    Talks,
+    Jobs,
+}
 pub(in crate::board) struct State {
     pub query: Query,
+    pub section: Section,
+    /// The selected job, by Core's job UUID.
+    pub job: Option<String>,
+    /// The selected job's full message, read when it was selected: (job UUID, message).
+    pub job_message: Option<(String, String)>,
     pub follow_now: bool,
     pub selected: Option<String>,
     /// The matrix column: the recipient of the selected route.
@@ -71,6 +85,9 @@ impl Default for State {
     fn default() -> Self {
         Self {
             query: Query::default(),
+            section: Section::default(),
+            job: None,
+            job_message: None,
             follow_now: true,
             selected: None,
             target: None,
@@ -100,6 +117,51 @@ impl State {
     }
     pub fn invalidate(&self) {
         self.hits.borrow_mut().clear();
+    }
+    /// The selected job's row, when Core lists it.
+    pub fn selected_job(&self) -> Option<&crate::cron_service::rows::JobRow> {
+        let id = self.job.as_ref()?;
+        self.snapshot()?
+            .jobs
+            .listed()?
+            .rows
+            .iter()
+            .find(|job| &job.job_id == id)
+    }
+    /// Why the jobs read failed, when it did; the rest of the tab still shows.
+    pub fn jobs_failure(&self) -> Option<&str> {
+        match &self.snapshot()?.jobs {
+            model::Jobs::Failed(reason) => Some(reason),
+            _ => None,
+        }
+    }
+    /// The sections Tab moves through: Talks and Jobs only when Core reports them.
+    pub fn sections(&self) -> Vec<Section> {
+        let Some(snapshot) = self.snapshot() else {
+            return vec![Section::Routes];
+        };
+        let mut sections = vec![Section::Routes];
+        if snapshot
+            .sending
+            .talks
+            .as_ref()
+            .is_some_and(|t| !t.is_empty())
+            && !self.plans
+        {
+            sections.push(Section::Talks);
+        }
+        if !matches!(snapshot.jobs, model::Jobs::Unavailable) && !self.plans {
+            sections.push(Section::Jobs);
+        }
+        sections
+    }
+    /// The focused section, or Routes when the focused one is not shown.
+    pub fn focus(&self) -> Section {
+        if self.sections().contains(&self.section) {
+            self.section
+        } else {
+            Section::Routes
+        }
     }
     pub fn snapshot(&self) -> Option<&Snapshot> {
         self.report
@@ -172,6 +234,18 @@ impl State {
                         .plans
                         .first()
                         .and_then(|plan| plan["id"].as_str().map(str::to_owned));
+                }
+                let jobs = snapshot
+                    .jobs
+                    .listed()
+                    .into_iter()
+                    .flat_map(|jobs| &jobs.rows);
+                if self
+                    .job
+                    .as_ref()
+                    .is_none_or(|id| !jobs.clone().any(|job| &job.job_id == id))
+                {
+                    self.job = jobs.clone().next().map(|job| job.job_id.clone());
                 }
                 self.report = Some((read.query, Arc::from(snapshot)));
                 self.failure = None;
