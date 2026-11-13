@@ -628,8 +628,15 @@ pub(in crate::board) mod captures {
         "orchestration-empty",
         "orchestration-failed",
         "orchestration-refresh-failed",
+        "orchestration-week",
+        "orchestration-month",
+        "orchestration-history",
     ];
     const WED_23: u64 = 1_794_405_600_000;
+    /// Wed 00:00 Asia/Tokyo: the local day every roster range starts from.
+    const WED_00: u64 = WED_23 - 23 * HOUR;
+    const HOUR: u64 = 3_600_000;
+    const DAY: u64 = 24 * HOUR;
     const NIGHT_START: u64 = 1_794_402_000_000;
     const NIGHT_END: u64 = 1_794_430_800_000;
     const NIGHT: &str = "20000000-0000-4000-8000-000000000011";
@@ -654,6 +661,24 @@ pub(in crate::board) mod captures {
     /// A real-shaped squad at Wed 23:00 Asia/Tokyo: night members follow Shift B, one route
     /// is allowed once, one pair is held, and both verdicts appear.
     fn roster_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+        // The selected time and range the board asked for: the fixture's own state stands in for now.
+        let at = input["atMs"].as_u64().filter(|at| *at > 1000).unwrap_or(WED_23);
+        let days = input["rangeDays"].as_u64().unwrap_or(1);
+        let end = WED_00 + days * DAY;
+        // Shift B runs 22:00-06:00 on weekdays (the night before the range is clipped to it);
+        // Sat and Sun have Quiet hours all day.
+        let timeline: Vec<Value> = (0..=days)
+            .filter_map(|day| {
+                let start = WED_00 + day * DAY;
+                // Day 0 is Wednesday, so days 3 and 4 of each week are the weekend.
+                let (from, to, plans) = match day % 7 {
+                    3 | 4 => (start, start + DAY, json!([QUIET])),
+                    _ => (start - 2 * HOUR, start + 6 * HOUR, json!([NIGHT, QUIET])),
+                };
+                let (from, to) = (from.max(WED_00), to.min(end));
+                (from < to).then(|| json!({"startMs":from,"endMs":to,"planIds":plans}))
+            })
+            .collect();
         let night = json!({"kind":"plan","planId":NIGHT,"identityId":null,"revision":4,
             "slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},"defaulted":false});
         let field = |value: Value, from_plan: bool| json!({"value":value,"source":if from_plan { night.clone() } else { source() }});
@@ -719,15 +744,15 @@ pub(in crate::board) mod captures {
                      "windowStartMs":NIGHT_START,"state":"open","heldCount":0,"held":[]}]})
             }
             _ => json!({"schemaVersion":1,"configurationRevision":9,"receivingRevision":3,
-                "observedAtMs":WED_23,"atMs":WED_23,"timeZone":"Asia/Tokyo",
-                "range":{"startMs":WED_23 - 82_800_000,"endMs":WED_23 + 3_600_000},
+                "observedAtMs":WED_23,"atMs":at,"timeZone":"Asia/Tokyo",
+                "range":{"startMs":WED_00,"endMs":end},
                 "plans":[
                     {"id":NIGHT,"name":"Shift B · Night","revision":4,"fields":{},"schedule":{},
                      "targets":[],"members":[],"enabled":true,"priority":20},
                     {"id":QUIET,"name":"Quiet hours","revision":2,"fields":{},"schedule":{},
                      "targets":[],"members":[],"enabled":true,"priority":10}],
                 "members":members,
-                "timeline":[{"startMs":NIGHT_START,"endMs":NIGHT_END,"planIds":[NIGHT, QUIET]}]}),
+                "timeline":timeline}),
         })
     }
     fn older_core_pair(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
@@ -765,12 +790,25 @@ pub(in crate::board) mod captures {
             &mut app.workspace.selected,
         ));
         app.orchestration = state();
+        match scene {
+            "orchestration-week" => app.orchestration.query.days = 7,
+            "orchestration-month" => app.orchestration.query.days = 30,
+            "orchestration-history" => {
+                // Wed 04:00, inside last night's shift, away from now.
+                app.orchestration.query.at_ms = WED_00 + 4 * HOUR;
+                app.orchestration.follow_now = false;
+            }
+            _ => {}
+        }
         let observation = match scene {
             "orchestration-loading" => return app,
             "orchestration-unsupported" => Observation::Unavailable,
             "orchestration-table" => Observation::Ready(Box::new(ready())),
             "orchestration-plans" => Observation::Ready(Box::new(observe(plans_api))),
-            "orchestration-roster" => Observation::Ready(Box::new(observe(roster_api))),
+            "orchestration-roster"
+            | "orchestration-week"
+            | "orchestration-month"
+            | "orchestration-history" => app.orchestration.read().read_with(roster_api),
             "orchestration-table-selection" => {
                 Observation::Ready(Box::new(observe(older_core_pair)))
             }
