@@ -180,8 +180,10 @@ pub(in crate::board) fn agents_hints(app: &App, width: usize) -> Option<String> 
 /// The Agents tab's one footer line: the keys the selected row needs, then help and quit.
 fn agents_line(app: &App, width: usize) -> Option<Vec<Hint>> {
     let hints = agents_legend(app)?;
+    let complete = fit_hints(hints.keys.clone(), hints.tail.clone(), usize::MAX);
     let mut fitted = fit_hints(hints.keys, hints.tail, width);
-    if app.moving.is_none()
+    if fitted == complete
+        && app.moving.is_none()
         && matches!(
             app.workspace_input_owner(),
             crate::board::shell::OpsInputOwner::List
@@ -1144,11 +1146,20 @@ mod tests {
                 .unwrap()
                 .contains("⏎ talk  l label")
         );
+        let mut label_visible = false;
         for width in 0..=200 {
             let hints = agents_legend(&app).unwrap();
             let existing = hint_text(&fit_hints(hints.keys, hints.tail, width));
             let actual = agents_hints(&app, width).unwrap();
             assert_eq!(actual.replace("l label  ", ""), existing, "width {width}");
+            if actual.contains("l label") {
+                label_visible = true;
+            } else {
+                assert!(
+                    !label_visible,
+                    "label disappears at width {width}: {actual}"
+                );
+            }
         }
     }
 
