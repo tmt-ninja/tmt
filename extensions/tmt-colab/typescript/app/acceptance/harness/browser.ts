@@ -16,8 +16,15 @@ export interface Door {
   colab: OwnedProcess;
 }
 
-/** Real tmt-remote door with real tmt-colab mounted on its owner-only socket. */
+/**
+ * Real tmt-remote door with real tmt-colab mounted on its owner-only socket. It returns once Colab's
+ * object channel is up, as Remote's own status reports it, so a spec never races its setup (#6351).
+ */
 export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door> {
+  // As a real install and startServe have them: the serve's object-channel handshake asks
+  // `tmt remote status` through core, which finds Remote only on the world's PATH. Without the
+  // links Remote's first setups are refused and it retries only after its cooldown (#6351).
+  world.linkExtensions();
   const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
     'serve',
     '--json',
@@ -34,6 +41,18 @@ export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door>
   if (ready.socket !== path.join(world.dataRoot, 'colab', 'door.sock'))
     throw new Error('Colab mounted outside the isolated data root');
   world.recordColabServe();
+  // Remote dials the channel itself at start; wait for its ready state, never for a time.
+  await expect
+    .poll(
+      () =>
+        (
+          JSON.parse(run(world, world.binaries.remote, ['status', '--objects', '--json'])) as {
+            objectChannels: { extension: string; state: string }[];
+          }
+        ).objectChannels.find((channel) => channel.extension === 'colab'),
+      { message: 'Colab object channel ready', timeout: 30_000, intervals: [50, 100, 250, 500] },
+    )
+    .toEqual({ extension: 'colab', state: 'ready' });
   const address = descriptor.address as string;
   return {
     address,

@@ -59,14 +59,11 @@ test('object channel: first demand and replacement use live discovery', async ({
     };
     try {
       const door = await startDoor(world);
-      // Right after start the channel is in one of the startup states: its first attempt failed
-      // while Colab was not accepting yet (recovery queued), an attempt is running, or recovery
-      // already brought it up (#6311). Any other state is a failure.
-      expect([
-        { extension: 'colab', state: 'unavailable', reason: 'setup' },
-        { extension: 'colab', state: 'starting' },
-        { extension: 'colab', state: 'ready' },
-      ]).toContainEqual(status().objectChannels.find((channel) => channel.extension === 'colab'));
+      // startDoor returns only once Remote reports the channel ready (#6351).
+      expect(status().objectChannels.find((channel) => channel.extension === 'colab')).toEqual({
+        extension: 'colab',
+        state: 'ready',
+      });
       const created = createPage(world, 'Storage route', '<p id="storage-route">Routed source</p>');
       const browser = await pairBrowser(world, 'storage-owner');
       // The failed startup activation comes back through Remote's own recovery, with no page open.
@@ -142,6 +139,41 @@ test('object channel: first demand and replacement use live discovery', async ({
 
 // Only this test client is compiled here. No product bundle or binary is replaced.
 // It drives the real browser registration, Connection, crypto, fold and Writer.
+test('object channel: a refused first setup recovers once Remote can be found (#6351)', async () => {
+  await withWorld(async (world) => {
+    // The door as startDoor brings it up, but before the extensions are on the world's PATH: the
+    // serve's handshake discovery cannot find Remote, so Remote's startup setup is refused.
+    const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
+      'serve',
+      '--json',
+      '--port',
+      '0',
+    ]);
+    await remote.event((value) => typeof value.address === 'string');
+    const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+      'serve',
+      '--json',
+      '--no-open',
+    ]);
+    await colab.event((value) => value.state === 'mounted');
+    world.recordColabServe();
+    const channel = () =>
+      (
+        JSON.parse(run(world, world.binaries.remote, ['status', '--objects', '--json'])) as {
+          objectChannels: { extension: string; state: string }[];
+        }
+      ).objectChannels.find((entry) => entry.extension === 'colab');
+    const polling = { timeout: 30_000, intervals: [50, 100, 250, 500, 1000] };
+    await expect
+      .poll(channel, polling)
+      .toEqual({ extension: 'colab', state: 'unavailable', reason: 'setup' });
+    // Once Remote can be found, its own recovery retries after the cooldown and reaches ready,
+    // with no page demand and no restart.
+    world.linkExtensions();
+    await expect.poll(channel, polling).toEqual({ extension: 'colab', state: 'ready' });
+  });
+});
+
 test('object channel: upload original recovers, commits and publishes through real owners', async ({
   browserName,
 }, info) => {
