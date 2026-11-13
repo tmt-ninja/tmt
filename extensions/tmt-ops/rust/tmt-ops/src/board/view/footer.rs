@@ -1144,6 +1144,12 @@ mod tests {
                 .unwrap()
                 .contains("⏎ talk  l label")
         );
+        for width in 0..=200 {
+            let hints = agents_legend(&app).unwrap();
+            let existing = hint_text(&fit_hints(hints.keys, hints.tail, width));
+            let actual = agents_hints(&app, width).unwrap();
+            assert_eq!(actual.replace("l label  ", ""), existing, "width {width}");
+        }
     }
 
     #[test]
