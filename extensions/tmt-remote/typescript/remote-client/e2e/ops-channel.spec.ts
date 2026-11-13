@@ -433,6 +433,33 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(link).toHaveAttribute('title', 'https://example.test/a?b=1');
   await expect(conversation(page).locator('.ops-dm-message-text code')).toHaveText('tmt ls');
+  // A reply cut to its preview ends in an ellipsis until its full text is read from its result.
+  const reply = conversation(page)
+    .locator('.ops-dm-message')
+    .nth(1)
+    .locator('.ops-dm-message-text');
+  await page.evaluate(() => {
+    const item = window.dmNewest.items[0]!;
+    if (item.final.status === 'retained') item.final.bodyBytes = 4000;
+  });
+  await refresh(page);
+  await expect(reply).toHaveText(/…$/);
+  await expect(reply).toHaveAttribute('title', 'Preview shortened · the full reply is 4,000 bytes');
+  await page.evaluate(() => {
+    const requestId = window.dmNewest.items[0]!.requestId;
+    window.roomResults[requestId] = {
+      state: 'replied',
+      requestId,
+      message: 'The checks passed. The whole reply, past its preview, ends here.',
+    };
+  });
+  await page.evaluate(() => (location.hash = '#channel/sample'));
+  await details(page);
+  await memberLink(page, 'sample-1').click();
+  await expect(reply).toHaveText(
+    'The checks passed. The whole reply, past its preview, ends here.',
+  );
+  await expect(reply).not.toHaveAttribute('title');
   const stored = await positions(page);
   expect(stored).toHaveLength(2);
   expect(
@@ -702,7 +729,10 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
         ...[0, 1, 2].map((n) =>
           post(200 + n, 1720200000000 + n * 60_000, '00000000-0000-4000-8000-000000000001'),
         ),
-      ],
+      ].map((item) =>
+        // The last of the run reaches Core's 160-character preview.
+        item.preview === 'Post 202' ? { ...item, preview: 'Post 202 '.padEnd(160, 'x') } : item,
+      ),
     },
   );
   await refresh(page);
@@ -717,6 +747,23 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
   await expect(run.nth(1)).toHaveAttribute('data-continued', '');
   await expect(run.nth(2)).toHaveAttribute('data-continued', '');
   await expect(stream.locator('.ops-dm-message').nth(1)).not.toHaveAttribute('data-continued');
+  // Only the current day's line is held at the top: the earlier day's line leaves with its block.
+  await stream.evaluate((list) => (list.scrollTop = list.scrollHeight / 2));
+  const held = await stream.evaluate((list) => {
+    const top = list.getBoundingClientRect().top;
+    return [...list.querySelectorAll('.ops-dm-day')].filter((line) => {
+      const rect = line.getBoundingClientRect();
+      return rect.bottom > top && rect.top < top + rect.height;
+    }).length;
+  });
+  expect(held).toBe(1);
+  // A post cut to Core's preview ends in an ellipsis and says so.
+  const capped = stream.locator('.ops-dm-message-text').filter({ hasText: 'Post 202' });
+  await expect(capped).toHaveText(/…$/);
+  await expect(capped).toHaveAttribute(
+    'title',
+    'Preview shortened · the full message is longer than 160 characters',
+  );
   // Scrolled up, a new post keeps the reader's place and says it arrived.
   await stream.evaluate((list) => (list.scrollTop = 0));
   const latest = page.getByRole('button', { name: /new message|Jump to latest/ });

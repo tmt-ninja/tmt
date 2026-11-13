@@ -3,7 +3,7 @@
  * the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
  * read at a time; positions and seen state never leave their owners. */
 import { el } from './ops-parts.js';
-import { exchangeRows, outbox, pendingRow, talkList } from './talk-stream.js';
+import { exchangeRows, outbox, pendingRow, shortenedReply, talkList } from './talk-stream.js';
 import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
@@ -12,6 +12,7 @@ import {
   ClientError,
   RefusalError,
   operations,
+  type ResultState,
   type SendInput,
   type SendState,
 } from './operations.js';
@@ -37,6 +38,8 @@ export type ConversationRead = (
 export interface ConversationTalk {
   send(input: SendInput): Promise<SendState>;
   operation(operationId: string): Promise<SendState>;
+  /** A request's outcome; a replied one carries the reply's full text. */
+  result(requestId: string): Promise<ResultState>;
 }
 export interface ConversationObservation {
   scope?: ConversationScope;
@@ -84,6 +87,7 @@ function sessionTalk(shell: RemoteShell): ConversationTalk {
   return {
     send: async (input) => (await client()).send(input),
     operation: async (operationId) => (await client()).operation(operationId),
+    result: async (requestId) => (await client()).result(requestId),
   };
 }
 function storage(): Storage | undefined {
@@ -94,6 +98,8 @@ function storage(): Storage | undefined {
   }
 }
 const UNKNOWN: ConversationUnread = { state: 'unknown' };
+/** How many shortened replies one opened conversation reads in full. */
+const FULL_REPLIES = 10;
 
 export function conversationHistory(
   shell: RemoteShell,
@@ -120,6 +126,10 @@ export function conversationHistory(
   const composer = composerSlot(composerHost);
   const seen = conversationSeen(storage());
   const items = new Map<string, ConversationItem>();
+  // A reply's preview is capped; its full text comes from the request's result, read once per
+  // shortened reply and at most `FULL_REPLIES` of them per conversation opened.
+  const fullReplies = new Map<string, string>();
+  const asked = new Set<string>();
   let memberId: string | undefined,
     memberName = '',
     panelVisible = false;
@@ -154,12 +164,16 @@ export function conversationHistory(
     stream.draw(
       items.values(),
       (item) =>
-        exchangeRows(item, {
-          me: 'You',
-          them: memberName,
-          fromMe: item.direction === 'toMember',
-        }),
-      memberName,
+        exchangeRows(
+          item,
+          {
+            me: 'You',
+            them: memberName,
+            fromMe: item.direction === 'toMember',
+          },
+          fullReplies.get(item.requestId),
+        ),
+      [memberName, fullReplies.size],
       unlisted && pendingRow(unlisted, memberName),
     );
   }
@@ -181,6 +195,27 @@ export function conversationHistory(
         void box.send(agentId, message, (operationId) => ({ operationId, agentId, message }));
       },
     });
+  }
+  /** The full text of the newest shortened replies, one read at a time; a failed read keeps the
+   * shortened preview and is not asked again until the conversation opens again. */
+  async function readFullReplies(selected: string, ticket: number) {
+    const wanted = [...items.values()]
+      .filter((item) => !asked.has(item.requestId) && shortenedReply(item))
+      .sort((a, b) => b.preparedAtMs - a.preparedAtMs)
+      .slice(0, Math.max(0, FULL_REPLIES - asked.size));
+    for (const item of wanted) {
+      asked.add(item.requestId);
+      try {
+        const value = await talk.result(item.requestId);
+        if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
+        if (value.state === 'replied') {
+          fullReplies.set(item.requestId, value.message);
+          draw();
+        }
+      } catch {
+        // The preview stays, with its ellipsis.
+      }
+    }
   }
   async function load(before?: ConversationCursor): Promise<boolean> {
     if (!memberId || shell.signal.aborted || document.visibilityState !== 'visible') return true;
@@ -224,6 +259,8 @@ export function conversationHistory(
         (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)
       ) {
         items.clear();
+        fullReplies.clear();
+        asked.clear();
         stream.reset();
         olderCursor = undefined;
       }
@@ -244,6 +281,7 @@ export function conversationHistory(
               : `No messages with ${memberName} yet. Say hello below.`;
       status.hidden = status.textContent === '';
       draw();
+      void readFullReplies(selected, ticket);
       const visible = panelVisible && node.isConnected && document.visibilityState === 'visible';
       if (
         !before &&
@@ -260,6 +298,8 @@ export function conversationHistory(
     } catch {
       if (current()) {
         items.clear();
+        fullReplies.clear();
+        asked.clear();
         stream.reset();
         olderCursor = undefined;
         status.hidden = false;
@@ -302,6 +342,8 @@ export function conversationHistory(
     select(member: { id: string; name: string } | undefined) {
       const wasVisible = panelVisible;
       panelVisible = member !== undefined;
+      // Opening the conversation again asks again for replies whose full text could not be read.
+      if (member && !wasVisible) asked.clear();
       if (member && member.id !== memberId) {
         memberId = member.id;
         memberName = member.name;
@@ -309,6 +351,8 @@ export function conversationHistory(
         scope = undefined;
         olderCursor = undefined;
         items.clear();
+        fullReplies.clear();
+        asked.clear();
         stream.reset();
         status.hidden = false;
         status.textContent = 'Reading the conversation…';

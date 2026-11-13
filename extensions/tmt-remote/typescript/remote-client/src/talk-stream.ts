@@ -176,6 +176,8 @@ export function messageRow(options: {
   quiet?: boolean;
   /** Names to mark where the words @mention them. */
   mentions?: readonly string[];
+  /** The words are a shortened preview: they end in an ellipsis and this says so on hover. */
+  shortened?: string;
 }): HTMLElement {
   const row = el('li', 'ops-dm-message');
   if (options.self) row.dataset.self = '';
@@ -211,7 +213,13 @@ export function messageRow(options: {
   }
   const text = el('p', 'ops-dm-message-text', words ?? 'Message preview unavailable');
   if (words === null || options.quiet) text.dataset.quiet = '';
-  else text.replaceChildren(...richText(words, options.mentions));
+  else {
+    text.replaceChildren(...richText(words, options.mentions));
+    if (options.shortened) {
+      text.append('…');
+      text.title = options.shortened;
+    }
+  }
   const content = el('div', 'ops-dm-message-body');
   content.append(head, text);
   if (options.note) content.append(el('p', 'ops-dm-message-note', options.note));
@@ -224,10 +232,26 @@ export function messageRow(options: {
   return row;
 }
 
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one. */
+/** Core keeps a post's preview to this many characters; a longer post is cut there. */
+export const PREVIEW_CHARACTERS = 160;
+/** The hover line of a post cut to its preview; Core does not say how long the whole post is. */
+export const SHORTENED_POST = `Preview shortened · the full message is longer than ${PREVIEW_CHARACTERS} characters`;
+const utf8 = new TextEncoder();
+/** A reply preview shorter than the reply Core retained, or nothing when it is whole. */
+export function shortenedReply(item: Pick<ConversationItem, 'final' | 'responsePreview'>) {
+  return item.final.status === 'retained' &&
+    item.responsePreview !== null &&
+    item.final.bodyBytes > utf8.encode(item.responsePreview).length
+    ? `Preview shortened · the full reply is ${item.final.bodyBytes.toLocaleString()} bytes`
+    : undefined;
+}
+
+/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one: its
+ * full text once read (`fullReply`), else its preview. */
 export function exchangeRows(
   item: ConversationItem,
   names: { me: string; them: string; fromMe: boolean },
+  fullReply?: string,
 ): HTMLElement[] {
   const { fromMe, them } = names;
   if (item.kind === 'announcement') return [noticeRow(item.preview, new Date(item.preparedAtMs))];
@@ -238,11 +262,12 @@ export function exchangeRows(
       self: fromMe,
       at: new Date(item.preparedAtMs),
       text: item.preview,
-      ...(item.previewTruncated ? { note: 'Preview shortened' } : {}),
+      ...(item.previewTruncated ? { shortened: SHORTENED_POST } : {}),
       ...(fromMe ? { state: deliveryText(item), mark: deliveryMark(item) } : {}),
     }),
   ];
-  const replyWords = item.responsePreview ?? finalLabel(item);
+  const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
+  const replyShortened = fullReply === undefined ? shortenedReply(item) : undefined;
   if (replyWords !== undefined && replyWords !== null)
     out.push(
       messageRow({
@@ -251,7 +276,8 @@ export function exchangeRows(
         self: !fromMe,
         ...(item.final.status === 'retained' ? { at: new Date(item.final.submittedAtMs) } : {}),
         text: replyWords,
-        quiet: item.responsePreview === null,
+        quiet: fullReply === undefined && item.responsePreview === null,
+        ...(replyShortened ? { shortened: replyShortened } : {}),
       }),
     );
   return out;
@@ -263,7 +289,8 @@ export function talkList(label: string) {
   const list = el('ol', 'ops-dm-stream');
   list.setAttribute('aria-label', label);
   const rows = new Map<string, { node: HTMLElement; fingerprint: string }>();
-  const days = new Map<string, HTMLElement>();
+  // Each day is a block: its line sticks to the top only while its own messages scroll under it.
+  const days = new Map<string, { node: HTMLElement; line: HTMLElement; rows: HTMLElement }>();
   let pinned = true;
   // Where the stream last scrolled itself: its own scroll events never release the hold.
   let placed = -1;
@@ -344,7 +371,10 @@ export function talkList(label: string) {
       const ordered = [...items].sort(
         (a, b) => a.preparedAtMs - b.preparedAtMs || a.requestId.localeCompare(b.requestId),
       );
-      const children: HTMLElement[] = [];
+      const blocks: {
+        block: { node: HTMLElement; line: HTMLElement; rows: HTMLElement };
+        rows: HTMLElement[];
+      }[] = [];
       let day = '';
       for (const item of ordered) {
         const at = new Date(item.preparedAtMs);
@@ -352,13 +382,18 @@ export function talkList(label: string) {
         if (key !== day) {
           day = key;
           const label = key === 'unknown' ? 'Date unknown' : dayLabel(at);
-          let separator = days.get(key);
-          if (separator?.textContent !== label) {
-            separator = el('li', 'ops-dm-day');
-            separator.append(el('span', undefined, label));
-            days.set(key, separator);
+          let block = days.get(key);
+          if (!block) {
+            const node = el('li', 'ops-dm-dayblock');
+            const line = el('div', 'ops-dm-day');
+            const rows = el('ol', 'ops-dm-day-rows');
+            node.append(line, rows);
+            block = { node, line, rows };
+            days.set(key, block);
           }
-          children.push(separator);
+          if (block.line.textContent !== label)
+            block.line.replaceChildren(el('span', undefined, label));
+          blocks.push({ block, rows: [] });
         }
         const fingerprint = JSON.stringify([item, context]);
         let row = rows.get(item.requestId);
@@ -371,19 +406,27 @@ export function talkList(label: string) {
           row = { node: group, fingerprint };
           rows.set(item.requestId, row);
         }
-        children.push(row.node);
+        blocks.at(-1)!.rows.push(row.node);
       }
-      if (tail) children.push(tail);
-      group(children);
+      // The post on its way belongs to today's block, or stands alone in an empty stream.
+      if (tail && blocks.length) blocks.at(-1)!.rows.push(tail);
+      const children = blocks.map(({ block }) => block.node);
+      if (tail && !blocks.length) children.push(tail);
+      group(blocks.flatMap(({ block, rows }) => [block.line, ...rows]));
       children.push(jump);
       latest = ordered.reduce((at, item) => Math.max(at, item.preparedAtMs), latest);
       if (atBottom) caughtUp();
       else unseen = ordered.filter((item) => item.preparedAtMs > seen).length;
       // Unchanged rows stay in place, so a refresh keeps the reader's text selection.
-      const same =
-        children.length === list.children.length &&
-        children.every((child, at) => list.children[at] === child);
-      if (!same) {
+      const same = (parent: Element, next: readonly HTMLElement[]) =>
+        next.length === parent.children.length &&
+        next.every((child, at) => parent.children[at] === child);
+      for (const { block, rows: next } of blocks)
+        if (!same(block.rows, next)) {
+          block.rows.replaceChildren(...next);
+          for (const child of next) sizes.observe(child);
+        }
+      if (!same(list, children)) {
         list.replaceChildren(...children);
         for (const child of children) sizes.observe(child);
       }

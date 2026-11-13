@@ -1855,7 +1855,17 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-dm-stream > :first-child {
   margin-top: auto;
 }
-/* The day stays at the top of the stream while its messages scroll under it, as in Slack. */
+/* A day is a block of its own: its line stays at the top of the stream while its messages scroll
+ * under it, and the next day's line takes over, as in Slack. */
+.ops-dm-dayblock,
+.ops-dm-day-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .ops-dm-day {
   position: sticky;
   /* At the stream's top edge, over its top padding. */
