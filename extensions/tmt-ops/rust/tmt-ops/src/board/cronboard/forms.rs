@@ -140,46 +140,100 @@ impl App {
                 )
             }
             'E' | 'o' => {
-                let zone = job.job.schedule.document()["zone"]
-                    .as_str()
-                    .unwrap_or("UTC")
-                    .to_owned();
-                let message = job.job.message.clone();
-                let editable = message.len() <= super::super::app::MESSAGE_LIMIT;
-                let draft = Draft {
-                    kind: if key == 'E' {
-                        Kind::Edit
-                    } else {
-                        Kind::Reassign
-                    },
-                    step: if key == 'E' && editable {
-                        Step::Message
-                    } else if key == 'E' {
-                        Step::Schedule
-                    } else {
-                        Step::Owner
-                    },
+                let kind = if key == 'E' {
+                    Kind::Edit
+                } else {
+                    Kind::Reassign
+                };
+                self.cron_change_form(
+                    kind,
                     actor,
-                    squad: job.squad.clone(),
-                    room_id: job_key.room_id.clone(),
-                    job: Some((job_key, revision)),
-                    zone,
-                    owner: String::new(),
-                    message: None,
-                    original: Some((message, schedule_text(&job.job.schedule))),
-                };
-                let prefill = match draft.step {
-                    Step::Owner => job.owner_name.clone().unwrap_or_default(),
-                    Step::Message => draft.original.as_ref().expect("edit").0.clone(),
-                    Step::Schedule => draft.original.as_ref().expect("edit").1.clone(),
-                };
-                let note = (key == 'E' && !editable).then(|| {
-                    "the message exceeds the 1 MiB editor limit: kept as stored, use tmt ops sq cron edit --message".to_owned()
-                });
-                self.cron_ask(draft, prefill, note.map(|text| Hint { text, error: false }))
+                    job.squad.clone(),
+                    job_key,
+                    revision,
+                    job.job.message.clone(),
+                    &job.job.schedule,
+                    job.owner_name.clone(),
+                )
             }
             _ => Effect::None,
         }
+    }
+
+    /// The edit or reassign form for a job, from what its opener captured: the Timers list or
+    /// another surface's own read (the Orchestration tab).
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::board) fn cron_change_form(
+        &mut self,
+        kind: Kind,
+        actor: CronActor,
+        squad: String,
+        job_key: JobKey,
+        revision: u64,
+        message: String,
+        schedule: &Schedule,
+        owner_name: Option<String>,
+    ) -> Effect {
+        let edit = kind == Kind::Edit;
+        let zone = schedule.document()["zone"]
+            .as_str()
+            .unwrap_or("UTC")
+            .to_owned();
+        let editable = message.len() <= super::super::app::MESSAGE_LIMIT;
+        let draft = Draft {
+            kind,
+            step: if edit && editable {
+                Step::Message
+            } else if edit {
+                Step::Schedule
+            } else {
+                Step::Owner
+            },
+            actor,
+            room_id: job_key.room_id.clone(),
+            squad,
+            job: Some((job_key, revision)),
+            zone,
+            owner: String::new(),
+            message: None,
+            original: Some((message, schedule_text(schedule))),
+        };
+        let prefill = match draft.step {
+            Step::Owner => owner_name.unwrap_or_default(),
+            Step::Message => draft.original.as_ref().expect("edit").0.clone(),
+            Step::Schedule => draft.original.as_ref().expect("edit").1.clone(),
+        };
+        let note = (edit && !editable).then(|| {
+            "the message exceeds the 1 MiB editor limit: kept as stored, use tmt ops sq cron edit --message".to_owned()
+        });
+        self.cron_ask(draft, prefill, note.map(|text| Hint { text, error: false }))
+    }
+
+    /// The new-job form for a squad, with the owner typed in already.
+    pub(in crate::board) fn cron_new_form(
+        &mut self,
+        actor: CronActor,
+        squad: String,
+        room_id: String,
+        owner: String,
+    ) -> Effect {
+        let zone = match Schedule::local_zone() {
+            Ok(zone) => zone,
+            Err(error) => return self.say(error.message),
+        };
+        let draft = Draft {
+            kind: Kind::New,
+            step: Step::Owner,
+            actor,
+            squad,
+            room_id,
+            job: None,
+            zone,
+            owner: String::new(),
+            message: None,
+            original: None,
+        };
+        self.cron_ask(draft, owner, None)
     }
 
     fn cron_new(&mut self, near: Option<JobView>) -> Effect {
@@ -216,29 +270,13 @@ impl App {
         let Some((squad, room_id)) = target else {
             return self.say("Select a squad, then open its Timers to add a job.");
         };
-        let zone = match Schedule::local_zone() {
-            Ok(zone) => zone,
-            Err(error) => return self.say(error.message),
-        };
         let owner = self
             .selected_row()
             .filter(|row| row["squad"] == squad || self.current.as_deref() == Some(&squad))
             .and_then(|row| row["name"].as_str())
             .map(str::to_owned)
             .unwrap_or_default();
-        let draft = Draft {
-            kind: Kind::New,
-            step: Step::Owner,
-            actor,
-            squad,
-            room_id,
-            job: None,
-            zone,
-            owner: String::new(),
-            message: None,
-            original: None,
-        };
-        self.cron_ask(draft, owner, None)
+        self.cron_new_form(actor, squad, room_id, owner)
     }
 
     fn cron_ask(&mut self, draft: Draft, text: String, hint: Option<Hint>) -> Effect {

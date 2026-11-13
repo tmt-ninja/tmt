@@ -103,7 +103,8 @@ impl Read {
             .and_then(Overview::decode)
             .and_then(|document| {
                 let sending = self.sending(&mut api)?;
-                Snapshot::new(document, sending, supports("orchestration.write"))
+                let jobs = crate::cron_service::rows::read(&mut api)?;
+                Snapshot::new(document, sending, supports("orchestration.write"), jobs)
             });
         match result {
             Ok(value) => Observation::Ready(Box::new(value)),
