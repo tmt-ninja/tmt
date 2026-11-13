@@ -30,6 +30,16 @@ function stateBadge(agent: OpsAgent): HTMLElement {
   return badge;
 }
 
+/** The last day's tokens (#6372) as "~1.4B 1d"; nothing when the machine did not say. */
+export function usage(agent: OpsAgent): string {
+  if (!agent.tokens1d) return '';
+  const amount = new Intl.NumberFormat('en', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(agent.tokens1d.tokens);
+  return `~${amount} 1d${agent.tokens1d.complete ? '' : ' (partial)'}`;
+}
+
 function avatar(name: string, size: 's' | 'm'): HTMLElement {
   const node = el('span', c.avatar, avatarInitials(name));
   node.dataset.size = size;
@@ -111,7 +121,11 @@ export function channelView(
     return button;
   });
   tabs.append(...buttons);
-  bar.append(tabs, toggle);
+  // Folded, the bar is one summary line (spec: "4 members · 2 working · 1 idle   Timers 3").
+  const summary = el('button', 'ops-channel-summary');
+  summary.type = 'button';
+  summary.addEventListener('click', () => setOpen(true));
+  bar.append(summary, tabs, toggle);
   panel.append(bar, ...panels);
   function select(index: number): void {
     selected = index;
@@ -124,6 +138,8 @@ export function channelView(
   function setOpen(value: boolean): void {
     open = value;
     panel.dataset.open = String(value);
+    tabs.hidden = !value;
+    summary.hidden = value;
     toggle.setAttribute('aria-expanded', String(value));
     toggle.setAttribute('aria-label', value ? 'Hide details' : 'Show details');
     select(selected);
@@ -133,8 +149,8 @@ export function channelView(
   // The stream with its message box: the channel's own, or the DM's (placed by the Ops page).
   const history = el('section', 'ops-channel-history');
   const stream = channelStream(shell, port);
-  page.append(head, panel, history);
-  setOpen(true);
+  page.append(head, panel, history, stream.thread);
+  setOpen(false);
   // Slack's frame: the view fills the window below the top bar and only the stream scrolls, so the
   // header and the message box stay in view while reading or typing.
   const fit = () => {
@@ -166,7 +182,7 @@ export function channelView(
     if (agent.role === 'lead') who.append(el('span', 'ops-member-role', 'Lead'));
     const task = el('span', 'ops-member-task', agent.task || 'No task reported');
     if (!agent.task) task.dataset.empty = '';
-    row.append(who, task, stateBadge(agent));
+    row.append(who, task, el('span', 'ops-member-usage', usage(agent)), stateBadge(agent));
     return row;
   }
 
@@ -242,9 +258,8 @@ export function channelView(
         memberRows.clear();
         memberList.replaceChildren();
         selected = place.memberId ? 1 : 0;
-        // A DM opens on its conversation; a channel shows who is in it, except on a phone, where
-        // the members would cover the conversation.
-        setOpen(!place.memberId && !matchMedia('(max-width: 760px)').matches);
+        // Both open on the conversation; the summary line says who is in it.
+        setOpen(false);
       }
       page.dataset.view = place.memberId ? 'dm' : 'channel';
       for (const part of [head, panel, history]) part.hidden = !known;
@@ -267,11 +282,14 @@ export function channelView(
       if (member) {
         face.replaceChildren(avatar(member.name, 'm'));
         title.textContent = member.name;
+        const state = memberState(member);
         line.replaceChildren(
-          stateBadge(member),
+          mark(MARKS[state]),
           [
+            state,
             member.role === 'lead' ? 'Lead' : 'Member',
             member.model,
+            usage(member) || undefined,
             `#${member.squad}`,
             'This machine',
           ]
@@ -293,6 +311,27 @@ export function channelView(
       }
       if (timerCount === undefined) chips.append(chip('Timers unavailable'));
       else if (timerCount || !member) chips.append(chip(`Timers ${timerCount}`));
+      const working = people.filter((agent) => memberState(agent) === 'Working').length;
+      const idle = people.filter((agent) => memberState(agent) === 'Idle').length;
+      const timersWord = timerCount === undefined ? 'Timers unavailable' : `Timers ${timerCount}`;
+      summary.replaceChildren(
+        ...(member
+          ? []
+          : [
+              el(
+                'span',
+                undefined,
+                [
+                  board.truncated
+                    ? 'Members (partial)'
+                    : `${people.length} member${people.length === 1 ? '' : 's'}`,
+                  `${working} working`,
+                  `${idle} idle`,
+                ].join(' · '),
+              ),
+            ]),
+        el('span', 'ops-channel-summary-timers', timersWord),
+      );
       buttons[0]!.hidden = !!member;
       buttons[0]!.textContent = board.truncated ? 'Members' : `Members ${people.length}`;
       buttons[1]!.textContent = timerCount === undefined ? 'Timers' : `Timers ${timerCount}`;

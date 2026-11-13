@@ -218,7 +218,10 @@ four plain states (Working, Idle, Unknown, Offline) from explicit presence/activ
 or raw board colour. A DM panel lists only timers whose owner is that member's name. Timer rows
 show the schedule in words (`ops-timers.ts`). Failed timer reads and partial boards keep their
 unavailable/partial wording. Unchanged observations keep the selected tab; removed members clear
-their old facts rather than selecting a namesake. Phones open a channel with the panel folded.
+their old facts rather than selecting a namesake. The panel opens folded to one summary line
+(members, working, idle, timers). A member row shows the last day's tokens and a timer row its
+next run and On/Paused only when the board reports them (#6372); an unreported value shows nothing,
+never 0, and the browser never derives a next run from the schedule.
 
 `talk-stream.ts` owns the stream shared by the DM and the channel: bottom-anchored rows with day
 separators, delivery marks, replies as rows, unchanged rows kept in place across refreshes, and
@@ -227,8 +230,9 @@ of the same words and send input. It only observes an unknown or held outcome, n
 A Talk-scope refusal shows the Remote settings link and offers no retry.
 `conversation-history.ts` reads the DM through `conversations` and sends with
 `operations(session).send`. `channel-stream.ts` reads the squad room and posts to it with the
-board's `room {roomId, revision}`, to the lead or to each @mentioned member. Replies come from
-`result(requestId)`. The channel shows no unread count, and a refused room read waits for the
+board's `room {roomId, revision}`, to the lead or to each @mentioned member. Each post shows its
+thread in one line (reply count, last reply, state). The thread opens beside the channel, or over it
+on a phone, with each recipient's reply from `result(requestId)`. The channel shows no unread count, and a refused room read waits for the
 board to change. Until Remote's room operations land, production passes no channel port and the
 channel box stays disabled with its reason. Timer and idle-reminder writes remain terminal-only.
 

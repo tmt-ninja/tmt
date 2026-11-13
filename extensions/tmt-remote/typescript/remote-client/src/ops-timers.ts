@@ -141,9 +141,31 @@ export function timerRow(job: OpsSchedule): HTMLElement {
   const words = scheduleWords(job.when);
   const when = el('span', 'ops-timer-when', words);
   if (words !== job.when) when.title = job.when;
-  row.append(icon, name, when);
-  if (job.owner) row.append(el('span', 'ops-timer-owner', job.owner));
+  const meta = el('span', 'ops-timer-meta');
+  meta.append(when);
+  // The machine says when it next runs; the browser never works it out from the schedule.
+  if (job.nextMs !== null) {
+    const next = el('time', 'ops-timer-next', nextIn(job.nextMs));
+    next.dateTime = new Date(job.nextMs).toISOString();
+    next.title = new Date(job.nextMs).toLocaleString();
+    meta.append(next);
+  }
+  if (job.owner) meta.append(el('span', 'ops-timer-owner', job.owner));
+  row.append(icon, name, meta);
+  if (job.state) {
+    row.dataset.state = job.state;
+    row.append(el('span', 'ops-timer-state', job.state === 'on' ? 'On' : 'Paused'));
+  }
   return row;
+}
+
+/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
+export function nextIn(at: number, now = Date.now()): string {
+  const minutes = Math.round((at - now) / 60_000);
+  if (minutes <= 0) return 'Due now';
+  if (minutes < 60) return `Next in ${minutes}m`;
+  if (minutes < 24 * 60) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `Next ${new Date(at).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /** The panel's timers: a list, or a sentence that never reads an unknown as none. */

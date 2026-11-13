@@ -160,6 +160,7 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   page,
 }) => {
   await open(page);
+  await details(page);
   const link = memberLink(page, 'sample-1');
   await link.focus();
   await page.evaluate(() => {
@@ -216,6 +217,7 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
   await refresh(page);
   await expect(page.locator('.ops-channel-chips')).toContainText('Timers unavailable');
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+  await details(page);
   await page.getByRole('tab', { name: 'Timers', exact: true }).click();
   await expect(page.getByRole('tabpanel', { name: 'Timers', exact: true })).toContainText(
     'Timers are unavailable',
@@ -332,6 +334,7 @@ test('DM history leaves a late older final unread in the background, then openin
   await refresh(page);
   await expect(dm).toContainText('50+');
   expect((await positions(page))[0]?.position).toBe('position_1');
+  await details(page);
   await memberLink(page, 'sample-1').click();
   await expect.poll(async () => (await positions(page))[0]?.position).toBe('more_changes');
   await refresh(page);
@@ -550,10 +553,19 @@ test('channel posts to the lead or each mention with the board room, and shows r
   await refresh(page);
   const stream = page.getByRole('list', { name: 'Channel messages' });
   await expect(stream).toContainText('You→ sample-lead');
-  await expect(stream).toContainText('sample-lead→ You');
-  await expect(stream).toContainText('On it.');
   await expect(stream.locator('.ops-dm-mention')).toHaveText('@sample-2');
   await expect(stream.locator('b')).toHaveCount(0);
+  const summary = stream.getByRole('button', { name: /1 reply/ });
+  await expect(summary).toContainText('Answered');
+  await expect(stream).not.toContainText('On it.');
+  await summary.click();
+  const thread = page.getByRole('complementary', { name: 'Thread' });
+  await expect(thread).toContainText('sample-lead→ You');
+  await expect(thread).toContainText('On it.');
+  await expect(summary).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(thread).toBeHidden();
+  await expect(summary).toBeFocused();
   const box = page.locator('.ops-channel-compose [contenteditable="true"]');
   await box.click();
   await page.keyboard.type('Plan the week.');

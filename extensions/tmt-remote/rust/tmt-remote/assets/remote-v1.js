@@ -8825,7 +8825,11 @@ function opsBoard(payload) {
 				...agent.next ? { next: agent.next } : {},
 				...agent.pending ? { pending: agent.pending } : {},
 				...agent.model ? { model: agent.model } : {},
-				waitingOnYou: agent.waitingOnYou ?? 0
+				waitingOnYou: agent.waitingOnYou ?? 0,
+				...agent.tokens1d && Number.isSafeInteger(agent.tokens1d.tokens) && agent.tokens1d.tokens >= 0 && typeof agent.tokens1d.complete === "boolean" ? { tokens1d: {
+					tokens: agent.tokens1d.tokens,
+					complete: agent.tokens1d.complete
+				} } : {}
 			};
 		}),
 		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
@@ -8833,7 +8837,9 @@ function opsBoard(payload) {
 			squad: timer.squad,
 			when: timer.scheduleText,
 			what: timer.what ?? "",
-			...timer.owner ? { owner: timer.owner } : {}
+			...timer.owner ? { owner: timer.owner } : {},
+			...Number.isSafeInteger(timer.nextMs) ? { nextMs: timer.nextMs } : {},
+			...timer.state === "on" || timer.state === "paused" ? { state: timer.state } : {}
 		})) : null,
 		truncated: payload.truncated === true
 	};
@@ -9712,9 +9718,33 @@ function timerRow(job) {
 	const words = scheduleWords(job.when);
 	const when = el("span", "ops-timer-when", words);
 	if (words !== job.when) when.title = job.when;
-	row.append(icon, name, when);
-	if (job.owner) row.append(el("span", "ops-timer-owner", job.owner));
+	const meta = el("span", "ops-timer-meta");
+	meta.append(when);
+	if (job.nextMs !== void 0) {
+		const next = el("time", "ops-timer-next", nextIn(job.nextMs));
+		next.dateTime = new Date(job.nextMs).toISOString();
+		next.title = new Date(job.nextMs).toLocaleString();
+		meta.append(next);
+	}
+	if (job.owner) meta.append(el("span", "ops-timer-owner", job.owner));
+	row.append(icon, name, meta);
+	if (job.state) {
+		row.dataset.state = job.state;
+		row.append(el("span", "ops-timer-state", job.state === "on" ? "On" : "Paused"));
+	}
 	return row;
+}
+/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
+function nextIn(at, now = Date.now()) {
+	const minutes = Math.round((at - now) / 6e4);
+	if (minutes <= 0) return "Due now";
+	if (minutes < 60) return `Next in ${minutes}m`;
+	if (minutes < 1440) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+	return `Next ${new Date(at).toLocaleString(void 0, {
+		weekday: "short",
+		hour: "2-digit",
+		minute: "2-digit"
+	})}`;
 }
 /** The panel's timers: a list, or a sentence that never reads an unknown as none. */
 function timerList(jobs, truncated) {
@@ -10605,18 +10635,27 @@ function talkList(label) {
 	const rows = /* @__PURE__ */ new Map();
 	const days = /* @__PURE__ */ new Map();
 	let pinned = true;
+	let placed = -1;
+	const toBottom = () => {
+		list.scrollTop = list.scrollHeight;
+		placed = list.scrollTop;
+	};
 	list.addEventListener("scroll", () => {
+		if (list.scrollTop === placed) return;
 		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
 	});
-	new ResizeObserver(() => {
-		if (pinned) list.scrollTop = list.scrollHeight;
-	}).observe(list);
+	const sizes = new ResizeObserver(() => {
+		if (pinned) toBottom();
+	});
+	sizes.observe(list);
 	return {
 		list,
 		reset() {
 			rows.clear();
 			days.clear();
 			list.replaceChildren();
+			sizes.disconnect();
+			sizes.observe(list);
 			pinned = true;
 		},
 		forget() {
@@ -10659,8 +10698,11 @@ function talkList(label) {
 				children.push(row.node);
 			}
 			if (tail) children.push(tail);
-			if (!(children.length === list.children.length && children.every((child, at) => list.children[at] === child))) list.replaceChildren(...children);
-			if (atBottom) list.scrollTop = list.scrollHeight;
+			if (!(children.length === list.children.length && children.every((child, at) => list.children[at] === child))) {
+				list.replaceChildren(...children);
+				for (const child of children) sizes.observe(child);
+			}
+			if (atBottom) toBottom();
 		}
 	};
 }
@@ -10847,50 +10889,139 @@ function channelStream(shell, port) {
 		}
 	}) : void 0;
 	const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
-	function postRows(post) {
+	/** Each recipient's side of a post: their reply words, or why there are none. */
+	function answers(post) {
 		const who = names();
-		const to = post.items.map((item) => who.get(item.recipientId) ?? "a former member");
+		return post.items.map((item) => {
+			const reply = replies.get(item.requestId);
+			return {
+				item,
+				name: who.get(item.recipientId) ?? "a former member",
+				at: item.final.status === "retained" ? new Date(item.final.submittedAtMs) : void 0,
+				words: reply?.state === "replied" ? reply.message : item.final.status === "retained" ? reply?.state === "unavailable" ? "The reply is unavailable" : null : item.final.status === "expired" ? "The reply has expired" : void 0,
+				read: reply?.state === "replied"
+			};
+		});
+	}
+	function postRow(post, inThread = false) {
 		const first = post.items[0];
-		const rows = [messageRow({
+		const as = {
+			...first,
+			direction: "toMember",
+			responsePreview: null
+		};
+		const row = messageRow({
 			who: "You",
-			to: to.join(", "),
+			to: answers(post).map((side) => side.name).join(", "),
 			self: true,
 			at: new Date(post.preparedAtMs),
 			text: first.preview,
 			mentions: channel?.members.map((member) => member.name) ?? [],
 			...first.previewTruncated ? { note: "Preview shortened" } : {},
-			state: deliveryText({
-				...first,
-				direction: "toMember",
-				responsePreview: null
-			}),
-			mark: deliveryMark({
-				...first,
-				direction: "toMember",
-				responsePreview: null
-			})
-		})];
-		post.items.forEach((item, at) => {
-			const reply = replies.get(item.requestId);
-			const words = reply?.state === "replied" ? reply.message : item.final.status === "retained" ? reply?.state === "unavailable" ? "The reply is unavailable" : null : item.final.status === "expired" ? "The reply has expired" : void 0;
-			if (words === void 0) return;
+			...inThread ? {
+				state: deliveryText(as),
+				mark: deliveryMark(as)
+			} : {}
+		});
+		if (inThread) return row;
+		const sides = answers(post).filter((side) => side.words !== void 0);
+		const last = sides.map((side) => side.at?.valueOf() ?? 0).reduce((a, b) => Math.max(a, b), 0);
+		const open = el("button", "ops-thread-open");
+		open.type = "button";
+		open.dataset.requestId = post.requestId;
+		open.append(el("span", "ops-thread-count", sides.length ? `${sides.length} repl${sides.length === 1 ? "y" : "ies"}` : "No replies yet"));
+		if (last) open.append(el("span", "ops-thread-last", `Last reply ${new Date(last).toLocaleTimeString(void 0, {
+			hour: "2-digit",
+			minute: "2-digit"
+		})}`));
+		const state = el("span", "ops-dm-message-state", sides.length ? "Answered" : deliveryText(as));
+		state.dataset.mark = sides.length ? "answered" : deliveryMark(as);
+		open.append(state);
+		open.setAttribute("aria-expanded", String(threadKey === post.requestId));
+		open.addEventListener("click", () => openThread(post.requestId));
+		row.querySelector(".ops-dm-message-body").append(open);
+		if (threadKey === post.requestId) row.dataset.selected = "";
+		return row;
+	}
+	const thread = el("aside", "ops-thread");
+	thread.hidden = true;
+	thread.setAttribute("aria-label", "Thread");
+	const threadHead = el("header", "ops-thread-head");
+	const threadTitle = el("h3", "ops-thread-title");
+	threadTitle.tabIndex = -1;
+	const threadClose = el("button", "ops-thread-close", "×");
+	threadClose.type = "button";
+	threadClose.setAttribute("aria-label", "Close thread");
+	const threadMeta = el("p", "ops-thread-meta");
+	threadHead.append(threadTitle, threadClose, threadMeta);
+	const threadList = el("ol", "ops-dm-stream ops-thread-stream");
+	threadList.setAttribute("aria-label", "Thread messages");
+	const threadNote = el("p", "ops-thread-note", "Each member answers a post once. To follow up, post again or open their DM.");
+	thread.append(threadHead, threadList, threadNote);
+	let threadKey;
+	let threadFrom = null;
+	function openThread(key) {
+		threadFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		threadKey = key;
+		draw();
+		threadTitle.focus();
+	}
+	function closeThread() {
+		if (!threadKey) return;
+		const key = threadKey;
+		threadKey = void 0;
+		draw();
+		(threadFrom?.isConnected ? threadFrom : node.querySelector(`.ops-thread-open[data-request-id="${key}"]`))?.focus();
+	}
+	threadClose.addEventListener("click", closeThread);
+	thread.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			closeThread();
+		}
+	});
+	function drawThread(shown) {
+		const post = threadKey ? shown.find((each) => each.requestId === threadKey) : void 0;
+		if (!post) threadKey = void 0;
+		thread.hidden = !post;
+		thread.parentElement?.toggleAttribute("data-thread", !!post);
+		if (!post) return;
+		const words = post.items[0].preview ?? "Message preview unavailable";
+		threadTitle.textContent = words.length > 60 ? `${words.slice(0, 59)}…` : words;
+		const sides = answers(post);
+		const replied = sides.filter((side) => side.words !== void 0);
+		threadMeta.textContent = `${replied.length} of ${sides.length} replied`;
+		const rows = [postRow(post, true)];
+		const divider = el("li", "ops-dm-day");
+		divider.append(el("span", void 0, replied.length ? `${replied.length} repl${replied.length === 1 ? "y" : "ies"}` : "No replies yet"));
+		rows.push(divider);
+		for (const side of sides) {
+			if (side.words === void 0) {
+				rows.push(el("li", "ops-thread-waiting", `Waiting on ${side.name}`));
+				continue;
+			}
 			rows.push(messageRow({
-				who: to[at],
+				who: side.name,
 				to: "You",
 				self: false,
-				...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
-				text: words ?? "Reading the reply…",
-				quiet: words === null || reply?.state !== "replied"
+				...side.at ? { at: side.at } : {},
+				text: side.words ?? "Reading the reply…",
+				quiet: !side.read
 			}));
-		});
-		return rows;
+		}
+		threadList.replaceChildren(...rows);
 	}
 	function draw() {
 		const target = roomId ?? "";
 		const unlisted = box?.unlisted(target, (id) => items.has(id));
 		const shown = posts(items.values());
-		stream.draw(shown, postRows, [[...names()], [...replies]], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
+		stream.draw(shown, (post) => [postRow(post)], [
+			[...names()],
+			[...replies],
+			threadKey
+		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
 		empty.hidden = shown.length > 0 || !!unlisted;
+		drawThread(shown);
 	}
 	function recipientsLabel(message) {
 		return channel ? recipients(message, channel).map((member) => member.name).join(", ") : "";
@@ -11013,6 +11144,7 @@ function channelStream(shell, port) {
 	whileVisible(5e3, shell.signal, refresh);
 	return {
 		node,
+		thread,
 		select(next) {
 			visible = next !== void 0;
 			channel = next;
@@ -11027,6 +11159,8 @@ function channelStream(shell, port) {
 				generation++;
 				items.clear();
 				replies.clear();
+				threadKey = void 0;
+				drawThread([]);
 				olderCursor = void 0;
 				stream.reset();
 				olderButton.hidden = true;
@@ -11064,6 +11198,14 @@ function stateBadge(agent) {
 	badge.dataset.state = word.toLowerCase();
 	badge.append(mark(MARKS[word]), el("span", browserUiClasses.chipLabel, word));
 	return badge;
+}
+/** The last day's tokens (#6372) as "~1.4B 1d"; nothing when the machine did not say. */
+function usage(agent) {
+	if (!agent.tokens1d) return "";
+	return `~${new Intl.NumberFormat("en", {
+		notation: "compact",
+		maximumFractionDigits: 1
+	}).format(agent.tokens1d.tokens)} 1d${agent.tokens1d.complete ? "" : " (partial)"}`;
 }
 function avatar(name, size) {
 	const node = el("span", browserUiClasses.avatar, avatarInitials(name));
@@ -11133,7 +11275,10 @@ function channelView(pathname, shell, port = void 0) {
 		return button;
 	});
 	tabs.append(...buttons);
-	bar.append(tabs, toggle);
+	const summary = el("button", "ops-channel-summary");
+	summary.type = "button";
+	summary.addEventListener("click", () => setOpen(true));
+	bar.append(summary, tabs, toggle);
 	panel.append(bar, ...panels);
 	function select(index) {
 		selected = index;
@@ -11146,6 +11291,8 @@ function channelView(pathname, shell, port = void 0) {
 	function setOpen(value) {
 		open = value;
 		panel.dataset.open = String(value);
+		tabs.hidden = !value;
+		summary.hidden = value;
 		toggle.setAttribute("aria-expanded", String(value));
 		toggle.setAttribute("aria-label", value ? "Hide details" : "Show details");
 		select(selected);
@@ -11153,8 +11300,8 @@ function channelView(pathname, shell, port = void 0) {
 	toggle.addEventListener("click", () => setOpen(!open));
 	const history = el("section", "ops-channel-history");
 	const stream = channelStream(shell, port);
-	page.append(head, panel, history);
-	setOpen(true);
+	page.append(head, panel, history, stream.thread);
+	setOpen(false);
 	const fit = () => {
 		if (!page.isConnected) return;
 		const top = page.getBoundingClientRect().top + scrollY;
@@ -11184,7 +11331,7 @@ function channelView(pathname, shell, port = void 0) {
 		if (agent.role === "lead") who.append(el("span", "ops-member-role", "Lead"));
 		const task = el("span", "ops-member-task", agent.task || "No task reported");
 		if (!agent.task) task.dataset.empty = "";
-		row.append(who, task, stateBadge(agent));
+		row.append(who, task, el("span", "ops-member-usage", usage(agent)), stateBadge(agent));
 		return row;
 	}
 	function drawMembers(people, truncated) {
@@ -11254,7 +11401,7 @@ function channelView(pathname, shell, port = void 0) {
 				memberRows.clear();
 				memberList.replaceChildren();
 				selected = place.memberId ? 1 : 0;
-				setOpen(!place.memberId && !matchMedia("(max-width: 760px)").matches);
+				setOpen(false);
 			}
 			page.dataset.view = place.memberId ? "dm" : "channel";
 			for (const part of [
@@ -11277,9 +11424,12 @@ function channelView(pathname, shell, port = void 0) {
 			if (member) {
 				face.replaceChildren(avatar(member.name, "m"));
 				title.textContent = member.name;
-				line.replaceChildren(stateBadge(member), [
+				const state = memberState(member);
+				line.replaceChildren(mark(MARKS[state]), [
+					state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
+					usage(member) || void 0,
 					`#${member.squad}`,
 					"This machine"
 				].filter(Boolean).join(" · "));
@@ -11292,6 +11442,14 @@ function channelView(pathname, shell, port = void 0) {
 			}
 			if (timerCount === void 0) chips.append(chip("Timers unavailable"));
 			else if (timerCount || !member) chips.append(chip(`Timers ${timerCount}`));
+			const working = people.filter((agent) => memberState(agent) === "Working").length;
+			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
+			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
+			summary.replaceChildren(...member ? [] : [el("span", void 0, [
+				board.truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`,
+				`${working} working`,
+				`${idle} idle`
+			].join(" · "))], el("span", "ops-channel-summary-timers", timersWord));
 			buttons[0].hidden = !!member;
 			buttons[0].textContent = board.truncated ? "Members" : `Members ${people.length}`;
 			buttons[1].textContent = timerCount === void 0 ? "Timers" : `Timers ${timerCount}`;

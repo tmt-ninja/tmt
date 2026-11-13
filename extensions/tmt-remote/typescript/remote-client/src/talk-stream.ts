@@ -159,18 +159,29 @@ export function talkList(label: string) {
   const rows = new Map<string, { node: HTMLElement; fingerprint: string }>();
   const days = new Map<string, HTMLElement>();
   let pinned = true;
+  // Where the stream last scrolled itself: its own scroll events never release the hold.
+  let placed = -1;
+  const toBottom = () => {
+    list.scrollTop = list.scrollHeight;
+    placed = list.scrollTop;
+  };
   list.addEventListener('scroll', () => {
+    if (list.scrollTop === placed) return;
     pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
   });
-  new ResizeObserver(() => {
-    if (pinned) list.scrollTop = list.scrollHeight;
-  }).observe(list);
+  // The view and every row: a row that grows (a font, a reply) keeps the newest in view too.
+  const sizes = new ResizeObserver(() => {
+    if (pinned) toBottom();
+  });
+  sizes.observe(list);
   return {
     list,
     reset() {
       rows.clear();
       days.clear();
       list.replaceChildren();
+      sizes.disconnect();
+      sizes.observe(list);
       pinned = true;
     },
     forget() {
@@ -221,8 +232,11 @@ export function talkList(label: string) {
       const same =
         children.length === list.children.length &&
         children.every((child, at) => list.children[at] === child);
-      if (!same) list.replaceChildren(...children);
-      if (atBottom) list.scrollTop = list.scrollHeight;
+      if (!same) {
+        list.replaceChildren(...children);
+        for (const child of children) sizes.observe(child);
+      }
+      if (atBottom) toBottom();
     },
   };
 }

@@ -128,25 +128,13 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     : undefined;
   const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
 
-  function postRows(post: Post): HTMLElement[] {
+  /** Each recipient's side of a post: their reply words, or why there are none. */
+  function answers(post: Post) {
     const who = names();
-    const to = post.items.map((item) => who.get(item.recipientId) ?? 'a former member');
-    const first = post.items[0]!;
-    const rows = [
-      messageRow({
-        who: 'You',
-        to: to.join(', '),
-        self: true,
-        at: new Date(post.preparedAtMs),
-        text: first.preview,
-        mentions: channel?.members.map((member) => member.name) ?? [],
-        ...(first.previewTruncated ? { note: 'Preview shortened' } : {}),
-        state: deliveryText({ ...first, direction: 'toMember', responsePreview: null }),
-        mark: deliveryMark({ ...first, direction: 'toMember', responsePreview: null }),
-      }),
-    ];
-    post.items.forEach((item, at) => {
+    return post.items.map((item) => {
       const reply = replies.get(item.requestId);
+      const name = who.get(item.recipientId) ?? 'a former member';
+      const at = item.final.status === 'retained' ? new Date(item.final.submittedAtMs) : undefined;
       const words =
         reply?.state === 'replied'
           ? reply.message
@@ -157,28 +145,151 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
             : item.final.status === 'expired'
               ? 'The reply has expired'
               : undefined;
-      if (words === undefined) return;
+      return { item, name, at, words, read: reply?.state === 'replied' };
+    });
+  }
+  function postRow(post: Post, inThread = false): HTMLElement {
+    const first = post.items[0]!;
+    const as = { ...first, direction: 'toMember' as const, responsePreview: null };
+    const row = messageRow({
+      who: 'You',
+      to: answers(post)
+        .map((side) => side.name)
+        .join(', '),
+      self: true,
+      at: new Date(post.preparedAtMs),
+      text: first.preview,
+      mentions: channel?.members.map((member) => member.name) ?? [],
+      ...(first.previewTruncated ? { note: 'Preview shortened' } : {}),
+      ...(inThread ? { state: deliveryText(as), mark: deliveryMark(as) } : {}),
+    });
+    if (inThread) return row;
+    // Under the post, the thread in one line; the replies open beside the channel.
+    const sides = answers(post).filter((side) => side.words !== undefined);
+    const last = sides.map((side) => side.at?.valueOf() ?? 0).reduce((a, b) => Math.max(a, b), 0);
+    const open = el('button', 'ops-thread-open');
+    open.type = 'button';
+    open.dataset.requestId = post.requestId;
+    open.append(
+      el(
+        'span',
+        'ops-thread-count',
+        sides.length ? `${sides.length} repl${sides.length === 1 ? 'y' : 'ies'}` : 'No replies yet',
+      ),
+    );
+    if (last)
+      open.append(
+        el(
+          'span',
+          'ops-thread-last',
+          `Last reply ${new Date(last).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`,
+        ),
+      );
+    const state = el('span', 'ops-dm-message-state', sides.length ? 'Answered' : deliveryText(as));
+    state.dataset.mark = sides.length ? 'answered' : deliveryMark(as);
+    open.append(state);
+    open.setAttribute('aria-expanded', String(threadKey === post.requestId));
+    open.addEventListener('click', () => openThread(post.requestId));
+    row.querySelector('.ops-dm-message-body')!.append(open);
+    if (threadKey === post.requestId) row.dataset.selected = '';
+    return row;
+  }
+
+  // The thread beside the channel (spec screen 2): the post, then each recipient's reply.
+  const thread = el('aside', 'ops-thread');
+  thread.hidden = true;
+  thread.setAttribute('aria-label', 'Thread');
+  const threadHead = el('header', 'ops-thread-head');
+  const threadTitle = el('h3', 'ops-thread-title');
+  threadTitle.tabIndex = -1;
+  const threadClose = el('button', 'ops-thread-close', '×');
+  threadClose.type = 'button';
+  threadClose.setAttribute('aria-label', 'Close thread');
+  const threadMeta = el('p', 'ops-thread-meta');
+  threadHead.append(threadTitle, threadClose, threadMeta);
+  const threadList = el('ol', 'ops-dm-stream ops-thread-stream');
+  threadList.setAttribute('aria-label', 'Thread messages');
+  const threadNote = el(
+    'p',
+    'ops-thread-note',
+    'Each member answers a post once. To follow up, post again or open their DM.',
+  );
+  thread.append(threadHead, threadList, threadNote);
+  let threadKey: string | undefined;
+  let threadFrom: HTMLElement | null = null;
+  function openThread(key: string) {
+    threadFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    threadKey = key;
+    draw();
+    threadTitle.focus();
+  }
+  function closeThread() {
+    if (!threadKey) return;
+    const key = threadKey;
+    threadKey = undefined;
+    draw();
+    const back = threadFrom?.isConnected
+      ? threadFrom
+      : node.querySelector<HTMLElement>(`.ops-thread-open[data-request-id="${key}"]`);
+    back?.focus();
+  }
+  threadClose.addEventListener('click', closeThread);
+  thread.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeThread();
+    }
+  });
+  function drawThread(shown: Post[]) {
+    const post = threadKey ? shown.find((each) => each.requestId === threadKey) : undefined;
+    if (!post) threadKey = undefined;
+    thread.hidden = !post;
+    thread.parentElement?.toggleAttribute('data-thread', !!post);
+    if (!post) return;
+    const words = post.items[0]!.preview ?? 'Message preview unavailable';
+    threadTitle.textContent = words.length > 60 ? `${words.slice(0, 59)}…` : words;
+    const sides = answers(post);
+    const replied = sides.filter((side) => side.words !== undefined);
+    threadMeta.textContent = `${replied.length} of ${sides.length} replied`;
+    const rows: HTMLElement[] = [postRow(post, true)];
+    const divider = el('li', 'ops-dm-day');
+    divider.append(
+      el(
+        'span',
+        undefined,
+        replied.length
+          ? `${replied.length} repl${replied.length === 1 ? 'y' : 'ies'}`
+          : 'No replies yet',
+      ),
+    );
+    rows.push(divider);
+    for (const side of sides) {
+      if (side.words === undefined) {
+        rows.push(el('li', 'ops-thread-waiting', `Waiting on ${side.name}`));
+        continue;
+      }
       rows.push(
         messageRow({
-          who: to[at]!,
+          who: side.name,
           to: 'You',
           self: false,
-          ...(item.final.status === 'retained' ? { at: new Date(item.final.submittedAtMs) } : {}),
-          text: words ?? 'Reading the reply…',
-          quiet: words === null || reply?.state !== 'replied',
+          ...(side.at ? { at: side.at } : {}),
+          text: side.words ?? 'Reading the reply…',
+          quiet: !side.read,
         }),
       );
-    });
-    return rows;
+    }
+    threadList.replaceChildren(...rows);
   }
+
   function draw() {
     const target = roomId ?? '';
     const unlisted = box?.unlisted(target, (id) => items.has(id));
     const shown = posts(items.values());
     stream.draw(
       shown,
-      postRows,
-      [[...names()], [...replies]],
+      (post) => [postRow(post)],
+      [[...names()], [...replies], threadKey],
       unlisted &&
         pendingRow(
           unlisted,
@@ -187,6 +298,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
         ),
     );
     empty.hidden = shown.length > 0 || !!unlisted;
+    drawThread(shown);
   }
   function recipientsLabel(message: string): string {
     return channel
@@ -327,6 +439,7 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
   whileVisible(5000, shell.signal, refresh);
   return {
     node,
+    thread,
     select(next: ChannelRoom | undefined) {
       visible = next !== undefined;
       channel = next;
@@ -342,6 +455,8 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
         generation++;
         items.clear();
         replies.clear();
+        threadKey = undefined;
+        drawThread([]);
         olderCursor = undefined;
         stream.reset();
         olderButton.hidden = true;
