@@ -541,15 +541,28 @@ impl Operations {
             return self.send_now(permit);
         }
         if operation == "orchestration.write" {
-            let request = orchestration::write(permit)?;
-            // Core is called under the store lock, as Send now is: a grant revoked after admission
-            // cannot still apply a change (#5890 review).
-            let answer = permit.with_store(|_| {
-                orchestration::outcome(self.api_with_limit(
-                    request.to_string().as_bytes(),
-                    crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-                ))
-            })?;
+            let answer = orchestration::outcome((|| {
+                let (request, revision) = orchestration::write(permit, || {
+                    // This observation owns no write; keep it outside the effect fence and
+                    // revalidate even when Core fails, as for the other Core reads.
+                    permit.revalidate()?;
+                    let plans = self.api_with_limit(
+                        br#"{"version":1,"operation":"orchestration.read","input":{"view":"plans"}}"#,
+                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+                    );
+                    permit.revalidate()?;
+                    plans
+                })?;
+                // Core effects stay under the store lock: a grant revoked after admission
+                // cannot still apply a change (#5890 review).
+                permit.with_store(|_| {
+                    let answer = self.api_with_limit(
+                        request.to_string().as_bytes(),
+                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+                    )?;
+                    orchestration::preview_revision(answer, revision)
+                })
+            })())?;
             return permit.response(&answer);
         }
         let (id, notice) = match operation {
