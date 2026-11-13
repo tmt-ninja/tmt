@@ -48,7 +48,7 @@ import {
   $richInputTokens,
   $selectRichInputRange,
   type RichInputRange,
-} from './components/rich-input-document.js';
+} from '@tmt/browser-ui/rich-input';
 import { text } from './strings.js';
 import './page-list-search.css';
 

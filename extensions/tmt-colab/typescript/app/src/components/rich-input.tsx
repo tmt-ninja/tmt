@@ -18,7 +18,7 @@ import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext
 import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
 import { CLEAR_HISTORY_COMMAND, defineExtension, SKIP_DOM_SELECTION_TAG } from 'lexical';
-import { $emptyRichInput, $richInputText, $replaceRichInput } from './rich-input-document.js';
+import { $emptyRichInput, $richInputText, $replaceRichInput } from '@tmt/browser-ui/rich-input';
 import './rich-input.css';
 
 export const RICH_INPUT_RESET_TAG = 'parent-rich-input-reset';

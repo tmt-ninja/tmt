@@ -1,4 +1,4 @@
-// The rich input's plain document model (#5821 A4), moved from Colab's components/rich-input-document.ts:
+// The rich input's plain document model (#5821 A4):
 // text with one LF between paragraphs, and caller tokens as UTF-16 ranges over it.
 import {
   $createParagraphNode,

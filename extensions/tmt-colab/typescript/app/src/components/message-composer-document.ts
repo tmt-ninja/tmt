@@ -5,7 +5,7 @@ import {
   $selectRichInputRange as $selectMessageRange,
   $richInputCaret as $messageCaret,
   $richInputSelection as $messageSelection,
-} from './rich-input-document.js';
+} from '@tmt/browser-ui/rich-input';
 import {
   $createParagraphNode,
   $getSelection,
@@ -99,7 +99,7 @@ export class MessageMentionNode extends DecoratorNode<ReactNode> {
   }
 }
 
-export { $richInputText as $messageText } from './rich-input-document.js';
+export { $richInputText as $messageText } from '@tmt/browser-ui/rich-input';
 
 export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'] = []) {
   $replaceRichInput(
@@ -292,4 +292,4 @@ export {
   $richInputCaret as $messageCaret,
   $richInputSelection as $messageSelection,
   $selectRichInputRange as $selectMessageRange,
-} from './rich-input-document.js';
+} from '@tmt/browser-ui/rich-input';
