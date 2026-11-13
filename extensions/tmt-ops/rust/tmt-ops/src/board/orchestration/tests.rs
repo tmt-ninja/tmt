@@ -629,9 +629,49 @@ fn assert_selected_row_differs(scene: &str, first: &str, second: &str) {
 }
 #[test]
 fn the_selected_plan_and_member_rows_are_visible_in_every_look() {
-    assert_selected_row_differs("orchestration-plans", "Night shift", "Review week");
+    assert_selected_row_differs(
+        "orchestration-plans",
+        "Shift B · Night night-*",
+        "Quiet hours     everyone",
+    );
     assert_selected_row_differs("orchestration-table-selection", "worker", "peer");
     assert_selected_row_differs("orchestration-jobs", "j1 core-1", "j2 gui-1");
+    // The plans list says when and for whom in words; the inspector reads Core's matches, its
+    // span around the selected time and the next start in the range; the strip names only the
+    // selected plan's spans.
+    let app = captures::case("orchestration-plans", crate::look::Look::default());
+    let painted = screen(&app);
+    for text in [
+        "weekdays 22:00–06:00",
+        "every day 22:00–08:00",
+        "Mon Wed 09:00–18:00 · every 2 weeks",
+        "○ Shift A · Day   core-1, gui-1",
+        "night-1, night-2  (night-*)",
+        "state Awake · sending leads only",
+        "in effect until Thu 06:00",
+        "not in this range · 7 widens",
+        "Effect at 23:00 · 2 members",
+        "Plans · 3",
+        "2 in effect",
+    ] {
+        assert!(painted.contains(text), "{text}");
+    }
+    let strip = row_text(&paint(&app, 160, 36), 5)
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect::<String>();
+    assert!(
+        strip.contains(" Shift B · Night") && !strip.contains("Quiet hours") && strip.contains('·'),
+        "{strip}"
+    );
+    // With the plans list closed, the strip counts plans again.
+    let mut app = app;
+    app.orchestration.plans = false;
+    let strip = row_text(&paint(&app, 160, 36), 5)
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect::<String>();
+    assert!(!strip.contains("Shift B") && strip.contains('2'), "{strip}");
 }
 #[test]
 fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_blocked_cell() {
@@ -667,6 +707,42 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     assert_eq!(
         mutation,
         json!({"kind":"talks.resume","aId":OTHER,"bId":MEMBER})
+    );
+    // `o` on a plan previews `plan.set` with only `enabled` flipped; `e` names the command.
+    let mut app = captures::case("orchestration-plans", crate::look::Look::default());
+    let plan = app.orchestration.snapshot().unwrap().document.plans[0].clone();
+    let Some(Effect::Orchestration(Task {
+        step: Step::Preview { title, mutation },
+    })) = Some(app.key(key('o')))
+    else {
+        panic!("o starts Core's preview")
+    };
+    assert_eq!(title, "Turn off Shift B · Night");
+    let mut candidate = plan.clone();
+    candidate["enabled"] = false.into();
+    assert_eq!(
+        mutation,
+        json!({"kind":"plan.set","plan":plan["id"],"candidate":candidate})
+    );
+    assert!(matches!(app.key(key('e')), Effect::None));
+    assert_eq!(
+        app.notice.as_deref(),
+        Some(
+            "Edit with tmt orch plan set 'Shift B · Night' --file plan.json (its current plan: tmt orch plan show 'Shift B · Night' --json)"
+        )
+    );
+    // A name with shell syntax stays one literal word.
+    let mut snapshot = app.orchestration.snapshot().unwrap().clone();
+    snapshot.plan_rows[0].name = "Bob's $(rm -rf x) `y` $HOME".into();
+    let read = app.orchestration.read();
+    app.orchestration
+        .apply(read, Observation::Ready(Box::new(snapshot)));
+    app.key(key('e'));
+    assert_eq!(
+        app.notice.as_deref(),
+        Some(
+            "Edit with tmt orch plan set 'Bob'\\''s $(rm -rf x) `y` $HOME' --file plan.json (its current plan: tmt orch plan show 'Bob'\\''s $(rm -rf x) `y` $HOME' --json)"
+        )
     );
 }
 #[test]
@@ -777,6 +853,64 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
     assert!(
         !jobs.contains("allow once") && !jobs.contains("[ earlier"),
         "{jobs}"
+    );
+    // ⏎ on a plan shows only the members it applies to, named as such; ⏎ again shows all. A read
+    // that no longer lists the plan shows all members with a note.
+    let enter = ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Enter,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    );
+    let mut plans = captures::case("orchestration-plans", crate::look::Look::default());
+    let plans_footer = footer(&plans);
+    for hint in [
+        "↑↓ plan",
+        "its members",
+        "o on/off",
+        "e edit",
+        "P members",
+        "[ ] time",
+        "? help",
+    ] {
+        assert!(plans_footer.contains(hint), "{hint}: {plans_footer}");
+    }
+    // A key pair is one hint or none, in every scene's footer.
+    for scene in captures::SCENES {
+        let line = footer(&captures::case(scene, crate::look::Look::default()));
+        assert!(
+            !line.contains("earlier") && !line.contains("later"),
+            "{scene}: {line}"
+        );
+    }
+    plans.key(enter);
+    assert!(!plans.orchestration.plans);
+    let only = screen(&plans);
+    assert!(only.contains("members of Shift B · Night"), "{only}");
+    let members = |app: &super::super::app::App| {
+        let snapshot = app.orchestration.snapshot().unwrap();
+        app.orchestration
+            .members(snapshot)
+            .iter()
+            .map(|m| m.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(members(&plans), ["night-1", "night-2"]);
+    assert!(footer(&plans).contains("all members"));
+    plans.key(enter);
+    assert_eq!(members(&plans).len(), 12);
+    plans.key(enter);
+    plans.orchestration.plans = true;
+    plans.key(enter);
+    let mut snapshot = plans.orchestration.snapshot().unwrap().clone();
+    snapshot.document.plans.clear();
+    snapshot.plan_rows.clear();
+    let read = plans.orchestration.read();
+    plans
+        .orchestration
+        .apply(read, Observation::Ready(Box::new(snapshot)));
+    assert!(plans.orchestration.only_plan.is_none());
+    assert_eq!(
+        plans.orchestration.note.as_deref(),
+        Some("that plan is gone · all members")
     );
     // Every section offers at most eight hints, its own keys first: board-wide quit yields
     // before them, and End focus while no focus is active.
@@ -921,6 +1055,7 @@ pub(in crate::board) mod captures {
         "orchestration-history",
         "orchestration-jobs",
         "orchestration-jobs-paused",
+        "orchestration-plan-members",
     ];
     const WED_23: u64 = 1_794_405_600_000;
     /// Wed 00:00 Asia/Tokyo: the local day every roster range starts from.
@@ -931,6 +1066,7 @@ pub(in crate::board) mod captures {
     const NIGHT_END: u64 = 1_794_430_800_000;
     const NIGHT: &str = "20000000-0000-4000-8000-000000000011";
     const QUIET: &str = "20000000-0000-4000-8000-000000000012";
+    const DAY_SHIFT: &str = "20000000-0000-4000-8000-000000000013";
     const ROSTER: [(&str, &str); 12] = [
         ("tmt-tui-lead", "awake"),
         ("core-ops-2", "awake"),
@@ -1041,10 +1177,15 @@ pub(in crate::board) mod captures {
                 "observedAtMs":WED_23,"atMs":at,"timeZone":"Asia/Tokyo",
                 "range":{"startMs":WED_00,"endMs":end},
                 "plans":[
-                    {"id":NIGHT,"name":"Shift B · Night","revision":4,"fields":{},"schedule":{},
-                     "targets":[],"members":[],"enabled":true,"priority":20},
-                    {"id":QUIET,"name":"Quiet hours","revision":2,"fields":{},"schedule":{},
-                     "targets":[],"members":[],"enabled":true,"priority":10}],
+                    {"id":NIGHT,"name":"Shift B · Night","revision":4,
+                     "fields":{"state":"awake","sending":"leads"},
+                     "schedule":{"kind":"weekly","anchorDate":"2026-11-02","intervalWeeks":1,
+                        "weekdays":[1,2,3,4,5],"start":"22:00","end":"06:00","allDay":false},
+                     "targets":[{"kind":"pattern","pattern":"night-*"}],"members":[],
+                     "enabled":true,"priority":20},
+                    {"id":QUIET,"name":"Quiet hours","revision":2,"fields":{"state":"low"},
+                     "schedule":{"kind":"daily","start":"22:00","end":"08:00","allDay":false},
+                     "targets":[{"kind":"all"}],"members":[],"enabled":true,"priority":10}],
                 "members":members,
                 "timeline":timeline}),
         })
@@ -1101,18 +1242,19 @@ pub(in crate::board) mod captures {
             _ => Ok(pair_document()),
         }
     }
+    /// The roster squad's plans, plus a day shift for two named members that is turned off.
     fn plans_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
-        if op == "orchestration.read" && input["view"] == "overview" {
-            let mut value = pair_document();
-            value["plans"] = json!([
-                {"id":"20000000-0000-4000-8000-000000000001","name":"Night shift","revision":3,
-                 "fields":{},"schedule":{},"targets":[],"members":[],"enabled":true,"priority":10},
-                {"id":"20000000-0000-4000-8000-000000000002","name":"Review week","revision":1,
-                 "fields":{},"schedule":{},"targets":[],"members":[],"enabled":false,"priority":5}
-            ]);
-            return Ok(value);
+        let overview = op == "orchestration.read" && input["view"] == "overview";
+        let mut value = roster_api(op, input)?;
+        if overview {
+            value["plans"].as_array_mut().unwrap().push(json!(
+                {"id":DAY_SHIFT,"name":"Shift A · Day","revision":1,"fields":{"state":"awake"},
+                 "schedule":{"kind":"weekly","anchorDate":"2026-11-02","intervalWeeks":2,
+                    "weekdays":[1,3],"start":"09:00","end":"18:00","allDay":false},
+                 "targets":[{"kind":"identity","id":roster_id(2)},{"kind":"identity","id":roster_id(5)}],
+                 "members":[],"enabled":false,"priority":5}));
         }
-        pair_api(op, input)
+        Ok(value)
     }
     pub(in crate::board) fn case(
         scene: &str,
@@ -1140,7 +1282,9 @@ pub(in crate::board) mod captures {
             "orchestration-loading" => return app,
             "orchestration-unsupported" => Observation::Unavailable,
             "orchestration-table" => Observation::Ready(Box::new(ready())),
-            "orchestration-plans" => Observation::Ready(Box::new(observe(plans_api))),
+            "orchestration-plans" | "orchestration-plan-members" => {
+                app.orchestration.read().read_with(plans_api)
+            }
             "orchestration-roster"
             | "orchestration-week"
             | "orchestration-month"
@@ -1157,6 +1301,12 @@ pub(in crate::board) mod captures {
         app.orchestration.apply(read.clone(), observation);
         match scene {
             "orchestration-plans" | "orchestration-empty" => app.orchestration.plans = true,
+            "orchestration-plan-members" => {
+                // `⏎` on Shift B in the plans list: the matrix shows its members only.
+                app.orchestration.plans = true;
+                app.orchestration.plan_selection = Some(NIGHT.into());
+                let _ = app.orchestration_bound(crate::action::OpsUiAction::PlanOnly);
+            }
             "orchestration-roster" => {
                 // Selection away from the first row and column, past the rows a short frame shows.
                 app.orchestration.selected = Some(roster_id(6));

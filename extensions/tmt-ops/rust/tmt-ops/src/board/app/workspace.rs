@@ -1169,7 +1169,7 @@ impl App {
             OrchestrationDay | OrchestrationWeek | OrchestrationMonth | OrchestrationPlans
             | OrchestrationNow | OrchestrationEarlier | OrchestrationLater | AllowOnce
             | FocusHour | EndFocus | ReleaseHeld | Why | OrchestrationSection | JobPause
-            | JobRun | JobEdit | JobNew => {
+            | JobRun | OrchestrationEdit | JobNew | PlanToggle | PlanOnly => {
                 return self.say("This key acts on the Orchestration tab (3).");
             }
             ClearScope => {

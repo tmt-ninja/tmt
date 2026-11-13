@@ -553,7 +553,8 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
             "member"
         },
     ));
-    if routes {
+    // In the plans list `[` and `]` move the time; `←→` still do, unlisted.
+    if routes && !state.plans {
         hints.extend(pair(
             key(Ui::Fold, "left"),
             key(Ui::Expand, "right"),
@@ -566,6 +567,8 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     }
     let (blocked, held) = state.cell_actions();
     let sections = state.sections().len() > 1;
+    // A plan selected in the plans list: only then do its keys apply.
+    let plan = routes && state.plans && state.selected_plan().is_some();
     let job = state.selected_job().filter(|_| jobs);
     let jobs_failed = jobs && state.jobs_failure().is_some();
     if jobs_failed && let Some(key) = effective_key(app, &bindings, Verb::Refresh, "ctrl-r") {
@@ -576,26 +579,43 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     // Only what the focused section offers, at most eight with the moves.
     let actions = [
         (Ui::OrchestrationSection, "tab", sections),
+        (
+            Ui::PlanOnly,
+            "enter",
+            routes && (plan || state.only_plan.is_some()),
+        ),
+        (Ui::PlanToggle, "o", plan && snapshot.writes),
+        (Ui::OrchestrationEdit, "e", plan),
         (Ui::AllowOnce, "a", blocked && !jobs),
         (Ui::ReleaseHeld, "r", held && !jobs),
         (Ui::JobPause, "p", writable && owned),
         (Ui::JobRun, "x", writable),
-        (Ui::JobEdit, "e", writable),
+        (Ui::OrchestrationEdit, "e", writable),
         (Ui::JobNew, "n", jobs && !jobs_failed),
         (Ui::FocusHour, "f", routes && !state.plans),
         (Ui::EndFocus, "F", routes && !state.plans),
         (Ui::Why, "w", !state.plans && !jobs),
         (Ui::OrchestrationPlans, "P", routes),
         (Ui::OrchestrationEarlier, "[", routes),
-        (Ui::OrchestrationLater, "]", routes),
         (Ui::OrchestrationNow, "N", !state.follow_now),
         (Ui::Search, "/", routes),
     ];
     for (action, preferred, applies) in actions {
+        // `[` and `]` are one hint, `[ ] time`, or none: a pair is never split.
+        if action == Ui::OrchestrationEarlier {
+            if applies
+                && let (Some(a), Some(b)) =
+                    (key(action, preferred), key(Ui::OrchestrationLater, "]"))
+            {
+                hints.push((format!("{a} {b}"), "time".into()));
+            }
+            continue;
+        }
         if applies && let Some(key) = key(action, preferred) {
             let word = match action {
                 Ui::Search if app.search.is_empty() => "filter",
                 Ui::OrchestrationPlans if state.plans => "members",
+                Ui::PlanOnly if !state.plans => "all members",
                 Ui::JobPause
                     if job.is_some_and(|job| {
                         job.state == crate::cron_service::rows::JobState::Paused

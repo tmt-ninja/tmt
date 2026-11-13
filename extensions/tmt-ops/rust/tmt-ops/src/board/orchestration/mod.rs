@@ -34,6 +34,9 @@ pub(in crate::board) struct State {
     pub why: Option<(String, Vec<String>)>,
     pub plans: bool,
     pub plan_selection: Option<String>,
+    /// `⏎` on a plan: the matrix and member rows show only the members it applies to at the
+    /// selected time. Verdicts still come from every plan.
+    pub only_plan: Option<String>,
     cursor: Option<u64>,
     pub hits: std::cell::RefCell<Vec<(ratatui::layout::Rect, input::Control)>>,
     /// The last paint was too small to show the tab: its footer then offers moves only.
@@ -94,6 +97,7 @@ impl Default for State {
             why: None,
             plans: false,
             plan_selection: None,
+            only_plan: None,
             report: None,
             failure: None,
             unavailable: false,
@@ -128,6 +132,24 @@ impl State {
             .iter()
             .find(|job| &job.job_id == id)
     }
+    /// The members the matrix and member rows show: all of them, or with `⏎` on a plan, those it
+    /// applies to at the selected time.
+    pub fn members<'a>(&self, snapshot: &'a Snapshot) -> Vec<&'a model::Member> {
+        match &self.only_plan {
+            Some(id) => snapshot.plan_members(id),
+            None => snapshot.document.members.iter().collect(),
+        }
+    }
+    /// The plan `⏎` filters the members by, while Core still lists it.
+    pub fn only_plan_row(&self) -> Option<&model::PlanRow> {
+        let id = self.only_plan.as_ref()?;
+        self.snapshot()?.plan_rows.iter().find(|p| &p.id == id)
+    }
+    /// The plan selected in the plans list.
+    pub fn selected_plan(&self) -> Option<&model::PlanRow> {
+        let id = self.plan_selection.as_ref()?;
+        self.snapshot()?.plan_rows.iter().find(|p| &p.id == id)
+    }
     /// Why the jobs read failed, when it did; the rest of the tab still shows.
     pub fn jobs_failure(&self) -> Option<&str> {
         match &self.snapshot()?.jobs {
@@ -146,11 +168,10 @@ impl State {
             .talks
             .as_ref()
             .is_some_and(|t| !t.is_empty())
-            && !self.plans
         {
             sections.push(Section::Talks);
         }
-        if !matches!(snapshot.jobs, model::Jobs::Unavailable) && !self.plans {
+        if !matches!(snapshot.jobs, model::Jobs::Unavailable) {
             sections.push(Section::Jobs);
         }
         sections
@@ -234,6 +255,30 @@ impl State {
                         .plans
                         .first()
                         .and_then(|plan| plan["id"].as_str().map(str::to_owned));
+                }
+                // A plan filter outlives a read only while Core still lists the plan; the selected
+                // members stay among the members it shows.
+                if let Some(id) = &self.only_plan {
+                    if snapshot.plan_rows.iter().all(|p| &p.id != id) {
+                        self.only_plan = None;
+                        self.note = Some("that plan is gone · all members".into());
+                    } else {
+                        let shown = snapshot.plan_members(id);
+                        let keep = |at: &Option<String>| {
+                            at.as_ref()
+                                .is_some_and(|id| shown.iter().any(|m| &m.identity_id == id))
+                        };
+                        if !keep(&self.selected) {
+                            self.selected = shown.first().map(|m| m.identity_id.clone());
+                        }
+                        if !keep(&self.target) {
+                            self.target = shown
+                                .iter()
+                                .map(|m| &m.identity_id)
+                                .find(|id| Some(*id) != self.selected.as_ref())
+                                .cloned();
+                        }
+                    }
                 }
                 let jobs = snapshot
                     .jobs

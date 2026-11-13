@@ -36,6 +36,12 @@ pub(in crate::board) enum Control {
     JobRun,
     JobEdit,
     JobNew,
+    /// Turn the selected plan on or off, after Core's preview.
+    PlanToggle,
+    /// Show only the selected plan's members, or all members again.
+    PlanOnly,
+    /// Say which command edits the selected plan.
+    PlanEdit,
 }
 impl App {
     /// A bound action on the Orchestration tab: its own controls, and the list moves read as moves
@@ -61,8 +67,16 @@ impl App {
             Ui::OrchestrationSection => Control::Section,
             Ui::JobPause => Control::JobPause,
             Ui::JobRun => Control::JobRun,
-            Ui::JobEdit => Control::JobEdit,
+            Ui::OrchestrationEdit
+                if self.orchestration.plans
+                    && self.orchestration.focus() == super::Section::Routes =>
+            {
+                Control::PlanEdit
+            }
+            Ui::OrchestrationEdit => Control::JobEdit,
             Ui::JobNew => Control::JobNew,
+            Ui::PlanToggle => Control::PlanToggle,
+            Ui::PlanOnly => Control::PlanOnly,
             Ui::Fold | Ui::Expand => {
                 let state = &self.orchestration;
                 let snapshot = state.snapshot()?;
@@ -77,7 +91,7 @@ impl App {
                         Control::NextTime
                     }
                 } else {
-                    let members = &snapshot.document.members;
+                    let members = state.members(snapshot);
                     let row = members
                         .iter()
                         .position(|m| Some(&m.identity_id) == state.selected.as_ref())
@@ -142,10 +156,9 @@ impl App {
                         .filter_map(|p| p["id"].as_str())
                         .collect()
                 } else {
-                    snapshot
-                        .document
-                        .members
-                        .iter()
+                    state
+                        .members(snapshot)
+                        .into_iter()
                         .map(|m| m.identity_id.as_str())
                         .collect()
                 };
@@ -200,7 +213,60 @@ impl App {
             | Control::JobPause
             | Control::JobRun
             | Control::JobEdit
-            | Control::JobNew => {}
+            | Control::JobNew
+            | Control::PlanToggle => {}
+            Control::PlanEdit => {
+                let Some(plan) = state.selected_plan() else {
+                    return Effect::None;
+                };
+                // Literal POSIX words: a plan name never runs when the command is pasted.
+                let command = |words: &[&str]| super::super::command_line::command_line(words);
+                let notice = format!(
+                    "Edit with {} (its current plan: {})",
+                    command(&[
+                        "tmt",
+                        "orch",
+                        "plan",
+                        "set",
+                        &plan.name,
+                        "--file",
+                        "plan.json"
+                    ]),
+                    command(&["tmt", "orch", "plan", "show", &plan.name, "--json"]),
+                );
+                return self.say(notice);
+            }
+            Control::PlanOnly => {
+                if state.plans {
+                    if state.plan_selection.is_none() {
+                        return Effect::None;
+                    }
+                    state.only_plan = state.plan_selection.clone();
+                    state.plans = false;
+                    state.section = super::Section::Routes;
+                    let shown: Vec<String> = state
+                        .snapshot()
+                        .map(|s| {
+                            state
+                                .members(s)
+                                .iter()
+                                .map(|m| m.identity_id.clone())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if !shown.iter().any(|id| Some(id) == state.selected.as_ref()) {
+                        state.selected = shown.first().cloned();
+                    }
+                    if !shown.iter().any(|id| Some(id) == state.target.as_ref()) {
+                        state.target = shown
+                            .iter()
+                            .find(|id| Some(*id) != state.selected.as_ref())
+                            .cloned();
+                    }
+                } else if state.only_plan.take().is_none() {
+                    return Effect::None;
+                }
+            }
             Control::Section => {
                 let sections = state.sections();
                 let at = sections
@@ -232,7 +298,7 @@ impl App {
             }
             Control::Cell(row, column) => {
                 if let Some(snapshot) = state.snapshot() {
-                    let members = &snapshot.document.members;
+                    let members = state.members(snapshot);
                     let row = members.get(row).map(|m| m.identity_id.clone());
                     let column = members.get(column).map(|m| m.identity_id.clone());
                     if row.is_some() {
@@ -249,7 +315,7 @@ impl App {
             Control::Member(index) => {
                 state.selected = state
                     .snapshot()
-                    .and_then(|s| s.document.members.get(index))
+                    .and_then(|s| state.members(s).get(index).copied())
                     .map(|m| m.identity_id.clone());
             }
             Control::Plan(index) => {
@@ -441,7 +507,7 @@ impl App {
         if !snapshot.writes
             && matches!(
                 control,
-                Control::Allow | Control::Focus(_) | Control::Resume
+                Control::Allow | Control::Focus(_) | Control::Resume | Control::PlanToggle
             )
         {
             return Some(Err("This Core does not offer Orchestration changes.".into()));
@@ -463,6 +529,25 @@ impl App {
                 preview(
                     format!("Allow {} → {} once", from.name, to.name),
                     serde_json::json!({"kind": "route.allow", "fromId": from.identity_id, "toId": to.identity_id, "untilMs": until}),
+                )
+            }
+            Control::PlanToggle => {
+                let id = state.plan_selection.as_ref().filter(|_| state.plans)?;
+                let plan = snapshot
+                    .document
+                    .plans
+                    .iter()
+                    .find(|p| p["id"].as_str() == Some(id))?;
+                let on = plan["enabled"].as_bool() != Some(true);
+                let mut candidate = plan.clone();
+                candidate["enabled"] = on.into();
+                preview(
+                    format!(
+                        "Turn {} {}",
+                        if on { "on" } else { "off" },
+                        plan["name"].as_str().unwrap_or("?")
+                    ),
+                    serde_json::json!({"kind": "plan.set", "plan": id, "candidate": candidate}),
                 )
             }
             Control::Focus(on) => {
@@ -533,6 +618,10 @@ impl App {
                     Some("route.allow") => "Allow once",
                     Some("focus.set") => "Focus",
                     Some("focus.clear") => "End focus",
+                    Some("plan.set") if preview["mutation"]["candidate"]["enabled"] == true => {
+                        "Turn on"
+                    }
+                    Some("plan.set") => "Turn off",
                     _ => "Apply",
                 };
                 self.confirm(
