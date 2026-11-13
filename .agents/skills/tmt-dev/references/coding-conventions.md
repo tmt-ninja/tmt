@@ -112,8 +112,12 @@ caches literal edges by file and exact text, never ASTs or mutable caller arrays
 
 Use deterministic barriers for races, bounded polling for readiness, and
 observable failure/cleanup postconditions. Verify causal agent output rather
-than terminal echo. Cover compatibility, negative paths and partial failure,
-not only the new happy path. Demonstrate regression tests fail against the
+than terminal echo. Add a test only for user-facing behavior that broke or could
+realistically break; extend an existing case before adding one, and never
+duplicate what another layer already covers. Cover compatibility, negative paths
+and partial failure where users meet them. A test that only proves timing under
+load is deleted, not fixed; an already-tracked flake on a PR is rerun once, not
+investigated. Demonstrate regression tests fail against the
 original defect when practical; explain when that evidence cannot be obtained.
 For high-risk guards, use a valid positive control and change the relevant
 condition in isolation: an unrelated failure must not satisfy the negative
