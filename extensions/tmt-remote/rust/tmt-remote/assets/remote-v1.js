@@ -9027,6 +9027,7 @@ function decodeOverview(value) {
 			const rule = schedule(row.schedule);
 			if (!text(row.id) || !text(row.name) || !Number.isSafeInteger(row.priority) || typeof row.enabled !== "boolean" || targets.includes(null) || !rule) return [];
 			return [{
+				raw: structuredClone(row),
 				id: row.id,
 				name: row.name,
 				priority: Number(row.priority),
@@ -9328,6 +9329,12 @@ function orchestrationView(connect, now = () => Date.now()) {
 	const search = el("div", browserUiClasses.searchField);
 	search.append(createIcon("search"), filter);
 	bar.append(rangeGroup, when, planSelect, search);
+	const plansCard = el("section", `${browserUiClasses.card} ops-orchestration-plans`);
+	plansCard.setAttribute("aria-label", "Plan list");
+	const plansHead = el("div", browserUiClasses.cardHead);
+	plansHead.append(el("h3", browserUiClasses.cardTitle, "Plans"));
+	const planList = el("ul", "ops-orchestration-plan-list");
+	plansCard.append(plansHead, planList);
 	const timelineCard = el("section", `${browserUiClasses.card} ops-orchestration-timeline`);
 	timelineCard.setAttribute("aria-label", "Timeline");
 	const axis = el("div", "ops-orchestration-axis");
@@ -9373,8 +9380,9 @@ function orchestrationView(connect, now = () => Date.now()) {
 	grid.append(matrixCard, inspector);
 	const dialog = el("dialog", browserUiClasses.dialog);
 	timelineCard.hidden = true;
+	plansCard.hidden = true;
 	grid.hidden = true;
-	node.append(bar, status, timelineCard, grid, dialog);
+	node.append(bar, status, plansCard, timelineCard, grid, dialog);
 	let api;
 	let days = 1;
 	let atMs = null;
@@ -9431,7 +9439,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 		}
 	};
 	/** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
-	const planSummary = (p) => {
+	const planSummary = (p, includeState = true) => {
 		const rule = p.schedule;
 		let when = "always";
 		if (rule.kind === "once") when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
@@ -9441,8 +9449,31 @@ function orchestrationView(connect, now = () => Date.now()) {
 			when = `${rule.intervalWeeks === 2 ? "every other week " : rule.intervalWeeks > 2 ? `every ${rule.intervalWeeks} weeks ` : ""}${dayWords} ${rule.allDay ? "all day" : `${rule.start}–${rule.end}`}`;
 		}
 		const who = p.targets.map((t) => t.kind === "all" ? "everyone" : t.kind === "identity" ? name(t.id) : t.pattern).join(", ");
-		return `${when} · ${who || "no one"}${p.enabled ? "" : " · off"}`;
+		return `${when} · ${who || "no one"}${includeState && !p.enabled ? " · off" : ""}`;
 	};
+	function drawPlans(view) {
+		const focused = document.activeElement instanceof HTMLElement && planList.contains(document.activeElement) ? document.activeElement.dataset.planId : void 0;
+		planList.replaceChildren(...view.plans.map((item) => {
+			const row = el("li");
+			const button = el("button", "ops-orchestration-plan-row");
+			button.type = "button";
+			button.dataset.planId = item.id;
+			button.ariaPressed = String(item.id === view.selectedPlanId);
+			const text = el("span", "ops-orchestration-plan-text");
+			text.append(el("strong", void 0, item.name), el("span", void 0, planSummary(item, false)));
+			const state = el("span", browserUiClasses.chip);
+			state.append(el("span", browserUiClasses.chipLabel, item.enabled ? "On" : "Off"));
+			button.append(text, state);
+			button.addEventListener("click", () => {
+				plan = item.id;
+				load();
+			});
+			row.append(button);
+			return row;
+		}));
+		if (!view.plans.length) planList.append(el("li", void 0, "No plans yet."));
+		if (focused) [...planList.querySelectorAll("button")].find((button) => button.dataset.planId === focused)?.focus({ preventScroll: true });
+	}
 	async function load() {
 		const mine = ++generation;
 		if (!overview) say("Reading orchestration from Core…");
@@ -9791,7 +9822,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 				"Sending",
 				fieldWords("sending", row.fields.sending.value),
 				from(row.fields.sending.source)
-			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "✕ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `Allowed · ${receivingWords(column.fields.receiving.value)}`]]));
+			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "Blocked · explained" : route.verdict === "needs_person" ? "◆ held for a person" : `Allowed · ${receivingWords(column.fields.receiving.value)}`]]));
 			const actions = el("div", browserUiClasses.actions);
 			if (route?.verdict === "blocked") {
 				const end = Math.min(row.nextChangeAtMs ?? now() + DAY, now() + DAY);
@@ -9866,9 +9897,11 @@ function orchestrationView(connect, now = () => Date.now()) {
 	function draw() {
 		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
 		if (!overview) return;
+		plansCard.hidden = false;
 		timelineCard.hidden = false;
 		grid.hidden = false;
 		drawBar(overview);
+		drawPlans(overview);
 		drawTimeline(overview);
 		drawMatrix(overview);
 		drawTalks();

@@ -33,6 +33,13 @@ for (const width of [1440, 390])
       page.on('pageerror', (error) => errors.push(error.message));
       await open(page, width, theme);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Orchestration');
+      const plans = page.getByRole('region', { name: 'Plan list' });
+      await expect(plans.getByRole('button', { name: /Release freeze/ })).toContainText('Off');
+      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText(
+        'every other week Tue Thu 22:00–06:00 · night-*',
+      );
+      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText('On');
+      await expect(plans.getByRole('switch')).toHaveCount(0);
       const matrix = page.locator('.ops-orchestration-matrix');
       await expect(
         matrix.getByRole('button', { name: /^sample-1 to sample-lead: / }),
@@ -66,7 +73,7 @@ for (const width of [1440, 390])
         await expect(matrix.getByRole('button', { name: /^night-1 to core-1: / })).toBeFocused();
       }
       await expect(inspector).toContainText('SendingLeads only ← Shift B · Night');
-      await expect(inspector).toContainText('✕ not sent, explained');
+      await expect(inspector).toContainText('Blocked · explained');
       await expect(inspector).toContainText('State● Awake ← Shift B · Night');
       await expect(inspector).toContainText('Talk limit20 / h ← Shift B · Night');
       await expect(page.getByRole('list', { name: 'Jobs · night-1' })).toContainText(
@@ -133,7 +140,11 @@ test('the timeline follows the range, the plan filter and the steps', async ({ p
   await expect(page.locator('.ops-orchestration-when')).toHaveText(
     'Tue 10-27 – Mon 11-02Asia/Tokyo',
   );
-  await page.getByRole('combobox', { name: 'Plans' }).selectOption({ label: 'Shift B · Night' });
+  const selected = page.getByRole('region', { name: 'Plan list' }).getByRole('button', {
+    name: /Shift B · Night/,
+  });
+  await selected.click();
+  await expect(selected).toHaveAttribute('aria-pressed', 'true');
   const legend = page.getByRole('list', { name: 'Plans at the selected time' });
   await expect(legend).toHaveText('Shift B · Nightevery other week Tue Thu 22:00–06:00 · night-*');
   expect((await overviews()).at(-1)!.input).toMatchObject({ rangeDays: 7, plan: 'plan-shift-b' });

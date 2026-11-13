@@ -201,7 +201,7 @@ const orchPlans = [
     name: 'Release freeze',
     revision: 1,
     priority: 30,
-    enabled: true,
+    enabled: false,
     targets: [{ kind: 'identity', id: orchId(12) }],
     schedule: {
       kind: 'once',
@@ -275,6 +275,7 @@ const orchWindows = new Map(
   }),
 );
 const inEffect = (planId: string, at: number) =>
+  orchPlans.find((plan) => plan.id === planId)?.enabled === true &&
   orchWindows.get(planId)!.some(([start, end]) => start! <= at && at < end!);
 const targets = (plan: (typeof orchPlans)[number], member: (typeof orchMembers)[number]) =>
   (plan.targets as { kind: string; id?: string; pattern?: string }[]).some((t) =>

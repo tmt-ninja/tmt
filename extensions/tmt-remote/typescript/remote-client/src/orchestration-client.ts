@@ -81,6 +81,8 @@ export type Schedule =
       allDay: boolean;
     };
 export interface Plan {
+  /** The admitted Core document, retained intact for a future enabled-only preview. */
+  raw: Json;
   id: string;
   name: string;
   priority: number;
@@ -194,6 +196,7 @@ export function decodeOverview(value: Json): Overview {
         return [];
       return [
         {
+          raw: structuredClone(row),
           id: row.id,
           name: row.name,
           priority: Number(row.priority),

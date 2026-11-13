@@ -42,6 +42,8 @@ const overview = (): Json => ({
     {
       id: 'p1',
       name: 'Night',
+      revision: 4,
+      fields: { state: 'sleep' },
       priority: 20,
       enabled: true,
       targets: [{ kind: 'pattern', pattern: 'night-*' }],
@@ -84,6 +86,7 @@ it('decodes only what the page draws and refuses an unreadable overview', () => 
   expect(decoded.selectedPlanId).toBe('p1');
   expect(decoded.plans).toEqual([
     {
+      raw: (overview().plans as Json[])[0],
       id: 'p1',
       name: 'Night',
       priority: 20,
