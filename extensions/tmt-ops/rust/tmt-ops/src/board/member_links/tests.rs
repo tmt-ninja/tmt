@@ -339,9 +339,16 @@ mod interaction_tests {
             crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
         loaded.tabs.push(crate::board::ALL.into());
         loaded.view = Ok(refreshed.view.take().unwrap());
-        // The refresh carries the same identity listing, so the mention still resolves.
-        loaded.references = refreshed.references.clone();
+        // That refresh's identity listing read failed: the board keeps the last good listing, so
+        // the mention still resolves and keeps its link.
+        loaded.references = Some(crate::board::inventory::Inventory::from_listed(&Err(
+            crate::core::SquadError::new("CORE_UNAVAILABLE", "listing timed out"),
+        )));
         app.apply(loaded);
+        assert!(
+            app.references.error.is_none(),
+            "the last good listing stays"
+        );
         draw(&app);
         app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert!(

@@ -115,7 +115,8 @@ pub struct View {
 }
 
 pub struct Snapshot {
-    pub(super) references: super::inventory::Inventory,
+    /// The identity listing this refresh read; `None` when no listing read ran.
+    pub(super) references: Option<super::inventory::Inventory>,
     pub(super) timing: Option<super::timing::Load>,
     /// Squad names in core list order, before tab policy.
     pub squad_keys: Vec<String>,
@@ -1786,7 +1787,16 @@ impl App {
         if let Some(overlay) = &mut self.settings {
             overlay.squad_keys = snapshot.squad_keys.clone();
         }
-        self.references = snapshot.references;
+        // A failed listing read keeps the last good listing, so resolved mentions keep their
+        // links (#6398); the next good listing replaces it. With no good listing yet, the
+        // failure is kept and readers say the listing is unavailable.
+        if let Some(references) = snapshot.references
+            && !(references.error.is_some()
+                && self.references.error.is_none()
+                && !self.references.agents.is_empty())
+        {
+            self.references = references;
+        }
         self.squad_keys = snapshot.squad_keys;
 
         self.invalidate_frame_geometry();
