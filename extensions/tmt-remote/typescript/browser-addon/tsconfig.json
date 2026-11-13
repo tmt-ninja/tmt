@@ -8,7 +8,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    "types": ["chrome", "node", "vite/client"]
+    "types": ["chrome", "node", "vite/client"],
+    "resolveJsonModule": true
   },
   "include": ["src", "e2e", "*.ts"]
 }
