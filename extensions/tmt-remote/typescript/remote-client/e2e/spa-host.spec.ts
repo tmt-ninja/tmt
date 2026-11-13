@@ -371,7 +371,7 @@ const beyondAssets = (requests: Request[]) =>
     .map((request) => `${request.method()} ${new URL(request.url()).pathname}`)
     .filter(
       (entry) =>
-        !/^GET \/sdk\/(pages\.css|settings\.css|shell\.js|remote-v1\.js|settings-v1\.js)$/.test(
+        !/^GET \/sdk\/(pages\.css|settings\.css|shell\.js|remote-v1\.js|settings-v1\.js|ops-composer-v1\.js)$/.test(
           entry,
         ),
     );

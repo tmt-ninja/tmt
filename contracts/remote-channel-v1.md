@@ -1291,6 +1291,8 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 The Remote-owned management tabs use the existing page CSP, origin checks and no-store policy.
 `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not embed another signer/channel implementation.
+`/sdk/ops-composer-v1.js` (the Ops message box, loaded only when a channel or DM opens) is served with
+the same headers; it renders text input only and holds no signer, channel or Session.
 Settings consolidates Browser opening, Session limit per device, the origin-local catalog name
 (labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
 A Remote-wide name has no browser setter here. Catalog naming reuses the existing

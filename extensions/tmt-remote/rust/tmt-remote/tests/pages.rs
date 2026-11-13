@@ -426,6 +426,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             "\n",
             include_str!("../assets/pages.css"),
             "\n",
+            include_str!("../../../../../design/browser-ui/src/rich-input-control/control.css"),
+            "\n",
             include_str!("../assets/tmt-settings.css"),
         )
     );
@@ -736,6 +738,26 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert_eq!(page.header("cache-control"), Some("no-store"));
     let script = get(&h, "/sdk/settings-v1.js", "");
     assert_eq!(script.body, include_str!("../assets/settings-v1.js"));
+    // The Ops message box (#5704) is served beside it the same way. Only an opened Ops channel
+    // or DM loads it: the SDK names it for a lazy import and bundles none of it.
+    let composer = get(&h, "/sdk/ops-composer-v1.js", "");
+    assert_eq!(composer.body, include_str!("../assets/ops-composer-v1.js"));
+    assert_eq!(
+        composer.header("content-type"),
+        script.header("content-type")
+    );
+    assert_eq!(
+        composer.header("cache-control"),
+        script.header("cache-control")
+    );
+    let sdk = include_str!("../assets/remote-v1.js");
+    assert!(sdk.contains("\"/sdk/ops-composer-v1.js\""));
+    assert!(composer.body.contains("Mention an agent") && !sdk.contains("Mention an agent"));
+    assert!(
+        get(&h, "/sdk/pages.css", "")
+            .body
+            .contains(".rich-input-surface")
+    );
     assert!(script.body.contains("from \"/sdk/remote-v1.js\""));
     assert!(!script.body.contains("class DeviceKey"));
     assert!(

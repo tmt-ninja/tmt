@@ -23,12 +23,17 @@ const SHELL_ENTRY: &str = include_str!("../assets/shell.js");
 const SHELL: &str = include_str!("../assets/shell.html");
 const ERROR: &str = include_str!("../assets/error.html");
 const SETTINGS_SCRIPT: &str = include_str!("../assets/settings-v1.js");
+/// The Ops message box (#5704): React and Lexical, loaded only by an opened Ops channel or DM.
+const OPS_COMPOSER_SCRIPT: &str = include_str!("../assets/ops-composer-v1.js");
 const SETTINGS_STYLE: &str = include_str!("../assets/settings.css");
 // Checked shared presentation plus Remote-owned layout; no Cargo-time generator.
 const STYLE: &str = concat!(
     include_str!("../../../../../design/browser-ui/generated/static.css"),
     "\n",
     include_str!("../assets/pages.css"),
+    "\n",
+    // The rich input's field surface, for the Ops message box (#5704).
+    include_str!("../../../../../design/browser-ui/src/rich-input-control/control.css"),
     "\n",
     include_str!("../assets/tmt-settings.css"),
 );
@@ -220,6 +225,7 @@ impl Pages {
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
                         | "/sdk/settings-v1.js"
+                        | "/sdk/ops-composer-v1.js"
                         | "/sdk/settings.css"
                 ) || path.starts_with("/pair/")
                     || path.starts_with("/remote/pair/")
@@ -311,6 +317,9 @@ impl Pages {
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
             "/sdk/settings-v1.js" => asset("text/javascript; charset=utf-8", SETTINGS_SCRIPT, None),
+            "/sdk/ops-composer-v1.js" => {
+                asset("text/javascript; charset=utf-8", OPS_COMPOSER_SCRIPT, None)
+            }
             "/sdk/settings.css" => asset("text/css; charset=utf-8", SETTINGS_STYLE, None),
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
             "/sdk/landing.js" => asset("text/javascript; charset=utf-8", ENTRY, None),
