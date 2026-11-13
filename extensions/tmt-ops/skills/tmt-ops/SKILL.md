@@ -1131,9 +1131,16 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 receiving policy at a selected time, read through the public `orchestration.read`
 views. One header line names the selected time and zone, whether it follows now and
 how many plans are in effect, with the range, **Plans** and (away from now) **Now**
-controls on the right. `d`, `7` and `0` pick a 1, 7 or 30 day range, `[` and `]`
-step to the previous or next policy change, `N` returns to now, `P` lists plans and
-`/` filters members. When Core reports routes, the **Who may message whom** section
+controls on the right. Below it, a timeline strip shows the range: how many plans
+are in effect (`·` for Base only) and a `▲` under the selected time, with the plans in
+effect then and the **earlier** and **later** controls. `d` reads the selected calendar
+day by hour; `7` reads seven days from the selected day in thirds (night 00–08, day
+08–16, evening 16–24); `0` reads thirty days, one cell per day. A cell narrower than a
+change shows the higher count. Clicking a cell selects the start of the first change
+inside it and stops following now. `[` and `]` step to the previous or next policy
+change; past the range they read the next range once and, when nothing changes there,
+stay and say `no earlier change` or `no later change`. `N` returns to now, `P` lists
+plans and `/` filters members. When Core reports routes, the **Who may message whom** section
 holds a **From ↓ To →** matrix (`✕` blocked, `◆` needs a person, otherwise the
 recipient's receiving mode) with its legend, and **Talks this hour** lists each pair
 with its count, limit, last message and whether it is held; arrows move the selected

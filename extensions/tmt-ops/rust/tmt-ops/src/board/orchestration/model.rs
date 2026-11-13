@@ -465,6 +465,141 @@ impl Sending {
             .find(|p| (p.ids.0 == a && p.ids.1 == b) || (p.ids.0 == b && p.ids.1 == a))
     }
 }
+/// Where the parts of a day start in the 7-day strip, as local hours: night from midnight, day from
+/// 08:00, evening from 16:00. The approved wireframe's `tmt orch --range 7d` output counts plans per
+/// "night · day · evening"; its figures fit these thirds.
+const DAY_PARTS: [i8; 2] = [8, 16];
+/// One cell of the timeline strip: a span of the read range and how many plans are in effect in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct StripCell {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    /// The highest plan count of any Core interval in the cell; 0 is base only.
+    pub count: usize,
+    /// The start of the first Core interval inside the cell: what a click selects.
+    pub at_ms: u64,
+}
+/// The timeline strip of the read range, laid out on the worker: cells, axis ticks and labels.
+#[derive(Clone, Debug, Default)]
+pub(in crate::board) struct Strip {
+    pub axis: &'static str,
+    pub row: &'static str,
+    pub cells: Vec<StripCell>,
+    pub ticks: Vec<(u64, String)>,
+    /// One cell per Core interval (1 day): a base-only span is dotted across its width.
+    pub spans: bool,
+}
+impl Strip {
+    fn new(document: &Overview, zone: &jiff::tz::TimeZone) -> Result<Self, String> {
+        let fail = |_| "Orchestration time cannot be displayed.".to_owned();
+        let (start, end) = (document.range.start_ms, document.range.end_ms);
+        let zoned = |ms: u64| {
+            jiff::Timestamp::from_millisecond(ms as i64)
+                .map(|t| t.to_zoned(zone.clone()))
+                .map_err(fail)
+        };
+        let local = |date: jiff::civil::Date, hour: i8| -> Result<(u64, jiff::Zoned), String> {
+            let at = date
+                .at(hour, 0, 0, 0)
+                .to_zoned(zone.clone())
+                .map_err(fail)?;
+            Ok((at.timestamp().as_millisecond().max(0) as u64, at))
+        };
+        // The local days the range covers, by their midnights.
+        let mut days = vec![zoned(start)?.date()];
+        while let Some(last) = days.last()
+            && local(last.tomorrow().map_err(fail)?, 0)?.0 < end
+            && days.len() < 31
+        {
+            days.push(last.tomorrow().map_err(fail)?);
+        }
+        let mut timeline: Vec<&Interval> = document.timeline.iter().collect();
+        timeline.sort_by_key(|interval| interval.start_ms);
+        let cell = |from: u64, to: u64| {
+            let inside = timeline
+                .iter()
+                .filter(|i| i.start_ms < to && from < i.end_ms);
+            StripCell {
+                start_ms: from,
+                end_ms: to,
+                count: inside.clone().map(|i| i.plan_ids.len()).max().unwrap_or(0),
+                at_ms: inside.map(|i| i.start_ms.max(from)).next().unwrap_or(from),
+            }
+        };
+        let day_end = |date: jiff::civil::Date| -> Result<u64, String> {
+            Ok(local(date.tomorrow().map_err(fail)?, 0)?.0.min(end))
+        };
+        let mut strip = Self::default();
+        if days.len() == 1 {
+            strip.axis = "TIME";
+            strip.row = "in effect";
+            strip.spans = true;
+            // Core's intervals, with the time none of them covers as base-only spans.
+            let mut from = start;
+            for interval in timeline
+                .iter()
+                .filter(|i| i.start_ms < end && start < i.end_ms)
+            {
+                let (at, until) = (interval.start_ms.max(start), interval.end_ms.min(end));
+                if from < at {
+                    strip.cells.push(cell(from, at));
+                }
+                if from < until {
+                    strip.cells.push(cell(at.max(from), until));
+                }
+                from = from.max(until);
+            }
+            if from < end || strip.cells.is_empty() {
+                strip.cells.push(cell(from, end));
+            }
+            for hour in (0..24).step_by(3) {
+                let (at, zoned) = local(days[0], hour)?;
+                strip
+                    .ticks
+                    .push((at.max(start), zoned.strftime("%H").to_string()));
+            }
+            strip.ticks.push((end, "24".into()));
+        } else if days.len() <= 7 {
+            strip.axis = "DAY";
+            strip.row = "night·day·eve";
+            for date in &days {
+                let (midnight, zoned) = local(*date, 0)?;
+                let midnight = midnight.max(start);
+                strip
+                    .ticks
+                    .push((midnight, zoned.strftime("%a").to_string()));
+                let mut bounds = vec![midnight];
+                for hour in DAY_PARTS {
+                    bounds.push(local(*date, hour)?.0);
+                }
+                bounds.push(day_end(*date)?);
+                for pair in bounds.windows(2) {
+                    strip.cells.push(cell(pair[0], pair[1]));
+                }
+            }
+        } else {
+            strip.axis = "DATE";
+            strip.row = "in effect";
+            let mut month = None;
+            for (index, date) in days.iter().enumerate() {
+                let (midnight, zoned) = local(*date, 0)?;
+                let midnight = midnight.max(start);
+                strip.cells.push(cell(midnight, day_end(*date)?));
+                if index % 5 == 0 {
+                    // The month name stands before the first tick and the first of a new month.
+                    let label = if month == Some(date.month()) {
+                        zoned.strftime("%-d").to_string()
+                    } else {
+                        zoned.strftime("%b %-d").to_string()
+                    };
+                    month = Some(date.month());
+                    strip.ticks.push((midnight, label));
+                }
+            }
+        }
+        Ok(strip)
+    }
+}
 /// Time-zone lookup and formatting occur on the worker, never while painting.
 #[derive(Clone, Debug)]
 pub(in crate::board) struct Snapshot {
@@ -475,6 +610,7 @@ pub(in crate::board) struct Snapshot {
     pub short: BTreeMap<u64, String>,
     /// Clock time alone on the selected time's day, weekday and clock time on any other.
     pub clock: BTreeMap<u64, String>,
+    pub strip: Strip,
     pub writes: bool,
 }
 impl Snapshot {
@@ -518,6 +654,7 @@ impl Snapshot {
                 .map(|t| t.to_zoned(zone.clone()))
                 .map_err(|_| "Orchestration time cannot be displayed.".to_owned())
         };
+        let strip = Strip::new(&document, &zone)?;
         let day = zoned(document.at_ms)?.date();
         let mut times = BTreeMap::new();
         let mut short = BTreeMap::new();
@@ -539,6 +676,7 @@ impl Snapshot {
             times,
             short,
             clock,
+            strip,
             writes,
         })
     }

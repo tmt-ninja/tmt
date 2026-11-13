@@ -1282,7 +1282,7 @@ macro_rules! oracle_groups {
         $group!(7, 8, mention_picker_frames($styles));
         $group!(7, 360, skills_picker_frames($styles));
         $group!(7, 32, visibility_frames($styles));
-        $group!(7, 384, orchestration_frames($styles));
+        $group!(7, 480, orchestration_frames($styles));
     };
 }
 

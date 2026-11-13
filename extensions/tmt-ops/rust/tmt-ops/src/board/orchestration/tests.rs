@@ -83,6 +83,15 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
             ),
         ]
     );
+    // The range keys change the one overview read's range.
+    let mut app = matrix_app();
+    for (press, days) in ['7', '0', 'd'].into_iter().zip([7, 30, 1]) {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char(press),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        assert_eq!(app.orchestration.read().query.input()["rangeDays"], days);
+    }
 }
 #[test]
 fn unsupported_core_is_not_an_empty_or_direct_observation() {
@@ -154,6 +163,84 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
     assert!(!state.tick(2001), "the pending boundary read must not spin");
     state.follow_now = false;
     assert!(!state.tick(4000), "a historical selection stays fixed");
+
+    // `[` before the first boundary of the held range reads the previous day once and lands on
+    // its last change; with no change there the selection stays, with no further read.
+    let day = |start: u64, end: u64, at: u64, timeline: Value| {
+        let mut wire = document();
+        wire["range"] = json!({"startMs":start,"endMs":end});
+        wire["atMs"] = at.into();
+        wire["observedAtMs"] = at.into();
+        wire["members"][0]["nextChangeAtMs"] = Value::Null;
+        wire["timeline"] = timeline;
+        model::Snapshot::new(
+            model::Overview::decode(wire).unwrap(),
+            model::Sending::default(),
+            true,
+        )
+        .unwrap()
+    };
+    let today = || {
+        day(
+            1000,
+            3000,
+            1000,
+            json!([{"startMs":1000,"endMs":3000,"planIds":[]}]),
+        )
+    };
+    for (earlier, lands_on, note) in [
+        (
+            json!([{"startMs":1,"endMs":500,"planIds":[]},{"startMs":500,"endMs":1000,"planIds":[]}]),
+            500,
+            None,
+        ),
+        (json!([]), 1000, Some("no earlier change")),
+    ] {
+        let mut state = self::state();
+        state.apply(state.read(), Observation::Ready(Box::new(today())));
+        let original = state.read();
+        assert!(state.step(false), "the edge step asks for the previous day");
+        assert_eq!(state.query.at_ms, 999);
+        assert!(state.snapshot().is_none(), "one read is pending");
+        state.apply(
+            state.read(),
+            Observation::Ready(Box::new(day(1, 1000, 999, earlier))),
+        );
+        assert_eq!(state.query.at_ms, lands_on);
+        assert_eq!(state.note.as_deref(), note);
+        // Landing on a change leaves now; finding none keeps following it, as before the step.
+        assert_eq!(state.follow_now, note.is_some());
+        if note.is_some() {
+            assert!(
+                state.read() == original && state.snapshot().is_some(),
+                "no further read"
+            );
+        }
+    }
+    // A time the person chooses while the edge read is pending wins over that read: a strip
+    // click, now or another range drops the pending step.
+    let earlier = || {
+        day(
+            1,
+            1000,
+            999,
+            json!([{"startMs":1,"endMs":500,"planIds":[]}]),
+        )
+    };
+    for choose in [
+        (|s: &mut State| s.at(1500)) as fn(&mut State),
+        |s| s.now(2500),
+        |s| s.range(7),
+    ] {
+        let mut state = self::state();
+        state.apply(state.read(), Observation::Ready(Box::new(today())));
+        assert!(state.step(false));
+        choose(&mut state);
+        let chosen = state.query.clone();
+        state.apply(state.read(), Observation::Ready(Box::new(earlier())));
+        assert_eq!(state.query, chosen, "the chosen time stays");
+        assert!(state.note.is_none());
+    }
 }
 #[test]
 fn first_orchestration_demand_does_not_need_a_workspace_snapshot() {
@@ -566,8 +653,15 @@ pub(in crate::board) mod captures {
         "orchestration-empty",
         "orchestration-failed",
         "orchestration-refresh-failed",
+        "orchestration-week",
+        "orchestration-month",
+        "orchestration-history",
     ];
     const WED_23: u64 = 1_794_405_600_000;
+    /// Wed 00:00 Asia/Tokyo: the local day every roster range starts from.
+    const WED_00: u64 = WED_23 - 23 * HOUR;
+    const HOUR: u64 = 3_600_000;
+    const DAY: u64 = 24 * HOUR;
     const NIGHT_START: u64 = 1_794_402_000_000;
     const NIGHT_END: u64 = 1_794_430_800_000;
     const NIGHT: &str = "20000000-0000-4000-8000-000000000011";
@@ -592,6 +686,27 @@ pub(in crate::board) mod captures {
     /// A real-shaped squad at Wed 23:00 Asia/Tokyo: night members follow Shift B, one route
     /// is allowed once, one pair is held, and both verdicts appear.
     fn roster_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+        // The selected time and range the board asked for: the fixture's own state stands in for now.
+        let at = input["atMs"]
+            .as_u64()
+            .filter(|at| *at > 1000)
+            .unwrap_or(WED_23);
+        let days = input["rangeDays"].as_u64().unwrap_or(1);
+        let end = WED_00 + days * DAY;
+        // Shift B runs 22:00-06:00 on weekdays (the night before the range is clipped to it);
+        // Sat and Sun have Quiet hours all day.
+        let timeline: Vec<Value> = (0..=days)
+            .filter_map(|day| {
+                let start = WED_00 + day * DAY;
+                // Day 0 is Wednesday, so days 3 and 4 of each week are the weekend.
+                let (from, to, plans) = match day % 7 {
+                    3 | 4 => (start, start + DAY, json!([QUIET])),
+                    _ => (start - 2 * HOUR, start + 6 * HOUR, json!([NIGHT, QUIET])),
+                };
+                let (from, to) = (from.max(WED_00), to.min(end));
+                (from < to).then(|| json!({"startMs":from,"endMs":to,"planIds":plans}))
+            })
+            .collect();
         let night = json!({"kind":"plan","planId":NIGHT,"identityId":null,"revision":4,
             "slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},"defaulted":false});
         let field = |value: Value, from_plan: bool| json!({"value":value,"source":if from_plan { night.clone() } else { source() }});
@@ -657,15 +772,15 @@ pub(in crate::board) mod captures {
                      "windowStartMs":NIGHT_START,"state":"open","heldCount":0,"held":[]}]})
             }
             _ => json!({"schemaVersion":1,"configurationRevision":9,"receivingRevision":3,
-                "observedAtMs":WED_23,"atMs":WED_23,"timeZone":"Asia/Tokyo",
-                "range":{"startMs":WED_23 - 82_800_000,"endMs":WED_23 + 3_600_000},
+                "observedAtMs":WED_23,"atMs":at,"timeZone":"Asia/Tokyo",
+                "range":{"startMs":WED_00,"endMs":end},
                 "plans":[
                     {"id":NIGHT,"name":"Shift B · Night","revision":4,"fields":{},"schedule":{},
                      "targets":[],"members":[],"enabled":true,"priority":20},
                     {"id":QUIET,"name":"Quiet hours","revision":2,"fields":{},"schedule":{},
                      "targets":[],"members":[],"enabled":true,"priority":10}],
                 "members":members,
-                "timeline":[{"startMs":NIGHT_START,"endMs":NIGHT_END,"planIds":[NIGHT, QUIET]}]}),
+                "timeline":timeline}),
         })
     }
     fn older_core_pair(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
@@ -703,12 +818,25 @@ pub(in crate::board) mod captures {
             &mut app.workspace.selected,
         ));
         app.orchestration = state();
+        match scene {
+            "orchestration-week" => app.orchestration.query.days = 7,
+            "orchestration-month" => app.orchestration.query.days = 30,
+            "orchestration-history" => {
+                // Wed 04:00, inside last night's shift, away from now.
+                app.orchestration.query.at_ms = WED_00 + 4 * HOUR;
+                app.orchestration.follow_now = false;
+            }
+            _ => {}
+        }
         let observation = match scene {
             "orchestration-loading" => return app,
             "orchestration-unsupported" => Observation::Unavailable,
             "orchestration-table" => Observation::Ready(Box::new(ready())),
             "orchestration-plans" => Observation::Ready(Box::new(observe(plans_api))),
-            "orchestration-roster" => Observation::Ready(Box::new(observe(roster_api))),
+            "orchestration-roster"
+            | "orchestration-week"
+            | "orchestration-month"
+            | "orchestration-history" => app.orchestration.read().read_with(roster_api),
             "orchestration-table-selection" => {
                 Observation::Ready(Box::new(observe(older_core_pair)))
             }
@@ -819,4 +947,24 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
         columns.len() > 1 && distinct.len() == columns.len(),
         "{header}"
     );
+    drop(hits);
+    // A strip cell selects the start of its interval, as `[` and `]` would.
+    let rect = app
+        .orchestration
+        .hits
+        .borrow()
+        .iter()
+        .find(|(_, control)| matches!(control, Control::At(2000)))
+        .map(|(rect, _)| *rect)
+        .expect("a strip cell for the interval at 2000");
+    app.orchestration_mouse(ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: rect.x,
+        row: rect.y,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    });
+    assert_eq!(app.orchestration.query.at_ms, 2000);
+    assert!(!app.orchestration.follow_now);
 }
