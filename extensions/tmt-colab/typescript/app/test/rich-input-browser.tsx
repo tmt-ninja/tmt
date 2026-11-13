@@ -5,11 +5,19 @@ import '../src/style.css';
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import {
-  RichInput,
-  plainRichInputDocument,
+  $replaceRichInput,
+  $richInputText,
+  RichInputCore as RichInput,
+  type RichInputDocument,
   type RichInputEdit,
-} from '../src/components/rich-input.js';
+} from '@tmt/browser-ui/rich-input';
 import { MessageComposer, type ComposerEdit } from '../src/components/message-composer.js';
+
+const plainRichInputDocument: RichInputDocument<RichInputEdit> = {
+  read: () => ({ value: $richInputText() }),
+  replace: (edit) => $replaceRichInput(edit.value),
+  equal: (a, b) => a.value === b.value,
+};
 
 function Fixture() {
   const [edit, setEdit] = useState<RichInputEdit>({ value: '' });

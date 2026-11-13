@@ -1,5 +1,7 @@
 import {
+  $isRichInputChip,
   $replaceRichInput,
+  RichInputChipNode,
   $richInputText as $messageText,
   $richInputTokens,
   $selectRichInputRange as $selectMessageRange,
@@ -16,88 +18,26 @@ import {
   $setSelection,
   $createTextNode,
   $getRoot,
-  DecoratorNode,
   type LexicalNode,
-  type NodeKey,
-  type SerializedLexicalNode,
-  type Spread,
 } from 'lexical';
-import { createElement, type ReactNode } from 'react';
-import { MessageMentionChip } from './message-mention-chip.js';
 import { resolveMessageMentions } from '../message-recipient.js';
 import type { AgentDestination } from '../live-ask.js';
 import type { ComposerEdit, RecipientKey } from './message-composer-edit.js';
 
-type SerializedMention = Spread<
-  { recipient: RecipientKey; token: string; defaultCreator?: true },
-  SerializedLexicalNode
->;
+/** What a mention chip keeps: the recipient it routes to, and whether it is the creator default. */
+type MentionData = { recipient: RecipientKey; defaultCreator?: true };
 
-/** Editing tokens only; the parent revalidates their UUID keys before every Send. */
-export class MessageMentionNode extends DecoratorNode<ReactNode> {
-  __recipient: RecipientKey;
-  __token: string;
-  __defaultCreator: boolean;
-  static getType() {
-    return 'message-mention';
-  }
-  static clone(node: MessageMentionNode) {
-    return new MessageMentionNode(
-      node.__token,
-      node.__recipient,
-      node.__key,
-      node.__defaultCreator,
-    );
-  }
-  constructor(token: string, recipient: RecipientKey, key?: NodeKey, defaultCreator = false) {
-    super(key);
-    this.__recipient = recipient;
-    this.__token = token;
-    this.__defaultCreator = defaultCreator;
-  }
-  static importJSON(serialized: SerializedMention) {
-    return new MessageMentionNode(
-      serialized.token,
-      serialized.recipient,
-      undefined,
-      serialized.defaultCreator === true,
-    ).updateFromJSON(serialized);
-  }
-  exportJSON(): SerializedMention {
-    return {
-      ...super.exportJSON(),
-      type: 'message-mention',
-      recipient: this.__recipient,
-      token: this.__token,
-      ...(this.__defaultCreator ? { defaultCreator: true as const } : {}),
-    };
-  }
-  createDOM() {
-    const node = document.createElement('span');
-    node.className = 'message-mention-host';
-    return node;
-  }
-  updateDOM() {
-    return false;
-  }
-  exportDOM() {
-    return { element: document.createTextNode(this.getTextContent()) };
-  }
-  isInline() {
-    return true;
-  }
-  getTextContent() {
-    return this.__token;
-  }
-  decorate() {
-    return createElement(MessageMentionChip, {
-      nodeKey: this.getKey(),
-      token: this.__token,
-      recipient: this.__recipient,
-      defaultCreator: this.__defaultCreator,
-    });
-  }
+/**
+ * A mention is the design system's chip (kind `mention`) holding its recipient key. Editing tokens
+ * only; the parent revalidates their UUID keys before every Send.
+ */
+export function $createMention(token: string, recipient: RecipientKey, defaultCreator = false) {
+  const data: MentionData = { recipient, ...(defaultCreator ? { defaultCreator: true } : {}) };
+  return new RichInputChipNode('mention', token, data);
 }
+const isMention = (node: LexicalNode | null | undefined): node is RichInputChipNode =>
+  $isRichInputChip(node) && node.getKind() === 'mention';
+const mention = (node: RichInputChipNode) => node.getData() as MentionData;
 
 export { $richInputText as $messageText } from '@tmt/browser-ui/rich-input';
 
@@ -106,19 +46,16 @@ export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'
     value,
     mentions.map((mention) => ({
       range: mention.range,
-      create: (token) =>
-        new MessageMentionNode(token, mention.key, undefined, mention.defaultCreator === true),
+      create: (token) => $createMention(token, mention.key, mention.defaultCreator === true),
     })),
   );
 }
 
 /** Node identity/history retains every intact token through surrounding edits. */
 export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
-  return $richInputTokens(
-    (node): node is MessageMentionNode => node instanceof MessageMentionNode,
-  ).map(({ node, range }) => ({
-    key: node.__recipient,
-    ...(node.__defaultCreator ? { defaultCreator: true as const } : {}),
+  return $richInputTokens(isMention).map(({ node, range }) => ({
+    key: mention(node).recipient,
+    ...(mention(node).defaultCreator ? { defaultCreator: true as const } : {}),
     range,
   }));
 }
@@ -127,14 +64,14 @@ export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
 export function $setDefaultCreator(key: RecipientKey, label: string, enabled: boolean) {
   const root = $getRoot();
   const selection = $getSelection()?.clone();
-  const nodes: MessageMentionNode[] = [];
+  const nodes: RichInputChipNode[] = [];
   function visit(node: LexicalNode) {
     if (
-      node instanceof MessageMentionNode &&
-      node.__recipient.agent === key.agent &&
+      isMention(node) &&
+      mention(node).recipient.agent === key.agent &&
       (key.machine === undefined ||
-        node.__recipient.machine === undefined ||
-        node.__recipient.machine === key.machine)
+        mention(node).recipient.machine === undefined ||
+        mention(node).recipient.machine === key.machine)
     )
       nodes.push(node);
     else if ($isElementNode(node)) node.getChildren().forEach(visit);
@@ -143,7 +80,7 @@ export function $setDefaultCreator(key: RecipientKey, label: string, enabled: bo
   if (enabled && !nodes.length) {
     prependMention(key, label, true);
   } else if (!enabled) {
-    for (const node of nodes) if (node.__defaultCreator) node.remove();
+    for (const node of nodes) if (mention(node).defaultCreator) node.remove();
   }
   if (
     $isRangeSelection(selection) &&
@@ -158,13 +95,13 @@ function prependMention(key: RecipientKey, label: string, defaultCreator = false
   const first = root.getFirstChild();
   const paragraph = $isElementNode(first) ? first : $createParagraphNode();
   if (!first) root.append(paragraph);
-  const mention = new MessageMentionNode(`@${label}`, key, undefined, defaultCreator);
+  const chip = $createMention(`@${label}`, key, defaultCreator);
   const space = $createTextNode(' ');
   const head = paragraph.getFirstChild();
   if (head) {
-    head.insertBefore(mention);
+    head.insertBefore(chip);
     head.insertBefore(space);
-  } else paragraph.append(mention, space);
+  } else paragraph.append(chip, space);
 }
 
 /** An explicit recipient choice inserts a manual token without replacing text or selection. */
@@ -197,10 +134,9 @@ export function $insertMentionTrigger() {
 
 /** Remove every token naming this agent, with the one space that separated it from what follows. */
 export function $removeMessageMentions(key: RecipientKey) {
-  const found: MessageMentionNode[] = [];
+  const found: RichInputChipNode[] = [];
   const visit = (node: LexicalNode) => {
-    if (node instanceof MessageMentionNode && sameRecipient(node.__recipient, key))
-      found.push(node);
+    if (isMention(node) && sameRecipient(mention(node).recipient, key)) found.push(node);
     else if ($isElementNode(node)) node.getChildren().forEach(visit);
   };
   visit($getRoot());
@@ -223,13 +159,15 @@ export function $toggleMessageMention(key: RecipientKey, label: string) {
 
 /** Resolve identity-only references without changing text, node identity or selection. */
 export function $resolvePendingMessageMentions(agents: readonly AgentDestination[]) {
-  for (const { node } of $richInputTokens(
-    (node): node is MessageMentionNode => node instanceof MessageMentionNode,
-  )) {
-    if (node.__recipient.machine !== undefined) continue;
-    const matches = agents.filter((agent) => agent.agent === node.__recipient.agent);
+  for (const { node } of $richInputTokens(isMention)) {
+    const data = mention(node);
+    if (data.recipient.machine !== undefined) continue;
+    const matches = agents.filter((agent) => agent.agent === data.recipient.agent);
     if (matches.length === 1)
-      node.getWritable().__recipient = { machine: matches[0].machine, agent: matches[0].agent };
+      node.getWritable().__data = {
+        ...data,
+        recipient: { machine: matches[0].machine, agent: matches[0].agent },
+      };
   }
 }
 
@@ -244,7 +182,7 @@ export function $bindMessageMentions(agents: readonly AgentDestination[], includ
     for (const token of [...result.mentions].reverse()) {
       if (existing.some((old) => old.range.start === token.range.start)) continue;
       $selectMessageRange(token.range.start, token.range.end).insertNodes([
-        new MessageMentionNode(value.slice(token.range.start, token.range.end), token.key),
+        $createMention(value.slice(token.range.start, token.range.end), token.key),
       ]);
     }
     $selectMessageRange(caret, caret);

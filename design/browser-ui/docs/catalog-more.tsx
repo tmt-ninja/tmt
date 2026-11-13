@@ -598,6 +598,66 @@ export const moreComponents: ComponentDoc[] = [
         ),
       ],
       [
+        'Core for host inputs',
+        () => (
+          <table>
+            <thead>
+              <tr>
+                <th>Export</th>
+                <th>What a host builds with it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <code>RichInputCore</code>, <code>RichInputDocument</code>,{' '}
+                  <code>RichInputEdit</code>
+                </td>
+                <td>
+                  One Lexical editing lifetime over the host's own value: the document reads and
+                  replaces it, a changed <code>resetKey</code> starts a fresh undo history, and a
+                  replacement in an input the user is not in never moves a caret. RichInput is built
+                  on it; Colab's composer and page-list filter are hosts.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>RichInputControl</code>, <code>RICH_INPUT_RESET_TAG</code>
+                </td>
+                <td>
+                  The editable surface: field label, header and accessory rows, busy and disabled
+                  states, and the composition guard before the host's keys. Update listeners skip
+                  edits tagged as a host replacement.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>RichInputChipNode</code>, <code>$isRichInputChip</code>,{' '}
+                  <code>RichInputChipView</code>, <code>RichInputChipViewProps</code>
+                </td>
+                <td>
+                  The one chip node: a kind, its text and opaque host data, such as the agent a
+                  mention routes to. A host may draw its own chip through the view; removal is
+                  always one undo step.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>$richInputText</code>, <code>$replaceRichInput</code>,{' '}
+                  <code>$richInputTokens</code>, <code>$richInputCaret</code>,{' '}
+                  <code>$richInputSelection</code>, <code>$selectRichInputRange</code>,{' '}
+                  <code>RichInputRange</code>
+                </td>
+                <td>
+                  The plain document model: text with one line break between paragraphs and chips as
+                  UTF-16 ranges over it.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        ),
+      ],
+      [
         'Keyboard contract',
         () => (
           <ul className="docs-list">

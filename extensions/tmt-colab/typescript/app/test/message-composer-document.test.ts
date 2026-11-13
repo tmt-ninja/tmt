@@ -13,13 +13,13 @@ import {
   $setDefaultCreator,
   fuzzyMessageCandidates,
   mentionQuery,
-  MessageMentionNode,
 } from '../src/components/message-composer-document.js';
+import { RichInputChipNode } from '@tmt/browser-ui/rich-input';
 
 it('round-trips exact plaintext paragraphs including empty and trailing lines and UTF16 characters', () => {
   const editor = createEditor({
     namespace: 'fixture',
-    nodes: [MessageMentionNode],
+    nodes: [RichInputChipNode],
     onError: (error) => {
       throw error;
     },
@@ -31,7 +31,7 @@ it('round-trips exact plaintext paragraphs including empty and trailing lines an
 });
 
 it('serializes atomic mentions as exact plaintext and UUID ranges without chip decoration', () => {
-  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const editor = createEditor({ namespace: 'fixture', nodes: [RichInputChipNode] });
   const value = '😀 @astra\n@Other agent done\n';
   const mentions = [
     { key: { machine: 'machine-a', agent: 'agent-a' }, range: { start: 3, end: 9 } },
@@ -85,7 +85,7 @@ it('fuzzy matching is stable, searches machine names, and never treats matches a
 });
 
 it('default provenance follows node/history serialization and off never removes a manual mention', () => {
-  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const editor = createEditor({ namespace: 'fixture', nodes: [RichInputChipNode] });
   const key = { machine: 'machine', agent: 'agent' };
   editor.update(
     () => {
@@ -123,7 +123,7 @@ it('an explicit recipient prepends one manual chip, preserving text and shifted 
     [1, 5],
     [5, 1],
   ]) {
-    const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+    const editor = createEditor({ namespace: 'fixture', nodes: [RichInputChipNode] });
     editor.update(
       () => {
         $replaceMessage('😀 Body\nsecond');
@@ -151,7 +151,7 @@ it('an explicit recipient prepends one manual chip, preserving text and shifted 
 it('the recipient choice toggles one agent: a chip goes in front when none names it, and every chip goes with its space when one does', () => {
   const key = { machine: 'machine', agent: 'agent' };
   const other = { machine: 'machine', agent: 'other' };
-  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const editor = createEditor({ namespace: 'fixture', nodes: [RichInputChipNode] });
   editor.update(
     () => {
       $replaceMessage('Body @one and @one again', [
@@ -184,7 +184,7 @@ it('the recipient choice toggles one agent: a chip goes in front when none names
 });
 
 it('the Mention button types an @ at the caret, or at the end without one', () => {
-  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  const editor = createEditor({ namespace: 'fixture', nodes: [RichInputChipNode] });
   editor.update(
     () => {
       $replaceMessage('Hello world');

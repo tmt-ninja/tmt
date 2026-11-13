@@ -5,7 +5,6 @@ import {
   TextNode,
   $getSelection,
   $isRangeSelection,
-  defineExtension,
   HISTORY_PUSH_TAG,
   KEY_DOWN_COMMAND,
   COMMAND_PRIORITY_HIGH,
@@ -14,10 +13,11 @@ import {
 import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
 import type { MessageComposerProps } from './message-composer-edit.js';
-import { MessageMentionContext } from './message-mention-chip.js';
+import { MessageMentionContext, MessageMentionView } from './message-mention-chip.js';
 import { AgentChip } from './agent-chip.js';
 import {
   $bindMessageMentions,
+  $createMention,
   $resolvePendingMessageMentions,
   $insertMentionTrigger,
   $messageCaret,
@@ -28,36 +28,25 @@ import {
   $selectMessageRange,
   fuzzyMessageCandidates,
   mentionQuery,
-  MessageMentionNode,
 } from './message-composer-document.js';
 import {
-  RichInput,
+  RichInputChipView,
   RichInputControl,
-  richInputExtension,
+  RichInputCore,
   RICH_INPUT_RESET_TAG,
-} from './rich-input.js';
+} from '@tmt/browser-ui/rich-input';
 import type { ComposerEdit } from './message-composer-edit.js';
 import './message-composer.css';
-
-// Module identity stays stable; each mounted composer receives its own editor/history.
-const extension = defineExtension({
-  name: 'Colab/MessageComposer',
-  namespace: 'ColabMessage',
-  nodes: [MessageMentionNode],
-  dependencies: [richInputExtension],
-  $initialEditorState: () => $replaceMessage(''),
-  onError: (error: Error) => {
-    throw error;
-  },
-});
 
 /** One plaintext editing boundary; the parent owns draft, recipients, admission and effects. */
 export function MessageComposer(props: MessageComposerProps) {
   return (
     <MessageMentionContext value={{ candidates: props.candidates, disabled: props.disabled }}>
-      <RichInput {...props} extension={extension} document={messageDocument}>
-        <MessageField {...props} />
-      </RichInput>
+      <RichInputChipView value={MessageMentionView}>
+        <RichInputCore {...props} document={messageDocument}>
+          <MessageField {...props} />
+        </RichInputCore>
+      </RichInputChipView>
     </MessageMentionContext>
   );
 }
@@ -211,7 +200,7 @@ function MessageField(props: MessageComposerProps) {
       () => {
         const selection = $selectMessageRange(query.start, query.end);
         const token = `@${agent.agentName}`;
-        const mention = new MessageMentionNode(token, chosen);
+        const mention = $createMention(token, chosen);
         selection.insertNodes([mention, $createTextNode(' ')]);
         const active = $getSelection();
         if ($isRangeSelection(active)) active.format = 0;

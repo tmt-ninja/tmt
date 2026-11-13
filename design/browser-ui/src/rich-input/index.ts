@@ -7,11 +7,14 @@ export type {
   RichInputSuggestion,
   RichInputValue,
 } from './rich-input.js';
-export { RichInputChipNode } from './chip-node.js';
+export { $isRichInputChip, RichInputChipNode, RichInputChipView } from './chip-node.js';
+export type { RichInputChipViewProps } from './chip-node.js';
+// The core (#5830): the editing lifetime and editable surface hosts build their own inputs on.
+export { RICH_INPUT_RESET_TAG, RichInputControl, RichInputCore } from './core.js';
+export type { RichInputDocument, RichInputEdit } from './core.js';
 // The plain document model every rich input edits: text with one LF between paragraphs, and caller
 // tokens as UTF-16 ranges over it. Hosts that add their own token nodes use these helpers.
 export {
-  $emptyRichInput,
   $replaceRichInput,
   $richInputCaret,
   $richInputSelection,
@@ -19,4 +22,4 @@ export {
   $richInputTokens,
   $selectRichInputRange,
 } from './document.js';
-export type { RichInputRange, RichInputToken } from './document.js';
+export type { RichInputRange } from './document.js';

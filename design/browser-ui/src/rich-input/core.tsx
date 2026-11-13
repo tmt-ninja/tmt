@@ -1,11 +1,10 @@
-import { BrowserField } from '@tmt/browser-ui/react';
+import { BrowserField } from '../react.js';
 import {
   useEffect,
   useLayoutEffect,
   useReducer,
   useId,
   useRef,
-  type ComponentProps,
   type HTMLAttributes,
   type KeyboardEvent,
   type ReactNode,
@@ -17,10 +16,21 @@ import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
-import { CLEAR_HISTORY_COMMAND, defineExtension, SKIP_DOM_SELECTION_TAG } from 'lexical';
-import { $emptyRichInput, $richInputText, $replaceRichInput } from '@tmt/browser-ui/rich-input';
-import './rich-input.css';
+import {
+  $setSelection,
+  CLEAR_HISTORY_COMMAND,
+  defineExtension,
+  SKIP_DOM_SELECTION_TAG,
+} from 'lexical';
+import { RichInputChipNode } from './chip-node.js';
+import { $emptyRichInput } from './document.js';
+import './core.css';
 
+// The rich input's core (#5830): one Lexical editing lifetime and one editable surface. The
+// high-level RichInput and host plugins (Colab's composer and page-list filter) build on it; hosts
+// own their token meaning, keys and effects.
+
+/** Tags a host replacement, so update listeners can tell it from an edit. */
 export const RICH_INPUT_RESET_TAG = 'parent-rich-input-reset';
 
 export type RichInputEdit = { value: string };
@@ -45,26 +55,20 @@ export type RichInputControlProps = {
   trigger?: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> };
   onKeyDownCapture?(event: KeyboardEvent<HTMLDivElement>): void;
 };
-export type RichInputProps<Edit extends RichInputEdit> = RichInputControlProps & {
+export type RichInputCoreProps<Edit extends RichInputEdit> = RichInputControlProps & {
   edit: Edit;
   onChange(edit: Edit): void;
   autoFocus?: boolean;
   resetKey?: string | number;
   document: RichInputDocument<Edit>;
-  extension?: ComponentProps<typeof LexicalExtensionComposer>['extension'];
   children?: ReactNode;
-};
-
-export const plainRichInputDocument: RichInputDocument<RichInputEdit> = {
-  read: () => ({ value: $richInputText() }),
-  replace: (edit) => $replaceRichInput(edit.value),
-  equal: (a, b) => a.value === b.value,
 };
 
 // Stable module identity; every mount owns its own editor and undo history.
 export const richInputExtension = defineExtension({
-  name: 'Colab/RichInput',
-  namespace: 'ColabRichInput',
+  name: 'TmtRichInput',
+  namespace: 'TmtRichInput',
+  nodes: [RichInputChipNode],
   dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
   $initialEditorState: $emptyRichInput,
   onError: (error: Error) => {
@@ -73,18 +77,15 @@ export const richInputExtension = defineExtension({
 });
 
 /** The shared editing lifetime. Callers own token plugins and every effect outside editing. */
-export function RichInput<Edit extends RichInputEdit>(props: RichInputProps<Edit>) {
+export function RichInputCore<Edit extends RichInputEdit>(props: RichInputCoreProps<Edit>) {
   return (
-    <LexicalExtensionComposer
-      extension={props.extension ?? richInputExtension}
-      contentEditable={null}
-    >
+    <LexicalExtensionComposer extension={richInputExtension} contentEditable={null}>
       <EditingLifetime {...props} />
       {props.children ?? <RichInputControl {...props} />}
     </LexicalExtensionComposer>
   );
 }
-function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>) {
+function EditingLifetime<Edit extends RichInputEdit>(props: RichInputCoreProps<Edit>) {
   const [editor] = useLexicalComposerContext();
   const current = useRef(props);
   current.current = props;
@@ -114,13 +115,19 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
     reset.current = props.resetKey;
     const value = editor.getEditorState().read(() => props.document.read(props.edit));
     if (explicit || value.value !== props.edit.value) {
-      editor.update(() => props.document.replace(props.edit), {
+      const inside = editor.getRootElement()?.contains(document.activeElement) ?? false;
+      editor.update(
+        () => {
+          props.document.replace(props.edit);
+          // An editor the user is not in keeps no selection, so attaching its root never takes focus.
+          if (!inside) $setSelection(null);
+        },
         // A background editor replacement must not move the active editor's caret.
-        tag: editor.getRootElement()?.contains(document.activeElement)
-          ? RICH_INPUT_RESET_TAG
-          : [RICH_INPUT_RESET_TAG, SKIP_DOM_SELECTION_TAG],
-        discrete: true,
-      });
+        {
+          tag: inside ? RICH_INPUT_RESET_TAG : [RICH_INPUT_RESET_TAG, SKIP_DOM_SELECTION_TAG],
+          discrete: true,
+        },
+      );
       editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
     }
   }, [editor, props.edit, props.document, props.resetKey]);

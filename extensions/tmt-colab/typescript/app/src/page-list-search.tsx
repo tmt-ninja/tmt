@@ -1,54 +1,44 @@
 import { BrowserChip } from '@tmt/browser-ui/react';
 import {
+  $isRichInputChip,
+  $replaceRichInput,
+  $richInputCaret,
+  $richInputText,
+  $richInputTokens,
+  $selectRichInputRange,
+  RICH_INPUT_RESET_TAG,
   RichInput as SharedRichInput,
+  RichInputChipNode,
+  RichInputChipView,
+  RichInputControl,
+  RichInputCore,
+  type RichInputChipViewProps,
+  type RichInputDocument,
+  type RichInputRange,
   type RichInputValue as SharedRichInputValue,
 } from '@tmt/browser-ui/rich-input';
 import { Search } from 'lucide-react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   $createTextNode,
-  $getNodeByKey,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
-  DecoratorNode,
-  defineExtension,
   HISTORY_PUSH_TAG,
   type LexicalNode,
-  type NodeKey,
-  type SerializedLexicalNode,
-  type Spread,
 } from 'lexical';
 import {
   createContext,
-  createElement,
   useCallback,
   useContext,
   useEffect,
   useRef,
   useState,
-  type ReactNode,
   type HTMLAttributes,
   type Ref,
   type KeyboardEvent,
 } from 'react';
 import { Listbox } from './components/listbox.js';
-import {
-  RICH_INPUT_RESET_TAG,
-  RichInput,
-  RichInputControl,
-  richInputExtension,
-  type RichInputDocument,
-} from './components/rich-input.js';
-import {
-  $emptyRichInput,
-  $replaceRichInput,
-  $richInputCaret,
-  $richInputText,
-  $richInputTokens,
-  $selectRichInputRange,
-  type RichInputRange,
-} from '@tmt/browser-ui/rich-input';
 import { text } from './strings.js';
 import './page-list-search.css';
 
@@ -155,74 +145,29 @@ export function toggleProject(edit: SearchEdit, name: string): SearchEdit {
     conditions,
   );
 }
-type SerializedFilterToken = Spread<{ kind: FilterKind; name: string }, SerializedLexicalNode>;
-/** An editing token only: the route search holds the applied names, so a stale one just matches nothing. */
-export class FilterTokenNode extends DecoratorNode<ReactNode> {
-  __kind: FilterKind;
-  __name: string;
-  static getType() {
-    return 'filter-token';
-  }
-  static clone(node: FilterTokenNode) {
-    return new FilterTokenNode(node.__kind, node.__name, node.__key);
-  }
-  constructor(kind: FilterKind, name: string, key?: NodeKey) {
-    super(key);
-    this.__kind = kind;
-    this.__name = name;
-  }
-  static importJSON(serialized: SerializedFilterToken) {
-    return new FilterTokenNode(serialized.kind, serialized.name).updateFromJSON(serialized);
-  }
-  exportJSON(): SerializedFilterToken {
-    return { ...super.exportJSON(), type: 'filter-token', kind: this.__kind, name: this.__name };
-  }
-  createDOM() {
-    const node = document.createElement('span');
-    node.className = 'project-filter-host';
-    return node;
-  }
-  updateDOM() {
-    return false;
-  }
-  exportDOM() {
-    return { element: document.createTextNode(this.getTextContent()) };
-  }
-  isInline() {
-    return true;
-  }
-  getTextContent() {
-    return `${TRIGGERS[this.__kind]}${this.__name}`;
-  }
-  decorate() {
-    return createElement(FilterTokenChip, {
-      nodeKey: this.getKey(),
-      kind: this.__kind,
-      name: this.__name,
-    });
-  }
-}
-const isFilterToken = (node: LexicalNode): node is FilterTokenNode =>
-  node instanceof FilterTokenNode;
+/** A `project:` or `by:` token: the design system's chip holding the name it filters by. An editing
+ * token only: the route search holds the applied names, so a stale one just matches nothing. */
+const $createFilterToken = (kind: FilterKind, name: string) =>
+  new RichInputChipNode(kind, `${TRIGGERS[kind]}${name}`, { name });
+const isFilterToken = (node: LexicalNode): node is RichInputChipNode =>
+  $isRichInputChip(node) && (node.getKind() === 'project' || node.getKind() === 'by');
+const tokenName = (node: RichInputChipNode) => (node.getData() as { name: string }).name;
 
 /** Removing a token is a discrete choice, so it applies at once instead of waiting for Enter. */
 const RemovedToken = createContext<(edit: SearchEdit) => void>(() => {});
 
-function FilterTokenChip({
-  nodeKey,
-  kind,
-  name,
-}: {
-  nodeKey: NodeKey;
-  kind: FilterKind;
-  name: string;
-}) {
+/** The field's chip look: the shared removable chip, marked with the filter it holds. */
+function FilterTokenView(chip: RichInputChipViewProps) {
+  return <FilterTokenChip {...chip} />;
+}
+function FilterTokenChip({ kind, text: label, data, remove }: RichInputChipViewProps) {
   const [editor] = useLexicalComposerContext();
   const removed = useContext(RemovedToken);
+  const name = (data as { name: string }).name;
   return (
     <span {...(kind === 'project' ? { 'data-project-filter': name } : { 'data-by-filter': name })}>
       <BrowserChip
-        label={`${TRIGGERS[kind]}${name}`}
+        label={label}
         removeLabel={
           kind === 'project'
             ? text.pageList.removeFilter(name)
@@ -230,41 +175,22 @@ function FilterTokenChip({
         }
         onRemove={(event) => {
           if (!event.isTrusted || !editor.isEditable()) return;
-          editor.update(
-            () => {
-              const node = $getNodeByKey(nodeKey);
-              if (!node) return;
-              node.selectPrevious();
-              node.remove();
-            },
-            { tag: HISTORY_PUSH_TAG, discrete: true },
-          );
+          remove();
           removed(
             editor.getEditorState().read(() => searchDocument.read({ value: '', tokens: [] })),
           );
-          editor.focus();
         }}
       />
     </span>
   );
 }
 
-const extension = defineExtension({
-  name: 'Colab/PageListSearch',
-  namespace: 'ColabPageListSearch',
-  nodes: [FilterTokenNode],
-  dependencies: [richInputExtension],
-  $initialEditorState: $emptyRichInput,
-  onError: (error: Error) => {
-    throw error;
-  },
-});
 const searchDocument: RichInputDocument<SearchEdit> = {
   read: () => ({
     value: $richInputText(),
     tokens: $richInputTokens(isFilterToken).map(({ node, range }) => ({
-      kind: node.__kind,
-      name: node.__name,
+      kind: node.getKind() as FilterKind,
+      name: tokenName(node),
       range,
     })),
   }),
@@ -273,7 +199,7 @@ const searchDocument: RichInputDocument<SearchEdit> = {
       edit.value,
       edit.tokens.flatMap(({ kind, name, range }) =>
         kind === 'project' || kind === 'by'
-          ? [{ range, create: () => new FilterTokenNode(kind, name) }]
+          ? [{ range, create: () => $createFilterToken(kind, name) }]
           : [],
       ),
     ),
@@ -339,17 +265,18 @@ export interface PageListSearchProps {
 export function PageListSearch(props: PageListSearchProps) {
   return (
     <RemovedToken value={props.onApply}>
-      <RichInput
-        edit={props.edit}
-        onChange={props.onChange}
-        resetKey={props.resetKey}
-        document={searchDocument}
-        extension={extension}
-        disabled={false}
-        label={props.label ?? text.pageList.searchLabel}
-      >
-        <SearchField {...props} />
-      </RichInput>
+      <RichInputChipView value={FilterTokenView}>
+        <RichInputCore
+          edit={props.edit}
+          onChange={props.onChange}
+          resetKey={props.resetKey}
+          document={searchDocument}
+          disabled={false}
+          label={props.label ?? text.pageList.searchLabel}
+        >
+          <SearchField {...props} />
+        </RichInputCore>
+      </RichInputChipView>
     </RemovedToken>
   );
 }
@@ -424,7 +351,7 @@ function SearchField(props: PageListSearchProps) {
           selection.removeText();
           return;
         }
-        selection.insertNodes([new FilterTokenNode(chosen, name), $createTextNode(' ')]);
+        selection.insertNodes([$createFilterToken(chosen, name), $createTextNode(' ')]);
         const active = $getSelection();
         if ($isRangeSelection(active)) active.format = 0;
       },

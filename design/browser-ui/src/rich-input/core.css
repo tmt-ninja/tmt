@@ -8,7 +8,7 @@
 }
 .rich-input-field:has(> p:only-child > br:only-child)::before {
   content: attr(data-placeholder);
-  color: var(--c-muted);
+  color: var(--tmt-ui-color-secondary);
   pointer-events: none;
   position: absolute;
 }

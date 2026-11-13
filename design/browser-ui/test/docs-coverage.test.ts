@@ -101,7 +101,10 @@ it('names every ui export in a component entry', () => {
     ]),
   ];
   const missing = exported.filter(
-    (name) => !internal[name] && !new RegExp(`\\b${name}\\b`).test(catalog),
+    // Lexical's `$` functions are names too: match whole identifiers, not word boundaries.
+    (name) =>
+      !internal[name] &&
+      !new RegExp(`(?<![\\w$])${name.replace('$', '\\$')}(?![\\w$])`).test(catalog),
   );
   expect(missing).toEqual([]);
 });

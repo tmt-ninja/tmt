@@ -1,35 +1,18 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
-import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
-import { ReactExtension } from '@lexical/react/ReactExtension';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { PlainTextExtension } from '@lexical/plain-text';
-import { HistoryExtension } from '@lexical/history';
 import {
-  CLEAR_HISTORY_COMMAND,
-  defineExtension,
   $getRoot,
   $getSelection,
   $isRangeSelection,
-  $setSelection,
   type BaseSelection,
   type LexicalNode,
   HISTORY_PUSH_TAG,
-  SKIP_DOM_SELECTION_TAG,
   type LexicalEditor,
 } from 'lexical';
 import { $isRichInputChip, ChipRemoveLabel, RichInputChipNode } from './chip-node.js';
+import { RICH_INPUT_RESET_TAG, RichInputCore, type RichInputDocument } from './core.js';
 import {
-  $emptyRichInput,
   $replaceRichInput,
   $richInputCaret,
   $richInputText,
@@ -103,7 +86,6 @@ export interface RichInputProps {
 }
 
 export const emptyRichInputValue: RichInputValue = { value: '', chips: [] };
-const RESET_TAG = 'tmt-rich-input-reset';
 /** A collapsed caret before everything in the input. */
 function $atStart(selection: BaseSelection) {
   if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.offset !== 0)
@@ -112,17 +94,6 @@ function $atStart(selection: BaseSelection) {
     if (node.getPreviousSibling()) return false;
   return true;
 }
-
-const richInputExtension = defineExtension({
-  name: 'TmtRichInput',
-  namespace: 'TmtRichInput',
-  nodes: [RichInputChipNode],
-  dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
-  $initialEditorState: $emptyRichInput,
-  onError: (error: Error) => {
-    throw error;
-  },
-});
 
 const $read = (): RichInputValue => ({
   value: $richInputText(),
@@ -150,6 +121,12 @@ const same = (a: RichInputValue, b: RichInputValue) =>
       chip.range.start === b.chips[index]!.range.start &&
       chip.range.end === b.chips[index]!.range.end,
   );
+/** The high-level input's value as the core's document: text with chips as ranges. */
+const valueDocument: RichInputDocument<RichInputValue> = {
+  read: $read,
+  replace: $write,
+  equal: same,
+};
 
 interface Open {
   source: RichInputSuggestion;
@@ -225,16 +202,28 @@ function insertChip(
  * only (`@tmt/browser-ui/rich-input`), never in the shared bundle.
  */
 export function RichInput(props: RichInputProps) {
+  // The core reports edits; the editor inside decides what an edit means for this shape.
+  const edited = useRef<(value: RichInputValue) => void>(undefined);
   return (
     <ChipRemoveLabel.Provider value={props.removeLabel ?? ((_, text) => `Remove ${text}`)}>
-      <LexicalExtensionComposer extension={richInputExtension} contentEditable={null}>
-        <Editor {...props} />
-      </LexicalExtensionComposer>
+      <RichInputCore
+        edit={props.value}
+        onChange={(value) => edited.current?.(value)}
+        document={valueDocument}
+        resetKey={props.resetKey}
+        disabled={props.disabled ?? false}
+        label={props.label}
+      >
+        <Editor {...props} edited={edited} />
+      </RichInputCore>
     </ChipRemoveLabel.Provider>
   );
 }
 
-function Editor(props: RichInputProps) {
+function Editor({
+  edited,
+  ...props
+}: RichInputProps & { edited: { current?: (value: RichInputValue) => void } }) {
   const [editor] = useLexicalComposerContext();
   const listId = useId();
   const current = useRef(props);
@@ -242,25 +231,18 @@ function Editor(props: RichInputProps) {
   const [open, setOpen] = useState<Open>();
   const openRef = useRef(open);
   openRef.current = open;
-  const reset = useRef(props.resetKey);
-  useEffect(() => editor.setEditable(!props.disabled), [editor, props.disabled]);
-  useLayoutEffect(() => {
-    const explicit = reset.current !== props.resetKey;
-    reset.current = props.resetKey;
-    const shown = editor.getEditorState().read($read);
-    if (!explicit && same(shown, props.value)) return;
-    const inside = editor.getRootElement()?.contains(document.activeElement) ?? false;
-    editor.update(
-      () => {
-        $write(props.value);
-        // An editor the user is not in keeps no selection, so attaching its root never takes focus.
-        if (!inside) $setSelection(null);
-      },
-      // A background replacement must not move the caret of an editor the user is not in.
-      { tag: inside ? RESET_TAG : [RESET_TAG, SKIP_DOM_SELECTION_TAG], discrete: true },
-    );
-    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
-  }, [editor, props.value, props.resetKey]);
+  edited.current = (next) => {
+    const props = current.current;
+    if (props.shape === 'single' && next.value.includes('\n')) {
+      // One line: a pasted or typed break becomes a space; the ranges keep their offsets.
+      editor.update(() => $write({ ...next, value: next.value.replaceAll('\n', ' ') }), {
+        discrete: true,
+      });
+      return;
+    }
+    props.onChange(next);
+    notifyChipRemoval(props.value, next, props.onChipRemove);
+  };
   // A keyboard or scripted focus lands after the content when the caret would sit at its start, so
   // typing goes on after the chips instead of before them. A pointer places its own caret.
   useEffect(() => {
@@ -311,27 +293,13 @@ function Editor(props: RichInputProps) {
       release();
     };
   }, [editor]);
-  // Lexical creates its decorator hosts while ContentEditable attaches; read them again before paint.
-  const [, refresh] = useReducer((revision: number) => revision + 1, 0);
-  useLayoutEffect(refresh, [refresh]);
   useEffect(
     () =>
       editor.registerUpdateListener(({ editorState, tags, dirtyElements, dirtyLeaves }) => {
-        if (tags.has(RESET_TAG) || !(dirtyElements.size || dirtyLeaves.size)) return;
-        const props = current.current;
+        if (tags.has(RICH_INPUT_RESET_TAG) || !(dirtyElements.size || dirtyLeaves.size)) return;
         const [next, caret] = editorState.read(() => [$read(), $richInputCaret()] as const);
-        if (props.shape === 'single' && next.value.includes('\n')) {
-          // One line: a pasted or typed break becomes a space; the ranges keep their offsets.
-          editor.update(() => $write({ ...next, value: next.value.replaceAll('\n', ' ') }), {
-            discrete: true,
-          });
-          return;
-        }
-        if (!same(next, props.value)) {
-          props.onChange(next);
-          notifyChipRemoval(props.value, next, props.onChipRemove);
-        }
-        const found = openQuery(next, caret, props.suggestions ?? []);
+        if (current.current.shape === 'single' && next.value.includes('\n')) return;
+        const found = openQuery(next, caret, current.current.suggestions ?? []);
         const was = openRef.current;
         setOpen(
           found && {
