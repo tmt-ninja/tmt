@@ -124,11 +124,14 @@ export function QuestionCard({
         )
           return;
         const target = event.target as HTMLElement;
+        // Enter sends from a one-line field (a short answer, or Other's text); Shift+Enter is a new
+        // line, and an IME's Enter only ends its composition (229 is Safari's composing key).
         if (
           onSend &&
           !event.nativeEvent.isComposing &&
+          event.keyCode !== 229 &&
           event.key === 'Enter' &&
-          question.kind === 'short' &&
+          question.kind !== 'long' &&
           target.id === `${heading}-answer`
         ) {
           event.preventDefault();

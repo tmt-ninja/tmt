@@ -13,7 +13,7 @@ import type { AskBinding, PageAsk } from '../ask-panel.js';
 import { sameMessageIds } from '../ask-records.js';
 import { CommentSendFailures } from '../comment-send-failures.js';
 import { recipientId, MESSAGE_RECIPIENT_LIMIT } from '../message-recipient.js';
-import { answerOf, type Question, type QuestionGroup } from '../questions.js';
+import { answerOf, draftOf, type Question, type QuestionGroup } from '../questions.js';
 import type { CommentContext, ThreadBinding } from '../thread-store.js';
 import { conversationAsks } from '../thread-store.js';
 import type { QuoteSelector, ThreadView } from '../thread-records.js';
@@ -507,6 +507,8 @@ export function QuestionGroupCard({
                                     ...previous,
                                     [row.question.id]: {
                                       ...(previous[row.question.id] ?? emptyDraft()),
+                                      // Change answer starts from the answer it changes.
+                                      ...draftOf(row.question, answered),
                                       changing: true,
                                     },
                                   }))
