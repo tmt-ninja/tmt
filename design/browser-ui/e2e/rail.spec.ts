@@ -12,6 +12,8 @@ for (const renderer of ['native', 'react'])
         const open = page.getByRole('button', { name: 'Open navigation', exact: true });
         if (width === 390) {
           await open.click();
+          // The drawer covers its button, so opening it takes focus to the current item.
+          await expect(rail.locator('[aria-current="page"]')).toBeFocused();
           // The open drawer dims the page under a scrim, and Search starts at the rail's top
           // inset with no band above it.
           const shell = page.locator('.tmt-ui-shell');
@@ -269,9 +271,21 @@ for (const renderer of ['native', 'react'])
         await page.goto(
           `/?frame=rail&interactive=true&icons=true&renderer=${renderer}&theme=${theme}`,
         );
-        if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
         const row = page.locator('li[data-menu-item="project"]');
         const link = row.locator(':scope > a');
+        const hamburger = page.getByRole('button', { name: 'Open navigation' });
+        if (width === 390) {
+          // A keyboard opening focuses the current row, and keyboard focus reveals its grip.
+          await hamburger.focus();
+          await page.keyboard.press('Enter');
+          await expect(link).toBeFocused();
+          await expect(row.locator('[data-rail-part="drag"]')).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(hamburger).toBeFocused();
+          // A tap focuses it too, but leaves the row at rest: no grip, no row actions.
+          await hamburger.click();
+          await expect(link).toBeFocused();
+        }
         const icon = row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest], :scope > a > svg');
         const grip = row.locator('[data-rail-part="drag"]');
         const label = link.locator('.tmt-ui-module-menu-label');

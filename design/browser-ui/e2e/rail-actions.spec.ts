@@ -59,12 +59,21 @@ for (const renderer of ['native', 'react'])
         expect(await link('empty').boundingBox()).toEqual(geometry);
         await capture('hover');
         await page.mouse.move(width - 5, 995);
+        // Keyboard focus reveals the row's actions (a key press makes the focus keyboard focus).
+        await page.keyboard.press('Shift');
         await link('empty').focus();
         await expect(edit).toBeVisible();
         await capture('focus');
         await command('Refresh command bindings');
         await expect(link('empty')).toBeFocused();
-        await edit.focus();
+        // A keyboard reader reaches Edit from the row's link with Tab.
+        // The command's click left it pointer focus; give the link keyboard focus again first.
+        await link('empty').blur();
+        await page.keyboard.press('Shift');
+        await link('empty').focus();
+        await expect(edit).toBeVisible();
+        await page.keyboard.press('Tab');
+        await expect(edit).toBeFocused();
         await page.keyboard.press('Enter');
         await expect(page.locator('[data-host-status]')).toHaveText('Edit empty 1');
         await expect(host).toHaveAttribute('data-action-calls', '1');
