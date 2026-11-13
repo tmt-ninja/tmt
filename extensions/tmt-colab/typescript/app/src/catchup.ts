@@ -116,10 +116,33 @@ export class Catchup {
     }
     if (Object.hasOwn(value, 'chains') || Object.hasOwn(value, 'wraps'))
       requireValue(!this.#membershipMore);
-    if (Object.hasOwn(value, 'chains')) await a.chains(value.chains);
+    if (Object.hasOwn(value, 'chains')) {
+      // The final chain-only frame is optional owner provenance evidence. Invalid evidence must
+      // not prevent the ordinary page from opening, and must never authorize a work bundle.
+      const priorOnly =
+        !this.reading &&
+        this.#reset !== null &&
+        value.streams.length === 0 &&
+        !Object.hasOwn(value, 'wraps');
+      if (priorOnly) {
+        try {
+          await a.chains(value.chains);
+        } catch {
+          a.invalidatePriorEpochProof();
+        }
+      } else await a.chains(value.chains);
+    }
     if (Object.hasOwn(value, 'wraps')) await a.wraps(value.wraps);
     if (value.streams.length) {
       if (!this.objects) throw new Error('Live page loading is not available yet');
+      if (
+        !this.reading &&
+        this.#reset !== null &&
+        (await this.objects.admitPriorEvidence(value.streams))
+      ) {
+        requireValue(value.more === true);
+        return false;
+      }
       const admitted = await this.objects.streams(value.streams);
       this.checkpoints.push(...admitted.checkpoints);
       this.updates.push(...admitted.updates);

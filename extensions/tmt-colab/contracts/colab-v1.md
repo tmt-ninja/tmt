@@ -960,7 +960,9 @@ stored original means is the fold's call as for any author: a `content` original
 from a link that is not an editor, or any original from a viewer, is refused there.
 Link catchup selects only
 link-addressed wraps; public catchup selects none and obtains published keys
-from signed statements. Owner catchup retains its existing exact bytes.
+from signed statements. Their catchup bytes are unchanged by the owner-only
+prior-writer proof below. Owner catchup may also carry retained prior-writer
+chains in the existing `chains` field.
 Operations check current admission under the sync owner. Deliveries and pre-hello
 peers share one live-authority sweep per admission generation, valid for less than
 one second. Explicit admission/management changes and rekey passes invalidate it
@@ -2137,6 +2139,16 @@ anything is pruned.
   `checkpoint` the fold entry. The extra `anchor` key is what an older reader refuses (it requires
   exactly four keys). `chains` carries the chains of both the signer and the covered device. A reader
   keeps the anchor for the catch-up (one per covered stream, bounded) because one anchor serves the folds of both namespaces, and applies nothing from it.
+- **Prior-epoch work-bundle proof (#6095).** Owner/management catchup may deliver the same retained
+  anchor frame for a prior content cut. The trusted parent binds its exact epoch, stream, sequence
+  and envelope hash to the signed cut and verifies the covered device's admitted chain and update
+  signature. One update anchor covers both namespaces when their head sequence and hash match,
+  regardless of the update's namespace. When an empty tail names a checkpoint, an ordinary
+  checkpoint must itself match the signed checkpoint hash and the stream device's signature; a
+  fold must match that hash and have its own verified covered-device update anchor. The covered
+  device, never the fold signer, is the writer. No proof object is applied to the page or sent to
+  the frame. Missing, pruned, oversized or unverifiable material leaves work-bundle access closed
+  without stopping ordinary page viewing; the existing frame and object limits still apply.
 - **Signer revoke commits its folds.** The `device.revoke` payload of a device that signed folds gains
   `folds`: a sorted, unique list of the fold envelope hashes the owner accepts from it (at most 512).
   A fold whose `authorDevice` is a revoked device is admitted only when its envelope hash is in that
@@ -2636,13 +2648,19 @@ The renderer MUST deny app storage,
 keys, cookies/session, bridge access, network APIs, other pages and top navigation.
 Page-view data about other pages MUST remain in trusted parent chrome; the frame may report only
 bounded slot geometry and MUST NOT receive the projection. The parent MUST draw a live page view only
-for a page that passes the same owner-member proof as a work bundle, with the same recheck and
-revocation. Work-bundle data about another page MUST
+under its existing owner-only-content gate, with recheck and revocation; an epoch baseline remains
+unproven for this page-view gate. Work-bundle data about another page MUST
 enter a frame only after the trusted parent proves every content writer in its current epoch is an
 owner-member device, and MUST be limited to named pages the owner can read. The parent MUST recheck
 on every epoch or writer change and revoke the hand-off when the proof fails. An owner-signed epoch
 baseline alone does not prove earlier authorship: without proof that every prior writer was the
-owner, the parent MUST fail closed, including after a baseline carries old source forward.
+owner, the parent MUST fail closed, including after a baseline carries old source forward. For a
+work bundle, the trusted parent may prove prior authors from the contiguous owner-signed epoch
+advances and their complete content cuts, together with verified owner-device chains and each cut's
+retained envelope verified against its exact hash, scope, sequence and the admitted writer key. It MUST reject
+missing, invalid, revoked, link-issued or otherwise unclassifiable writers, incomplete history, and
+missing or invalid retained envelopes or any proof that exceeds the existing chain limit. A failed proof withholds the work bundle; it does
+not stop ordinary page rendering or change the page-view gate.
 It MUST NOT claim complete exfiltration prevention: #830 observed iframe
 self-navigation leakage despite CSP. Tear down any frame navigating after its
 initial render. The tested CSP begins `default-src 'none'`, permits inline page
@@ -4853,6 +4871,12 @@ its author if not already sent on the connection (at most 64 per page). Retained
 revoked-author chains can be delivered: clients MUST enforce the verified log's
 [signed-cut restrictions](#decoder-isolation-compaction-and-limits) on historical
 objects before applying them. A chain never grants current authority.
+An owner/management catchup may include retained prior-epoch content-writer chains in
+that same field before catchup completes, deduplicated with the chains already sent and
+within the same 64-chain limit. Link and public catchups receive no additional chains.
+The browser classifies writers only from the pinned owner log and verified Remote device
+identity, never from the server's list or a chain's unverified claims. Missing or excess
+chains leave the prior-writer proof false without refusing the page itself.
 
 `baseline` is null or canonical base64url of exact model baseline-descriptor
 JSON, bounded to 8 KiB. Its scope/revision must match the admitted page/epoch and
@@ -6001,8 +6025,8 @@ When a page whose content only its owner wrote includes a live `tmt-ui-page-view
 parent renders its bounded page-list projection in the reserved slot: at most 200 records and
 64 KiB. The records' page identifiers, titles, projects, stage, update label, author and access are
 parent-only: none of them reaches the frame, nor does a transport or management capability. The
-frame receives the slot's height, which follows the rows drawn. The owner-only-content check is the
-work bundle's: the parent applies it when the view subscribes and withholds every later refresh once
+frame receives the slot's height, which follows the rows drawn. The parent applies its existing
+owner-only-content check when the view subscribes and withholds every later refresh once
 the page stops qualifying (an epoch or writer change). A page that does not qualify, or a view
 without an owner list, shows the fixed unavailable state, whose height depends only on the view's
 authored attributes. The subscription ends with the frame and follows the owner list's refreshes.

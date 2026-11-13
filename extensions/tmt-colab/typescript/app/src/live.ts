@@ -935,6 +935,14 @@ export class Live implements PageBinding {
       this.#connection?.ownerOnlyContent === true
     );
   }
+  ownerOnlyWorkBundle(): boolean {
+    return (
+      !this.#closed &&
+      !this.#error &&
+      !this.#opening?.pending &&
+      this.#connection?.ownerOnlyWorkBundle === true
+    );
+  }
   canWork(): boolean {
     return (
       !this.#closed &&

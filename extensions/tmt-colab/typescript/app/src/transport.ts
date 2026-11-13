@@ -23,6 +23,8 @@ export interface PageView extends Projection {
   readonly seq?: number;
   /** Verified only after catch-up; false once a non-owner content writer is admitted. */
   readonly ownerOnlyContent?: boolean;
+  /** Verified owner-only content including a proven prior-epoch baseline. */
+  readonly ownerOnlyWorkBundle?: boolean;
   /** The manual state of an ordinary page; a shell has none. */
   readonly state?: 'todo' | 'in-progress' | 'done' | null;
   readonly progress?: import('./bootstrap.js').PageProgress | null;
@@ -114,6 +116,7 @@ export interface WorkOutcome {
 export interface PageBinding {
   /** Trusted current-epoch content provenance; absent means not proven owner-only. */
   ownerOnlyContent?(): boolean;
+  ownerOnlyWorkBundle?(): boolean;
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
   readonly status?: ThreadStatusCoordinator;

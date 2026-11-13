@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
-import { Objects } from '../src/objects.js';
+import { Objects, type ReceivedEntry } from '../src/objects.js';
 import { HostedPageReader } from '../src/hosted-reader.js';
 import { Fold } from '../src/fold.js';
 import * as Y from 'yjs';
@@ -23,6 +23,36 @@ vi.stubGlobal('navigator', { locks: { request: async (_key: string, fn: () => un
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/fold-v1.json', import.meta.url), 'utf8'),
 );
+
+it('requires the covered device anchor as well as the fold checkpoint for a prior cut', async () => {
+  const row = v.cases[0] as Row;
+  const anchor = local(row.frames[0]).anchor as ReceivedEntry;
+  const fold = local(row.frames[1]).checkpoint as ReceivedEntry;
+  const admitted = await admission(row.log);
+  const objects = new Objects(admitted, '2');
+  const cut = {
+    streamId: row.frames[0].streamId,
+    namespace: 'content',
+    checkpointHash: c.binary(fold.envelopeHash, 32, 32),
+    checkpointSeq: fold.seq,
+    tailHeadSeq: fold.seq,
+    tailHeadHash: new Uint8Array(32),
+  };
+  expect(await objects.verifyPriorFoldCut(v.epoch, cut, fold, anchor)).toBe(true);
+  const ownFold = local(row.frames[2]).checkpoint as ReceivedEntry;
+  const ownCut = {
+    ...cut,
+    namespace: 'own',
+    checkpointHash: c.binary(ownFold.envelopeHash, 32, 32),
+  };
+  expect(await objects.verifyPriorFoldCut(v.epoch, ownCut, ownFold, anchor)).toBe(true);
+  expect(await objects.verifyPriorFoldCut(v.epoch, cut, fold)).toBe(false);
+  vi.spyOn(admitted, 'priorContentCuts').mockReturnValue([{ epoch: v.epoch, cut }]);
+  expect(await objects.admitPriorEvidence([local(row.frames[0])])).toBe(true);
+  expect(objects.priorCutVerified(v.epoch, cut)).toBe(false);
+  expect(await objects.admitPriorEvidence([local(row.frames[1])])).toBe(true);
+  expect(objects.priorCutVerified(v.epoch, cut)).toBe(true);
+});
 interface Row {
   name: string;
   log: string;

@@ -1732,7 +1732,19 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
     );
     let final_page = receive(&mut reopened);
     assert!(final_page.get("baselineObject").is_none());
-    assert_eq!(final_page["more"], false);
+    assert_eq!(final_page["more"], true);
+    let proof_page = receive(&mut reopened);
+    assert_eq!(proof_page["more"], true);
+    assert_eq!(proof_page["chains"].as_array().unwrap().len(), 1);
+    assert_eq!(proof_page["chains"][0]["deviceId"], DEVICE);
+    let anchor = receive(&mut reopened);
+    assert_eq!(anchor["streams"][0]["streamId"], DEVICE);
+    assert_eq!(anchor["streams"][0]["anchor"]["seq"], "1");
+    assert_eq!(
+        anchor["streams"][0]["anchor"]["envelopeHash"],
+        values::encode_binary(&hash)
+    );
+    assert_eq!(receive(&mut reopened)["more"], false);
     reopened.send(Message::Ping(vec![3].into())).unwrap();
     assert!(matches!(reopened.read().unwrap(), Message::Pong(_)));
 }
@@ -4651,6 +4663,80 @@ impl Running {
         serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
     }
 }
+#[test]
+fn rotated_link_catchup_does_not_receive_prior_owner_chains() {
+    let server = Running::start(Tunnels::PRODUCT);
+    {
+        use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+        let doc = Doc::with_client_id(93);
+        doc.get_or_insert_text("html")
+            .insert(&mut doc.transact_mut(), 0, "owner-authored source");
+        doc.get_or_insert_map("meta").insert(
+            &mut doc.transact_mut(),
+            "title",
+            "link proof fixture",
+        );
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let mut owner = server.peer(DEVICE);
+        hello(&server, &mut owner, DEVICE);
+        let (append, _, _) = server.append_payload(DEVICE, 1, [0; 32], &update);
+        send(&mut owner, append);
+        assert_eq!(receive(&mut owner)["type"], "receipt");
+        assert_eq!(receive(&mut owner)["type"], "broadcast");
+    }
+    let session = server.link_session("viewer");
+    let revision: i64 = server
+        .oracle()
+        .query_row("SELECT count(*) FROM membership_log", [], |row| row.get(0))
+        .unwrap();
+    let advance = local_management(
+        &server,
+        "40000000-0000-4000-8000-000000000099",
+        revision.try_into().unwrap(),
+        "epoch.advance",
+        json!({"pageId":PAGE}),
+    );
+    management_response(
+        &server,
+        &server.event(tmt_colab::management::LOCAL_PATH, "", &advance),
+        &(revision + 1).to_string(),
+    );
+    let session = server.reopen_link_session(&session);
+    assert_eq!(session["epoch"], "2");
+    let capture = |session: &Value| {
+        let mut peer = server.reader_peer(session);
+        send(
+            &mut peer,
+            server.reader_frame(
+                session,
+                "hello",
+                json!({"device":session["principal"],"membershipRevision":"0","cursors":[]}),
+            ),
+        );
+        let mut bytes = Vec::new();
+        for _ in 0..64 {
+            let raw = match peer.read().unwrap() {
+                Message::Text(raw) => raw.to_string(),
+                other => panic!("expected text catchup, got {other:?}"),
+            };
+            let frame: Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(frame["type"], "catchup");
+            assert!(frame.get("chains").is_none(), "{frame}");
+            bytes.push(raw);
+            if frame["more"] == false {
+                assert!(frame.get("wraps").is_some(), "{frame}");
+                return bytes;
+            }
+        }
+        panic!("link catchup did not complete");
+    };
+    let first = capture(&session);
+    let next_session = server.reopen_link_session(&session);
+    assert_eq!(first, capture(&next_session));
+}
+
 #[test]
 fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twice() {
     for _ in 0..2 {

@@ -9,7 +9,7 @@ import { SAVE_SOURCE_BYTES, SaveNotApplied, SaveTooLarge } from '../src/save.js'
 
 const calls = vi.hoisted(() => [] as string[]);
 const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
-const provenance = vi.hoisted(() => ({ baseline: false, ownerOnly: true }));
+const provenance = vi.hoisted(() => ({ baseline: false, ownerOnly: true, priorOwnerOnly: false }));
 vi.mock('../src/fold.js', () => ({
   Fold: class {
     async run({ updates }: { updates?: Uint8Array[] }) {
@@ -93,6 +93,7 @@ const scope = { version: 1, space: 'a'.repeat(32), page, epoch: '1' };
 afterEach(() => {
   provenance.baseline = false;
   provenance.ownerOnly = true;
+  provenance.priorOwnerOnly = false;
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -125,8 +126,23 @@ it('fails closed for an epoch baseline without prior-writer proof', async () => 
   provenance.baseline = true;
   const { connection, publish } = await open();
   expect(connection.ownerOnlyContent).toBe(false);
+  expect(connection.ownerOnlyWorkBundle).toBe(false);
   expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ ownerOnlyContent: false }));
   connection.close();
+});
+it('opens only the work-bundle gate for a proven owner-only baseline', async () => {
+  provenance.baseline = true;
+  provenance.priorOwnerOnly = true;
+  const { connection, publish } = await open();
+  expect(connection.ownerOnlyContent).toBe(false);
+  expect(connection.ownerOnlyWorkBundle).toBe(true);
+  expect(publish).toHaveBeenLastCalledWith(
+    expect.objectContaining({ ownerOnlyContent: false, ownerOnlyWorkBundle: true }),
+  );
+  provenance.ownerOnly = false;
+  expect(connection.ownerOnlyWorkBundle).toBe(false);
+  connection.close();
+  expect(connection.ownerOnlyWorkBundle).toBe(false);
 });
 async function open(rejectChain = false, budget?: TitleReadBudget) {
   calls.length = 0;
@@ -137,6 +153,7 @@ async function open(rejectChain = false, budget?: TitleReadBudget) {
     root: new Uint8Array(32),
     closeKeys() {},
     validatePage: vi.fn(),
+    ownerOnlyPriorEpoch: () => provenance.priorOwnerOnly,
     registration: {
       deviceId: author,
       syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture',
@@ -235,6 +252,7 @@ it('verifies live author chains before envelope admission and Worker publication
       state: 'todo',
       ownData: false,
       ownerOnlyContent: true,
+      ownerOnlyWorkBundle: true,
       archived: undefined,
     });
     expect(failed).not.toHaveBeenCalled();
@@ -928,6 +946,7 @@ it('serializes a held local decoder command ahead of an arriving broadcast', asy
       state: 'todo',
       ownData: false,
       ownerOnlyContent: true,
+      ownerOnlyWorkBundle: true,
       archived: undefined,
     });
     expect(failed).not.toHaveBeenCalled();
