@@ -364,7 +364,11 @@ window.orchCalls = [];
 const orchestration = {
   async read(input: Record<string, unknown>) {
     window.orchCalls.push({ kind: 'read', input: structuredClone(input) });
-    if (input.view === 'plans') return { configurationRevision: 3, plans: orchPlans };
+    if (input.view === 'plans')
+      return {
+        configurationRevision: 3,
+        plans: orchPlans.map((plan) => ({ ...plan, plansViewOnly: 'retained' })),
+      };
     if (input.view === 'overview') {
       const days = typeof input.rangeDays === 'number' ? input.rangeDays : 1;
       const at = typeof input.atMs === 'number' ? input.atMs : NOW;
@@ -505,10 +509,15 @@ const orchestration = {
         held: [{}, {}],
       };
     if (window.orchRefuseApply) throw new OrchestrationRefused(window.orchRefuseApply);
-    const mutation = input.mutation as { kind?: string; plan?: string; candidate?: { enabled?: boolean } };
+    const mutation = input.mutation as {
+      kind?: string;
+      plan?: string;
+      candidate?: { enabled?: boolean };
+    };
     if (mutation.kind === 'plan.set') {
       const target = orchPlans.find((plan) => plan.id === mutation.plan);
-      if (target && typeof mutation.candidate?.enabled === 'boolean') target.enabled = mutation.candidate.enabled;
+      if (target && typeof mutation.candidate?.enabled === 'boolean')
+        target.enabled = mutation.candidate.enabled;
     }
     return { applied: true, configurationRevision: 4 };
   },

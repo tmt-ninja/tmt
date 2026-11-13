@@ -34,12 +34,15 @@ for (const width of [1440, 390])
       await open(page, width, theme);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Orchestration');
       const plans = page.getByRole('region', { name: 'Plan list' });
-      await expect(plans.getByRole('button', { name: /Release freeze/ })).toContainText('Off');
+      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveText('Off');
       await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText(
         'every other week Tue Thu 22:00–06:00 · night-*',
       );
-      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText('On');
-      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute('aria-checked', 'false');
+      await expect(plans.getByRole('switch', { name: 'Shift B · Night' })).toHaveText('On');
+      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      );
       const matrix = page.locator('.ops-orchestration-matrix');
       await expect(
         matrix.getByRole('button', { name: /^sample-1 to sample-lead: / }),
@@ -204,7 +207,9 @@ test('a stale apply saves nothing and says so', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeHidden();
 });
 
-test('a plan switch previews the exact plans-view row and applies only after consent', async ({ page }) => {
+test('a plan switch previews the exact plans-view row and applies only after consent', async ({
+  page,
+}) => {
   await open(page, 1440, 'light');
   await page.getByRole('switch', { name: 'Release freeze' }).click();
   const dialog = page.getByRole('dialog');
@@ -214,12 +219,67 @@ test('a plan switch previews the exact plans-view row and applies only after con
   expect(read).toBeDefined();
   const writes = all.filter((call) => call.kind === 'write');
   expect(writes).toHaveLength(1);
-  expect(writes[0]!.input).toMatchObject({ phase: 'preview', mutation: { kind: 'plan.set', plan: 'plan-freeze', candidate: { enabled: true } } });
+  expect(writes[0]!.input).toMatchObject({
+    phase: 'preview',
+    mutation: {
+      kind: 'plan.set',
+      plan: 'plan-freeze',
+      candidate: { enabled: true, plansViewOnly: 'retained', revision: 1 },
+    },
+  });
+  expect((writes[0]!.input.mutation as { candidate: unknown }).candidate).toEqual({
+    id: 'plan-freeze',
+    name: 'Release freeze',
+    revision: 1,
+    priority: 30,
+    enabled: true,
+    targets: [{ kind: 'identity', id: '00000000-0000-4000-8000-000000000012' }],
+    schedule: {
+      kind: 'once',
+      startMs: Date.UTC(2026, 9, 26, 15) + 2 * 86_400_000 + 9 * 3_600_000,
+      endMs: Date.UTC(2026, 9, 26, 15) + 2 * 86_400_000 + 18 * 3_600_000,
+    },
+    fields: { routine: 'hold', sending: 'leads' },
+    members: [],
+    plansViewOnly: 'retained',
+  });
+  await expect(page.getByRole('combobox', { name: 'Plans' })).toHaveValue('');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect((await calls(page)).filter((call) => call.kind === 'write')).toHaveLength(1);
   await page.getByRole('switch', { name: 'Release freeze' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
   all = await calls(page);
-  expect(all.filter((call) => call.kind === 'write').at(-1)!.input).toMatchObject({ phase: 'apply', expectedConfigurationRevision: 3, consent: true });
+  expect(all.filter((call) => call.kind === 'write').at(-1)!.input).toMatchObject({
+    phase: 'apply',
+    expectedConfigurationRevision: 3,
+    consent: true,
+  });
+});
+
+test('a conflicting plan apply re-reads and does not retry the write', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await page.evaluate(() => {
+    window.orchRefuseApply = 'ORCH_CONFLICT';
+  });
+  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  const before = (await calls(page)).filter((call) => call.input.view === 'overview').length;
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status')).toHaveText(
+    'Orchestration changed since the preview; nothing was saved. Try again.',
+  );
+  const callsAfter = await calls(page);
+  expect(callsAfter.filter((call) => call.input.view === 'overview').length).toBeGreaterThan(
+    before,
+  );
+  expect(
+    callsAfter.filter((call) => call.kind === 'write').map((call) => call.input.phase),
+  ).toEqual(['preview', 'apply']);
+  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
 });

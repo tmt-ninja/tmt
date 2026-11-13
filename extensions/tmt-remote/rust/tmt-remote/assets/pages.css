@@ -829,21 +829,25 @@ body:not(:has(.tmt-ui-shell)) {
   align-items: center;
   justify-content: space-between;
   gap: var(--tmt-ui-space-m);
-  width: 100%;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-plan-select {
+  flex: 1;
+  min-width: 0;
   padding: var(--tmt-ui-space-s) 0;
   border: 0;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: transparent;
   color: var(--tmt-ui-color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.ops-orchestration-plan-row[aria-pressed='true'] {
+.ops-orchestration-plan-select[aria-pressed='true'] {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-hover);
 }
-.ops-orchestration-plan-row:focus-visible {
+.ops-orchestration-plan-select:focus-visible,
+.ops-orchestration-plan-switch:focus-visible {
   outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-focus);
   outline-offset: -1px;
 }
@@ -857,11 +861,29 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.ops-orchestration-plan-state {
+.ops-orchestration-plan-switch {
   display: inline-flex;
   align-items: center;
   gap: var(--tmt-ui-space-xs);
   white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.ops-orchestration-plan-switch::before {
+  content: '';
+  box-sizing: border-box;
+  width: 2rem;
+  height: 1.125rem;
+  border: 1px solid var(--tmt-ui-color-secondary);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: radial-gradient(circle at 0.5rem 50%, var(--tmt-ui-color-secondary) 0.3rem, transparent 0.32rem);
+}
+.ops-orchestration-plan-switch[aria-checked='true']::before {
+  border-color: var(--tmt-ui-color-focus);
+  background: radial-gradient(circle at 1.4rem 50%, var(--tmt-ui-color-focus) 0.3rem, transparent 0.32rem);
 }
 /* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
 .ops-orchestration-timeline {

@@ -9462,25 +9462,59 @@ function orchestrationView(connect, now = () => Date.now()) {
 	function drawPlans(view) {
 		const focused = document.activeElement instanceof HTMLElement && planList.contains(document.activeElement) ? document.activeElement.dataset.planId : void 0;
 		planList.replaceChildren(...view.plans.map((item) => {
-			const row = el("li");
-			const button = el("button", "ops-orchestration-plan-row");
+			const row = el("li", "ops-orchestration-plan-row");
+			const button = el("button", "ops-orchestration-plan-select");
 			button.type = "button";
 			button.dataset.planId = item.id;
 			button.ariaPressed = String(item.id === view.selectedPlanId);
 			const text = el("span", "ops-orchestration-plan-text");
 			text.append(el("strong", void 0, item.name), el("span", void 0, planSummary(item, false)));
-			const state = el("span", "ops-orchestration-plan-state");
-			state.append(mark(item.enabled ? "dot" : "ring", "neutral"), item.enabled ? "On" : "Off");
-			button.append(text, state);
+			button.append(text);
 			button.addEventListener("click", () => {
 				plan = item.id;
 				load();
 			});
-			row.append(button);
+			const toggle = el("button", "ops-orchestration-plan-switch", item.enabled ? "On" : "Off");
+			toggle.type = "button";
+			toggle.setAttribute("role", "switch");
+			toggle.setAttribute("aria-label", item.name);
+			toggle.setAttribute("aria-checked", String(item.enabled));
+			toggle.addEventListener("click", () => {
+				toggle.disabled = true;
+				togglePlan(item).finally(() => {
+					toggle.disabled = false;
+				});
+			});
+			row.append(button, toggle);
 			return row;
 		}));
 		if (!view.plans.length) planList.append(el("li", void 0, "No plans yet."));
 		if (focused) [...planList.querySelectorAll("button")].find((button) => button.dataset.planId === focused)?.focus({ preventScroll: true });
+	}
+	async function togglePlan(item) {
+		try {
+			api ??= await connect();
+			const answer = await api.read({ view: "plans" });
+			if (!Array.isArray(answer.plans)) throw new Error("Invalid plans");
+			const rows = answer.plans.filter((row) => !!row && typeof row === "object" && !Array.isArray(row) && row.id === item.id);
+			const current = rows[0];
+			if (rows.length !== 1 || !current || typeof current.enabled !== "boolean") throw new Error("Invalid plan");
+			if (current.enabled !== item.enabled) {
+				await load();
+				say("Orchestration changed; review the current plan and try again.");
+				return;
+			}
+			await preview(`${item.enabled ? "Turn off" : "Turn on"} ${item.name}`, {
+				kind: "plan.set",
+				plan: item.id,
+				candidate: {
+					...current,
+					enabled: !current.enabled
+				}
+			});
+		} catch (error) {
+			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the read (${error.code}).` : "Core could not read the plan; nothing was saved.");
+		}
 	}
 	async function load() {
 		const mine = ++generation;
@@ -9959,6 +9993,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 			dialog.replaceChildren(head, body, actions);
 			dialog.showModal();
 		} catch (error) {
+			if (error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT") await load();
 			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "Core could not preview the change right now; nothing was saved.");
 		}
 	}
@@ -9970,6 +10005,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 			if (!status.textContent) say("Orchestration saved.");
 		} catch (error) {
 			dialog.close();
+			if (error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT") await load();
 			say(error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT" ? "Orchestration changed since the preview; nothing was saved. Try again." : error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "The save could not be confirmed. Refresh to see what Core recorded.");
 		}
 	}
