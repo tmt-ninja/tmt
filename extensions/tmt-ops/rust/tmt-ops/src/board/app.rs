@@ -221,6 +221,15 @@ pub enum Request {
         next: crate::config::OpsPreferences,
         saved: Option<String>,
     },
+    MemberLabel {
+        expected: std::sync::Arc<crate::config::WorkspaceLabels>,
+        member: String,
+        label: Option<String>,
+    },
+    LabelEdit {
+        expected: std::sync::Arc<crate::config::WorkspaceLabels>,
+        edit: crate::config::LabelEdit,
+    },
     WorkspaceOperation(super::workspace::manage::Change),
     /// A cron job control, with its actor, job and viewed revision resolved.
     CronPreview(Box<super::cronboard::preview::Task>),
@@ -254,6 +263,8 @@ impl Request {
             Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
+            Self::MemberLabel { .. } => "Saving label…",
+            Self::LabelEdit { .. } => "Saving labels…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
             Self::CronPreview(_) => "Reading the timer preview…",
             Self::Cron(_) => "Updating the job…",
@@ -314,6 +325,21 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    LabelTarget(super::workspace::OpsTarget),
+    MemberLabel {
+        expected: std::sync::Arc<crate::config::WorkspaceLabels>,
+        member: String,
+        label: Option<String>,
+    },
+    EditLabels,
+    LabelDefinition(String),
+    LabelNew,
+    LabelField(super::app::workspace::LabelField),
+    LabelColor(String),
+    LabelSave,
+    LabelMove(usize),
+    LabelDelete,
+    LabelApply(crate::config::LabelEdit),
     MemberLink {
         target: super::workspace::OpsTarget,
         jump: bool,
@@ -793,6 +819,9 @@ pub struct App {
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<WorkspaceStartup>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
+    pub(super) label_draft: Option<workspace::LabelDraft>,
+    pub(super) label_field: Option<workspace::LabelField>,
+    pub(super) label_save_pending: bool,
     /// The membership `m` lifted, while ↑↓ choose its squad.
     pub(super) moving: Option<super::workspace::moving::Moving>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
@@ -3214,6 +3243,19 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::LabelTarget(target) => {
+                if !matches!(target, super::workspace::OpsTarget::Member { .. })
+                    || self
+                        .workspace_snapshot()
+                        .is_none_or(|snapshot| !snapshot.roster.contains(&target))
+                {
+                    return self.say("The painted agent is no longer observed.");
+                }
+                self.workspace.selected = Some(target);
+                self.workspace_reconcile();
+                self.invalidate_frame_geometry();
+                self.open_member_label()
+            }
             Choice::MemberLink { target, jump } => self.member_link_action(&target, jump),
             Choice::MemberLinkAction { target, action } => {
                 self.member_link_command(&target, &action)
@@ -3286,6 +3328,20 @@ impl App {
                 Effect::None
             }
             Choice::Panels => self.open_panels(),
+            Choice::MemberLabel {
+                expected,
+                member,
+                label,
+            } => self.save_member_label(expected, member, label),
+            Choice::EditLabels => self.open_label_editor(),
+            Choice::LabelDefinition(id) => self.open_label_definition(&id),
+            Choice::LabelNew => self.new_label_definition(),
+            Choice::LabelField(field) => self.edit_label_field(field),
+            Choice::LabelColor(color) => self.choose_label_color(color),
+            Choice::LabelSave => self.save_label_definition(),
+            Choice::LabelMove(index) => self.move_label_definition(index),
+            Choice::LabelDelete => self.delete_label_definition(),
+            Choice::LabelApply(edit) => self.apply_label_edit(edit),
             Choice::Checklist => self.open_checklist(),
             Choice::RoomChecklist(room) => self.open_room_checklist(room),
             Choice::MemberNotes => self.open_notes(),
@@ -3485,6 +3541,12 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                if self.label_field.is_some() {
+                    self.retain_label_field_input();
+                    self.label_field = None;
+                    self.input = None;
+                    return self.label_draft_menu();
+                }
                 if input.compose == Compose::Workspace {
                     self.input = None;
                     self.workspace_form = None;
@@ -3583,6 +3645,9 @@ impl App {
             self.input.take().expect("composing")
         };
         if input.compose == Compose::Workspace {
+            if self.label_field.is_some() {
+                return self.submit_label_field(input.text.into_string());
+            }
             return self.workspace_submit_field(input.text.into_string());
         }
         if matches!(input.compose, Compose::Cron) {
@@ -4196,6 +4261,20 @@ impl App {
                 || !typing && !self.bindings().contains_key("ctrl-s"))
         {
             return self.send_now_press();
+        }
+        // Numbered label choices belong to their open menu, including 1–3,
+        // which otherwise switch board destinations while a modal is open.
+        if !typing
+            && key.modifiers.is_empty()
+            && let KeyCode::Char(digit @ '0'..='9') = key.code
+            && self.menu.as_ref().is_some_and(|menu| {
+                menu.entries.iter().any(|entry| {
+                    entry.key == digit.to_string()
+                        && matches!(entry.choice, Choice::MemberLabel { .. })
+                })
+            })
+        {
+            return self.menu_key(key);
         }
         if !typing
             && (self.modal_open() || self.usage_chart.borrow().focused())

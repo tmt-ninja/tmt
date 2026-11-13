@@ -308,6 +308,10 @@ limits) above two columns. The left column is the squad/member tree; the right
 column shows the selected target as Talk or Measure. `T` opens Talk, `M` opens
 Measure, and `C` opens the selected member's Checklist; controls sit on the
 pane's top rule. The shell attention bar stays global.
+On a member, `l` opens board labels: `1`–`9` choose the first nine, `0` clears,
+and arrows or the mouse reach the rest and the editor. Labels are private board
+preferences, not member metadata or extension-supplied labels. Their chip appears
+beside the name and the selected member's identity line names the label.
 Digest first opens on `all`. Switching destinations remembers each selection for
 this board session; explicit named views and reload restores keep their selected UUID.
 Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.

@@ -2769,6 +2769,9 @@ pub(in crate::board) fn visibility_capture_case(scene: &str, look: crate::look::
 }
 
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    if scene.starts_with("agents-label-") {
+        return navigation::label_capture(scene, look);
+    }
     if scene == "unread-core-capture" {
         let now = crate::status::now_ms();
         let mut app = crate::board::conversation::outgoing::tests::captures::fixture(

@@ -209,7 +209,7 @@ impl Default for WorkspaceLabels {
     }
 }
 
-fn valid_label_glyph(glyph: &str) -> bool {
+pub(crate) fn valid_label_glyph(glyph: &str) -> bool {
     use unicode_segmentation::UnicodeSegmentation;
     use unicode_width::UnicodeWidthStr;
     !glyph.is_empty()
@@ -363,6 +363,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("T", "pane-talk"),
             ("M", "pane-measure"),
             ("u", "unread"),
+            ("l", "member-label"),
             ("esc", "clear-scope"),
             ("h", "reveal-hidden"),
         ]
@@ -611,43 +612,106 @@ impl Config {
     }
 
     /// Apply one user-confirmed definition edit without rewriting other settings.
-    pub fn save_label_edit(&mut self, expected: &WorkspaceLabels, edit: LabelEdit) -> Result<(), SquadError> {
+    pub fn save_label_edit(
+        &mut self,
+        expected: &WorkspaceLabels,
+        edit: LabelEdit,
+    ) -> Result<(), SquadError> {
         if self.workspace_labels()? != *expected {
             return Err(invalid("Labels changed; reload before saving."));
         }
         let index = match &edit {
             LabelEdit::Upsert(label) => {
-                if label.id.is_empty() || label.id.len() > 64 || !label.id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')) {
-                    return Err(invalid("Label IDs use letters, numbers, hyphens or underscores."));
+                if label.id.is_empty()
+                    || label.id.len() > 64
+                    || !label
+                        .id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+                {
+                    return Err(invalid(
+                        "Label IDs use letters, numbers, hyphens or underscores.",
+                    ));
                 }
-                if !valid_label_glyph(&label.glyph) { return Err(invalid("Use one nonblank character or emoji, one or two cells wide, without joined characters.")); }
-                if crate::look::role(&label.color).is_none() { return Err(invalid("Choose a board palette color.")); }
-                if label.name.trim().is_empty() || label.name.chars().any(char::is_control) { return Err(invalid("Label names must be nonblank text.")); }
-                let found = expected.definitions.iter().position(|old| old.id == label.id);
-                if found.is_none() && expected.definitions.len() >= 32 { return Err(invalid("A maximum of 32 labels is allowed.")); }
+                if !valid_label_glyph(&label.glyph) {
+                    return Err(invalid(
+                        "Use one nonblank character or emoji, one or two cells wide, without joined characters.",
+                    ));
+                }
+                if crate::look::role(&label.color).is_none() {
+                    return Err(invalid("Choose a board palette color."));
+                }
+                if label.name.trim().is_empty() || label.name.chars().any(char::is_control) {
+                    return Err(invalid("Label names must be nonblank text."));
+                }
+                let found = expected
+                    .definitions
+                    .iter()
+                    .position(|old| old.id == label.id);
+                if found.is_none() && expected.definitions.len() >= 32 {
+                    return Err(invalid("A maximum of 32 labels is allowed."));
+                }
                 found
             }
             LabelEdit::Move { id, index } => {
-                if *index >= expected.definitions.len() { return Err(invalid("Label order is out of range.")); }
-                Some(expected.definitions.iter().position(|old| &old.id == id).ok_or_else(|| invalid("Label no longer exists."))?)
+                if *index >= expected.definitions.len() {
+                    return Err(invalid("Label order is out of range."));
+                }
+                Some(
+                    expected
+                        .definitions
+                        .iter()
+                        .position(|old| &old.id == id)
+                        .ok_or_else(|| invalid("Label no longer exists."))?,
+                )
             }
-            LabelEdit::Delete { id } => Some(expected.definitions.iter().position(|old| &old.id == id).ok_or_else(|| invalid("Label no longer exists."))?),
+            LabelEdit::Delete { id } => Some(
+                expected
+                    .definitions
+                    .iter()
+                    .position(|old| &old.id == id)
+                    .ok_or_else(|| invalid("Label no longer exists."))?,
+            ),
         };
+        if matches!((&edit, index), (LabelEdit::Upsert(label), Some(index)) if expected.definitions[index] == *label)
+            || matches!((&edit, index), (LabelEdit::Move { index: target, .. }, Some(index)) if *target == index)
+        {
+            return self.write(|_| {});
+        }
         self.write(|document| {
-            if document.get("workspace").is_none() { document["workspace"] = Item::Table(Table::new()); }
-            if document["workspace"].get("labels").is_none() { document["workspace"]["labels"] = Item::Table(Table::new()); }
-            let labels = document["workspace"]["labels"].as_table_like_mut().expect("validated label table");
+            if document.get("workspace").is_none() {
+                document["workspace"] = Item::Table(Table::new());
+            }
+            if document["workspace"].get("labels").is_none() {
+                document["workspace"]["labels"] = Item::Table(Table::new());
+            }
+            let labels = document["workspace"]["labels"]
+                .as_table_like_mut()
+                .expect("validated label table");
             if labels.get("definitions").is_none() {
                 let mut values = toml_edit::Array::new();
-                for definition in &expected.definitions { values.push(label_toml(definition)); }
+                for definition in &expected.definitions {
+                    values.push(label_toml(definition));
+                }
                 labels.insert("definitions", value(values));
             }
-            let values = labels.get_mut("definitions").and_then(Item::as_value_mut).and_then(toml_edit::Value::as_array_mut).expect("validated definitions");
+            let values = labels
+                .get_mut("definitions")
+                .and_then(Item::as_value_mut)
+                .and_then(toml_edit::Value::as_array_mut)
+                .expect("validated definitions");
             match &edit {
                 LabelEdit::Upsert(label) => {
                     if let Some(index) = index {
-                        let table = values.get_mut(index).and_then(toml_edit::Value::as_inline_table_mut).expect("validated definition");
-                        for (key, next) in [("glyph", &label.glyph), ("color", &label.color), ("name", &label.name)] {
+                        let table = values
+                            .get_mut(index)
+                            .and_then(toml_edit::Value::as_inline_table_mut)
+                            .expect("validated definition");
+                        for (key, next) in [
+                            ("glyph", &label.glyph),
+                            ("color", &label.color),
+                            ("name", &label.name),
+                        ] {
                             let old = table.get_mut(key).expect("validated field");
                             if old.as_str() != Some(next.as_str()) {
                                 let decor = old.decor().clone();
@@ -655,18 +719,24 @@ impl Config {
                                 *old.decor_mut() = decor;
                             }
                         }
-                    } else { values.push(label_toml(label)); }
+                    } else {
+                        values.push(label_toml(label));
+                    }
                 }
                 LabelEdit::Move { index: target, .. } => {
                     let item = values.remove(index.unwrap());
                     values.insert(*target, item);
                 }
-                LabelEdit::Delete { .. } => { values.remove(index.unwrap()); }
+                LabelEdit::Delete { .. } => {
+                    values.remove(index.unwrap());
+                }
             }
             if let LabelEdit::Delete { id } = &edit
                 && let Some(members) = labels.get_mut("members").and_then(Item::as_table_like_mut)
             {
-                for (member, _) in expected.members.iter().filter(|(_, label)| *label == id) { members.remove(member); }
+                for (member, _) in expected.members.iter().filter(|(_, label)| *label == id) {
+                    members.remove(member);
+                }
             }
         })
     }
@@ -2013,8 +2083,41 @@ mod tests {
         fs::write(fixture.0.join("ops.toml"), authored).unwrap();
         let mut config = fixture.config();
         let expected = config.workspace_labels().unwrap();
-        config.save_member_label(&expected, "66666666-6666-4666-8666-666666666666", Some("pr")).unwrap();
-        assert_eq!(fs::read_to_string(config.path()).unwrap(), authored.replace("= 'review'", "= \"pr\""));
+        config
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(config.path()).unwrap(),
+            authored.replace("= 'review'", "= \"pr\"")
+        );
+    }
+
+    #[test]
+    fn assigning_with_inline_labels_and_no_members_is_safe() {
+        let fixture = FileFixture::new();
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "[workspace]\nlabels = { note = 'keep' } # keep\n",
+        )
+        .unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        let read = fixture.config().workspace_labels().unwrap();
+        assert_eq!(read.members["66666666-6666-4666-8666-666666666666"], "pr");
+        let text = fs::read_to_string(config.path()).unwrap();
+        assert!(text.contains("note = 'keep'"));
+        assert!(text.contains("# keep"));
     }
 
     #[test]
@@ -2026,10 +2129,105 @@ mod tests {
         let expected = config.workspace_labels().unwrap();
         let mut changed = expected.definitions[1].clone();
         changed.name = "needs review".into();
-        config.save_label_edit(&expected, LabelEdit::Upsert(changed)).unwrap();
+        config
+            .save_label_edit(&expected, LabelEdit::Upsert(changed))
+            .unwrap();
         let output = fs::read_to_string(config.path()).unwrap();
-        assert_eq!(output, authored.replace("name='review'", "name=\"needs review\""));
-        assert_eq!(fixture.config().workspace_labels().unwrap().members, expected.members);
+        assert_eq!(
+            output,
+            authored.replace("name='review'", "name=\"needs review\"")
+        );
+        assert_eq!(
+            fixture.config().workspace_labels().unwrap().members,
+            expected.members
+        );
+    }
+
+    #[test]
+    fn reordering_keeps_assignments_and_confirmed_delete_removes_only_its_assignments() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        let first = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &first,
+                "66666666-6666-4666-8666-666666666666",
+                Some("review"),
+            )
+            .unwrap();
+        let before_move = config.workspace_labels().unwrap();
+        config
+            .save_label_edit(
+                &before_move,
+                LabelEdit::Move {
+                    id: "review".into(),
+                    index: 0,
+                },
+            )
+            .unwrap();
+        let moved = config.workspace_labels().unwrap();
+        assert_eq!(moved.definitions[0].id, "review");
+        assert_eq!(moved.members, before_move.members);
+        config
+            .save_label_edit(
+                &moved,
+                LabelEdit::Delete {
+                    id: "review".into(),
+                },
+            )
+            .unwrap();
+        let deleted = fixture.config().workspace_labels().unwrap();
+        assert!(!deleted.definitions.iter().any(|label| label.id == "review"));
+        assert!(deleted.members.is_empty());
+        let text = fs::read_to_string(config.path()).unwrap();
+        assert!(
+            text.contains("# preserve user text\n[bind]\nj='copy'\n[squad.other]\nlayout='crew'\n")
+        );
+    }
+
+    #[test]
+    fn a_thirty_third_definition_and_invalid_glyphs_leave_the_file_unchanged() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        for index in 5..32 {
+            let current = config.workspace_labels().unwrap();
+            config
+                .save_label_edit(
+                    &current,
+                    LabelEdit::Upsert(BoardLabel {
+                        id: format!("item-{index}"),
+                        glyph: "P".into(),
+                        color: "waiting".into(),
+                        name: format!("Item {index}"),
+                    }),
+                )
+                .unwrap();
+        }
+        let expected = config.workspace_labels().unwrap();
+        assert_eq!(expected.definitions.len(), 32);
+        let before = fs::read(config.path()).unwrap();
+        let mut next = BoardLabel {
+            id: "overflow".into(),
+            glyph: "P".into(),
+            color: "waiting".into(),
+            name: "Overflow".into(),
+        };
+        assert!(
+            config
+                .save_label_edit(&expected, LabelEdit::Upsert(next.clone()))
+                .is_err()
+        );
+        next.id = expected.definitions[0].id.clone();
+        for glyph in ["", " ", "ab", "\n", "👩\u{200d}💻"] {
+            next.glyph = glyph.into();
+            assert!(
+                config
+                    .save_label_edit(&expected, LabelEdit::Upsert(next.clone()))
+                    .is_err(),
+                "{glyph:?}"
+            );
+        }
+        assert_eq!(fs::read(config.path()).unwrap(), before);
     }
     #[test]
     fn preferences_reload_without_mutating_membership_or_unrelated_user_scopes() {

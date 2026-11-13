@@ -180,7 +180,24 @@ pub(in crate::board) fn agents_hints(app: &App, width: usize) -> Option<String> 
 /// The Agents tab's one footer line: the keys the selected row needs, then help and quit.
 fn agents_line(app: &App, width: usize) -> Option<Vec<Hint>> {
     let hints = agents_legend(app)?;
-    Some(fit_hints(hints.keys, hints.tail, width))
+    let tail_len = hints.tail.len();
+    let mut fitted = fit_hints(hints.keys, hints.tail, width);
+    if app.workspace_selected_member().is_some()
+        && let Some(key) = effective_key(
+            app,
+            &app.bindings(),
+            crate::action::Verb::Ui(crate::action::OpsUiAction::MemberLabel),
+            "l",
+        )
+    {
+        let at = fitted.len().saturating_sub(tail_len);
+        let mut candidate = fitted.clone();
+        candidate.insert(at, (key_label(&key).into(), "label".into()));
+        if hint_text(&candidate).width() <= width {
+            fitted = candidate;
+        }
+    }
+    Some(fitted)
 }
 fn paint_hints(hints: &[Hint], look: crate::look::Look, role: Role) -> Line<'static> {
     let pairs: Vec<_> = hints
@@ -1052,7 +1069,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ talk  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  l label  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
@@ -1114,6 +1131,20 @@ mod tests {
         assert!(line.contains("C checklist"), "{line}");
         assert!(!line.contains("T talk"), "{line}");
         assert!(line.contains("⏎ talk"), "{line}");
+    }
+
+    #[test]
+    fn label_hint_uses_only_spare_room_after_existing_hints() {
+        use crate::board::app::workspace::tests::{MEMBER, ROOM};
+        let app = selected(crate::board::workspace::OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        let wide = agents_hints(&app, 1000).unwrap();
+        assert!(wide.contains("l label"), "{wide}");
+        let compact = agents_hints(&app, 100).unwrap();
+        assert!(compact.contains("C checklist"), "{compact}");
+        assert!(!compact.contains("l label"), "{compact}");
     }
 
     #[test]

@@ -64,6 +64,21 @@ fn agents_shortcuts_keep_authored_keys_without_factory_duplicates() {
 }
 
 #[test]
+fn authored_l_binding_takes_precedence_over_member_labels() {
+    let mut app = configured_member(
+        "[bind]\nl='copy authored-l'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    assert!(
+        matches!(key(&mut app, KeyCode::Char('l')), Effect::Act(Request::Copy { text, .. }) if text == "authored-l")
+    );
+    assert!(app.menu.is_none());
+    paint(&app, 160, 36);
+    app.context_menu();
+    assert!(app.menu.as_ref().unwrap().entries.iter().any(|entry| entry.label == "Label agent" && matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(OpsUiAction::MemberLabel))));
+}
+
+#[test]
 fn agents_shortcuts_keep_named_rename_and_close_with_honest_keys() {
     let mut app = configured_member(
         "[bind]\nr='copy r'\nd='copy d'\n",

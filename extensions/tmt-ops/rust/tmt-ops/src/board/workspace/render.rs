@@ -757,6 +757,24 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 &slots,
                 &crate::board::tree_row::Row {
                     source: row,
+                    label: match &row.target {
+                        OpsTarget::Member { identity_id, .. } if snapshot.labels_present => Some(
+                            snapshot
+                                .preferences
+                                .labels
+                                .members
+                                .get(identity_id)
+                                .and_then(|id| {
+                                    snapshot
+                                        .preferences
+                                        .labels
+                                        .definitions
+                                        .iter()
+                                        .find(|label| &label.id == id)
+                                }),
+                        ),
+                        _ => None,
+                    },
                     expanded,
                     last: !continues(&rows, index + 1, row.depth),
                     folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
@@ -835,6 +853,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             }
             if let Some(hit) = checklist_hit {
                 app.workspace_strip_hits.borrow_mut().push(hit);
+            }
+            if let Some(area) = painted.label {
+                app.workspace_strip_hits
+                    .borrow_mut()
+                    .push((area, Choice::LabelTarget(row.target.clone())));
             }
             if let Some(area) = painted.tokens {
                 app.workspace_strip_hits

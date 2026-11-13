@@ -31,12 +31,12 @@ mod workspace;
 pub use states::{Rank, States};
 pub(crate) use unread::ReadMarkers;
 pub use workspace::{
-    BoardLabel, DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort,
-    OverviewColumn, OverviewDirection, OverviewPanel, OverviewPanels, Panel, PanelSetting, Panels,
-    TokRange, WorkspaceLabels,
+    BoardLabel, DigestPanel, DigestPanels, LabelEdit, OpsKeyScope, OpsLayout, OpsPreferences,
+    OpsSort, OverviewColumn, OverviewDirection, OverviewPanel, OverviewPanels, Panel, PanelSetting,
+    Panels, TokRange, WorkspaceLabels,
 };
 pub(crate) use workspace::{
-    admit_action as admit_workspace_action, defaults as workspace_defaults,
+    admit_action as admit_workspace_action, defaults as workspace_defaults, valid_label_glyph,
 };
 
 /// A Config-owned write location. The event is always a separate literal key.

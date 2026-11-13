@@ -1,6 +1,543 @@
 //! Real App transitions; no worker or ambient terminal is involved.
 use super::*;
 
+pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
+    let mut app = populated_board(1, 5);
+    let first = "66666666-6666-4666-8666-000000000000";
+    let second = "66666666-6666-4666-8666-000000000001";
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    let workspace = &mut view.home.as_mut().unwrap().workspace;
+    for squad in &workspace.roster.squads {
+        workspace.squad_looks.insert(squad.room_id.clone(), look);
+    }
+    for (id, name) in [(first, "tmt-remote-lead"), (second, "tmt-infra-lead")] {
+        workspace.roster.members.get_mut(id).unwrap().name = name.into();
+        for (target, row) in &mut workspace.rows {
+            if matches!(target, OpsTarget::Member { identity_id, .. } if identity_id == id) {
+                row["name"] = json!(name);
+            }
+        }
+    }
+    if scene != "agents-label-none" {
+        let mut preferences = workspace.preferences.clone();
+        preferences.labels.members.insert(first.into(), "pr".into());
+        preferences
+            .labels
+            .members
+            .insert(second.into(), "review".into());
+        for (index, id) in [(2, "waiting"), (3, "blocked"), (4, "watch")] {
+            preferences
+                .labels
+                .members
+                .insert(format!("66666666-6666-4666-8666-{index:012}"), id.into());
+        }
+        workspace.set_preferences(preferences);
+    }
+    let index = app.workspace_rows().iter().position(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == first)).unwrap();
+    app.workspace_select(index);
+    if matches!(scene, "agents-label-menu" | "agents-label-editor") {
+        paint(&app, 160, 36);
+        key(&mut app, KeyCode::Char('l'));
+        if scene == "agents-label-editor" {
+            app.choose(Choice::EditLabels);
+        }
+    }
+    app
+}
+
+#[test]
+fn label_review_scenes_pin_real_shaped_names_and_the_two_surfaces() {
+    let look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    for width in [160, 120] {
+        let unlabelled = paint(&label_capture("agents-label-none", look), width, 36).join("\n");
+        let labelled = paint(&label_capture("agents-label-assigned", look), width, 36).join("\n");
+        assert!(unlabelled.contains("tmt-remote"), "{unlabelled}");
+        assert!(labelled.contains(" P "), "{labelled}");
+        assert!(
+            paint(&label_capture("agents-label-menu", look), width, 36)
+                .join("\n")
+                .contains("Edit labels")
+        );
+        assert!(
+            paint(&label_capture("agents-label-editor", look), width, 36)
+                .join("\n")
+                .contains("New label")
+        );
+    }
+}
+
+#[test]
+fn label_key_opens_numbered_choices_for_the_selected_member() {
+    let mut app = populated_board(1, 2);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+        .unwrap();
+    app.workspace_select(index);
+    paint(&app, 160, 36);
+    assert_eq!(key(&mut app, KeyCode::Char('l')), Effect::None);
+    let menu = app
+        .menu
+        .as_ref()
+        .expect("l opens the selected member's label menu");
+    assert!(menu.title.contains("Label"));
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.key == "0" && entry.label.contains("clear"))
+    );
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.key == "1" && entry.label.contains("PR"))
+    );
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.label.contains("Edit labels"))
+    );
+    paint(&app, 160, 36);
+    let effect = key(&mut app, KeyCode::Char('1'));
+    assert!(
+        matches!(effect, Effect::Act(Request::MemberLabel { label: Some(ref label), .. }) if label == "pr"),
+        "{effect:?}"
+    );
+}
+
+#[test]
+fn label_key_on_a_squad_only_reports_the_required_target() {
+    let mut app = populated_board(1, 2);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, OpsTarget::Squad(_)))
+        .unwrap();
+    app.workspace_select(index);
+    paint(&app, 160, 36);
+    assert_eq!(key(&mut app, KeyCode::Char('l')), Effect::None);
+    assert_eq!(app.notice.as_deref(), Some("Select an agent to label."));
+    assert!(app.menu.is_none());
+}
+
+#[test]
+fn labels_after_nine_remain_reachable_without_digit_bindings() {
+    let mut app = populated_board(1, 2);
+    let labels = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .labels;
+    for index in 5..11 {
+        labels.definitions.push(crate::config::BoardLabel {
+            id: format!("label-{index}"),
+            glyph: "X".into(),
+            color: "working".into(),
+            name: format!("Label {index}"),
+        });
+    }
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+        .unwrap();
+    app.workspace_select(index);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Char('l'));
+    let menu = app.menu.as_ref().unwrap();
+    assert_eq!(menu.entries[9].key, "9");
+    assert_eq!(menu.entries[10].key, "");
+    paint(&app, 160, 36);
+    for _ in 0..9 {
+        key(&mut app, KeyCode::Down);
+    }
+    assert!(
+        matches!(key(&mut app, KeyCode::Enter), Effect::Act(Request::MemberLabel { label: Some(ref id), .. }) if id == "label-9")
+    );
+}
+
+#[test]
+fn every_numbered_label_and_clear_reach_their_exact_value() {
+    for (number, expected) in [
+        ('0', None),
+        ('1', Some("pr")),
+        ('2', Some("review")),
+        ('3', Some("waiting")),
+        ('4', Some("blocked")),
+        ('5', Some("watch")),
+        ('6', Some("extra-6")),
+        ('7', Some("extra-7")),
+        ('8', Some("extra-8")),
+        ('9', Some("extra-9")),
+    ] {
+        let mut app = populated_board(1, 2);
+        let labels = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .labels;
+        for index in 6..=9 {
+            labels.definitions.push(crate::config::BoardLabel {
+                id: format!("extra-{index}"),
+                glyph: "X".into(),
+                color: "working".into(),
+                name: format!("Extra {index}"),
+            });
+        }
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        app.workspace_select(index);
+        paint(&app, 160, 36);
+        key(&mut app, KeyCode::Char('l'));
+        paint(&app, 160, 36);
+        let effect = key(&mut app, KeyCode::Char(number));
+        assert!(
+            matches!(effect, Effect::Act(Request::MemberLabel { label, .. }) if label.as_deref() == expected),
+            "number {number}"
+        );
+    }
+}
+
+#[test]
+fn editor_refuses_a_thirty_third_label() {
+    let mut app = populated_board(1, 2);
+    let labels = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .labels;
+    for index in 5..32 {
+        labels.definitions.push(crate::config::BoardLabel {
+            id: format!("extra-{index}"),
+            glyph: "X".into(),
+            color: "working".into(),
+            name: format!("Extra {index}"),
+        });
+    }
+    assert_eq!(app.choose(Choice::LabelNew), Effect::None);
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("32 labels"))
+    );
+}
+
+#[test]
+fn assigned_labels_reserve_aligned_chips_for_member_rows_only() {
+    let mut app = populated_board(1, 2);
+    let before = paint(&app, 160, 36);
+    let member = "66666666-6666-4666-8666-000000000000";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert(member.into(), "pr".into());
+    workspace.set_preferences(preferences);
+    let after = paint(&app, 160, 36);
+    let line = |rows: &[String], needle: &str| {
+        rows.iter()
+            .find(|row| row.contains(needle))
+            .unwrap()
+            .clone()
+    };
+    let before_labeled = line(&before, "agent-00000");
+    let after_labeled = line(&after, "agent-00000");
+    let before_plain = line(&before, "agent-00001");
+    let after_plain = line(&after, "agent-00001");
+    assert!(after_labeled.contains(" P  "), "{after_labeled}");
+    assert_eq!(
+        after_labeled.find("agent-00000").unwrap(),
+        before_labeled.find("agent-00000").unwrap() + 4
+    );
+    assert_eq!(
+        after_plain.find("agent-00001").unwrap(),
+        before_plain.find("agent-00001").unwrap() + 4
+    );
+    assert_eq!(line(&before, "squad-00"), line(&after, "squad-00"));
+}
+
+#[test]
+fn label_chips_use_palette_roles_and_reverse_without_color() {
+    use ratatui::style::Modifier;
+    use tmt_cli_style::{Base, Depth, Role};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let mut app = populated_board(1, 2);
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth,
+        };
+        app.view.as_mut().unwrap().look = look;
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut preferences = workspace.preferences.clone();
+        preferences
+            .labels
+            .members
+            .insert("66666666-6666-4666-8666-000000000000".into(), "pr".into());
+        workspace.set_preferences(preferences);
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let row = buffer
+            .content
+            .chunks(160)
+            .find(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .contains("agent-00000")
+            })
+            .unwrap();
+        let glyph = row.iter().position(|cell| cell.symbol() == "P").unwrap();
+        if depth == Depth::None {
+            assert!(row[glyph].modifier.contains(Modifier::REVERSED));
+            assert!(!row[glyph + 2].modifier.contains(Modifier::REVERSED));
+        } else {
+            assert_eq!(row[glyph].bg, look.role(Role::Waiting).fg.unwrap());
+            assert_eq!(row[glyph].fg, ratatui::style::Color::Black);
+            assert!(!row[glyph].modifier.contains(Modifier::DIM));
+            assert_ne!(row[glyph + 2].bg, row[glyph].bg);
+        }
+        assert_eq!(row[glyph - 1].bg, row[glyph].bg);
+        assert_eq!(row[glyph + 1].bg, row[glyph].bg);
+    }
+}
+
+#[test]
+fn selected_member_identity_line_names_its_label() {
+    let mut app = populated_board(1, 2);
+    let member = "66666666-6666-4666-8666-000000000000";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert(member.into(), "review".into());
+    workspace.set_preferences(preferences);
+    let index = app.workspace_rows().iter().position(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == member)).unwrap();
+    app.workspace_select(index);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(
+        screen
+            .lines()
+            .any(|line| line.contains("squad-00") && line.contains("review")),
+        "{screen}"
+    );
+}
+
+#[test]
+fn clicking_a_label_chip_selects_its_member_and_opens_the_menu() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use unicode_width::UnicodeWidthStr;
+    let mut app = populated_board(1, 2);
+    let member = "66666666-6666-4666-8666-000000000001";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert(member.into(), "pr".into());
+    workspace.set_preferences(preferences);
+    let screen = paint(&app, 160, 36);
+    let (y, row) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("agent-00001"))
+        .unwrap();
+    let x = row[..row.find(" P ").unwrap()].width() + 1;
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x as u16,
+            row: y as u16,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    assert!(
+        matches!(&app.workspace.selected, Some(OpsTarget::Member { identity_id, .. }) if identity_id == member)
+    );
+    assert!(
+        app.menu
+            .as_ref()
+            .is_some_and(|menu| menu.title.contains("Label"))
+    );
+}
+
+#[test]
+fn label_editor_offers_definition_edits_and_preserves_a_cancelled_draft() {
+    let mut app = populated_board(1, 2);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+        .unwrap();
+    app.workspace_select(index);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Char('l'));
+    app.choose(Choice::EditLabels);
+    let menu = app.menu.as_ref().expect("label editor list");
+    assert!(menu.entries.iter().any(|entry| entry.label.contains("PR")));
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.label.contains("New label"))
+    );
+    app.choose(Choice::LabelDefinition("pr".into()));
+    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.input.as_mut().unwrap().text = "Review draft".into();
+    app.input_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(
+        app.menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.label.contains("Review draft"))
+    );
+    app.menu = None;
+    app.choose(Choice::EditLabels);
+    assert!(
+        app.menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.label.contains("Review draft"))
+    );
+    app.choose(Choice::LabelField(super::super::LabelField::Glyph));
+    app.input.as_mut().unwrap().text = "👩\u{200d}💻".into();
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("one nonblank"))
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "👩\u{200d}💻");
+}
+
+#[test]
+fn label_editor_saves_one_valid_definition_and_retains_it_after_failure() {
+    let mut app = populated_board(1, 2);
+    app.choose(Choice::LabelDefinition("pr".into()));
+    app.choose(Choice::LabelField(super::super::LabelField::Glyph));
+    app.input.as_mut().unwrap().text = "界".into();
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.choose(Choice::LabelField(super::super::LabelField::Name));
+    app.input.as_mut().unwrap().text = "Ship".into();
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.choose(Choice::LabelColor("working".into()));
+    let effect = app.choose(Choice::LabelSave);
+    assert!(
+        matches!(effect, Effect::Act(Request::LabelEdit { edit: crate::config::LabelEdit::Upsert(ref label), .. }) if label.id == "pr" && label.glyph == "界" && label.name == "Ship" && label.color == "working"),
+        "{effect:?}"
+    );
+    app.finished(Ok("Unrelated action finished.".into()));
+    assert!(app.label_save_pending);
+    app.finished_label_edit(Err("Labels changed; reload before saving.".into()));
+    app.choose(Choice::EditLabels);
+    let menu = app.menu.as_ref().unwrap();
+    assert!(
+        menu.entries
+            .iter()
+            .any(|entry| entry.label.contains("Ship"))
+    );
+    assert!(menu.entries.iter().any(|entry| entry.label.contains("界")));
+}
+
+#[test]
+fn label_delete_requires_confirmation() {
+    let mut app = populated_board(1, 2);
+    app.choose(Choice::LabelDefinition("pr".into()));
+    assert_eq!(app.choose(Choice::LabelDelete), Effect::None);
+    assert!(app.confirm.is_some());
+}
+
+#[test]
+fn label_key_does_not_steal_text_from_the_chat_input() {
+    let mut app = board();
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Char('l'));
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "l");
+    assert!(app.menu.is_none());
+}
+
+#[test]
+fn wide_glyph_occupies_three_chip_cells_and_one_plain_space() {
+    let mut app = populated_board(1, 2);
+    let member = "66666666-6666-4666-8666-000000000000";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert(member.into(), "blocked".into());
+    workspace.set_preferences(preferences);
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let row = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .find(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("agent-00000")
+        })
+        .unwrap();
+    let at = row.iter().position(|cell| cell.symbol() == "！").unwrap();
+    assert_eq!(row[at + 2].bg, row[at].bg);
+    assert_ne!(row[at + 3].bg, row[at].bg);
+}
+
+#[test]
+fn an_assignment_outside_the_roster_does_not_reserve_a_slot() {
+    let mut app = populated_board(1, 2);
+    let before = paint(&app, 160, 36);
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert("66666666-6666-4666-8666-999999999999".into(), "pr".into());
+    workspace.set_preferences(preferences);
+    assert_eq!(paint(&app, 160, 36), before);
+}
+
 #[test]
 fn digest_first_entry_uses_all_and_destination_picks_stay_independent() {
     let _no_commands = crate::runner::forbid_commands();

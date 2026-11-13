@@ -39,6 +39,22 @@ pub(super) fn render(
                     .and_then(|agent| agent.model.as_deref())
                     .or_else(|| row["fields"]["model"].as_str()),
                 host: host.as_deref(),
+                label: app.workspace_snapshot().and_then(|snapshot| {
+                    snapshot
+                        .preferences
+                        .labels
+                        .members
+                        .get(id)
+                        .and_then(|label_id| {
+                            snapshot
+                                .preferences
+                                .labels
+                                .definitions
+                                .iter()
+                                .find(|label| &label.id == label_id)
+                                .map(|label| label.name.as_str())
+                        })
+                }),
             },
             look,
         ),
