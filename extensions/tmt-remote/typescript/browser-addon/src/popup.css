@@ -1,4 +1,8 @@
 :root {
+  /* Palette B --tmt-ui-radius and --tmt-ui-radius-badge resolve to browser.ref.radius.
+     Keep the approved 2px values static for the isolated add-on's first paint. */
+  --tmt-ui-radius: 2px;
+  --tmt-ui-radius-badge: 2px;
   color-scheme: light;
   font:
     14px/1.5 system-ui,

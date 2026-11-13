@@ -1,16 +1,10 @@
 import './popup.css';
-import tokens from '../../../../../design/tokens/tokens.json' with { type: 'json' };
 import { captureActiveTab } from './capture.js';
 import { journal, loadCapture } from './journal.js';
 import { Intent } from './intent.js';
 import { formatMessage, visibleText } from './message.js';
 import type { Capture } from './message.js';
 import { createStubClient } from './stub-client.js';
-document.documentElement.style.setProperty('--tmt-ui-radius', tokens.browser.metric.radius);
-document.documentElement.style.setProperty(
-  '--tmt-ui-radius-badge',
-  tokens.browser.metric['radius-badge'],
-);
 const client = createStubClient();
 const intent = new Intent(client, journal);
 const element = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
