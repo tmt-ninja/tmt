@@ -315,6 +315,49 @@ mod interaction_tests {
             Some(Effect::None)
         );
         assert!(app.menu.is_some());
+
+        // At 60 columns the transcript shows only with read focus. A board refresh repaints it
+        // between the paint and Right (#6398): Right still selects the painted mention and Enter
+        // opens its actions.
+        use crate::board::app::workspace::tests::MEMBER;
+        let reply = serde_json::json!({"recipientId":MEMBER,"requestId":"narrow",
+            "response":"Mention #tmt:worker with #tmt:unknown."});
+        let draw = |app: &App| {
+            Terminal::new(TestBackend::new(60, 36))
+                .unwrap()
+                .draw(|frame| crate::board::view::render(frame, app))
+                .unwrap();
+        };
+        let mut app = self::app();
+        app.view.as_mut().unwrap().replies = vec![reply.clone()];
+        app.focus = 1;
+        draw(&app);
+        assert!(app.member_links.borrow().hits.iter().any(|hit| hit.reader));
+        let mut refreshed = self::app();
+        refreshed.view.as_mut().unwrap().replies = vec![reply];
+        let mut loaded =
+            crate::board::app::tests::snapshot(crate::board::ALL, serde_json::json!([]));
+        loaded.tabs.push(crate::board::ALL.into());
+        loaded.view = Ok(refreshed.view.take().unwrap());
+        // The refresh carries the same identity listing, so the mention still resolves.
+        loaded.references = refreshed.references.clone();
+        app.apply(loaded);
+        draw(&app);
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(
+            app.member_links.borrow().focused.is_some(),
+            "Right selects the mention after the refresh repaint"
+        );
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let menu = app
+            .menu
+            .as_ref()
+            .expect("Enter opens the mention's actions");
+        assert!(
+            menu.entries.iter().any(|entry| entry.label == "Message"),
+            "{:?}",
+            menu.entries.iter().map(|e| &e.label).collect::<Vec<_>>()
+        );
     }
     #[test]
     fn menu_jump_rechecks_binding_and_uuid_then_show_agents_keeps_draft() {

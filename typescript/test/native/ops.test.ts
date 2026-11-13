@@ -5829,7 +5829,8 @@ describe('large board responsiveness', () => {
               },
               { timeout: 10_000, interval: 25 }
             );
-          for (const width of [160, 100, 60]) {
+          // The narrow read-focus layout is covered by the Rust reader-link test (#6398).
+          for (const width of [160, 100]) {
             tmux(['resize-window', '-t', 'mentions', '-x', String(width), '-y', '36']);
             // The tree has focus here (the first pass comes from Escape, the later ones from the
             // Escape ending the last pass), and its draft shows at every width. The transcript
