@@ -100,7 +100,7 @@ if database.exists():
  except sqlite3.OperationalError:locked=True
 if a[0]=='api':
  q=json.load(sys.stdin);op=q['operation'];i=q['input']
- assert op in ['storage.root','references.resolve','rooms.roster','user.identity'], 'unexpected side effect'
+ assert op in ['storage.root','references.resolve','rooms.roster','user.identity','user.person'], 'unexpected side effect'
  if locked and op=='references.resolve' and i.get('roomIds'):
   m['lockedReads']+=1
   if m.get('changeAtLockedRead')==m['lockedReads']:
@@ -111,6 +111,9 @@ if a[0]=='api':
   u=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']+m['absent']),None)
   if u is None:fail('USER_NAME_UNAVAILABLE')
   out={'identityId':u['id'],'name':u['name'],'created':False}
+ elif op=='user.person':
+  u=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']+m['absent']),None)
+  out={'person':None if u is None else {'identityId':u['id'],'name':u['name']}}
  elif op=='references.resolve':out={'identities':identities(i.get('identityIds',[])),'rooms':[{'id':r,'found':r==m['roomId'],'retired':m['roomRetired']} for r in i.get('roomIds',[])]}
  else:
   other=m.get('other')
