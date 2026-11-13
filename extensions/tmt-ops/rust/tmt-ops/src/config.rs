@@ -37,6 +37,7 @@ pub use workspace::{
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults, valid_label_glyph,
+    valid_label_name,
 };
 
 /// A Config-owned write location. The event is always a separate literal key.
