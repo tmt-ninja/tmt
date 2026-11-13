@@ -501,7 +501,7 @@ fn timeline(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let label = safe(&label);
     let wide = label.width() as u16;
     let right = area.right().saturating_sub(controls_width);
-    let before = (wide + 1 <= marker_x.saturating_sub(area.x + 1)).then(|| marker_x - 1 - wide);
+    let before = (wide < marker_x.saturating_sub(area.x + 1)).then(|| marker_x - 1 - wide);
     let controls_x = if right > marker_x + 2 {
         Some(right)
     } else {
