@@ -9461,8 +9461,8 @@ function orchestrationView(connect, now = () => Date.now()) {
 			button.ariaPressed = String(item.id === view.selectedPlanId);
 			const text = el("span", "ops-orchestration-plan-text");
 			text.append(el("strong", void 0, item.name), el("span", void 0, planSummary(item, false)));
-			const state = el("span", browserUiClasses.chip);
-			state.append(el("span", browserUiClasses.chipLabel, item.enabled ? "On" : "Off"));
+			const state = el("span", "ops-orchestration-plan-state");
+			state.append(mark(item.enabled ? "dot" : "ring", "neutral"), item.enabled ? "On" : "Off");
 			button.append(text, state);
 			button.addEventListener("click", () => {
 				plan = item.id;

@@ -857,6 +857,12 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
+.ops-orchestration-plan-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  white-space: nowrap;
+}
 /* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
 .ops-orchestration-timeline {
   display: flex;

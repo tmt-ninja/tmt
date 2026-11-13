@@ -4,7 +4,7 @@
  * confirms. Nothing is computed here: each value and its source is Core's. */
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
-import { el, sentence } from './ops-parts.js';
+import { el, mark, sentence } from './ops-parts.js';
 import {
   OrchestrationRefused,
   applyInput,
@@ -262,8 +262,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
           el('strong', undefined, item.name),
           el('span', undefined, planSummary(item, false)),
         );
-        const state = el('span', c.chip);
-        state.append(el('span', c.chipLabel, item.enabled ? 'On' : 'Off'));
+        const state = el('span', 'ops-orchestration-plan-state');
+        state.append(mark(item.enabled ? 'dot' : 'ring', 'neutral'), item.enabled ? 'On' : 'Off');
         button.append(text, state);
         button.addEventListener('click', () => {
           plan = item.id;
