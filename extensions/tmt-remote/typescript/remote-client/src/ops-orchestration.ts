@@ -121,7 +121,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   const matrixCard = el('section', `${c.card} ops-orchestration-routes`);
   const matrixHead = el('div', c.cardHead);
   const matrixMeta = el('span', c.cardMeta);
-  matrixHead.append(el('h3', c.cardTitle, 'Who may message whom'), matrixMeta);
+  const matrixCue = el('span', 'ops-orchestration-scroll-cue', 'Scroll →');
+  matrixHead.append(el('h3', c.cardTitle, 'Who may message whom'), matrixMeta, matrixCue);
   const matrixBody = el('div', 'ops-orchestration-matrix-body');
   const talks = el('div', 'ops-orchestration-talks');
   matrixCard.append(matrixHead, matrixBody, talks);

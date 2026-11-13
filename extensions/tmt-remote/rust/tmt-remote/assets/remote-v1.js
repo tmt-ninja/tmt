@@ -9351,7 +9351,8 @@ function orchestrationView(connect, now = () => Date.now()) {
 	const matrixCard = el("section", `${browserUiClasses.card} ops-orchestration-routes`);
 	const matrixHead = el("div", browserUiClasses.cardHead);
 	const matrixMeta = el("span", browserUiClasses.cardMeta);
-	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"), matrixMeta);
+	const matrixCue = el("span", "ops-orchestration-scroll-cue", "Scroll →");
+	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"), matrixMeta, matrixCue);
 	const matrixBody = el("div", "ops-orchestration-matrix-body");
 	const talks = el("div", "ops-orchestration-talks");
 	matrixCard.append(matrixHead, matrixBody, talks);
@@ -10627,15 +10628,11 @@ function outbox(port, changed) {
 		},
 		async send(target, message, input, version = "") {
 			if (pending && GOING.includes(pending.state)) return;
-			if (!pending || pending.target !== target || pending.message !== message || pending.version !== version || pending.state === "accepted" || pending.state === "refused" || pending.state === "cancelled") pending = {
+			pending = {
 				operationId: crypto.randomUUID(),
 				message,
 				target,
 				version,
-				state: "sending"
-			};
-			else pending = {
-				...pending,
 				state: "sending"
 			};
 			const { operationId } = pending;
@@ -11556,7 +11553,9 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				agent.name,
 				agent.role,
 				agent.task,
-				memberState(agent)
+				memberState(agent),
+				agent.tokens1d,
+				agent.checklistCount
 			]);
 			let row = memberRows.get(agent.id);
 			if (!row || row.fingerprint !== seen) {
@@ -11634,7 +11633,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				face.replaceChildren(avatar(member.name, "m"));
 				title.textContent = member.name;
 				const state = memberState(member);
-				line.replaceChildren(mark(MARKS[state]), [
+				const facts = el("span", "ops-channel-member-facts");
+				facts.append(mark(MARKS[state]), [
 					state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
@@ -11642,6 +11642,7 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 					`#${member.squad}`,
 					"This machine"
 				].filter(Boolean).join(" · "));
+				line.replaceChildren(facts);
 				if (member.task) line.append(el("span", "ops-channel-line-task", member.task));
 			} else {
 				face.replaceChildren();

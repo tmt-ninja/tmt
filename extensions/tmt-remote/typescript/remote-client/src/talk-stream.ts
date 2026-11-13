@@ -267,7 +267,7 @@ export interface Pending {
   message: string;
   /** The DM member or channel the post belongs to. */
   target: string;
-  /** What else the send carries (a room revision): a retry reuses the id only when it matches. */
+  /** The send's context (such as a room revision), captured with its draft. */
   version: string;
   state: 'sending' | 'held' | 'uncertain' | 'accepted' | 'refused' | 'cancelled';
   requestId?: string;
@@ -318,21 +318,8 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
     },
     async send(target: string, message: string, input: (operationId: string) => I, version = '') {
       if (pending && GOING.includes(pending.state)) return;
-      // One operation per draft: a retry of the same words reuses its id; new words get a new one.
-      // A refused or cancelled id is settled: Remote replays it and never asks Core again, so a
-      // retry is a new operation (nothing was delivered under the old one). Only held and
-      // uncertain ids are kept, and those are observed, never sent.
-      if (
-        !pending ||
-        pending.target !== target ||
-        pending.message !== message ||
-        pending.version !== version ||
-        pending.state === 'accepted' ||
-        pending.state === 'refused' ||
-        pending.state === 'cancelled'
-      )
-        pending = { operationId: crypto.randomUUID(), message, target, version, state: 'sending' };
-      else pending = { ...pending, state: 'sending' };
+      // Held and uncertain sends are observed above; settled attempts need a fresh operation.
+      pending = { operationId: crypto.randomUUID(), message, target, version, state: 'sending' };
       const { operationId } = pending;
       changed(pending);
       try {

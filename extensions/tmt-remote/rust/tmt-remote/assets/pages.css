@@ -992,6 +992,15 @@ body:not(:has(.tmt-ui-shell)) {
   border-radius: var(--tmt-ui-radius-l);
   overscroll-behavior: contain;
 }
+.ops-orchestration-scroll-cue {
+  display: none;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+@media (max-width: 40rem) {
+  .ops-orchestration-lane-bar { font-size: 0; }
+  .ops-orchestration-scroll-cue { display: inline; }
+}
 .ops-orchestration-scroll:focus-visible {
   outline: none;
   border-color: var(--tmt-ui-color-focus);
@@ -1506,6 +1515,9 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-text);
   font-weight: 600;
 }
+.ops-channel-member-facts .tmt-ui-state-mark {
+  margin-right: var(--tmt-ui-space-xs);
+}
 .ops-channel-line-task {
   flex-basis: 100%;
   color: var(--tmt-ui-color-text);
@@ -1870,6 +1882,7 @@ body:not(:has(.tmt-ui-shell)) {
   display: flex;
   align-items: baseline;
   gap: var(--tmt-ui-space-xs);
+  width: min(100%, 45rem);
   font-size: var(--tmt-ui-header-action-size);
 }
 .ops-dm-message-who {
@@ -2004,10 +2017,13 @@ body:not(:has(.tmt-ui-shell)) {
   border-bottom: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
 }
 .ops-thread-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: var(--tmt-ui-header-title-size);
   outline: none;
 }
