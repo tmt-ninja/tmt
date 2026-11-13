@@ -635,9 +635,10 @@ Built-in runtime drivers own interactive launch policy and refusal explanations;
 this adds no external driver wire operation. TMT-managed Codex run/resume (including
 Ops launches) uses embedded `--no-daemon`. Its synthetic `--add-dir` grants only the
 selected TMT data directory, except when a narrow config/argv check positively identifies
-read-only/full-access policy or a fresh default that refuses the grant. Inherited
-workspace-write and ambiguous/unreadable policy keep the grant; user roots and provider
-defaults are never rewritten. Explicit remote connections, utility commands and
+read-only/full-access policy. An absent `sandbox_mode` (missing/empty config or
+trust-only `[projects]`), inherited workspace-write and ambiguous/unreadable policy
+keep the grant; user roots and provider defaults are never rewritten.
+Explicit remote connections, utility commands and
 the private enrolled channel retain their existing connection modes; provider
 configuration is never edited. A positively identified shared Codex caller keeps
 `CALLER_IDENTITY_AMBIGUOUS`; confirmed storage write denial with `CODEX_SANDBOX` set
