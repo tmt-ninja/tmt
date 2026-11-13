@@ -16,6 +16,22 @@ import {
   type OrchestrationApi,
 } from '../src/orchestration-client.js';
 
+const plan = (id: string) => ({
+  id,
+  name: id,
+  priority: 1,
+  enabled: true,
+  targets: [{ kind: 'all' }],
+  schedule: {
+    kind: 'weekly',
+    anchorDate: '2026-10-26',
+    intervalWeeks: 1,
+    weekdays: [1],
+    start: '09:00',
+    end: '10:00',
+    allDay: false,
+  },
+});
 const overview = (): Json => ({
   configurationRevision: 4,
   atMs: 1_000,
@@ -28,18 +44,24 @@ const overview = (): Json => ({
       name: 'Night',
       priority: 20,
       enabled: true,
-      targets: [{ kind: 'pattern', pattern: 'night-*' }, { kind: 'identity' }],
+      targets: [{ kind: 'pattern', pattern: 'night-*' }],
       schedule: {
         kind: 'weekly',
         anchorDate: '2026-10-26',
         intervalWeeks: 2,
-        weekdays: [2, 4, 9],
+        weekdays: [2, 4],
         start: '22:00',
         end: '06:00',
         allDay: false,
       },
     },
+    // Each of these misses or garbles one part; none is drawn with a guessed value.
     { id: 7 },
+    { ...plan('bad-target'), targets: [{ kind: 'identity' }] },
+    { ...plan('bad-day'), schedule: { ...plan('').schedule, weekdays: [2, 9] } },
+    { ...plan('no-priority'), priority: undefined },
+    { ...plan('no-enabled'), enabled: 'yes' },
+    { ...plan('no-schedule'), schedule: { kind: 'weekly' } },
   ],
   members: [
     {
@@ -203,12 +225,13 @@ it('marks a cut-off route list truncated: the page bound or Core’s own limit',
   expect(cut.routes!.size).toBe(1);
 });
 
-it('reads an older Core without the views as not available, and rethrows anything else', async () => {
+it('reads an older Core without routes or talks as not available, and rethrows anything else', async () => {
   const older = api(() => {
     throw new OrchestrationRefused('ORCH_INPUT_INVALID');
   });
   expect(await readSending(older)).toEqual({ routes: null, talks: null, truncated: false });
-  expect(await readJobs(older, 'a')).toBeNull();
+  // Every Core with orchestration has the jobs view: a refusal there is an error, not absence.
+  await expect(readJobs(older, 'a')).rejects.toMatchObject({ code: 'ORCH_INPUT_INVALID' });
   const failing = api(() => {
     throw new OrchestrationRefused('ORCH_STORAGE');
   });

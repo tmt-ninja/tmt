@@ -1,5 +1,5 @@
 /** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
-import type { ShellMenu } from '@tmt/browser-ui/shell';
+import type { ShellMenu, ShellMenuGroup } from '@tmt/browser-ui/shell';
 import { AGENT_STATES, type OpsBoard } from './ops-source.js';
 import { bySquad, mark } from './ops-parts.js';
 import type { ConversationUnread } from './conversation-seen.js';
@@ -65,10 +65,20 @@ export function opsMenu(
     node.textContent = '#';
     return node;
   };
+  // Orchestration reads Core, not the board: its row stays below the machine groups in every state.
+  const orchestration: ShellMenuGroup = {
+    items: OPS_SECTIONS.map((item) => ({
+      id: item.id,
+      label: item.label,
+      icon: 'clock' as const,
+      href: opsHref(pathname, item.id),
+      current: section === item.id,
+    })),
+  };
   return {
     title: 'Ops',
-    groups:
-      !board?.unavailable && board
+    groups: [
+      ...(!board?.unavailable && board
         ? [
             {
               label: 'THIS MACHINE',
@@ -115,6 +125,8 @@ export function opsMenu(
               }),
             },
           ]
-        : [],
+        : []),
+      orchestration,
+    ],
   };
 }

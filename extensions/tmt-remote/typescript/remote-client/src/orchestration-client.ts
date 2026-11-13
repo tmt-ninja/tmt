@@ -86,7 +86,7 @@ export interface Plan {
   priority: number;
   enabled: boolean;
   targets: Target[];
-  schedule: Schedule | null;
+  schedule: Schedule;
 }
 export interface Overview {
   configurationRevision: number;
@@ -127,14 +127,14 @@ function source(value: unknown): Source | null {
   const row = value as Json;
   return text(row.kind) ? { kind: row.kind, planId: text(row.planId) ? row.planId : null } : null;
 }
-function target(value: unknown): Target[] {
+function target(value: unknown): Target | null {
   const row = value && typeof value === 'object' ? (value as Json) : {};
-  if (row.kind === 'all') return [{ kind: 'all' }];
-  if (row.kind === 'identity' && text(row.id)) return [{ kind: 'identity', id: row.id }];
-  if (row.kind === 'pattern' && text(row.pattern))
-    return [{ kind: 'pattern', pattern: row.pattern }];
-  return [];
+  if (row.kind === 'all') return { kind: 'all' };
+  if (row.kind === 'identity' && text(row.id)) return { kind: 'identity', id: row.id };
+  if (row.kind === 'pattern' && text(row.pattern)) return { kind: 'pattern', pattern: row.pattern };
+  return null;
 }
+const weekday = (day: unknown): day is number => safe(day) && day >= 1 && day <= 7;
 function schedule(value: unknown): Schedule | null {
   const row = value && typeof value === 'object' ? (value as Json) : {};
   if (row.kind === 'always') return { kind: 'always' };
@@ -144,13 +144,14 @@ function schedule(value: unknown): Schedule | null {
     row.kind === 'weekly' &&
     safe(row.intervalWeeks) &&
     Array.isArray(row.weekdays) &&
+    row.weekdays.every(weekday) &&
     text(row.start) &&
     text(row.end)
   )
     return {
       kind: 'weekly',
       intervalWeeks: row.intervalWeeks,
-      weekdays: row.weekdays.filter((day): day is number => safe(day) && day >= 1 && day <= 7),
+      weekdays: row.weekdays as number[],
       start: row.start,
       end: row.end,
       allDay: row.allDay === true,
@@ -177,17 +178,28 @@ export function decodeOverview(value: Json): Overview {
     timeZone: value.timeZone,
     range: { startMs: range.startMs, endMs: range.endMs },
     selectedPlanId: text(value.selectedPlanId) ? value.selectedPlanId : null,
+    // A plan the page cannot read whole is left out, never drawn with guessed values.
     plans: plans.flatMap((plan) => {
       const row = object(plan);
-      if (!text(row.id) || !text(row.name)) return [];
+      const targets = Array.isArray(row.targets) ? row.targets.map(target) : [null];
+      const rule = schedule(row.schedule);
+      if (
+        !text(row.id) ||
+        !text(row.name) ||
+        !Number.isSafeInteger(row.priority) ||
+        typeof row.enabled !== 'boolean' ||
+        targets.includes(null) ||
+        !rule
+      )
+        return [];
       return [
         {
           id: row.id,
           name: row.name,
-          priority: Number.isSafeInteger(row.priority) ? Number(row.priority) : 0,
-          enabled: row.enabled !== false,
-          targets: Array.isArray(row.targets) ? row.targets.flatMap(target) : [],
-          schedule: schedule(row.schedule),
+          priority: Number(row.priority),
+          enabled: row.enabled,
+          targets: targets as Target[],
+          schedule: rule,
         },
       ];
     }),
@@ -356,22 +368,16 @@ export function decodeJobs(rows: unknown[]): Job[] {
   });
 }
 export const JOBS_PAGE = 50;
-/** One member's jobs, first page only (`more` when Core has another); `null` when this Core has no
- * jobs view. */
+/** One member's jobs, first page only (`more` when Core has another). */
 export async function readJobs(
   api: OrchestrationApi,
   ownerIdentityId: string,
-): Promise<{ jobs: Job[]; more: boolean } | null> {
-  try {
-    const answer = await api.read({ view: 'jobs', ownerIdentityId, limit: JOBS_PAGE });
-    return {
-      jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
-      more: text(answer.nextCursor),
-    };
-  } catch (error) {
-    if (unknownView(error)) return null;
-    throw error;
-  }
+): Promise<{ jobs: Job[]; more: boolean }> {
+  const answer = await api.read({ view: 'jobs', ownerIdentityId, limit: JOBS_PAGE });
+  return {
+    jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
+    more: text(answer.nextCursor),
+  };
 }
 
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */

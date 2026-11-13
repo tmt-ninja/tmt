@@ -145,7 +145,15 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   let selected: string | undefined;
   let target: string | undefined;
   let why: { id: string; lines: string[] } | undefined;
-  const jobs = new Map<string, { jobs: Job[]; more: boolean } | null | 'loading' | 'failed'>();
+  // Each member's jobs as last read, tagged with the overview read they belong to: every overview
+  // read (the 30 s refresh, after a save) starts a new round, and the shown member is read again
+  // while its earlier list stays on screen.
+  const jobs = new Map<
+    string,
+    { round: number; value: { jobs: Job[]; more: boolean } | 'failed' }
+  >();
+  const reading = new Set<string>();
+  let jobsRound = 0;
   let generation = 0;
 
   const say = (text: string) => {
@@ -203,11 +211,10 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   /** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
   const planSummary = (p: Plan) => {
     const rule = p.schedule;
-    let when = 'schedule not shown';
-    if (rule?.kind === 'always') when = 'always';
-    else if (rule?.kind === 'once')
+    let when = 'always';
+    if (rule.kind === 'once')
       when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
-    else if (rule?.kind === 'weekly') {
+    else if (rule.kind === 'weekly') {
       const set = [...rule.weekdays].sort();
       const dayWords =
         set.length === 7
@@ -244,7 +251,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       const next = decodeOverview(await api.read(input));
       const nextSending = await readSending(api, memberQuery || undefined);
       if (mine !== generation) return;
-      if (overview?.configurationRevision !== next.configurationRevision) jobs.clear();
+      jobsRound += 1;
       overview = next;
       sending = nextSending;
       if (!member(selected)) selected = next.members[0]?.identityId;
@@ -612,13 +619,10 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   };
 
   function drawJobs(row: Member): HTMLElement[] {
-    const entry = jobs.get(row.identityId);
-    if (entry === undefined || entry === 'loading')
-      return [el('p', 'ops-orchestration-caption', 'Jobs · reading…')];
+    const entry = jobs.get(row.identityId)?.value;
+    if (entry === undefined) return [el('p', 'ops-orchestration-caption', 'Jobs · reading…')];
     if (entry === 'failed')
       return [el('p', 'ops-orchestration-caption', 'Jobs · Core could not read them right now.')];
-    if (entry === null)
-      return [el('p', 'ops-orchestration-caption', 'Jobs · not available on this Core.')];
     const head = el('h4', c.sectionHeading, `Jobs ${entry.jobs.length}${entry.more ? '+' : ''}`);
     if (!entry.jobs.length) return [head, el('p', 'ops-orchestration-caption', 'No jobs.')];
     const list = el('ul', 'ops-orchestration-jobs');
@@ -640,13 +644,15 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   }
 
   async function loadJobs(id: string) {
-    if (jobs.has(id) || !api) return;
-    jobs.set(id, 'loading');
+    if (jobs.get(id)?.round === jobsRound || reading.has(id) || !api) return;
+    const round = jobsRound;
+    reading.add(id);
     try {
-      jobs.set(id, await readJobs(api, id));
+      jobs.set(id, { round, value: await readJobs(api, id) });
     } catch {
-      jobs.set(id, 'failed');
+      jobs.set(id, { round, value: 'failed' });
     }
+    reading.delete(id);
     if (selected === id) drawInspector();
   }
 
@@ -860,7 +866,6 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     try {
       await api!.write(applyInput(previewed));
       dialog.close();
-      jobs.clear();
       await load();
       // A failed reread keeps its own message; otherwise the save is the news.
       if (!status.textContent) say('Orchestration saved.');
