@@ -1,6 +1,6 @@
 /** Colab user templates in the browser (#5076, #5077): the Templates page, the settings tab, the
  * template page's own chrome and Save as template. The owner is a fixture; serve tests prove it. */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 
 async function list(page: Page, hash: string, width = 1440) {
@@ -118,6 +118,12 @@ test('Save as template names the page, refuses a taken name with a suggestion, a
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.template-badge[data-kind="template"]')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Use template' })).toBeVisible();
+  // Use template turns into its mark alone, so the title keeps a readable width.
+  const width = (locator: Locator) => async () => (await locator.boundingBox())?.width ?? 0;
+  await expect
+    .poll(width(page.getByRole('button', { name: 'Use template' })))
+    .toBeLessThan(48);
+  await expect.poll(width(page.locator('.tmt-ui-topbar-title-current'))).toBeGreaterThan(64);
   await page.setViewportSize(wide);
   await page.getByRole('button', { name: 'Use template' }).click();
   const create = page.getByRole('dialog', { name: 'New page' });

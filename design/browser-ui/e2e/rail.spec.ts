@@ -10,7 +10,20 @@ for (const renderer of ['native', 'react'])
         await page.goto(`/?frame=rail&renderer=${renderer}&theme=${theme}`);
         const rail = page.locator('nav.tmt-ui-rail');
         const open = page.getByRole('button', { name: 'Open navigation', exact: true });
-        if (width === 390) await open.click();
+        if (width === 390) {
+          await open.click();
+          // The open drawer dims the page under a scrim, and Search starts at the rail's top
+          // inset with no band above it.
+          const shell = page.locator('.tmt-ui-shell');
+          expect(
+            await shell.evaluate((node) => getComputedStyle(node, '::before').backgroundColor),
+          ).not.toBe('rgba(0, 0, 0, 0)');
+          const search = rail.getByRole('button', { name: /Search/ });
+          const inset = await rail.evaluate((node) =>
+            parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-rail-padding-top')),
+          );
+          expect((await search.boundingBox())!.y).toBeCloseTo(inset, 0);
+        }
         const selected = rail.locator('[aria-current="page"]');
         await expect(selected).toHaveCount(1);
         await expect(selected).toHaveAttribute('data-id', 'all');
@@ -117,6 +130,11 @@ for (const renderer of ['native', 'react'])
         if (width === 390) {
           await page.keyboard.press('Escape');
           await expect(open).toBeFocused();
+          await expect(rail).toBeHidden();
+          // A press on the scrim beside the drawer closes it.
+          await open.click();
+          await expect(rail).toBeVisible();
+          await page.mouse.click(370, 500);
           await expect(rail).toBeHidden();
         }
         await page.getByRole('button', { name: 'Unmount rail', exact: true }).click();

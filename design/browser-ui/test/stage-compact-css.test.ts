@@ -27,12 +27,14 @@ const selectors = (body: string) =>
   [...body.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{/g)]
     .map((match) => match[1]!.replace(/\s+/g, ' ').trim())
     .sort();
-/** A selector as the minifier writes it: no space around combinators, no quotes. */
+/** A selector as the minifier writes it: no space around combinators, no quotes, and the legacy
+ * single colon on ::before and ::after. */
 const tight = (css: string) =>
   css
     .replace(/\s+/g, ' ')
     .replace(/\s*([>+~])\s*/g, '$1')
-    .replace(/['"]/g, '');
+    .replace(/['"]/g, '')
+    .replace(/::(before|after)\b/g, ':$1');
 const width = (condition: string) =>
   condition.replace(/^max-width:(\d+)px$/, 'width<=$1px').replace(/^width<(\d+)px$/, 'width<$1px');
 
