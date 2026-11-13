@@ -426,6 +426,14 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
+        // A confirmation may have waited for the writer lock after its receipt was built.
+        // Reuse grant liveness at the actual issuance fence; an expired choice writes nothing.
+        if audit.is_some() && !grant.live_at(crate::pairing::now_ms()?) {
+            return Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "The selected grant expiry has passed; pair again.",
+            ));
+        }
         insert_grant_in(&transaction, grant)?;
         // Presentation metadata is optional and must not turn a committed pairing into a failure.
         let member_id = audit.and_then(|_| {

@@ -17,6 +17,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// Private owner confirmation policy: v2 adds the final name and grant expiry.
+pub const OWNER_POLICY_VERSION: u64 = 2;
+
 /// Policy supplied only by the local owner's confirmation, never enrollment.
 /// Sending is an explicit opt-in; the default policy is read-only.
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -25,10 +28,21 @@ pub struct PairingPolicy {
     pub talk: bool,
     pub agents: Option<Vec<String>>,
     pub hold: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
 }
 impl PairingPolicy {
     pub fn validate(&self) -> Result<(), RemoteError> {
-        if ((!self.talk) && (self.agents.is_some() || self.hold))
+        if self
+            .name
+            .as_ref()
+            .is_some_and(|name| !canonical::device_name(name))
+            || self
+                .expires_at_ms
+                .is_some_and(|expiry| expiry == 0 || expiry >= 1 << 53)
+            || ((!self.talk) && (self.agents.is_some() || self.hold))
             || self.agents.as_ref().is_some_and(|ids| {
                 ids.is_empty()
                     || ids.len() > 256
@@ -38,7 +52,7 @@ impl PairingPolicy {
         {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
-                "--agents and --hold require --talk; agents must be distinct canonical UUIDs.",
+                "Invalid owner pairing policy: use a bounded device name and expiry; --agents and --hold require --talk and distinct canonical UUIDs.",
             ));
         }
         Ok(())
@@ -631,12 +645,16 @@ impl Pairing {
         candidate: &Candidate,
         policy: &PairingPolicy,
     ) -> Result<IssuedPair, RemoteError> {
+        let issued_at_ms = now_ms()?;
         let grant = Grant {
             client_id: uuid_v4()?,
             public_key: candidate.public_key,
             kind: candidate.kind.clone(),
             origin: candidate.origin.clone(),
-            name: candidate.name.clone(),
+            name: policy
+                .name
+                .clone()
+                .unwrap_or_else(|| candidate.name.clone()),
             agents: policy.agents.as_ref().map_or_else(
                 || "all".into(),
                 |ids| serde_json::to_string(ids).expect("UUID list"),
@@ -650,8 +668,8 @@ impl Pairing {
             .map(|scope| (*scope).to_owned())
             .collect(),
             mode: if policy.hold { "hold" } else { "direct" }.into(),
-            issued_at_ms: now_ms()?,
-            expires_at_ms: None,
+            issued_at_ms,
+            expires_at_ms: policy.expires_at_ms,
             revision: 1,
             disabled: false,
         };

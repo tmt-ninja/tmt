@@ -685,7 +685,7 @@ fn session(
     let link = format!("{}/remote/pair#{}", door.door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
-        "ownerPolicyVersion": 1,
+        "ownerPolicyVersion": crate::pairing::OWNER_POLICY_VERSION,
         "link": link,
         "code": code,
         "descriptor": descriptor,

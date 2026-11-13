@@ -62,6 +62,14 @@ fn policies<B: ScenarioBackend>(make: impl Fn() -> B) {
     // including an empty agents list and a mismatched comparison request.
     for policy in [
         PairingPolicy {
+            name: Some("Owner tablet".into()),
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
+            expires_at_ms: Some(60_000),
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
             talk: true,
             ..PairingPolicy::default()
         },
@@ -81,6 +89,7 @@ fn policies<B: ScenarioBackend>(make: impl Fn() -> B) {
             talk: true,
             hold: true,
             agents: Some(vec!["44444444-4444-4444-8444-444444444444".into()]),
+            ..PairingPolicy::default()
         },
     ] {
         for matched in [false, true] {

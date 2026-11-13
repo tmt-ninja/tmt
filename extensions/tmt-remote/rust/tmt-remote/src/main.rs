@@ -100,7 +100,7 @@ const PAIR: CommandSpec = CommandSpec {
         note: "Open the pairing link in your browser, then confirm the device here",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nNew pairings are read only and do not expire; revoke them to end access.\n--talk allows this device to send to agents. --agents <uuid,...> and --hold require --talk and narrow its sending policy.\n--json streams one event per line and reads confirm or refuse from stdin.",
+    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nNew pairings default to read only with no expiry. --name <text> overrides the device name; --expires <duration|never> narrows its lifetime (positive s, m, h or d, e.g. 1h or 7d).\n--talk allows this device to send to agents. --agents <uuid,...> and --hold require --talk and narrow its sending policy.\n--json streams one event per line and reads confirm or refuse from stdin.",
 };
 const SETTINGS: CommandSpec = CommandSpec {
     name: "settings",
@@ -243,6 +243,8 @@ fn grammar() -> Command {
         )
         .subcommand(
             tmt_cli_style::command(&PAIR)
+                .arg(Arg::new("name").long("name").value_name("text").help("Owner's final device name"))
+                .arg(Arg::new("expires").long("expires").value_name("duration|never").default_value("never").help("Grant lifetime, such as 1h or 7d; default never"))
                 .arg(
                     Arg::new("talk")
                         .long("talk")
@@ -351,9 +353,20 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             talk: arguments.get_flag("talk"),
             agents,
             hold: arguments.get_flag("hold"),
+            name: arguments.get_one::<String>("name").cloned(),
+            ..Default::default()
         };
         policy.validate()?;
-        return pair(arguments.get_flag("json"), open::flag(arguments), policy);
+        let expires = arguments
+            .get_one::<String>("expires")
+            .expect("default expiry");
+        pairing_expiry(expires, 0)?; // Validate before opening an offer or discovering state.
+        return pair(
+            arguments.get_flag("json"),
+            open::flag(arguments),
+            policy,
+            expires,
+        );
     }
     if name == "status" {
         return status(
@@ -995,7 +1008,8 @@ fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), Re
 fn pair(
     json_output: bool,
     flag: open::Flag,
-    policy: tmt_remote::pairing::PairingPolicy,
+    mut policy: tmt_remote::pairing::PairingPolicy,
+    expires: &str,
 ) -> Result<(), RemoteError> {
     let interaction = Interaction::detect(json_output);
     if !json_output && interaction.prompt() != Mode::Interactive {
@@ -1022,7 +1036,7 @@ fn pair(
         if events.read_line(&mut line)? == 0 {
             break;
         }
-        let event: serde_json::Value = serde_json::from_str(&line)
+        let mut event: serde_json::Value = serde_json::from_str(&line)
             .map_err(|_| RemoteError::new("REMOTE_IO", "Remote sent an invalid control line."))?;
         if let Some(error) = event.get("error") {
             return Err(RemoteError::new(
@@ -1030,10 +1044,25 @@ fn pair(
                 error["message"].as_str().unwrap_or("Pairing failed."),
             ));
         }
-        // An old owner ignores policy fields. Refuse before exposing its offer
-        // or answering it, so a read-only default cannot become a broad grant.
-        if event["event"] == "offer" && event["ownerPolicyVersion"] != 1 {
+        // Auto-upgrade can replace this CLI while an older serve is still running.
+        // Refuse before exposing an offer that cannot honor the owner's narrowing.
+        if event["event"] == "offer"
+            && event["ownerPolicyVersion"] != tmt_remote::pairing::OWNER_POLICY_VERSION
+        {
             return Err(control::outdated_serve());
+        }
+        if event["event"] == "candidate" {
+            if !answering.load(Ordering::Acquire) {
+                policy.expires_at_ms = pairing_expiry(expires, tmt_remote::pairing::now_ms()?)?;
+            }
+            if let Some(name) = &policy.name {
+                event["proposedName"] = event["name"].clone();
+                event["name"] = json!(name);
+            }
+            event["expiresAtMs"] = json!(policy.expires_at_ms);
+        } else if event["event"] == "ended" && event["reason"] == "paired" {
+            event["name"] = json!(paired_name);
+            event["expiresAtMs"] = json!(policy.expires_at_ms);
         }
         if json_output {
             writeln!(output, "{event}")?;
@@ -1084,7 +1113,7 @@ fn pair(
                             ("origin", event["origin"].as_str().unwrap_or("").into()),
                             ("name", event["name"].as_str().unwrap_or("").into()),
                             ("words", words.join(" ")),
-                            ("grant", pairing_grant_row(&policy)),
+                            ("grant", pairing_grant_row(&policy, expires)),
                         ],
                     )?;
                     output.flush()?;
@@ -1162,12 +1191,53 @@ fn pairing_result(name: &str, member: Option<&str>, talk: bool, hold: bool) -> S
         )
     }
 }
-fn pairing_grant_row(policy: &tmt_remote::pairing::PairingPolicy) -> String {
+/// Owner flags resolve once when the candidate is shown; issuance rechecks the deadline.
+fn pairing_expiry(value: &str, now_ms: u64) -> Result<Option<u64>, RemoteError> {
+    if value == "never" {
+        return Ok(None);
+    }
+    let invalid = || {
+        RemoteError::new(
+            "REMOTE_INPUT_INVALID",
+            "--expires must be never or a positive integer followed by s, m, h or d (for example 1h or 7d).",
+        )
+    };
+    let (digits, unit) = value
+        .split_at_checked(value.len().saturating_sub(1))
+        .ok_or_else(invalid)?;
+    let factor = match unit {
+        "s" => 1000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        "d" => 86_400_000,
+        _ => return Err(invalid()),
+    };
+    if digits.is_empty()
+        || digits.starts_with('0')
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(invalid());
+    }
+    digits
+        .parse::<u64>()
+        .ok()
+        .and_then(|count| count.checked_mul(factor))
+        .and_then(|duration| now_ms.checked_add(duration))
+        .filter(|expiry| *expiry < 1 << 53)
+        .map(Some)
+        .ok_or_else(invalid)
+}
+fn pairing_grant_row(policy: &tmt_remote::pairing::PairingPolicy, expires: &str) -> String {
+    let expiry = if expires == "never" {
+        "no expiry".to_owned()
+    } else {
+        format!("expires in {expires}")
+    };
     if !policy.talk {
-        return "Read only · no expiry".into();
+        return format!("Read only · {expiry}");
     }
     format!(
-        "Read and send · {} · {} · no expiry",
+        "Read and send · {} · {} · {expiry}",
         policy.agents.as_ref().map_or_else(
             || "all agents".into(),
             |ids| format!(
@@ -1686,6 +1756,88 @@ mod tests {
     #[test]
     fn trust_confirmation_and_sending_choice_are_separate_and_default_to_read_only() {
         use tmt_remote::pairing::PairingPolicy;
+        for (text, delta) in [
+            ("never", None),
+            ("1s", Some(1000)),
+            ("1h", Some(3_600_000)),
+            ("7d", Some(604_800_000)),
+        ] {
+            assert_eq!(
+                super::pairing_expiry(text, 100).unwrap(),
+                delta.map(|ms| ms + 100)
+            );
+        }
+        for text in [
+            "",
+            "0s",
+            "01h",
+            "-1h",
+            "1",
+            "1.5h",
+            "1w",
+            "never ",
+            "99999999999999999999d",
+            "é",
+        ] {
+            assert_eq!(
+                super::pairing_expiry(text, 100).unwrap_err().code,
+                "REMOTE_INPUT_INVALID"
+            );
+        }
+        assert!(super::pairing_expiry("1h", (1 << 53) - 1).is_err());
+        for json in [false, true] {
+            let matches = super::grammar()
+                .try_get_matches_from(if json {
+                    vec![
+                        "tmt-remote",
+                        "pair",
+                        "--name",
+                        "Owner tablet",
+                        "--expires",
+                        "7d",
+                        "--json",
+                    ]
+                } else {
+                    vec![
+                        "tmt-remote",
+                        "pair",
+                        "--name",
+                        "Owner tablet",
+                        "--expires",
+                        "7d",
+                    ]
+                })
+                .unwrap();
+            let pair = matches.subcommand().unwrap().1;
+            assert_eq!(pair.get_one::<String>("name").unwrap(), "Owner tablet");
+            assert_eq!(pair.get_one::<String>("expires").unwrap(), "7d");
+            let policy = PairingPolicy {
+                name: Some("Owner tablet".into()),
+                expires_at_ms: Some(604_800_100),
+                ..Default::default()
+            };
+            let mut prompts = Vec::new();
+            let selected = super::pairing_answer(
+                &mut "confirm\nn\n".as_bytes(),
+                &mut prompts,
+                json,
+                policy.clone(),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(selected).unwrap(),
+                serde_json::to_value(policy).unwrap()
+            );
+            assert_eq!(
+                prompts,
+                if json {
+                    Vec::new()
+                } else {
+                    format!("{}{}", super::PAIR_TRUST_PROMPT, super::PAIR_TALK_PROMPT).into_bytes()
+                }
+            );
+        }
         for (input, json, opt_in, expected, second) in [
             ("y\nn\n", false, false, Some(false), true),
             ("y\n\n", false, false, Some(false), true),
@@ -1719,22 +1871,29 @@ mod tests {
             assert_eq!(String::from_utf8(prompts).unwrap(), expected_prompt);
         }
         assert_eq!(
-            super::pairing_grant_row(&PairingPolicy::default()),
+            super::pairing_grant_row(&PairingPolicy::default(), "never"),
             "Read only · no expiry"
         );
         assert_eq!(
-            super::pairing_grant_row(&PairingPolicy {
-                talk: true,
-                ..Default::default()
-            }),
+            super::pairing_grant_row(
+                &PairingPolicy {
+                    talk: true,
+                    ..Default::default()
+                },
+                "never"
+            ),
             "Read and send · all agents · direct · no expiry"
         );
         assert_eq!(
-            super::pairing_grant_row(&PairingPolicy {
-                talk: true,
-                hold: true,
-                agents: Some(vec!["11111111-1111-4111-8111-111111111111".into()])
-            }),
+            super::pairing_grant_row(
+                &PairingPolicy {
+                    talk: true,
+                    hold: true,
+                    agents: Some(vec!["11111111-1111-4111-8111-111111111111".into()]),
+                    ..Default::default()
+                },
+                "never"
+            ),
             "Read and send · 1 agent · held · no expiry"
         );
         assert_eq!(

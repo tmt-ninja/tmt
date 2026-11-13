@@ -751,11 +751,25 @@ BIP-39 2048-word list, in list order. Use the
 [BIP-39 English list](https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt); pin its
 revision, bytes/digest and examples in the fixture slice. This is comparison text, not a recovery
 mnemonic. The terminal shows kind, full origin, proposed name and the words, then asks the owner
-to confirm the word match. New pairings are read only with no expiry. Without `--talk`, a separate
+to confirm the word match. New pairings default to read only with no expiry. Without `--talk`, a separate
 sending choice follows a confirmed match and defaults to no; `--talk` shows the sending grant before
 word confirmation and skips that second prompt. Bare JSON confirmation is read only. Owner-side
-`--agents` and `--hold` require `--talk` and narrow its agent allowlist and sending mode. A final-name
-or expiry editor is not implemented. Enrollment cannot request sending authority.
+`--agents` and `--hold` require `--talk` and narrow its agent allowlist and sending mode. The final name
+and expiry are chosen only through owner flags: `--name <text>` and
+`--expires <duration|never>` (default `never`). Duration is a positive decimal integer without leading zeros, followed
+by `s`, `m`, `h` or `d` (for example `1h`, `7d`), with checked arithmetic inside the existing
+JavaScript-safe timestamp bound. Names use the existing 1–64-byte nonblank, control-free rule.
+There are no new prompts: terminal and `--json` use these same flags. The existing private offer
+marker is `ownerPolicyVersion:2`; the CLI refuses an older running serve with
+`REMOTE_SERVE_OUTDATED` before exposing its offer, since version 1 cannot honor name/expiry.
+When the candidate is shown,
+the CLI resolves the duration to one absolute `expiresAtMs`; confirmation shows the chosen name
+and lifetime, and JSON candidate/paired events echo the final `name` and `expiresAtMs` (null for
+never). A name override also keeps `proposedName` in the candidate event. Issuance rechecks that
+the deadline is still future and atomically signs/persists the exact name and expiry in the existing
+grant/receipt. An expired choice refuses without a grant. Existing next-read/send grant checks
+end access at expiry; no new timer, renewal or expiry mechanism is introduced. Automatic pairing
+and omitted flags retain the proposed name and no expiry. Enrollment cannot request sending authority.
 
 Enrollment JSON names are `profile`, `machineId`, `windowId`, `offerId`, `serverChallenge`,
 `clientNonce`, `kind`, `origin`, `name`, `publicKey`, `mac` and `signature`; binary keys/proofs use
