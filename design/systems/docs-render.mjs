@@ -61,6 +61,7 @@ export async function renderDocs() {
     const { tokenPages } = await load('/docs/tokens.tsx');
     const { patterns } = await load('/docs/patterns.tsx');
     const { morePatterns } = await load('/docs/patterns-more.tsx');
+    const { layoutPatterns } = await load('/docs/patterns-layout.tsx');
     const { livePatternSlugs } = await load('/docs/pattern-page.tsx');
     const { Article } = await load('/docs/templates.tsx');
     // `path` is the page's docs path under the system root, as the docs site routes it.
@@ -143,6 +144,9 @@ export async function renderDocs() {
       {
         title: 'Patterns',
         pages: [
+          ...layoutPatterns.map((doc) =>
+            page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }), `patterns/${doc.slug}`)
+          ),
           ...morePatterns.map((doc) => {
             if (livePatternSlugs.includes(doc.slug))
               return page(

@@ -84,6 +84,10 @@ name and a visible tooltip.
 - **Widths:** compact through the shared header's `compact-max-width`, full
   above it. Content columns center at up to 1080 px; the page canvas behind them is
   edge to edge.
+- **Breakpoints:** 480, 640, 760 and 900 px, each a `max-width` at that value (640 px
+  is still the phone layout). 1080 px is a column maximum, not a breakpoint. A part that
+  can sit in a narrow column answers to its own container. The design-system docs show
+  each width live under Patterns: Shell, Page layouts and Responsive rules.
 - **Header height:** 62 px, 56 px when compact (`header` tokens).
 - **Overlays** open over the page from the right without reflow; see [Overlay](#overlay) for geometry and focus.
 - **Spacing** steps are 4, 8, 12, 16, 24 and 32 px (`space-xs` to `space-2xl`);

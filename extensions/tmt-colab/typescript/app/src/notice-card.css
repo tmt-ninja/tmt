@@ -9,7 +9,7 @@
 .guidance-main > .guidance-card .tmt-ui-notice-body p:last-child {
   margin-bottom: 0;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .notice-card > .tmt-ui-notice,
   .guidance-main > .guidance-card {
     width: calc(100% - 40px);

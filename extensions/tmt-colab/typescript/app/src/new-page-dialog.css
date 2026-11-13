@@ -128,7 +128,7 @@
 .new-page select {
   min-height: 32px;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .new-page-cards {
     grid-template-columns: minmax(0, 1fr);
   }

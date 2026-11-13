@@ -72,7 +72,7 @@
 .template-settings-table input[type='radio'] {
   accent-color: var(--tmt-ui-color-accent);
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .template-settings-table thead {
     display: none;
   }

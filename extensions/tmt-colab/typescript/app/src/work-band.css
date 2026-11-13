@@ -271,7 +271,7 @@ a.work-row-title:hover {
 }
 
 /* Mock 6: a phone keeps title, state and ⋯ (always shown: there is no hover), and a short count. */
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .work-wide {
     display: none;
   }
