@@ -567,6 +567,8 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     }
     let (blocked, held) = state.cell_actions();
     let sections = state.sections().len() > 1;
+    // A plan selected in the plans list: only then do its keys apply.
+    let plan = routes && state.plans && state.selected_plan().is_some();
     let job = state.selected_job().filter(|_| jobs);
     let jobs_failed = jobs && state.jobs_failure().is_some();
     if jobs_failed && let Some(key) = effective_key(app, &bindings, Verb::Refresh, "ctrl-r") {
@@ -580,14 +582,10 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         (
             Ui::PlanOnly,
             "enter",
-            routes && (state.plans || state.only_plan.is_some()),
+            routes && (plan || state.only_plan.is_some()),
         ),
-        (
-            Ui::PlanToggle,
-            "o",
-            routes && state.plans && snapshot.writes,
-        ),
-        (Ui::OrchestrationEdit, "e", routes && state.plans),
+        (Ui::PlanToggle, "o", plan && snapshot.writes),
+        (Ui::OrchestrationEdit, "e", plan),
         (Ui::AllowOnce, "a", blocked && !jobs),
         (Ui::ReleaseHeld, "r", held && !jobs),
         (Ui::JobPause, "p", writable && owned),
