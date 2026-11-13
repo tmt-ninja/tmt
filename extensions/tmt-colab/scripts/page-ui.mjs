@@ -24,9 +24,12 @@ import { readFile } from 'node:fs/promises';
 // Measured by buildPageUi() with Node v26.12.0; no headroom.
 // Phone drawer scrim: the shell's `.tmt-ui-shell[data-drawer='open']::before` rule and its stage
 // @container copy (#5981): 133,338 -> 133,660 (+322), exact, no headroom (GUI lead approval).
-// A page frame never opens the shell drawer, so #5809's stripping recovers these bytes.
+// Rail row reveal: the four `.tmt-ui-rail-menu-row` selectors that keep a tap-focused row link at
+// rest (`:focus-within:not(:has(> a:focus:not(:focus-visible)))`): 133,660 -> 133,820 (+160), exact,
+// no headroom (GUI lead approval). A page frame draws neither the shell drawer nor the rail, so
+// #5809's stripping of app chrome recovers these bytes.
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 133_660;
+export const PAGE_UI_LIMIT = 133_820;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

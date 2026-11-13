@@ -6231,7 +6231,11 @@ function mountShell(root, view, select, layerHost) {
 	const tipFor = (anchor, text) => {
 		anchor.dataset.note = text;
 	};
-	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
+	open.onclick = () => {
+		const shown = root.dataset.drawer !== "open";
+		setDrawer(shown);
+		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus();
+	};
 	const close = (event) => {
 		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
 		if (event.key === "Escape" && root.dataset.drawer === "open") {
