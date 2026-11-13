@@ -11,7 +11,13 @@ import {
   type ConversationChanges,
   type ConversationInput,
 } from '../src/conversations.js';
-import type { ResultState, RoomSendInput, SendInput, SendState } from '../src/operations.js';
+import type {
+  ResultState,
+  RoomSendInput,
+  SendInput,
+  SendNowState,
+  SendState,
+} from '../src/operations.js';
 import type { ChannelPort } from '../src/channel-stream.js';
 import type { RoomPage } from '../src/conversations.js';
 
@@ -32,6 +38,9 @@ declare global {
     roomSends: RoomSendInput[];
     roomSendState: SendState | null;
     roomResults: Record<string, ResultState>;
+    /** Each send-now ask, and what the next one answers (else `sent`). */
+    sendNowCalls: string[];
+    sendNowAnswer: Omit<SendNowState, 'requestId'> | null;
     dmSendState: SendState | null;
     channelReads: number;
     channelStop(): void;
@@ -42,6 +51,8 @@ declare global {
   }
 }
 window.channelReads = 0;
+window.sendNowCalls = [];
+window.sendNowAnswer = null;
 window.channelHold = false;
 window.channelBoard = {
   defaultIdleAlertMs: null,
@@ -510,7 +521,12 @@ const orchestration = {
 /** A Talk answer for the operation asked about: the fixture's state, else accepted. */
 const answer = (state: SendState | null, operationId: string, requestId: string): SendState =>
   state ? ({ ...state, operationId } as SendState) : { state: 'accepted', operationId, requestId };
+async function sendNow(requestId: string): Promise<SendNowState> {
+  window.sendNowCalls.push(requestId);
+  return { state: 'sent', ...window.sendNowAnswer, requestId };
+}
 const room: ChannelPort = {
+  sendNow,
   async readRoom() {
     window.roomReads++;
     return structuredClone(window.roomPage);
@@ -590,6 +606,7 @@ opsPage(
     : undefined,
   async () => orchestration,
   {
+    sendNow,
     // A request's outcome, for the DM's full replies; the same fixture as the channel's replies.
     async result(requestId) {
       return window.roomResults[requestId] ?? { state: 'pending', requestId };

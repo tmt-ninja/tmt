@@ -29,11 +29,12 @@ import {
   deliveryText,
   PREVIEW_CHARACTERS,
   SHORTENED_POST,
+  sendNowAsks,
 } from './talk-stream.js';
-import type { TalkPort } from './talk-stream.js';
+import type { SendNowPort, TalkPort } from './talk-stream.js';
 
-/** Remote's room read, room send and reply read (#6378); tests inject a double. */
-export interface ChannelPort extends TalkPort<RoomSendInput> {
+/** Remote's room read, room send, reply read and send-now (#6378); tests inject a double. */
+export interface ChannelPort extends TalkPort<RoomSendInput>, SendNowPort {
   readRoom(roomId: string, input: RoomInput): Promise<RoomPage>;
   result(requestId: string): Promise<ResultState>;
 }
@@ -43,6 +44,7 @@ export function sessionChannel(shell: RemoteShell): ChannelPort {
     readRoom: (roomId, input) =>
       onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
     result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
+    sendNow: (requestId) => onSession(shell, (session) => operations(session).sendNow(requestId)),
     send: (input) => onSession(shell, (session) => operations(session).send(input)),
     operation: (operationId) =>
       onSession(shell, (session) => operations(session).operation(operationId)),
@@ -118,6 +120,8 @@ export function channelStream(
   // fails or Core no longer keeps the words, the preview stays with its ellipsis.
   const fullPosts = new Map<string, string>();
   const askedPosts = new Set<string>();
+  // Send now asks once for each recipient's request of a post.
+  const now = sendNowAsks(port, () => draw());
   let channel: ChannelRoom | undefined;
   let roomId: string | undefined;
   let olderCursor: ConversationCursor | null | undefined;
@@ -168,7 +172,7 @@ export function channelStream(
   function postRow(post: Post, inThread = false): HTMLElement {
     const first = post.items[0]!;
     const whole = fullText(post);
-    const as = first;
+    const as = now.current(first);
     if (!inThread && first.kind === 'announcement')
       return noticeRow(first.preview, new Date(post.preparedAtMs));
     const row = messageRow({
@@ -210,7 +214,12 @@ export function channelStream(
     open.append(state);
     open.setAttribute('aria-expanded', String(threadKey === post.requestId));
     open.addEventListener('click', () => openThread(post.requestId));
-    row.querySelector('.ops-dm-message-body')!.append(open);
+    const body = row.querySelector('.ops-dm-message-body')!;
+    body.append(open);
+    if (!sides.length) {
+      const control = now.control(post.items);
+      if (control) body.append(control);
+    }
     if (threadKey === post.requestId) row.dataset.selected = '';
     return row;
   }
@@ -328,7 +337,7 @@ export function channelStream(
     stream.draw(
       shown,
       (post) => [postRow(post)],
-      [[...names()], [...replies], threadKey, [...fullPosts]],
+      [[...names()], [...replies], threadKey, [...fullPosts], now.version()],
       unlisted &&
         pendingRow(
           unlisted,
@@ -434,7 +443,8 @@ export function channelStream(
     running = true;
     olderButton.disabled = true;
     const ticket = generation,
-      reading = roomId;
+      reading = roomId,
+      mark = now.mark();
     try {
       const page = await port.readRoom(reading, { limit: 20, ...(before ? { before } : {}) });
       if (ticket !== generation || reading !== roomId) return true;
@@ -443,6 +453,7 @@ export function channelStream(
       emptyTitle.textContent = 'No channel messages yet';
       emptyText.textContent = `Post to the lead, or @mention members. Their replies show under your post.`;
       draw();
+      void now.listed(mark);
       await readReplies(ticket);
       if (ticket === generation) draw();
       await readFullPosts(ticket);
@@ -498,6 +509,11 @@ export function channelStream(
     select(next: ChannelRoom | undefined) {
       // Opening the channel again asks again for posts whose whole text could not be read.
       if (next && !visible) askedPosts.clear();
+      // Leaving the channel closes its thread: coming back shows the channel, as Slack does.
+      if (!next && threadKey) {
+        threadKey = undefined;
+        drawThread([]);
+      }
       visible = next !== undefined;
       channel = next;
       // A board change (room, revision or roster) may lift a refused read.

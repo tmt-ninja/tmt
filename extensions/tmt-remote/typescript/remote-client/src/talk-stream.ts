@@ -7,7 +7,7 @@
  * retry. Untrusted words stay text. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
 import { el } from './ops-parts.js';
-import type { SendState } from './operations.js';
+import type { MessageState, ResultState, SendNowState, SendState } from './operations.js';
 import type { ConversationItem } from './conversations.js';
 
 /** Core's words start a line, so they start with a capital. */
@@ -36,16 +36,25 @@ export const finalLabel = (item: Pick<ConversationItem, 'final'>): string | unde
 /** What the delivery words and mark read from: a DM exchange or a room post. */
 type Delivered = Pick<ConversationItem, 'delivery' | 'messageState' | 'final'>;
 export const deliveryText = (item: Delivered): string =>
-  sentence(item.messageState?.reason.text) ??
-  {
-    prepared: 'Preparing',
-    sending: 'Sending',
-    sent: 'Sent',
-    queued: 'Queued',
-    uncertain: 'Delivery unknown',
-    definitely_failed: 'Not delivered',
-  }[item.delivery] ??
-  item.delivery;
+  (sentence(item.messageState?.reason.text) ?? deliveryWord(item)) + deliveryBy(item);
+/** When a message Core holds will go at the latest ("delivers by 23:30"), as Core says it. */
+const deliveryBy = (item: Delivered) => {
+  const state = item.messageState;
+  return state?.latestMs != null && (state.state === 'sent' || state.state === 'batched')
+    ? ` · delivers by ${clock(new Date(state.latestMs))}`
+    : '';
+};
+const deliveryWord = (item: Delivered): string =>
+  (
+    ({
+      prepared: 'Preparing',
+      sending: 'Sending',
+      sent: 'Sent',
+      queued: 'Queued',
+      uncertain: 'Delivery unknown',
+      definitely_failed: 'Not delivered',
+    }) as Record<string, string>
+  )[item.delivery] ?? item.delivery;
 export const deliveryMark = (item: Delivered): Mark =>
   item.final.status !== 'not_submitted' || item.messageState?.state === 'answered'
     ? 'answered'
@@ -253,6 +262,7 @@ export function exchangeRows(
   names: { me: string; them: string; fromMe: boolean },
   fullReply?: string,
   fullPost?: string,
+  now?: HTMLElement,
 ): HTMLElement[] {
   const { fromMe, them } = names;
   if (item.kind === 'announcement') return [noticeRow(item.preview, new Date(item.preparedAtMs))];
@@ -267,6 +277,7 @@ export function exchangeRows(
       ...(fromMe ? { state: deliveryText(item), mark: deliveryMark(item) } : {}),
     }),
   ];
+  if (now) out[0]!.querySelector('.ops-dm-message-body')!.append(now);
   const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
   const replyShortened = fullReply === undefined ? shortenedReply(item) : undefined;
   if (replyWords !== undefined && replyWords !== null)
@@ -627,4 +638,98 @@ export function pendingRow(
   );
   group.append(inner);
   return group;
+}
+
+export interface SendNowPort {
+  sendNow(requestId: string): Promise<SendNowState>;
+  result(requestId: string): Promise<ResultState>;
+}
+/** Send now (#4378): the person asks Core to type a message it holds, once per request. An asked
+ * request is not offered again until its result has been read, whatever the ask came to (an
+ * unconfirmed or failed ask may have typed it); that read's state then stands until a list read
+ * that began after it. A refusal shows Core's own sentence. `changed` runs after each change. */
+export function sendNowAsks(port: SendNowPort, changed: () => void) {
+  // Asked, with no result read since; `flying` are those whose ask has not answered yet.
+  const asked = new Set<string>();
+  const flying = new Set<string>();
+  // The result read after an ask: its number, and Core's state then.
+  const read = new Map<string, { at: number; state: MessageState | undefined }>();
+  const notes = new Map<string, string>();
+  let reads = 0,
+    version = 0;
+  const bump = () => {
+    version++;
+    changed();
+  };
+  async function settle(id: string) {
+    try {
+      const value = await port.result(id);
+      read.set(id, {
+        at: ++reads,
+        state: value.state === 'pending' ? value.messageState : undefined,
+      });
+      asked.delete(id);
+    } catch {
+      // Still not offered; the next list read asks for the result again.
+    }
+  }
+  async function ask(ids: readonly string[]) {
+    for (const id of ids) {
+      asked.add(id);
+      flying.add(id);
+      notes.delete(id);
+    }
+    bump();
+    for (const id of ids) {
+      try {
+        const value = await port.sendNow(id);
+        if (value.state === 'refused' || value.state === 'unavailable')
+          notes.set(id, sentence(value.reasonText) ?? 'It could not be sent now.');
+      } catch {
+        // The outcome is unknown: the result read below says how it stands.
+      }
+      flying.delete(id);
+      await settle(id);
+    }
+    bump();
+  }
+  /** An item as Core last said: the result read after an ask, until the list catches up. */
+  function current<T extends Delivered & { requestId: string }>(item: T): T {
+    const after = read.get(item.requestId);
+    if (!after) return item;
+    const state = after.state ?? (item.messageState && { ...item.messageState, canSendNow: false });
+    return { ...item, ...(state ? { messageState: state } : {}) };
+  }
+  return {
+    current,
+    /** Where a list read starts: `listed` with it drops the result reads it has caught up with. */
+    mark: () => reads,
+    async listed(mark: number) {
+      let dropped = false;
+      for (const [id, after] of read) if (after.at <= mark) dropped = read.delete(id) || dropped;
+      for (const id of asked) if (!flying.has(id)) await settle(id);
+      if (dropped || read.size) bump();
+    },
+    /** What the draw depends on. */
+    version: () => version,
+    /** Send now for these requests, or where it stands, or nothing; `undefined` when none applies. */
+    control(items: readonly (Delivered & { requestId: string })[]): HTMLElement | undefined {
+      const note = items.map((item) => notes.get(item.requestId)).find(Boolean);
+      const going = items.some((item) => flying.has(item.requestId));
+      const offered = items
+        .filter((item) => !asked.has(item.requestId) && current(item).messageState?.canSendNow)
+        .map((item) => item.requestId);
+      if (!going && !note && !offered.length) return undefined;
+      const line = el('p', 'ops-dm-send-now');
+      if (going) line.append(el('span', 'ops-dm-send-now-state', 'Sending now…'));
+      else if (offered.length) {
+        const button = el('button', 'ops-dm-send-now-button', 'Send now');
+        button.type = 'button';
+        button.addEventListener('click', () => void ask(offered));
+        line.append(button);
+      }
+      if (note) line.append(el('span', 'ops-dm-send-now-note', note));
+      return line;
+    },
+  };
 }

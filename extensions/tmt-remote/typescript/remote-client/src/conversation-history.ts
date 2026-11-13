@@ -3,7 +3,14 @@
  * the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
  * read at a time; positions and seen state never leave their owners. */
 import { el } from './ops-parts.js';
-import { exchangeRows, outbox, pendingRow, shortenedReply, talkList } from './talk-stream.js';
+import {
+  exchangeRows,
+  outbox,
+  pendingRow,
+  sendNowAsks,
+  shortenedReply,
+  talkList,
+} from './talk-stream.js';
 import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
@@ -13,6 +20,7 @@ import {
   RefusalError,
   operations,
   type ResultState,
+  type SendNowState,
   type SendInput,
   type SendState,
 } from './operations.js';
@@ -40,6 +48,8 @@ export interface ConversationTalk {
   operation(operationId: string): Promise<SendState>;
   /** A request's outcome; a replied one carries the reply's full text. */
   result(requestId: string): Promise<ResultState>;
+  /** Ask Core to type a held message now (`RemoteOperations.sendNow`). */
+  sendNow(requestId: string): Promise<SendNowState>;
 }
 export interface ConversationObservation {
   scope?: ConversationScope;
@@ -88,6 +98,7 @@ function sessionTalk(shell: RemoteShell): ConversationTalk {
     send: async (input) => (await client()).send(input),
     operation: async (operationId) => (await client()).operation(operationId),
     result: async (requestId) => (await client()).result(requestId),
+    sendNow: async (requestId) => (await client()).sendNow(requestId),
   };
 }
 function storage(): Storage | undefined {
@@ -132,6 +143,7 @@ export function conversationHistory(
   // The same result carries the whole text of the person's own message cut at the preview.
   const fullPosts = new Map<string, string>();
   const asked = new Set<string>();
+  const now = sendNowAsks(talk, () => draw());
   let memberId: string | undefined,
     memberName = '',
     panelVisible = false;
@@ -167,7 +179,7 @@ export function conversationHistory(
       items.values(),
       (item) =>
         exchangeRows(
-          item,
+          now.current(item),
           {
             me: 'You',
             them: memberName,
@@ -175,8 +187,9 @@ export function conversationHistory(
           },
           fullReplies.get(item.requestId),
           fullPosts.get(item.requestId),
+          item.direction === 'toMember' ? now.control([item]) : undefined,
         ),
-      [memberName, fullReplies.size, fullPosts.size],
+      [memberName, fullReplies.size, fullPosts.size, now.version()],
       unlisted && pendingRow(unlisted, memberName),
     );
   }
@@ -239,6 +252,7 @@ export function conversationHistory(
       if (baseline.available && baseline.position) input.since = baseline.position;
     }
     const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
+    const mark = now.mark();
     try {
       let next = await read(selected, input);
       if (!current()) return false;
@@ -291,6 +305,7 @@ export function conversationHistory(
               : `No messages with ${memberName} yet. Say hello below.`;
       status.hidden = status.textContent === '';
       draw();
+      void now.listed(mark);
       void readFullReplies(selected, ticket);
       const visible = panelVisible && node.isConnected && document.visibilityState === 'visible';
       if (

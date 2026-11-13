@@ -8815,8 +8815,8 @@ var AGENT_STATES = {
 /** The four uncoloured states exposed by the board; pending is not presence. */
 function agentState(agent) {
 	if (agent.presence === "offline") return "offline";
-	const activity = agent.activity?.state;
-	return activity === "working" || activity === "idle" ? activity : "unknown";
+	const state = agent.activity?.state ?? agent.state;
+	return state === "working" || state === "idle" ? state : "unknown";
 }
 /** One plain sentence per reason, each saying what the person can do. */
 var REASONS = {
@@ -9728,7 +9728,8 @@ function orchestrationView(connect, now = () => Date.now()) {
 				"◆",
 				"needs a person",
 				"needs_person"
-			]
+			],
+			["·", "not reported"]
 		]) {
 			const item = el("div");
 			const term = el("dt", void 0, glyph);
@@ -10492,14 +10493,20 @@ var finalLabel = (item) => {
 		case "unavailable": return "The reply is unavailable";
 	}
 };
-var deliveryText = (item) => sentence(item.messageState?.reason.text) ?? {
+var deliveryText = (item) => (sentence(item.messageState?.reason.text) ?? deliveryWord(item)) + deliveryBy(item);
+/** When a message Core holds will go at the latest ("delivers by 23:30"), as Core says it. */
+var deliveryBy = (item) => {
+	const state = item.messageState;
+	return state?.latestMs != null && (state.state === "sent" || state.state === "batched") ? ` · delivers by ${clock(new Date(state.latestMs))}` : "";
+};
+var deliveryWord = (item) => ({
 	prepared: "Preparing",
 	sending: "Sending",
 	sent: "Sent",
 	queued: "Queued",
 	uncertain: "Delivery unknown",
 	definitely_failed: "Not delivered"
-}[item.delivery] ?? item.delivery;
+})[item.delivery] ?? item.delivery;
 var deliveryMark = (item) => item.final.status !== "not_submitted" || item.messageState?.state === "answered" ? "answered" : item.delivery === "definitely_failed" ? "failed" : item.delivery === "uncertain" ? "unknown" : item.delivery === "sent" ? "done" : "wait";
 var dayKey = (at) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
 function dayLabel(at, now = /* @__PURE__ */ new Date()) {
@@ -10663,7 +10670,7 @@ function shortenedReply(item) {
 }
 /** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
 * shows its full text once read (`fullPost`, `fullReply`), else its preview. */
-function exchangeRows(item, names, fullReply, fullPost) {
+function exchangeRows(item, names, fullReply, fullPost, now) {
 	const { fromMe, them } = names;
 	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
@@ -10678,6 +10685,7 @@ function exchangeRows(item, names, fullReply, fullPost) {
 			mark: deliveryMark(item)
 		} : {}
 	})];
+	if (now) out[0].querySelector(".ops-dm-message-body").append(now);
 	const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
 	const replyShortened = fullReply === void 0 ? shortenedReply(item) : void 0;
 	if (replyWords !== void 0 && replyWords !== null) out.push(messageRow({
@@ -10976,6 +10984,91 @@ function pendingRow(value, to, mentions = []) {
 	group.append(inner);
 	return group;
 }
+/** Send now (#4378): the person asks Core to type a message it holds, once per request. An asked
+* request is not offered again until its result has been read, whatever the ask came to (an
+* unconfirmed or failed ask may have typed it); that read's state then stands until a list read
+* that began after it. A refusal shows Core's own sentence. `changed` runs after each change. */
+function sendNowAsks(port, changed) {
+	const asked = /* @__PURE__ */ new Set();
+	const flying = /* @__PURE__ */ new Set();
+	const read = /* @__PURE__ */ new Map();
+	const notes = /* @__PURE__ */ new Map();
+	let reads = 0, version = 0;
+	const bump = () => {
+		version++;
+		changed();
+	};
+	async function settle(id) {
+		try {
+			const value = await port.result(id);
+			read.set(id, {
+				at: ++reads,
+				state: value.state === "pending" ? value.messageState : void 0
+			});
+			asked.delete(id);
+		} catch {}
+	}
+	async function ask(ids) {
+		for (const id of ids) {
+			asked.add(id);
+			flying.add(id);
+			notes.delete(id);
+		}
+		bump();
+		for (const id of ids) {
+			try {
+				const value = await port.sendNow(id);
+				if (value.state === "refused" || value.state === "unavailable") notes.set(id, sentence(value.reasonText) ?? "It could not be sent now.");
+			} catch {}
+			flying.delete(id);
+			await settle(id);
+		}
+		bump();
+	}
+	/** An item as Core last said: the result read after an ask, until the list catches up. */
+	function current(item) {
+		const after = read.get(item.requestId);
+		if (!after) return item;
+		const state = after.state ?? (item.messageState && {
+			...item.messageState,
+			canSendNow: false
+		});
+		return {
+			...item,
+			...state ? { messageState: state } : {}
+		};
+	}
+	return {
+		current,
+		/** Where a list read starts: `listed` with it drops the result reads it has caught up with. */
+		mark: () => reads,
+		async listed(mark) {
+			let dropped = false;
+			for (const [id, after] of read) if (after.at <= mark) dropped = read.delete(id) || dropped;
+			for (const id of asked) if (!flying.has(id)) await settle(id);
+			if (dropped || read.size) bump();
+		},
+		/** What the draw depends on. */
+		version: () => version,
+		/** Send now for these requests, or where it stands, or nothing; `undefined` when none applies. */
+		control(items) {
+			const note = items.map((item) => notes.get(item.requestId)).find(Boolean);
+			const going = items.some((item) => flying.has(item.requestId));
+			const offered = items.filter((item) => !asked.has(item.requestId) && current(item).messageState?.canSendNow).map((item) => item.requestId);
+			if (!going && !note && !offered.length) return void 0;
+			const line = el("p", "ops-dm-send-now");
+			if (going) line.append(el("span", "ops-dm-send-now-state", "Sending now…"));
+			else if (offered.length) {
+				const button = el("button", "ops-dm-send-now-button", "Send now");
+				button.type = "button";
+				button.addEventListener("click", () => void ask(offered));
+				line.append(button);
+			}
+			if (note) line.append(el("span", "ops-dm-send-now-note", note));
+			return line;
+		}
+	};
+}
 //#endregion
 //#region src/conversation-seen.ts
 /** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
@@ -11078,7 +11171,8 @@ function sessionTalk(shell) {
 	return {
 		send: async (input) => (await client()).send(input),
 		operation: async (operationId) => (await client()).operation(operationId),
-		result: async (requestId) => (await client()).result(requestId)
+		result: async (requestId) => (await client()).result(requestId),
+		sendNow: async (requestId) => (await client()).sendNow(requestId)
 	};
 }
 function storage() {
@@ -11114,6 +11208,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	const fullReplies = /* @__PURE__ */ new Map();
 	const fullPosts = /* @__PURE__ */ new Map();
 	const asked = /* @__PURE__ */ new Set();
+	const now = sendNowAsks(talk, () => draw());
 	let memberId, memberName = "", panelVisible = false;
 	let generation = 0, running = false, wanted = false;
 	let scope;
@@ -11141,14 +11236,15 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	}
 	function draw() {
 		const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : void 0;
-		stream.draw(items.values(), (item) => exchangeRows(item, {
+		stream.draw(items.values(), (item) => exchangeRows(now.current(item), {
 			me: "You",
 			them: memberName,
 			fromMe: item.direction === "toMember"
-		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId)), [
+		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId), item.direction === "toMember" ? now.control([item]) : void 0), [
 			memberName,
 			fullReplies.size,
-			fullPosts.size
+			fullPosts.size,
+			now.version()
 		], unlisted && pendingRow(unlisted, memberName));
 	}
 	function showComposer() {
@@ -11205,6 +11301,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			if (baseline.available && baseline.position) input.since = baseline.position;
 		}
 		const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
+		const mark = now.mark();
 		try {
 			let next = await read(selected, input);
 			if (!current()) return false;
@@ -11244,6 +11341,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
 			status.hidden = status.textContent === "";
 			draw();
+			now.listed(mark);
 			readFullReplies(selected, ticket);
 			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
 			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
@@ -11343,6 +11441,7 @@ function sessionChannel(shell) {
 	return {
 		readRoom: (roomId, input) => onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
 		result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
+		sendNow: (requestId) => onSession(shell, (session) => operations(session).sendNow(requestId)),
 		send: (input) => onSession(shell, (session) => operations(session).send(input)),
 		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
 	};
@@ -11393,6 +11492,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	const replies = /* @__PURE__ */ new Map();
 	const fullPosts = /* @__PURE__ */ new Map();
 	const askedPosts = /* @__PURE__ */ new Set();
+	const now = sendNowAsks(port, () => draw());
 	let channel;
 	let roomId;
 	let olderCursor;
@@ -11429,7 +11529,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	function postRow(post, inThread = false) {
 		const first = post.items[0];
 		const whole = fullText(post);
-		const as = first;
+		const as = now.current(first);
 		if (!inThread && first.kind === "announcement") return noticeRow(first.preview, new Date(post.preparedAtMs));
 		const row = messageRow({
 			who: "You",
@@ -11456,7 +11556,12 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		open.append(state);
 		open.setAttribute("aria-expanded", String(threadKey === post.requestId));
 		open.addEventListener("click", () => openThread(post.requestId));
-		row.querySelector(".ops-dm-message-body").append(open);
+		const body = row.querySelector(".ops-dm-message-body");
+		body.append(open);
+		if (!sides.length) {
+			const control = now.control(post.items);
+			if (control) body.append(control);
+		}
 		if (threadKey === post.requestId) row.dataset.selected = "";
 		return row;
 	}
@@ -11541,7 +11646,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			[...names()],
 			[...replies],
 			threadKey,
-			[...fullPosts]
+			[...fullPosts],
+			now.version()
 		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
 		empty.hidden = shown.length > 0 || !!unlisted;
 		drawThread(shown);
@@ -11623,7 +11729,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		}
 		running = true;
 		olderButton.disabled = true;
-		const ticket = generation, reading = roomId;
+		const ticket = generation, reading = roomId, mark = now.mark();
 		try {
 			const page = await port.readRoom(reading, {
 				limit: 20,
@@ -11635,6 +11741,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			emptyTitle.textContent = "No channel messages yet";
 			emptyText.textContent = `Post to the lead, or @mention members. Their replies show under your post.`;
 			draw();
+			now.listed(mark);
 			await readReplies(ticket);
 			if (ticket === generation) draw();
 			await readFullPosts(ticket);
@@ -11682,6 +11789,10 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		thread,
 		select(next) {
 			if (next && !visible) askedPosts.clear();
+			if (!next && threadKey) {
+				threadKey = void 0;
+				drawThread([]);
+			}
 			visible = next !== void 0;
 			channel = next;
 			const seen = JSON.stringify([next?.room, next?.members]);
@@ -11736,10 +11847,12 @@ var MARKS = {
 	Unknown: "unknown"
 };
 function memberState(agent) {
-	if (agent.presence === "offline") return "Offline";
-	if (agent.activity?.state === "working") return "Working";
-	if (agent.activity?.state === "idle") return "Idle";
-	return "Unknown";
+	return {
+		working: "Working",
+		idle: "Idle",
+		offline: "Offline",
+		unknown: "Unknown"
+	}[agent.state];
 }
 /** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
 function unknownMark() {
@@ -11790,6 +11903,7 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const face = el("span", "ops-channel-face");
 	const title = el("h2", "ops-channel-name");
 	title.tabIndex = -1;
+	title.addEventListener("blur", () => title.removeAttribute("data-quiet-focus"));
 	const chips = el("span", "ops-channel-chips");
 	const back = el("a", "ops-channel-back", "‹");
 	back.hidden = true;
@@ -11949,8 +12063,10 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 		node: page,
 		history,
 		/** After a route the person chose: the title takes focus, so reading starts at the new place. */
-		focusTitle() {
-			if (title.isConnected && !head.hidden) title.focus({ preventScroll: true });
+		focusTitle(fromKeyboard) {
+			if (!title.isConnected || head.hidden) return;
+			title.toggleAttribute("data-quiet-focus", !fromKeyboard);
+			title.focus({ preventScroll: true });
 		},
 		update(board, place) {
 			requestAnimationFrame(fit);
@@ -12151,9 +12267,18 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			main.replaceChildren(empty);
 		}
 	};
+	let fromKeyboard = false;
+	window.addEventListener("keydown", () => fromKeyboard = true, {
+		capture: true,
+		signal: shell.signal
+	});
+	window.addEventListener("pointerdown", () => fromKeyboard = false, {
+		capture: true,
+		signal: shell.signal
+	});
 	window.addEventListener("hashchange", () => {
 		paint();
-		if (!document.activeElement?.closest(".ops-composer-host")) channel.focusTitle();
+		if (!document.activeElement?.closest(".ops-composer-host")) channel.focusTitle(fromKeyboard);
 	}, { signal: shell.signal });
 	shell.signal.addEventListener("abort", onDrafts(paintMenu));
 	paint();

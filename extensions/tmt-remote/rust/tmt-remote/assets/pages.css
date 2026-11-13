@@ -1539,9 +1539,13 @@ body:not(:has(.tmt-ui-shell)) {
   color: inherit;
 }
 /* The title takes focus after a chosen route; a keyboard reader sees it framed, as a link is. */
-.ops-channel-name:focus-visible {
+.ops-channel-name:focus-visible:not([data-quiet-focus]) {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+/* A route chosen with the pointer moves focus without a ring. */
+.ops-channel-name[data-quiet-focus] {
+  outline: none;
 }
 .ops-channel-face:empty {
   display: none;
@@ -2163,6 +2167,35 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-dm-exchange[data-pending='refused'] .ops-dm-message-state {
   color: var(--tmt-ui-color-blocked);
 }
+/* Send now under a message Core holds (#4378), and where the ask stands. */
+.ops-dm-send-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--tmt-ui-space-s);
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-dm-send-now-button {
+  padding: 2px var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text-action);
+  font: 600 var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-body);
+  cursor: pointer;
+}
+.ops-dm-send-now-button:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-dm-send-now-button:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
+}
+.ops-dm-send-now-note {
+  color: var(--tmt-ui-color-blocked);
+}
 .ops-thread-open {
   display: flex;
   flex-wrap: wrap;
@@ -2194,6 +2227,8 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-thread {
   position: absolute;
+  /* Above the stream's held day line, which would otherwise show through on a phone. */
+  z-index: 2;
   inset: 0 0 0 auto;
   display: flex;
   flex-direction: column;

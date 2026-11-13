@@ -147,11 +147,22 @@ export function opsPage(
   };
   // A route the person chose (the rail, a link, back): the view's title takes focus, so the
   // keyboard and a screen reader start at the new place; a refresh or a person typing keeps it.
+  // Whether the last input was a key: a keyboard route shows the focus ring, a click or a link
+  // from elsewhere moves focus quietly.
+  let fromKeyboard = false;
+  window.addEventListener('keydown', () => (fromKeyboard = true), {
+    capture: true,
+    signal: shell.signal,
+  });
+  window.addEventListener('pointerdown', () => (fromKeyboard = false), {
+    capture: true,
+    signal: shell.signal,
+  });
   window.addEventListener(
     'hashchange',
     () => {
       paint();
-      if (!document.activeElement?.closest('.ops-composer-host')) channel.focusTitle();
+      if (!document.activeElement?.closest('.ops-composer-host')) channel.focusTitle(fromKeyboard);
     },
     { signal: shell.signal },
   );

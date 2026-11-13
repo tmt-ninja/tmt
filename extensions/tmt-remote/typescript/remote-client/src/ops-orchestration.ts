@@ -586,6 +586,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       ['Urgent', 'urgent only'],
       ['✕', 'blocked by the sender rule', 'blocked'],
       ['◆', 'needs a person', 'needs_person'],
+      ['·', 'not reported'],
     ] as const) {
       const item = el('div');
       const term = el('dt', undefined, glyph);

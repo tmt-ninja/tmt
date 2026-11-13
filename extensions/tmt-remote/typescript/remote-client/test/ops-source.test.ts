@@ -96,6 +96,19 @@ it('turns the contract board into rows with uncoloured activity states', () => {
     },
   ]);
   for (const agent of board.agents) expect(AGENT_STATES[agent.state].word).toBeTruthy();
+  // The provider's activity decides; without one, the state the board was told shows; anything
+  // else is unknown, and offline wins over both.
+  const states = (agent: Record<string, unknown>) =>
+    answer({
+      ...ops[0]!.expect,
+      agents: [{ ...(ops[0]!.expect.agents as object[])[0], presence: 'active', ...agent }],
+    }).agents[0]!.state;
+  expect(states({ activity: { state: 'idle' }, state: 'working' })).toBe('idle');
+  expect(states({ activity: undefined, state: 'idle' })).toBe('idle');
+  expect(states({ activity: undefined, state: 'working' })).toBe('working');
+  for (const state of ['ended', 'blocked', 'needs-you', undefined])
+    expect(states({ activity: undefined, state })).toBe('unknown');
+  expect(states({ presence: 'offline', activity: { state: 'working' } })).toBe('offline');
 });
 
 it('maps legacy states to the four neutral labels', () => {
