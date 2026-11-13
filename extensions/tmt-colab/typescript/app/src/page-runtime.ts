@@ -217,6 +217,19 @@ export async function loadStandaloneRuntime(baseUri: string): Promise<{
   };
 }
 
+/** The pinned terminal renderer as standard base64, for a standalone copy of a page whose design
+ * system draws a TerminalFrame (#6157): the same verified bytes the frame is given. Rejects when it
+ * is missing or differs from its pin. */
+export async function loadStandaloneTerminal(baseUri: string): Promise<string> {
+  const file = runtimePin.chunks.find((chunk) => chunk.kind === 'wasm');
+  if (!file) throw new Error('Renderer unavailable');
+  const bytes = new Uint8Array(await pinnedWasm(baseUri, file));
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
+}
+
 /** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
  * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.json`
  * (`{style, script}`). */

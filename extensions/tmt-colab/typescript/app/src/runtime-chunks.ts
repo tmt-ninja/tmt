@@ -70,3 +70,14 @@ export function runtimeChunkNames(
   for (const name of wanted) close(name);
   return chunks.map((chunk) => chunk.name).filter((name) => wanted.has(name));
 }
+
+/** Whether a copy carries the terminal renderer (#6157): the frame's rule, so exactly when the page
+ * writes a component of the verified bundle (or one it requires) that draws a TerminalFrame. `tags`
+ * are the page's element names as a parse with scripting off finds them; native export applies the
+ * same rule, pinned by `standaloneTerminal` in `vectors/export-v1.json`. */
+export function carriesTerminal(
+  bundle: { readonly prefix: string; readonly components: readonly ChunkDemand[] },
+  tags: ReadonlySet<string>,
+): boolean {
+  return runtimeChunkNames(bundle.components, bundle.prefix, tags).includes('terminal-frame');
+}

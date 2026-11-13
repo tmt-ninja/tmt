@@ -5,6 +5,7 @@ import { Downloads, prepareExport } from '../src/export.js';
 import type { ExportAttachment } from '../src/export-attachments.js';
 import { META_POLICY, THEME_SWITCH, standaloneDocument, usesDesign } from '../src/standalone.js';
 import { UTILITIES_ONLY } from '../src/page-runtime.js';
+import { carriesTerminal } from '../src/runtime-chunks.js';
 
 import { fixture, gathered, input } from './export-input.js';
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -336,6 +337,29 @@ it('adds the standalone copy of a page that pins a design system, its blocks ine
     expect(standaloneDocument(vector.source, { design: vector.design, designSystem })).toEqual({
       reason: 'runtime-unusable',
     });
+});
+
+it('carries the terminal renderer only for a page that draws a TerminalFrame, byte for byte like native', async () => {
+  const vector = fixture.standaloneTerminal;
+  for (const row of vector.cases)
+    expect(carriesTerminal(vector.bundle, new Set(row.tags)), row.source).toBe(row.carries);
+  const base = fixture.standaloneDesignSystem;
+  const designSystem = { ...base.designSystem, terminal: vector.terminal };
+  const bundle = await prepareExport({
+    ...input(),
+    source: base.source,
+    standalone: { design: base.design, designSystem },
+  });
+  const file = await bytes(bundle.blob('page.standalone.html'));
+  expect(file).toEqual(utf8(vector.fileUtf8));
+  expect(sha(file)).toBe(vector.fileSha256);
+  // A value outside base64 could leave its element, so the copy is refused.
+  expect(
+    standaloneDocument(base.source, {
+      design: base.design,
+      designSystem: { ...designSystem, terminal: 'a</script>' },
+    }),
+  ).toEqual({ reason: 'runtime-unusable' });
 });
 
 it('decides the design system the way the shared marker vectors say', () => {

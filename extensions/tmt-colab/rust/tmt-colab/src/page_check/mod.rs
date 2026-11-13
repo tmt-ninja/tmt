@@ -322,6 +322,17 @@ pub(crate) fn named_design(source: &str) -> Result<bool, TooDeep> {
         .any(|id| tree.name(id) == "meta" && tree.attr(id, "name") == Some("tmt-ds")))
 }
 
+/// Every element name in the document, parsed as [`runtime_marker`] parses it (#6157): the tags a
+/// standalone copy matches against its design system's components, as the frame does.
+pub(crate) fn element_names(source: &str) -> Result<std::collections::BTreeSet<String>, TooDeep> {
+    let tree = tree::Tree::parse(source).map_err(|_| TooDeep)?;
+    Ok(tree
+        .elements()
+        .into_iter()
+        .map(|id| tree.name(id).to_owned())
+        .collect())
+}
+
 /// One static source parse for the owner summary's markup and normal quote associations.
 pub(crate) fn summary(
     source: &str,

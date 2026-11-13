@@ -286,16 +286,17 @@ impl App {
     /// or differs.
     pub fn standalone_runtime(&self) -> Option<StandaloneRuntime<'_>> {
         use sha2::Digest;
-        let pinned = |file: &serde_json::Value| -> Option<&str> {
+        let pinned_bytes = |file: &serde_json::Value| -> Option<&[u8]> {
             let path = format!("/{}", file["path"].as_str()?);
             let (_, bytes) = self.find(&path)?;
             let digest = sha2::Sha256::digest(bytes)
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>();
-            (file["sha256"] == digest.as_str() && file["length"] == bytes.len())
-                .then(|| std::str::from_utf8(bytes).ok())
-                .flatten()
+            (file["sha256"] == digest.as_str() && file["length"] == bytes.len()).then_some(bytes)
+        };
+        let pinned = |file: &serde_json::Value| -> Option<&str> {
+            std::str::from_utf8(pinned_bytes(file)?).ok()
         };
         let pin = &*RUNTIME_PIN;
         let chunks = RUNTIME_CHUNKS
@@ -308,10 +309,16 @@ impl App {
                 Some((name.as_str(), pinned(file)?))
             })
             .collect::<Option<Vec<_>>>()?;
+        // The terminal renderer is optional: a copy without it still draws everything else.
+        let terminal = pin["chunks"]
+            .as_array()
+            .and_then(|chunks| chunks.iter().find(|chunk| chunk["kind"] == "wasm"))
+            .and_then(pinned_bytes);
         Some(StandaloneRuntime {
             theme: pinned(&pin["theme"])?,
             binder: pinned(&pin["binder"])?,
             chunks,
+            terminal,
         })
     }
 }
@@ -321,6 +328,8 @@ pub struct StandaloneRuntime<'a> {
     pub theme: &'a str,
     pub binder: &'a str,
     pub chunks: Vec<(&'static str, &'a str)>,
+    /// The pinned terminal renderer (#6157), when the build carries it unchanged.
+    pub terminal: Option<&'a [u8]>,
 }
 
 /// The reviewed runtime pin this executable was built with (`scripts/verify-runtime.mjs`).

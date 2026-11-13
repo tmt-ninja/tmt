@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
 
-test('verified TerminalFrame renders live and the offline copy explains its unavailable component', async ({
+test('verified TerminalFrame renders live and in the offline copy, and changed renderer bytes fail closed', async ({
   page,
   browser,
 }) => {
@@ -132,12 +132,29 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
     viewport: { width: 1000, height: 480 },
   });
   try {
+    // The copy carries the verified renderer, so the terminal draws from disk with no network.
+    expect(copy).toContain('<script type="application/octet-stream" data-terminal>AGFzbQ');
     const file = join(dir, 'page.standalone.html');
     writeFileSync(file, copy as string);
     const offline = await context.newPage();
     await offline.goto(pathToFileURL(file).href);
-    await expect(offline.locator('[data-colab-standalone-notice]')).toContainText('TerminalFrame');
-    await expect(offline.locator('[data-colab-standalone-notice]')).toBeVisible();
+    await expect(offline.locator(`${body.prefix}-terminal-preview`)).toContainText('Saved · 1d');
+    await expect(offline.locator('[data-colab-standalone-notice]')).toHaveCount(0);
+    expect(await offline.evaluate(() => '__colabTakeTerminalBytes' in window)).toBe(false);
+    // Changed renderer bytes fail closed: nothing draws and the page says so.
+    const changed = join(dir, 'changed.standalone.html');
+    writeFileSync(
+      changed,
+      (copy as string).replace('data-terminal>AGFzbQ', 'data-terminal>AGFzbR'),
+    );
+    const refused = await context.newPage();
+    await refused.goto(pathToFileURL(changed).href);
+    await expect(refused.locator('[data-colab-standalone-notice]')).toContainText(
+      'TerminalFrame is unavailable in standalone export.',
+    );
+    await expect(refused.locator(`${body.prefix}-terminal-preview`)).not.toContainText(
+      'Saved · 1d',
+    );
     if (capture) {
       const offlineImage = await offline.screenshot({
         path: join(capture, 'terminal-standalone.png'),
@@ -145,7 +162,7 @@ test('verified TerminalFrame renders live and the offline copy explains its unav
       const comparison = await browser.newPage({ viewport: { width: 2000, height: 520 } });
       try {
         await comparison.setContent(
-          `<style>body{margin:0;display:flex;gap:8px;font:16px sans-serif}figure{margin:0}img{width:990px}</style><figure><figcaption>Live verified TerminalFrame</figcaption><img src="data:image/png;base64,${liveImage!.toString('base64')}"></figure><figure><figcaption>Offline standalone export</figcaption><img src="data:image/png;base64,${offlineImage.toString('base64')}"></figure>`,
+          `<style>body{margin:0;display:flex;gap:8px;font:16px sans-serif}figure{margin:0}img{width:990px}</style><figure><figcaption>Live verified TerminalFrame</figcaption><img src="data:image/png;base64,${liveImage!.toString('base64')}"></figure><figure><figcaption>Offline standalone export (carried renderer)</figcaption><img src="data:image/png;base64,${offlineImage.toString('base64')}"></figure>`,
         );
         await comparison.screenshot({ path: join(capture, 'terminal-live-vs-standalone.png') });
       } finally {

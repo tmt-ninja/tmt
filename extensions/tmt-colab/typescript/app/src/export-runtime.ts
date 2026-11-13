@@ -10,9 +10,11 @@ import {
   loadDesign,
   loadRuntime,
   loadStandaloneRuntime,
+  loadStandaloneTerminal,
   hasRuntimeMarker,
   wantsReact,
 } from './page-runtime.js';
+import { carriesTerminal } from './runtime-chunks.js';
 import { usesDesign, type StandaloneDesignSystem, type StandaloneRequest } from './standalone.js';
 
 /** The design system a page pins (#6157), resolved and verified as the frame resolves it, with the
@@ -37,12 +39,23 @@ async function pinnedDesignSystem(
     };
   const runtime = await loadStandaloneRuntime(base).catch(() => undefined);
   if (!runtime) return { reason: 'runtime-unavailable' };
+  // The terminal renderer rides along only for a page that draws a TerminalFrame; if it cannot be
+  // read, the copy is still made and that component shows its failed state.
+  const tags = new Set(
+    [...new DOMParser().parseFromString(source, 'text/html').querySelectorAll('*')].map(
+      (element) => element.localName,
+    ),
+  );
+  const terminal = carriesTerminal(bundle, tags)
+    ? await loadStandaloneTerminal(base).catch(() => undefined)
+    : undefined;
   return {
     bundle: JSON.stringify(bundle),
     pin: pin.lock ? `${pin.system}@${pin.lock.version}#${pin.lock.hash}` : pin.system,
     lock: `${bundle.version}#${bundle.hash}`,
     prose: !hasRuntimeMarker(source),
     ...runtime,
+    ...(terminal === undefined ? {} : { terminal }),
   };
 }
 

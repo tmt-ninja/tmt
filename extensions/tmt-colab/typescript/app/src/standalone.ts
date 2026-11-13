@@ -49,6 +49,9 @@ export interface StandaloneDesignSystem {
   readonly theme: string;
   readonly chunks: readonly { readonly name: string; readonly text: string }[];
   readonly binder: string;
+  /** The pinned terminal renderer as standard base64, carried only when the page writes a
+   * component that draws a TerminalFrame (`carriesTerminal` in `runtime-chunks.ts`); the binder checks its SHA-256. */
+  readonly terminal?: string;
 }
 /** Why a page's design system could not be carried: the frame's failure for its pin, a release
  * that could not be read in time, or (native export only) a draft-following page, which needs the
@@ -107,11 +110,16 @@ function designSystemBlocks(ds: StandaloneDesignSystem): string | undefined {
     ) ||
     escapes(ds.binder, /<\/script/i) ||
     escapes(ds.theme, /<\/style/i) ||
-    ds.chunks.some((chunk) => escapes(chunk.text, /<\/script/i))
+    ds.chunks.some((chunk) => escapes(chunk.text, /<\/script/i)) ||
+    (ds.terminal !== undefined && !/^[A-Za-z0-9+/]*={0,2}$/.test(ds.terminal))
   )
     return undefined;
+  const terminal =
+    ds.terminal === undefined
+      ? ''
+      : `<script type="application/octet-stream" data-terminal>${ds.terminal}</script>`;
   const bundle = ds.bundle.replace(/</g, '\\u003c');
-  return `<script type="application/json" id="tmt-ds-bundle" data-pin="${ds.pin}" data-lock="${ds.lock}"${ds.prose ? ' data-prose' : ''}>${bundle}</script>${ds.chunks.map((chunk) => `<script type="text/plain" data-chunk="${chunk.name}">${chunk.text}</script>`).join('')}<script>${ds.binder}</script>`;
+  return `<script type="application/json" id="tmt-ds-bundle" data-pin="${ds.pin}" data-lock="${ds.lock}"${ds.prose ? ' data-prose' : ''}>${bundle}</script>${ds.chunks.map((chunk) => `<script type="text/plain" data-chunk="${chunk.name}">${chunk.text}</script>`).join('')}${terminal}<script>${ds.binder}</script>`;
 }
 
 /** The copy's document, or why a text is not safe to write into HTML. The head holds, in order: the

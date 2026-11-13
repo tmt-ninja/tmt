@@ -79,6 +79,8 @@ pub struct Standalone<'a> {
     pub theme: &'a str,
     pub binder: &'a str,
     pub chunks: &'a [(&'a str, &'a str)],
+    /// The pinned terminal renderer, when the build carries it unchanged.
+    pub terminal: Option<&'a [u8]>,
 }
 
 /// What the build has to offer a copy; each is absent when the build lacks its files.
@@ -199,6 +201,44 @@ pub struct DesignSystem<'a> {
     pub lock: String,
     pub prose: bool,
     pub runtime: Standalone<'a>,
+    /// The terminal renderer as standard base64, only for a page that draws a TerminalFrame
+    /// ([`carries_terminal`]); the binder checks its SHA-256 when the file opens.
+    pub terminal: Option<String>,
+}
+
+/// Whether a copy carries the terminal renderer (#6157), the frame's rule (`runtimeChunkNames`):
+/// the page writes a component of the verified bundle, or one it requires (`<prefix>-<name>`), that
+/// draws a TerminalFrame. `names` are the page's element names; `standaloneTerminal` in
+/// `vectors/export-v1.json` pins this and the browser's `carriesTerminal`.
+#[must_use]
+pub fn carries_terminal(bundle: &Value, names: &std::collections::BTreeSet<String>) -> bool {
+    let Some(components) = bundle["components"].as_array() else {
+        return false;
+    };
+    let prefix = bundle["prefix"].as_str().unwrap_or_default();
+    let by_tag = |tag: &str| components.iter().find(|c| c["tag"] == tag);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pending: Vec<String> = names.iter().cloned().collect();
+    while let Some(tag) = pending.pop() {
+        let Some(component) = by_tag(&tag) else {
+            continue;
+        };
+        if !seen.insert(tag) {
+            continue;
+        }
+        if component["uiParts"]
+            .as_array()
+            .is_some_and(|parts| parts.iter().any(|part| part == "TerminalFrame"))
+        {
+            return true;
+        }
+        for name in component["requires"].as_array().into_iter().flatten() {
+            if let Some(name) = name.as_str() {
+                pending.push(format!("{prefix}-{name}"));
+            }
+        }
+    }
+    false
 }
 
 /// What became of the copy, reported next to the files; absent for a page that needs none.
@@ -349,6 +389,11 @@ fn blocks(ds: &DesignSystem, unsafe_in: &dyn Fn(&str, &str) -> bool) -> Option<S
             .any(|(name, text)| !attribute(name) || unsafe_in(text, "</script"))
         || unsafe_in(ds.runtime.binder, "</script")
         || unsafe_in(ds.runtime.theme, "</style")
+        || ds.terminal.as_deref().is_some_and(|text| {
+            !text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+        })
     {
         return None;
     }
@@ -362,6 +407,11 @@ fn blocks(ds: &DesignSystem, unsafe_in: &dyn Fn(&str, &str) -> bool) -> Option<S
     for (name, text) in ds.runtime.chunks {
         out.push_str(&format!(
             "<script type=\"text/plain\" data-chunk=\"{name}\">{text}</script>"
+        ));
+    }
+    if let Some(terminal) = &ds.terminal {
+        out.push_str(&format!(
+            "<script type=\"application/octet-stream\" data-terminal>{terminal}</script>"
         ));
     }
     out.push_str(&format!("<script>{}</script>", ds.runtime.binder));
@@ -426,7 +476,18 @@ pub fn derive(source: &str, assets: &Assets, releases: &dyn Releases) -> Option<
         ) else {
             return skipped(DESIGN_UNKNOWN_RELEASE);
         };
+        // The terminal renderer rides along only for a page that draws a TerminalFrame; without the
+        // build's pinned bytes the copy is still made and that component shows its failed state.
+        let names = match page_check::element_names(source) {
+            Ok(names) => names,
+            Err(page_check::TooDeep) => return skipped(TOO_DEEP),
+        };
+        let terminal = runtime
+            .terminal
+            .filter(|_| carries_terminal(&bundle, &names))
+            .map(|bytes| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes));
         Some(DesignSystem {
+            terminal,
             pin: match pin.lock {
                 Some((version, hash)) => format!("{}@{version}#{hash}", pin.system),
                 None => pin.system.to_owned(),
@@ -505,6 +566,7 @@ mod tests {
         theme: "@theme inline{}",
         binder: "window.bind={};",
         chunks: &CHUNKS,
+        terminal: None,
     };
     const PINNED_ONLY: Assets = Assets {
         runtime: Some(RUNTIME),
@@ -615,6 +677,51 @@ mod tests {
                 .unwrap()
                 .outcome
                 .included
+        );
+        // The terminal renderer goes only into a copy whose page writes a component that draws a
+        // TerminalFrame; the built-in system has none.
+        let mut console = release.clone();
+        console.as_object_mut().unwrap().shift_remove("hash");
+        let prefix = console["prefix"].as_str().unwrap().to_owned();
+        let mut part = console["components"][0].clone();
+        part["tag"] = Value::from(format!("{prefix}-console"));
+        part["uiParts"] = serde_json::json!(["TerminalFrame"]);
+        console["components"].as_array_mut().unwrap().push(part);
+        let console_hash = crate::design_bundle::bundle_hash(&console).unwrap();
+        console["hash"] = Value::from(console_hash.clone());
+        let with_wasm = Assets {
+            standalone: Some(Standalone {
+                terminal: Some(b"\0asm\x01\0\0\0"),
+                ..PINNED
+            }),
+            ..PINNED_ONLY
+        };
+        let meta = format!("<meta name=\"tmt-ds\" content=\"space-system@1.2.3#{console_hash}\">");
+        let file = |body: &str, assets: &Assets| {
+            let copy = derive(
+                &format!("{meta}{body}"),
+                assets,
+                &Space(vec![console.clone()]),
+            )
+            .unwrap();
+            assert!(copy.outcome.included, "{body}");
+            String::from_utf8(copy.file.unwrap()).unwrap()
+        };
+        let block = "<script type=\"application/octet-stream\" data-terminal>AGFzbQEAAAA=</script><script>window.bind={};</script>";
+        assert!(
+            file(
+                &format!("<{prefix}-console></{prefix}-console>"),
+                &with_wasm
+            )
+            .contains(block)
+        );
+        assert!(!file("<p>no terminal</p>", &with_wasm).contains("data-terminal"));
+        assert!(
+            !file(
+                &format!("<{prefix}-console></{prefix}-console>"),
+                &PINNED_ONLY
+            )
+            .contains("data-terminal")
         );
         let mut edited = release.clone();
         edited["name"] = Value::from("Someone else");

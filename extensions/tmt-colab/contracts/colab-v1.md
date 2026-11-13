@@ -7779,9 +7779,12 @@ A React page that uses nothing else gets exactly the bytes it got before the des
 - `{designSystem}`, for a page that names a design system, is
   `<script type="application/json" id="tmt-ds-bundle" data-pin="{pin}" data-lock="{lock}"[ data-prose]>{bundle}</script>`,
   then `<script type="text/plain" data-chunk="{name}">{chunk}</script>` for every runtime chunk of
-  the build in vector order (the terminal renderer is not carried yet; a page that writes a
-  TerminalFrame says `TerminalFrame is unavailable in standalone export.`), then
-  `<script>{binder}</script>`. `{bundle}` is the verified bundle as compact JSON in its written key
+  the build in vector order, then `<script type="application/octet-stream" data-terminal>{terminal}</script>`
+  when the copy carries the terminal renderer, then `<script>{binder}</script>`. The copy carries it
+  exactly when the page writes a component of the verified bundle, or one it requires
+  (`<prefix>-<name>`), whose `uiParts` include `TerminalFrame` (the frame's rule; `standaloneTerminal`
+  in `vectors/export-v1.json` pins it). `{terminal}` is the build's pinned renderer (the pin chunk of
+  kind `wasm`) as standard base64. `{bundle}` is the verified bundle as compact JSON in its written key
   order (what `JSON.stringify` writes) with every `<` written `\u003c`; `{pin}` is the page's pin
   (`<system>` or `<system>@<version>#<hash>`); `{lock}` is `<version>#<hash>` of the bundle the
   export verified, so a page that follows a draft is frozen to the draft its author saw;
@@ -7791,7 +7794,10 @@ A React page that uses nothing else gets exactly the bytes it got before the des
   of each chunk of its build. When the file opens, while its head parses, the binder checks each
   chunk's SHA-256 and leaves out one that differs (a component that needs it draws "Part
   unavailable"; without the base no component is defined), checks the bundle's own hash against
-  `{lock}` and a locked page's pin against `{lock}`, and then writes the chunks, the seal and the
+  `{lock}` and a locked page's pin against `{lock}`, checks `{terminal}`'s length and SHA-256
+  against the build's renderer and hands verified bytes once to the terminal chunk (otherwise a page
+  that writes a TerminalFrame says `TerminalFrame is unavailable in standalone export.`), and then
+  writes the chunks, the seal and the
   frame's own component definitions as inline scripts. A failed bundle check shows the frame's
   notice and defines no component. Once the body has parsed it adds the frame's page-check findings
   (an unknown component is refused as in the frame). The binder fetches nothing and needs no policy

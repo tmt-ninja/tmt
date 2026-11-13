@@ -499,10 +499,12 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
             pin: text(&ds["pin"]).to_owned(),
             lock: text(&ds["lock"]).to_owned(),
             prose: ds["prose"].as_bool().unwrap(),
+            terminal: None,
             runtime: standalone::Standalone {
                 theme: text(&ds["theme"]),
                 binder: text(&ds["binder"]),
                 chunks: &chunks,
+                terminal: None,
             },
         }),
     )
@@ -522,6 +524,82 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         manifest_of(&derived),
         text(&case["manifestUtf8"]).as_bytes()
     );
+}
+
+#[test]
+fn standalone_terminal_follows_the_shared_rule_and_writes_the_same_bytes_as_the_browser() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../contracts/vectors/export-v1.json")).unwrap();
+    let case = &fixture["standaloneTerminal"];
+    for row in case["cases"].as_array().unwrap() {
+        let source = row["source"].as_str().unwrap();
+        let names = crate::page_check::element_names(source).unwrap();
+        let custom: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| name.contains('-'))
+            .collect();
+        let tags: Vec<&str> = row["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag.as_str().unwrap())
+            .collect();
+        assert_eq!(custom, tags, "{source}");
+        assert_eq!(
+            standalone::carries_terminal(&case["bundle"], &names),
+            row["carries"].as_bool().unwrap(),
+            "{source}"
+        );
+    }
+    // The carried renderer sits before the binder, inert; the rest is `standaloneDesignSystem`.
+    let base = &fixture["standaloneDesignSystem"];
+    let ds = &base["designSystem"];
+    let text = |value: &serde_json::Value| value.as_str().unwrap().to_owned();
+    let chunks: Vec<(String, String)> = ds["chunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| (text(&chunk["name"]), text(&chunk["text"])))
+        .collect();
+    let chunks: Vec<(&str, &str)> = chunks
+        .iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let (script, style, theme, binder) = (
+        text(&base["design"]["script"]),
+        text(&base["design"]["style"]),
+        text(&ds["theme"]),
+        text(&ds["binder"]),
+    );
+    let mut system = standalone::DesignSystem {
+        bundle: text(&ds["bundle"]),
+        pin: text(&ds["pin"]),
+        lock: text(&ds["lock"]),
+        prose: ds["prose"].as_bool().unwrap(),
+        terminal: Some(text(&case["terminal"])),
+        runtime: standalone::Standalone {
+            theme: &theme,
+            binder: &binder,
+            chunks: &chunks,
+            terminal: None,
+        },
+    };
+    let assets = standalone::Assets {
+        runtime: None,
+        base: None,
+        design: Some(standalone::Design {
+            script: &script,
+            style: &style,
+        }),
+        standalone: None,
+    };
+    let copy = standalone::document_with(&text(&base["source"]), &assets, Some(&system)).unwrap();
+    assert_eq!(copy, case["fileUtf8"].as_str().unwrap().as_bytes());
+    assert_eq!(hex(&crypto::digest(&copy)), case["fileSha256"]);
+    // A value outside base64 could leave its element, so the copy is refused.
+    system.terminal = Some("a</script>".to_owned());
+    assert!(standalone::document_with(&text(&base["source"]), &assets, Some(&system)).is_err());
 }
 
 #[test]
