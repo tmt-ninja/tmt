@@ -219,9 +219,20 @@ impl App {
                 let Some(plan) = state.selected_plan() else {
                     return Effect::None;
                 };
-                let name = plan.name.replace('"', "\\\"");
+                // Literal POSIX words: a plan name never runs when the command is pasted.
+                let command = |words: &[&str]| super::super::command_line::command_line(words);
                 let notice = format!(
-                    "Edit with tmt orch plan set \"{name}\" --file plan.json (its current plan: tmt orch plan show \"{name}\" --json)"
+                    "Edit with {} (its current plan: {})",
+                    command(&[
+                        "tmt",
+                        "orch",
+                        "plan",
+                        "set",
+                        &plan.name,
+                        "--file",
+                        "plan.json"
+                    ]),
+                    command(&["tmt", "orch", "plan", "show", &plan.name, "--json"]),
                 );
                 return self.say(notice);
             }

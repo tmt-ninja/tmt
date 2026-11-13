@@ -728,7 +728,20 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     assert_eq!(
         app.notice.as_deref(),
         Some(
-            "Edit with tmt orch plan set \"Shift B · Night\" --file plan.json (its current plan: tmt orch plan show \"Shift B · Night\" --json)"
+            "Edit with tmt orch plan set 'Shift B · Night' --file plan.json (its current plan: tmt orch plan show 'Shift B · Night' --json)"
+        )
+    );
+    // A name with shell syntax stays one literal word.
+    let mut snapshot = app.orchestration.snapshot().unwrap().clone();
+    snapshot.plan_rows[0].name = "Bob's $(rm -rf x) `y` $HOME".into();
+    let read = app.orchestration.read();
+    app.orchestration
+        .apply(read, Observation::Ready(Box::new(snapshot)));
+    app.key(key('e'));
+    assert_eq!(
+        app.notice.as_deref(),
+        Some(
+            "Edit with tmt orch plan set 'Bob'\\''s $(rm -rf x) `y` $HOME' --file plan.json (its current plan: tmt orch plan show 'Bob'\\''s $(rm -rf x) `y` $HOME' --json)"
         )
     );
 }
