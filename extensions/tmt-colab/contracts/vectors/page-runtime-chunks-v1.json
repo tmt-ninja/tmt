@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "The page runtime's chunks (#6085). Each lazy chunk may use only the chunks in its 'after' list; the parent picks a page's chunks at bind from the verified bundle's uiParts and parts for the tags the page writes, adds every chunk they come after, and sends them in this order. Caps are gzip -9 bytes.",
+  "description": "The page runtime's chunks (#6085). Every page gets the base (the chunk loader, the registry and the Tailwind compiler); 'react' adds React for a page that asks for it or runs design-system components (#6077). Each lazy chunk may use only the chunks in its 'after' list; the parent picks a page's chunks at bind from the verified bundle's uiParts and parts for the tags the page writes, adds every chunk they come after, and sends them in this order. Caps are gzip -9 bytes.",
   "gzipBudget": 4194304,
   "chunks": [
     {
@@ -9,13 +9,23 @@
       "after": [],
       "ui": [],
       "parts": [],
-      "gzipCap": 262144
+      "gzipCap": 131072
+    },
+    {
+      "name": "react",
+      "entry": "src/runtime/chunks/react.ts",
+      "after": [
+        "base"
+      ],
+      "ui": [],
+      "parts": [],
+      "gzipCap": 131072
     },
     {
       "name": "ui",
       "entry": "src/runtime/chunks/ui.ts",
       "after": [
-        "base"
+        "react"
       ],
       "ui": [
         "Button",

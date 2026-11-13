@@ -15,7 +15,14 @@ import {
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
-const FILES = ['page.html', 'conversations.json', 'conversations.md', 'manifest.json'] as const;
+// Every ordinary page's export carries its standalone copy (#6077).
+const FILES = [
+  'page.html',
+  'page.standalone.html',
+  'conversations.json',
+  'conversations.md',
+  'manifest.json',
+] as const;
 
 /** Every file the parent's Export panel offers, downloaded through the real browser. */
 async function browserExport(page: Page): Promise<Record<string, Buffer>> {
@@ -98,7 +105,14 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
       const native = Object.fromEntries(
         FILES.map((name) => [name, readFileSync(path.join(exported.directory, name))]),
       );
-      for (const name of ['page.html', 'conversations.json', 'conversations.md'] as const)
+      // The copy is the same bytes from both: the frame's document around the exact source, with the
+      // same build's runtime base and theme.
+      for (const name of [
+        'page.html',
+        'page.standalone.html',
+        'conversations.json',
+        'conversations.md',
+      ] as const)
         expect(browser[name].equals(native[name]), name).toBe(true);
       const manifests = [browser, native].map((files) =>
         JSON.parse(files['manifest.json'].toString('utf8')),

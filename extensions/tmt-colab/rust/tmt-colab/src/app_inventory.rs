@@ -3,7 +3,9 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::LazyLock};
 
 pub const APP_BYTES: usize = 16 * 1024 * 1024;
-pub const APP_FILES: usize = 128;
+/// A packaging sanity cap on the app's file count, not a product limit; the packaging proof
+/// (`typescript/scripts/colab-runtime-proof.mjs`) holds the same bound.
+pub const APP_FILES: usize = 160;
 
 /// The top-level app files, declared once for this inventory and the packaging proof.
 const ENTRIES: &str = include_str!("../app-entries.txt");

@@ -262,6 +262,24 @@ impl App {
         Some(script)
     }
 
+    /// The runtime's base alone, then the seal: what a copy of a page that does not ask for React
+    /// carries (#6077), the Tailwind compiler with no React.
+    pub fn base_script(&self) -> Option<String> {
+        let base = RUNTIME_CHUNKS.first()?;
+        let mut files = self
+            .files
+            .iter()
+            .filter(|(path, _)| runtime_chunk(path) == Some(base.as_str()));
+        let (_, asset) = files.next()?;
+        if files.next().is_some() {
+            return None;
+        }
+        Some(format!(
+            "{}\n{RUNTIME_SEAL}",
+            std::str::from_utf8(&asset.bytes).ok()?
+        ))
+    }
+
     /// What a standalone copy of a page that pins a design system carries (#6157): the runtime
     /// theme, the binder, and each chunk's text by name in load order. Each is exactly the file
     /// `runtime-pin.json` records, so the binder's own chunk hashes hold; `None` when one is missing

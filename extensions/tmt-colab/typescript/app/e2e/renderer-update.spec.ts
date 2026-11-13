@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import { servePageRuntime } from './page-runtime.js';
 
 /**
  * A source change reaches the open frame in place when the page holds no script (#5022): the same
@@ -374,4 +375,35 @@ test('an update clears the frame marks from blocks the parent no longer admits',
     expect(await marksOn(page, n)).toEqual({ attributes: [], hidden: 0 });
   // What is still admitted keeps exactly the marks it had, and the choices a question hides stay hidden.
   expect(await Promise.all(admitted.map((n) => marksOn(page, n)))).toEqual(before);
+});
+
+test('a first utility class added by a live edit gets a fresh frame with the compiler, and later edits stay in place', async ({
+  page,
+}) => {
+  // The page \`open\` draws has no utility class, so its frame binds without the Tailwind compiler
+  // (#6077); the fixture's earlier pages may have cached the runtime for the tab.
+  await servePageRuntime(page);
+  const renderId = await open(page);
+  await run(
+    page,
+    'change',
+    long({ extra: '<div id="laid" class="flex gap-2 p-4"><span>a</span><span>b</span></div>' }),
+  );
+  // Its first utility class needs the compiler: a fresh frame that styles it.
+  await expect(iframe(page)).not.toHaveAttribute('data-render-id', renderId!);
+  await expect(frame(page).locator('#laid')).toHaveCSS('padding-top', '16px');
+  await expect(frame(page).locator('#laid')).toHaveCSS('display', 'flex');
+  expect(await sameDocument(page)).toBe(false);
+  // That frame keeps the compiler, so a further utility edit applies in place and is styled.
+  await (await frameDocument(page)).evaluate(() => Object.assign(window, { sameDocument: true }));
+  const compiledId = await iframe(page).getAttribute('data-render-id');
+  await run(
+    page,
+    'change',
+    long({ extra: '<div id="laid" class="grid gap-4 p-2"><span>a</span><span>b</span></div>' }),
+  );
+  await expect(frame(page).locator('#laid')).toHaveCSS('padding-top', '8px');
+  await expect(frame(page).locator('#laid')).toHaveCSS('display', 'grid');
+  await expect(iframe(page)).toHaveAttribute('data-render-id', compiledId!);
+  expect(await sameDocument(page)).toBe(true);
 });

@@ -792,8 +792,9 @@ The app also builds the bundled page runtime (#1693) as layered chunks (#6085), 
 `assets/colab-runtime-<name>-<hash>.js` where `<hash>` is the first 16 lowercase hex digits of the file's SHA-256.
 The [chunk vector](vectors/page-runtime-chunks-v1.json) owns the versioned list: each chunk's name, the chunks it
 comes after, the runtime 4 `ui` names and shared `parts` it provides, and its gzip cap; a `reserved` chunk ships
-no bytes yet. The `base` chunk holds React, ReactDOM and htm and sets `window.tmt`, followed by the unmodified
-Tailwind browser script; `ui`, `browser`, `blocks`, `rich-input` and `docs` each add their parts to `window.tmt.ui`
+no bytes yet. The `base` chunk holds the chunk loader and the registry the later chunks fill, followed by the
+unmodified Tailwind browser script, and no React (#6077); `react` holds React, ReactDOM, htm and the icons and sets
+`window.tmt` over that registry; `ui`, `browser`, `blocks`, `rich-input` and `docs` each add their parts to `window.tmt.ui`
 (and `blocks` the shared `PageListTable` part). A chunk may use only modules of the chunks it comes after, which the
 build enforces. `window.tmt.icons` is a frozen set of curated Lucide icons: `src/runtime/icons.ts` is the one list
 (a single line per icon; the build keeps only those). Each icon draws square caps, miter joins, `currentColor`,
@@ -806,8 +807,9 @@ theme through `[data-theme=dark]`, so a page needs no author code; no default Ta
 `browser.metric.radius` on every `rounded-*` scale; no shadows; the system part of the token font stacks; and one
 focus outline of `browser.metric.focus-width` in the focus colour. It is source for a `<style type="text/tailwindcss">`
 block, so it never contains `@import`. All are ordinary inventory files, and the chunks and
-`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. Only a page that opts in loads them (see the bind
-message below), and the renderer CSP is unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
+`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. Every page loads the `base` and the
+theme; only a page that asks for React or runs design-system components loads more (see the bind message below), and the
+renderer CSP is unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
 ReactDOM, htm, `@tailwindcss/browser` and `lucide-react`, each chunk's path, SHA-256, length and gzip length, and the theme's SHA-256 and
 length, and `scripts/verify-runtime.mjs` fails the app build when the bytes or versions differ, when a vector chunk is missing or another
 runtime script is present, when a chunk exceeds 1 MiB or its gzip cap, when the chunks together exceed the vector's 4 MiB gzip budget,
@@ -2783,22 +2785,32 @@ response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
-**Page runtime (#1693).** A page opts in by its first `<meta name="tmt-colab-runtime">`
-element in document order, found by HTML parsing with scripting off (never by text search, so a
-comment, a `textarea`, a `title`, a `style`, a `template`'s content or a script string holding the
-markup does not count, while `noscript` content is ordinary markup and does). The `name` value matches exactly; the
-`content` value is split on ASCII whitespace into case-sensitive tokens, and the page opts in when
-any token is `react` or `tailwind`. Either token loads the runtime (its chunks are chosen below); other
-tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
-This rule is stated here once: the app's parent detection and the native standalone export both
-test against the shared cases in
+**Page runtime (#1693, #6077).** A page that may use Tailwind utilities gets the runtime's `base` and theme,
+so utility classes from the token theme work with no marker. It may when its source, as plain text, has a
+`<script`, an inline `on…=` handler, or a `class` attribute with a token that does not start with `tmt-`
+(the design system's own); any other page binds as before, with no compiler to load or run, and an edit that
+changes the answer mounts a fresh frame. A page asks for React by its first
+`<meta name="tmt-colab-runtime">` element in document order, found by HTML parsing with scripting off
+(never by text search, so a comment, a `textarea`, a `title`, a `style`, a `template`'s content or a
+script string holding the markup does not count, while `noscript` content is ordinary markup and does).
+The `name` value matches exactly; the `content` value is split on ASCII whitespace into case-sensitive
+tokens, and the page asks for React when any token is `react`. `tailwind` is still accepted and asks
+for nothing more; other tokens are ignored. This rule is stated here once: the app's parent detection
+and the native standalone export both test against the shared cases in
 [`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift.
 
-The parent chooses the page's chunks (#6085): the `base`, plus the chunks of the
+The parent chooses the page's chunks (#6085): the `base` (for a page that may use utilities, asks for React or
+runs design-system components); `react` for a page that asks for it or names or
+writes design-system components (they run on React); the chunks of the
 [chunk vector](vectors/page-runtime-chunks-v1.json) that provide the `uiParts` and `parts` declared by the
-verified design-system components whose tags the page writes (and the components those `requires`), plus every
+verified design-system components whose tags the page writes (and the components those `requires`); and every
 chunk those come after, in vector order. A tag counts only when the verified bundle has that component, so page
-markup alone never adds a chunk, and a page without such components gets the `base` alone. The frame never names
+markup alone never adds a chunk past `react`. Without `react` the `style` field is the fixed text
+`@layer theme, base, components, utilities;@import "tailwindcss/theme.css" layer(theme);@import "tailwindcss/utilities.css" layer(utilities);@layer base{:root{background-color:revert-layer}}`
+and one LF before the theme: Tailwind's theme and utilities, no preflight, and the canvas the theme's base layer
+paints taken back (`:root` outranks its `html`), so the frame's page style, the page's canvas and design-system
+components keep their look. With `react` the `style` is the theme alone, which the compiler reads as
+all of Tailwind, preflight included, as before. The compiler resolves only those virtual sheets and never fetches. The frame never names
 a chunk or requests one. The parent fetches each chosen chunk and the theme `assets/colab-runtime.css`, next to
 the renderer on the mount or at the root of the hosted origin, accepts a file only when its SHA-256 and length
 equal the build's `runtime-pin.json`, keeps verified text once per path for the tab (never a failure), and sends
@@ -2813,9 +2825,10 @@ a stale render never receives the bytes. Missing or invalid optional bytes leave
 without taking down unrelated chunks. The cached verified bytes are never transferred or detached. It writes `<style type="text/tailwindcss">` (the theme, as Tailwind source), then one
 `<script>` per chunk in order, then a script that seals the runtime (freezing `window.tmt.ui` and the shared
 parts and removing the chunk loader's globals) into the trusted head after the acknowledgement and before the
-author's document, so `window.tmt` and the theme exist before any page script and each chunk runs once per
-frame. If the base or the theme cannot be fetched or verified, the render ends `failed` rather than running a
-page that needs them; a later chunk that cannot is left out, and only the components whose declared parts it
+author's document, so the theme (and, with `react`, `window.tmt`) exist before any page script and each chunk runs
+once per frame. If the base, the theme or an asked-for `react` cannot be fetched or verified, a page that asks for
+React or runs design-system components ends `failed` rather than running half-working; a page that only may use
+utilities binds with no `runtime` field, as it did before Tailwind was the default, and its classes stay unstyled. A later chunk that cannot is left out, and only the components whose declared parts it
 provides draw a fixed "Part unavailable" status in their place. The same `mountRenderer` serves the owner view and the reader; no capability,
 message type or CSP allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
@@ -6640,8 +6653,8 @@ the three choices and `tmt colab skill layout`; a reason that is empty, longer t
 or holds a control character, and a `--reason` on another kind, are refused the same way. Freeform
 is not a choice. On success the result adds `layout` (and `layoutReason` for a canvas) and
 `read`, the runnable `tmt colab skill NAME` commands to read before writing markup: `layout`,
-`components` and `page-style`, then `runtime` for a `canvas` page or a source that opts in to the
-runtime (`tmt-colab-runtime` marker). `next` stays the
+`components` and `page-style`, then `runtime` for a `canvas` page or a source that asks for React
+(`tmt-colab-runtime` marker with `react`). `next` stays the
 user-only pairing step. The human result prints the layout and one `read first` row of those
 commands. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
 `--file` means empty source; a file or stdin uses the page-write reader (2 MiB
@@ -7617,7 +7630,7 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
 [Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
-A page that opts in to the bundled runtime or uses the design system also gets `page.standalone.html` (see
+Every ordinary page also gets `page.standalone.html` (#6077; see
 [Standalone copy of a page that uses the runtime or the design system](#standalone-copy-of-a-page-that-uses-the-runtime-or-the-design-system-1693-5057)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
@@ -7727,14 +7740,17 @@ Archived browser export is not supported; deleted pages remain denied.
 
 ### Standalone copy of a page that uses the runtime or the design system (#1693, #5057, #6157)
 
-`page.html` is the exact admitted source and never changes. For an ordinary page that needs a
-standalone copy, the export also writes `page.standalone.html`, listed right after `page.html` (after
-`work.json` when the page has work) and before `conversations.json`. It is the document the renderer
-frame builds for the page, with what the page needs written into its head, so the page looks and works
-when the file is opened from disk with no Colab and no network. A page needs a copy when either holds:
+`page.html` is the exact admitted source and never changes. For every ordinary page the export also
+writes `page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work)
+and before `conversations.json`. It is the document the renderer frame builds for the page, with what the
+page needs written into its head, so the page looks and works when the file is opened from disk with no
+Colab and no network. Every copy carries the runtime's compiler (#6077): the copy has no parent to judge a
+page's classes as it changes, and its bytes are written once. So every copy carries the runtime (`{script}`
+and `{style}` below) unless it names a design system; what else it carries:
 
-- It opts in to the bundled runtime: the first `<meta name="tmt-colab-runtime">` in document order,
-  found by parsing, has a `react` or `tailwind` token. The copy carries the runtime.
+- It asks for React ([Page runtime](#renderer-and-live-anchors)): the first `<meta name="tmt-colab-runtime">`
+  in document order, found by parsing, has a `react` token. The copy carries all of the runtime; any other
+  copy carries its `base`.
 - It uses the design system: its source contains `tmt-ui-`, `<tmt-icon` or `tmt-starter`, ignoring
   ASCII case, as plain text with no parsing (the test the renderer frame makes to paint the page,
   [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
@@ -7752,7 +7768,7 @@ what the page needs, and nothing else added:
 <!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>][{designSystem}]</head><body>{source}</body></html>
 ```
 
-A page that needs only the runtime gets exactly the bytes it got before the design system existed.
+A React page that uses nothing else gets exactly the bytes it got before the design system existed.
 
 - `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
   a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
@@ -7769,7 +7785,7 @@ A page that needs only the runtime gets exactly the bytes it got before the desi
   order (what `JSON.stringify` writes) with every `<` written `\u003c`; `{pin}` is the page's pin
   (`<system>` or `<system>@<version>#<hash>`); `{lock}` is `<version>#<hash>` of the bundle the
   export verified, so a page that follows a draft is frozen to the draft its author saw;
-  `data-prose` is written when the page does not ask for the runtime itself. Such a page gets no
+  `data-prose` is written when the page carries no `tmt-colab-runtime` marker. Such a page gets no
   `{script}`: its `{style}` is the runtime theme and the binder runs the chunks. `{binder}` is the
   build's `assets/colab-standalone-binder.js`, recorded in `runtime-pin.json`; it carries the SHA-256
   of each chunk of its build. When the file opens, while its head parses, the binder checks each
@@ -7780,9 +7796,11 @@ A page that needs only the runtime gets exactly the bytes it got before the desi
   notice and defines no component. Once the body has parsed it adds the frame's page-check findings
   (an unknown component is refused as in the frame). The binder fetches nothing and needs no policy
   source beyond the frame's: the policy is unchanged.
-- `{script}` is every runtime chunk of the same build in vector order, each followed by one LF, then
-  `window.__colabRuntimeSeal?.();` (a copy has no parent to choose chunks, so it carries them all, #6085);
-  `{style}` is that build's `assets/colab-runtime.css`. `{designScript}` and `{designStyle}` are the `script` and `style`
+- `{script}`, for a page that asks for React, is every runtime chunk of the same build in vector order,
+  each followed by one LF, then `window.__colabRuntimeSeal?.();` (a copy has no parent to choose chunks, so
+  it carries them all, #6085), and `{style}` is that build's `assets/colab-runtime.css`. For any other page
+  `{script}` is the `base` chunk alone, one LF and the same seal, and `{style}` is the utilities-only prefix
+  of [Page runtime](#renderer-and-live-anchors) then that theme (`standalonePlain.utilitiesOnly` in the vector). `{designScript}` and `{designStyle}` are the `script` and `style`
   strings of the same build's `assets/colab-page-ui.json` (one file, as the app's file count is bounded): the design system's CSS and the script that defines
   `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
   build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text

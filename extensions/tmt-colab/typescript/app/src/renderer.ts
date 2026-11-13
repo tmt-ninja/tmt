@@ -1,6 +1,6 @@
 import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
-import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
+import { loadRuntime, wantsReact, wantsUtilities, type PageRuntime } from './page-runtime.js';
 import {
   loadDesignSystem,
   namesDesignSystem,
@@ -187,7 +187,9 @@ export const SOURCE_UPDATE_MS = 2000;
  * test over-approximates the frame's parsed check: a false match only costs a remount. */
 export function sourceFrameKey(source: string): string {
   if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime|tmt-ds/i.test(source)) return `scripted:${source}`;
-  return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
+  const kind = /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
+  // A frame binds the Tailwind compiler or not (#6077); an edit that changes that needs a new frame.
+  return wantsUtilities(source) ? `${kind}+utilities` : kind;
 }
 /** Whether a frame built for design system `a` is still right for `b`: the same findings and
  * component scripts, runtime chunks and data tags, and (unless `style` is false) the same style. */
@@ -1656,18 +1658,28 @@ export async function mountRenderer(
   // Any scroller that moves the frame (the window or a workspace) moves the visible band.
   window.addEventListener('scroll', queueViewport, { capture: true, passive: true });
   options.signal.addEventListener('abort', destroy, { once: true });
-  // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
+  // A page that may use Tailwind utilities gets the runtime's base, which compiles them (#6077); one
+  // that asks for React, or runs design-system components, also gets React and the chunks they
+  // need. Any other page binds as before, with no compiler to load or run.
   const base = rendererBase();
   // A page that pins a design system runs its components on the page runtime, so it loads both.
   const designSystem = loadDesignSystem(source, options.designSystem).catch(() =>
     noticeFrame('unknown-release'),
   );
+  const react = wantsReact(source);
+  const needsRuntime = react || namesDesignSystem(source) || writesDesignSystemTags(source);
   // The base starts loading at once; the chunks follow from the verified design system (#6085).
-  const runtime =
-    wantsRuntime(source) || namesDesignSystem(source) || writesDesignSystemTags(source)
-      ? designSystem.then((ds) => loadRuntime(base, ds?.runtimeChunks))
+  const runtime = needsRuntime
+    ? designSystem.then((ds) =>
+        loadRuntime(base, [...(react ? ['react'] : []), ...(ds?.runtimeChunks ?? [])]),
+      )
+    : wantsUtilities(source)
+      ? loadRuntime(base)
       : undefined;
-  if (runtime) void loadRuntime(base).catch(() => {});
+  // Awaited when the frame loads; a failure meanwhile is not an unhandled rejection.
+  runtime?.catch(() => {});
+  /** Whether the bound frame carries the runtime's compiler. */
+  let compiled = false;
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
@@ -1686,15 +1698,19 @@ export async function mountRenderer(
     if (stopped) return;
     admittedTags = ds;
     frameDesign = ds;
-    if (runtime) {
+    if (runtime)
       try {
         bundle = await runtime;
       } catch {
-        if (!stopped) stop('failed');
-        return;
+        // A page that needs the runtime cannot run without it. Any other page binds as it did before
+        // Tailwind was the default: its classes stay unstyled (#6077).
+        if (needsRuntime) {
+          if (!stopped) stop('failed');
+          return;
+        }
       }
-      if (stopped) return;
-    }
+    if (stopped) return;
+    compiled = bundle !== undefined;
     // Parts still to paint: their arrival is not viewport-coupled growth until they settle.
     // A grace timer from an earlier render must not settle this one early.
     if (bundle && ds) {
@@ -1779,6 +1795,9 @@ export async function mountRenderer(
   const update = async (source: string): Promise<SourceUpdate> => {
     if (stopped) return 'superseded';
     if (!ready) return 'remount';
+    // A frame bound without the Tailwind compiler cannot style a page's first utility class in
+    // place (#6077); the frame key flips with it too, so the app mounts a fresh frame anyway.
+    if (!compiled && wantsUtilities(source)) return 'remount';
     const turn = ++updates;
     pendingUpdate?.settle('superseded');
     let sourceDigest: string;
@@ -1793,7 +1812,7 @@ export async function mountRenderer(
     // (#5966). Such a page has no pin, so this never reads a release or a draft and cannot time
     // out into a notice; a pinned page never gets here, because its frame key changes with every
     // source. A check that fails keeps the frame as drawn.
-    if (sourceFrameKey(source) === 'design') {
+    if (sourceFrameKey(source).startsWith('design')) {
       const next = await loadDesignSystem(source, options.designSystem).catch(() => frameDesign);
       if (stopped || turn !== updates) return 'superseded';
       if (!sameFrameDesign(next, frameDesign)) return 'remount';

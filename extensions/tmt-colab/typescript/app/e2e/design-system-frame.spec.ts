@@ -561,22 +561,24 @@ test('Rich input tag edits text in the frame', async ({ page }) => {
 });
 
 // #6085: the parent sends a page the base plus the chunks its verified components need.
-test('a one-button page loads only the base and the UI chunk, each once', async ({ page }) => {
+test('a one-button page loads only the base, React and the UI chunk, each once', async ({
+  page,
+}) => {
   const fetched = await servePageRuntime(page);
   const frame = await render(
     page,
     `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Save</tmt-ui-button>`,
   );
   await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
-  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css', 'ui']);
+  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css', 'react', 'ui']);
   // The frame ran each chunk in one script of its own, then sealed the runtime.
   const scripts = await frame
     .locator('script')
     .evaluateAll((nodes) =>
       nodes.map((node) => node.textContent ?? '').filter((text) => text.includes('__colabDefine')),
     );
-  expect(scripts).toHaveLength(2);
-  expect(new Set(scripts).size).toBe(2);
+  expect(scripts).toHaveLength(3);
+  expect(new Set(scripts).size).toBe(3);
   expect(
     await frame
       .locator('body')

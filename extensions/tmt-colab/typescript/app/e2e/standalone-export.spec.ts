@@ -362,6 +362,30 @@ test('a design-system page exported from the app draws its tmt-ui components off
   await context.close();
 });
 
+test('a plain page exported from the app compiles its Tailwind classes offline, with no reset and no React', async ({
+  browser,
+  page,
+}) => {
+  // Every page compiles Tailwind's utilities (#6077): its copy carries the runtime's base alone.
+  const plain =
+    '<div id="row" class="flex gap-2 p-4 text-secondary"><span>a</span><span>b</span></div><ul id="list"><li>one</li></ul>';
+  const made = await exportPinned(page, plain);
+  expect(made.outcome).toEqual({ included: true });
+  const { context, opened, problems, requests } = await openOffline(
+    browser,
+    made.document!,
+    'plain.standalone.html',
+  );
+  await expect(opened.locator('#row')).toHaveCSS('display', 'flex');
+  await expect(opened.locator('#row')).toHaveCSS('padding-top', '16px');
+  await expect(opened.locator('#row')).toHaveCSS('color', color('secondary', 'light'));
+  await expect(opened.locator('#list')).toHaveCSS('list-style-type', 'disc');
+  expect(await opened.evaluate(() => 'tmt' in window)).toBe(false);
+  expect(problems).toEqual([]);
+  expect(requests.filter((url) => !url.startsWith('file:'))).toEqual([]);
+  await context.close();
+});
+
 test('a copy checks its blocks when it opens: a changed bundle or base fails closed, a changed chunk leaves only its parts', async ({
   browser,
   page,

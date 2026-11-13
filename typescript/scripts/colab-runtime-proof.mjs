@@ -8,7 +8,8 @@ import { runPackedCommand } from './packed-command.mjs';
 import { writeExecutable } from '../test/support/executable-fixture.mjs';
 
 const APP_BYTES = 16 * 1024 * 1024;
-const APP_FILES = 128;
+// A packaging sanity cap on the app's file count, the native inventory's APP_FILES (app_inventory.rs).
+const APP_FILES = 160;
 const context = JSON.stringify({ owner: true, deviceId: 'packaging-proof', name: 'Packaging' });
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const ENTRIES = new URL(
@@ -47,8 +48,8 @@ export function expectedFiles(directory) {
     const stat = fs.lstatSync(file);
     total += stat.size;
     assert(stat.isFile() && stat.size > 0 && total <= APP_BYTES, 'Invalid expected app bytes');
-    assert(files.size < APP_FILES, 'Too many expected app files');
     files.set(`/${relative}`, fs.readFileSync(file));
+    assert(files.size <= APP_FILES, 'Too many expected app files');
   };
   for (const name of fs.readdirSync(directory).sort()) {
     if (name === 'assets') {

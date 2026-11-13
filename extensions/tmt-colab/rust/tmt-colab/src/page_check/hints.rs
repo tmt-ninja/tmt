@@ -94,6 +94,16 @@ mod tests {
     }
 
     #[test]
+    fn tailwind_utility_classes_raise_no_hint_and_no_finding() {
+        // Every page compiles Tailwind's utilities (#6077): classes are how a page lays itself out.
+        let source = "<div class=\"flex gap-2 p-4 text-secondary bg-sheet border border-rule rounded\"><section class=\"tmt-ui-card\">Hi</section><p class=\"grid grid-cols-2 md:grid-cols-3\">x</p></div>";
+        assert!(hints(source).is_empty());
+        assert!(hints("<p class=\"p-4 text-secondary\">Hi</p>").is_empty());
+        let report = super::super::check(source).unwrap();
+        assert!(report.findings.is_empty(), "{:?}", report.findings);
+    }
+
+    #[test]
     fn the_markers_are_read_as_text_in_any_case() {
         assert!(uses_design("<P CLASS=\"TMT-UI-CARD\">x</P>"));
         assert!(uses_design("<!-- tmt-starter -->"));

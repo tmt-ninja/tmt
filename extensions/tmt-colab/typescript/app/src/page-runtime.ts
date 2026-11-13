@@ -1,20 +1,58 @@
 import pin from '../runtime-pin.json';
 import { isHostedOrigin } from './hosted-location.js';
 
-/** The marker a page uses to ask for the bundled runtime (#1693): the first
- * `<meta name="tmt-colab-runtime" content="react tailwind">` in document order. */
+/** The marker a page uses to ask for React (#1693, #6077): the first
+ * `<meta name="tmt-colab-runtime" content="react">` in document order. Every page gets Tailwind, so
+ * the `tailwind` token is still accepted but asks for nothing more; unknown tokens are ignored. */
 const MARKER = 'tmt-colab-runtime';
-const TOKENS = new Set(['react', 'tailwind']);
-/** The runtime is one bundle, so any known token loads all of it; unknown tokens are ignored. */
-export function wantsRuntime(source: string): boolean {
+export function wantsReact(source: string): boolean {
   if (!source.includes(MARKER)) return false;
   const meta = new DOMParser()
     .parseFromString(source, 'text/html')
     .querySelector(`meta[name="${MARKER}"]`);
   return (meta?.getAttribute('content') ?? '')
     .split(/[ \t\n\f\r]+/)
-    .some((token) => TOKENS.has(token));
+    .some((token) => token === 'react');
 }
+
+/** A class attribute, quoted or not, found by text: a page's own markup, never parsed. */
+const CLASS_ATTRIBUTE = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+/**
+ * Whether a page may use Tailwind utilities (#6077), so its frame needs the compiler: a class token
+ * that is not the design system's own (`tmt-…`), or a script or inline handler that could add one.
+ * A text test that over-approximates; a false match only loads the compiler. A page with neither
+ * binds as it did before Tailwind was the default, with no compiler to load or run.
+ */
+export function wantsUtilities(source: string): boolean {
+  if (/<script|\bon[a-z]+\s*=/i.test(source)) return true;
+  for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? '';
+    if (value.split(/[ \t\n\f\r]+/).some((token) => token !== '' && !token.startsWith('tmt-')))
+      return true;
+  }
+  return false;
+}
+
+/** Whether the page carries the marker at all, whatever its tokens: the frame keeps the editorial
+ * ramp for a design-system page that did not ask for the runtime itself (#5917). */
+export function hasRuntimeMarker(source: string): boolean {
+  return (
+    source.includes(MARKER) &&
+    new DOMParser().parseFromString(source, 'text/html').querySelector(`meta[name="${MARKER}"]`) !==
+      null
+  );
+}
+
+/**
+ * What a page without React compiles before the theme (#6077): Tailwind's theme and utilities and
+ * no preflight, so Colab's page style and design-system components keep their look. With no
+ * `@import` of its own the browser compiler imports all of Tailwind, preflight included, which a
+ * React page keeps as before. The theme's base layer paints the canvas for a React page; here it is
+ * taken back (`:root` outranks the theme's `html`), so a plain page keeps its own canvas. The
+ * compiler resolves only its own virtual sheets, never the network.
+ */
+export const UTILITIES_ONLY =
+  '@layer theme, base, components, utilities;@import "tailwindcss/theme.css" layer(theme);@import "tailwindcss/utilities.css" layer(utilities);@layer base{:root{background-color:revert-layer}}\n';
 
 /** What the frame bootstrap writes into its trusted head before the author's HTML: the theme
  * as the source of a `<style type="text/tailwindcss">` block, then the runtime's chunk scripts in
@@ -122,9 +160,9 @@ function pinnedText(baseUri: string, file: PinnedFile): Promise<string> {
 }
 
 /**
- * The base and the named chunks, in vector order. The theme and the base must load; a lazy chunk
- * that fails to load or verify is left out, so only the components that need it show as
- * unavailable.
+ * The base and the named chunks, in vector order. The theme, the base and (when named) React must
+ * load; a lazy chunk that fails to load or verify is left out, so only the components that need it
+ * show as unavailable. Without React the theme compiles Tailwind's utilities alone (#6077).
  */
 export async function loadRuntime(
   baseUri: string,
@@ -133,6 +171,7 @@ export async function loadRuntime(
   const wanted = runtimePin.chunks.filter(
     (chunk) => chunk.name === 'base' || names.includes(chunk.name),
   );
+  const react = wanted.some((chunk) => chunk.name === 'react');
   const wasmFile = wanted.find((chunk) => chunk.kind === 'wasm');
   const textChunks = wanted.filter((chunk) => chunk.kind !== 'wasm');
   const [wasm, [style, ...scripts]] = await Promise.all([
@@ -140,14 +179,14 @@ export async function loadRuntime(
     Promise.all([
       pinnedText(baseUri, runtimePin.theme),
       ...textChunks.map((chunk) =>
-        chunk.name === 'base'
+        chunk.name === 'base' || chunk.name === 'react'
           ? pinnedText(baseUri, chunk)
           : pinnedText(baseUri, chunk).catch(() => undefined),
       ),
     ]),
   ]);
   return Object.freeze({
-    style: style!,
+    style: react ? style! : `${UTILITIES_ONLY}${style!}`,
     ...(wasm ? { wasm: { mime: 'application/wasm' as const, bytes: wasm } } : {}),
     scripts: Object.freeze(scripts.filter((script): script is string => script !== undefined)),
   });

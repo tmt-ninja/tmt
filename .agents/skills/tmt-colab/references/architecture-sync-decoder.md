@@ -320,8 +320,9 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `attachments/` subdirectory. The fold now keeps each writer's decoded `own` projection and
   historical signing key in `View`; `export/conversations.rs` projects threads, comments and
   verified Asks from them and renders both conversation files. `export/standalone.rs` derives
-  `page.standalone.html` (#1693, #5057) for a page that opts in to the runtime or uses the design
-  system: `main.rs` reads the runtime and design texts from the app inventory and passes them in as
+  `page.standalone.html` (#1693, #5057, #6077) for every ordinary page: the runtime's base, or all
+  of it for a React page, and the design system when the page uses it. `main.rs` reads the runtime
+  and design texts from the app inventory and passes them in as
   `standalone::Assets`, the runtime marker is read by `page_check::runtime_marker` on the same html5ever
   tree the checker uses, and the design test is a plain text one (`uses_design`). It adds no HTTP route, signing
   capability or core dependency. The browser equivalent is `export.ts`, `export-attachments.ts`,

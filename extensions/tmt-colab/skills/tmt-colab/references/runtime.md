@@ -1,20 +1,21 @@
 # Page runtime
 
-For a page that must react to the reader (filter, sort, toggle, update a table), opt in to the
-bundled runtime instead of hand-writing DOM scripts. Colab loads React 19, htm, Tailwind and a
-curated Lucide icon set into the page before its own script, with no network and no build step.
-A static page stays plain HTML: read [page-style](page-style.md) (`tmt colab skill page-style`).
+For a page that must react to the reader (filter, sort, toggle, update a table), ask for React
+instead of hand-writing DOM scripts. Colab loads React 19, htm and a curated Lucide icon set into the
+page before its own script, with no network and no build step. Tailwind needs no marker: every page
+has it ([page-style](page-style.md#tailwind-utilities), `tmt colab skill page-style`).
 
-## Opt in
+## Ask for React
 
-Put one marker in the page. The first `meta` with this name decides; the tokens are separated by
-ASCII whitespace and either `react` or `tailwind` loads the whole runtime (other tokens are ignored):
+Put one marker in the page. The first `meta` with this name decides; its tokens are separated by
+ASCII whitespace and `react` loads React (`tailwind` is still accepted and adds nothing; other tokens
+are ignored):
 
 ```html
-<meta name="tmt-colab-runtime" content="react tailwind" />
+<meta name="tmt-colab-runtime" content="react" />
 ```
 
-Without the marker nothing extra loads, and `tmt` does not exist.
+Without `react`, `tmt` does not exist.
 
 ## Script
 
@@ -22,7 +23,7 @@ Everything is on one global, `tmt`. There is no JSX, Babel or import: `html` is 
 so components are tagged templates, and `{...}` values are escaped like React text.
 
 ```html
-<meta name="tmt-colab-runtime" content="react tailwind" />
+<meta name="tmt-colab-runtime" content="react" />
 <div id="app"></div>
 <script>
   const { React, createRoot, html, icons } = tmt;
@@ -75,27 +76,9 @@ no network, forms or storage.
 
 ## Look
 
-Tailwind's utility classes work, with Colab's theme instead of its default palette. Colour names are
-the TMT roles and follow Colab's light or dark theme by themselves, so a page needs no theme code:
-`bg-paper`, `bg-sheet`, `bg-code`, `bg-command`, `bg-selection`, `bg-disabled`, `text-text`,
-`text-secondary`, `text-link`, `border-edge`, `border-rule`, and the state colours `text-working`,
-`text-waiting`, `text-review`, `text-blocked` (`bg-`, `border-` and so on work for each). Also
-`black`, `white`, `transparent` and `current`. `rounded` and every sized `rounded-*` take the one
-control radius (`rounded-full` stays a pill, `rounded-none` square), and shadows are removed;
-spacing, flex, grid and type scales are Tailwind's. Do not use a colour Tailwind's default palette names (`bg-blue-500`): it does not exist
-here. Write each class name in full (a lookup of complete names, never `text-${state}`). Mark every state with a symbol and a word, never colour alone.
-
-### Runtime base layer
-
-- `html` paints `surface.paper` across the document canvas, including the viewport below a short
-  page, in either theme.
-- `:where(pre)` sets `max-width: 100%` and `overflow-x: auto`: long code lines scroll inside their
-  block without changing their whitespace or widening the page. The zero-specificity default lets
-  an author's own `pre` styles win.
-- A focused control has one outline in the focus colour, with no offset. Ring and outline utilities
-  default to that same focus colour.
-
-These are base-layer defaults; an author's styles and utility classes can override them.
+Tailwind's utility classes and the token theme work as on every page: read
+[page-style](page-style.md#tailwind-utilities) (`tmt colab skill page-style`). A React page also gets
+Tailwind's reset (preflight), so set list markers, heading sizes and margins with classes.
 
 A page frame is as tall as the page, so `position: fixed` with `inset: 0` covers the whole page,
 not the screen. Design-system dialogs and sheets already open where the reader is. For your own

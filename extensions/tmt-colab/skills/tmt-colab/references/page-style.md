@@ -22,6 +22,45 @@ width, margin or block gap yourself. The starter's `body` rule (centred,
 `max-width: 1280px`) is for `canvas` and `freeform` pages. A page keeps the starter it was created
 with, but the editorial layer is the frame's and follows the current design system.
 
+## Tailwind utilities
+
+Lay out and space the page with utility classes: `flex`, `grid`, `gap-*`, `p-*`, `m-*`, `text-*`,
+`bg-*`, `border-*`, `rounded`. Use them around and between design-system components, never to restyle a
+component's inside (its own classes and parts stay as published): `flex-1` places a card, `p-4` on it
+would change its padding. A plain page gets no reset, so its
+headings, lists and tables keep the look above. Use an inline `style` only for a one-off value the
+theme cannot express.
+
+```html
+<section class="flex flex-wrap gap-4">
+  <article class="tmt-ui-card flex-1"><h3>Build</h3><p class="text-secondary">◆ Waiting on review</p></article>
+  <article class="tmt-ui-card flex-1"><h3>Deploy</h3><p class="text-secondary">✓ Done</p></article>
+</section>
+```
+
+Every page compiles Tailwind's utility classes, with no marker and Colab's theme instead of Tailwind's
+default palette (a page with no class outside `tmt-ui-*` and no script skips the compiler). Colour names are
+the TMT roles and follow Colab's light or dark theme by themselves, so a page needs no theme code:
+`bg-paper`, `bg-sheet`, `bg-code`, `bg-command`, `bg-selection`, `bg-disabled`, `text-text`,
+`text-secondary`, `text-link`, `border-edge`, `border-rule`, and the state colours `text-working`,
+`text-waiting`, `text-review`, `text-blocked` (`bg-`, `border-` and so on work for each). Also
+`black`, `white`, `transparent` and `current`. `rounded` and every sized `rounded-*` take the one
+control radius (`rounded-full` stays a pill, `rounded-none` square), and shadows are removed;
+spacing, flex, grid and type scales are Tailwind's. Do not use a colour Tailwind's default palette names (`bg-blue-500`): it does not exist
+here. Write each class name in full (a lookup of complete names, never `text-${state}`). Mark every state with a symbol and a word, never colour alone.
+
+### Theme base layer
+
+- On a React page ([runtime](runtime.md)), `html` paints `surface.paper` across the document canvas,
+  including the viewport below a short page, in either theme. Any other page keeps its own canvas.
+- `:where(pre)` sets `max-width: 100%` and `overflow-x: auto`: long code lines scroll inside their
+  block without changing their whitespace or widening the page. The zero-specificity default lets
+  an author's own `pre` styles win.
+- A focused control has one outline in the focus colour, with no offset. Ring and outline utilities
+  default to that same focus colour.
+
+These are base-layer defaults; an author's styles and utility classes can override them.
+
 Colab already shows the brand, page title and actions. Do not add a site header,
 navigation, product mark or wordmark, or any sticky or fixed bar. Begin with the
 content; the user sees one Colab header.

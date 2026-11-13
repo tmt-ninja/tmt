@@ -1,19 +1,22 @@
 import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { fixture, input } from './export-input.js';
+import { UTILITIES_ONLY } from '../src/page-runtime.js';
 
-// An opted-in page's export carries its standalone copy with the runtime from the same base the
-// renderer frame uses, wherever the app runs (#1693); a page that uses the design system carries the
-// design system's two files from the same base (#5057). Only the opt-in parse needs a browser
-// (DOMParser), so the marker check is replaced by a text test of the marker name; the base, the
+// A React page's export carries its standalone copy with the whole runtime from the same base the
+// renderer frame uses, wherever the app runs (#1693); any other page the runtime's base (#6077); a
+// page that uses the design system carries the design system's file from the same base (#5057).
+// Only the marker parse needs a browser (DOMParser), so it is replaced by a text test; the base, the
 // fetches, the request and the bundle are the real modules.
 vi.mock('../src/page-runtime.js', async (original) => ({
   ...(await original<typeof import('../src/page-runtime.js')>()),
-  wantsRuntime: (text: string) => text.includes('tmt-colab-runtime'),
+  wantsReact: (text: string) => /tmt-colab-runtime" content="[^"]*\breact\b/.test(text),
+  hasRuntimeMarker: (text: string) => text.includes('tmt-colab-runtime'),
 }));
 
 // The pin over the texts this test serves: each file's text is `text of <file name>` (#6085).
 const BASE = 'colab-runtime-base-0000000000000000.js';
+const REACT = 'colab-runtime-react-2222222222222222.js';
 const UI = 'colab-runtime-ui-1111111111111111.js';
 vi.mock('../runtime-pin.json', () => {
   const file = (name: string) => {
@@ -28,6 +31,7 @@ vi.mock('../runtime-pin.json', () => {
     default: {
       chunks: [
         { name: 'base', ...file('colab-runtime-base-0000000000000000.js') },
+        { name: 'react', ...file('colab-runtime-react-2222222222222222.js') },
         { name: 'ui', ...file('colab-runtime-ui-1111111111111111.js') },
       ],
       theme: file('colab-runtime.css'),
@@ -35,7 +39,7 @@ vi.mock('../runtime-pin.json', () => {
   };
 });
 /** The runtime an export carries: every chunk in load order, then the seal. */
-const runtimeScript = `<script>text of ${BASE}\ntext of ${UI}\nwindow.__colabRuntimeSeal?.();</script>`;
+const runtimeScript = `<script>text of ${BASE}\ntext of ${REACT}\ntext of ${UI}\nwindow.__colabRuntimeSeal?.();</script>`;
 
 const door = 'https://door.test';
 const mount = `${door}/r/abcdefghijklmnop/x/colab/`;
@@ -91,6 +95,7 @@ it('exports inside the TMT app with the runtime from /colab/, the base the rende
   expect(fetched).toEqual([
     `${door}/colab/assets/colab-runtime.css`,
     `${door}/colab/assets/${BASE}`,
+    `${door}/colab/assets/${REACT}`,
     `${door}/colab/assets/${UI}`,
   ]);
   expect(bundle.files.slice(0, 2).map(({ name }) => name)).toEqual([
@@ -113,6 +118,7 @@ it('exports from the paired mount when the TMT app reads through one', async () 
   expect(fetched).toEqual([
     `${mount}assets/colab-runtime.css`,
     `${mount}assets/${BASE}`,
+    `${mount}assets/${REACT}`,
     `${mount}assets/${UI}`,
   ]);
   expect(bundle.standalone).toEqual({ included: true });
@@ -125,6 +131,7 @@ it('exports outside the TMT app from the document base', async () => {
   expect(fetched).toEqual([
     `${door}/app/assets/colab-runtime.css`,
     `${door}/app/assets/${BASE}`,
+    `${door}/app/assets/${REACT}`,
     `${door}/app/assets/${UI}`,
   ]);
   expect(bundle.standalone).toEqual({ included: true });
@@ -147,7 +154,7 @@ it('still exports the page, and says why it has no copy, when the TMT app cannot
 });
 
 const design: string = fixture.standaloneDesign.source;
-it('exports a design-system page with the design files from the base the renderer frame uses, and no runtime', async () => {
+it('exports a design-system page with the design files from the base the renderer frame uses, and the runtime base', async () => {
   // Its own origin: what a page loaded is kept for the session, so each case needs a base nothing has loaded from.
   const own = 'https://design.test';
   const { request, fetched, bundle, copy } = await exportIn(
@@ -157,16 +164,28 @@ it('exports a design-system page with the design files from the base the rendere
     true,
     design,
   );
-  expect(fetched).toEqual([`${own}/colab/assets/colab-page-ui.json`]);
-  expect(request).toEqual({ design: { script: 'page UI script', style: 'page UI style' } });
+  expect([...fetched].sort()).toEqual(
+    [
+      `${own}/colab/assets/colab-page-ui.json`,
+      `${own}/colab/assets/colab-runtime.css`,
+      `${own}/colab/assets/${BASE}`,
+    ].sort(),
+  );
+  expect(request).toEqual({
+    runtime: {
+      script: `text of ${BASE}\nwindow.__colabRuntimeSeal?.();`,
+      style: `${UTILITIES_ONLY}text of colab-runtime.css`,
+    },
+    design: { script: 'page UI script', style: 'page UI style' },
+  });
   expect(bundle.standalone).toEqual({ included: true });
   expect(copy).toContain('<style>page UI style</style>');
   expect(copy).toContain('<script>page UI script</script>');
   expect(copy).toContain('<html data-colab-design>');
-  expect(copy).not.toContain('colab-runtime');
+  expect(copy).not.toContain(REACT);
 });
 
-it('loads the runtime and the design files for a page that asks for both, and for neither when it asks for neither', async () => {
+it('loads the runtime and the design files for a page that asks for both, and the base alone for a plain page', async () => {
   const own = 'https://both.test';
   const both = `${source}${design}`;
   const first = await exportIn(`${own}/colab/p/12345678`, `${own}/colab/p/`, null, true, both);
@@ -175,6 +194,7 @@ it('loads the runtime and the design files for a page that asks for both, and fo
       `${own}/colab/assets/colab-page-ui.json`,
       `${own}/colab/assets/colab-runtime.css`,
       `${own}/colab/assets/${BASE}`,
+      `${own}/colab/assets/${REACT}`,
       `${own}/colab/assets/${UI}`,
     ].sort(),
   );
@@ -186,9 +206,15 @@ it('loads the runtime and the design files for a page that asks for both, and fo
     true,
     '<p>plain</p>',
   );
-  expect(plain.request).toBeUndefined();
+  // Every page compiles Tailwind's utilities (#6077): a plain page's copy carries the base.
+  expect(plain.request).toEqual({
+    runtime: {
+      script: `text of ${BASE}\nwindow.__colabRuntimeSeal?.();`,
+      style: `${UTILITIES_ONLY}text of colab-runtime.css`,
+    },
+  });
   expect(plain.fetched).toEqual([]);
-  expect(plain.copy).toBeUndefined();
+  expect(plain.copy).toContain(`<script>text of ${BASE}\nwindow.__colabRuntimeSeal?.();</script>`);
 });
 
 it('says the design system could not be loaded, whatever else loaded', async () => {

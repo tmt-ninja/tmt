@@ -37,10 +37,16 @@ async function runtimeChunkFiles() {
 /** Bind one page that opted in to the bundled runtime into a renderer frame, as the app does:
  * the served base chunk and theme travel in the bind message's `runtime` field. */
 async function bindRuntimePage(page: Page, base: string, id: string, source: string) {
-  const chunk = (await runtimeChunkFiles()).find((name) => name.startsWith('colab-runtime-base-'));
+  // A React page's parent sends the base, then React (#6077), as the renderer does.
+  const files = await runtimeChunkFiles();
+  const chunks = ['base', 'react'].map((name) =>
+    files.find((file) => file.startsWith(`colab-runtime-${name}-`))!,
+  );
   await page.evaluate(
-    async ({ base, id, source, chunk }) => {
-      const scripts = [await (await fetch(base + 'assets/' + chunk)).text()];
+    async ({ base, id, source, chunks }) => {
+      const scripts = await Promise.all(
+        chunks.map(async (chunk) => (await fetch(base + 'assets/' + chunk)).text()),
+      );
       const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
       const frame = document.createElement('iframe');
       frame.id = id;
@@ -64,7 +70,7 @@ async function bindRuntimePage(page: Page, base: string, id: string, source: str
         [new MessageChannel().port2],
       );
     },
-    { base, id, source, chunk },
+    { base, id, source, chunks },
   );
 }
 /** The full interactive sample in the skill's runtime reference: its last `html` block. */

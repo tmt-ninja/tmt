@@ -136,8 +136,11 @@ Design-system mockups: `tmt colab skill tmt-design-system`.
 
 ## HTML that renders
 
-Use inline styles/scripts, system fonts; interactive pages: [runtime](references/runtime.md)
-(`tmt colab skill runtime`). Read [images](references/attachments.md) (`tmt colab skill attachments`);
+Lay out and space with Tailwind utility classes from Colab's token theme (`flex gap-2 p-4
+text-secondary bg-sheet border-rule`): every page compiles them, with no marker
+([page-style](references/page-style.md#tailwind-utilities)). Never restyle a component's inside; use
+inline `style` only for a one-off value the theme cannot express. Inline scripts, system fonts;
+interactive (React) pages: [runtime](references/runtime.md) (`tmt colab skill runtime`). Read [images](references/attachments.md) (`tmt colab skill attachments`);
 tiny `data:` icons only. The sandbox denies external resources, network, forms, parent authority,
 cookies, storage. Self-navigation can send requests: never put secrets in HTML.
 

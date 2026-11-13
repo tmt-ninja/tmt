@@ -292,7 +292,7 @@ and is never retried. Without that fence a patch retries against current source 
 unrelated edit lands; a changed anchor returns `COLAB_PATCH_CONFLICT`. Existing-page
 `page write` refuses; use `page create --file` for new source. Serving publication never
 falls back offline; uncertain outcomes retain their operation ID as defined by the contract. Export needs an existing parent, creates a new UUID
-directory with `page.html` (plus `page.standalone.html` for a page that opts in to the runtime or uses the design system, or
+directory with `page.html` (plus `page.standalone.html`, which every ordinary page gets since it compiles Tailwind (#6077), or
 the reason there is none), `conversations.json`, `conversations.md`, `manifest.json` and an
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,
