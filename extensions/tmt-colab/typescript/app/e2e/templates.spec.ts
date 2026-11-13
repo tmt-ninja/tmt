@@ -113,6 +113,12 @@ test('Save as template names the page, refuses a taken name with a suggestion, a
   });
   // A template shows its chip and Use template; its menu edits or removes it.
   await expect(page.locator('.template-badge[data-kind="template"]')).toHaveText('Template');
+  // A phone bar keeps only the title (#6359): the chip yields instead of running under Theme.
+  const wide = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.template-badge[data-kind="template"]')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Use template' })).toBeVisible();
+  await page.setViewportSize(wide);
   await page.getByRole('button', { name: 'Use template' }).click();
   const create = page.getByRole('dialog', { name: 'New page' });
   await expect(create.getByRole('listbox').getByRole('option', { selected: true })).toContainText(
