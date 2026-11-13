@@ -54,6 +54,14 @@ for (const width of [1440, 390])
       // A cell selects both sides: the route, then the sender's own values with their sources.
       await matrix.getByRole('button', { name: /^night-1 to core-1: / }).click();
       const inspector = page.getByRole('region', { name: 'Selected member and route' });
+      // Stacked at 390 the panel is below the matrix: a choice brings it into view with focus.
+      if (width === 390) {
+        const heading = inspector.getByRole('heading', { name: 'night-1 → core-1' });
+        await expect(heading).toBeFocused();
+        await expect(heading).toBeInViewport();
+      } else {
+        await expect(matrix.getByRole('button', { name: /^night-1 to core-1: / })).toBeFocused();
+      }
       await expect(inspector).toContainText('SendingLeads only ← Shift B · Night');
       await expect(inspector).toContainText('✕ not sent, explained');
       await expect(inspector).toContainText('State● Awake ← Shift B · Night');

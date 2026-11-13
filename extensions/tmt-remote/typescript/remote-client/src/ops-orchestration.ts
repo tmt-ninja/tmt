@@ -341,17 +341,27 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     track.dataset.days = String(days);
     track.replaceChildren(...slots, marker());
     // One lane per shown plan: where Core's timeline has it in effect.
-    const shown = view.plans.filter((p) => !view.selectedPlanId || p.id === view.selectedPlanId);
+    const shown = view.plans.filter(
+      (p) =>
+        (!view.selectedPlanId || p.id === view.selectedPlanId) &&
+        view.timeline.some((interval) => interval.planIds.includes(p.id)),
+    );
+    lanes.dataset.days = String(days);
     lanes.replaceChildren(
       ...shown.map((p) => {
         const lane = el('div', 'ops-orchestration-lane');
-        for (const interval of view.timeline)
-          if (interval.planIds.includes(p.id)) {
-            const bar = el('span', 'ops-orchestration-lane-bar');
-            place(bar, view, interval.startMs, interval.endMs);
-            bar.style.background = swatch(p.id);
-            lane.append(bar);
-          }
+        // The plan's own swatch, the same one the legend shows; its widest segment carries its name.
+        lane.style.setProperty('--ops-orchestration-plan', swatch(p.id));
+        const segments = view.timeline.filter((interval) => interval.planIds.includes(p.id));
+        const widest = segments.reduce((best, interval) =>
+          interval.endMs - interval.startMs > best.endMs - best.startMs ? interval : best,
+        );
+        for (const interval of segments) {
+          const bar = el('span', 'ops-orchestration-lane-bar', interval === widest ? p.name : '');
+          place(bar, view, interval.startMs, interval.endMs);
+          bar.title = `${p.name} · ${moment(interval.startMs)}–${moment(interval.endMs)}`;
+          lane.append(bar);
+        }
         return lane;
       }),
     );
@@ -363,16 +373,25 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       at,
       ` · ${ids.length ? `${ids.length} plan${ids.length === 1 ? '' : 's'} in effect` : 'Base only'}${atMs === null ? ' · now' : ''}`,
     );
+    // Every plan with a lane, in effect at the selected time first; the others are muted.
+    const listed = [
+      ...ids.flatMap((id) => (planOf(id) ? [planOf(id)!] : [])),
+      ...shown.filter((p) => !ids.includes(p.id)),
+    ];
     legend.replaceChildren(
-      ...ids.flatMap((id) => {
-        const p = planOf(id);
-        if (!p) return [];
-        const item = el('li');
-        const mark = el('span', 'ops-orchestration-swatch');
-        mark.style.background = swatch(id);
-        item.append(mark, el('strong', undefined, p.name), el('span', undefined, planSummary(p)));
-        return [item];
-      }),
+      ...listed
+        .map((p) => {
+          const item = el('li');
+          const mark = el('span', 'ops-orchestration-swatch');
+          mark.style.background = swatch(p.id);
+          item.append(mark, el('strong', undefined, p.name), el('span', undefined, planSummary(p)));
+          if (!ids.includes(p.id)) {
+            item.dataset.later = '';
+            item.append(el('span', 'ops-orchestration-source', 'not at this time'));
+          }
+          return [item];
+        })
+        .flat(),
     );
     if (!view.plans.length)
       legend.replaceChildren(
@@ -460,6 +479,19 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
           target = column.identityId === row.identityId ? target : column.identityId;
           why = undefined;
           draw();
+          // Side by side the cell keeps focus; stacked, the panel is below the fold, so it comes
+          // into view and its heading takes focus.
+          if (matchMedia('(max-width: 1050px)').matches) {
+            const heading = inspector.querySelector<HTMLElement>('h3');
+            if (!heading) return;
+            heading.tabIndex = -1;
+            heading.scrollIntoView({
+              block: 'start',
+              behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            });
+            heading.focus({ preventScroll: true });
+            return;
+          }
           matrixBody
             .querySelector<HTMLElement>(
               `tbody tr:nth-child(${view.members.indexOf(row) + 1}) td:nth-of-type(${index + 1}) button`,
@@ -493,13 +525,23 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       next.focus();
     });
     scroll.append(table);
-    const notes = [
-      el(
-        'p',
-        'ops-orchestration-caption',
-        'B30 batch every 30 min · Direct · Urgent: urgent only · ✕ blocked by the sender rule · ◆ needs a person',
-      ),
-    ];
+    // A compact key: each cell glyph in the matrix's own type, then what it means.
+    const key = el('dl', 'ops-orchestration-key');
+    key.setAttribute('aria-label', 'Matrix key');
+    for (const [glyph, meaning, verdict] of [
+      ['B30', 'batch every 30 min'],
+      ['Direct', 'right away'],
+      ['Urgent', 'urgent only'],
+      ['✕', 'blocked by the sender rule', 'blocked'],
+      ['◆', 'needs a person', 'needs_person'],
+    ] as const) {
+      const item = el('div');
+      const term = el('dt', undefined, glyph);
+      if (verdict) term.dataset.verdict = verdict;
+      item.append(term, el('dd', undefined, meaning));
+      key.append(item);
+    }
+    const notes: HTMLElement[] = [key];
     if (atMs !== null)
       notes.push(
         el(
@@ -734,7 +776,20 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       void loadJobs(row.identityId);
     }
     if (!parts.length) parts.push(sentence('No members match.'));
+    // A redraw (jobs arriving, the 30 s refresh) keeps focus on the same heading.
+    const focused = document.activeElement;
+    const kept =
+      focused instanceof HTMLHeadingElement && inspector.contains(focused)
+        ? focused.textContent
+        : null;
     inspector.replaceChildren(...parts);
+    if (kept === null) return;
+    const heading = [...inspector.querySelectorAll<HTMLElement>('h3')].find(
+      (node) => node.textContent === kept,
+    );
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
   }
 
   function draw() {
