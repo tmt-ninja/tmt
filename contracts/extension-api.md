@@ -175,6 +175,7 @@ remain independent of storage access.
 | `drivers.models`         | `{}`                                                                                                                                                | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                           |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
 | `user.identity`          | `{}`                                                                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                                                                               |
+| `user.person`            | `{}`                                                                                                                                                | `person`: `{identityId, name}` of the configured person, or `null`; never creates or marks (see [below](#the-persons-identity))                                                                                                         |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                                                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
 | `identity.stop`          | `identityId` (canonical UUID), `expectedName`, `close` (bool)                                                                                       | `outcome`: `stopped`, `already-ended`, `not-running`, `conflict` or `not-found`; with `close`, `pane`: `closed`, `gone` or `kept` (see [below](#verified-stop-and-identity-remove))                                                     |
 | `identity.remove`        | `identityId` (canonical UUID), `expectedName`                                                                                                       | `outcome`: `removed`, `conflict` or `not-found`; refuses `AGENT_RUNNING` (see [below](#verified-stop-and-identity-remove))                                                                                                              |
@@ -722,6 +723,12 @@ the global `user.name` setting, else the OS login name from the account database
 writes the reserved `user` entry as `true` only when the entry is absent; an
 existing value, including one that says the identity is not a person, is kept.
 The result is `{identityId, name, created}`.
+
+`user.person` is the read-only form for surfaces that only display or count for the
+person: it returns `{person:{identityId, name}}` for the identity `user.identity` would
+resolve, only when that identity already exists and is marked a person, else
+`{person:null}`. It creates, marks and changes nothing, and an unreadable or invalid
+name is `null`, not an error.
 
 An identity that has a recorded pane binding and no `user=true` entry is an agent,
 and the operation never takes it over. Instead it resolves `<name>-user` and

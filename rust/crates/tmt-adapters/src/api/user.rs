@@ -61,6 +61,14 @@ pub(super) fn configured_person(
     settings: &Settings,
     login: Option<&str>,
 ) -> Result<Option<String>, Fault> {
+    Ok(person_identity(storage, settings, login)?.map(|identity| identity.id))
+}
+
+fn person_identity(
+    storage: &Storage,
+    settings: &Settings,
+    login: Option<&str>,
+) -> Result<Option<Identity>, Fault> {
     let Ok(wanted) = user::wanted_name(settings.user_name.as_ref(), login) else {
         return Ok(None);
     };
@@ -68,10 +76,22 @@ pub(super) fn configured_person(
         if let Some(identity) = find_by_name(storage, &name).map_err(|_| Fault::unavailable())?
             && is_person(storage, &identity)?
         {
-            return Ok(Some(identity.id));
+            return Ok(Some(identity));
         }
     }
     Ok(None)
+}
+
+/// `user.person`: the configured person without creating or marking anything, as
+/// `{"person": {identityId, name}}` or `{"person": null}` when none exists yet.
+pub(super) fn person(
+    storage: &Storage,
+    settings: &Settings,
+    login: Option<&str>,
+) -> Result<Vec<u8>, Fault> {
+    let person = person_identity(storage, settings, login)?
+        .map(|identity| json!({"identityId": identity.id, "name": identity.name}));
+    serde_json::to_vec(&json!({ "person": person })).map_err(|_| Fault::unavailable())
 }
 
 /// An identity with a recorded binding is an agent, unless its own `user` entry says it is a person.
@@ -300,23 +320,30 @@ mod tests {
     }
 
     #[test]
-    fn the_operation_takes_no_input_and_is_advertised() {
+    fn the_operations_take_no_input_and_are_advertised() {
         let ok = json!({"version": 1, "operation": "user.identity", "input": {}});
         assert!(matches!(
             crate::api::decode(&ok.to_string()),
             Ok(crate::api::Request::UserIdentity)
         ));
-        for input in [json!({"name": "Ben"}), json!(null), json!([])] {
-            let body = json!({"version": 1, "operation": "user.identity", "input": input});
-            assert!(crate::api::decode(&body.to_string()).is_err(), "{body}");
-        }
+        let ok = json!({"version": 1, "operation": "user.person", "input": {}});
+        assert!(matches!(
+            crate::api::decode(&ok.to_string()),
+            Ok(crate::api::Request::UserPerson)
+        ));
         let capabilities: Value = serde_json::from_slice(&crate::api::capabilities()).unwrap();
-        assert!(
-            capabilities["operations"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("user.identity"))
-        );
+        for operation in ["user.identity", "user.person"] {
+            for input in [json!({"name": "Ben"}), json!(null), json!([])] {
+                let body = json!({"version": 1, "operation": operation, "input": input});
+                assert!(crate::api::decode(&body.to_string()).is_err(), "{body}");
+            }
+            assert!(
+                capabilities["operations"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(operation))
+            );
+        }
     }
 
     #[test]
@@ -324,6 +351,10 @@ mod tests {
         let (_directory, mut storage) = open();
         let settings = named("ben");
         assert_eq!(configured_person(&storage, &settings, None).unwrap(), None);
+        let read = |storage: &Storage| -> Value {
+            serde_json::from_slice(&person(storage, &settings, None).unwrap()).unwrap()
+        };
+        assert_eq!(read(&storage), json!({"person": null}));
         assert!(find_by_name(&storage, "ben").unwrap().is_none());
         // An unmarked identity with the name is not the person either.
         create_or_resolve(&mut storage, "ben", Lifetime::Saved).unwrap();
@@ -332,6 +363,10 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        assert_eq!(
+            read(&storage),
+            json!({"person": {"identityId": id, "name": "ben"}})
+        );
         assert_eq!(
             configured_person(&storage, &settings, None).unwrap(),
             Some(id)
