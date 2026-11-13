@@ -758,7 +758,13 @@ fn a_held_send_is_attributed_when_it_is_frozen_and_replays_as_frozen() {
         .unwrap();
     writeln!(stream, "{}", json!({"op":"approve","operationId":id})).unwrap();
     let mut events = BufReader::new(stream.try_clone().unwrap());
-    assert_eq!(line(&mut events)["event"], "held");
+    assert_eq!(
+        line(&mut events),
+        json!({"event":"held","operationId":id,
+        "clientId":owner.grant.client_id,"deviceName":owner.grant.name,
+        "recipientId":recipient,"message":"[remote: Test device]\nheld for the owner"}),
+        "the ordinary DM approval preview retains its exact contract shape"
+    );
     writeln!(stream, "{}", json!({"op":"confirm"})).unwrap();
     assert_eq!(line(&mut events)["state"], "accepted");
     assert_eq!(asked(&core), 1, "approval never resolves the person again");
