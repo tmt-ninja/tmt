@@ -1,4 +1,4 @@
-// Conventional PR titles: enforced on pull requests that change a released component, and
+// Conventional PR titles: enforced on every pull request and
 // enforced over the cumulative squash merge-group range; --report-only retains observation mode.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,8 @@ export const CONVENTIONAL_PR_TYPES = Object.freeze([
   'chore',
   'build',
 ]);
+const TITLE_REQUIREMENT =
+  'Every PR title must follow the approved syntax, regardless of changed components.';
 const EXPECTED_TITLE = `Expected type(scope)?: subject, with an optional breaking-change marker. Approved types: ${CONVENTIONAL_PR_TYPES.join(', ')}.`;
 
 export function pendingQueueSubjects({ event, reader }) {
@@ -61,8 +63,8 @@ export function checkQueueTitles({ event, reader }) {
 
 /**
  * The cut planner retains non-conventional released-component changes under Other changes.
- * This gate enforces the approved title policy before queue admission; pull requests that
- * change no released component keep any title.
+ * This gate enforces the same approved title syntax as the merge queue for every PR.
+ * Component attribution is diagnostic only.
  */
 export function checkPullRequestTitle({ title, paths, map }) {
   const components = new Set();
@@ -70,7 +72,7 @@ export function checkPullRequestTitle({ title, paths, map }) {
     for (const name of releasedComponentNamesOfPath(path, map)) components.add(name);
   return {
     components: [...components].sort(),
-    ok: conventionalPrTitle(title) || components.size === 0,
+    ok: conventionalPrTitle(title),
   };
 }
 
@@ -158,13 +160,14 @@ function runPullRequestGate(event, reader) {
   const { title, components, ok } = enforcePullRequestTitle({ event, reader });
   if (ok) {
     writeTitleReport(
-      `### Conventional PR title\n\n${components.length ? 'Conventional title for a PR that changes released component(s).' : 'No released component changed; any title is accepted.'}\n`
+      `### Conventional PR title\n\nConventional PR title accepted. ${TITLE_REQUIREMENT}\n`
     );
     return;
   }
   writeTitleReport(
-    `### Conventional PR title\n\nThis PR changes released component(s) ${components.join(', ')}, but its title is not conventional: <code>${summaryText(title)}</code>. ` +
-      `${EXPECTED_TITLE} The cut planner would otherwise list it only under "Other changes". Edit the PR title (for example fix(remote): keep door origins stable); the separate PR title check runs on edits. Rerun Code quality if its previous title check failed.\n`
+    `### Conventional PR title\n\nThis PR title is not conventional: <code>${summaryText(title)}</code>. ` +
+      (components.length ? `Changed released component(s): ${components.join(', ')}. ` : '') +
+      `${EXPECTED_TITLE} ${TITLE_REQUIREMENT} Edit the PR title (for example fix(remote): keep door origins stable); the separate PR title check runs on edits. Rerun Code quality if its previous title check failed.\n`
   );
   process.exitCode = 1;
 }
