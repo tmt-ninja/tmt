@@ -51,7 +51,7 @@ window.channelBoard = {
       name: 'sample-1',
       squad: 'sample',
       role: 'member',
-      state: 'needs-you',
+      state: 'idle',
       presence: 'active',
       activity: { state: 'idle' },
       waitingOnYou: 4,

@@ -17,12 +17,12 @@ export type AgentState =
   | 'unknown';
 export type AgentMark = 'dot' | 'ring' | 'dashed' | 'clock' | 'diamond' | 'cross' | 'unknown';
 export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
-  working: { mark: 'dot', word: 'Working', tone: 'working' },
+  working: { mark: 'dot', word: 'Working', tone: 'neutral' },
   idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
-  'needs-you': { mark: 'diamond', word: 'Needs you', tone: 'waiting' },
-  blocked: { mark: 'cross', word: 'Blocked', tone: 'blocked' },
+  'needs-you': { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
+  blocked: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
   offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
-  'idle-alert': { mark: 'clock', word: 'Idle alert', tone: 'neutral' },
+  'idle-alert': { mark: 'dashed', word: 'Idle', tone: 'neutral' },
   unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
@@ -104,13 +104,9 @@ export interface OpsPayload {
   truncated: boolean;
 }
 
-/** A row's mark: what it owes the person first, then the board's colour token, then activity. */
+/** The four uncoloured states exposed by the board; pending is not presence. */
 function agentState(agent: OpsPayload['agents'][number]): AgentState {
   if (agent.presence === 'offline') return 'offline';
-  if (agent.pending || agent.waitingOnYou > 0) return 'needs-you';
-  if (agent.stateTone === 'blocked') return 'blocked';
-  if (agent.stateTone === 'working') return 'working';
-  if (agent.stateTone === 'dim') return 'idle';
   const activity = agent.activity?.state;
   return activity === 'working' || activity === 'idle' ? activity : 'unknown';
 }
@@ -169,9 +165,6 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
         squad: agent.squad,
         role: agent.role,
         state,
-        ...(agent.state && agent.state.toLowerCase() !== AGENT_STATES[state].word.toLowerCase()
-          ? { stateText: agent.state }
-          : {}),
         ...(agent.task ? { task: agent.task } : {}),
         ...(agent.next ? { next: agent.next } : {}),
         ...(agent.pending ? { pending: agent.pending } : {}),

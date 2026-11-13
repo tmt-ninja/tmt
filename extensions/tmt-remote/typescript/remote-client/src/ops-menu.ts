@@ -1,20 +1,14 @@
 /** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
-import { shellCount, type ShellMenu } from '@tmt/browser-ui/shell';
-import type { OpsBoard } from './ops-source.js';
-import { bySquad } from './ops-parts.js';
+import type { ShellMenu } from '@tmt/browser-ui/shell';
+import { AGENT_STATES, type OpsBoard } from './ops-source.js';
+import { bySquad, mark } from './ops-parts.js';
 import type { ConversationUnread } from './conversation-seen.js';
 
-export const OPS_SECTIONS = [
-  { id: 'agents', label: 'Agents' },
-  { id: 'squads', label: 'Squads' },
-  { id: 'orchestration', label: 'Orchestration' },
-  { id: 'schedules', label: 'Timers' },
-  { id: 'settings', label: 'Ops settings' },
-] as const;
-export type OpsSection = (typeof OPS_SECTIONS)[number]['id'];
+export const OPS_SECTIONS = [{ id: 'orchestration', label: 'Orchestration' }] as const;
+export type OpsSection = (typeof OPS_SECTIONS)[number]['id'] | 'home';
 
 export function opsSection(hash: string): OpsSection {
-  return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? 'agents';
+  return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? 'home';
 }
 
 export type OpsPlace = OpsSection | { squad: string; memberId?: string };
@@ -50,21 +44,6 @@ export function opsMenu(
   disclosure?: { collapsed: ReadonlySet<string>; toggle(squad: string): void },
   unread?: ReadonlyMap<string, ConversationUnread>,
 ): ShellMenu {
-  // A bounded subset cannot establish a total, and an unavailable read is not an empty board.
-  const observed = board && !board.unavailable && !board.truncated ? board : undefined;
-  const totals: Partial<Record<OpsSection, number>> = {
-    agents: observed?.agents.length,
-    squads: observed?.squads.length,
-    schedules: observed?.schedules?.length,
-  };
-  // The Agents view and its state strip use this same projected state, not a presence guess.
-  const attention = observed?.agents.filter((agent) => agent.state === 'needs-you').length;
-  const item = (id: OpsSection, label: string) => ({
-    id,
-    label,
-    href: `${pathname}#${id}`,
-    current: section === id,
-  });
   const unreadItem = (id: string) => {
     const value = unread?.get(id);
     return value?.state === 'known' && value.count > 0
@@ -74,43 +53,59 @@ export function opsMenu(
         }
       : {};
   };
+  const stateMark = (state: keyof typeof AGENT_STATES) => {
+    const node = mark(AGENT_STATES[state].mark);
+    // The Ops mock uses the shared state mark at 9 px in the compact DM tree.
+    node.style.width = '9px';
+    node.style.height = '9px';
+    return node;
+  };
   return {
     title: 'Ops',
-    groups: [
-      {
-        items: OPS_SECTIONS.filter((entry) => entry.id !== 'settings').map((entry) => ({
-          ...item(entry.id, entry.label),
-          total: totals[entry.id],
-          count: entry.id === 'agents' && attention ? shellCount(attention) : undefined,
-        })),
-      },
-      // Expansion belongs to this route; the shared leaf renders the same tree on phones.
-      ...(!board?.unavailable && board
-        ? bySquad(board, true).map((group) => ({
-            items: [
-              {
-                id: `channel:${group.name}`,
-                label: `#${group.name}`,
-                href: opsHref(pathname, { squad: group.name }),
-                current:
-                  typeof section !== 'string' && section.squad === group.name && !section.memberId,
-                expanded: !disclosure?.collapsed.has(group.name),
-                toggle: disclosure ? () => disclosure.toggle(group.name) : undefined,
-                children: group.agents.map((agent) => ({
-                  id: `dm:${group.name}:${agent.id}`,
-                  label: agent.name,
-                  ...unreadItem(agent.id),
-                  href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
+    groups:
+      !board?.unavailable && board
+        ? [
+            {
+              label: 'This machine',
+              items: bySquad(board, true).map((group) => {
+                const squad = board.squads.find((item) => item.name === group.name);
+                const timers =
+                  !board.truncated && board.schedules
+                    ? board.schedules.filter((item) => item.squad === group.name).length
+                    : undefined;
+                const badges = [
+                  ...(timers ? [`⏱ ${timers}`] : []),
+                  ...(squad?.idleAlertMinutes ? [`Idle ${squad.idleAlertMinutes}m`] : []),
+                ];
+                return {
+                  id: `channel:${group.name}`,
+                  label: `#${group.name}`,
+                  ...(badges.length ? { badges } : {}),
+                  href: opsHref(pathname, { squad: group.name }),
                   current:
                     typeof section !== 'string' &&
                     section.squad === group.name &&
-                    section.memberId === agent.id,
-                })),
-              },
-            ],
-          }))
-        : []),
-    ],
-    settings: item('settings', 'Ops settings'),
+                    !section.memberId,
+                  expanded: !disclosure?.collapsed.has(group.name),
+                  toggle: disclosure ? () => disclosure.toggle(group.name) : undefined,
+                  children: group.agents.map((agent) => ({
+                    id: `dm:${group.name}:${agent.id}`,
+                    label: agent.name,
+                    leading: {
+                      node: stateMark(agent.state),
+                      label: AGENT_STATES[agent.state].word,
+                    },
+                    ...unreadItem(agent.id),
+                    href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
+                    current:
+                      typeof section !== 'string' &&
+                      section.squad === group.name &&
+                      section.memberId === agent.id,
+                  })),
+                };
+              }),
+            },
+          ]
+        : [],
   };
 }

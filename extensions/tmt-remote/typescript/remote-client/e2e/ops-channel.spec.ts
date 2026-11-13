@@ -45,14 +45,8 @@ for (const width of [1440, 390])
       await expect(page.locator('.ops-channel-context [data-tone]')).toHaveCount(0);
       await expect(page.locator('.ops-channel-summary')).toHaveText('Members 3 · Timers 1');
       await expect(page.locator('details.ops-channel-context')).toHaveCount(0);
-      await expect(page.locator('.tmt-ui-topbar-title-chips .tmt-ui-chip-label')).toHaveText([
-        'Idle alert 15 min',
-        'Timers 1',
-        'Read only',
-      ]);
+      await expect(page.locator('.tmt-ui-topbar-title-chips')).toHaveCount(0);
       await expect(page.locator('.tmt-ui-topbar-title-current')).toBeVisible();
-      if (width === 390) await expect(page.locator('.tmt-ui-topbar-title-chips')).toBeHidden();
-      else await expect(page.locator('.tmt-ui-topbar-title-chips')).toBeVisible();
       const member = page.locator('.ops-channel-context .tmt-ui-list-title > a').first();
       await expect(member).toHaveCSS('text-decoration-line', 'none');
       await shot(page, `channel-${width}-${theme}`);
@@ -65,7 +59,9 @@ for (const width of [1440, 390])
       await shot(page, `timers-${width}-${theme}`);
       if (width === 390)
         await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-      const dm = page.locator('.tmt-ui-rail').getByRole('link', { name: 'sample-1', exact: true });
+      const dm = page
+        .locator('.tmt-ui-rail')
+        .getByRole('link', { name: /^sample-1(?: unread)? ·/ });
       await dm.focus();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
@@ -91,15 +87,15 @@ for (const width of [1440, 390])
       if (width === 390)
         await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
       const rail = page.locator('.tmt-ui-rail');
+      await expect(rail.getByText('This machine', { exact: true })).toBeVisible();
+      const squad = rail.getByRole('link', { name: '#sample · ⏱ 1, Idle 15m', exact: true });
+      await expect(squad.locator('.tmt-ui-shell-count')).toHaveText(['⏱ 1', 'Idle 15m']);
       const hide = rail.getByRole('button', { name: 'Hide #sample', exact: true });
       await expect(hide).toHaveAttribute('aria-expanded', 'true');
       if (width === 390) await shot(page, `rail-${width}-${theme}`);
       await hide.click();
-      await expect(rail.getByRole('link', { name: '#sample', exact: true })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
-      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toHaveCount(0);
+      await expect(squad).toHaveAttribute('aria-current', 'page');
+      await expect(rail.getByRole('link', { name: /^sample-1(?: unread)? ·/ })).toHaveCount(0);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
       await page.evaluate(() => {
         window.channelBoard.agents[0]!.task = 'A refreshed sample';
@@ -109,10 +105,10 @@ for (const width of [1440, 390])
         'aria-expanded',
         'false',
       );
-      await rail.getByRole('link', { name: '#sample', exact: true }).focus();
+      await squad.focus();
       await page.keyboard.press('ArrowRight');
-      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toBeVisible();
-      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toHaveAttribute(
+      await expect(rail.getByRole('link', { name: /^sample-1(?: unread)? ·/ })).toBeVisible();
+      await expect(rail.getByRole('link', { name: /^sample-1(?: unread)? ·/ })).toHaveAttribute(
         'aria-current',
         'page',
       );
@@ -184,7 +180,6 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
   });
   await refresh(page);
   await expect(page.locator('.ops-channel-summary')).toContainText('Timers unavailable');
-  await expect(page.locator('.tmt-ui-topbar-title-chips')).toContainText('Timers unavailable');
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
   await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(

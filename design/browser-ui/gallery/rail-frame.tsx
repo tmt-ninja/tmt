@@ -181,6 +181,9 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
     };
     if (tree) {
       for (const item of result.rail.main) item.current = item.id === 'ops';
+      const idle = document.createElement('span');
+      idle.className = 'tmt-ui-state-mark';
+      idle.dataset.shape = 'dashed';
       const entry = (id: string, label: string, extra: Partial<ShellMenuItem> = {}) => ({
         id,
         label,
@@ -209,9 +212,9 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
                 [
                   entry('tmt-gui-lead', 'tmt-gui-lead'),
                   entry('gui-2', 'gui-2', { emphasis: 'unread', count: shellCount(2, 'plain') }),
-                  entry('gui-3', 'gui-3'),
+                  entry('gui-3', 'gui-3', { leading: { node: idle, label: 'Idle' } }),
                 ],
-                { emphasis: 'unread', count: shellCount(2, 'plain') },
+                { emphasis: 'unread', badges: ['⏱ 2', 'Idle 30m'] },
               ),
               squad('night', [entry('night-lead', 'night-lead'), entry('night-1', 'night-1')]),
               entry('tmt-remote', 'tmt-remote', {

@@ -30,6 +30,16 @@ for (const renderer of ['native', 'react'])
         await expect(disclosure('tmt-gui')).toHaveAttribute('aria-expanded', 'true');
         await expect(disclosure('tmt-gui')).toHaveAccessibleName('Hide tmt-gui');
         await expect(menu.locator('li').last()).toHaveClass(/tmt-ui-rail-settings/);
+        await expect(link('tmt-gui').locator('.tmt-ui-shell-count')).toHaveText([
+          '⏱ 2',
+          'Idle 30m',
+        ]);
+        await expect(link('tmt-gui')).toHaveAccessibleName('tmt-gui unread · ⏱ 2, Idle 30m');
+        await expect(link('gui-3')).toHaveAccessibleName('gui-3 · Idle');
+        await expect(link('gui-3').locator('.tmt-ui-state-mark')).toHaveAttribute(
+          'data-shape',
+          'dashed',
+        );
 
         // Unread is bold primary ink, never a colour of its own; the count slot is unchanged.
         const unread = link('gui-2');

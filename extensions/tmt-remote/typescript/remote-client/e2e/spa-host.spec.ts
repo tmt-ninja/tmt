@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { AGENT_STATES } from '../src/ops-source.js';
 import { mockDocument } from '../src/digest-mock.js';
 import type { UsageRange } from '../src/digest-source.js';
 
@@ -398,10 +397,10 @@ test.describe('route identities in the shared top bar', () => {
           ['/remote/settings', 'Settings'],
           ['/remote/create', 'Create a Remote'],
           ['/remote/join', 'Join a Remote'],
-          ['/ops#agents', 'Agents'],
-          ['/ops#squads', 'Squads'],
-          ['/ops#schedules', 'Timers'],
-          ['/ops#settings', 'Ops settings'],
+          ['/ops#agents', 'Ops'],
+          ['/ops#squads', 'Ops'],
+          ['/ops#schedules', 'Ops'],
+          ['/ops#settings', 'Ops'],
           ['/digest', 'Digest'],
           ['/settings#general', 'General'],
           ['/settings#identities', 'Identities'],
@@ -854,7 +853,7 @@ test.describe('the app in a browser', () => {
     // The brand stays in the rail; the single route heading is in the top bar's left group.
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(brand).toContainText('tmt');
-    await expect(header).toContainText('Agents');
+    await expect(header).toHaveText('Ops');
     const [railBox, brandBox, headerBox] = await Promise.all(
       [rail, brand, header].map(async (node) => (await node.boundingBox())!),
     );
@@ -868,11 +867,11 @@ test.describe('the app in a browser', () => {
     await expect(header).toHaveCSS('font-size', '16px');
     // The route heading includes its module prefix without repeating the rail brand.
     await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-    await expect(header).toHaveText('Ops / Agents');
+    await expect(header).toHaveText('Ops');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
     await expect(rail).toHaveCSS('width', '232px');
     await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
-    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeVisible();
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toHaveCount(0);
     const home = rail.locator('a[data-id="home"]');
     const settings = rail.getByRole('link', { name: 'TMT settings', exact: true });
     const settingsBox = (await settings.boundingBox())!;
@@ -901,9 +900,9 @@ test.describe('the app in a browser', () => {
     await page.keyboard.press('Escape');
     await expect(rail).toBeHidden();
     await expect(open).toBeFocused();
-    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeHidden();
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toHaveCount(0);
     await open.click();
-    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeVisible();
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toHaveCount(0);
     await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
     await page.keyboard.press('Escape');
     expect(await page.evaluate(() => localStorage.getItem('tmt.shell.rail'))).toBe('collapsed');
@@ -1090,7 +1089,7 @@ test.describe('the Ops route on the owner read', () => {
         };
         observed.agents[1]!.presence = 'active';
         observed.timers = null;
-        const { page } = await openApp('/ops#squads', async (page) => {
+        const { page } = await openApp('/ops#channel/tmt-core', async (page) => {
           await page.setViewportSize({ width, height: 900 });
           await page.emulateMedia({ colorScheme });
           await page.addInitScript(
@@ -1149,61 +1148,29 @@ test.describe('the Ops route on the owner read', () => {
           expect(geometry.overflow).toBe(false);
         };
         try {
-          const opsLabels = [
-            'Agents',
-            'Squads',
-            'Orchestration',
-            'Timers',
+          await openMenu();
+          const tree = modulePages(page);
+          await expect(tree.locator('a .tmt-ui-module-menu-label')).toHaveText([
             '#tmt-core',
             'tmt-lead',
             'core-3',
-            'Ops settings',
-          ];
-          await inspect(opsLabels, 'squads');
-          const agents = modulePages(page).locator('a[data-id="agents"]');
-          // #5826: one muted total and a decorative attention dot replace the two pills.
-          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2']);
-          await expect(agents).toHaveAccessibleName('Agents · 2 total, 1 need you');
-          await expect(agents.locator('.tmt-ui-attention-dot')).toHaveAttribute(
-            'aria-hidden',
-            'true',
+          ]);
+          await expect(tree.locator('.tmt-ui-rail-sub-group')).toContainText('This machine');
+          await expect(tree.locator('a[data-id="channel:tmt-core"]')).toHaveAttribute(
+            'aria-current',
+            'page',
           );
+          await expect(tree.locator('.tmt-ui-attention-dot')).toHaveCount(0);
           await expect(
-            modulePages(page).locator('a[data-id="schedules"] .tmt-ui-shell-count'),
-          ).toHaveCount(0);
-          const readColours = () =>
-            agents.evaluate((element) => {
-              const probe = document.createElement('span');
-              probe.style.color = 'var(--tmt-ui-color-secondary)';
-              probe.style.background = 'var(--tmt-ui-color-waiting)';
-              element.append(probe);
-              const css = getComputedStyle(probe);
-              const result = {
-                total: getComputedStyle(element.querySelector('.tmt-ui-shell-count')!).color,
-                dot: getComputedStyle(element.querySelector('.tmt-ui-attention-dot')!)
-                  .backgroundColor,
-                secondary: css.color,
-                waiting: css.backgroundColor,
-              };
-              probe.remove();
-              return result;
-            });
-          const colours = await readColours();
-          expect(colours.total).toBe(colours.secondary);
-          expect(colours.dot).toBe(colours.waiting);
-          expect(colours.dot).not.toBe(colours.total);
+            tree.locator('a[data-id="channel:tmt-core"] .tmt-ui-shell-count'),
+          ).toHaveText(['Idle 30m']);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+            false,
+          );
           await page.mouse.move(width - 1, 899);
           await page.screenshot({
             path: testInfo.outputPath(`rail-ops-${width}-${colorScheme}.png`),
           });
-          for (const id of ['agents', 'schedules', 'settings', 'squads']) {
-            await openMenu();
-            await modulePages(page).locator(`a[data-id="${id}"]`).click();
-            await expect(page).toHaveURL(`${origin}/ops#${id}`);
-            await inspect(opsLabels, id);
-            expect(await readColours()).toEqual(colours);
-          }
-          expect(await readColours()).toEqual(colours);
           await page.goto(`${origin}/remote/`);
           await page.evaluate(async () => {
             const { remoteRegistry } = (await import(
@@ -1250,7 +1217,7 @@ test.describe('the Ops route on the owner read', () => {
         'Working',
         'Offline',
       ]);
-      await modulePages(page).getByRole('link', { name: 'core-3', exact: true }).click();
+      await modulePages(page).getByRole('link', { name: 'core-3 · Offline', exact: true }).click();
       await expect(page).toHaveURL(
         `${origin}/ops#dm/00000000-0000-4000-8000-000000000002/tmt-core`,
       );
@@ -1274,370 +1241,23 @@ test.describe('the Ops route on the owner read', () => {
     }
   });
 
-  test('shows the board, refreshes it while visible and stops on leaving the route', async () => {
+  test('refreshes the channel board while visible and stops on leaving the route', async () => {
     let reads: number[] = [];
-    const changed = structuredClone(board) as { agents: { task?: string }[] };
-    changed.agents[0]!.task = 'merge';
+    const changed = structuredClone(board) as { agents: { name: string }[] };
+    changed.agents[0]!.name = 'renamed-lead';
     const { page } = await openApp('/ops', async (page) => {
       reads = await stub(page, [board, changed]);
     });
-    const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
-    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Agents');
-    await expect(rows).toHaveCount(2);
-    // Lead first: the name with its mark, the state as a chip, what it works on, the model.
-    await expect(rows.nth(0).locator('.tmt-ui-table-select')).toHaveText('tmt-lead');
-    await expect(rows.nth(0).locator('.tmt-ui-chip')).toHaveText('Working');
-    await expect(rows.nth(0)).toContainText('review');
-    await expect(rows.nth(1).locator('.tmt-ui-state-mark').first()).toHaveAttribute(
-      'data-shape',
-      'ring',
-    );
-    await expect(rows.nth(1).locator('.tmt-ui-chip').first()).toContainText('Offline');
-    // Every mark is drawn in one box, whatever the state.
-    const boxes = await page
-      .locator('#ops-section .tmt-ui-state-mark')
-      .evaluateAll((marks) =>
-        marks.map((mark) => [
-          mark.getBoundingClientRect().width,
-          mark.getBoundingClientRect().height,
-        ]),
-      );
-    expect(new Set(boxes.map((box) => box.join('x')))).toEqual(new Set(['12x12']));
-    // Each state's own mark, and the timer's clock, keep that box too.
-    const shapes = [...Object.values(AGENT_STATES).map((state) => state.mark), 'clock'];
-    const drawn = await page.evaluate((names) => {
-      const host = document.querySelector('#ops-section')!;
-      const sizes = names.map((shape) => {
-        const mark = document.createElement('span');
-        mark.className = 'tmt-ui-state-mark';
-        mark.dataset.shape = shape;
-        host.append(mark);
-        const box = mark.getBoundingClientRect();
-        mark.remove();
-        return `${box.width}x${box.height}`;
-      });
-      return sizes;
-    }, shapes);
-    expect(new Set(drawn)).toEqual(new Set(['12x12']));
-    // One strip: all agents, then each state (idle and idle alert count as Idle); a count at 0
-    // stays. The vector's offline agent waits on the person, and offline wins.
-    const stats = page.locator('#ops-section .tmt-ui-stat');
-    await expect(stats.locator('.tmt-ui-stat-value')).toHaveText([
-      '2 agents',
-      '1 working',
-      '0 needs you',
-      '0 blocked',
-      '0 idle',
-      '1 offline',
-      '0 unknown',
-    ]);
-    await expect(stats.nth(1)).toHaveAttribute('data-tone', 'working');
-    await expect(stats.nth(1).locator('.tmt-ui-stat-number')).toHaveCSS(
-      'font-family',
-      /Inter, -apple-system, system-ui/,
-    );
-    // Nobody needs the person, so there is no attention banner.
-    await expect(page.locator('#ops-section .tmt-ui-banner')).toHaveCount(0);
-    await expect(page.locator('#ops-section .tmt-ui-table-group-toggle')).toContainText('tmt-core');
-    // The next read, five seconds on, repaints only what changed.
-    await expect(rows.nth(0)).toContainText('merge', { timeout: 8000 });
-    await page.goto(`${origin}/ops#schedules`);
-    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Timers');
-    const timer = page.locator('#ops-section tbody tr');
-    await expect(timer.locator('td').nth(0)).toContainText('Hourly pass');
-    await expect(timer.locator('td').nth(1)).toHaveText('tmt-core');
-    // The schedule is shown as recorded, in the mono face.
-    await expect(timer.locator('td').nth(2)).toHaveText('cron 35 * * * *');
-    await expect(timer.locator('td').nth(2)).toHaveCSS('font-family', /mono/i);
-    await expect(timer.locator('td').nth(3)).toHaveText('tmt-core-pm');
-    await expect(timer.locator('td').nth(4)).toHaveText('c1');
-    await expect(page.locator('#ops-section .tmt-ui-card-head .tmt-ui-chip')).toHaveText(
-      'Read only',
-    );
-    await expect(page.locator('#ops-section')).toContainText('Schedules are shown as recorded.');
-    // How to manage them: the one command, with a Copy that says what happened.
-    await expect(page.locator('#ops-section')).toContainText(
-      'Use the Ops workspace to manage your timers. This web view does not change schedules.',
-    );
-    await expect(page.locator('#ops-section .tmt-ui-command-text')).toHaveText('tmt ops ui');
-    await page.context().grantPermissions(['clipboard-write'], { origin });
-    await page.getByRole('button', { name: 'Copy tmt ops ui' }).click();
-    await expect(page.locator('#ops-section .tmt-ui-command-feedback')).toHaveText('Copied.');
-    // A ruled line over the foot, as on every Ops page.
-    await expect(page.locator('#ops-section .ops-foot')).toHaveCSS('border-top-style', 'solid');
-    await page.goto(`${origin}/ops#settings`);
-    // The settings have no browser read: where they are, then the views that are here.
-    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Ops settings');
-    await expect(page.locator('#ops-section .tmt-ui-page-subtitle')).toHaveText(
-      'Manage your workspace from the terminal.',
-    );
-    const hero = page.locator('#ops-section .tmt-ui-card[data-hero]');
-    await expect(hero.getByRole('heading', { level: 3 })).toHaveText(
-      'The right controls, in your terminal.',
-    );
-    await expect(hero).toContainText(
-      'Ops settings are not available in the browser yet. Open the terminal workspace to view and manage them.',
-    );
-    await expect(hero.locator('.tmt-ui-command-text')).toHaveText('tmt ops ui');
-    await hero.getByRole('button', { name: 'Copy tmt ops ui' }).click();
-    await expect(hero.locator('.tmt-ui-command-feedback')).toHaveText('Copied.');
-    await expect(page.locator('#ops-section .ops-foot')).toHaveText('CLI-managed settings');
-    await page.getByRole('link', { name: 'View squads' }).click();
-    await expect(page).toHaveURL(`${origin}/ops#squads`);
-    await expect(page.locator('.tmt-ui-topbar-title-current')).not.toHaveText('Ops settings');
-    await page.goBack();
-    await page.getByRole('link', { name: 'View agents' }).click();
-    await expect(page).toHaveURL(`${origin}/ops#agents`);
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('#tmt-core');
+    await expect(page.locator('.ops-channel-context .tmt-ui-list-row')).toHaveCount(2);
+    await expect(page.locator('.ops-channel-context')).toContainText('renamed-lead', {
+      timeout: 8000,
+    });
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
     const left = reads.length;
     await page.waitForTimeout(6000);
     expect(reads).toHaveLength(left);
-    await page.close();
-  });
-
-  /** A board of two squads: core has an agent that needs the person, ux has an idle lead. */
-  const squadBoard = () => {
-    const agent = (name: string, squad: string, extra: Record<string, unknown> = {}) => ({
-      id: `00000000-0000-4000-8000-${String(['tmt-lead', 'core-1', 'core-3', 'ux-lead', 'ux-1'].indexOf(name) + 1).padStart(12, '0')}`,
-      name,
-      squad,
-      role: name.endsWith('lead') ? 'lead' : 'member',
-      presence: 'active',
-      waitingOnYou: 0,
-      model: 'sonnet',
-      ...extra,
-    });
-    const squads = [
-      {
-        name: 'tmt-core',
-        layout: 'team',
-        lead: { id: '00000000-0000-4000-8000-000000000001', name: 'tmt-lead' },
-        idleAlertMs: 1800000,
-      },
-      { name: 'tmt-ux', layout: 'team' },
-    ];
-    const agents = [
-      agent('core-1', 'tmt-core', { pending: 'approve the plan', waitingOnYou: 1, task: '#12' }),
-      agent('tmt-lead', 'tmt-core', { stateTone: 'working', task: 'review' }),
-      agent('core-3', 'tmt-core'),
-      agent('ux-lead', 'tmt-ux', { stateTone: 'dim' }),
-      agent('ux-1', 'tmt-ux', { presence: 'offline' }),
-    ];
-    return { version: 1, state: 'ok', squads, agents, timers: [], truncated: false };
-  };
-
-  test('filters, searches, groups and selects agents, and keeps them across a refresh', async () => {
-    const first = squadBoard();
-    const changed = structuredClone(first);
-    Object.assign(changed.agents[1]!, { task: 'merge' });
-    const { page } = await openApp('/ops', async (page) => {
-      await stub(page, [first, changed]);
-    });
-    const section = page.locator('#ops-section');
-    const rows = section.locator('tbody tr:not(.tmt-ui-table-group)');
-    await expect(rows).toHaveCount(5);
-    // Squads in board order, each lead first.
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText([
-      'tmt-lead',
-      'core-1',
-      'core-3',
-      'ux-lead',
-      'ux-1',
-    ]);
-    // Idle and unknown have their own counts.
-    await expect(section.locator('.tmt-ui-stat-value')).toHaveText([
-      '5 agents',
-      '1 working',
-      '1 needs you',
-      '0 blocked',
-      '1 idle',
-      '1 offline',
-      '1 unknown',
-    ]);
-    // What needs the person is above the table; View all filters to it.
-    const banner = section.locator('.tmt-ui-banner');
-    await expect(banner).toContainText('1 agent needs your attention');
-    await expect(banner.locator('.tmt-ui-banner-row')).toContainText(['core-1']);
-    await banner.getByRole('button', { name: 'View all' }).click();
-    await expect(section.getByRole('tab', { name: 'Needs you' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['core-1']);
-    await section.getByRole('tab', { name: 'Idle' }).click();
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['ux-lead']);
-    await section.getByRole('tab', { name: 'Unknown' }).click();
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['core-3']);
-    await section.getByRole('tab', { name: 'All' }).click();
-    // Search matches the name, squad or work.
-    const search = section.getByRole('searchbox', { name: 'Filter agents' });
-    await search.fill('ux');
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['ux-lead', 'ux-1']);
-    await search.fill('nobody');
-    await expect(section).toContainText('No agents match.');
-    await search.fill('');
-    // The first agent that needs the person is selected on load, so the panel is never empty.
-    const detail = page.locator('#ops-detail');
-    await expect(detail.locator('dd').first()).toHaveText('core-1');
-    await expect(section.locator('.tmt-ui-table-select', { hasText: 'core-1' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    // A squad collapses to its header; the pressed agent fills the detail panel.
-    const toggle = section.locator('.tmt-ui-table-group-toggle', { hasText: 'tmt-ux' });
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(rows).toHaveCount(3);
-    await section.getByRole('button', { name: 'tmt-lead' }).click();
-    await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
-    await expect(detail).toContainText('review');
-    // The search, the collapsed squad and the selection survive the next read, five seconds on.
-    await search.fill('tmt-lead');
-    await expect(detail).toContainText('merge', { timeout: 8000 });
-    await expect(search).toHaveValue('tmt-lead');
-    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['tmt-lead']);
-    await expect(rows.first()).toHaveAttribute('data-selected', '');
-    await search.fill('');
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(rows).toHaveCount(3);
-    // Pressing the selected agent again keeps it selected.
-    await section.getByRole('button', { name: 'tmt-lead' }).click();
-    await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
-    await expect(rows.first()).toHaveAttribute('data-selected', '');
-    await page.close();
-  });
-
-  test('shows each squad as a card with its people, and opens an agent in a drawer', async () => {
-    const { page } = await openApp('/ops#squads', async (page) => {
-      await stub(page, [squadBoard()]);
-    });
-    const section = page.locator('#ops-section');
-    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Squads');
-    await expect(section.locator('.tmt-ui-page-subtitle')).toHaveText(
-      'Every team, its lead and the people moving work forward.',
-    );
-    // The same count strip as the agents page.
-    await expect(section.locator('.tmt-ui-stat-value')).toHaveText([
-      '5 agents',
-      '1 working',
-      '1 needs you',
-      '0 blocked',
-      '1 idle',
-      '1 offline',
-      '1 unknown',
-    ]);
-    const cards = section.locator('.ops-squad-card');
-    await expect(cards).toHaveCount(2);
-    // Side by side, equal columns.
-    const boxes = await cards.evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect()));
-    expect(boxes[0]!.top).toBe(boxes[1]!.top);
-    expect(boxes[0]!.width).toBe(boxes[1]!.width);
-    await expect(cards.nth(0).locator('.tmt-ui-card-title')).toHaveText('tmt-core');
-    await expect(cards.nth(0).locator('.ops-squad-meta')).toHaveText('Lead tmt-lead · 3 agents');
-    await expect(cards.nth(1).locator('.ops-squad-meta')).toHaveText('2 agents');
-    // The people as an avatar stack, the lead first.
-    await expect(cards.nth(0).locator('.tmt-ui-avatar')).toHaveText(['TL', 'C1', 'C3']);
-    // One row per agent: mark, name, state chip.
-    const members = cards.nth(0).locator('.ops-squad-member');
-    await expect(members.locator('strong')).toHaveText(['tmt-lead', 'core-1', 'core-3']);
-    await expect(members.locator('.tmt-ui-chip')).toHaveText(['Working', 'Needs you', 'Unknown']);
-    await expect(members.first().locator('.tmt-ui-state-mark').first()).toHaveAttribute(
-      'data-shape',
-      'dot',
-    );
-    // The footer: the idle alert and a Read only badge.
-    await expect(cards.nth(0).locator('.ops-squad-bottom')).toContainText(
-      'Idle alert after 30 minutes',
-    );
-    await expect(cards.nth(1).locator('.ops-squad-bottom')).toContainText(
-      'Idle alert not configured',
-    );
-    await expect(cards.nth(0).locator('.ops-squad-bottom .tmt-ui-chip')).toHaveText('Read only');
-    // An agent opens in a read-only drawer; Escape or Close returns to the row that opened it.
-    const drawer = page.locator('dialog.tmt-ui-drawer');
-    await members.first().click();
-    await expect(drawer).toBeVisible();
-    await expect(drawer.locator('h2')).toHaveText('tmt-lead');
-    await expect(drawer.locator('dd')).toHaveText(['tmt-core', 'Lead', 'sonnet']);
-    await expect(drawer).toContainText('review');
-    await expect(drawer).toContainText('This panel does not control an agent.');
-    await page.keyboard.press('Escape');
-    await expect(drawer).toBeHidden();
-    await expect(members.first()).toBeFocused();
-    await members.nth(1).click();
-    await expect(drawer).toContainText('approve the plan');
-    await drawer.getByRole('button', { name: 'Close core-1' }).click();
-    await expect(drawer).toBeHidden();
-    await page.close();
-  });
-
-  test('refreshes an open squad drawer and returns focus to the current member row', async () => {
-    let current = squadBoard();
-    const { page } = await openApp('/ops#squads', async (page) => {
-      await stub(page, [current]);
-      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
-        route.fulfill({ json: { ...current, observedAtMs: Date.now() } }),
-      );
-    });
-    const row = page.getByRole('button', { name: 'core-1, Needs you', exact: true });
-    await row.click();
-    const drawer = page.getByRole('dialog', { name: 'core-1', exact: true });
-    await expect(drawer).toContainText('approve the plan');
-    current = structuredClone(current);
-    Object.assign(current.agents[0]!, {
-      task: 'The refreshed task',
-      next: 'The refreshed next step',
-      pending: '',
-      waitingOnYou: 0,
-      stateTone: 'working',
-    });
-    await expect(drawer).toContainText('The refreshed task', { timeout: 8000 });
-    await expect(drawer).toContainText('The refreshed next step');
-    await expect(drawer).not.toContainText('approve the plan');
-    await expect(drawer.locator('.ops-drawer-top .tmt-ui-chip').first()).toHaveText('Working');
-    await page.keyboard.press('Escape');
-    await expect(drawer).toBeHidden();
-    await expect(page.getByRole('button', { name: 'core-1, Working', exact: true })).toBeFocused();
-    await page.close();
-  });
-
-  test('reports a removed drawer agent, focuses the page fallback and closes on section departure', async () => {
-    let current = squadBoard();
-    const { page } = await openApp('/ops#squads', async (page) => {
-      await stub(page, [current]);
-      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
-        route.fulfill({ json: { ...current, observedAtMs: Date.now() } }),
-      );
-    });
-    await page.getByRole('button', { name: 'core-1, Needs you', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'core-1', exact: true });
-    await expect(drawer).toContainText('approve the plan');
-    current = { ...current, agents: current.agents.filter((agent) => agent.name !== 'core-1') };
-    await expect(drawer).toContainText('This agent is no longer on the board.', { timeout: 8000 });
-    await expect(drawer).not.toContainText('approve the plan');
-    await expect(drawer.locator('dd')).toHaveCount(0);
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('heading', { name: 'Ops / Squads', exact: true })).toBeFocused();
-
-    await page.getByRole('button', { name: 'tmt-lead, Working', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'tmt-lead', exact: true })).toBeVisible();
-    // History can change while a modal is open. A detached native dialog must not retain `open`.
-    await page.evaluate(() => {
-      location.hash = 'schedules';
-    });
-    await expect(page.getByRole('heading', { name: 'Ops / Timers', exact: true })).toBeVisible();
-    await page.evaluate(() => {
-      location.hash = 'squads';
-    });
-    await expect(page.locator('dialog.tmt-ui-drawer')).not.toHaveAttribute('open');
-    await page.getByRole('button', { name: 'tmt-lead, Working', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'tmt-lead', exact: true })).toBeVisible();
-    await page
-      .locator('nav.tmt-ui-rail a[data-id="digest"]')
-      .evaluate((node: HTMLAnchorElement) => node.click());
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
-    await expect(page.locator('dialog.tmt-ui-drawer')).toHaveCount(0);
     await page.close();
   });
 
@@ -1650,7 +1270,7 @@ test.describe('the Ops route on the owner read', () => {
         down ? route.abort('connectionrefused') : route.fallback(),
       );
     });
-    const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
+    const rows = page.locator('.ops-channel-context .tmt-ui-list-row');
     await expect(rows).toHaveCount(2);
     down = true;
     await expect(page.locator('#ops-note')).toHaveText(
