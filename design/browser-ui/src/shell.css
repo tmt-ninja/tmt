@@ -530,20 +530,39 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
 /* Hover, keyboard focus or a drag reveals a row's grip and actions. A row link a tap or click
    focused (the phone drawer focuses the current row when it opens) keeps the row at rest; plain
    :has(:focus-visible) would hide the actions while Tab moves from the link to them. */
-.tmt-ui-rail-menu-row:is(:hover, :focus-within:not(:has(> a:focus:not(:focus-visible))), [data-dragging]) > .tmt-ui-rail-row-actions {
+.tmt-ui-rail-menu-row:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
+  > .tmt-ui-rail-row-actions {
   visibility: visible;
 }
-.tmt-ui-rail-menu-row:is(:hover, :focus-within:not(:has(> a:focus:not(:focus-visible))), [data-dragging]) > .tmt-ui-swap {
+.tmt-ui-rail-menu-row:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
+  > .tmt-ui-swap {
   --tmt-ui-swap-progress: 1;
   --tmt-ui-swap-reveal-visibility: visible;
 }
 @media (pointer: coarse) {
-  .tmt-ui-rail-menu-row:is(:hover, :focus-within:not(:has(> a:focus:not(:focus-visible))), [data-dragging]) > .tmt-ui-swap {
+  .tmt-ui-rail-menu-row:is(
+      :hover,
+      :focus-within:not(:has(> a:focus:not(:focus-visible))),
+      [data-dragging]
+    )
+    > .tmt-ui-swap {
     --tmt-ui-swap-progress: 0;
     --tmt-ui-swap-reveal-visibility: hidden;
   }
 }
-.tmt-ui-rail-menu-row[data-actions]:is(:hover, :focus-within:not(:has(> a:focus:not(:focus-visible))), [data-dragging])
+.tmt-ui-rail-menu-row[data-actions]:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
   .tmt-ui-shell-counts {
   visibility: hidden;
 }

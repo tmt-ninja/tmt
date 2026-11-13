@@ -275,14 +275,25 @@ for (const renderer of ['native', 'react'])
         const link = row.locator(':scope > a');
         const hamburger = page.getByRole('button', { name: 'Open navigation' });
         if (width === 390) {
-          // A keyboard opening focuses the current row, and keyboard focus reveals its grip.
-          await hamburger.focus();
+          // A tap focuses the current row but leaves it at rest: its icon, no grip, no actions.
+          await hamburger.click();
+          await expect(link).toBeFocused();
+          // The swap transitions; read the row once its animations are done.
+          await row.evaluate((node) =>
+            Promise.all(node.getAnimations({ subtree: true }).map((each) => each.finished)),
+          );
+          await expect(row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest]')).toHaveCSS(
+            'opacity',
+            '1',
+          );
+          await expect(row.locator('[data-rail-part="drag"]')).toBeHidden();
+          await page.keyboard.press('Escape');
+          await expect(hamburger).toBeFocused();
+          // A keyboard opening focuses it too, and keyboard focus reveals its grip.
           await page.keyboard.press('Enter');
           await expect(link).toBeFocused();
           await expect(row.locator('[data-rail-part="drag"]')).toBeVisible();
           await page.keyboard.press('Escape');
-          await expect(hamburger).toBeFocused();
-          // A tap focuses it too, but leaves the row at rest: no grip, no row actions.
           await hamburger.click();
           await expect(link).toBeFocused();
         }

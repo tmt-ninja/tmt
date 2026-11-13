@@ -6231,10 +6231,10 @@ function mountShell(root, view, select, layerHost) {
 	const tipFor = (anchor, text) => {
 		anchor.dataset.note = text;
 	};
-	open.onclick = () => {
+	open.onclick = (event) => {
 		const shown = root.dataset.drawer !== "open";
 		setDrawer(shown);
-		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus();
+		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus({ focusVisible: event.detail === 0 });
 	};
 	const close = (event) => {
 		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
