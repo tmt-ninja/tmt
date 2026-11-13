@@ -394,15 +394,33 @@ fn header(frame: &mut Frame, app: &App, area: Rect) {
     } else if full.width() <= room {
         (full, 0)
     } else {
-        // Without the controls: the short words, then whole trailing parts drop; a part is
-        // never cut mid-phrase.
+        // Without the controls: the short words, then whole parts drop from the end, never
+        // mid-phrase. A refresh failure stays last and is the one part cut with `…`.
         let mut spans = short.spans;
-        while Line::from(spans.clone()).width() > room
+        let failure = spans
+            .iter()
+            .position(|span| span.content.starts_with("◆ Refresh failed"))
+            .map(|at| spans.split_off(at.saturating_sub(1)))
+            .unwrap_or_default();
+        let failure_width = Line::from(failure.clone()).width();
+        while Line::from(spans.clone()).width() + failure_width > room
             && let Some(at) = spans.iter().rposition(|span| span.content == " · ")
         {
             spans.truncate(at);
         }
-        (Line::from(spans), 0)
+        spans.extend(failure);
+        let mut line = Line::from(spans);
+        let total = line.width();
+        if total > room
+            && let Some(last) = line.spans.last_mut()
+        {
+            let keep = room.saturating_sub(total - last.width());
+            last.content = grid::fit(&last.content, keep, Align::Left, Truncate::End)
+                .trim_end()
+                .to_owned()
+                .into();
+        }
+        (line, 0)
     };
     strip::paint_left(
         frame.buffer_mut(),

@@ -1052,6 +1052,21 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
         header.trim_end(),
         " Orchestration · Wed 23:00 Asia/Tokyo · ● now · 2 plans"
     );
+    // A refresh failure is never the part that drops: other parts go first.
+    for width in [100u16, 80, 60] {
+        let header = row_text(
+            &paint(
+                &captures::case("orchestration-refresh-failed", crate::look::Look::default()),
+                width,
+                36,
+            ),
+            3,
+        )
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect::<String>();
+        assert!(header.contains("◆ Refresh fail"), "{width}: {header}");
+    }
     assert!(
         !routes.contains("q quit") && !routes.contains("end focus"),
         "{routes}"
