@@ -158,6 +158,13 @@ is independent of these chart controls and is reloaded through Config on restart
 value, ignored, and never written or removed. Retired
 `workspace.pinned` and `workspace.agent_pins` are accepted with any value, ignored,
 and never written or removed by workspace preference saves.
+`workspace.labels` owns ordered board-only definitions (`id`, `glyph`, `color`,
+`name`) and member UUID assignments in `workspace.labels.members`. Missing
+definitions use the defaults; an explicit empty array stays empty. Each explicit
+label action uses Config's format-preserving CAS and changes only its target;
+deletion is confirmed and removes only that definition and its assignments.
+Definitions are limited to 32 and glyphs to one nonblank, unjoined grapheme of
+one or two terminal cells. They do not alter Core metadata or supplied labels.
 `workspace.digest_window` is accepted with any value and ignored, and never written: the
 Digest window is view state ([board reference](board.md)), and Config seeds nothing from it.
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) selects the estimate unit

@@ -432,6 +432,7 @@ pub(super) enum ActionOutcome {
     CloseMember(Box<workspace::close_member::Completed>),
     Message(String),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
+    LabelEdit(Box<Result<crate::config::OpsPreferences, String>>),
     Send(Box<conversation::outgoing::Completed>),
     SendNow(Box<conversation::SendNowDone>),
     Status(Box<crate::membership::status_update::Outcome>),
@@ -638,6 +639,35 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 next,
                 saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()),
             ))));
+        }
+        Request::MemberLabel {
+            expected,
+            member,
+            label,
+        } => {
+            let mut config = Config::load(core).map_err(|error| error.message)?;
+            config
+                .save_member_label(&expected, &member, label.as_deref())
+                .map_err(|error| error.message)?;
+            let preferences = config
+                .workspace_preferences()
+                .map_err(|error| error.message)?;
+            return Ok(ActionOutcome::WorkspacePreferences(Box::new((
+                preferences,
+                "Label saved.".into(),
+            ))));
+        }
+        Request::LabelEdit { expected, edit } => {
+            let result = (|| {
+                let mut config = Config::load(core).map_err(|error| error.message)?;
+                config
+                    .save_label_edit(&expected, edit)
+                    .map_err(|error| error.message)?;
+                config
+                    .workspace_preferences()
+                    .map_err(|error| error.message)
+            })();
+            return Ok(ActionOutcome::LabelEdit(Box::new(result)));
         }
         Request::Cron(request) => cronboard::act(core, request),
     };
@@ -1311,6 +1341,9 @@ fn session(
                             Ok(ActionOutcome::WorkspacePreferences(completed)) => {
                                 let (preferences, message) = *completed;
                                 app.finished_workspace_preferences(preferences, message);
+                            }
+                            Ok(ActionOutcome::LabelEdit(result)) => {
+                                app.finished_label_edit(*result)
                             }
                             Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
                             Ok(ActionOutcome::SendNow(done)) => app.finished_send_now(*done),

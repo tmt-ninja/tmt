@@ -84,6 +84,8 @@ impl Dropdown {
                     _ => None,
                 };
                 MenuEntry {
+                    chip: None,
+                    separator: false,
                     key: if *target == current {
                         "✓".into()
                     } else {

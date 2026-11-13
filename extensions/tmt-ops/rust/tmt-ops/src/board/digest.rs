@@ -127,6 +127,8 @@ fn choice_entries(granted: &Granted) -> (Vec<MenuEntry>, usize) {
                 ""
             };
             Some(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!("{}{current}", sanitize(&offer.label)),
                 choice: Choice::Digest(granted.set(&offer.value, &offer.label)?),
@@ -139,6 +141,8 @@ fn choice_entries(granted: &Granted) -> (Vec<MenuEntry>, usize) {
         .position(|offer| offer.value == choose.current)
         .unwrap_or_default();
     entries.push(MenuEntry {
+        chip: None,
+        separator: false,
         key: String::new(),
         label: "Custom…".into(),
         choice: Choice::DigestCustom(Box::new(granted.clone())),
@@ -469,6 +473,8 @@ impl App {
                     .into_iter()
                     .filter_map(|(value, shown, caps)| {
                         Some(MenuEntry {
+                            chip: None,
+                            separator: false,
                             key: String::new(),
                             label: shown.clone(),
                             choice: Choice::Digest(set(&value, &shown, caps)?),
@@ -511,6 +517,8 @@ impl App {
         let entries = (1..=count)
             .filter(|n| count % n == 0)
             .map(|n| MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!("{n}{unit} per bar"),
                 choice: Choice::DigestBars(n),

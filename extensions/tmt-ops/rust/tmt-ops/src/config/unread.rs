@@ -42,7 +42,7 @@ impl ReadMarkers {
     }
 }
 
-fn identity(text: &str) -> bool {
+pub(super) fn identity(text: &str) -> bool {
     super::uuid_like(text) && !text.bytes().any(|byte| byte.is_ascii_uppercase())
 }
 

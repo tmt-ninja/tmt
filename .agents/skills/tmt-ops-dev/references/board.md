@@ -78,6 +78,10 @@ The Agents list is a squad tree without filter chips or pins. `T`, `M` and `C`
 open Talk, Measure and the selected member's Checklist. In a chat editor with a
 Checklist target, Ctrl+L opens Checklist without losing the draft or caret; Esc
 returns to the editor. The strip and input hint name Ctrl+L only for that target.
+On a member, `l` opens the board label menu; `0` clears, `1`–`9` choose the first
+nine, and later choices use navigation or a click. The editor owns definitions,
+order and confirmed deletion. Clicking a painted label opens the same menu. No
+label action applies to squad, pool or terminal rows.
 A retained list selection keeps its cursor but loses the active highlight
 and dims while content has focus. App's effective table owns Tab/backtab pane
 switching; text and modal owners handle their raw events first. The same

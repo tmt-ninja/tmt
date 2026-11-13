@@ -296,10 +296,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
     // The section rule yields before the table header, range and last target.
     let rule_height = u16::from(inside.height >= 4);
     let header_height = u16::from(inside.height >= 3);
-    let slots = app.agents_layout.borrow_mut().slots(Rect {
-        y: inside.y + rule_height,
-        ..inside
-    });
+    let slots = app.agents_layout.borrow_mut().slots_with_labels(
+        Rect {
+            y: inside.y + rule_height,
+            ..inside
+        },
+        snapshot.labels_present,
+    );
     let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
         Line::styled(
             format!("Moving {} · ↑↓ choose a squad", moving.name),
@@ -757,6 +760,24 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 &slots,
                 &crate::board::tree_row::Row {
                     source: row,
+                    label: match &row.target {
+                        OpsTarget::Member { identity_id, .. } if snapshot.labels_present => Some(
+                            snapshot
+                                .preferences
+                                .labels
+                                .members
+                                .get(identity_id)
+                                .and_then(|id| {
+                                    snapshot
+                                        .preferences
+                                        .labels
+                                        .definitions
+                                        .iter()
+                                        .find(|label| &label.id == id)
+                                }),
+                        ),
+                        _ => None,
+                    },
                     expanded,
                     last: !continues(&rows, index + 1, row.depth),
                     folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
@@ -835,6 +856,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             }
             if let Some(hit) = checklist_hit {
                 app.workspace_strip_hits.borrow_mut().push(hit);
+            }
+            if let Some(area) = painted.label {
+                app.workspace_strip_hits
+                    .borrow_mut()
+                    .push((area, Choice::LabelTarget(row.target.clone())));
             }
             if let Some(area) = painted.tokens {
                 app.workspace_strip_hits

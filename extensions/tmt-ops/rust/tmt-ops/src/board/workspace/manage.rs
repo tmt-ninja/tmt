@@ -921,6 +921,8 @@ impl App {
                             entries: memberships
                                 .into_iter()
                                 .map(|room| MenuEntry {
+                                    chip: None,
+                                    separator: false,
                                     key: String::new(),
                                     label: context_text(&room.name),
                                     choice: Choice::WorkspaceRoom {

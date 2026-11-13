@@ -628,6 +628,8 @@ impl App {
         let title = self.references.agents[identity].name.clone();
         let mut entries = Vec::new();
         let command = |key: &str, label: &str, action| MenuEntry {
+            chip: None,
+            separator: false,
             key: key.into(),
             label: label.into(),
             choice: Choice::MemberLinkAction {
@@ -640,6 +642,8 @@ impl App {
         }
         if jump.is_ok() {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: "j".into(),
                 label: "Jump to host".into(),
                 choice: Choice::MemberLink {
@@ -657,6 +661,8 @@ impl App {
             }
         }
         entries.push(MenuEntry {
+            chip: None,
+            separator: false,
             key: String::new(),
             label: "Show in Agents".into(),
             choice: Choice::MemberLink {

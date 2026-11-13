@@ -9,24 +9,27 @@ pub(in crate::board) struct Member<'a> {
     pub runtime: Option<&'a str>,
     pub model: Option<&'a str>,
     pub host: Option<&'a str>,
+    pub label: Option<&'a str>,
 }
 
 pub(in crate::board) fn member(data: &Member<'_>, look: Look) -> Line<'static> {
-    Line::styled(
-        format!(
-            " {}",
-            [
-                data.squad,
-                if data.lead { "lead" } else { "member" },
-                data.runtime.unwrap_or("—"),
-                data.model.unwrap_or("—"),
-                data.host.unwrap_or("—"),
-            ]
-            .map(crate::board::notes::single_line)
-            .join(" · ")
-        ),
-        look.role(Role::Muted),
-    )
+    let mut text = format!(
+        " {}",
+        [
+            data.squad,
+            if data.lead { "lead" } else { "member" },
+            data.runtime.unwrap_or("—"),
+            data.model.unwrap_or("—"),
+            data.host.unwrap_or("—"),
+        ]
+        .map(crate::board::notes::single_line)
+        .join(" · ")
+    );
+    if let Some(label) = data.label {
+        text.push_str(" · ");
+        text.push_str(&crate::board::notes::single_line(label));
+    }
+    Line::styled(text, look.role(Role::Muted))
 }
 
 pub(in crate::board) fn squad(
@@ -63,6 +66,7 @@ mod tests {
                 runtime: None,
                 model: None,
                 host: Some("host\u{1b}[31m target"),
+                label: None,
             },
             look,
         );

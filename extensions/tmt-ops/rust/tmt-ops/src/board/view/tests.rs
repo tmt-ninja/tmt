@@ -582,7 +582,10 @@ L = "jump lead"
     assert!(help.iter().any(|line| line == "T  pick a theme"));
     assert!(help.iter().any(|line| line == "j  focus the member's pane"));
     assert!(!app.bindings().contains_key("L"));
-    assert!(!app.bindings().contains_key("l"));
+    assert_eq!(
+        app.bindings()["l"].verb,
+        crate::action::Verb::Ui(crate::action::OpsUiAction::MemberLabel)
+    );
     assert!(
         !help
             .iter()

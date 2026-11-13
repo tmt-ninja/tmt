@@ -32,6 +32,8 @@ pub(crate) struct OpsWorkspaceSnapshot {
     /// adapters. Display models never reconstruct send data from visible text.
     pub rows: BTreeMap<OpsTarget, Value>,
     pub preferences: OpsPreferences,
+    /// Reserve the member chip slot only when an assigned identity is in this roster.
+    pub labels_present: bool,
     pub read_markers: crate::config::ReadMarkers,
     pub squad_looks: BTreeMap<String, crate::look::Look>,
     pub keys: BTreeMap<OpsKeyScope, Bindings>,
@@ -92,6 +94,11 @@ impl OpsWorkspaceSnapshot {
                 .is_some_and(|deadline| now > deadline)
     }
     pub(crate) fn set_preferences(&mut self, preferences: OpsPreferences) {
+        self.labels_present = preferences
+            .labels
+            .members
+            .keys()
+            .any(|id| self.roster.members.contains_key(id));
         self.hidden_count = self
             .roster
             .squads

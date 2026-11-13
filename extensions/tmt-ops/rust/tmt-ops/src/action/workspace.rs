@@ -19,6 +19,7 @@ pub enum OpsUiAction {
     MemberSession,
     SwitchTool,
     MemberNotes,
+    MemberLabel,
     MarkRead,
     Unread,
     MemberBack,
@@ -140,6 +141,13 @@ const SPECS: &[OpsUiSpec] = &[
         "checklist",
         "read and edit the selected agent's Checklist",
         12
+    ),
+    spec!(
+        MemberLabel,
+        "member-label",
+        "label",
+        "label the selected agent",
+        14
     ),
     spec!(
         MemberBack,
@@ -560,6 +568,7 @@ impl OpsUiAction {
         match self {
             Self::MonitorDetails => Some("Observed values (Measure)"),
             Self::MemberSession => Some("Member session"),
+            Self::MemberLabel => Some("Label agent"),
             Self::RenameMember => Some("Rename agent"),
             Self::RemoveMember => Some("Close and delete"),
             _ => None,

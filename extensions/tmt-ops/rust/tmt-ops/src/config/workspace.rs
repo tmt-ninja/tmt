@@ -160,6 +160,92 @@ pub struct OpsPreferences {
     pub savings_unit: super::SavingsUnit,
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
     pub digest_panels: Option<PanelSetting<DigestPanel>>,
+    pub labels: WorkspaceLabels,
+}
+
+/// The person's board labels; these never become agent or Core metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoardLabel {
+    pub id: String,
+    pub glyph: String,
+    pub color: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceLabels {
+    pub definitions: Vec<BoardLabel>,
+    pub members: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelEdit {
+    Upsert(BoardLabel),
+    Move { id: String, index: usize },
+    Delete { id: String },
+}
+
+impl Default for WorkspaceLabels {
+    fn default() -> Self {
+        let definitions = [
+            ("pr", "P", "waiting", "PR"),
+            ("review", "R", "unread", "review"),
+            ("waiting", "W", "muted", "waiting"),
+            ("blocked", "!", "blocked", "blocked"),
+            ("watch", "★", "working", "watch"),
+        ]
+        .into_iter()
+        .map(|(id, glyph, color, name)| BoardLabel {
+            id: id.into(),
+            glyph: glyph.into(),
+            color: color.into(),
+            name: name.into(),
+        })
+        .collect();
+        Self {
+            definitions,
+            members: BTreeMap::new(),
+        }
+    }
+}
+
+pub(crate) fn valid_label_glyph(glyph: &str) -> bool {
+    tmt_tui::text::is_single_cell_or_wide_grapheme(glyph)
+}
+
+fn validate_label(label: &BoardLabel) -> Result<(), SquadError> {
+    if label.id.is_empty()
+        || label.id.len() > 64
+        || !label
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err(invalid(
+            "Label IDs use letters, numbers, hyphens or underscores.",
+        ));
+    }
+    if !valid_label_glyph(&label.glyph) {
+        return Err(invalid(
+            "Use one nonblank character or emoji, one or two cells wide, without joined characters.",
+        ));
+    }
+    if crate::look::role(&label.color).is_none() {
+        return Err(invalid("Choose a board palette color."));
+    }
+    if label.name.trim().is_empty() || label.name.chars().any(char::is_control) {
+        return Err(invalid("Label names must be nonblank text."));
+    }
+    Ok(())
+}
+
+fn label_toml(label: &BoardLabel) -> toml_edit::Value {
+    let mut table = toml_edit::InlineTable::new();
+    table.insert("id", label.id.as_str().into());
+    table.insert("glyph", label.glyph.as_str().into());
+    table.insert("color", label.color.as_str().into());
+    table.insert("name", label.name.as_str().into());
+    toml_edit::Value::InlineTable(table)
 }
 
 fn canonical_room_id(value: &str) -> bool {
@@ -296,6 +382,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("T", "pane-talk"),
             ("M", "pane-measure"),
             ("u", "unread"),
+            ("l", "member-label"),
             ("esc", "clear-scope"),
             ("h", "reveal-hidden"),
         ]
@@ -401,6 +488,240 @@ pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError
     Ok(())
 }
 impl Config {
+    /// Read the user's explicit definitions and UUID assignments without rewriting TOML.
+    pub fn workspace_labels(&self) -> Result<WorkspaceLabels, SquadError> {
+        let mut labels = WorkspaceLabels::default();
+        let Some(workspace) = self.document.get("workspace") else {
+            return Ok(labels);
+        };
+        let workspace = workspace
+            .as_table_like()
+            .ok_or_else(|| invalid("`workspace` must be a table."))?;
+        let Some(item) = workspace.get("labels") else {
+            return Ok(labels);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid("`workspace.labels` must be a table."))?;
+        if let Some(definitions) = table.get("definitions") {
+            let definitions = definitions
+                .as_array()
+                .ok_or_else(|| invalid("Label definitions must be an array."))?;
+            if definitions.len() > 32 {
+                return Err(invalid("A maximum of 32 labels is allowed."));
+            }
+            labels.definitions.clear();
+            let mut ids = BTreeSet::new();
+            for value in definitions {
+                let definition = value
+                    .as_inline_table()
+                    .ok_or_else(|| invalid("Each label must be a table."))?;
+                let field = |key| {
+                    definition
+                        .get(key)
+                        .and_then(|value| value.as_str())
+                        .ok_or_else(|| invalid(format!("Label {key} must be text.")))
+                };
+                let id = field("id")?;
+                let glyph = field("glyph")?;
+                let color = field("color")?;
+                let name = field("name")?;
+                let label = BoardLabel {
+                    id: id.into(),
+                    glyph: glyph.into(),
+                    color: color.into(),
+                    name: name.into(),
+                };
+                validate_label(&label)?;
+                if !ids.insert(label.id.clone()) {
+                    return Err(invalid("Each label needs a unique ID."));
+                }
+                labels.definitions.push(label);
+            }
+        }
+        if let Some(members) = table.get("members") {
+            let members = members
+                .as_table_like()
+                .ok_or_else(|| invalid("Label members must be a table."))?;
+            for (id, value) in members.iter() {
+                let label = value
+                    .as_str()
+                    .ok_or_else(|| invalid("Member label IDs must be text."))?;
+                if !super::unread::identity(id)
+                    || !labels
+                        .definitions
+                        .iter()
+                        .any(|definition| definition.id == label)
+                {
+                    return Err(invalid(
+                        "A member label requires a canonical identity UUID and an existing label ID.",
+                    ));
+                }
+                labels.members.insert(id.into(), label.into());
+            }
+        }
+        Ok(labels)
+    }
+
+    /// Change only one assignment after the user explicitly chooses or clears it.
+    pub fn save_member_label(
+        &mut self,
+        expected: &WorkspaceLabels,
+        member: &str,
+        label: Option<&str>,
+    ) -> Result<(), SquadError> {
+        if self.workspace_labels()? != *expected {
+            return Err(invalid("Labels changed; reload before saving."));
+        }
+        if !super::unread::identity(member)
+            || label.is_some_and(|id| {
+                !expected
+                    .definitions
+                    .iter()
+                    .any(|definition| definition.id == id)
+            })
+        {
+            return Err(invalid("Choose a member and an existing label."));
+        }
+        if expected.members.get(member).map(String::as_str) == label {
+            return Ok(());
+        }
+        self.write(|document| {
+            if document.get("workspace").is_none() {
+                document["workspace"] = Item::Table(Table::new());
+            }
+            if document["workspace"].get("labels").is_none() {
+                document["workspace"]["labels"] = Item::Table(Table::new());
+            }
+            if document["workspace"]["labels"].get("members").is_none() {
+                document["workspace"]["labels"]["members"] = Item::Table(Table::new());
+            }
+            let members = document["workspace"]["labels"]["members"]
+                .as_table_like_mut()
+                .expect("validated member table");
+            if let Some(label) = label {
+                if let Some(existing) = members.get_mut(member).and_then(Item::as_value_mut) {
+                    let decor = existing.decor().clone();
+                    *existing = toml_edit::Value::from(label);
+                    *existing.decor_mut() = decor;
+                } else {
+                    members.insert(member, value(label));
+                }
+            } else {
+                members.remove(member);
+            }
+        })
+    }
+
+    /// Apply one user-confirmed definition edit without rewriting other settings.
+    pub fn save_label_edit(
+        &mut self,
+        expected: &WorkspaceLabels,
+        edit: LabelEdit,
+    ) -> Result<(), SquadError> {
+        if self.workspace_labels()? != *expected {
+            return Err(invalid("Labels changed; reload before saving."));
+        }
+        let index = match &edit {
+            LabelEdit::Upsert(label) => {
+                validate_label(label)?;
+                let found = expected
+                    .definitions
+                    .iter()
+                    .position(|old| old.id == label.id);
+                if found.is_none() && expected.definitions.len() >= 32 {
+                    return Err(invalid("A maximum of 32 labels is allowed."));
+                }
+                found
+            }
+            LabelEdit::Move { id, index } => {
+                if *index >= expected.definitions.len() {
+                    return Err(invalid("Label order is out of range."));
+                }
+                Some(
+                    expected
+                        .definitions
+                        .iter()
+                        .position(|old| &old.id == id)
+                        .ok_or_else(|| invalid("Label no longer exists."))?,
+                )
+            }
+            LabelEdit::Delete { id } => Some(
+                expected
+                    .definitions
+                    .iter()
+                    .position(|old| &old.id == id)
+                    .ok_or_else(|| invalid("Label no longer exists."))?,
+            ),
+        };
+        if matches!((&edit, index), (LabelEdit::Upsert(label), Some(index)) if expected.definitions[index] == *label)
+            || matches!((&edit, index), (LabelEdit::Move { index: target, .. }, Some(index)) if *target == index)
+        {
+            return Ok(());
+        }
+        self.write(|document| {
+            if document.get("workspace").is_none() {
+                document["workspace"] = Item::Table(Table::new());
+            }
+            if document["workspace"].get("labels").is_none() {
+                document["workspace"]["labels"] = Item::Table(Table::new());
+            }
+            let labels = document["workspace"]["labels"]
+                .as_table_like_mut()
+                .expect("validated label table");
+            if labels.get("definitions").is_none() {
+                let mut values = toml_edit::Array::new();
+                for definition in &expected.definitions {
+                    values.push(label_toml(definition));
+                }
+                labels.insert("definitions", value(values));
+            }
+            let values = labels
+                .get_mut("definitions")
+                .and_then(Item::as_value_mut)
+                .and_then(toml_edit::Value::as_array_mut)
+                .expect("validated definitions");
+            match &edit {
+                LabelEdit::Upsert(label) => {
+                    if let Some(index) = index {
+                        let table = values
+                            .get_mut(index)
+                            .and_then(toml_edit::Value::as_inline_table_mut)
+                            .expect("validated definition");
+                        for (key, next) in [
+                            ("glyph", &label.glyph),
+                            ("color", &label.color),
+                            ("name", &label.name),
+                        ] {
+                            let old = table.get_mut(key).expect("validated field");
+                            if old.as_str() != Some(next.as_str()) {
+                                let decor = old.decor().clone();
+                                *old = toml_edit::Value::from(next.as_str());
+                                *old.decor_mut() = decor;
+                            }
+                        }
+                    } else {
+                        values.push(label_toml(label));
+                    }
+                }
+                LabelEdit::Move { index: target, .. } => {
+                    let item = values.remove(index.unwrap());
+                    values.insert(*target, item);
+                }
+                LabelEdit::Delete { .. } => {
+                    values.remove(index.unwrap());
+                }
+            }
+            if let LabelEdit::Delete { id } = &edit
+                && let Some(members) = labels.get_mut("members").and_then(Item::as_table_like_mut)
+            {
+                for (member, _) in expected.members.iter().filter(|(_, label)| *label == id) {
+                    members.remove(member);
+                }
+            }
+        })
+    }
+
     /// Retired board composition remains in the authored file and in independent
     /// CLI projections. The shell reports exactly which settings need migration.
     pub fn workspace_migration_notices(&self) -> Vec<String> {
@@ -497,6 +818,7 @@ impl Config {
                 }
                 "overview_panels" => result.overview_panels = Some(PanelSetting::observe(item)),
                 "digest_panels" => result.digest_panels = Some(PanelSetting::observe(item)),
+                "labels" => result.labels = self.workspace_labels()?,
                 // Retired pin preferences remain untouched in user-owned TOML.
                 "pinned" | "agent_pins" => {}
                 "hidden" => {
@@ -1619,6 +1941,282 @@ mod tests {
             fs::remove_dir_all(&self.0).unwrap();
         }
     }
+
+    #[test]
+    fn workspace_labels_are_admitted_without_touching_legacy_settings() {
+        let fixture = FileFixture::new();
+        let authored = "# keep this comment\n[workspace]\npinned = ['legacy'] # untouched\nagent_pins = 'legacy'\noverview_sort = 'legacy'\n[workspace.labels]\ndefinitions = [{id = 'review', glyph = 'R', color = 'accent', name = 'review'}]\n[workspace.labels.members]\n\"66666666-6666-4666-8666-666666666666\" = 'review'\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        fixture
+            .config()
+            .workspace_preferences()
+            .expect("workspace label settings are valid");
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("ops.toml")).unwrap(),
+            authored
+        );
+    }
+
+    #[test]
+    fn assigning_a_member_label_changes_only_that_value_and_guards_stale_files() {
+        let fixture = FileFixture::new();
+        let authored = "# keep this comment\n[workspace]\npinned = ['legacy'] # untouched\nagent_pins = 'legacy'\noverview_sort = 'legacy'\n[workspace.labels]\ndefinitions = [{id = 'pr', glyph = 'P', color = 'waiting', name = 'PR'}, {id = 'review', glyph = 'R', color = 'accent', name = 'review'}]\n[workspace.labels.members]\n\"66666666-6666-4666-8666-666666666666\" = 'review' # member\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        let mut first = fixture.config();
+        let mut stale = fixture.config();
+        let expected = first.workspace_labels().unwrap();
+        first
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        let updated = fs::read_to_string(first.path()).unwrap();
+        assert_eq!(
+            updated,
+            authored.replace("= 'review' # member", "= \"pr\" # member")
+        );
+        assert!(
+            stale
+                .save_member_label(&expected, "66666666-6666-4666-8666-666666666666", None)
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(first.path()).unwrap(), updated);
+        let current = first.workspace_labels().unwrap();
+        let externally_edited = format!("{updated}# external edit\n");
+        fs::write(first.path(), &externally_edited).unwrap();
+        first
+            .save_member_label(&current, "66666666-6666-4666-8666-666666666666", Some("pr"))
+            .unwrap();
+        assert_eq!(fs::read_to_string(first.path()).unwrap(), externally_edited);
+    }
+
+    #[test]
+    fn label_defaults_explicit_empty_and_glyph_admission_are_distinct() {
+        let fixture = FileFixture::new();
+        assert_eq!(
+            fixture
+                .config()
+                .workspace_labels()
+                .unwrap()
+                .definitions
+                .len(),
+            5
+        );
+        let mut config = fixture.config();
+        let original = fs::read(config.path()).unwrap();
+        let labels = config.workspace_labels().unwrap();
+        config
+            .save_member_label(&labels, "66666666-6666-4666-8666-666666666666", None)
+            .unwrap();
+        assert_eq!(
+            fs::read(config.path()).unwrap(),
+            original,
+            "clearing an unlabelled member must not create settings"
+        );
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "[workspace.labels]\ndefinitions = []\n",
+        )
+        .unwrap();
+        assert!(
+            fixture
+                .config()
+                .workspace_labels()
+                .unwrap()
+                .definitions
+                .is_empty()
+        );
+        for glyph in ["P", "界", "★", "🙂", "e\u{301}"] {
+            assert!(valid_label_glyph(glyph), "{glyph:?}");
+        }
+        for glyph in ["", " ", "ab", "\n", "👩\u{200d}💻"] {
+            assert!(!valid_label_glyph(glyph), "{glyph:?}");
+        }
+    }
+
+    #[test]
+    fn assigning_first_default_label_preserves_legacy_bytes() {
+        let fixture = FileFixture::new();
+        let authored = "# authored\n[workspace]\npinned=['x'] # keep\nagent_pins={x='y'}\noverview_sort=42\n[other]\nkey='value' # untouched\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        let after = fs::read_to_string(config.path()).unwrap();
+        let without_assignment = after
+            .replace(
+                "[workspace.labels.members]\n66666666-6666-4666-8666-666666666666 = \"pr\"\n",
+                "",
+            )
+            .replace("\n[workspace.labels]\n\n", "");
+        assert_eq!(without_assignment, authored);
+        assert_eq!(
+            fixture.config().workspace_labels().unwrap().members["66666666-6666-4666-8666-666666666666"],
+            "pr"
+        );
+    }
+
+    #[test]
+    fn assigning_an_inline_member_label_preserves_unrelated_inline_fields() {
+        let fixture = FileFixture::new();
+        let authored = "[workspace]\nlabels = { note = 'keep', members = { \"66666666-6666-4666-8666-666666666666\" = 'review' } } # keep\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(config.path()).unwrap(),
+            authored.replace("= 'review'", "= \"pr\"")
+        );
+    }
+
+    #[test]
+    fn assigning_with_inline_labels_and_no_members_is_safe() {
+        let fixture = FileFixture::new();
+        fs::write(
+            fixture.0.join("ops.toml"),
+            "[workspace]\nlabels = { note = 'keep' } # keep\n",
+        )
+        .unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &expected,
+                "66666666-6666-4666-8666-666666666666",
+                Some("pr"),
+            )
+            .unwrap();
+        let read = fixture.config().workspace_labels().unwrap();
+        assert_eq!(read.members["66666666-6666-4666-8666-666666666666"], "pr");
+        let text = fs::read_to_string(config.path()).unwrap();
+        assert!(text.contains("note = 'keep'"));
+        assert!(text.contains("# keep"));
+    }
+
+    #[test]
+    fn editing_a_definition_preserves_other_labels_assignments_and_comments() {
+        let fixture = FileFixture::new();
+        let authored = "# authored\n[workspace]\npinned=['keep'] # pin\n[workspace.labels]\ndefinitions = [{id='pr', glyph='P', color='waiting', name='PR'}, {id='review', glyph='R', color='unread', name='review'}] # definitions\n[workspace.labels.members]\n\"66666666-6666-4666-8666-666666666666\" = 'review' # member\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_labels().unwrap();
+        let mut changed = expected.definitions[1].clone();
+        changed.name = "needs review".into();
+        config
+            .save_label_edit(&expected, LabelEdit::Upsert(changed))
+            .unwrap();
+        let output = fs::read_to_string(config.path()).unwrap();
+        assert_eq!(
+            output,
+            authored.replace("name='review'", "name=\"needs review\"")
+        );
+        assert_eq!(
+            fixture.config().workspace_labels().unwrap().members,
+            expected.members
+        );
+    }
+
+    #[test]
+    fn reordering_keeps_assignments_and_confirmed_delete_removes_only_its_assignments() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        let first = config.workspace_labels().unwrap();
+        config
+            .save_member_label(
+                &first,
+                "66666666-6666-4666-8666-666666666666",
+                Some("review"),
+            )
+            .unwrap();
+        let before_move = config.workspace_labels().unwrap();
+        config
+            .save_label_edit(
+                &before_move,
+                LabelEdit::Move {
+                    id: "review".into(),
+                    index: 0,
+                },
+            )
+            .unwrap();
+        let moved = config.workspace_labels().unwrap();
+        assert_eq!(moved.definitions[0].id, "review");
+        assert_eq!(moved.members, before_move.members);
+        config
+            .save_label_edit(
+                &moved,
+                LabelEdit::Delete {
+                    id: "review".into(),
+                },
+            )
+            .unwrap();
+        let deleted = fixture.config().workspace_labels().unwrap();
+        assert!(!deleted.definitions.iter().any(|label| label.id == "review"));
+        assert!(deleted.members.is_empty());
+        let text = fs::read_to_string(config.path()).unwrap();
+        assert!(
+            text.contains("# preserve user text\n[bind]\nj='copy'\n[squad.other]\nlayout='crew'\n")
+        );
+    }
+
+    #[test]
+    fn a_thirty_third_definition_and_invalid_glyphs_leave_the_file_unchanged() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        for index in 5..32 {
+            let current = config.workspace_labels().unwrap();
+            config
+                .save_label_edit(
+                    &current,
+                    LabelEdit::Upsert(BoardLabel {
+                        id: format!("item-{index}"),
+                        glyph: "P".into(),
+                        color: "waiting".into(),
+                        name: format!("Item {index}"),
+                    }),
+                )
+                .unwrap();
+        }
+        let expected = config.workspace_labels().unwrap();
+        assert_eq!(expected.definitions.len(), 32);
+        let before = fs::read(config.path()).unwrap();
+        let mut next = BoardLabel {
+            id: "overflow".into(),
+            glyph: "P".into(),
+            color: "waiting".into(),
+            name: "Overflow".into(),
+        };
+        assert!(
+            config
+                .save_label_edit(&expected, LabelEdit::Upsert(next.clone()))
+                .is_err()
+        );
+        next.id = expected.definitions[0].id.clone();
+        for glyph in ["", " ", "ab", "\n", "👩\u{200d}💻"] {
+            next.glyph = glyph.into();
+            assert!(
+                config
+                    .save_label_edit(&expected, LabelEdit::Upsert(next.clone()))
+                    .is_err(),
+                "{glyph:?}"
+            );
+        }
+        assert_eq!(fs::read(config.path()).unwrap(), before);
+    }
     #[test]
     fn preferences_reload_without_mutating_membership_or_unrelated_user_scopes() {
         let fixture = FileFixture::new();
@@ -1633,6 +2231,7 @@ mod tests {
             savings_unit: super::super::SavingsUnit::Cost,
             overview_panels: None,
             digest_panels: None,
+            labels: expected.labels.clone(),
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
         let reloaded = fixture.config();

@@ -243,6 +243,8 @@ impl App {
         let entries = crate::config::DigestWindow::ALL
             .into_iter()
             .map(|window| MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!(
                     "{}{}",
@@ -663,6 +665,7 @@ impl App {
                     action.verb,
                     Verb::Ui(
                         OpsUiAction::IdleAlert
+                            | OpsUiAction::MemberLabel
                             | OpsUiAction::NewMember
                             | OpsUiAction::Edit
                             | OpsUiAction::Rename
@@ -1224,6 +1227,7 @@ impl App {
                 return self.workspace_save(next);
             }
             MemberSession => return self.open_member_session(),
+            MemberLabel => return self.open_member_label(),
             MemberNotes => return self.open_notes(),
             MarkRead => return self.mark_read_selected(),
             MemberBack => return self.close_member_frame(),
@@ -1341,7 +1345,7 @@ impl App {
         Effect::None
     }
 
-    pub(super) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
+    pub(in crate::board) fn workspace_input_owner(&self) -> crate::board::shell::OpsInputOwner {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
@@ -1458,6 +1462,8 @@ impl App {
                         OpsUiAction::HideSquad
                     };
                     entries.push(MenuEntry {
+                        chip: None,
+                        separator: false,
                         key: String::new(),
                         label: crate::board::view::footer::hint_word(
                             self,
@@ -1471,12 +1477,16 @@ impl App {
                         ("Rename squad", Kind::RenameSquad),
                     ] {
                         entries.push(MenuEntry {
+                            chip: None,
+                            separator: false,
                             key: String::new(),
                             label: label.into(),
                             choice: Choice::WorkspaceBegin(kind),
                         });
                     }
                     entries.push(MenuEntry {
+                        chip: None,
+                        separator: false,
                         key: String::new(),
                         label: "Timers".into(),
                         choice: Choice::Action(
@@ -1485,6 +1495,8 @@ impl App {
                     });
                 }
                 entries.push(MenuEntry {
+                    chip: None,
+                    separator: false,
                     key: String::new(),
                     label: "Create squad".into(),
                     choice: Choice::WorkspaceBegin(Kind::Create),
@@ -1501,6 +1513,8 @@ impl App {
                     .cloned()
                 {
                     entries.push(MenuEntry {
+                        chip: None,
+                        separator: false,
                         key: String::new(),
                         label: "Add an agent already running".into(),
                         choice: Choice::Action(action),
@@ -1557,6 +1571,8 @@ impl App {
         ]
         .into_iter()
         .map(|(layout, label)| MenuEntry {
+            chip: None,
+            separator: false,
             key: String::new(),
             label: format!(
                 "{label}{}",
@@ -1567,6 +1583,8 @@ impl App {
         .collect();
         for window in crate::config::DigestWindow::ALL {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!(
                     "Digest window: {}{}",
@@ -1582,6 +1600,8 @@ impl App {
         }
         for range in crate::config::TokRange::ALL {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!(
                     "TOK range: {}{}",
@@ -1597,11 +1617,15 @@ impl App {
         }
 
         entries.push(MenuEntry {
+            chip: None,
+            separator: false,
             key: String::new(),
             label: "Bindings · j presets".into(),
             choice: Choice::HostAction,
         });
         entries.push(MenuEntry {
+            chip: None,
+            separator: false,
             key: String::new(),
             label: "Launch templates…".into(),
             choice: Choice::LaunchTemplates,
@@ -1612,6 +1636,8 @@ impl App {
             ("Actions", "menu"),
         ] {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: label.into(),
                 choice: Choice::Action(Action::parse(action).expect("workspace setting action")),
@@ -1619,6 +1645,8 @@ impl App {
         }
         if matches!(self.shell.tab, OpsTab::Agents | OpsTab::Digest) {
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "Panels".into(),
                 choice: Choice::Panels,
@@ -1627,11 +1655,15 @@ impl App {
         if let Some(squad) = self.workspace_squad().map(|squad| squad.name.clone()) {
             // The menu is 48 cells wide and truncates labels, so a long rule fills any width.
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: "─".repeat(48),
                 choice: Choice::Rule,
             });
             entries.push(MenuEntry {
+                chip: None,
+                separator: false,
                 key: String::new(),
                 label: format!(
                     "Squad settings: {}",

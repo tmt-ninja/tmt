@@ -14,10 +14,47 @@ use tmt_tui::{components::strip, style::TextFlow};
 use unicode_width::UnicodeWidthStr;
 
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
-const NAME_SPAN: usize = 3;
+const NAME_SPAN: usize = 5;
+
+/// The same three-cell label chip is used in the tree and label menus.
+pub(in crate::board) fn label_chip(label: &crate::config::BoardLabel, look: Look) -> Span<'static> {
+    role_chip(
+        &label.glyph,
+        crate::look::role(&label.color).expect("validated label role"),
+        look,
+    )
+}
+
+pub(in crate::board) fn role_chip(glyph: &str, role: Role, look: Look) -> Span<'static> {
+    let fill = tmt_cli_style::theme::screen::fill(
+        &look.theme,
+        role,
+        look.depth,
+        tmt_cli_style::theme::screen::Fill::Solid,
+    );
+    let style = if look.depth == tmt_cli_style::Depth::None || fill.bg.is_none() {
+        Style::new().add_modifier(Modifier::REVERSED)
+    } else if !matches!(fill.bg, Some(ratatui::style::Color::Rgb(..))) {
+        let mut style = look.role(role);
+        style.bg = None;
+        style
+            .add_modifier(Modifier::REVERSED)
+            .remove_modifier(Modifier::DIM)
+    } else {
+        fill.remove_modifier(Modifier::DIM | Modifier::REVERSED)
+    };
+    let text = if glyph.width() == 1 {
+        format!(" {} ", glyph)
+    } else {
+        format!("{} ", glyph)
+    };
+    Span::styled(text, style)
+}
 
 pub(in crate::board) struct Row<'a> {
     pub source: &'a OpsTreeRow,
+    /// None means no slot; Some(None) reserves an empty slot.
+    pub label: Option<Option<&'a crate::config::BoardLabel>>,
     pub expanded: bool,
     pub last: bool,
     /// A member that owns terminals folds them: `▾`/`▸` before its name.
@@ -39,6 +76,7 @@ pub(in crate::board) struct Row<'a> {
 }
 #[derive(Default)]
 pub(in crate::board) struct Painted {
+    pub label: Option<Rect>,
     pub state: Option<Rect>,
     pub task: Option<Rect>,
     pub timers: Option<Rect>,
@@ -233,12 +271,31 @@ pub(in crate::board) fn paint(
                     "▸ "
                 };
                 let branch = format!("{indent}{branch}");
-                let name_width = usize::from(cell.width)
-                    .saturating_sub(1 + branch.width() + usize::from(row.source.lead));
+                let offset = 1 + branch.width();
+                let show_label =
+                    member && row.label.is_some() && offset + 4 <= usize::from(cell.width);
+                if show_label {
+                    painted.label = Some(Rect::new(cell.x + offset as u16, cell.y, 3, 1));
+                }
+                let name_width = usize::from(cell.width).saturating_sub(
+                    1 + branch.width() + usize::from(row.source.lead) + 4 * usize::from(show_label),
+                );
                 // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
                     Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
+                    Span::raw(match row.label {
+                        Some(Some(label)) if show_label => {
+                            if label.glyph.width() == 1 {
+                                format!(" {} ", label.glyph)
+                            } else {
+                                format!("{} ", label.glyph)
+                            }
+                        }
+                        Some(None) if show_label => "   ".into(),
+                        _ => String::new(),
+                    }),
+                    Span::raw(if show_label { " " } else { "" }),
                     Span::styled(
                         if row.source.lead { "*" } else { "" },
                         look.role(Role::Muted),
@@ -320,6 +377,12 @@ pub(in crate::board) fn paint(
                 && row.state_attention.get(index).copied().unwrap_or(false);
             span.style = style(look, row, span.style, attention);
         }
+        if matches!(field, AgentsField::Agent)
+            && let Some(Some(label)) = row.label
+            && let Some(span) = line.spans.get_mut(2)
+        {
+            span.style = label_chip(label, look).style;
+        }
         if (matches!(field, AgentsField::PerMinute) && row.minute_bold)
             || (matches!(field, AgentsField::Tokens) && row.tokens_bold)
         {
@@ -389,6 +452,7 @@ mod tests {
             ] {
                 let row = Row {
                     source,
+                    label: None,
                     expanded: false,
                     last: true,
                     folds: false,
@@ -495,6 +559,7 @@ mod tests {
             &slots,
             &Row {
                 source: &source,
+                label: None,
                 expanded: false,
                 last: false,
                 folds: false,
@@ -519,6 +584,50 @@ mod tests {
         assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
         assert_eq!(buffer[(24, 0)].symbol(), "…");
         assert_eq!(buffer[(25, 0)].symbol(), " ");
+    }
+
+    #[test]
+    fn a_chip_is_never_partially_painted_or_clickable() {
+        let app = crate::board::app::workspace::tests::board();
+        let rows = app.workspace_rows();
+        let source = rows
+            .iter()
+            .find(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        let label = crate::config::WorkspaceLabels::default()
+            .definitions
+            .remove(0);
+        let row = Row {
+            source,
+            label: Some(Some(&label)),
+            expanded: false,
+            last: true,
+            folds: false,
+            state: Line::default(),
+            state_primary_width: None,
+            state_attention: Vec::new(),
+            tokens: String::new(),
+            tokens_bold: false,
+            minute: String::new(),
+            minute_bold: false,
+            session: String::new(),
+            timers: None,
+            selected: false,
+            unread: false,
+            in_conversation: false,
+            query: "",
+        };
+        let area = Rect::new(0, 0, 7, 1);
+        let mut buffer = Buffer::empty(area);
+        let painted = paint(
+            &mut buffer,
+            area,
+            &[(AgentsField::Agent, area)],
+            &row,
+            Look::default(),
+        );
+        assert!(painted.label.is_none());
+        assert!(!buffer.content.iter().any(|cell| cell.symbol() == "P"));
     }
 
     #[test]
@@ -547,6 +656,7 @@ mod tests {
             &slots,
             &Row {
                 source,
+                label: None,
                 expanded: false,
                 last: true,
                 folds: false,
@@ -618,6 +728,7 @@ mod tests {
                     &slots,
                     &Row {
                         source,
+                        label: None,
                         expanded: false,
                         last: true,
                         folds: false,

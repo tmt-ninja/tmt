@@ -45,6 +45,7 @@ pub(in crate::board) struct MenuSurface {
     heading: usize,
     /// A link's popover or full address: its position line shows only when rows scroll.
     link: bool,
+    leading_chips: bool,
 }
 
 /// What the pointer asked of the menu.
@@ -88,6 +89,7 @@ impl MenuSurface {
         presentation: Presentation,
     ) -> Self {
         let placement = if anchored { "body" } else { "center" };
+        let leading_chips = entries.iter().any(|entry| entry.chip.is_some());
         let room_picker_footer = entries.first().and_then(|first| {
             let Choice::WorkspaceRoom { kind, .. } = &first.choice else {
                 return None;
@@ -152,7 +154,12 @@ impl MenuSurface {
             r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-{width} h-{}"><tmt-scroll id="body">{heading_node}<tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="{key_role}"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             entries.len() + CHROME
         );
-        let markup = if matches!(presentation, Presentation::Dropdown) {
+        let markup = if leading_chips {
+            format!(
+                r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-{width} h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.cursor" class="w-2 shrink-0" token="text"/><tmt-cell bind="row.key" class="w-2 shrink-0" token="accent"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+                entries.len() + CHROME
+            )
+        } else if matches!(presentation, Presentation::Dropdown) {
             r#"<tmt-view version="1" class="w-full"><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-0 h-1"><tmt-cell bind="row.key" class="w-3 shrink-0" token="muted"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-view>"#.into()
         } else {
             markup
@@ -192,6 +199,7 @@ impl MenuSurface {
             rows,
             room_picker_footer,
             heading,
+            leading_chips,
             link: entries.iter().any(|entry| {
                 matches!(
                     entry.choice,
@@ -265,7 +273,8 @@ impl MenuSurface {
             .skip(self.heading)
             .zip(&self.rows)
             .map(|(entry, row)| {
-                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)), "key": if matches!(self.template, Template::Dropdown { .. }) { format!(" {}",entry.key) } else { entry.key.clone() }, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
+                let label = if entry.separator { "─".repeat(usize::from(body.width.saturating_sub(8))) } else if self.leading_chips { format!("    {}", entry.label) } else { entry.label.clone() };
+                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)) || entry.separator, "key": if matches!(self.template, Template::Dropdown { .. }) { format!(" {}",entry.key) } else { entry.key.clone() }, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": label})
             })
             .collect();
         let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);
@@ -346,6 +355,34 @@ impl MenuSurface {
                 }
             }
         }
+        if self.leading_chips
+            && let Some(list) = self.list_frame()
+        {
+            let chips: Vec<_> = list
+                .geometry
+                .iter()
+                .filter_map(|row| {
+                    let index = row.id.strip_prefix("entry-")?.parse::<usize>().ok()?;
+                    let chip = entries.get(index)?.chip.as_ref()?;
+                    let area = Rect::new(row.visible.x.saturating_add(4), row.visible.y, 3, 1);
+                    (area.intersection(row.visible) == area
+                        && area.intersection(list.viewport) == area)
+                        .then(|| {
+                            (
+                                area,
+                                super::tree_row::role_chip(&chip.glyph, chip.role, look),
+                            )
+                        })
+                })
+                .collect();
+            for (area, chip) in chips {
+                tmt_tui::components::strip::paint_left(
+                    frame.buffer_mut(),
+                    area,
+                    ratatui::text::Line::from(chip),
+                );
+            }
+        }
     }
 }
 
@@ -359,11 +396,15 @@ mod tests {
     fn menu_cursor_preserves_every_key_cell_and_label_start() {
         let entries = vec![
             MenuEntry {
+                chip: None,
+                separator: false,
                 key: "Ctrl-Shift-X".into(),
                 label: "First long action label".into(),
                 choice: Choice::Dismiss,
             },
             MenuEntry {
+                chip: None,
+                separator: false,
                 key: "2".into(),
                 label: "Second action".into(),
                 choice: Choice::Dismiss,

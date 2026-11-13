@@ -213,6 +213,10 @@ the supplier's existing aggregation policy. There is no wide key/value copy.
 
 At wide widths, the divider joins the left Squads/Agents column to the selected
 row's `exchange_view`, three-row filled `input_field`, Timers and Digest matrix.
+Assigned board labels use a three-cell role-coloured chip followed by a plain
+space. While an observed member has a label, all member rows reserve that slot;
+without one, the name geometry is unchanged. NO_COLOR uses reverse video. The
+selected member's identity line names its label; state and attention remain separate.
 The exchange keeps sender/recipient metadata separate from the grouped body gutter and reply
 name. Its measured wrapped content grows top-down without a fixed minimum or cap.
 The filled input follows the final observed group with one blank row above; only
