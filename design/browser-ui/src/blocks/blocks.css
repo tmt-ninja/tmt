@@ -117,7 +117,7 @@
   position: relative;
   height: 3px;
   margin: 4px 0;
-  border-radius: 2px;
+  border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-color-accent);
 }
 .tmt-block-drop::before {
@@ -191,7 +191,7 @@
   width: 36px;
   height: 4px;
   margin: 0 auto 8px;
-  border-radius: 2px;
+  border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-rule);
 }
 .tmt-block-menu-group {

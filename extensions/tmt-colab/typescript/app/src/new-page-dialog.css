@@ -95,7 +95,7 @@
   min-width: 0;
   padding: 10px 12px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: 10px;
+  border-radius: var(--tmt-ui-radius-l);
   background: var(--tmt-ui-surface-paper);
   cursor: pointer;
 }
