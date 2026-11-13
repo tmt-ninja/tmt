@@ -35,6 +35,8 @@ export interface OpsAgent {
   model?: string;
   /** Requests waiting on the person. */
   waitingOnYou: number;
+  tokens1d: { tokens: number; complete: boolean } | null;
+  checklistCount: number | null;
 }
 export interface OpsSquad {
   name: string;
@@ -45,6 +47,8 @@ export interface OpsSquad {
 }
 export interface OpsSchedule {
   id: string;
+  nextMs: number | null;
+  state: 'on' | 'paused' | null;
   squad: string;
   /** The schedule as the board shows it, such as `cron 35 * * * *`. */
   when: string;
@@ -52,10 +56,10 @@ export interface OpsSchedule {
   owner?: string;
 }
 export interface OpsBoard {
+  /** Workspace default, null when the owner cannot report it. */
+  defaultIdleAlertMs: number | null;
   agents: readonly OpsAgent[];
   squads: readonly OpsSquad[];
-  /** Workspace default, absent when the owner cannot report it. */
-  defaultIdleAlertMs?: number;
   /** `null` when the owner could not read the schedules: never shown as no timers. */
   schedules: readonly OpsSchedule[] | null;
   /** The owner cut the board to the read's bounds. */
@@ -90,9 +94,19 @@ export interface OpsPayload {
     model?: string;
     pending?: string;
     waitingOnYou: number;
+    tokens1d?: { tokens: number; complete: boolean } | null;
+    checklistCount?: number | null;
   }[];
   timers:
-    | readonly { id: string; squad: string; scheduleText: string; owner?: string; what?: string }[]
+    | readonly {
+        id: string;
+        squad: string;
+        scheduleText: string;
+        owner?: string;
+        what?: string;
+        nextMs?: number | null;
+        state?: 'on' | 'paused' | null;
+      }[]
     | null;
   truncated: boolean;
 }
@@ -119,7 +133,25 @@ const REASONS: Record<OwnerReadReason | 'no-session' | 'unreachable', string> = 
   unreachable: 'Your machine did not answer. This page tries again shortly.',
 };
 function unavailableBoard(reason: OwnerReadReason | 'no-session' | 'unreachable'): OpsBoard {
-  return { agents: [], squads: [], schedules: [], truncated: false, unavailable: REASONS[reason] };
+  return {
+    agents: [],
+    squads: [],
+    schedules: [],
+    defaultIdleAlertMs: null,
+    truncated: false,
+    unavailable: REASONS[reason],
+  };
+}
+
+const safeNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+function usage1d(value: OpsPayload['agents'][number]['tokens1d']): OpsAgent['tokens1d'] {
+  return value &&
+    safeNumber(value.tokens) &&
+    typeof value.complete === 'boolean' &&
+    (value.complete || value.tokens > 0)
+    ? { tokens: value.tokens, complete: value.complete }
+    : null;
 }
 
 /** The page's board from one `ok` payload; a payload off the contract is a failed read. */
@@ -136,10 +168,12 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
   )
     return unavailableBoard('read_failed');
   return {
-    ...(typeof payload.defaultIdleAlertMs === 'number' &&
-    Number.isFinite(payload.defaultIdleAlertMs)
-      ? { defaultIdleAlertMs: payload.defaultIdleAlertMs }
-      : {}),
+    defaultIdleAlertMs:
+      safeNumber(payload.defaultIdleAlertMs) &&
+      payload.defaultIdleAlertMs >= 300_000 &&
+      payload.defaultIdleAlertMs <= 86_400_000
+        ? payload.defaultIdleAlertMs
+        : null,
     squads: payload.squads.map((squad) => ({
       name: squad.name,
       room:
@@ -169,11 +203,15 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
         ...(agent.pending ? { pending: agent.pending } : {}),
         ...(agent.model ? { model: agent.model } : {}),
         waitingOnYou: agent.waitingOnYou ?? 0,
+        tokens1d: usage1d(agent.tokens1d),
+        checklistCount: null,
       };
     }),
     schedules: Array.isArray(payload.timers)
       ? payload.timers.map((timer) => ({
           id: timer.id,
+          state: timer.state === 'on' || timer.state === 'paused' ? timer.state : null,
+          nextMs: timer.state === 'on' && safeNumber(timer.nextMs) ? timer.nextMs : null,
           squad: timer.squad,
           when: timer.scheduleText,
           what: timer.what ?? '',

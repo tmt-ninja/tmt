@@ -100,6 +100,7 @@
       "expect": {
         "version": 1,
         "state": "ok",
+        "defaultIdleAlertMs": null,
         "squads": [
           {
             "name": "tmt-core",
@@ -122,6 +123,8 @@
             "stateTone": "working",
             "task": "review",
             "waitingOnYou": 0,
+            "tokens1d": null,
+            "checklistCount": null,
             "digest": { "active": false, "remainingMs": 0, "heldCount": 0 },
             "staleness": "fresh"
           },
@@ -139,6 +142,8 @@
             "link": "https://github.com/pj-tmt/tmt/issues/4325",
             "pending": "approve the plan",
             "waitingOnYou": 2,
+            "tokens1d": null,
+            "checklistCount": null,
             "staleness": "stale"
           }
         ],
@@ -163,7 +168,8 @@
         "ops squad ls --json": { "exit": 0, "stdout": { "squads": [] } },
         "ops squad cron ls --json": { "exit": 1, "stdout": { "error": { "code": "CRON_FAILED", "message": "x" } } }
       },
-      "expect": { "version": 1, "state": "ok", "squads": [], "agents": [], "timers": null, "truncated": false }
+      "expect": { "version": 1, "state": "ok",
+        "defaultIdleAlertMs": null, "squads": [], "agents": [], "timers": null, "truncated": false }
     },
     {
       "name": "ops board: a board with no squads is an ok empty board",
@@ -172,7 +178,8 @@
         "ops squad ls --json": { "exit": 0, "stdout": { "squads": [], "you": { "id": "YOU-SECRET" } } },
         "ops squad cron ls --json": { "exit": 0, "stdout": { "action": "ls", "jobs": [] } }
       },
-      "expect": { "version": 1, "state": "ok", "squads": [], "agents": [], "timers": [], "truncated": false }
+      "expect": { "version": 1, "state": "ok",
+        "defaultIdleAlertMs": null, "squads": [], "agents": [], "timers": [], "truncated": false }
     },
     {
       "name": "ops board: the Ops extension is absent",

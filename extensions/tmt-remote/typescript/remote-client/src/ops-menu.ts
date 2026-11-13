@@ -81,7 +81,7 @@ export function opsMenu(
                 const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
                 if (
                   idle !== undefined &&
-                  board.defaultIdleAlertMs !== undefined &&
+                  board.defaultIdleAlertMs !== null &&
                   idle !== board.defaultIdleAlertMs
                 )
                   badges.push(`Idle ${Math.round(idle / 60_000)}m`);

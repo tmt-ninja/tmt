@@ -22,12 +22,30 @@ it('turns the contract board into rows with uncoloured activity states', () => {
   expect(answer({ ...ops[0]!.expect, defaultIdleAlertMs: 900_000 }).defaultIdleAlertMs).toBe(
     900_000,
   );
-  expect(
-    answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs,
-  ).toBeUndefined();
+  expect(answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs).toBeNull();
   expect(board.squads).toEqual([
     { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1_800_000 },
   ]);
+  expect(board.defaultIdleAlertMs).toBeNull();
+  const enriched = structuredClone(ops[0]!.expect) as unknown as OpsPayload;
+  enriched.defaultIdleAlertMs = 1_200_000;
+  const withFields = {
+    ...enriched,
+    agents: enriched.agents.map((agent) => ({
+      ...agent,
+      tokens1d: { tokens: 50, complete: false },
+      checklistCount: null,
+    })),
+    timers:
+      enriched.timers?.map((timer) => ({ ...timer, state: 'paused' as const, nextMs: 123 })) ??
+      null,
+  };
+  const mapped = answer(withFields as unknown as Record<string, unknown>);
+  expect(mapped.defaultIdleAlertMs).toBe(1_200_000);
+  expect(mapped.agents[0]!.tokens1d).toEqual({ tokens: 50, complete: false });
+  expect(mapped.agents[0]!.checklistCount).toBeNull();
+  expect(mapped.schedules![0]!.nextMs).toBeNull();
+  expect(mapped.schedules![0]!.state).toBe('paused');
   expect(board.agents).toEqual([
     {
       id: '00000000-0000-4000-8000-000000000001',
@@ -39,6 +57,8 @@ it('turns the contract board into rows with uncoloured activity states', () => {
       state: 'working',
       task: 'review',
       waitingOnYou: 0,
+      tokens1d: null,
+      checklistCount: null,
     },
     {
       id: '00000000-0000-4000-8000-000000000002',
@@ -53,11 +73,15 @@ it('turns the contract board into rows with uncoloured activity states', () => {
       pending: 'approve the plan',
       model: 'sonnet',
       waitingOnYou: 2,
+      tokens1d: null,
+      checklistCount: null,
     },
   ]);
   expect(board.schedules).toEqual([
     {
       id: 'c1',
+      state: 'on',
+      nextMs: 1792636500000,
       squad: 'tmt-core',
       when: 'cron 35 * * * *',
       what: 'Hourly pass',
@@ -80,10 +104,17 @@ it('keeps a failed schedule read apart from no timers, and an empty board ok', (
     squads: [],
     agents: [],
     schedules: null,
+    defaultIdleAlertMs: null,
     truncated: false,
   });
   const empty = ops.find((vector) => vector.name.includes('no squads'))!;
-  expect(answer(empty.expect)).toEqual({ squads: [], agents: [], schedules: [], truncated: false });
+  expect(answer(empty.expect)).toEqual({
+    squads: [],
+    agents: [],
+    schedules: [],
+    defaultIdleAlertMs: null,
+    truncated: false,
+  });
 });
 
 it('says why there is no board, with what to do, for every reason and no answer at all', () => {

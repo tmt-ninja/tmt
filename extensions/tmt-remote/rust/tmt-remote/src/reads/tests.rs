@@ -22,6 +22,7 @@ impl Fake {
             &root.join("tmt"),
             &format!(
                 "cd '{0}'\nkey=$(printf '%s_' \"$@\")\necho \"$*\" >> calls\n\
+                 if [ \"$1\" = api ] && [ -f api.py ]; then exec python3 api.py; fi\n\
                  [ -f \"$key.sleep\" ] && /bin/sleep \"$(cat \"$key.sleep\")\"\n\
                  [ -f \"$key.out\" ] && cat \"$key.out\"\n\
                  [ -f \"$key.exit\" ] && exit \"$(cat \"$key.exit\")\"\nexit 0\n",
@@ -190,6 +191,9 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
         let room_board = body(&fake.reads(), Target::Ops);
         assert_eq!(room_board["squads"][0]["room"], expected);
     }
+    assert!(document["defaultIdleAlertMs"].is_null());
+    assert!(document["agents"][0]["tokens1d"].is_null());
+    assert!(document["agents"][0]["checklistCount"].is_null());
     assert_eq!(
         document["squads"],
         json!([{"name": "tmt-core", "room":null, "layout": "team",
@@ -206,7 +210,7 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
                "state": "working", "stateTone": "working", "task": "lead task",
                "next": "then merge", "model": "sol",
                "link": "https://github.com/pj-tmt/tmt/issues/4325",
-               "pending": "approve the plan", "waitingOnYou": 2,
+               "pending": "approve the plan", "waitingOnYou": 2,"tokens1d":null,"checklistCount":null,
                "digest": {"active": true, "remainingMs": 1000, "heldCount": 2},
                "staleness": "fresh"})
     );
@@ -218,6 +222,95 @@ fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_fiel
         json!([{"id": "c1", "squad": "tmt-core", "owner": "tmt-core-pm", "state": "on",
                 "scheduleText": "cron 35 * * * *", "nextMs": 1792636500000u64,
                 "what": "Hourly pass"}])
+    );
+    let mut paused = cron();
+    paused["jobs"][0]["state"] = json!("paused");
+    fake.answer(CRON, &paused.to_string());
+    fake.answer(
+        "ops config show --json",
+        &json!({"context":null,"entries":[{"key":"idle_alert.after","value":"1200s"}]}).to_string(),
+    );
+    fake.answer(
+        "room list --json",
+        &json!({"rooms":[{"id":room_id,"name":"squad-tmt-core","revision":4,"retired":false}]})
+            .to_string(),
+    );
+    let paused_board = body(&fake.reads(), Target::Ops);
+    assert_eq!(
+        paused_board["squads"][0]["room"],
+        json!({"roomId":room_id,"revision":4})
+    );
+    assert_eq!(paused_board["defaultIdleAlertMs"], 1_200_000);
+    assert_eq!(paused_board["timers"][0]["state"], "paused");
+    assert!(
+        paused_board["timers"][0]["nextMs"].is_null(),
+        "paused schedules never keep a stale future time"
+    );
+    paused["jobs"][0]["state"] = json!("future-state");
+    fake.answer(CRON, &paused.to_string());
+    fake.answer(
+        "ops config show --json",
+        &json!({"context":"other-squad","entries":[{"key":"idle_alert.after","value":"1200s"}]})
+            .to_string(),
+    );
+    let unknown = body(&fake.reads(), Target::Ops);
+    assert_eq!(unknown["state"], "ok");
+    assert!(unknown["defaultIdleAlertMs"].is_null());
+    assert!(unknown["timers"][0]["state"].is_null());
+    assert!(
+        fake.calls().iter().all(|argv| !argv.contains("checklist")),
+        "no per-member or effectful checklist read"
+    );
+
+    // The board cap needs at most eight 32-UUID Core reads, never per-member calls.
+    // This existing case crosses one chunk boundary and refuses only the tail chunk.
+    let mut many = board();
+    let template = many["squads"][0]["sections"][0]["rows"][0].clone();
+    let rows: Vec<_> = (2..=33)
+        .map(|index| {
+            let mut row = template.clone();
+            row["id"] = json!(format!("00000000-0000-4000-8000-{index:012x}"));
+            row
+        })
+        .collect();
+    many["squads"][0]["sections"][0]["rows"] = json!(rows);
+    fake.answer(LS, &many.to_string());
+    fs::write(fake.0.join("api.py"), r#"import json,sys,pathlib,os
+root=pathlib.Path(__file__).parent
+request=json.load(sys.stdin)
+(root/('input-'+str(os.getpid())+'.json')).write_text(json.dumps(request))
+assert request['operation']=='consumption.history'
+ids=request['input']['identityIds']
+assert 1<=len(ids)<=32
+assert request['input']['windowsMs']==[86400000] and request['input']['maxBuckets']==1
+if len(ids)==1: sys.exit(1)
+through=172800000
+bucket={'fromMs':86400000,'toMs':through,'inputTokens':9,'outputTokens':3,'cachedInputTokens':4,'coveredMs':10,'complete':False}
+window={'windowMs':86400000,'fromMs':86400000,'toMs':through,'availableFromMs':86400000,'buckets':[bucket]}
+print(json.dumps({'asOfMs':through+1000,'throughMs':through,'identities':[{'id':id,'found':True,'reporting':True,'windows':[window]} for id in ids]}))
+"#).unwrap();
+    let chunked = body(&fake.reads(), Target::Ops);
+    let agents = chunked["agents"].as_array().unwrap();
+    assert_eq!(agents.len(), 33);
+    assert!(
+        agents[..32]
+            .iter()
+            .all(|agent| agent["tokens1d"] == json!({"tokens":12,"complete":false}))
+    );
+    assert!(
+        agents[32]["tokens1d"].is_null(),
+        "one failed chunk leaves only that chunk unavailable"
+    );
+    assert!(agents.iter().all(|agent| agent["checklistCount"].is_null()));
+    let inputs: Vec<_> = fs::read_dir(&fake.0)
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("input-"))
+        .collect();
+    assert_eq!(
+        inputs.len(),
+        2,
+        "33 distinct members use two chunks, never 33 reads"
     );
 }
 

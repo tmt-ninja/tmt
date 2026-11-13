@@ -215,28 +215,76 @@ impl Reads {
     }
     fn fetch(&self, read: Target, deadline: Instant) -> Result<Map<String, Value>, Reason> {
         match read {
-            Target::Ops => {
-                let (board, timers) = thread::scope(|scope| {
-                    let timers = scope
-                        .spawn(|| self.json(&["ops", "squad", "cron", "ls", "--json"], deadline));
-                    let board = self.json(&["ops", "squad", "ls", "--json"], deadline);
-                    (board, timers.join())
-                });
-                // Timers are optional: a failed cron read leaves them null, never empty.
-                let timers = timers.ok().and_then(Result::ok);
-                let board = board?;
-                // Ops supplies the stable room UUID; Core alone owns its current revision.
-                // One bounded snapshot, no per-squad lookup or parallel room registry.
-                let rooms = if board["squads"]
+            Target::Ops => thread::scope(|scope| {
+                let timers =
+                    scope.spawn(|| self.json(&["ops", "squad", "cron", "ls", "--json"], deadline));
+                let settings =
+                    scope.spawn(|| self.json(&["ops", "config", "show", "--json"], deadline));
+                let board = self.json(&["ops", "squad", "ls", "--json"], deadline)?;
+                // Core owns the room revision; one optional snapshot serves all squads.
+                let needs_rooms = board["squads"]
                     .as_array()
-                    .is_some_and(|squads| !squads.is_empty())
-                {
-                    self.json(&["room", "list", "--json"], deadline).ok()
-                } else {
-                    None
-                };
-                ops::project(&board, timers.as_ref(), rooms.as_ref()).ok_or(Reason::ReadFailed)
-            }
+                    .is_some_and(|squads| !squads.is_empty());
+                let rooms = scope.spawn(move || {
+                    if needs_rooms {
+                        self.json(&["room", "list", "--json"], deadline).ok()
+                    } else {
+                        None
+                    }
+                });
+                // The projection owns roster bounds and disclosure. Only its admitted UUIDs
+                // select telemetry; no new roster/config/provider reader is introduced.
+                let roster = ops::project(&board, None, None).ok_or(Reason::ReadFailed)?;
+                let mut seen = std::collections::HashSet::new();
+                let ids: Vec<String> = roster["agents"]
+                    .as_array()
+                    .expect("projected agents")
+                    .iter()
+                    .filter_map(|agent| agent["id"].as_str())
+                    .filter(|id| crate::canonical::is_core_id(id) && seen.insert((*id).to_owned()))
+                    .map(str::to_owned)
+                    .collect();
+                let usage: Vec<_> = ids
+                    .chunks(limits::READ_OPS_USAGE_IDENTITIES)
+                    .map(|ids| {
+                        let ids = ids.to_vec();
+                        scope.spawn(move || {
+                            let request = json!({"version":1,"operation":"consumption.history",
+                            "input":{"identityIds":ids,"windowsMs":[86_400_000],"maxBuckets":1}});
+                            let answer =
+                                self.json_input(&["api"], request.to_string().as_bytes(), deadline);
+                            (ids, answer)
+                        })
+                    })
+                    .collect();
+                // Optional failures affect only their own fields. The board still renders.
+                let timers = timers.join().ok().and_then(Result::ok);
+                let settings = settings.join().ok().and_then(Result::ok);
+                let rooms = rooms.join().ok().flatten();
+                let mut payload = ops::project(&board, timers.as_ref(), rooms.as_ref())
+                    .ok_or(Reason::ReadFailed)?;
+                let idle = settings.as_ref().and_then(ops::idle_default);
+                payload.insert(
+                    "defaultIdleAlertMs".into(),
+                    idle.map_or(Value::Null, |ms| json!(ms)),
+                );
+                for worker in usage {
+                    if let Ok((ids, Ok(document))) = worker.join() {
+                        for agent in payload
+                            .get_mut("agents")
+                            .and_then(Value::as_array_mut)
+                            .expect("projected agents")
+                        {
+                            let id = agent["id"].as_str().expect("projected identity");
+                            if ids.iter().any(|selected| selected == id) {
+                                agent["tokens1d"] =
+                                    ops::tokens1d(&document, id).unwrap_or(Value::Null);
+                            }
+                        }
+                    }
+                }
+                Ok(payload)
+            }),
             Target::Limits => {
                 let history = self.json(&["ops", "limits", "--json"], deadline)?;
                 if history["version"] != 1 {
@@ -280,12 +328,15 @@ impl Reads {
     }
     /// One fixed public command; exit 0 must print one JSON document.
     fn json(&self, argv: &[&str], deadline: Instant) -> Result<Value, Reason> {
+        self.json_input(argv, &[], deadline)
+    }
+    fn json_input(&self, argv: &[&str], input: &[u8], deadline: Instant) -> Result<Value, Reason> {
         let args: Vec<OsString> = argv.iter().map(OsString::from).collect();
         let output = tmt_invoke::invoke(
             Request {
                 program: &self.executable,
                 args: &args,
-                input: &[],
+                input,
                 deadline,
                 max_stream_bytes: limits::READ_SUBPROCESS_BYTES,
                 launch: Default::default(),

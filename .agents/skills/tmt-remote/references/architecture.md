@@ -88,6 +88,13 @@ held approval and transactional effect fence. Core positions remain opaque; no i
 belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
 bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
 
+`reads::ops` projects only the bounded board's members into at most eight parallel
+32-UUID `consumption.history` reads. Core owns each closed-day cut and coverage;
+Remote adds no sampler or cross-chunk aggregate. Cron owns next-run/state, Ops config
+owns the no-squad idle default, and failures leave only their source fields unavailable.
+Checklist counts remain unavailable until Ops supplies its read-only batch port.
+All acquisitions share the existing read deadline and serve-local cache.
+
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
 

@@ -302,7 +302,17 @@ fn a_session_revoked_or_regranted_during_the_read_gets_the_generic_404_not_the_d
             "{change_after:?} {end_after:?}"
         );
         // The read itself ran once; only its answer was withheld.
-        assert_eq!(door.calls().len(), 2, "{:?}", door.calls());
+        let mut calls = door.calls();
+        calls.sort();
+        assert_eq!(
+            calls,
+            [
+                "ops config show --json",
+                "ops squad cron ls --json",
+                "ops squad ls --json"
+            ],
+            "an empty roster starts exactly the three fixed reads, even when disclosure is revoked"
+        );
     }
 }
 
