@@ -29,10 +29,10 @@ const board = (): OpsBoard => ({
   truncated: false,
 });
 
-it('shows only local squad channels and observed timer counts', () => {
+it('shows local squad channels with observed timer counts, then the Orchestration row', () => {
   const source = board();
   const menu = opsMenu('home', source, '/ops/');
-  expect(menu.groups).toHaveLength(1);
+  expect(menu.groups).toHaveLength(2);
   expect(menu.groups[0]!.label).toBe('THIS MACHINE');
   expect(menu.groups[0]!.items.map((item) => item.label)).toEqual(['sample']);
   expect(menu.groups[0]!.items[0]!.leading?.label).toBe('Channel');
@@ -48,7 +48,22 @@ it('shows only local squad channels and observed timer counts', () => {
   expect(
     opsMenu('home', { ...source, truncated: true }, '/ops/').groups[0]!.items[0]!.badges,
   ).toBeUndefined();
-  expect(opsMenu('home', { ...source, unavailable: 'unavailable' }, '/ops/').groups).toEqual([]);
+  // Orchestration reads Core, not the board: its row follows the machine groups in every state.
+  const orchestration = (value: ReturnType<typeof opsMenu>) => value.groups.at(-1)!.items;
+  expect(orchestration(menu)).toEqual([
+    {
+      id: 'orchestration',
+      label: 'Orchestration',
+      icon: 'clock',
+      href: '/ops/#orchestration',
+      current: false,
+    },
+  ]);
+  expect(orchestration(opsMenu('orchestration', source, '/ops/'))[0]!.current).toBe(true);
+  const unavailable = opsMenu('home', { ...source, unavailable: 'unavailable' }, '/ops/');
+  expect(unavailable.groups.map((group) => group.items.map((item) => item.label))).toEqual([
+    ['Orchestration'],
+  ]);
 });
 
 it('shows an idle override only when both intervals are known and differ', () => {

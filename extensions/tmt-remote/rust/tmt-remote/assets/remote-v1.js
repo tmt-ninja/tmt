@@ -10003,9 +10003,16 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 		node.textContent = "#";
 		return node;
 	};
+	const orchestration = { items: OPS_SECTIONS.map((item) => ({
+		id: item.id,
+		label: item.label,
+		icon: "clock",
+		href: opsHref(pathname, item.id),
+		current: section === item.id
+	})) };
 	return {
 		title: "Ops",
-		groups: !board?.unavailable && board ? [{
+		groups: [...!board?.unavailable && board ? [{
 			label: "THIS MACHINE",
 			items: bySquad(board, true).map((group) => {
 				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
@@ -10040,7 +10047,7 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 					}))
 				};
 			})
-		}] : []
+		}] : [], orchestration]
 	};
 }
 //#endregion
