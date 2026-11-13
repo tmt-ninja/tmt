@@ -45,6 +45,14 @@ impl Store {
             member_id,
         })
     }
+    /// The same room's conversation list of `member`, in the same storage root.
+    pub(super) fn for_member(&self, member: Id) -> Self {
+        Self {
+            extension_root: self.extension_root.clone(),
+            room_id: self.room_id.clone(),
+            member_id: Some(member),
+        }
+    }
     pub(super) fn room_id(&self) -> &Id {
         &self.room_id
     }

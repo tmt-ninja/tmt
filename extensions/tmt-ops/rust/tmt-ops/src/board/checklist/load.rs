@@ -38,7 +38,8 @@ pub(crate) struct Completed {
 }
 #[derive(Default)]
 pub(crate) struct Lane {
-    session: Option<(u64, Id, Service)>,
+    /// The controller, room, whether the service was admitted for reading only, and the service.
+    session: Option<(u64, Id, bool, Service)>,
 }
 fn failure(code: Code, message: impl ToString) -> Error {
     Error {
@@ -54,10 +55,18 @@ impl Lane {
     #[cfg(test)]
     pub(super) fn seeded(owner: u64, room: Id, service: Service) -> Self {
         Self {
-            session: Some((owner, room, service)),
+            session: Some((owner, room, false, service)),
         }
     }
     fn service(&mut self, core: &Core, key: &Key) -> Result<&Service, Error> {
+        self.session_for(core, key, false)
+    }
+    /// Reads are admitted by the caller or Core's configured person, which creates nobody; a
+    /// write after them builds the writing session.
+    fn reader(&mut self, core: &Core, key: &Key) -> Result<&Service, Error> {
+        self.session_for(core, key, true)
+    }
+    fn session_for(&mut self, core: &Core, key: &Key, reading: bool) -> Result<&Service, Error> {
         let room = key
             .room
             .as_ref()
@@ -65,16 +74,21 @@ impl Lane {
         if self
             .session
             .as_ref()
-            .is_none_or(|(owner, id, _)| *owner != key.controller || id != room)
+            // A writing session also serves reads; a read-only one never serves a write.
+            .is_none_or(|(owner, id, read_only, _)| {
+                *owner != key.controller || id != room || (*read_only && !reading)
+            })
         {
             let config = Config::load(core).map_err(|error| failure(Code::StorageError, error))?;
-            self.session = Some((
-                key.controller,
-                room.clone(),
-                Service::new(core, &config, room.clone())?,
-            ));
+            let service = if reading {
+                Service::reading(core, &config, room.clone(), None)?
+                    .ok_or_else(crate::checklist::no_person)?
+            } else {
+                Service::new(core, &config, room.clone())?
+            };
+            self.session = Some((key.controller, room.clone(), reading, service));
         }
-        Ok(&self.session.as_ref().unwrap().2)
+        Ok(&self.session.as_ref().unwrap().3)
     }
     pub fn complete(&mut self, core: &Core, task: Task) -> Completed {
         let outcome = match task.job {
@@ -88,7 +102,7 @@ impl Lane {
                             .collect()
                     }),
             ),
-            Job::Read => Outcome::Read(self.service(core, &task.key).and_then(Service::preview)),
+            Job::Read => Outcome::Read(self.reader(core, &task.key).and_then(Service::preview)),
             Job::Ids => Outcome::Ids(uuid().and_then(|checklist| Ok((checklist, uuid()?)))),
             Job::Apply { actor, request } => Outcome::Apply((|| {
                 let service = self.service(core, &task.key)?;

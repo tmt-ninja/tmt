@@ -680,6 +680,123 @@ fn a_member_command_runs_against_the_conversation_list_and_names_what_it_refuses
         "{unknown}"
     );
     assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
+
+    // One read counts every member's open items: the number `ls --completion open` shows for
+    // each, and no read asks Core to create or mark the person.
+    let open = invoke(
+        &f,
+        &[
+            "create",
+            "--room",
+            ROOM,
+            "--member",
+            "Lead",
+            "--item",
+            OTHER,
+            "--expect-inventory",
+            "absent",
+            "Still open",
+        ],
+    )
+    .document;
+    assert_eq!(open["action"], "create", "{open}");
+    let before = f.model()["calls"].as_array().unwrap().len();
+    let counts = invoke(&f, &["counts", "--room", ROOM]).document;
+    assert_eq!(counts["room"], ROOM, "{counts}");
+    assert_eq!(counts["available"], true, "{counts}");
+    let members = counts["members"].as_array().unwrap();
+    assert_eq!(members.len(), 3, "every roster member: {counts}");
+    for member in members {
+        let id = member["id"].as_str().unwrap();
+        let listed = invoke(
+            &f,
+            &["ls", "--room", ROOM, "--member", id, "--completion", "open"],
+        )
+        .document;
+        assert_eq!(
+            member["open"], listed["matchedCount"],
+            "{id}: {counts} {listed}"
+        );
+    }
+    assert_eq!(members.iter().find(|m| m["id"] == LEAD).unwrap()["open"], 1);
+    let calls = f.model()["calls"].as_array().unwrap()[before..].to_vec();
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call["operation"] == "user.identity"),
+        "a read never creates or marks the person: {calls:?}"
+    );
+    assert_eq!(f.keys().len(), 2, "a read writes no list");
+
+    // At most one squad roster of members per read.
+    let mut many = vec!["counts", "--room", ROOM];
+    for _ in 0..33 {
+        many.extend(["--member", WORKER]);
+    }
+    let refused = invoke(&f, &many).document;
+    assert_eq!(
+        refused["error"]["code"], "CHECKLIST_INPUT_INVALID",
+        "{refused}"
+    );
+
+    // Without a caller or a configured person the counts are unavailable, not an error.
+    f.change(|model| {
+        model["caller"] = serde_json::Value::Null;
+        model["user"] = serde_json::Value::Null;
+    });
+    let unknown = invoke(&f, &["counts", "--room", ROOM, "--member", WORKER]);
+    assert!(unknown.complete, "{}", unknown.document);
+    assert_eq!(
+        unknown.document["members"],
+        serde_json::json!([{"id":WORKER,"open":null,"reason":"no-person"}])
+    );
+    // The roster form says so on the document too: an empty list is not "no members".
+    let roster = invoke(&f, &["counts", "--room", ROOM]);
+    assert!(roster.complete, "{}", roster.document);
+    assert_eq!(
+        (
+            &roster.document["available"],
+            &roster.document["reason"],
+            &roster.document["members"]
+        ),
+        (
+            &serde_json::json!(false),
+            &serde_json::json!("no-person"),
+            &serde_json::json!([])
+        )
+    );
+
+    // An older Core without user.person may have a person: it is named as an older Core.
+    f.change(|model| {
+        model["user"] = serde_json::json!(LEAD);
+        model["personUnsupported"] = true.into();
+    });
+    let older = invoke(&f, &["counts", "--room", ROOM, "--member", WORKER]).document;
+    assert_eq!(
+        (
+            &older["available"],
+            &older["reason"],
+            &older["members"][0]["reason"]
+        ),
+        (
+            &serde_json::json!(false),
+            &serde_json::json!("core-unsupported"),
+            &serde_json::json!("core-unsupported")
+        ),
+        "{older}"
+    );
+    let listed = invoke(&f, &["ls", "--room", ROOM]).document;
+    assert_eq!(
+        listed["error"]["code"], "CHECKLIST_CORE_UNSUPPORTED",
+        "{listed}"
+    );
+    assert!(
+        listed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("update tmt"),
+        "{listed}"
+    );
 }
 
 #[test]

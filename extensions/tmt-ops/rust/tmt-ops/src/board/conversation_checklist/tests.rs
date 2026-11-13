@@ -188,7 +188,7 @@ fn only_open_nonarchived_items_contribute_todos_and_references() {
     ];
     assert_eq!(Counts::of(&items), Counts { links: 1, todo: 3 });
     assert!(Counts::of(&items[5..]).is_empty(), "only archived items");
-    assert!(Counts::of(&[]).is_empty());
+    assert!(Counts::of::<crate::checklist::ItemView>(&[]).is_empty());
 }
 
 #[test]

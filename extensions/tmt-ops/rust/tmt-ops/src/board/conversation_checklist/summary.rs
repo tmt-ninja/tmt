@@ -1,33 +1,11 @@
 //! Counts and their known/unknown presentation, shared by the checklist, rows and the header.
-use crate::checklist::{ItemView, model::Completion};
 
-/// Open items and their overlapping reference attribute.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(in crate::board) struct Counts {
-    pub links: usize,
-    pub todo: usize,
-}
-
-impl Counts {
-    /// References are an attribute of open items, never an additional todo.
-    pub fn of<'a>(items: impl IntoIterator<Item = &'a ItemView>) -> Self {
-        let mut counts = Self::default();
-        for view in items.into_iter().filter(|view| open_item(view)) {
-            counts.links += usize::from(view.item.content.reference.is_some());
-            counts.todo += 1;
-        }
-        counts
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(self) -> bool {
-        self == Self::default()
-    }
-}
+pub(in crate::board) use crate::checklist::Counts;
 
 /// Display admission only: retain the full source for references and revision-checked writes.
-pub(in crate::board) fn open_item(view: &ItemView) -> bool {
-    !view.item.archived && view.item.completion == Completion::Open
+/// The rule itself is [`crate::checklist::open`].
+pub(in crate::board) fn open_item(view: &crate::checklist::ItemView) -> bool {
+    crate::checklist::open(&view.item)
 }
 
 /// What the board knows of one room or conversation list.

@@ -28,6 +28,8 @@ pub enum Code {
     Conflict,
     StorageError,
     OutcomeUnknown,
+    /// Core lacks an operation this read needs (an older tmt).
+    CoreUnsupported,
 }
 impl Code {
     pub fn as_str(self) -> &'static str {
@@ -43,6 +45,7 @@ impl Code {
             Self::Conflict => "CHECKLIST_CONFLICT",
             Self::StorageError => "CHECKLIST_STORAGE_ERROR",
             Self::OutcomeUnknown => "CHECKLIST_OUTCOME_UNKNOWN",
+            Self::CoreUnsupported => "CHECKLIST_CORE_UNSUPPORTED",
         }
     }
 }
@@ -94,6 +97,11 @@ pub struct ItemView {
     pub assignee_label: Option<String>,
     pub assignee_available: bool,
 }
+impl AsRef<Item> for ItemView {
+    fn as_ref(&self) -> &Item {
+        &self.item
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Current {
     pub room: RoomView,
@@ -138,6 +146,45 @@ struct Admission {
     roster: Vec<Member>,
 }
 
+/// Open items and their overlapping reference attribute: the one count the board's Talk and
+/// Measure views and `checklist counts` share.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub links: usize,
+    pub todo: usize,
+}
+impl Counts {
+    /// References are an attribute of open items, never an additional todo.
+    pub fn of<'a, T: AsRef<Item> + 'a>(items: impl IntoIterator<Item = &'a T>) -> Self {
+        let mut counts = Self::default();
+        for item in items
+            .into_iter()
+            .map(AsRef::as_ref)
+            .filter(|item| open(item))
+        {
+            counts.links += usize::from(item.content.reference.is_some());
+            counts.todo += 1;
+        }
+        counts
+    }
+    #[cfg(test)]
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+}
+/// An item still to do: open and not archived.
+pub fn open(item: &Item) -> bool {
+    !item.archived && item.completion == Completion::Open
+}
+/// The most members one `counts` read covers: the squad roster cap.
+pub const COUNTS_LIMIT: usize = 32;
+/// A member's open items for a board read, or why they cannot be counted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberCount {
+    pub id: Id,
+    pub open: Result<usize, &'static str>,
+}
+
 /// Only this local invocation constructor captures the public caller. A request
 /// has no actor field; arbitrary client-supplied identity strings grant nothing.
 pub struct Service {
@@ -145,11 +192,25 @@ pub struct Service {
     config_path: PathBuf,
     actor_id: Id,
     store: Store,
+    /// Admitted for reading only: the actor came from `user.person`, which creates nothing.
+    reading: bool,
 }
 impl Service {
     /// The room's own list.
     pub fn new(core: &Core, config: &Config, room_id: Id) -> Result<Self, Error> {
-        Self::build(core, config, room_id, None)
+        Self::build(core, config, room_id, None, false)?.ok_or_else(no_actor)
+    }
+
+    /// A service for reads only (list, show, events, preview, counts): the caller, else the
+    /// configured person as Core's `user.person` reports it. Neither creates or marks anyone;
+    /// `None` when there is neither.
+    pub fn reading(
+        core: &Core,
+        config: &Config,
+        room_id: Id,
+        member_id: Option<Id>,
+    ) -> Result<Option<Self>, Error> {
+        Self::build(core, config, room_id, member_id, true)
     }
 
     /// The list of one member's conversation in a room, from the member's UUID alone; a name is
@@ -160,7 +221,7 @@ impl Service {
         room_id: Id,
         member_id: Id,
     ) -> Result<Self, Error> {
-        Self::build(core, config, room_id, Some(member_id))
+        Self::build(core, config, room_id, Some(member_id), false)?.ok_or_else(no_actor)
     }
 
     /// The only checklist id a conversation list can have, which the caller need not supply.
@@ -175,15 +236,18 @@ impl Service {
         config: &Config,
         room_id: Id,
         member_id: Option<Id>,
-    ) -> Result<Self, Error> {
+        reading: bool,
+    ) -> Result<Option<Self>, Error> {
         let actor = match me::caller(core).map_err(|e| port(Code::Forbidden, e))? {
             Some(caller) => caller.me,
-            None => recorded(core)?.ok_or_else(|| {
-                Error::new(
-                    Code::Forbidden,
-                    "No admitted caller or recorded active user.",
-                )
-            })?,
+            None => match if reading {
+                person(core)?
+            } else {
+                recorded(core)?
+            } {
+                Some(user) => user,
+                None => return Ok(None),
+            },
         };
         let root = core
             .api("storage.root", json!({}))
@@ -192,7 +256,7 @@ impl Service {
             .as_str()
             .map(PathBuf::from)
             .ok_or_else(|| Error::storage("storage.root returned no dataRoot."))?;
-        Ok(Self {
+        Ok(Some(Self {
             core: core.clone(),
             config_path: config.path().into(),
             actor_id: Id::parse(&actor.id)?,
@@ -204,7 +268,8 @@ impl Service {
                     .map_err(Error::storage)?
                     .subtree(),
             )?,
-        })
+            reading,
+        }))
     }
 
     fn admit(
@@ -214,7 +279,18 @@ impl Service {
         assignment: Option<&Id>,
     ) -> Result<(Admission, Option<Assignee>), Error> {
         active(&self.core, &self.actor_id, Code::Forbidden)?;
-        let user = recorded(&self.core)?.is_some_and(|user| user.id == self.actor_id.as_str());
+        if self.reading && write {
+            return Err(Error::new(
+                Code::Forbidden,
+                "This checklist service was admitted for reading only.",
+            ));
+        }
+        let user = if self.reading {
+            person(&self.core)?
+        } else {
+            recorded(&self.core)?
+        }
+        .is_some_and(|user| user.id == self.actor_id.as_str());
         let refs = self
             .core
             .api(
@@ -407,6 +483,62 @@ impl Service {
         })
     }
 
+    /// Every given member's open conversation-list items in this room, from one admission and
+    /// one reference read: the board's count, for at most [`COUNTS_LIMIT`] members. With no
+    /// members given, the room's current roster.
+    pub fn counts(&self, members: Option<Vec<Id>>) -> Result<Vec<MemberCount>, Error> {
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
+        let (admission, _) = self.admit(false, false, None)?;
+        let members = match members {
+            Some(members) => members,
+            None => admission
+                .roster
+                .iter()
+                .map(|member| Id::parse(&member.id))
+                .collect::<Result<_, _>>()?,
+        };
+        if members.len() > COUNTS_LIMIT {
+            return Err(Error::new(
+                Code::InputInvalid,
+                format!("At most {COUNTS_LIMIT} members per read."),
+            ));
+        }
+        if !admission.room.available {
+            return Ok(members
+                .into_iter()
+                .map(|id| MemberCount {
+                    id,
+                    open: Err("room-unavailable"),
+                })
+                .collect());
+        }
+        let ids: Vec<&str> = members.iter().map(Id::as_str).collect();
+        let refs = self
+            .core
+            .api("references.resolve", json!({ "identityIds": ids }))
+            .map_err(|e| port(Code::MemberUnavailable, e))?;
+        members
+            .into_iter()
+            .map(|id| {
+                let found = refs["identities"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|identity| identity["id"] == id.as_str() && identity["found"] == true);
+                if !found {
+                    return Ok(MemberCount {
+                        id,
+                        open: Err("member-unavailable"),
+                    });
+                }
+                let document = self.store.for_member(id.clone()).read()?;
+                let open = Counts::of(document.iter().flat_map(|d| &d.items)).todo;
+                Ok(MemberCount { id, open: Ok(open) })
+            })
+            .collect()
+    }
+
     pub fn show(&self, checklist_id: &Id, item_id: &Id) -> Result<Current, Error> {
         let _migration =
             crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
@@ -563,6 +695,27 @@ fn port(code: Code, error: SquadError) -> Error {
 }
 fn recorded(core: &Core) -> Result<Option<me::Me>, Error> {
     me::current(core).map_err(|e| port(Code::Forbidden, e))
+}
+/// The configured person, read-only: never creates or marks it.
+fn person(core: &Core) -> Result<Option<me::Me>, Error> {
+    me::person(core).map_err(|e| {
+        let code = if e.code == me::PERSON_UNSUPPORTED {
+            Code::CoreUnsupported
+        } else {
+            Code::Forbidden
+        };
+        port(code, e)
+    })
+}
+/// A read with neither an admitted caller nor a configured person: nothing to admit, nothing created.
+pub fn no_person() -> Error {
+    Error::new(Code::Forbidden, "No admitted caller or configured person.")
+}
+fn no_actor() -> Error {
+    Error::new(
+        Code::Forbidden,
+        "No admitted caller or recorded active user.",
+    )
 }
 fn active(core: &Core, id: &Id, code: Code) -> Result<String, Error> {
     let refs = core
