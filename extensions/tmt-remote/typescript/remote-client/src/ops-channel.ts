@@ -21,18 +21,23 @@ export function memberState(agent: Pick<OpsAgent, 'presence' | 'activity'>): Mem
   return 'Unknown';
 }
 
+/** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
+function unknownMark(): HTMLElement {
+  const alone = mark(MARKS.Unknown);
+  alone.title = 'State unknown';
+  alone.setAttribute('role', 'img');
+  alone.setAttribute('aria-label', 'State unknown');
+  alone.removeAttribute('aria-hidden');
+  return alone;
+}
+
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent: OpsAgent): HTMLElement {
   const word = memberState(agent);
   if (word === 'Unknown') {
-    // As in the DM header: an unknown state is its mark alone, the word in the tooltip.
-    const alone = mark(MARKS.Unknown);
+    const alone = unknownMark();
     alone.classList.add('ops-member-state');
     alone.dataset.state = 'unknown';
-    alone.title = 'State unknown';
-    alone.setAttribute('role', 'img');
-    alone.setAttribute('aria-label', 'State unknown');
-    alone.removeAttribute('aria-hidden');
     return alone;
   }
   const badge = el('span', `${c.chip} ops-member-state`);
@@ -166,16 +171,19 @@ export function channelView(
   setOpen(false);
   // Slack's frame: the view fills the window below the top bar and only the stream scrolls, so the
   // header and the message box stay in view while reading or typing.
+  // The visible height: a phone's on-screen keyboard shrinks the visual viewport, not the window.
+  const viewHeight = () => visualViewport?.height ?? innerHeight;
   const fit = () => {
     if (!page.isConnected) return;
     const top = page.getBoundingClientRect().top + scrollY;
-    const height = innerHeight - top;
+    const height = viewHeight() - top;
     page.style.height = `${height}px`;
-    // Whatever the page keeps below the view (its padding, the note) comes off the same height.
+    // Whatever the page keeps below the view (the note) comes off the same height.
     const below = document.documentElement.scrollHeight - innerHeight;
-    if (below > 0) page.style.height = `${Math.max(320, height - below)}px`;
+    if (below > 0) page.style.height = `${Math.max(240, height - below)}px`;
   };
   addEventListener('resize', fit);
+  visualViewport?.addEventListener('resize', fit);
 
   const missing = el('p', 'ops-empty');
   missing.dataset.opsChannelMissing = '';
@@ -304,14 +312,7 @@ export function channelView(
         title.textContent = member.name;
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
-        // An unknown state is the mark alone, its word in the tooltip; a known one is said.
-        const stateMark = mark(MARKS[state]);
-        if (state === 'Unknown') {
-          stateMark.title = 'State unknown';
-          stateMark.setAttribute('role', 'img');
-          stateMark.setAttribute('aria-label', 'State unknown');
-          stateMark.removeAttribute('aria-hidden');
-        }
+        const stateMark = state === 'Unknown' ? unknownMark() : mark(MARKS[state]);
         facts.append(
           stateMark,
           [

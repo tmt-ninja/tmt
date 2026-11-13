@@ -10487,6 +10487,54 @@ function noticeRow(text, at) {
 	}
 	return row;
 }
+var escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+* A message's words as nodes, never as HTML: an http or https address becomes a link that opens in
+* a new tab and shows its full address on hover; words between a pair of backticks on one line
+* become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
+* markup.
+*/
+function richText(words, mentions = []) {
+	const out = [];
+	const named = mentions.length ? new RegExp(`(@(?:${[...mentions].sort((a, b) => b.length - a.length).map(escape).join("|")}))(?![\\w-])`) : void 0;
+	const plain = (text) => {
+		if (!text) return;
+		if (!named) return void out.push(text);
+		text.split(named).forEach((part, at) => {
+			if (part) out.push(at % 2 ? el("span", "ops-dm-mention", part) : part);
+		});
+	};
+	const linked = (text) => {
+		let from = 0;
+		for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
+			const address = match[0].replace(/[.,;:!?)\]}'"]+$/, "");
+			let url;
+			try {
+				url = new URL(address);
+			} catch {
+				continue;
+			}
+			if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+			plain(text.slice(from, match.index));
+			const link = el("a", "ops-dm-link", address);
+			link.href = url.href;
+			link.target = "_blank";
+			link.rel = "noopener noreferrer";
+			link.title = url.href;
+			out.push(link);
+			from = match.index + address.length;
+		}
+		plain(text.slice(from));
+	};
+	let from = 0;
+	for (const match of words.matchAll(/`([^`\n]+)`/g)) {
+		linked(words.slice(from, match.index));
+		out.push(el("code", "ops-dm-code", match[1]));
+		from = match.index + match[0].length;
+	}
+	linked(words.slice(from));
+	return out;
+}
 function messageRow(options) {
 	const row = el("li", "ops-dm-message");
 	if (options.self) row.dataset.self = "";
@@ -10504,19 +10552,27 @@ function messageRow(options) {
 		from.hidden = ownDevice === null || device === ownDevice;
 		head.append(from);
 	}
+	row.dataset.group = JSON.stringify([
+		options.who,
+		options.to,
+		options.self,
+		device ?? ""
+	]);
+	const side = el("span", "ops-dm-message-side");
+	side.append(face);
 	if (options.at && Number.isFinite(options.at.valueOf())) {
 		const time = el("time", "ops-dm-message-time", clock(options.at));
 		time.dateTime = options.at.toISOString();
 		time.title = options.at.toLocaleString();
 		head.append(time);
+		row.dataset.at = String(options.at.valueOf());
+		const gutter = el("span", "ops-dm-message-gutter", clock(options.at));
+		gutter.setAttribute("aria-hidden", "true");
+		side.append(gutter);
 	}
 	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
 	if (words === null || options.quiet) text.dataset.quiet = "";
-	else if (options.mentions?.length) {
-		const names = [...options.mentions].sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-		const parts = words.split(new RegExp(`(@(?:${names.join("|")}))(?![\\w-])`));
-		text.replaceChildren(...parts.map((part, at) => at % 2 ? el("span", "ops-dm-mention", part) : part));
-	}
+	else text.replaceChildren(...richText(words, options.mentions));
 	const content = el("div", "ops-dm-message-body");
 	content.append(head, text);
 	if (options.note) content.append(el("p", "ops-dm-message-note", options.note));
@@ -10525,7 +10581,7 @@ function messageRow(options) {
 		state.dataset.mark = options.mark ?? "done";
 		content.append(state);
 	}
-	row.append(face, content);
+	row.append(side, content);
 	return row;
 }
 /** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one. */
@@ -10564,15 +10620,44 @@ function talkList(label) {
 	const days = /* @__PURE__ */ new Map();
 	let pinned = true;
 	let placed = -1;
+	let latest = -Infinity, seen = -Infinity, unseen = 0;
+	const jump = el("li", "ops-dm-jump");
+	const jumpButton = el("button", "ops-dm-jump-button");
+	jumpButton.type = "button";
+	jump.append(jumpButton);
+	jump.hidden = true;
+	const showJump = () => {
+		const far = list.scrollHeight - list.scrollTop - list.clientHeight > list.clientHeight;
+		jump.hidden = pinned || unseen === 0 && !far;
+		jumpButton.textContent = unseen ? `${unseen} new message${unseen === 1 ? "" : "s"} ↓` : "Jump to latest ↓";
+	};
+	const caughtUp = () => {
+		seen = latest;
+		unseen = 0;
+	};
 	const toBottom = () => {
 		list.scrollTop = list.scrollHeight;
 		placed = list.scrollTop;
 	};
+	jumpButton.addEventListener("click", () => {
+		pinned = true;
+		caughtUp();
+		jump.hidden = true;
+		toBottom();
+	});
+	let height = 0;
 	list.addEventListener("scroll", () => {
 		if (list.scrollTop === placed) return;
+		if (list.clientHeight !== height) {
+			height = list.clientHeight;
+			if (pinned) return toBottom();
+		}
 		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+		if (pinned) caughtUp();
+		showJump();
 	});
 	const sizes = new ResizeObserver(() => {
+		height = list.clientHeight;
 		if (pinned) toBottom();
 	});
 	sizes.observe(list);
@@ -10585,6 +10670,9 @@ function talkList(label) {
 			sizes.disconnect();
 			sizes.observe(list);
 			pinned = true;
+			latest = seen = -Infinity;
+			unseen = 0;
+			jump.hidden = true;
 		},
 		forget() {
 			rows.clear();
@@ -10626,13 +10714,40 @@ function talkList(label) {
 				children.push(row.node);
 			}
 			if (tail) children.push(tail);
+			group(children);
+			children.push(jump);
+			latest = ordered.reduce((at, item) => Math.max(at, item.preparedAtMs), latest);
+			if (atBottom) caughtUp();
+			else unseen = ordered.filter((item) => item.preparedAtMs > seen).length;
 			if (!(children.length === list.children.length && children.every((child, at) => list.children[at] === child))) {
 				list.replaceChildren(...children);
 				for (const child of children) sizes.observe(child);
 			}
 			if (atBottom) toBottom();
+			showJump();
 		}
 	};
+}
+/** Five minutes: Slack's window for messages that read as one turn. */
+var GROUP_MS = 3e5;
+/** A message continues the one above it (no face, no header) when the same sender wrote to the same
+* people within `GROUP_MS`, with no day line or notice between them. */
+function group(children) {
+	let previous;
+	for (const child of children) {
+		const rows = child.matches(".ops-dm-exchange") ? child.querySelectorAll(":scope > ol > .ops-dm-message") : [];
+		if (!rows.length) previous = void 0;
+		for (const row of rows) {
+			const key = row.dataset.group ?? "";
+			const at = Number(row.dataset.at);
+			const continued = previous !== void 0 && previous.key === key && Number.isFinite(at) && at >= previous.at && at - previous.at <= GROUP_MS;
+			row.toggleAttribute("data-continued", continued);
+			previous = Number.isFinite(at) ? {
+				key,
+				at
+			} : void 0;
+		}
+	}
 }
 var GOING = [
 	"sending",
@@ -11449,17 +11564,22 @@ function memberState(agent) {
 	if (agent.activity?.state === "idle") return "Idle";
 	return "Unknown";
 }
+/** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
+function unknownMark() {
+	const alone = mark(MARKS.Unknown);
+	alone.title = "State unknown";
+	alone.setAttribute("role", "img");
+	alone.setAttribute("aria-label", "State unknown");
+	alone.removeAttribute("aria-hidden");
+	return alone;
+}
 /** A member's state as the spec draws it: an uncoloured mark and its word. */
 function stateBadge(agent) {
 	const word = memberState(agent);
 	if (word === "Unknown") {
-		const alone = mark(MARKS.Unknown);
+		const alone = unknownMark();
 		alone.classList.add("ops-member-state");
 		alone.dataset.state = "unknown";
-		alone.title = "State unknown";
-		alone.setAttribute("role", "img");
-		alone.setAttribute("aria-label", "State unknown");
-		alone.removeAttribute("aria-hidden");
 		return alone;
 	}
 	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
@@ -11570,15 +11690,17 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	const stream = channelStream(shell, port, rereadBoard);
 	page.append(head, panel, history, stream.thread);
 	setOpen(false);
+	const viewHeight = () => visualViewport?.height ?? innerHeight;
 	const fit = () => {
 		if (!page.isConnected) return;
 		const top = page.getBoundingClientRect().top + scrollY;
-		const height = innerHeight - top;
+		const height = viewHeight() - top;
 		page.style.height = `${height}px`;
 		const below = document.documentElement.scrollHeight - innerHeight;
-		if (below > 0) page.style.height = `${Math.max(320, height - below)}px`;
+		if (below > 0) page.style.height = `${Math.max(240, height - below)}px`;
 	};
 	addEventListener("resize", fit);
+	visualViewport?.addEventListener("resize", fit);
 	const missing = el("p", "ops-empty");
 	missing.dataset.opsChannelMissing = "";
 	let identity = "";
@@ -11696,13 +11818,7 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				title.textContent = member.name;
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
-				const stateMark = mark(MARKS[state]);
-				if (state === "Unknown") {
-					stateMark.title = "State unknown";
-					stateMark.setAttribute("role", "img");
-					stateMark.setAttribute("aria-label", "State unknown");
-					stateMark.removeAttribute("aria-hidden");
-				}
+				const stateMark = state === "Unknown" ? unknownMark() : mark(MARKS[state]);
 				facts.append(stateMark, [
 					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",

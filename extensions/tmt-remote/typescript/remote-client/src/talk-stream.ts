@@ -107,6 +107,63 @@ export function noticeRow(text: string | null, at?: Date): HTMLElement {
   return row;
 }
 
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * A message's words as nodes, never as HTML: an http or https address becomes a link that opens in
+ * a new tab and shows its full address on hover; words between a pair of backticks on one line
+ * become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
+ * markup.
+ */
+export function richText(words: string, mentions: readonly string[] = []): (Node | string)[] {
+  const out: (Node | string)[] = [];
+  const named = mentions.length
+    ? new RegExp(
+        `(@(?:${[...mentions]
+          .sort((a, b) => b.length - a.length)
+          .map(escape)
+          .join('|')}))(?![\\w-])`,
+      )
+    : undefined;
+  const plain = (text: string) => {
+    if (!text) return;
+    if (!named) return void out.push(text);
+    text.split(named).forEach((part, at) => {
+      if (part) out.push(at % 2 ? el('span', 'ops-dm-mention', part) : part);
+    });
+  };
+  const linked = (text: string) => {
+    let from = 0;
+    for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
+      // Closing punctuation after an address belongs to the sentence.
+      const address = match[0].replace(/[.,;:!?)\]}'"]+$/, '');
+      let url: URL;
+      try {
+        url = new URL(address);
+      } catch {
+        continue;
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
+      plain(text.slice(from, match.index));
+      const link = el('a', 'ops-dm-link', address);
+      link.href = url.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.title = url.href;
+      out.push(link);
+      from = match.index + address.length;
+    }
+    plain(text.slice(from));
+  };
+  let from = 0;
+  for (const match of words.matchAll(/`([^`\n]+)`/g)) {
+    linked(words.slice(from, match.index));
+    out.push(el('code', 'ops-dm-code', match[1]!));
+    from = match.index + match[0].length;
+  }
+  linked(words.slice(from));
+  return out;
+}
+
 export function messageRow(options: {
   who: string;
   to: string;
@@ -137,23 +194,24 @@ export function messageRow(options: {
     from.hidden = ownDevice === null || device === ownDevice;
     head.append(from);
   }
+  // Consecutive messages from the same sender to the same people share one header (`talkList`).
+  row.dataset.group = JSON.stringify([options.who, options.to, options.self, device ?? '']);
+  const side = el('span', 'ops-dm-message-side');
+  side.append(face);
   if (options.at && Number.isFinite(options.at.valueOf())) {
     const time = el('time', 'ops-dm-message-time', clock(options.at));
     time.dateTime = options.at.toISOString();
     time.title = options.at.toLocaleString();
     head.append(time);
+    row.dataset.at = String(options.at.valueOf());
+    // A grouped message shows its time beside it under the pointer; the header keeps it for readers.
+    const gutter = el('span', 'ops-dm-message-gutter', clock(options.at));
+    gutter.setAttribute('aria-hidden', 'true');
+    side.append(gutter);
   }
   const text = el('p', 'ops-dm-message-text', words ?? 'Message preview unavailable');
   if (words === null || options.quiet) text.dataset.quiet = '';
-  else if (options.mentions?.length) {
-    const names = [...options.mentions]
-      .sort((a, b) => b.length - a.length)
-      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const parts = words!.split(new RegExp(`(@(?:${names.join('|')}))(?![\\w-])`));
-    text.replaceChildren(
-      ...parts.map((part, at) => (at % 2 ? el('span', 'ops-dm-mention', part) : part)),
-    );
-  }
+  else text.replaceChildren(...richText(words, options.mentions));
   const content = el('div', 'ops-dm-message-body');
   content.append(head, text);
   if (options.note) content.append(el('p', 'ops-dm-message-note', options.note));
@@ -162,7 +220,7 @@ export function messageRow(options: {
     state.dataset.mark = options.mark ?? 'done';
     content.append(state);
   }
-  row.append(face, content);
+  row.append(side, content);
   return row;
 }
 
@@ -209,16 +267,53 @@ export function talkList(label: string) {
   let pinned = true;
   // Where the stream last scrolled itself: its own scroll events never release the hold.
   let placed = -1;
+  // The newest message, and the newest the reader has seen at the bottom: a reader scrolled up is
+  // told how many arrived since and can jump back to the latest.
+  let latest = -Infinity,
+    seen = -Infinity,
+    unseen = 0;
+  const jump = el('li', 'ops-dm-jump');
+  const jumpButton = el('button', 'ops-dm-jump-button');
+  jumpButton.type = 'button';
+  jump.append(jumpButton);
+  jump.hidden = true;
+  const showJump = () => {
+    const far = list.scrollHeight - list.scrollTop - list.clientHeight > list.clientHeight;
+    jump.hidden = pinned || (unseen === 0 && !far);
+    jumpButton.textContent = unseen
+      ? `${unseen} new message${unseen === 1 ? '' : 's'} ↓`
+      : 'Jump to latest ↓';
+  };
+  const caughtUp = () => {
+    seen = latest;
+    unseen = 0;
+  };
   const toBottom = () => {
     list.scrollTop = list.scrollHeight;
     placed = list.scrollTop;
   };
+  jumpButton.addEventListener('click', () => {
+    pinned = true;
+    caughtUp();
+    jump.hidden = true;
+    toBottom();
+  });
+  // The view's height when last seen: a scroll that comes with a new height (the on-screen keyboard,
+  // a folded header) is the layout moving, not the reader, and keeps the hold.
+  let height = 0;
   list.addEventListener('scroll', () => {
     if (list.scrollTop === placed) return;
+    if (list.clientHeight !== height) {
+      height = list.clientHeight;
+      if (pinned) return toBottom();
+    }
     pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    if (pinned) caughtUp();
+    showJump();
   });
   // The view and every row: a row that grows (a font, a reply) keeps the newest in view too.
   const sizes = new ResizeObserver(() => {
+    height = list.clientHeight;
     if (pinned) toBottom();
   });
   sizes.observe(list);
@@ -231,6 +326,9 @@ export function talkList(label: string) {
       sizes.disconnect();
       sizes.observe(list);
       pinned = true;
+      latest = seen = -Infinity;
+      unseen = 0;
+      jump.hidden = true;
     },
     forget() {
       rows.clear();
@@ -276,6 +374,11 @@ export function talkList(label: string) {
         children.push(row.node);
       }
       if (tail) children.push(tail);
+      group(children);
+      children.push(jump);
+      latest = ordered.reduce((at, item) => Math.max(at, item.preparedAtMs), latest);
+      if (atBottom) caughtUp();
+      else unseen = ordered.filter((item) => item.preparedAtMs > seen).length;
       // Unchanged rows stay in place, so a refresh keeps the reader's text selection.
       const same =
         children.length === list.children.length &&
@@ -285,8 +388,35 @@ export function talkList(label: string) {
         for (const child of children) sizes.observe(child);
       }
       if (atBottom) toBottom();
+      showJump();
     },
   };
+}
+
+/** Five minutes: Slack's window for messages that read as one turn. */
+const GROUP_MS = 5 * 60_000;
+/** A message continues the one above it (no face, no header) when the same sender wrote to the same
+ * people within `GROUP_MS`, with no day line or notice between them. */
+function group(children: readonly HTMLElement[]) {
+  let previous: { key: string; at: number } | undefined;
+  for (const child of children) {
+    const rows = child.matches('.ops-dm-exchange')
+      ? child.querySelectorAll<HTMLElement>(':scope > ol > .ops-dm-message')
+      : [];
+    if (!rows.length) previous = undefined;
+    for (const row of rows) {
+      const key = row.dataset.group ?? '';
+      const at = Number(row.dataset.at);
+      const continued =
+        previous !== undefined &&
+        previous.key === key &&
+        Number.isFinite(at) &&
+        at >= previous.at &&
+        at - previous.at <= GROUP_MS;
+      row.toggleAttribute('data-continued', continued);
+      previous = Number.isFinite(at) ? { key, at } : undefined;
+    }
+  }
 }
 
 /** One post on its way: its frozen operation id and words, where it goes and how it stands. */
