@@ -1234,6 +1234,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     let (sender, sender_lease) = service(&core.root.join("sender"), &core, make_ports());
     let (token_tx, token_rx) = mpsc::channel();
     let (words_tx, words_rx) = mpsc::channel();
+    let (prepared_tx, prepared_rx) = mpsc::channel();
     let join_error = words_tx.clone();
     let (choice_tx, choice_rx) = mpsc::channel();
     let mut remote = String::new();
@@ -1267,18 +1268,30 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
             let mut events = vec![];
             let result = sender_clone
                 .join(&token, |event| {
+                    if event["event"] == "joining" {
+                        prepared_tx.send(Ok(())).unwrap();
+                    }
                     events.push(event);
                     Ok(None)
                 })
                 .map(|()| events);
             if let Err(error) = &result {
+                let _ = prepared_tx.send(Err(error.code.clone()));
                 let _ = join_error.send(Err(error.code.clone()));
             }
             result
         });
+        // Preparation (10 s) + candidate words (10 s) + owner choice (15 s)
+        // is 35 s inside the unchanged 45 s isolated-child cap. Once joining
+        // is ready, at worst one 5 s inviter poll remains: 5 s of word margin.
+        // Waiting for words before this readiness spends that margin on setup.
+        prepared_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("join preparation must become ready")
+            .expect("join preparation must succeed");
         let words = words_rx
             .recv_timeout(Duration::from_secs(10))
-            .unwrap()
+            .expect("candidate words must arrive after join preparation")
             .unwrap();
         assert!(owner.store().unwrap().grants().unwrap().is_empty());
         assert_eq!(core.sends(), 0);
