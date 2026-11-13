@@ -35,6 +35,8 @@ pub(in crate::board) struct Why {
     pub other: Option<(String, String)>,
     pub items: Vec<Value>,
     pub next_before: Option<u64>,
+    /// How long Core keeps decisions (`coverage.retentionMs`), when the page says.
+    pub retention_ms: Option<u64>,
     pub loading: bool,
     pub failure: Option<String>,
     scroll: ScrollState,
@@ -56,6 +58,7 @@ impl Why {
             other,
             items: Vec::new(),
             next_before: None,
+            retention_ms: None,
             loading: true,
             failure: None,
             scroll: ScrollState::default(),
@@ -72,6 +75,7 @@ impl Why {
             self.items = items;
         }
         self.next_before = page["nextBefore"].as_u64();
+        self.retention_ms = page["coverage"]["retentionMs"].as_u64();
         self.loading = false;
         self.failure = None;
     }
@@ -266,7 +270,11 @@ impl Why {
         if rows.is_empty() && !self.loading {
             return vec![note(
                 "empty",
-                format!("No recorded decision for {} in the last 30 days", self.name),
+                format!(
+                    "No recorded decision for {}{}",
+                    self.name,
+                    self.retention_ms.map(kept).unwrap_or_default()
+                ),
                 Role::Muted,
             )];
         }
@@ -454,4 +462,17 @@ pub(super) fn read(why: &Why, before: Option<u64>) -> Effect {
             before,
         },
     })
+}
+
+/// ` in the last N days` (or hours) for Core's retention; empty when it is under an hour.
+fn kept(ms: u64) -> String {
+    const HOUR: u64 = 3_600_000;
+    const DAY: u64 = 24 * HOUR;
+    match (ms / DAY, ms / HOUR) {
+        (1, _) if ms.is_multiple_of(DAY) => " in the last day".to_owned(),
+        (days, _) if days > 0 && ms.is_multiple_of(DAY) => format!(" in the last {days} days"),
+        (_, 1) => " in the last hour".to_owned(),
+        (_, 0) => String::new(),
+        (_, hours) => format!(" in the last {hours} hours"),
+    }
 }

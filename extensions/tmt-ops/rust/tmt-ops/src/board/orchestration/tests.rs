@@ -812,9 +812,25 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
                 before: None,
             },
         },
-        result: Ok(json!({"items": [], "nextBefore": null})),
+        result: Ok(json!({"items": [], "nextBefore": null,
+            "coverage": {"retentionMs": 30 * 86_400_000u64}})),
     });
     assert!(screen(&app).contains("No recorded decision for core-1 in the last 30 days"));
+    // Without Core's retention the dialog names no period.
+    app.finished_orchestration(super::write::Completed {
+        task: Task {
+            step: Step::Why {
+                identity_id: app.orchestration.target.clone().unwrap(),
+                before: None,
+            },
+        },
+        result: Ok(json!({"items": [], "nextBefore": null})),
+    });
+    let shown = screen(&app);
+    assert!(
+        shown.contains("No recorded decision for core-1") && !shown.contains("in the last"),
+        "{shown}"
+    );
 }
 #[test]
 fn a_confirmed_preview_applies_exactly_it_and_a_conflict_saves_nothing() {
