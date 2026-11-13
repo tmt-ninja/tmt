@@ -10385,8 +10385,9 @@ function conversations(session, options = {}) {
 /** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
 * anchored at the bottom with day separators, each message's delivery under it and replies as their
 * own rows; and the one outbox both send through. The outbox keeps Talk's rules in one place: an
-* operation id frozen with its draft and reused by a retry of the same words, an unknown outcome
-* only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
+* operation id frozen with its draft and reused by a retry of the same words while its outcome is
+* open, a refused or cancelled one retried under a new id (Remote replays a settled id and never
+* asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
 * retry. Untrusted words stay text. */
 /** Core's words start a line, so they start with a capital. */
 var sentence = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : void 0;
@@ -10604,6 +10605,10 @@ function outbox(port, changed) {
 			state: "uncertain",
 			...value.requestId ? { requestId: value.requestId } : {}
 		};
+		else if (value.state === "cancelled") pending = {
+			...pending,
+			state: "cancelled"
+		};
 		else pending = {
 			...pending,
 			state: "refused",
@@ -10622,7 +10627,7 @@ function outbox(port, changed) {
 		},
 		async send(target, message, input, version = "") {
 			if (pending && GOING.includes(pending.state)) return;
-			if (!pending || pending.target !== target || pending.message !== message || pending.version !== version || pending.state === "accepted") pending = {
+			if (!pending || pending.target !== target || pending.message !== message || pending.version !== version || pending.state === "accepted" || pending.state === "refused" || pending.state === "cancelled") pending = {
 				operationId: crypto.randomUUID(),
 				message,
 				target,
@@ -10670,6 +10675,7 @@ function outbox(port, changed) {
 					note.append(link);
 				}
 			} else if (mine?.state === "refused") note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
+			else if (mine?.state === "cancelled") note.textContent = "Not sent: it was cancelled on the machine. Send again to send it anew.";
 			else if (busy && mine.state !== "sending") note.textContent = mine.state === "uncertain" ? "Checking whether the message arrived. It is never sent twice." : "Waiting for approval on the machine.";
 			note.hidden = !note.textContent;
 			return {
@@ -10683,8 +10689,8 @@ function outbox(port, changed) {
 function refusalWords(reason) {
 	switch (reason) {
 		case "ROOM_ROSTER_CHANGED": return "the squad changed. Check the recipients and send again.";
-		case void 0: return "the machine refused it. Send again to retry the same message.";
-		default: return `the machine refused it (${reason}). Send again to retry the same message.`;
+		case void 0: return "the machine refused it. Send again to send it anew.";
+		default: return `the machine refused it (${reason}). Send again to send it anew.`;
 	}
 }
 /** The row of a post on its way, under the stream until the stream lists it. */
@@ -10700,7 +10706,7 @@ function pendingRow(value, to, mentions = []) {
 		text: value.message,
 		mentions,
 		state: value.state === "sending" ? "Sending…" : value.state === "held" ? "Waiting for approval on the machine" : value.state === "uncertain" ? "Delivery unknown · checking, nothing is sent again" : value.state === "accepted" ? "Sent" : "Not sent",
-		mark: value.state === "uncertain" ? "unknown" : value.state === "accepted" ? "done" : value.state === "refused" ? "failed" : "wait"
+		mark: value.state === "uncertain" ? "unknown" : value.state === "accepted" ? "done" : value.state === "refused" || value.state === "cancelled" ? "failed" : "wait"
 	}));
 	group.append(inner);
 	return group;

@@ -1,8 +1,9 @@
 /** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
  * anchored at the bottom with day separators, each message's delivery under it and replies as their
  * own rows; and the one outbox both send through. The outbox keeps Talk's rules in one place: an
- * operation id frozen with its draft and reused by a retry of the same words, an unknown outcome
- * only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
+ * operation id frozen with its draft and reused by a retry of the same words while its outcome is
+ * open, a refused or cancelled one retried under a new id (Remote replays a settled id and never
+ * asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
  * retry. Untrusted words stay text. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
 import { el } from './ops-parts.js';
@@ -268,7 +269,7 @@ export interface Pending {
   target: string;
   /** What else the send carries (a room revision): a retry reuses the id only when it matches. */
   version: string;
-  state: 'sending' | 'held' | 'uncertain' | 'accepted' | 'refused';
+  state: 'sending' | 'held' | 'uncertain' | 'accepted' | 'refused' | 'cancelled';
   requestId?: string;
   reason?: string;
   settingsUrl?: string;
@@ -297,6 +298,7 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
         state: 'uncertain',
         ...(value.requestId ? { requestId: value.requestId } : {}),
       };
+    else if (value.state === 'cancelled') pending = { ...pending, state: 'cancelled' };
     else
       pending = {
         ...pending,
@@ -317,12 +319,17 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
     async send(target: string, message: string, input: (operationId: string) => I, version = '') {
       if (pending && GOING.includes(pending.state)) return;
       // One operation per draft: a retry of the same words reuses its id; new words get a new one.
+      // A refused or cancelled id is settled: Remote replays it and never asks Core again, so a
+      // retry is a new operation (nothing was delivered under the old one). Only held and
+      // uncertain ids are kept, and those are observed, never sent.
       if (
         !pending ||
         pending.target !== target ||
         pending.message !== message ||
         pending.version !== version ||
-        pending.state === 'accepted'
+        pending.state === 'accepted' ||
+        pending.state === 'refused' ||
+        pending.state === 'cancelled'
       )
         pending = { operationId: crypto.randomUUID(), message, target, version, state: 'sending' };
       else pending = { ...pending, state: 'sending' };
@@ -366,6 +373,8 @@ export function outbox<I>(port: TalkPort<I>, changed: (pending: Pending) => void
         }
       } else if (mine?.state === 'refused')
         note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
+      else if (mine?.state === 'cancelled')
+        note.textContent = 'Not sent: it was cancelled on the machine. Send again to send it anew.';
       else if (busy && mine!.state !== 'sending')
         // "Sending…" already shows under the message itself.
         note.textContent =
@@ -384,9 +393,9 @@ function refusalWords(reason: string | undefined): string {
     case 'ROOM_ROSTER_CHANGED':
       return 'the squad changed. Check the recipients and send again.';
     case undefined:
-      return 'the machine refused it. Send again to retry the same message.';
+      return 'the machine refused it. Send again to send it anew.';
     default:
-      return `the machine refused it (${reason}). Send again to retry the same message.`;
+      return `the machine refused it (${reason}). Send again to send it anew.`;
   }
 }
 
@@ -422,7 +431,7 @@ export function pendingRow(
           ? 'unknown'
           : value.state === 'accepted'
             ? 'done'
-            : value.state === 'refused'
+            : value.state === 'refused' || value.state === 'cancelled'
               ? 'failed'
               : 'wait',
     }),

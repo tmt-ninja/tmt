@@ -480,11 +480,22 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(2);
   const sends = await page.evaluate(() => window.dmSends);
-  expect(sends[1]).toEqual(sends[0]);
+  // Remote replays a refused id without asking Core, so the retry is a new operation.
+  expect(sends[1]).toEqual({ ...sends[0], operationId: sends[1]!.operationId });
+  expect(sends[1]!.operationId).not.toBe(sends[0]!.operationId);
   expect(sends[0]).toMatchObject({
     agentId: '00000000-0000-4000-8000-000000000002',
     message: 'Take the 390 capture next.',
   });
+  // Cancelled on the machine is settled too: its retry is another new operation.
+  await page.evaluate(() => {
+    window.dmSendState = { state: 'cancelled', operationId: '' };
+  });
+  await page.keyboard.press('Enter');
+  await expect(note).toContainText('Not sent: it was cancelled on the machine.');
+  await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(3);
+  const afterCancel = await page.evaluate(() => window.dmSends.map((send) => send.operationId));
+  expect(new Set(afterCancel).size).toBe(3);
   await page.evaluate(() => {
     window.dmSendState = { state: 'uncertain', operationId: '' };
   });
@@ -495,7 +506,7 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
   await expect(note).toContainText('never sent twice');
   await refresh(page);
   await refresh(page);
-  expect(await page.evaluate(() => window.dmSends.length)).toBe(3);
+  expect(await page.evaluate(() => window.dmSends.length)).toBe(4);
   expect(await page.evaluate(() => window.dmObserved)).toBeGreaterThanOrEqual(2);
   await page.evaluate(() => {
     window.dmSendState = {
@@ -512,7 +523,7 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
     '/remote/settings#talk',
   );
   await expect(page.locator('.ops-dm').getByRole('button', { name: 'Send' })).toBeDisabled();
-  expect(await page.evaluate(() => window.dmSends.length)).toBe(3);
+  expect(await page.evaluate(() => window.dmSends.length)).toBe(4);
 });
 
 test('channel posts to the lead or each mention with the board room, and shows replies under the post', async ({
