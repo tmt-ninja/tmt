@@ -296,11 +296,15 @@ fn adopt_initial_session(
         .ok_or(())?;
     let mut preferences = bound.stored.preferences.clone();
     preferences.remember(harness.clone(), mode, session.clone());
-    let mut storage = Storage::open_hook(&bound.paths.database, deadline).map_err(|_| ())?;
+    // Adoption is optional: a busy store or a lost CAS leaves the event to the
+    // existing observation path with its stored snapshot, never drops it.
+    let Ok(mut storage) = Storage::open_hook(&bound.paths.database, deadline) else {
+        return Ok(());
+    };
     let changed = commit_initial_session(&mut storage, &bound.stored, &next, &preferences);
-    let closed = storage.close();
-    if !changed.map_err(|_| ())? || closed.is_err() {
-        return Err(());
+    let _ = storage.close();
+    if !matches!(changed, Ok(true)) {
+        return Ok(());
     }
     bound.stored.entry.binding.as_mut().ok_or(())?.session = next;
     bound.stored.preferences = preferences;
