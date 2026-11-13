@@ -8832,6 +8832,7 @@ function unavailableBoard(reason) {
 function opsBoard(payload) {
 	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
 	return {
+		...typeof payload.defaultIdleAlertMs === "number" && Number.isFinite(payload.defaultIdleAlertMs) ? { defaultIdleAlertMs: payload.defaultIdleAlertMs } : {},
 		squads: payload.squads.map((squad) => ({
 			name: squad.name,
 			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
@@ -8839,7 +8840,10 @@ function opsBoard(payload) {
 				revision: squad.room.revision
 			} : null,
 			...squad.lead ? { lead: squad.lead.name } : {},
-			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {}
+			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? {
+				idleAlertMs: squad.idleAlertMs,
+				idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4)
+			} : {}
 		})),
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
@@ -9606,17 +9610,27 @@ function opsMenu(section, board, pathname, disclosure, unread) {
 		node.style.height = "9px";
 		return node;
 	};
+	const channelMark = () => {
+		const node = document.createElement("span");
+		node.textContent = "#";
+		return node;
+	};
 	return {
 		title: "Ops",
 		groups: !board?.unavailable && board ? [{
-			label: "This machine",
+			label: "THIS MACHINE",
 			items: bySquad(board, true).map((group) => {
-				const squad = board.squads.find((item) => item.name === group.name);
 				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
-				const badges = [...timers ? [`⏱ ${timers}`] : [], ...squad?.idleAlertMinutes ? [`Idle ${squad.idleAlertMinutes}m`] : []];
+				const badges = timers ? [`⏱ ${timers}`] : [];
+				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
+				if (idle !== void 0 && board.defaultIdleAlertMs !== void 0 && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
 				return {
 					id: `channel:${group.name}`,
-					label: `#${group.name}`,
+					label: group.name,
+					leading: {
+						node: channelMark(),
+						label: "Channel"
+					},
 					...badges.length ? { badges } : {},
 					href: opsHref(pathname, { squad: group.name }),
 					current: typeof section !== "string" && section.squad === group.name && !section.memberId,

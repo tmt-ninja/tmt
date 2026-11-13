@@ -19,8 +19,14 @@ it('turns the contract board into rows with uncoloured activity states', () => {
   expect(answer(withRoom).squads[0]!.room).toEqual(room);
   withRoom.squads[0]!.room = { ...room, revision: 0 };
   expect(answer(withRoom).squads[0]!.room).toBeNull();
+  expect(answer({ ...ops[0]!.expect, defaultIdleAlertMs: 900_000 }).defaultIdleAlertMs).toBe(
+    900_000,
+  );
+  expect(
+    answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs,
+  ).toBeUndefined();
   expect(board.squads).toEqual([
-    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMinutes: 30 },
+    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1800000, idleAlertMinutes: 30 },
   ]);
   expect(board.agents).toEqual([
     {

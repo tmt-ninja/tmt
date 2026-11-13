@@ -1151,11 +1151,11 @@ test.describe('the Ops route on the owner read', () => {
           await openMenu();
           const tree = modulePages(page);
           await expect(tree.locator('a .tmt-ui-module-menu-label')).toHaveText([
-            '#tmt-core',
+            'tmt-core',
             'tmt-lead',
             'core-3',
           ]);
-          await expect(tree.locator('.tmt-ui-rail-sub-group')).toContainText('This machine');
+          await expect(tree.locator('.tmt-ui-rail-sub-group')).toContainText('THIS MACHINE');
           await expect(tree.locator('a[data-id="channel:tmt-core"]')).toHaveAttribute(
             'aria-current',
             'page',
@@ -1163,7 +1163,7 @@ test.describe('the Ops route on the owner read', () => {
           await expect(tree.locator('.tmt-ui-attention-dot')).toHaveCount(0);
           await expect(
             tree.locator('a[data-id="channel:tmt-core"] .tmt-ui-shell-count'),
-          ).toHaveText(['Idle 30m']);
+          ).toHaveCount(0);
           expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
             false,
           );
@@ -1249,7 +1249,7 @@ test.describe('the Ops route on the owner read', () => {
       reads = await stub(page, [board, changed]);
     });
     await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('#tmt-core');
-    await expect(page.locator('.ops-channel-context .tmt-ui-list-row')).toHaveCount(2);
+    await expect(page.locator('#ops-channel-about .tmt-ui-list-row')).toHaveCount(2);
     await expect(page.locator('.ops-channel-context')).toContainText('renamed-lead', {
       timeout: 8000,
     });
@@ -1270,7 +1270,7 @@ test.describe('the Ops route on the owner read', () => {
         down ? route.abort('connectionrefused') : route.fallback(),
       );
     });
-    const rows = page.locator('.ops-channel-context .tmt-ui-list-row');
+    const rows = page.locator('#ops-channel-about .tmt-ui-list-row');
     await expect(rows).toHaveCount(2);
     down = true;
     await expect(page.locator('#ops-note')).toHaveText(

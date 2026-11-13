@@ -50,6 +50,10 @@ body {
   font: 400 14px/1.5 var(--tmt-ui-font-body);
   -webkit-text-size-adjust: 100%;
 }
+/* The active module is already named and selected; its glyph is not a status or action. */
+.tmt-ui-rail-item[data-module-current] > .tmt-ui-shell-icon {
+  color: inherit;
+}
 /* Only a page outside the TMT web shell (the error page) keeps the fixed header's top padding. */
 body:not(:has(.tmt-ui-shell)) {
   padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
@@ -119,6 +123,7 @@ body:not(:has(.tmt-ui-shell)) {
 #words {
   padding: 20px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-paper);
   color: var(--tmt-ui-color-text);
   font: 600 clamp(24px, 3vw, 30px)/1.65 var(--tmt-ui-font-mono);
@@ -341,7 +346,7 @@ body:not(:has(.tmt-ui-shell)) {
   width: 20px;
   flex: none;
   font-size: 18px;
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-secondary);
 }
 .digest-provider-label strong:first-of-type {
   min-width: 0;
@@ -397,7 +402,7 @@ body:not(:has(.tmt-ui-shell)) {
   font-size: var(--tmt-ui-caption-size);
 }
 .digest-provider .tmt-ui-meter-fill {
-  background: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-color-secondary);
 }
 .digest-provider-details {
   color: var(--tmt-ui-color-secondary);
@@ -608,7 +613,7 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-messages td[data-level] {
   background: color-mix(
     in srgb,
-    var(--tmt-ui-color-accent) var(--digest-message-tint),
+    var(--tmt-ui-color-text) var(--digest-message-tint),
     var(--tmt-ui-surface-sheet)
   );
 }

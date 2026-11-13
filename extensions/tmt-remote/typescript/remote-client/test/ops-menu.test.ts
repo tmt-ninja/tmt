@@ -24,13 +24,14 @@ const board = (): OpsBoard => ({
   truncated: false,
 });
 
-it('shows only local squad channels and their observed timer and idle badges', () => {
+it('shows only local squad channels and observed timer counts', () => {
   const source = board();
   const menu = opsMenu('home', source, '/ops/');
   expect(menu.groups).toHaveLength(1);
-  expect(menu.groups[0]!.label).toBe('This machine');
-  expect(menu.groups[0]!.items.map((item) => item.label)).toEqual(['#sample']);
-  expect(menu.groups[0]!.items[0]!.badges).toEqual(['⏱ 1', 'Idle 30m']);
+  expect(menu.groups[0]!.label).toBe('THIS MACHINE');
+  expect(menu.groups[0]!.items.map((item) => item.label)).toEqual(['sample']);
+  expect(menu.groups[0]!.items[0]!.leading?.label).toBe('Channel');
+  expect(menu.groups[0]!.items[0]!.badges).toEqual(['⏱ 1']);
   expect(menu.groups[0]!.items[0]!.children!.map((item) => item.label)).toEqual([
     'first',
     'second',
@@ -38,11 +39,19 @@ it('shows only local squad channels and their observed timer and idle badges', (
   expect(menu.settings).toBeUndefined();
   expect(
     opsMenu('home', { ...source, schedules: null }, '/ops/').groups[0]!.items[0]!.badges,
-  ).toEqual(['Idle 30m']);
+  ).toBeUndefined();
   expect(
     opsMenu('home', { ...source, truncated: true }, '/ops/').groups[0]!.items[0]!.badges,
-  ).toEqual(['Idle 30m']);
+  ).toBeUndefined();
   expect(opsMenu('home', { ...source, unavailable: 'unavailable' }, '/ops/').groups).toEqual([]);
+});
+
+it('shows an idle override only when both intervals are known and differ', () => {
+  const source = { ...board(), squads: [{ name: 'sample', idleAlertMs: 1_800_000 }] };
+  const badges = (value: OpsBoard) => opsMenu('home', value, '/ops/').groups[0]!.items[0]!.badges;
+  expect(badges(source)).toEqual(['⏱ 1']);
+  expect(badges({ ...source, defaultIdleAlertMs: 1_800_000 })).toEqual(['⏱ 1']);
+  expect(badges({ ...source, defaultIdleAlertMs: 900_000 })).toEqual(['⏱ 1', 'Idle 30m']);
 });
 
 it('routes channels and DMs by scoped UUID and sends removed routes to the channel home', () => {

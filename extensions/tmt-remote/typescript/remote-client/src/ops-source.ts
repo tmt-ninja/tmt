@@ -50,6 +50,8 @@ export interface OpsSquad {
   name: string;
   room: { roomId: string; revision: number } | null;
   lead?: string;
+  /** Effective squad alert interval, as supplied by the owner read. */
+  idleAlertMs?: number;
   /** Minutes before an idle alert, when the squad sets one. */
   idleAlertMinutes?: number;
 }
@@ -64,6 +66,8 @@ export interface OpsSchedule {
 export interface OpsBoard {
   agents: readonly OpsAgent[];
   squads: readonly OpsSquad[];
+  /** Workspace default, absent when the owner cannot report it. */
+  defaultIdleAlertMs?: number;
   /** `null` when the owner could not read the schedules: never shown as no timers. */
   schedules: readonly OpsSchedule[] | null;
   /** The owner cut the board to the read's bounds. */
@@ -77,6 +81,7 @@ export interface OpsSource {
 
 /** The `x/-/ops` payload (contract: Ops payload); every text field is already bounded and inert. */
 export interface OpsPayload {
+  defaultIdleAlertMs?: number | null;
   squads: readonly {
     name: string;
     room?: { roomId: string; revision: number } | null;
@@ -143,6 +148,10 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
   )
     return unavailableBoard('read_failed');
   return {
+    ...(typeof payload.defaultIdleAlertMs === 'number' &&
+    Number.isFinite(payload.defaultIdleAlertMs)
+      ? { defaultIdleAlertMs: payload.defaultIdleAlertMs }
+      : {}),
     squads: payload.squads.map((squad) => ({
       name: squad.name,
       room:
@@ -153,7 +162,12 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
           ? { roomId: squad.room.roomId, revision: squad.room.revision }
           : null,
       ...(squad.lead ? { lead: squad.lead.name } : {}),
-      ...(squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 60_000) } : {}),
+      ...(typeof squad.idleAlertMs === 'number' && Number.isFinite(squad.idleAlertMs)
+        ? {
+            idleAlertMs: squad.idleAlertMs,
+            idleAlertMinutes: Math.round(squad.idleAlertMs / 60_000),
+          }
+        : {}),
     })),
     agents: payload.agents.map((agent) => {
       const state = agentState(agent);

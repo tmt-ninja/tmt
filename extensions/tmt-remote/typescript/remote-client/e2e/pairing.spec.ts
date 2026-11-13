@@ -6197,7 +6197,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       ['light', 'dark'],
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Agents');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('Ops · TMT');
     // Ops reads the owner's board (x/-/ops), which needs an owner session: this browser is not
@@ -6206,11 +6206,8 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       'This browser has no owner session for your machine. Pair it from Remote to see the board.',
     );
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
-    // The sections stay in the module menu; each is empty the same way.
-    const menu = modulePages(page);
-    await menu.getByRole('link', { name: 'Squads', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Squads');
-    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
+    // An unavailable board has no squad channels to invent in the module menu.
+    await expect(modulePages(page).locator('[data-id^="channel:"]')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(
       page,

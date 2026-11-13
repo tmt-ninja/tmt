@@ -60,26 +60,35 @@ export function opsMenu(
     node.style.height = '9px';
     return node;
   };
+  const channelMark = () => {
+    const node = document.createElement('span');
+    node.textContent = '#';
+    return node;
+  };
   return {
     title: 'Ops',
     groups:
       !board?.unavailable && board
         ? [
             {
-              label: 'This machine',
+              label: 'THIS MACHINE',
               items: bySquad(board, true).map((group) => {
-                const squad = board.squads.find((item) => item.name === group.name);
                 const timers =
                   !board.truncated && board.schedules
                     ? board.schedules.filter((item) => item.squad === group.name).length
                     : undefined;
-                const badges = [
-                  ...(timers ? [`⏱ ${timers}`] : []),
-                  ...(squad?.idleAlertMinutes ? [`Idle ${squad.idleAlertMinutes}m`] : []),
-                ];
+                const badges = timers ? [`⏱ ${timers}`] : [];
+                const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
+                if (
+                  idle !== undefined &&
+                  board.defaultIdleAlertMs !== undefined &&
+                  idle !== board.defaultIdleAlertMs
+                )
+                  badges.push(`Idle ${Math.round(idle / 60_000)}m`);
                 return {
                   id: `channel:${group.name}`,
-                  label: `#${group.name}`,
+                  label: group.name,
+                  leading: { node: channelMark(), label: 'Channel' },
                   ...(badges.length ? { badges } : {}),
                   href: opsHref(pathname, { squad: group.name }),
                   current:

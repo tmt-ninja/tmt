@@ -36,6 +36,34 @@ for (const width of [1440, 390])
       const requests: string[] = [];
       page.on('request', (request) => requests.push(request.url()));
       await open(page, width, theme);
+      await page.evaluate(() => {
+        window.channelBoard.squads = [
+          ...window.channelBoard.squads,
+          { name: 'core' },
+          { name: 'remote' },
+        ];
+        window.channelBoard.agents = [
+          ...window.channelBoard.agents,
+          {
+            id: '00000000-0000-4000-8000-000000000004',
+            name: 'core-lead',
+            squad: 'core',
+            role: 'lead',
+            state: 'unknown',
+            waitingOnYou: 0,
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000005',
+            name: 'remote-lead',
+            squad: 'remote',
+            role: 'lead',
+            state: 'working',
+            activity: { state: 'working' },
+            waitingOnYou: 0,
+          },
+        ];
+      });
+      await refresh(page);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
       await expect(page.locator('.ops-channel-context .tmt-ui-list-state')).toHaveText([
         'Working',
@@ -50,6 +78,11 @@ for (const width of [1440, 390])
       const member = page.locator('.ops-channel-context .tmt-ui-list-title > a').first();
       await expect(member).toHaveCSS('text-decoration-line', 'none');
       await shot(page, `channel-${width}-${theme}`);
+      if (width === 390) {
+        await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+        await shot(page, `rail-channel-${width}-${theme}`);
+        await page.keyboard.press('Escape');
+      }
       await page.getByRole('tab', { name: 'Members', exact: true }).focus();
       await page.keyboard.press('ArrowRight');
       await expect(page.getByRole('tab', { name: 'Squad timers', exact: true })).toBeFocused();
@@ -87,10 +120,10 @@ for (const width of [1440, 390])
       if (width === 390)
         await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
       const rail = page.locator('.tmt-ui-rail');
-      await expect(rail.getByText('This machine', { exact: true })).toBeVisible();
-      const squad = rail.getByRole('link', { name: '#sample · ⏱ 1, Idle 15m', exact: true });
-      await expect(squad.locator('.tmt-ui-shell-count')).toHaveText(['⏱ 1', 'Idle 15m']);
-      const hide = rail.getByRole('button', { name: 'Hide #sample', exact: true });
+      await expect(rail.getByText('THIS MACHINE', { exact: true })).toBeVisible();
+      const squad = rail.getByRole('link', { name: 'sample · Channel · ⏱ 1', exact: true });
+      await expect(squad.locator('.tmt-ui-shell-count')).toHaveText(['⏱ 1']);
+      const hide = rail.getByRole('button', { name: 'Hide sample', exact: true });
       await expect(hide).toHaveAttribute('aria-expanded', 'true');
       if (width === 390) await shot(page, `rail-${width}-${theme}`);
       await hide.click();
@@ -101,7 +134,7 @@ for (const width of [1440, 390])
         window.channelBoard.agents[0]!.task = 'A refreshed sample';
       });
       await refresh(page);
-      await expect(rail.getByRole('button', { name: 'Show #sample', exact: true })).toHaveAttribute(
+      await expect(rail.getByRole('button', { name: 'Show sample', exact: true })).toHaveAttribute(
         'aria-expanded',
         'false',
       );
