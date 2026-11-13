@@ -169,6 +169,7 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   await refresh(page);
   await expect(link).toBeFocused();
   await page.keyboard.press('Enter');
+  await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
   await details(page);
   const timers = page.getByRole('tab', { name: /^Timers/ });
   await timers.click();

@@ -238,7 +238,9 @@ channel box stays disabled with its reason. Timer and idle-reminder writes remai
 
 The message box is `ops-composer.ts`, a lazily loaded React island (RichInputCore with
 RichInputControl, Colab's composer pieces), built by `vite.composer.config.ts` into
-`/sdk/ops-composer-v1.js`. `ops-composer-slot.ts` holds its place with a box of the same height
+`/sdk/ops-composer-v1.js`; the same build copies the field surface (rich-input-control's
+`control.css`) to `assets/ops-composer.css`, which the door's stylesheet embeds, so the crate reads
+only its own tree. `ops-composer-slot.ts` holds its place with a box of the same height
 until it loads. Pages that never open a channel or DM do not load it.
 
 `ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,

@@ -1549,7 +1549,7 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-channel-collapse:focus-visible,
 .ops-member-name:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .ops-channel-collapse::before {
   content: '';
@@ -1567,6 +1567,7 @@ body:not(:has(.tmt-ui-shell)) {
   border-top: 0;
 }
 .ops-channel-summary {
+  border-radius: var(--tmt-ui-radius-l);
   display: flex;
   flex: 1;
   flex-wrap: wrap;
@@ -1589,7 +1590,7 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-thread-open:focus-visible,
 .ops-thread-close:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .ops-channel-tabpanel {
   max-height: 40dvh;
@@ -1605,6 +1606,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-member-row,
 .ops-timer-row {
+  border-radius: var(--tmt-ui-radius-s);
   display: grid;
   align-items: center;
   gap: var(--tmt-ui-space-m);
@@ -1655,6 +1657,10 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-member-task[data-empty] {
   font-style: italic;
 }
+.ops-member-state,
+.ops-channel-chip {
+  border-radius: var(--tmt-ui-radius-pill);
+}
 .ops-member-state {
   background: transparent;
 }
@@ -1671,9 +1677,9 @@ body:not(:has(.tmt-ui-shell)) {
   content: '· ';
 }
 .ops-timer-state {
-  padding: 0 var(--tmt-ui-space-xs);
+  padding: 0 var(--tmt-ui-space-s);
   border: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-badge);
+  border-radius: var(--tmt-ui-radius-pill);
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
@@ -1754,9 +1760,14 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-composer-host {
   min-height: var(--ops-composer-height);
 }
+.ops-composer-host .rich-input-surface {
+  border-radius: var(--tmt-ui-radius-l);
+  overflow: hidden;
+}
 /* The box before the module loads: the field's frame and placeholder, the same height. */
 .ops-composer-still {
   box-sizing: border-box;
+  border-radius: var(--tmt-ui-radius-l);
   height: var(--ops-composer-height);
   padding: var(--tmt-ui-space-s);
   border: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
@@ -1875,9 +1886,19 @@ body:not(:has(.tmt-ui-shell)) {
   margin: 0;
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
   border: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-l);
+  border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-hover);
   white-space: pre-wrap;
+}
+/* A reading column: long lines stay readable on a wide window, as in Colab. */
+.ops-dm-message-text,
+.ops-thread-open {
+  justify-self: start;
+  width: min(100%, 45rem);
+  box-sizing: border-box;
+}
+.ops-thread-open {
+  width: auto;
 }
 .ops-dm-message[data-selected] {
   background: var(--tmt-ui-surface-annotation-highlight);
@@ -1972,7 +1993,10 @@ body:not(:has(.tmt-ui-shell)) {
   border-bottom: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
 }
 .ops-thread-title {
+  overflow: hidden;
   margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--tmt-ui-header-title-size);
   outline: none;
 }
@@ -1989,6 +2013,11 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-thread-close:hover {
   background: var(--tmt-ui-surface-hover);
   color: var(--tmt-ui-color-text);
+}
+.ops-thread-meta {
+  display: flex;
+  gap: var(--tmt-ui-space-s);
+  align-items: baseline;
 }
 .ops-thread-meta,
 .ops-thread-note {

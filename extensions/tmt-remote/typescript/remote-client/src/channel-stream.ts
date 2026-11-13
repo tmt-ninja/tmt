@@ -247,10 +247,29 @@ export function channelStream(shell: RemoteShell, port: ChannelPort | undefined)
     thread.parentElement?.toggleAttribute('data-thread', !!post);
     if (!post) return;
     const words = post.items[0]!.preview ?? 'Message preview unavailable';
-    threadTitle.textContent = words.length > 60 ? `${words.slice(0, 59)}…` : words;
+    // A short one-line title; the whole post is the first row below.
+    const line = words.split('\n')[0]!;
+    threadTitle.textContent = line.length > 60 ? `${line.slice(0, 60).trimEnd()}…` : line;
+    threadTitle.title = words;
     const sides = answers(post);
     const replied = sides.filter((side) => side.words !== undefined);
-    threadMeta.textContent = `${replied.length} of ${sides.length} replied`;
+    const waiting = sides.length - replied.length;
+    const state = el(
+      'span',
+      'ops-dm-message-state',
+      waiting ? `Waiting on ${waiting} of ${sides.length}` : 'Answered',
+    );
+    state.dataset.mark = waiting ? 'wait' : 'answered';
+    threadMeta.replaceChildren(
+      el(
+        'span',
+        'ops-thread-count',
+        replied.length
+          ? `${replied.length} repl${replied.length === 1 ? 'y' : 'ies'}`
+          : 'No replies yet',
+      ),
+      state,
+    );
     const rows: HTMLElement[] = [postRow(post, true)];
     const divider = el('li', 'ops-dm-day');
     divider.append(
