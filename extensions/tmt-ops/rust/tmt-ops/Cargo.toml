@@ -33,7 +33,6 @@ semver.workspace = true
 ratatui.workspace = true
 pulldown-cmark.workspace = true
 unicode-width = { workspace = true, features = ["cjk"] }
-unicode-segmentation.workspace = true
 tmt-invoke.workspace = true
 tmt-tui.workspace = true
 # The Terminal tab speaks the built-in host's stream frames (contracts/terminal-stream-v1.md).

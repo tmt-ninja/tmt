@@ -4,6 +4,16 @@ use tmt_cli_style::{grid::Align, table::escape};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+/// Whether text is one visible grapheme of one or two cells without joined sequences.
+pub fn is_single_cell_or_wide_grapheme(text: &str) -> bool {
+    !text.is_empty()
+        && text.graphemes(true).count() == 1
+        && !text
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == '\u{200d}')
+        && (1..=2).contains(&text.width())
+}
+
 fn prefix(text: &str, width: usize) -> &str {
     let mut used = 0;
     for (at, grapheme) in text.grapheme_indices(true) {
@@ -129,4 +139,19 @@ pub fn measure(text: &str, flow: TextFlow, space: Space) -> [u16; 2] {
             .min(usize::from(u16::MAX)) as u16,
     };
     [natural.min(width), lines(text, width, flow).len() as u16]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_single_cell_or_wide_grapheme;
+
+    #[test]
+    fn one_visible_grapheme_fits_one_or_two_cells_without_joiners() {
+        for text in ["P", "界", "★", "e\u{301}", "😀"] {
+            assert!(is_single_cell_or_wide_grapheme(text), "{text:?}");
+        }
+        for text in ["", " ", "\n", "ab", "\u{301}", "👩\u{200d}💻"] {
+            assert!(!is_single_cell_or_wide_grapheme(text), "{text:?}");
+        }
+    }
 }

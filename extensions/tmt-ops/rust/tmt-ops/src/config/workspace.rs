@@ -210,14 +210,7 @@ impl Default for WorkspaceLabels {
 }
 
 pub(crate) fn valid_label_glyph(glyph: &str) -> bool {
-    use unicode_segmentation::UnicodeSegmentation;
-    use unicode_width::UnicodeWidthStr;
-    !glyph.is_empty()
-        && glyph.graphemes(true).count() == 1
-        && !glyph
-            .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || c == '\u{200d}')
-        && (1..=2).contains(&glyph.width())
+    tmt_tui::text::is_single_cell_or_wide_grapheme(glyph)
 }
 
 fn validate_label(label: &BoardLabel) -> Result<(), SquadError> {
