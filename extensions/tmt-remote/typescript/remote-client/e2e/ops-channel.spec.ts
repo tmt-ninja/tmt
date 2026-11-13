@@ -83,6 +83,13 @@ for (const width of [1440, 390])
         'has no channel room on this machine yet',
       );
       await details(page);
+      const usage = page.locator('.ops-member-row').first().locator('.ops-member-usage');
+      await expect(usage).toBeEmpty();
+      await page.evaluate(() => {
+        window.channelBoard.agents[0]!.tokens1d = { tokens: 1200, complete: true };
+      });
+      await refresh(page);
+      await expect(usage).toHaveText('~1.2K 1d');
       await expect(page.locator('.ops-member-row .ops-member-state')).toHaveText([
         'Working',
         'Idle',

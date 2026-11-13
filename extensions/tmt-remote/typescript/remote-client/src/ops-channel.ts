@@ -198,7 +198,14 @@ export function channelView(
         if (heldFocus) title.focus();
       }
     people.forEach((agent, index) => {
-      const seen = JSON.stringify([agent.name, agent.role, agent.task, memberState(agent)]);
+      const seen = JSON.stringify([
+        agent.name,
+        agent.role,
+        agent.task,
+        memberState(agent),
+        agent.tokens1d,
+        agent.checklistCount,
+      ]);
       let row = memberRows.get(agent.id);
       if (!row || row.fingerprint !== seen) {
         const next = memberRow(agent);
@@ -285,7 +292,8 @@ export function channelView(
         face.replaceChildren(avatar(member.name, 'm'));
         title.textContent = member.name;
         const state = memberState(member);
-        line.replaceChildren(
+        const facts = el('span', 'ops-channel-member-facts');
+        facts.append(
           mark(MARKS[state]),
           [
             state,
@@ -298,6 +306,7 @@ export function channelView(
             .filter(Boolean)
             .join(' · '),
         );
+        line.replaceChildren(facts);
         if (member.task) line.append(el('span', 'ops-channel-line-task', member.task));
       } else {
         face.replaceChildren();
