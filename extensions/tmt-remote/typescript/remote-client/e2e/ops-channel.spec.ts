@@ -541,7 +541,8 @@ test('channel posts to the lead or each mention with the board room, and shows r
           expiresAtMs: at + 1e9,
           bodyBytes: 9,
         },
-        preview: 'Ask @sample-2 <b>about</b> the plan',
+        // Remote's device line (colab-v1) moves to the header; the bubble keeps the words.
+        preview: '[remote: Work laptop]\nAsk @sample-2 <b>about</b> the plan',
       },
     ];
     window.roomResults = {
@@ -554,7 +555,10 @@ test('channel posts to the lead or each mention with the board room, and shows r
   });
   await refresh(page);
   const stream = page.getByRole('list', { name: 'Channel messages' });
-  await expect(stream).toContainText('You→ sample-lead');
+  await expect(stream).toContainText('You→ sample-lead · from Work laptop');
+  await expect(stream.locator('.ops-dm-message-text')).toHaveText(
+    'Ask @sample-2 <b>about</b> the plan',
+  );
   await expect(stream.locator('.ops-dm-mention')).toHaveText('@sample-2');
   await expect(stream.locator('b')).toHaveCount(0);
   const summary = stream.getByRole('button', { name: /1 reply/ });
@@ -564,6 +568,7 @@ test('channel posts to the lead or each mention with the board room, and shows r
   const thread = page.getByRole('complementary', { name: 'Thread' });
   await expect(thread).toContainText('sample-lead→ You');
   await expect(thread).toContainText('On it.');
+  await expect(thread.getByRole('heading')).toHaveText('Ask @sample-2 <b>about</b> the plan');
   await expect(summary).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press('Escape');
   await expect(thread).toBeHidden();

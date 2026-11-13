@@ -72,6 +72,15 @@ const clock = (at: Date) =>
   at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
 /** One sender's row: avatar, "who → whom", time, the words in a box and their delivery. */
+/**
+ * Remote prepends `[remote: <device name>]` and LF to a browser's message (colab-v1). The chat
+ * already says "You", so the bubble shows the words and the device moves to the header.
+ */
+export function attributed(text: string | null): { device?: string; words: string | null } {
+  const match = text === null ? null : /^\[remote: ([^\]\n]+)\]\n/.exec(text);
+  return match ? { device: match[1]!, words: text!.slice(match[0].length) } : { words: text };
+}
+
 export function messageRow(options: {
   who: string;
   to: string;
@@ -90,10 +99,15 @@ export function messageRow(options: {
   const face = el('span', c.avatar, options.self ? 'Y' : avatarInitials(options.who));
   face.dataset.size = 's';
   face.setAttribute('aria-hidden', 'true');
+  const { device, words } = attributed(options.text);
   const head = el('div', 'ops-dm-message-head');
   head.append(
     el('strong', 'ops-dm-message-who', options.self ? 'You' : options.who),
-    el('span', 'ops-dm-message-to', `→ ${options.to}`),
+    el(
+      'span',
+      'ops-dm-message-to',
+      device ? `→ ${options.to} · from ${device}` : `→ ${options.to}`,
+    ),
   );
   if (options.at && Number.isFinite(options.at.valueOf())) {
     const time = el('time', 'ops-dm-message-time', clock(options.at));
@@ -101,13 +115,13 @@ export function messageRow(options: {
     time.title = options.at.toLocaleString();
     head.append(time);
   }
-  const text = el('p', 'ops-dm-message-text', options.text ?? 'Message preview unavailable');
-  if (options.text === null || options.quiet) text.dataset.quiet = '';
+  const text = el('p', 'ops-dm-message-text', words ?? 'Message preview unavailable');
+  if (words === null || options.quiet) text.dataset.quiet = '';
   else if (options.mentions?.length) {
     const names = [...options.mentions]
       .sort((a, b) => b.length - a.length)
       .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const parts = options.text!.split(new RegExp(`(@(?:${names.join('|')}))(?![\\w-])`));
+    const parts = words!.split(new RegExp(`(@(?:${names.join('|')}))(?![\\w-])`));
     text.replaceChildren(
       ...parts.map((part, at) => (at % 2 ? el('span', 'ops-dm-mention', part) : part)),
     );

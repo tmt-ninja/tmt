@@ -1862,6 +1862,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-dm-message-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   min-width: 0;
 }
@@ -1872,12 +1873,22 @@ body:not(:has(.tmt-ui-shell)) {
   font-size: var(--tmt-ui-header-action-size);
 }
 .ops-dm-message-who {
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ops-dm-message-to {
+  flex-shrink: 100;
+  min-width: 0;
+  overflow: hidden;
   color: var(--tmt-ui-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ops-dm-message-time {
+  flex: none;
   margin-left: auto;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);

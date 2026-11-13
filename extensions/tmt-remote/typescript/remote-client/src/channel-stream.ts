@@ -18,6 +18,7 @@ import {
 } from './conversations.js';
 import { onSession } from './conversation-history.js';
 import {
+  attributed,
   messageRow,
   outbox,
   pendingRow,
@@ -244,7 +245,7 @@ export function channelStream(
     thread.hidden = !post;
     thread.parentElement?.toggleAttribute('data-thread', !!post);
     if (!post) return;
-    const words = post.items[0]!.preview ?? 'Message preview unavailable';
+    const words = attributed(post.items[0]!.preview).words ?? 'Message preview unavailable';
     // A short one-line title; the whole post is the first row below.
     const line = words.split('\n')[0]!;
     threadTitle.textContent = line.length > 60 ? `${line.slice(0, 60).trimEnd()}…` : line;
