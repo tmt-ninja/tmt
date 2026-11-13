@@ -597,11 +597,20 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         (Ui::Why, "w", !state.plans && !jobs),
         (Ui::OrchestrationPlans, "P", routes),
         (Ui::OrchestrationEarlier, "[", routes),
-        (Ui::OrchestrationLater, "]", routes),
         (Ui::OrchestrationNow, "N", !state.follow_now),
         (Ui::Search, "/", routes),
     ];
     for (action, preferred, applies) in actions {
+        // `[` and `]` are one hint, `[ ] time`, or none: a pair is never split.
+        if action == Ui::OrchestrationEarlier {
+            if applies
+                && let (Some(a), Some(b)) =
+                    (key(action, preferred), key(Ui::OrchestrationLater, "]"))
+            {
+                hints.push((format!("{a} {b}"), "time".into()));
+            }
+            continue;
+        }
         if applies && let Some(key) = key(action, preferred) {
             let word = match action {
                 Ui::Search if app.search.is_empty() => "filter",

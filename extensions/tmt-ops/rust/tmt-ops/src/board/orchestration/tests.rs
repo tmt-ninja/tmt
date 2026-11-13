@@ -855,9 +855,18 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
         "o on/off",
         "e edit",
         "P members",
+        "[ ] time",
         "? help",
     ] {
         assert!(plans_footer.contains(hint), "{hint}: {plans_footer}");
+    }
+    // A key pair is one hint or none, in every scene's footer.
+    for scene in captures::SCENES {
+        let line = footer(&captures::case(scene, crate::look::Look::default()));
+        assert!(
+            !line.contains("earlier") && !line.contains("later"),
+            "{scene}: {line}"
+        );
     }
     plans.key(enter);
     assert!(!plans.orchestration.plans);
