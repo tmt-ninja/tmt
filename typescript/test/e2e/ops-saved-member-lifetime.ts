@@ -82,6 +82,33 @@ IFS= read -r release < ${word(gate)}
     return value;
   };
   const gone = (pids: number[]) => pids.every((pid) => !fixture.mockProcessIsRunning(pid));
+  // Failure reports only: the owned processes and their parents as `ps` sees them, so a
+  // report shows a zombie (`Z`) and who should reap it, or what a live process waits on.
+  const table = (pids: number[]) => {
+    const list = (ids: number[]) => {
+      try {
+        return execFileSync(
+          'ps',
+          ['-o', 'pid=,ppid=,stat=,etime=,wchan=,args=', '-p', ids.join(',')],
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+        ).trimEnd();
+      } catch (error) {
+        // `ps` exits 1 when none of the PIDs exists.
+        if (error instanceof Error && 'status' in error && error.status === 1) return '';
+        return `ps failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
+    if (pids.length === 0) return '  (no owned process recorded)';
+    const owned = list(pids);
+    const parents = [
+      ...new Set(owned.split('\n').map((row) => Number(row.trim().split(/\s+/)[1]))),
+    ].filter((pid) => Number.isSafeInteger(pid) && pid > 1 && !pids.includes(pid));
+    return [
+      `  owned ${pids.join(',')} (PID PPID STAT ELAPSED WCHAN ARGS):`,
+      owned || '  none running',
+      ...(parents.length > 0 ? ['  their parents:', list(parents) || '  none running'] : []),
+    ].join('\n');
+  };
   let released = false;
   let boardPane: string | undefined;
   let cleanup: Promise<number[]> | undefined;
@@ -145,6 +172,7 @@ IFS= read -r release < ${word(gate)}
             'saved-member launcher and provider exit'
           );
         } catch (error) {
+          const before = table(collect());
           // A failed scenario still owns these exact PIDs; never let fixture
           // deletion race a late launcher write, even when graceful exit fails.
           for (const pid of collect()) {
@@ -157,12 +185,27 @@ IFS= read -r release < ${word(gate)}
               }
             }
           }
-          await fixture.waitFor(
-            () => gone(collect()),
-            TEARDOWN_MS,
-            'failed saved-member process cleanup'
-          );
-          throw error;
+          // The report leads with the wait that failed first; the processes it left, and a
+          // cleanup that failed too, follow as its cause.
+          const first = error instanceof Error ? error : new Error(String(error));
+          try {
+            await fixture.waitFor(
+              () => gone(collect()),
+              TEARDOWN_MS,
+              'failed saved-member process cleanup'
+            );
+            first.cause ??= new Error(`Running when the wait failed:\n${before}`);
+          } catch (stuck) {
+            first.cause = new Error(
+              [
+                stuck instanceof Error ? stuck.message : String(stuck),
+                `Before SIGKILL:\n${before}`,
+                `After the cleanup wait:\n${table(collect())}`,
+              ].join('\n'),
+              { cause: stuck }
+            );
+          }
+          throw first;
         }
         return collect();
       })());
