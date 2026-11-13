@@ -197,7 +197,6 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
         (json!([]), 1000, Some("no earlier change")),
     ] {
         let mut state = self::state();
-        state.follow_now = false;
         state.apply(state.read(), Observation::Ready(Box::new(today())));
         let original = state.read();
         assert!(state.step(false), "the edge step asks for the previous day");
@@ -209,12 +208,38 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
         );
         assert_eq!(state.query.at_ms, lands_on);
         assert_eq!(state.note.as_deref(), note);
+        // Landing on a change leaves now; finding none keeps following it, as before the step.
+        assert_eq!(state.follow_now, note.is_some());
         if note.is_some() {
             assert!(
                 state.read() == original && state.snapshot().is_some(),
                 "no further read"
             );
         }
+    }
+    // A time the person chooses while the edge read is pending wins over that read: a strip
+    // click, now or another range drops the pending step.
+    let earlier = || {
+        day(
+            1,
+            1000,
+            999,
+            json!([{"startMs":1,"endMs":500,"planIds":[]}]),
+        )
+    };
+    for choose in [
+        (|s: &mut State| s.at(1500)) as fn(&mut State),
+        |s| s.now(2500),
+        |s| s.range(7),
+    ] {
+        let mut state = self::state();
+        state.apply(state.read(), Observation::Ready(Box::new(today())));
+        assert!(state.step(false));
+        choose(&mut state);
+        let chosen = state.query.clone();
+        state.apply(state.read(), Observation::Ready(Box::new(earlier())));
+        assert_eq!(state.query, chosen, "the chosen time stays");
+        assert!(state.note.is_none());
     }
 }
 #[test]

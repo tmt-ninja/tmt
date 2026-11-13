@@ -151,13 +151,9 @@ impl App {
                     }
                 }
             }
-            Control::Range(days) => state.query.days = days,
+            Control::Range(days) => state.range(days),
             Control::Plans => state.plans = !state.plans,
-            Control::Now => {
-                state.note = None;
-                state.follow_now = true;
-                state.query.at_ms = crate::status::now_ms();
-            }
+            Control::Now => state.now(crate::status::now_ms()),
             Control::Member(index) => {
                 state.selected = state
                     .snapshot()
@@ -173,11 +169,7 @@ impl App {
             Control::PreviousTime | Control::NextTime => {
                 state.step(matches!(control, Control::NextTime));
             }
-            Control::At(at) => {
-                state.query.at_ms = at;
-                state.follow_now = false;
-                state.note = None;
-            }
+            Control::At(at) => state.at(at),
         }
         self.invalidate_frame_geometry();
         Effect::None

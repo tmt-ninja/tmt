@@ -37,6 +37,8 @@ pub(in crate::board) struct State {
 struct Edge {
     later: bool,
     from_ms: u64,
+    /// Whether the view followed now before the step, restored when nothing changes there.
+    follow_now: bool,
     prior: Option<(Query, Arc<Snapshot>)>,
 }
 /// Every instant where the effective policy may change: interval bounds and next changes.
@@ -213,6 +215,7 @@ impl State {
         self.edge = Some(Edge {
             later,
             from_ms: from,
+            follow_now: self.follow_now,
             prior: self.report.clone(),
         });
         self.query.at_ms = target;
@@ -228,6 +231,7 @@ impl State {
         match (found, edge.prior) {
             (Some(at), _) => self.query.at_ms = at,
             (None, Some((query, report))) => {
+                self.follow_now = edge.follow_now;
                 self.query = query.clone();
                 self.report = Some((query, report));
                 self.note = Some(
@@ -241,6 +245,25 @@ impl State {
             }
             (None, None) => {}
         }
+    }
+    /// The person chose a time: a pending edge step no longer decides where the view lands.
+    pub fn at(&mut self, at: u64) {
+        self.edge = None;
+        self.note = None;
+        self.query.at_ms = at;
+        self.follow_now = false;
+    }
+    /// Back to now, dropping any pending edge step.
+    pub fn now(&mut self, now: u64) {
+        self.edge = None;
+        self.note = None;
+        self.follow_now = true;
+        self.query.at_ms = now;
+    }
+    /// Another range around the same time, dropping any pending edge step.
+    pub fn range(&mut self, days: u8) {
+        self.edge = None;
+        self.query.days = days;
     }
     pub fn tick(&mut self, now: u64) -> bool {
         if !self.follow_now {
