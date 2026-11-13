@@ -706,6 +706,24 @@
   "title": "Patterns",
   "pages": [
    {
+    "slug": "shell",
+    "title": "Shell",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"shell\"></tmt-ui-pattern></div>",
+    "path": "patterns/shell"
+   },
+   {
+    "slug": "page-layouts",
+    "title": "Page layouts",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"page-layouts\"></tmt-ui-pattern></div>",
+    "path": "patterns/page-layouts"
+   },
+   {
+    "slug": "responsive",
+    "title": "Responsive rules",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"responsive\"></tmt-ui-pattern></div>",
+    "path": "patterns/responsive"
+   },
+   {
     "slug": "tabs-row",
     "title": "Tabs row with actions",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"tabs-row\"></tmt-ui-pattern></div>",

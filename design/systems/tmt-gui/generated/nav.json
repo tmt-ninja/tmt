@@ -376,6 +376,18 @@
    "title": "Patterns",
    "pages": [
     {
+     "title": "Shell",
+     "path": "patterns/shell"
+    },
+    {
+     "title": "Page layouts",
+     "path": "patterns/page-layouts"
+    },
+    {
+     "title": "Responsive rules",
+     "path": "patterns/responsive"
+    },
+    {
      "title": "Tabs row with actions",
      "path": "patterns/tabs-row"
     },

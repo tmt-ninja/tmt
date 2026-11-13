@@ -406,7 +406,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     padding-inline-start: var(--colab-block-inset);
   }
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .tmt-ui-shell:has(.structured-page-stage) {
     --colab-block-inset: 8px;
   }
@@ -1236,7 +1236,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   align-items: center;
   gap: 4px 8px;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .conversation-status {
     --tmt-ui-host-icon-action-size: 44px;
     --tmt-ui-host-action-min-height: 44px;

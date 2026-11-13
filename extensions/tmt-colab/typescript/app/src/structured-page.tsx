@@ -552,7 +552,7 @@ function ActionsPopover({
   onHoverAction?(action: string): void;
   onClose?(): void;
 }) {
-  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
   const actions = blockActions.filter((action) =>
     (BLOCK_MENU_ACTIONS as readonly string[]).includes(action.id),
   );
@@ -601,7 +601,7 @@ function InsertPopover({
   onHover,
   onCloseMenu,
 }: Pick<StructuredPageProps, 'onPick' | 'onHover' | 'onCloseMenu'> & { menu: InsertMenu }) {
-  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches;
+  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
   return (
     <div
       className="tmt-block-insert"

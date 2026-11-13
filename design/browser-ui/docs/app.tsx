@@ -6,6 +6,7 @@ import { components } from './catalog.js';
 import { BrowserPage, ComponentPage } from './component-page.js';
 import { patterns } from './patterns.js';
 import { morePatterns, PatternViewports } from './patterns-more.js';
+import { layoutPatterns } from './patterns-layout.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
 import { usePreview } from './preview.js';
@@ -81,6 +82,15 @@ const gui: DesignSystem = {
     {
       title: 'Patterns',
       pages: [
+        ...layoutPatterns.map((pattern) => ({
+          href: `${guiRoot}/patterns/${pattern.slug}`,
+          title: pattern.title,
+          render: () => (
+            <Article title={pattern.title} lead={pattern.lead}>
+              {pattern.render()}
+            </Article>
+          ),
+        })),
         ...morePatterns.map((pattern) => ({
           href: `${guiRoot}/patterns/${pattern.slug}`,
           title: pattern.title,

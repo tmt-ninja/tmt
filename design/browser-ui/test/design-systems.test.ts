@@ -54,7 +54,7 @@ it('applies the same capability checks to authored components and stored bundle 
 });
 
 it('renders every live pattern scene', () => {
-  expect(livePatternSlugs).toHaveLength(19);
+  expect(livePatternSlugs).toHaveLength(22);
   for (const slug of livePatternSlugs) {
     const markup = renderToStaticMarkup(createElement(PatternPage, { page: slug }));
     expect(markup, slug).toContain('<h1>');

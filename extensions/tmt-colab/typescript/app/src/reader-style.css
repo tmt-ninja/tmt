@@ -99,7 +99,7 @@ main {
 .guidance-detail p:last-child {
   margin-bottom: 0;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .tmt-ui-actions > .chip,
   .tmt-ui-actions > .status {
     display: none;

@@ -154,7 +154,7 @@
 .question-group-card[data-split] {
   display: contents;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .question-line {
     grid-template-columns: var(--question-icon) minmax(0, 1fr) 14px;
     grid-template-areas:
