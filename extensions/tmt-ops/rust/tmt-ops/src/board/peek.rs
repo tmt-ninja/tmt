@@ -59,6 +59,7 @@ impl Overlay {
                 | Self::Help
                 | Self::QuotaDetails
                 | Self::EstimateBasis
+                | Self::OrchestrationWhy
                 | Self::MonitorDetails
         )
     }
@@ -125,6 +126,10 @@ impl App {
             Overlay::QuotaDetails => self.quota_details = None,
             Overlay::EstimateBasis => {
                 self.estimate_basis = None;
+                self.invalidate_frame_geometry();
+            }
+            Overlay::OrchestrationWhy => {
+                self.orchestration.why = None;
                 self.invalidate_frame_geometry();
             }
             Overlay::Unread => self.close_unread(),

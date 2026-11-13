@@ -60,6 +60,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(basis) = &app.estimate_basis {
         basis.borrow_mut().render(frame, app, body);
     }
+    if let Some(why) = &app.orchestration.why {
+        why.borrow_mut().render(frame, app, body);
+    }
     if let Some(unread) = &app.unread_overlay {
         unread.render(frame, app, body);
     }

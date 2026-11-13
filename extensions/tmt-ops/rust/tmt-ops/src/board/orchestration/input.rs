@@ -209,12 +209,39 @@ impl App {
             Control::Allow
             | Control::Focus(_)
             | Control::Resume
-            | Control::Why
             | Control::JobPause
             | Control::JobRun
             | Control::JobEdit
             | Control::JobNew
             | Control::PlanToggle => {}
+            Control::Why => {
+                // The selected member's decisions; with a matrix cell, those to its recipient.
+                let Some(snapshot) = state.snapshot() else {
+                    return Effect::None;
+                };
+                let find = |id: &Option<String>| {
+                    snapshot
+                        .document
+                        .members
+                        .iter()
+                        .find(|m| Some(&m.identity_id) == id.as_ref())
+                };
+                let Some(who) = find(&state.selected) else {
+                    return Effect::None;
+                };
+                let cell = snapshot.sending.routes.is_some()
+                    && !state.plans
+                    && state.focus() == super::Section::Routes;
+                let recipient = find(&state.target)
+                    .filter(|to| cell && to.identity_id != who.identity_id)
+                    .map(|to| (to.identity_id.clone(), to.name.clone()));
+                let why =
+                    super::why::Why::new(who.identity_id.clone(), who.name.clone(), recipient);
+                let effect = super::why::read(&why, None);
+                state.why = Some(std::cell::RefCell::new(why));
+                self.invalidate_frame_geometry();
+                return effect;
+            }
             Control::PlanEdit => {
                 let Some(plan) = state.selected_plan() else {
                     return Effect::None;
@@ -581,15 +608,6 @@ impl App {
                     serde_json::json!({"kind": "talks.resume", "aId": a.identity_id, "bId": b.identity_id}),
                 )
             }
-            Control::Why => {
-                let who = member(&state.selected)?;
-                Some(Ok(Effect::Orchestration(Task {
-                    step: Step::Why {
-                        identity_id: who.identity_id.clone(),
-                        name: who.name.clone(),
-                    },
-                })))
-            }
             _ => None,
         }
     }
@@ -598,7 +616,7 @@ impl App {
         &mut self,
         completed: super::write::Completed,
     ) -> Effect {
-        use super::write::{Step, preview_lines, why_lines};
+        use super::write::{Step, preview_lines};
         match (completed.task.step, completed.result) {
             (Step::Preview { title, .. }, Ok(preview)) => {
                 let names = self
@@ -695,11 +713,24 @@ impl App {
                     }
                 }
             }
-            (Step::Why { identity_id, name }, Ok(page)) => {
-                let mut lines = vec![format!("Why · {name}")];
-                lines.extend(why_lines(&page));
-                self.orchestration.why = Some((identity_id, lines));
-                self.invalidate_frame_geometry();
+            (
+                Step::Why {
+                    identity_id,
+                    before,
+                },
+                result,
+            ) => {
+                // A page for a dialog that was closed or moved on is dropped.
+                if let Some(why) = &self.orchestration.why {
+                    let mut why = why.borrow_mut();
+                    if why.identity_id == identity_id {
+                        match result {
+                            Ok(page) => why.page(before, &page),
+                            Err(error) => why.fail(error.message),
+                        }
+                        why.invalidate();
+                    }
+                }
                 Effect::None
             }
             (_, Err(error)) => {

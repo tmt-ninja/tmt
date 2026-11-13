@@ -130,6 +130,9 @@ fn close_rule_test(overlay: Overlay) -> &'static str {
         Overlay::Checklist => "checklist::tests::the_squad_checklist_follows_the_close_rule",
         Overlay::QuotaDetails => "home::tests::light_dismiss::every_peek_follows_the_close_rule",
         Overlay::EstimateBasis => "home::tests::light_dismiss::every_peek_follows_the_close_rule",
+        Overlay::OrchestrationWhy => {
+            "home::tests::light_dismiss::every_peek_follows_the_close_rule"
+        }
         Overlay::Unread => "unread_overlay::tests::the_unread_window_follows_the_close_rule",
         Overlay::Discovery => "discovery::tests::the_discovery_window_follows_the_close_rule",
         Overlay::MemberSession => {

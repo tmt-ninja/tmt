@@ -744,6 +744,69 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
             "Edit with tmt orch plan set 'Bob'\\''s $(rm -rf x) `y` $HOME' --file plan.json (its current plan: tmt orch plan show 'Bob'\\''s $(rm -rf x) `y` $HOME' --json)"
         )
     );
+    // `w` on the night-1 → core-1 cell opens Why over the frame: Core's decisions to core-1, each
+    // with the plan and slot from its sources; `a` shows every decision; Esc closes.
+    let mut app = captures::case("orchestration-why", crate::look::Look::default());
+    assert_eq!(
+        app.overlay(),
+        Some(super::super::app::Overlay::OrchestrationWhy)
+    );
+    let painted = screen(&app);
+    for text in [
+        "Why · night-1 → core-1",
+        "◆ held",
+        "receiving hold all ← Shift B · Night (22:00–06:00)",
+        "✓ claimed",
+        "4 recorded decisions, newest first",
+        "a all decisions",
+    ] {
+        assert!(painted.contains(text), "{text}");
+    }
+    app.key(key('a'));
+    let painted = screen(&app);
+    assert!(
+        painted.contains("Why · night-1 ") && painted.contains("night-2 receiving hold all"),
+        "all decisions name their recipient"
+    );
+    // At the last row `↓` reads the page before, once; the dialog keeps the rows it has.
+    app.orchestration
+        .why
+        .as_ref()
+        .unwrap()
+        .borrow_mut()
+        .next_before = Some(5);
+    let _ = screen(&app);
+    let down = ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Down,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    );
+    let Effect::Orchestration(Task {
+        step: Step::Why { before, .. },
+    }) = app.key(down)
+    else {
+        panic!("↓ at the end reads the next page")
+    };
+    assert_eq!(before, Some(5));
+    assert!(matches!(app.key(down), Effect::None), "one read at a time");
+    app.key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Esc,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert!(app.orchestration.why.is_none());
+    // A member without recorded decisions says so.
+    let mut app = captures::case("orchestration-why", crate::look::Look::default());
+    app.finished_orchestration(super::write::Completed {
+        task: Task {
+            step: Step::Why {
+                identity_id: app.orchestration.selected.clone().unwrap(),
+                before: None,
+            },
+        },
+        result: Ok(json!({"items": [], "nextBefore": null})),
+    });
+    assert!(
+        screen(&app).contains("No recorded decision for night-1 to core-1 in the last 30 days")
+    );
 }
 #[test]
 fn a_confirmed_preview_applies_exactly_it_and_a_conflict_saves_nothing() {
@@ -919,9 +982,52 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
     app.key(tab);
     let routes = footer(&app);
     assert!(hints(&routes) <= 8, "{routes}");
-    for hint in ["↑↓ member", "←→ cell", "a allow once", "f focus", "? help"] {
+    for hint in ["↑↓←→ cell", "a allow once", "f focus", "? help"] {
         assert!(routes.contains(hint), "{hint}: {routes}");
     }
+    // Below 110 columns the route and member blocks stack under the matrix, and Talks and Jobs
+    // fold to their rule until Tab focuses one; the job's block then replaces them.
+    let narrow = |app: &super::super::app::App| {
+        let buffer = paint(app, 100, 36);
+        (0..36)
+            .map(|y| {
+                row_text(&buffer, y)
+                    .into_iter()
+                    .map(|(_, s)| s)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let rows = narrow(&app);
+    let at = |rows: &[String], needle: &str| rows.iter().position(|r| r.contains(needle));
+    let matrix = at(&rows, "From ↓ To →").unwrap();
+    let route = at(&rows, "── worker → peer").unwrap();
+    let member = at(&rows, "── worker ──").unwrap();
+    let talks = at(&rows, "Talks this hour · 1 pair ").unwrap();
+    let jobs_rule = at(&rows, "── Jobs · 4").unwrap();
+    assert!(
+        matrix < route && route < member && member < talks,
+        "{rows:#?}"
+    );
+    // Talks folds to its rule; one blank row parts it from Jobs when nothing is cut.
+    assert!(jobs_rule <= talks + 2, "{rows:#?}");
+    assert!(at(&rows, "PAIR").is_none() && at(&rows, " ID OWNER").is_none());
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("1 pair · 4 jobs · Tab opens Talks or Jobs"))
+    );
+    let mut jobs_app = captures::case("orchestration-matrix", crate::look::Look::default());
+    jobs_app.key(tab);
+    jobs_app.key(tab);
+    let rows = narrow(&jobs_app);
+    assert!(
+        at(&rows, "── j2 · UI check").is_some() && at(&rows, "── worker ──").is_none(),
+        "{rows:#?}"
+    );
+    assert!(
+        at(&rows, " ID OWNER").is_some() && at(&rows, "PAIR").is_none(),
+        "{rows:#?}"
+    );
     assert!(
         !routes.contains("q quit") && !routes.contains("end focus"),
         "{routes}"
@@ -1056,6 +1162,7 @@ pub(in crate::board) mod captures {
         "orchestration-jobs",
         "orchestration-jobs-paused",
         "orchestration-plan-members",
+        "orchestration-why-paged",
     ];
     const WED_23: u64 = 1_794_405_600_000;
     /// Wed 00:00 Asia/Tokyo: the local day every roster range starts from.
@@ -1290,7 +1397,9 @@ pub(in crate::board) mod captures {
             | "orchestration-month"
             | "orchestration-history"
             | "orchestration-jobs"
-            | "orchestration-jobs-paused" => app.orchestration.read().read_with(roster_api),
+            | "orchestration-jobs-paused"
+            | "orchestration-why"
+            | "orchestration-why-paged" => app.orchestration.read().read_with(roster_api),
             "orchestration-table-selection" => {
                 Observation::Ready(Box::new(observe(older_core_pair)))
             }
@@ -1323,14 +1432,61 @@ pub(in crate::board) mod captures {
                 read,
                 Observation::Failed("Core did not answer within 10 s".into()),
             ),
-            "orchestration-why" => {
-                app.orchestration.why = Some((
-                    MEMBER.into(),
-                    vec![
-                        "route blocked · worker may message leads only".into(),
-                        "focus set · until 01:00".into(),
-                    ],
-                ));
+            "orchestration-why" | "orchestration-why-paged" => {
+                // `w` on the night-1 → core-1 cell, then Core's page: decisions to core-1 and
+                // to others, with the plan behind each from its sources.
+                app.orchestration.selected = Some(roster_id(6));
+                app.orchestration.target = Some(roster_id(2));
+                let _ = app.orchestration_bound(crate::action::OpsUiAction::Why);
+                let night = json!({"field":"receiving","source":{"kind":"plan","planId":NIGHT,
+                    "identityId":null,"revision":4,"slot":{"startMs":NIGHT_START,"endMs":NIGHT_END},
+                    "defaulted":false}});
+                let base = json!({"field":"receiving","source":{"kind":"base","planId":null,
+                    "identityId":null,"revision":3,"slot":null,"defaulted":false}});
+                let item = |id: u64,
+                            minutes: u64,
+                            to: usize,
+                            outcome: &str,
+                            reason: &str,
+                            source: &Value| {
+                    json!({"id":id,"recordedAtMs":WED_23 - minutes * 60_000,
+                        "subject":{"kind":"identity","id":roster_id(6)},"actorId":null,
+                        "recipientId":roster_id(to),"action":"receiving_hold","outcome":outcome,
+                        "reason":reason,"configurationRevision":9,"timeZone":"Asia/Tokyo",
+                        "sources":[source]})
+                };
+                let page = json!({"schemaVersion":1,"items":[
+                    item(9, 2, 2, "held", "receiving hold all", &night),
+                    item(8, 21, 7, "held", "receiving hold all", &night),
+                    item(7, 73, 2, "claimed", "digest claim", &base),
+                    item(6, 74, 2, "settled", "digest delivered", &base),
+                    item(5, 150, 2, "held", "receiving batch 30m", &base)],
+                    "nextBefore":if scene == "orchestration-why-paged" { json!(5) } else { Value::Null }});
+                let _ = app.finished_orchestration(Completed {
+                    task: Task {
+                        step: Step::Why {
+                            identity_id: roster_id(6),
+                            before: None,
+                        },
+                    },
+                    result: Ok(page),
+                });
+                if scene == "orchestration-why-paged" {
+                    // `↓` at the end read one more page; it has more before it still.
+                    let older = json!({"schemaVersion":1,"items":[
+                        item(4, 26 * 60, 2, "held", "receiving hold all", &night),
+                        item(3, 27 * 60, 2, "settled", "digest delivered", &base)],
+                        "nextBefore":2});
+                    let _ = app.finished_orchestration(Completed {
+                        task: Task {
+                            step: Step::Why {
+                                identity_id: roster_id(6),
+                                before: Some(5),
+                            },
+                        },
+                        result: Ok(older),
+                    });
+                }
             }
             "orchestration-preview" => {
                 let preview = json!({"mutation":{"kind":"talks.resume","aId":MEMBER,"bId":OTHER},

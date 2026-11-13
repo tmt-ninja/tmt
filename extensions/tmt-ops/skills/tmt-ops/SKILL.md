@@ -1148,7 +1148,9 @@ cell, whose sender row and route stay highlighted. An older Core without those v
 shows a **Members** table instead, without talks. At 110 columns and wider, the
 inspector on the right shows the selected route, then the selected member, one line
 per field with where its value comes from (`← Base`, a plan name or `Personal
-focus`). While loading, after a failed first read (with `ctrl-r` to retry) and with
+focus`). Narrower, the same blocks stack under the first section (two key/value pairs
+to a line from 90 columns), and Talks and Jobs fold to their rule until `Tab` focuses
+one. While loading, after a failed first read (with `ctrl-r` to retry) and with
 no plans configured, the section says so; a failed refresh keeps the last data and
 says so in the header.
 
@@ -1179,8 +1181,12 @@ members in the matrix (`members of <plan>`; verdicts still come from every plan)
 Changes always show Core's preview first and save only that exact preview after you
 confirm: `a` allows a blocked route once until the sender's current slot ends (at
 most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
-and `r` releases a held pair's messages through normal delivery. `w` shows Core's
-recorded decisions for the selected member. If Orchestration changed after the
+and `r` releases a held pair's messages through normal delivery. `w` opens **Why** over the
+frame at any width: Core's recorded decisions for the selected member, newest first,
+each with its time, result, reason and the plan and slot behind it; with a matrix cell
+selected it lists those to that recipient, and `a` shows all. `↓` at the end reads
+the next page, `Esc` closes. Core records holds, claims and settlements, and the
+dialog says so. If Orchestration changed after the
 preview, nothing is saved; preview again. A Core without `orchestration.write`
 refuses changes with a notice. The tab never interrupts running work. `--tab` and
 `board.startup_tab` do not offer it yet.

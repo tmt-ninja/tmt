@@ -10,7 +10,11 @@ pub(in crate::board) enum Step {
     /// Apply exactly the preview the person confirmed.
     Apply(Box<Value>),
     /// Read the decision journal for one identity.
-    Why { identity_id: String, name: String },
+    /// One page of the member's decisions, newest first; `before` reads the page after.
+    Why {
+        identity_id: String,
+        before: Option<u64>,
+    },
     /// A confirmed job change, through the Timers' own write owner (`cron_service`).
     Job {
         key: crate::cron_service::JobKey,
@@ -131,10 +135,16 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
             }
             Ok(value)
         })(),
-        Step::Why { identity_id, .. } => core.api(
-            "orchestration.read",
-            json!({"view": "why", "subject": {"kind": "identity", "id": identity_id}, "limit": 20}),
-        ),
+        Step::Why {
+            identity_id,
+            before,
+        } => {
+            let mut input = json!({"view": "why", "subject": {"kind": "identity", "id": identity_id}, "limit": 100});
+            if let Some(before) = before {
+                input["before"] = (*before).into();
+            }
+            core.api("orchestration.read", input)
+        }
     };
     Completed { task, result }
 }
@@ -182,25 +192,6 @@ pub(in crate::board) fn preview_lines(
     lines
 }
 
-/// One journal entry per line, newest first, as Core recorded it.
-pub(in crate::board) fn why_lines(page: &Value) -> Vec<String> {
-    let items = page["items"].as_array().map_or(&[][..], Vec::as_slice);
-    if items.is_empty() {
-        return vec!["No recorded decision.".into()];
-    }
-    items
-        .iter()
-        .map(|item| {
-            format!(
-                "{} {} · {}",
-                item["action"].as_str().unwrap_or("?"),
-                item["outcome"].as_str().unwrap_or("?"),
-                item["reason"].as_str().unwrap_or("?"),
-            )
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn a_policy_preview_lists_core_changes_and_an_empty_journal_says_so() {
+    fn a_policy_preview_lists_core_changes() {
         let lines = preview_lines(
             &json!({
                 "mutation": {"kind": "focus.set"},
@@ -229,6 +220,5 @@ mod tests {
             |id| format!("name-{id}"),
         );
         assert_eq!(lines[0], "name-a · state, receiving");
-        assert_eq!(why_lines(&json!({"items": []})), ["No recorded decision."]);
     }
 }

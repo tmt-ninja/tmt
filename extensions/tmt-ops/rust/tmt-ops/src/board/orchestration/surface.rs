@@ -184,12 +184,25 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 height: list.height - totals,
                 ..list
             };
+            // Below 110 columns the inspector stacks under the first section, and Talks and Jobs
+            // fold to their rule until Tab focuses one.
+            let narrow = right.is_empty();
+            let folded = |present: bool, section| narrow && present && focus != section;
+            let talks_folded = folded(snapshot.sending.talks.is_some(), super::Section::Talks);
+            let jobs_folded = folded(
+                !matches!(snapshot.jobs, super::model::Jobs::Unavailable),
+                super::Section::Jobs,
+            );
             if totals > 0 {
+                let mut totals = totals_line(snapshot);
+                if talks_folded || jobs_folded {
+                    totals.push_str(" · Tab opens Talks or Jobs");
+                }
                 text(
                     frame,
                     app,
                     Rect::new(list.x + 1, list.bottom(), list.width.saturating_sub(2), 1),
-                    &totals_line(snapshot),
+                    &totals,
                     Role::Muted,
                 );
             }
@@ -218,7 +231,29 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     super::model::Jobs::Unavailable => 0,
                 },
             ];
-            let (sizes, gap) = section_rows(full, focus, list.height);
+            let full = [
+                full[0],
+                if talks_folded {
+                    full[1].min(1)
+                } else {
+                    full[1]
+                },
+                if jobs_folded { full[2].min(1) } else { full[2] },
+            ];
+            let stack = if narrow {
+                inspector_lines(app, Some(snapshot), list.width)
+            } else {
+                Vec::new()
+            };
+            let two = list.width >= 90;
+            let stack_need = stacked_height(&stack, two);
+            let stack_rows = stack_need.min(list.height / 2);
+            let stack_gap = u16::from(stack_rows > 0);
+            let (sizes, gap) = section_rows(
+                full,
+                focus,
+                list.height.saturating_sub(stack_rows + stack_gap),
+            );
             let mut top = Rect {
                 height: sizes[0],
                 ..list
@@ -241,7 +276,29 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 table(frame, app, snapshot, top);
             }
-            let talk_y = top.bottom() + if full[1] > 0 { gap } else { 0 };
+            // The stack takes what the first section left, up to its lines, after the rows Talks
+            // and Jobs keep below it.
+            let stack_y = top.bottom() + gap * stack_gap;
+            let tail = [1, 2]
+                .into_iter()
+                .filter(|index| full[*index] > 0)
+                .map(|index| sizes[index] + gap)
+                .sum::<u16>();
+            let stack_area = Rect::new(
+                list.x,
+                stack_y,
+                list.width,
+                stack_need.min(list.bottom().saturating_sub(stack_y + tail)),
+            );
+            if !stack_area.is_empty() {
+                place_columns(frame, app, stack, stack_area, two);
+            }
+            let above = if stack_area.is_empty() {
+                top.bottom()
+            } else {
+                stack_area.bottom()
+            };
+            let talk_y = above + if full[1] > 0 { gap } else { 0 };
             let talk_area = Rect::new(
                 list.x,
                 talk_y,
@@ -259,7 +316,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 list.x,
                 job_y,
                 list.width,
-                list.bottom().saturating_sub(job_y),
+                if jobs_folded {
+                    full[2].min(list.bottom().saturating_sub(job_y))
+                } else {
+                    list.bottom().saturating_sub(job_y)
+                },
             );
             if full[2] > 0 && !job_area.is_empty() {
                 job_rows(frame, app, snapshot, job_area);
@@ -1348,17 +1409,26 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         );
     }
 }
+/// `1 pair`, `2 pairs`: a count with its noun in the right number.
+fn count(n: impl std::fmt::Display, one: &str) -> String {
+    let n = n.to_string();
+    if n == "1" {
+        format!("1 {one}")
+    } else {
+        format!("{n} {one}s")
+    }
+}
 /// The bottom line of the left column: what the tab counts.
 fn totals_line(snapshot: &Snapshot) -> String {
     let mut parts = vec![
-        format!("{} members", snapshot.document.members.len()),
-        format!("{} plans", snapshot.document.plans.len()),
+        count(snapshot.document.members.len(), "member"),
+        count(snapshot.document.plans.len(), "plan"),
     ];
     if let Some(pairs) = &snapshot.sending.talks {
-        parts.push(format!("{} pairs", pairs.len()));
+        parts.push(count(pairs.len(), "pair"));
     }
     if let Some(jobs) = snapshot.jobs.listed() {
-        parts.push(format!("{} jobs", job_count(jobs)));
+        parts.push(count(job_count(jobs), "job"));
     }
     parts.join(" · ")
 }
@@ -1628,6 +1698,11 @@ fn window(len: usize, room: usize, selected: Option<usize>) -> (usize, usize, us
 /// The inspector: the selected route, then the selected member, one key/value line per field with
 /// where it comes from. Lines that do not fit end in a count of what is below.
 fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Rect) {
+    place(frame, app, inspector_lines(app, snapshot, area.width), area);
+}
+/// What the inspector shows, as lines: the selected plan or job when one is focused, else the
+/// selected route and member.
+fn inspector_lines(app: &App, snapshot: Option<&Snapshot>, width: u16) -> Vec<InspectorLine> {
     let look = app.look();
     let member = snapshot.and_then(|snapshot| {
         snapshot
@@ -1643,9 +1718,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             .filter(|_| app.orchestration.plans)
             .filter(|_| app.orchestration.focus() == super::Section::Routes)
     {
-        let lines = plan_lines(app, snapshot, plan);
-        place(frame, app, lines, area);
-        return;
+        return plan_lines(app, snapshot, plan);
     }
     if let Some(snapshot) = snapshot
         && let Some(job) = app
@@ -1653,24 +1726,18 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             .selected_job()
             .filter(|_| app.orchestration.focus() == super::Section::Jobs)
     {
-        let lines = job_lines(app, snapshot, job, area.width);
-        place(frame, app, lines, area);
-        return;
+        return job_lines(app, snapshot, job, width);
     }
     let (Some(snapshot), Some(member)) = (snapshot, member) else {
-        super::super::section_rule::paint(
-            frame.buffer_mut(),
-            line(area, area.y),
+        return vec![InspectorLine::Rule(
             if snapshot.is_some_and(|s| s.document.members.is_empty()) {
                 "No member selected"
             } else {
                 "Details"
-            },
+            }
+            .into(),
             Line::default(),
-            false,
-            look,
-        );
-        return;
+        )];
     };
     let mut lines: Vec<InspectorLine> = Vec::new();
     let target = snapshot
@@ -1888,18 +1955,72 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: Option<&Snapshot>, area: Re
             }
         }
     }
-    if let Some((id, why)) = &app.orchestration.why
-        && id == &member.identity_id
-    {
-        lines.push(InspectorLine::Blank);
-        lines.push(InspectorLine::Rule("Why".into(), Line::default()));
-        for line in why {
-            for wrapped in super::super::notes::wrap(&safe(line), usize::from(area.width - 2)) {
-                lines.push(InspectorLine::Text(wrapped, Role::Muted));
-            }
+    lines
+}
+/// How many rows `lines` take, with two Row lines side by side when `two`.
+fn stacked_height(lines: &[InspectorLine], two: bool) -> u16 {
+    let mut rows = 0u16;
+    let mut index = 0;
+    while index < lines.len() {
+        let pair = two
+            && matches!(lines[index], InspectorLine::Row(..))
+            && matches!(lines.get(index + 1), Some(InspectorLine::Row(..)));
+        index += if pair { 2 } else { 1 };
+        rows += 1;
+    }
+    rows
+}
+/// The stacked inspector under the first section: as `place`, with consecutive key/value rows
+/// two to a line when `two` (90 columns and wider).
+fn place_columns(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: Rect, two: bool) {
+    if !two {
+        return place(frame, app, lines, area);
+    }
+    let mut slots: Vec<Vec<InspectorLine>> = Vec::new();
+    let mut lines = lines.into_iter().peekable();
+    while let Some(first) = lines.next() {
+        let pair = matches!(first, InspectorLine::Row(..))
+            && matches!(lines.peek(), Some(InspectorLine::Row(..)));
+        let mut slot = vec![first];
+        if pair {
+            slot.extend(lines.next());
+        }
+        slots.push(slot);
+    }
+    let rows = usize::from(area.height);
+    let (shown, hidden) = if slots.len() > rows {
+        let shown = rows.saturating_sub(1);
+        (shown, slots[shown..].iter().map(Vec::len).sum::<usize>())
+    } else {
+        (slots.len(), 0)
+    };
+    let half = area.width / 2;
+    for (offset, slot) in slots.into_iter().take(shown).enumerate() {
+        let row = line(area, area.y + offset as u16);
+        let paired = slot.len() == 2;
+        for (index, painted) in slot.into_iter().enumerate() {
+            let rect = if !paired {
+                row
+            } else if index == 0 {
+                Rect { width: half, ..row }
+            } else {
+                Rect::new(row.x + half, row.y, row.width - half, 1)
+            };
+            painted.paint(frame, app, rect);
         }
     }
-    place(frame, app, lines, area);
+    if hidden > 0 {
+        text(
+            frame,
+            app,
+            line(area, area.y + shown as u16),
+            &format!(
+                " {}",
+                MoreHint::label(hidden as u64, MoreDirection::Down, false)
+            ),
+            Role::Muted,
+        );
+    }
 }
 /// The inspector lines from the top of `area`; what does not fit ends in a count of what is below.
 fn place(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: Rect) {
