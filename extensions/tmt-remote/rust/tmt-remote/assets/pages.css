@@ -817,6 +817,52 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-orchestration-page > .ops-grid {
   grid-template-columns: minmax(0, 1fr) 21rem;
 }
+.ops-orchestration-plan-list {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ops-orchestration-plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+  width: 100%;
+  padding: var(--tmt-ui-space-s) 0;
+  border: 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ops-orchestration-plan-row[aria-pressed='true'] {
+  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-orchestration-plan-row:focus-visible {
+  outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-focus);
+  outline-offset: -1px;
+}
+.ops-orchestration-plan-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ops-orchestration-plan-text > span {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-plan-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  white-space: nowrap;
+}
 /* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
 .ops-orchestration-timeline {
   display: flex;

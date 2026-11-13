@@ -4,7 +4,7 @@
  * confirms. Nothing is computed here: each value and its source is Core's. */
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
-import { el, sentence } from './ops-parts.js';
+import { el, mark, sentence } from './ops-parts.js';
 import {
   OrchestrationRefused,
   applyInput,
@@ -88,6 +88,13 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   search.append(createIcon('search'), filter);
   bar.append(rangeGroup, when, planSelect, search);
 
+  const plansCard = el('section', `${c.card} ops-orchestration-plans`);
+  plansCard.setAttribute('aria-label', 'Plan list');
+  const plansHead = el('div', c.cardHead);
+  plansHead.append(el('h3', c.cardTitle, 'Plans'));
+  const planList = el('ul', 'ops-orchestration-plan-list');
+  plansCard.append(plansHead, planList);
+
   // Timeline: axis, the in-effect track, one lane per plan, then the selected time and its plans.
   const timelineCard = el('section', `${c.card} ops-orchestration-timeline`);
   timelineCard.setAttribute('aria-label', 'Timeline');
@@ -133,8 +140,9 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   const dialog = el('dialog', c.dialog);
   // Until Core's first answer there is nothing to place: the status line says so.
   timelineCard.hidden = true;
+  plansCard.hidden = true;
   grid.hidden = true;
-  node.append(bar, status, timelineCard, grid, dialog);
+  node.append(bar, status, plansCard, timelineCard, grid, dialog);
 
   let api: OrchestrationApi | undefined;
   let days = 1;
@@ -210,7 +218,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     }
   };
   /** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
-  const planSummary = (p: Plan) => {
+  const planSummary = (p: Plan, includeState = true) => {
     const rule = p.schedule;
     let when = 'always';
     if (rule.kind === 'once')
@@ -234,8 +242,44 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     const who = p.targets
       .map((t) => (t.kind === 'all' ? 'everyone' : t.kind === 'identity' ? name(t.id) : t.pattern))
       .join(', ');
-    return `${when} · ${who || 'no one'}${p.enabled ? '' : ' · off'}`;
+    return `${when} · ${who || 'no one'}${includeState && !p.enabled ? ' · off' : ''}`;
   };
+
+  function drawPlans(view: Overview) {
+    const focused =
+      document.activeElement instanceof HTMLElement && planList.contains(document.activeElement)
+        ? document.activeElement.dataset.planId
+        : undefined;
+    planList.replaceChildren(
+      ...view.plans.map((item) => {
+        const row = el('li');
+        const button = el('button', 'ops-orchestration-plan-row');
+        button.type = 'button';
+        button.dataset.planId = item.id;
+        button.ariaPressed = String(item.id === view.selectedPlanId);
+        const text = el('span', 'ops-orchestration-plan-text');
+        text.append(
+          el('strong', undefined, item.name),
+          el('span', undefined, planSummary(item, false)),
+        );
+        const state = el('span', 'ops-orchestration-plan-state');
+        state.append(mark(item.enabled ? 'dot' : 'ring', 'neutral'), item.enabled ? 'On' : 'Off');
+        button.append(text, state);
+        button.addEventListener('click', () => {
+          plan = item.id;
+          void load();
+        });
+        row.append(button);
+        return row;
+      }),
+    );
+    if (!view.plans.length) planList.append(el('li', undefined, 'No plans yet.'));
+    if (focused) {
+      [...planList.querySelectorAll<HTMLElement>('button')]
+        .find((button) => button.dataset.planId === focused)
+        ?.focus({ preventScroll: true });
+    }
+  }
 
   async function load() {
     const mine = ++generation;
@@ -682,7 +726,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
             !route
               ? 'not reported'
               : route.verdict === 'blocked'
-                ? '✕ not sent, explained'
+                ? 'Blocked · explained'
                 : route.verdict === 'needs_person'
                   ? '◆ held for a person'
                   : `Allowed · ${receivingWords(column.fields.receiving.value)}`,
@@ -802,9 +846,11 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   function draw() {
     for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
     if (!overview) return;
+    plansCard.hidden = false;
     timelineCard.hidden = false;
     grid.hidden = false;
     drawBar(overview);
+    drawPlans(overview);
     drawTimeline(overview);
     drawMatrix(overview);
     drawTalks();
