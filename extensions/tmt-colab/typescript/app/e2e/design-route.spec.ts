@@ -695,6 +695,9 @@ test('the Published notice sits in the header over the content, then goes away (
   await expect(page.locator('.tmt-ui-topbar-status').getByRole('status')).toHaveText(
     'Published 0.1.1.',
   );
+  // Design's one heading is the bar's left-group title, as in every module (#5629).
+  await expect(page.locator('h1')).toHaveCount(1);
+  await expect(page.locator('.tmt-ui-topbar-navigation h1.design-header-title')).toHaveCount(1);
   const geometry = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
     const status = [...document.querySelectorAll('[role="status"]')].find((node) =>
