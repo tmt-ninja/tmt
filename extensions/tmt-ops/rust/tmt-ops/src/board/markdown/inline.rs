@@ -25,12 +25,6 @@ fn issue_label(text: &str) -> Option<String> {
 }
 
 impl Renderer<'_> {
-    /// Where `text` starts in the message, when it is a slice of it rather than a copy.
-    fn source_offset(&self, text: &str) -> Option<usize> {
-        let at = (text.as_ptr() as usize).checked_sub(self.source.as_ptr() as usize)?;
-        (at + text.len() <= self.source.len()).then_some(at)
-    }
-
     pub(super) fn prose(&mut self, text: &str) {
         let style = self.style();
         let link = style
@@ -57,16 +51,7 @@ impl Renderer<'_> {
                 if at > emitted {
                     self.push(&text[emitted..at], style);
                 }
-                if let Some(id) = bare_url
-                    .then(|| super::super::member_links::colab::page(token))
-                    .flatten()
-                {
-                    // Copying the chip copies the address.
-                    let source = self
-                        .source_offset(text)
-                        .map(|base| base + at..base + at + token.len());
-                    self.push_chip(id, token, source);
-                } else if bare_url {
+                if bare_url {
                     let shown = label.as_deref().unwrap_or(token);
                     let look = if label.is_some() {
                         link

@@ -115,10 +115,6 @@ impl App {
         let Target::Url(url) = &hit.target else {
             return Effect::None;
         };
-        // A local Colab page opens at once; its chip card already named it (#6008).
-        if super::colab::page(url).is_some() {
-            return self.link_open(url.clone());
-        }
         let note = self.note_source_at(hit.area.as_position()).map(|source| {
             self.conversation_checklist_key().map_or_else(
                 || Choice::Unavailable("Select a squad member to add to checklist.".into()),
@@ -462,62 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn a_local_colab_link_is_a_chip_whose_card_names_the_page_and_a_click_opens_it() {
-        const PAGE: &str = "http://127.0.0.1:50711/colab/p/36b98efb-29fe-4d86-837b-94ef96c14180";
-        for (title, shown) in [
-            (Some("Night plan"), ["Night plan", "Colab · 36b98efb"]),
-            (
-                None,
-                ["Title unavailable", "Colab is not serving or has no access"],
-            ),
-        ] {
-            let mut app = reader(&format!("Plan on this page: {PAGE} see box 4."));
-            app.member_links.borrow_mut().titles = super::super::colab::Titles::with(
-                move |_| title.map(str::to_owned),
-                std::time::Duration::from_secs(10),
-            );
-            let text = screen(&app);
-            assert!(
-                text.contains("Plan on this page: ▤ Colab · 36b98efb ↗ see box 4."),
-                "{text}"
-            );
-            assert!(!text.contains("127.0.0.1"), "the address is not painted");
-            let (area, url) = url_hits(&app).remove(0);
-            assert_eq!((area.width, url.as_str()), (20, PAGE));
-            assert!(!text.contains(shown[0]), "no card before hover");
-            app.mouse(
-                MouseEvent {
-                    kind: MouseEventKind::Moved,
-                    column: area.x + 3,
-                    row: area.y,
-                    modifiers: KeyModifiers::NONE,
-                },
-                std::time::Instant::now(),
-            );
-            let text = screen(&app);
-            for line in shown
-                .iter()
-                .chain(["Enter or click opens it in the browser"].iter())
-            {
-                assert!(text.contains(line), "{line} in\n{text}");
-            }
-            assert_eq!(
-                click(&mut app, area),
-                Effect::Act(Request::Open {
-                    link: PAGE.into(),
-                    opener: Some(vec!["fake-open".into(), "{url}".into()]),
-                })
-            );
-            assert!(app.menu.is_none(), "a Colab chip opens without a popover");
-        }
-        // Other web links keep the popover.
-        let mut app = reader("Read https://example.com/colab/p/36b98efb now.");
-        let (area, _) = url_hits(&app).remove(0);
-        assert_eq!(click(&mut app, area), Effect::None);
-        assert!(app.menu.is_some());
-    }
-
-    #[test]
     fn n_on_a_link_opens_the_link_draft_without_losing_the_exact_url_or_message() {
         let mut app = reader("Read [the docs](https://example.com/a_b?query=1#frag) now.");
         let (area, url) = url_hits(&app).remove(0);
@@ -702,6 +642,20 @@ mod tests {
             ]
         );
         assert_eq!(menu.anchor, Some(area));
+        // A local Colab page address is an ordinary link: shown as written, no card on hover,
+        // and a click opens the same popover.
+        const PAGE: &str = "http://127.0.0.1:50711/colab/p/36b98efb";
+        let mut app = reader(&format!("Plan on this page: {PAGE} see box 4."));
+        let text = screen(&app);
+        assert!(
+            text.contains("Plan on this page: http://127.0.0.1:50711") && !text.contains("▤"),
+            "{text}"
+        );
+        let (area, url) = url_hits(&app).remove(0);
+        assert_eq!(url, PAGE);
+        assert_eq!(click(&mut app, area), Effect::None);
+        let menu = app.menu.as_ref().expect("a popover");
+        assert_eq!(menu.entries[0].label, "http://127.0.0.1:50711");
     }
 
     #[test]

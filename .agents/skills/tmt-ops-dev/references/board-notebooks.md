@@ -33,7 +33,7 @@ Openable links (`effects::openable`: `http`, `https`, `mailto`) are recorded by 
 renderer as `member_links::Target::Url` cells beside the member mentions, for a label,
 an autolink and a bare address outside code. They share the hit table, hover, focus
 and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
-(a `Menu`: the origin as an inert row, then Open, Copy, Show full). A bare local Colab page address (`member_links/colab.rs`, #6008) is instead an atomic chip `Part` with the address as its source range; `paint_colab_card` draws its title card over the finished frame for the hovered or focused hit, titles come from a per-board background `tmt colab show` read (a fake reader under test), and activation opens it directly. A bare address is a
+(a `Menu`: the origin as an inert row, then Open, Copy, Show full). A local Colab page address is an ordinary link. A bare address is a
 word less its closing punctuation (`member_links::word_token`) that `is_bare_url` admits, or
 the `http(s)://` part of a word glued to non-ASCII prose (CJK `連結：http://…`), ending before
 full-width punctuation (`member_links::link_range`); after an ASCII letter or digit it stays text;
