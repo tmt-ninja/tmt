@@ -1523,7 +1523,7 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-text);
 }
 .ops-channel-panel {
-  border-block: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
+  border-bottom: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
 }
 .ops-channel-panel-bar {
   display: flex;
@@ -1770,11 +1770,18 @@ body:not(:has(.tmt-ui-shell)) {
   white-space: nowrap;
 }
 .ops-composer-host {
+  /* The same width and left edge as the message rows above it. */
+  box-sizing: border-box;
+  width: min(100%, calc(45rem + 3rem));
   min-height: var(--ops-composer-height);
 }
 .ops-composer-host .rich-input-surface {
   border-radius: var(--tmt-ui-radius-l);
   overflow: hidden;
+}
+/* The tool row is the input's own surface, not a second band under it. */
+.ops-composer-host .rich-input-surface[data-accessory] {
+  background: var(--tmt-ui-surface-field);
 }
 /* The box before the module loads: the field's frame and placeholder, the same height. */
 .ops-composer-still {
@@ -1796,7 +1803,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-composer-hint {
   flex: 1;
-  color: var(--tmt-ui-color-secondary);
+  color: var(--tmt-ui-color-disabled-text);
   font-size: var(--tmt-ui-caption-size);
   text-align: end;
 }
@@ -1869,6 +1876,9 @@ body:not(:has(.tmt-ui-shell)) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--tmt-ui-space-s);
+  box-sizing: border-box;
+  /* The row (and its hover or selected tint) is as wide as the reading column plus the face. */
+  width: min(100%, calc(45rem + 3rem));
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
   border-radius: var(--tmt-ui-radius-s);
 }
@@ -1901,8 +1911,8 @@ body:not(:has(.tmt-ui-shell)) {
   white-space: nowrap;
 }
 .ops-dm-message-time {
+  /* Right after the names, as Slack puts it. */
   flex: none;
-  margin-left: auto;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }

@@ -10463,7 +10463,7 @@ function knowOwnDevice(name, root = document) {
 * someone said, and it asks for no reply. */
 function noticeRow(text, at) {
 	const row = el("li", "ops-dm-notice");
-	const { words } = attributed(text);
+	const words = attributed(text).words?.replace(/^▚\s*/, "") ?? null;
 	row.append(el("span", "ops-dm-notice-text", words ?? "Notice unavailable"));
 	if (at && Number.isFinite(at.valueOf())) {
 		const time = el("time", "ops-dm-message-time", clock(at));

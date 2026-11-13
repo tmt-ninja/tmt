@@ -585,7 +585,7 @@ test('channel posts to the lead or each mention with the board room, and shows r
         preparedAtMs: at + 180000,
         delivery: 'sent',
         final: { status: 'not_required' },
-        preview: 'sample c1 · every 30m · added',
+        preview: '▚ ⏱ sample c1 · every 30m · added',
       },
     ];
     window.roomResults = {
@@ -614,7 +614,8 @@ test('channel posts to the lead or each mention with the board room, and shows r
     'Sent from This laptop',
   );
   // An announcement is one quiet line, not a message with a reply.
-  await expect(stream.locator('.ops-dm-notice')).toContainText('sample c1 · every 30m · added');
+  // One icon: TMT's terminal mark (▚) does not lead the web line.
+  await expect(stream.locator('.ops-dm-notice-text')).toHaveText('⏱ sample c1 · every 30m · added');
   await expect(stream.locator('.ops-dm-message')).toHaveCount(2);
   await expect(stream).not.toContainText('No reply needed');
   await expect(stream.locator('.ops-dm-message-text').first()).toHaveText(

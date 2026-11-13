@@ -95,7 +95,8 @@ export function knowOwnDevice(name: string | null, root: ParentNode = document) 
  * someone said, and it asks for no reply. */
 export function noticeRow(text: string | null, at?: Date): HTMLElement {
   const row = el('li', 'ops-dm-notice');
-  const { words } = attributed(text);
+  // TMT's terminal notice mark (▚) leads the words; the web line keeps only the notice's own icon.
+  const words = attributed(text).words?.replace(/^▚\s*/, '') ?? null;
   row.append(el('span', 'ops-dm-notice-text', words ?? 'Notice unavailable'));
   if (at && Number.isFinite(at.valueOf())) {
     const time = el('time', 'ops-dm-message-time', clock(at));
