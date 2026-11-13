@@ -65,8 +65,10 @@ pub fn current(core: &Core) -> Result<Option<Me>, SquadError> {
 }
 
 /// The configured person, read-only: Core's `user.person`. `None` when Core has no configured
-/// person yet, or an older Core does not offer the operation (it answers `API_INPUT_INVALID`).
+/// person yet. An older Core without the operation answers `API_INPUT_INVALID`, reported as
+/// [`PERSON_UNSUPPORTED`]: a person may be configured there, so it is not "no person".
 /// Nothing is created or marked, so a read that shows or counts can use it freely.
+pub const PERSON_UNSUPPORTED: &str = "SQUAD_CORE_UNSUPPORTED";
 pub fn person(core: &Core) -> Result<Option<Me>, SquadError> {
     match core.api("user.person", json!({})) {
         Ok(shown) if shown["person"].is_null() => Ok(None),
@@ -83,7 +85,10 @@ pub fn person(core: &Core) -> Result<Option<Me>, SquadError> {
                 "user.person returned no identity.",
             )),
         },
-        Err(error) if error.code == "API_INPUT_INVALID" => Ok(None),
+        Err(error) if error.code == "API_INPUT_INVALID" => Err(SquadError::new(
+            PERSON_UNSUPPORTED,
+            "This tmt does not offer user.person; update tmt.",
+        )),
         Err(error) => Err(error),
     }
 }

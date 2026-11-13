@@ -1262,7 +1262,8 @@ The verified invoking caller decides authority. Only when no caller is bound may
 the active user be used; ambiguous or invalid callers refuse. Reads (`ls`, `show`,
 `events`, `counts` and the board's checklist preview) use the configured person only when it
 already exists and never create or mark it; with no caller and no person they refuse, except
-`counts`, which reports `no-person`. Writes resolve, and may create, the person as before. Active
+`counts`, which reports `no-person`. An older tmt without that read refuses them with
+`CHECKLIST_CORE_UNSUPPORTED` (update tmt), and `counts` reports `core-unsupported`. Writes resolve, and may create, the person as before. Active
 users and room leads are managers. Collaborators can create unassigned
 items, edit content, complete and reopen unarchived items. Initial assignment
 requires manager permission, including self-assignment; only managers assign,
@@ -1293,10 +1294,12 @@ restore stamp the item; reorder and delete do not. An item stored before they we
 recorded reads all four as null until its next change, which sets `lastChanged*` only.
 
 `counts --room ROOM_UUID [--member UUID]...` returns JSON action `counts`:
-`room` and `members:[{id,open,reason?}]`, where `open` is the member's open, unarchived
-item count (the board's todo count). A member that cannot be read has `open: null` and a
-`reason`: `no-person` (no caller and no configured person), `member-unavailable` or
-`room-unavailable`; the command still exits 0. More than 32 members is refused.
+`room`, `available`, `reason?` and `members:[{id,open,reason?}]`, where `open` is the member's
+open, unarchived item count (the board's todo count). With no caller and no configured person,
+`available` is false with `reason: "no-person"` (`core-unsupported` on an older tmt), and
+`members` is empty without `--member`, or each named member with that reason. Otherwise
+`available` is true, and a member that cannot be read has `open: null` with `member-unavailable`
+or `room-unavailable`. The command exits 0 either way. More than 32 members is refused.
 
 `events` returns the list's mutation log, oldest first, as JSON action `events`:
 `roomId`, `events:[{id,roomId,memberId,checklistId,itemId,actorId,atMs,action,revision}]`,

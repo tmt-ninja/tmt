@@ -52,7 +52,7 @@ pub const CHECKLIST_LS: &CommandSpec = spec!(
 
 pub const CHECKLIST_COUNTS: &CommandSpec = spec!(
     "counts", "Count each member's open conversation-list items in one read",
-    details = "A read for boards: one admission and one reference read for the room, at most 32 members (default: the room's roster). The count is the board's todo count: open, not archived. Nothing is created or written, not even the person; without an admitted caller or a configured person every count is null with reason no-person.",
+    details = "A read for boards: one admission and one reference read for the room, at most 32 members (default: the room's roster). The count is the board's todo count: open, not archived. Nothing is created or written, not even the person; without an admitted caller or a configured person the document reads available false with reason no-person (core-unsupported on an older tmt), and each named member's count is null with that reason.",
     ["Count every member's open items" => "tmt ops squad checklist counts --room 44444444-4444-4444-8444-444444444444 --json",
      "Count two members" => "tmt ops squad checklist counts --room 44444444-4444-4444-8444-444444444444 --member 22222222-2222-4222-8222-222222222222 --member 33333333-3333-4333-8333-333333333333"]
 );

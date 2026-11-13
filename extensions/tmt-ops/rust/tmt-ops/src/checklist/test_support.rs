@@ -112,6 +112,7 @@ if a[0]=='api':
   if u is None:fail('USER_NAME_UNAVAILABLE')
   out={'identityId':u['id'],'name':u['name'],'created':False}
  elif op=='user.person':
+  if m.get('personUnsupported'):fail('API_INPUT_INVALID')
   u=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']+m['absent']),None)
   out={'person':None if u is None else {'identityId':u['id'],'name':u['name']}}
  elif op=='references.resolve':out={'identities':identities(i.get('identityIds',[])),'rooms':[{'id':r,'found':r==m['roomId'],'retired':m['roomRetired']} for r in i.get('roomIds',[])]}

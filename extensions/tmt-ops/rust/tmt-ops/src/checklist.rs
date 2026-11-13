@@ -28,6 +28,8 @@ pub enum Code {
     Conflict,
     StorageError,
     OutcomeUnknown,
+    /// Core lacks an operation this read needs (an older tmt).
+    CoreUnsupported,
 }
 impl Code {
     pub fn as_str(self) -> &'static str {
@@ -43,6 +45,7 @@ impl Code {
             Self::Conflict => "CHECKLIST_CONFLICT",
             Self::StorageError => "CHECKLIST_STORAGE_ERROR",
             Self::OutcomeUnknown => "CHECKLIST_OUTCOME_UNKNOWN",
+            Self::CoreUnsupported => "CHECKLIST_CORE_UNSUPPORTED",
         }
     }
 }
@@ -695,7 +698,14 @@ fn recorded(core: &Core) -> Result<Option<me::Me>, Error> {
 }
 /// The configured person, read-only: never creates or marks it.
 fn person(core: &Core) -> Result<Option<me::Me>, Error> {
-    me::person(core).map_err(|e| port(Code::Forbidden, e))
+    me::person(core).map_err(|e| {
+        let code = if e.code == me::PERSON_UNSUPPORTED {
+            Code::CoreUnsupported
+        } else {
+            Code::Forbidden
+        };
+        port(code, e)
+    })
 }
 /// A read with neither an admitted caller nor a configured person: nothing to admit, nothing created.
 pub fn no_person() -> Error {

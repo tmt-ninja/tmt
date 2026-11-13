@@ -672,8 +672,9 @@ pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcom
         )
     })())
 }
-/// One read of every given member's open items. Without a caller or a configured person each
-/// count is null with reason `no-person`: an unavailable state, not an error, and no one created.
+/// One read of every given member's open items. Without a caller or a configured person the
+/// document is unavailable with reason `no-person` (`core-unsupported` when an older Core cannot
+/// say), and each named member's count is null with that reason: not an error, no one created.
 fn counts(
     core: &Core,
     config: &Config,
@@ -689,23 +690,35 @@ fn counts(
             checklist::COUNTS_LIMIT
         )));
     }
-    let counted = match Service::reading(core, config, room_id.clone(), None)? {
-        Some(service) => service.counts(members)?,
-        None => members
-            .unwrap_or_default()
-            .into_iter()
-            .map(|id| checklist::MemberCount {
-                id,
-                open: Err("no-person"),
-            })
-            .collect(),
+    let service = match Service::reading(core, config, room_id.clone(), None) {
+        Ok(Some(service)) => Ok(service),
+        Ok(None) => Err("no-person"),
+        Err(error) if error.code == checklist::Code::CoreUnsupported => Err("core-unsupported"),
+        Err(error) => return Err(error),
     };
-    Ok(
-        json!({"action":"counts","room":room_id.as_str(),"members":counted.iter().map(|member| match member.open {
-        Ok(open) => json!({"id":member.id.as_str(),"open":open}),
-        Err(reason) => json!({"id":member.id.as_str(),"open":null,"reason":reason}),
-    }).collect::<Vec<_>>()}),
-    )
+    let (counted, unavailable) = match service {
+        Ok(service) => (service.counts(members)?, None),
+        Err(reason) => (
+            members
+                .unwrap_or_default()
+                .into_iter()
+                .map(|id| checklist::MemberCount {
+                    id,
+                    open: Err(reason),
+                })
+                .collect(),
+            Some(reason),
+        ),
+    };
+    let mut document = json!({"action":"counts","room":room_id.as_str(),"available":unavailable.is_none(),
+        "members":counted.iter().map(|member| match member.open {
+            Ok(open) => json!({"id":member.id.as_str(),"open":open}),
+            Err(reason) => json!({"id":member.id.as_str(),"open":null,"reason":reason}),
+        }).collect::<Vec<_>>()});
+    if let Some(reason) = unavailable {
+        document["reason"] = reason.into();
+    }
+    Ok(document)
 }
 fn execute(
     service: &Service,

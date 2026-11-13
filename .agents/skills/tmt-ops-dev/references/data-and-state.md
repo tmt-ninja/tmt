@@ -266,7 +266,8 @@ projects its typed results/errors. The board consumes the same typed service dir
 
 Read admission (`Service::reading`: `ls`, `show`, `events`, `counts`, the board's checklist
 load and the conversation preview) takes the admitted caller, else Core's non-creating
-`user.person`; an older Core that rejects it counts as no person. A reading service refuses
+`user.person`; an older Core that rejects it is `CHECKLIST_CORE_UNSUPPORTED` (`counts` reason
+`core-unsupported`), never "no person". A reading service refuses
 writes. Write admission keeps `user.identity`, which creates and marks the person. `counts`
 admits once, resolves the requested members in one `references.resolve`, and counts each
 member list with `checklist::Counts`, the single open-todo rule the board also uses.

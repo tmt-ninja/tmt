@@ -703,6 +703,7 @@ fn a_member_command_runs_against_the_conversation_list_and_names_what_it_refuses
     let before = f.model()["calls"].as_array().unwrap().len();
     let counts = invoke(&f, &["counts", "--room", ROOM]).document;
     assert_eq!(counts["room"], ROOM, "{counts}");
+    assert_eq!(counts["available"], true, "{counts}");
     let members = counts["members"].as_array().unwrap();
     assert_eq!(members.len(), 3, "every roster member: {counts}");
     for member in members {
@@ -748,6 +749,53 @@ fn a_member_command_runs_against_the_conversation_list_and_names_what_it_refuses
     assert_eq!(
         unknown.document["members"],
         serde_json::json!([{"id":WORKER,"open":null,"reason":"no-person"}])
+    );
+    // The roster form says so on the document too: an empty list is not "no members".
+    let roster = invoke(&f, &["counts", "--room", ROOM]);
+    assert!(roster.complete, "{}", roster.document);
+    assert_eq!(
+        (
+            &roster.document["available"],
+            &roster.document["reason"],
+            &roster.document["members"]
+        ),
+        (
+            &serde_json::json!(false),
+            &serde_json::json!("no-person"),
+            &serde_json::json!([])
+        )
+    );
+
+    // An older Core without user.person may have a person: it is named as an older Core.
+    f.change(|model| {
+        model["user"] = serde_json::json!(LEAD);
+        model["personUnsupported"] = true.into();
+    });
+    let older = invoke(&f, &["counts", "--room", ROOM, "--member", WORKER]).document;
+    assert_eq!(
+        (
+            &older["available"],
+            &older["reason"],
+            &older["members"][0]["reason"]
+        ),
+        (
+            &serde_json::json!(false),
+            &serde_json::json!("core-unsupported"),
+            &serde_json::json!("core-unsupported")
+        ),
+        "{older}"
+    );
+    let listed = invoke(&f, &["ls", "--room", ROOM]).document;
+    assert_eq!(
+        listed["error"]["code"], "CHECKLIST_CORE_UNSUPPORTED",
+        "{listed}"
+    );
+    assert!(
+        listed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("update tmt"),
+        "{listed}"
     );
 }
 
