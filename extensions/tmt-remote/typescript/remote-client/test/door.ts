@@ -164,6 +164,7 @@ export class Door {
   forceReplay = false;
   replyState = 'replied';
   final = '';
+  requestMessage?: unknown;
   /** Added to a pending `result`, as Core's message state is. */
   messageState?: unknown;
   /** What `requests.sendNow` answers; the request ID is filled in. */
@@ -280,6 +281,7 @@ export class Door {
             state: this.replyState,
             requestId: payload.requestId,
             ...(this.replyState === 'replied' ? { message: this.final } : {}),
+            ...(this.requestMessage !== undefined ? { requestMessage: this.requestMessage } : {}),
             ...(this.replyState === 'pending' && this.messageState !== undefined
               ? { messageState: this.messageState }
               : {}),

@@ -1899,6 +1899,17 @@ Signed response payloads discriminate `{state:"held",operationId}`,
 public core observation; never assert why a body is unavailable without evidence. Optional reason is
 a sanitized string of at most 256 UTF-8 bytes; never expose raw process output.
 
+For `results.read` in the owner's own browser, each `result` additionally carries
+`requestMessage:string|null`: the full `requests.show` `prompt.message` when Core reports
+`prompt.status:"retained"`, otherwise `null` (including a missing request). Other callers omit the
+field and keep their existing result shape. Remote checks that the retained message is a string
+whose UTF-8 byte length equals Core's `prompt.messageBytes`; invalid evidence refuses the projection.
+Core owns and enforces the dispatch message bound at storage. Remote preserves the exact text and
+uses the existing whole-response byte cap, as for reply text; a cap failure follows the existing
+refusal/unavailable path and never truncates. The existing permit revalidation before and after
+Core observation applies before this owner-only text is published. SDK `ResultState` adds optional
+`requestMessage?:string|null` and rejects any other field value type.
+
 A pending `result`, and `requests.show`, also carry Core's `messageState` when it reports one:
 `{state, reason:{code,text}, latestMs, remainingMs, canSendNow}` exactly as
 [Message state](request-response-v1.md#message-state) defines it, projected to exactly those keys (an additive Core field is not forwarded, and a malformed state is omitted). `canSendNow` is display only: the

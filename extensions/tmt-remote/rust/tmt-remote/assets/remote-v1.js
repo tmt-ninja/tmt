@@ -706,23 +706,31 @@ function sendStateBase(value, id) {
 function resultState(value, id) {
 	const state = record(value);
 	valid$7(state.requestId === id);
+	const requestMessage = {};
+	if (Object.hasOwn(state, "requestMessage")) {
+		valid$7(state.requestMessage === null || typeof state.requestMessage === "string");
+		requestMessage.requestMessage = state.requestMessage;
+	}
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
 			requestId: id,
-			...messageState(state)
+			...messageState(state),
+			...requestMessage
 		};
 		case "replied":
 			valid$7(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
-				message: state.message
+				message: state.message,
+				...requestMessage
 			};
 		case "unavailable": return {
 			state: "unavailable",
 			requestId: id,
-			...reason(state)
+			...reason(state),
+			...requestMessage
 		};
 		default: throw new Error("Invalid result state.");
 	}

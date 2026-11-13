@@ -144,14 +144,19 @@ fn result_state(
     let detail = match result {
         Ok(value) => value,
         Err(error) if error.code == "REQUEST_NOT_FOUND" => {
-            return Ok(json!({"state":"unavailable","requestId":id,"reason":"REQUEST_NOT_FOUND"}));
+            let mut unavailable =
+                json!({"state":"unavailable","requestId":id,"reason":"REQUEST_NOT_FOUND"});
+            if owner {
+                unavailable["requestMessage"] = Value::Null;
+            }
+            return Ok(unavailable);
         }
         Err(error) => return Err(error),
     };
     if detail["requestId"] != id {
         return Err(invalid());
     }
-    Ok(match detail["final"]["status"].as_str() {
+    let mut result = match detail["final"]["status"].as_str() {
         Some("not_submitted") => {
             let mut pending = json!({"state":"pending","requestId":id});
             if let Some(state) = message_state(&detail, owner) {
@@ -166,7 +171,20 @@ fn result_state(
             json!({"state":"unavailable","requestId":id})
         }
         _ => return Err(invalid()),
-    })
+    };
+    if owner {
+        result["requestMessage"] = if detail["prompt"]["status"] == "retained" {
+            let message = detail["prompt"]["message"].as_str().ok_or_else(invalid)?;
+            // Core owns the stored dispatch-text bound; verify its retained-byte evidence.
+            if detail["prompt"]["messageBytes"].as_u64() != Some(message.len() as u64) {
+                return Err(invalid());
+            }
+            json!(message)
+        } else {
+            Value::Null
+        };
+    }
+    Ok(result)
 }
 pub(crate) fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_INPUT_INVALID", "Invalid remote operation input.")
