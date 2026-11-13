@@ -59,15 +59,43 @@ export interface Field {
 export interface Member {
   identityId: string;
   name: string;
-  fields: Record<'state' | 'receiving' | 'sending' | 'routine', Field>;
+  fields: Record<'state' | 'receiving' | 'sending' | 'routine' | 'talkLimit', Field>;
+  /** Core's plans in effect for this member at the selected time, highest first. */
+  activePlans: string[];
   nextChangeAtMs: number | null;
+}
+export type Target =
+  | { kind: 'all' }
+  | { kind: 'identity'; id: string }
+  | { kind: 'pattern'; pattern: string };
+export type Schedule =
+  | { kind: 'always' }
+  | { kind: 'once'; startMs: number; endMs: number }
+  | {
+      kind: 'weekly';
+      intervalWeeks: number;
+      /** ISO weekdays, Monday 1 to Sunday 7. */
+      weekdays: number[];
+      start: string;
+      end: string;
+      allDay: boolean;
+    };
+export interface Plan {
+  id: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  targets: Target[];
+  schedule: Schedule | null;
 }
 export interface Overview {
   configurationRevision: number;
   atMs: number;
   timeZone: string;
   range: { startMs: number; endMs: number };
-  plans: { id: string; name: string }[];
+  /** The plan the timeline is narrowed to, or null for every plan. */
+  selectedPlanId: string | null;
+  plans: Plan[];
   members: Member[];
   timeline: { startMs: number; endMs: number; planIds: string[] }[];
 }
@@ -99,6 +127,36 @@ function source(value: unknown): Source | null {
   const row = value as Json;
   return text(row.kind) ? { kind: row.kind, planId: text(row.planId) ? row.planId : null } : null;
 }
+function target(value: unknown): Target[] {
+  const row = value && typeof value === 'object' ? (value as Json) : {};
+  if (row.kind === 'all') return [{ kind: 'all' }];
+  if (row.kind === 'identity' && text(row.id)) return [{ kind: 'identity', id: row.id }];
+  if (row.kind === 'pattern' && text(row.pattern))
+    return [{ kind: 'pattern', pattern: row.pattern }];
+  return [];
+}
+function schedule(value: unknown): Schedule | null {
+  const row = value && typeof value === 'object' ? (value as Json) : {};
+  if (row.kind === 'always') return { kind: 'always' };
+  if (row.kind === 'once' && safe(row.startMs) && safe(row.endMs))
+    return { kind: 'once', startMs: row.startMs, endMs: row.endMs };
+  if (
+    row.kind === 'weekly' &&
+    safe(row.intervalWeeks) &&
+    Array.isArray(row.weekdays) &&
+    text(row.start) &&
+    text(row.end)
+  )
+    return {
+      kind: 'weekly',
+      intervalWeeks: row.intervalWeeks,
+      weekdays: row.weekdays.filter((day): day is number => safe(day) && day >= 1 && day <= 7),
+      start: row.start,
+      end: row.end,
+      allDay: row.allDay === true,
+    };
+  return null;
+}
 /** The overview the page draws, or a TypeError for a document it cannot read. */
 export function decodeOverview(value: Json): Overview {
   const range = object(value.range);
@@ -118,9 +176,20 @@ export function decodeOverview(value: Json): Overview {
     atMs: value.atMs,
     timeZone: value.timeZone,
     range: { startMs: range.startMs, endMs: range.endMs },
+    selectedPlanId: text(value.selectedPlanId) ? value.selectedPlanId : null,
     plans: plans.flatMap((plan) => {
       const row = object(plan);
-      return text(row.id) && text(row.name) ? [{ id: row.id, name: row.name }] : [];
+      if (!text(row.id) || !text(row.name)) return [];
+      return [
+        {
+          id: row.id,
+          name: row.name,
+          priority: Number.isSafeInteger(row.priority) ? Number(row.priority) : 0,
+          enabled: row.enabled !== false,
+          targets: Array.isArray(row.targets) ? row.targets.flatMap(target) : [],
+          schedule: schedule(row.schedule),
+        },
+      ];
     }),
     members: members.map((member) => {
       const row = object(member);
@@ -140,7 +209,9 @@ export function decodeOverview(value: Json): Overview {
           receiving: field('receiving'),
           sending: field('sending'),
           routine: field('routine'),
+          talkLimit: field('talkLimit'),
         },
+        activePlans: Array.isArray(row.activePlans) ? row.activePlans.filter(text) : [],
         nextChangeAtMs: safe(row.nextChangeAtMs) ? row.nextChangeAtMs : null,
       };
     }),
@@ -240,6 +311,69 @@ export async function readSending(api: OrchestrationApi, memberQuery?: string): 
   return { routes, talks, truncated };
 }
 
+export type JobState = 'on' | 'held' | 'paused' | 'no_owner';
+export interface Job {
+  id: string;
+  displayId: string;
+  title: string;
+  /** Core's schedule in short words: `every 1h`, `daily 23:30`, or the cron expression. */
+  schedule: string;
+  state: JobState;
+  nextRunAtMs: number | null;
+}
+const JOB_STATES: readonly JobState[] = ['on', 'held', 'paused', 'no_owner'];
+function jobSchedule(value: unknown): string {
+  const row = value && typeof value === 'object' ? (value as Json) : {};
+  if (row.kind === 'every' && safe(row.seconds)) {
+    const minutes = Math.round(row.seconds / 60);
+    return minutes % 60 === 0 ? `every ${minutes / 60}h` : `every ${minutes} min`;
+  }
+  if (row.kind === 'at' && text(row.at))
+    return text(row.on) ? `${row.on} ${row.at}` : `daily ${row.at}`;
+  if (row.kind === 'cron' && text(row.expression)) return row.expression;
+  return '—';
+}
+export function decodeJobs(rows: unknown[]): Job[] {
+  return rows.flatMap((value) => {
+    const row = object(value);
+    if (!text(row.jobId) || !JOB_STATES.includes(row.state as JobState)) return [];
+    const displayId = text(row.displayId) ? row.displayId : row.jobId;
+    return [
+      {
+        id: row.jobId,
+        displayId,
+        title:
+          text(row.title) && row.title
+            ? row.title
+            : text(row.messagePreview)
+              ? row.messagePreview
+              : displayId,
+        schedule: jobSchedule(row.schedule),
+        state: row.state as JobState,
+        nextRunAtMs: safe(row.nextRunAtMs) ? row.nextRunAtMs : null,
+      },
+    ];
+  });
+}
+export const JOBS_PAGE = 50;
+/** One member's jobs, first page only (`more` when Core has another); `null` when this Core has no
+ * jobs view. */
+export async function readJobs(
+  api: OrchestrationApi,
+  ownerIdentityId: string,
+): Promise<{ jobs: Job[]; more: boolean } | null> {
+  try {
+    const answer = await api.read({ view: 'jobs', ownerIdentityId, limit: JOBS_PAGE });
+    return {
+      jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
+      more: text(answer.nextCursor),
+    };
+  } catch (error) {
+    if (unknownView(error)) return null;
+    throw error;
+  }
+}
+
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
 export function previewLines(preview: Json, name: (id: string) => string): string[] {
   const lines: string[] = [];
@@ -284,6 +418,10 @@ export function receivingCell(value: unknown): string {
       return 'Direct';
     case 'auto':
       return 'Auto';
+    case 'urgent':
+      return 'Urgent';
+    case 'hold':
+      return 'Hold';
     case 'batch':
       return safe(row.intervalMs) ? `B${Math.round(row.intervalMs / 60000)}` : 'Batch';
     default:

@@ -734,15 +734,413 @@ body:not(:has(.tmt-ui-shell)) {
 }
 /* Orchestration (#4894): controls wrap on narrow screens; the matrix scrolls inside its card. */
 .ops-orchestration-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-l);
   min-width: 0;
 }
-.ops-orchestration-page > .tmt-ui-actions {
+.ops-orchestration-page > .ops-note:empty {
+  display: none;
+}
+.ops-orchestration-page > .ops-note {
+  padding: 0;
+}
+/* Toolbar: range, the range's date in Core's zone, plan filter and member filter on one line. */
+.ops-orchestration-bar {
+  display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
 }
-.ops-orchestration-page > .tmt-ui-actions .tmt-ui-search-field {
-  flex: 1 1 11rem;
+.ops-orchestration-range {
+  display: inline-flex;
+  padding: 2px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-field);
+}
+.ops-orchestration-range > button {
+  min-height: 28px;
+  padding: 0 var(--tmt-ui-space-m);
+  color: var(--tmt-ui-color-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  font: inherit;
+  font-size: var(--tmt-ui-caption-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ops-orchestration-range > button[aria-pressed='true'] {
+  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-elevation-1);
+  font-weight: 600;
+}
+.ops-orchestration-range > button:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: -2px;
+}
+.ops-orchestration-when {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tmt-ui-space-s);
+  margin: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ops-orchestration-zone {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 400;
+}
+.ops-orchestration-plan {
+  width: auto;
+  min-width: 10rem;
+  margin-left: auto;
+}
+.ops-orchestration-bar > .tmt-ui-search-field {
+  flex: 0 1 16rem;
   min-width: 0;
+}
+/* Captions share their section's content edge, unlike the padded page note. */
+.ops-orchestration-caption {
+  margin: var(--tmt-ui-space-s) 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-page .tmt-ui-card,
+.ops-orchestration-page .tmt-ui-card > * {
+  min-width: 0;
+}
+/* The panel is wider here than on other Ops pages: each value keeps its source on one line. */
+.ops-orchestration-page > .ops-grid {
+  grid-template-columns: minmax(0, 1fr) 21rem;
+}
+/* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
+.ops-orchestration-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+}
+.ops-orchestration-axis,
+.ops-orchestration-track,
+.ops-orchestration-lane {
+  position: relative;
+  margin-inline: 10px;
+}
+.ops-orchestration-axis {
+  height: 16px;
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-caption-size) / 16px var(--tmt-ui-font-mono);
+}
+.ops-orchestration-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+/* Day and week labels name the span that starts at their tick. */
+.ops-orchestration-tick[data-span] {
+  transform: none;
+  padding-left: 4px;
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-track {
+  height: 28px;
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-rule-soft);
+}
+.ops-orchestration-slot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--tmt-ui-color-text);
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 14%, transparent);
+  border: 0;
+  border-inline: 1px solid var(--tmt-ui-surface-sheet);
+  font: 600 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  cursor: pointer;
+}
+.ops-orchestration-slot[data-empty] {
+  background: transparent;
+}
+/* Over 30 days a slot is a few pixels wide: the lanes show the plans, the count is in its title. */
+.ops-orchestration-track[data-days='30'] .ops-orchestration-slot {
+  color: transparent;
+}
+.ops-orchestration-slot:hover {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 22%, transparent);
+}
+.ops-orchestration-slot[data-empty]:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-orchestration-slot[aria-current='time'] {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 26%, transparent);
+}
+.ops-orchestration-slot:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+  z-index: 1;
+}
+.ops-orchestration-marker {
+  position: absolute;
+  /* A small down-pointing mark above the track at the selected time. */
+  top: -7px;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-bottom: 0;
+  border-top: 6px solid var(--tmt-ui-color-text);
+  pointer-events: none;
+}
+.ops-orchestration-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 2px;
+}
+.ops-orchestration-lane {
+  height: 4px;
+}
+.ops-orchestration-lane-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.ops-orchestration-step {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  margin-top: var(--tmt-ui-space-s);
+}
+.ops-orchestration-icon {
+  justify-content: center;
+  width: var(--tmt-ui-control-size);
+  padding: 0;
+}
+.ops-orchestration-at {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-weight: 600;
+}
+.ops-orchestration-at > time {
+  font-family: var(--tmt-ui-font-mono);
+}
+.ops-orchestration-back {
+  transform: scaleX(-1);
+}
+.ops-orchestration-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-l);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-legend > li {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+}
+.ops-orchestration-legend strong {
+  color: var(--tmt-ui-color-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ops-orchestration-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+/* The route matrix scrolls both ways inside its card; names stay on the top and left edges. */
+.ops-orchestration-scroll {
+  max-height: min(32rem, 70vh);
+  overflow: auto;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
+  overscroll-behavior: contain;
+}
+.ops-orchestration-scroll:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.ops-orchestration-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-matrix th,
+.ops-orchestration-matrix td {
+  height: 36px;
+  padding: 0;
+  background: var(--tmt-ui-surface-sheet);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+  white-space: nowrap;
+}
+.ops-orchestration-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  max-width: 7rem;
+  padding: 0 var(--tmt-ui-space-s);
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  border-bottom-color: var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-matrix tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  max-width: 8rem;
+  padding: 0 var(--tmt-ui-space-m);
+  overflow: hidden;
+  font-weight: 500;
+  text-align: left;
+  text-overflow: ellipsis;
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-matrix thead th:first-child {
+  left: 0;
+  z-index: 2;
+  padding-inline: var(--tmt-ui-space-m);
+  text-align: left;
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font-weight: 400;
+}
+.ops-orchestration-matrix tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.ops-orchestration-matrix [data-cross] {
+  background: color-mix(in srgb, var(--tmt-ui-surface-selection) 70%, var(--tmt-ui-surface-sheet));
+}
+.ops-orchestration-matrix th[data-cross] {
+  color: var(--tmt-ui-color-selected-text);
+}
+.ops-orchestration-cell {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 4.25rem;
+  height: 100%;
+  padding: 0 var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  border: 0;
+  font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  cursor: pointer;
+}
+.ops-orchestration-cell:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-orchestration-cell[data-verdict='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+  font-size: var(--tmt-ui-type-body-size);
+}
+.ops-orchestration-cell[data-verdict='needs_person'] {
+  color: var(--tmt-ui-color-waiting);
+  font-size: var(--tmt-ui-type-body-size);
+}
+.ops-orchestration-cell[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px var(--tmt-ui-color-text);
+  font-weight: 700;
+}
+.ops-orchestration-cell[aria-pressed='true'][data-verdict] {
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-cell:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--tmt-ui-color-focus);
+}
+.ops-orchestration-talks .tmt-ui-list-row {
+  padding-inline: 0;
+}
+.ops-orchestration-talks [data-held] .tmt-ui-list-title {
+  color: var(--tmt-ui-color-waiting);
+}
+/* The member and route panel: one column of facts, actions and jobs. */
+.ops-orchestration-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-m);
+}
+.ops-orchestration-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-s);
+}
+.ops-orchestration-member {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-m);
+  padding-top: var(--tmt-ui-space-m);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tmt-ui-space-xs);
+}
+.ops-orchestration-focus-label {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-member .tmt-ui-list-row {
+  padding-inline: 0;
+}
+.ops-orchestration-member .tmt-ui-section-heading {
+  margin: 0;
+}
+.ops-orchestration-source {
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-orchestration-jobs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ops-orchestration-jobs > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.ops-orchestration-jobs > li > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ops-orchestration-jobs > li > :nth-child(2) {
+  white-space: nowrap;
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-jobs > li > :last-child {
+  grid-column: 1 / -1;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-jobs [data-state='held'] > :nth-child(2) {
+  color: var(--tmt-ui-color-waiting);
+}
+.ops-orchestration-jobs [data-state='paused'] > :nth-child(2),
+.ops-orchestration-jobs [data-state='no_owner'] > :nth-child(2) {
+  color: var(--tmt-ui-color-secondary);
 }
 /* An action row wraps whole buttons; a label never wraps, and a long one is cut (#5890). */
 .ops-orchestration-page .tmt-ui-actions {
@@ -761,52 +1159,33 @@ body:not(:has(.tmt-ui-shell)) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ops-orchestration-back {
-  transform: scaleX(-1);
-}
-/* Captions share their section's content edge, unlike the padded page note. */
-.ops-orchestration-caption {
-  margin: var(--tmt-ui-space-s) 0 0;
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
-}
-.ops-orchestration-talks .tmt-ui-list-row {
-  padding-inline: 0;
-}
-@media (max-width: 760px) {
-  .ops-orchestration-page > .tmt-ui-actions .tmt-ui-search-field {
-    flex-basis: 100%;
+@media (max-width: 1050px) {
+  .ops-orchestration-page > .ops-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
-.ops-orchestration-slots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.ops-orchestration-page .tmt-ui-card {
-  min-width: 0;
-}
-/* Time slots and matrix cells are flat controls on the page's own surfaces and rule. */
-.ops-orchestration-slot,
-.ops-orchestration-cell {
-  min-width: 2.25rem;
-  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
-  color: var(--tmt-ui-color-text);
-  background: transparent;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  font: var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-mono);
-  cursor: pointer;
-}
-.ops-orchestration-slot[aria-current='time'],
-.ops-orchestration-cell[aria-pressed='true'] {
-  background: var(--tmt-ui-surface-rule-soft);
-  border-color: var(--tmt-ui-color-text);
-}
-/* A bordered control shows focus on its own border, never a second frame outside it. */
-.ops-orchestration-slot:focus-visible,
-.ops-orchestration-cell:focus-visible {
-  outline: none;
-  border-color: var(--tmt-ui-color-focus);
+@media (max-width: 760px) {
+  .ops-orchestration-plan {
+    flex: 1 1 8rem;
+    margin-left: 0;
+  }
+  .ops-orchestration-bar > .tmt-ui-search-field {
+    flex-basis: 100%;
+  }
+  .ops-orchestration-tick[data-minor] {
+    visibility: hidden;
+  }
+  .ops-orchestration-track[data-days='7'] .ops-orchestration-slot {
+    color: transparent;
+  }
+  .ops-orchestration-matrix tbody th,
+  .ops-orchestration-matrix thead th:first-child {
+    max-width: 5.5rem;
+    padding-inline: var(--tmt-ui-space-s);
+  }
+  .ops-orchestration-cell {
+    min-width: 3.5rem;
+  }
 }
 .ops-detail {
   display: flex;

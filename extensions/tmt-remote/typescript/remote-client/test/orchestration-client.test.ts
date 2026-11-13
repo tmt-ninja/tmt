@@ -4,10 +4,12 @@ import {
   ROUTES_PAGE,
   ROUTES_PAGES,
   applyInput,
+  decodeJobs,
   decodeOverview,
   decodeRoutes,
   decodeTalks,
   previewLines,
+  readJobs,
   readSending,
   receivingCell,
   type Json,
@@ -19,15 +21,36 @@ const overview = (): Json => ({
   atMs: 1_000,
   timeZone: 'Asia/Taipei',
   range: { startMs: 0, endMs: 86_400_000 },
-  plans: [{ id: 'p1', name: 'Night' }, { id: 7 }],
+  selectedPlanId: 'p1',
+  plans: [
+    {
+      id: 'p1',
+      name: 'Night',
+      priority: 20,
+      enabled: true,
+      targets: [{ kind: 'pattern', pattern: 'night-*' }, { kind: 'identity' }],
+      schedule: {
+        kind: 'weekly',
+        anchorDate: '2026-10-26',
+        intervalWeeks: 2,
+        weekdays: [2, 4, 9],
+        start: '22:00',
+        end: '06:00',
+        allDay: false,
+      },
+    },
+    { id: 7 },
+  ],
   members: [
     {
       identityId: 'a',
       name: 'ann',
       effective: {
-        state: { value: 'active', source: { kind: 'plan', planId: 'p1' } },
+        state: { value: 'low', source: { kind: 'plan', planId: 'p1' } },
         receiving: { value: { mode: 'batch', intervalMs: 1_200_000 }, source: { kind: 'default' } },
+        talkLimit: { value: 20, source: { kind: 'plan', planId: 'p1' } },
       },
+      activePlans: ['p1', 2],
       nextChangeAtMs: 5_000,
     },
   ],
@@ -36,12 +59,69 @@ const overview = (): Json => ({
 
 it('decodes only what the page draws and refuses an unreadable overview', () => {
   const decoded = decodeOverview(overview());
-  expect(decoded.plans).toEqual([{ id: 'p1', name: 'Night' }]);
+  expect(decoded.selectedPlanId).toBe('p1');
+  expect(decoded.plans).toEqual([
+    {
+      id: 'p1',
+      name: 'Night',
+      priority: 20,
+      enabled: true,
+      targets: [{ kind: 'pattern', pattern: 'night-*' }],
+      schedule: {
+        kind: 'weekly',
+        intervalWeeks: 2,
+        weekdays: [2, 4],
+        start: '22:00',
+        end: '06:00',
+        allDay: false,
+      },
+    },
+  ]);
   expect(decoded.timeline).toEqual([{ startMs: 0, endMs: 10, planIds: ['p1'] }]);
   const [member] = decoded.members;
-  expect(member!.fields.state).toEqual({ value: 'active', source: { kind: 'plan', planId: 'p1' } });
+  expect(member!.fields.state).toEqual({ value: 'low', source: { kind: 'plan', planId: 'p1' } });
   expect(member!.fields.sending).toEqual({ value: null, source: null });
+  expect(member!.fields.talkLimit).toEqual({ value: 20, source: { kind: 'plan', planId: 'p1' } });
+  expect(member!.activePlans).toEqual(['p1']);
   expect(member!.nextChangeAtMs).toBe(5_000);
+  expect(
+    decodeJobs([
+      {
+        jobId: 'j-1',
+        displayId: 'j1',
+        title: 'Night review',
+        schedule: { kind: 'every', zone: 'UTC', seconds: 3600, anchorMs: 0 },
+        state: 'on',
+        nextRunAtMs: 9,
+      },
+      {
+        jobId: 'j-2',
+        title: null,
+        messagePreview: 'Archive',
+        schedule: { kind: 'at', at: '23:30', on: null },
+        state: 'paused',
+        nextRunAtMs: null,
+      },
+      { jobId: 'j-3', state: 'running' },
+    ]),
+  ).toEqual([
+    {
+      id: 'j-1',
+      displayId: 'j1',
+      title: 'Night review',
+      schedule: 'every 1h',
+      state: 'on',
+      nextRunAtMs: 9,
+    },
+    {
+      id: 'j-2',
+      displayId: 'j-2',
+      title: 'Archive',
+      schedule: 'daily 23:30',
+      state: 'paused',
+      nextRunAtMs: null,
+    },
+  ]);
   expect(() => decodeOverview({ ...overview(), atMs: -1 })).toThrow(TypeError);
   expect(() => decodeOverview({ ...overview(), members: [{ name: 'no id' }] })).toThrow(TypeError);
 });
@@ -128,10 +208,12 @@ it('reads an older Core without the views as not available, and rethrows anythin
     throw new OrchestrationRefused('ORCH_INPUT_INVALID');
   });
   expect(await readSending(older)).toEqual({ routes: null, talks: null, truncated: false });
+  expect(await readJobs(older, 'a')).toBeNull();
   const failing = api(() => {
     throw new OrchestrationRefused('ORCH_STORAGE');
   });
   await expect(readSending(failing)).rejects.toMatchObject({ code: 'ORCH_STORAGE' });
+  await expect(readJobs(failing, 'a')).rejects.toMatchObject({ code: 'ORCH_STORAGE' });
 });
 
 it('shows Core’s own preview and applies exactly that preview with consent', () => {
@@ -181,5 +263,6 @@ it('writes short receiving words for the matrix', () => {
   expect(receivingCell({ mode: 'direct' })).toBe('Direct');
   expect(receivingCell({ mode: 'batch', intervalMs: 1_200_000 })).toBe('B20');
   expect(receivingCell({ mode: 'batch' })).toBe('Batch');
+  expect(receivingCell({ mode: 'urgent' })).toBe('Urgent');
   expect(receivingCell(null)).toBe('·');
 });
