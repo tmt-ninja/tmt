@@ -121,7 +121,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   const matrixCard = el('section', `${c.card} ops-orchestration-routes`);
   const matrixHead = el('div', c.cardHead);
   const matrixMeta = el('span', c.cardMeta);
-  const matrixCue = el('span', 'ops-orchestration-scroll-cue', 'Scroll →');
+  const matrixCue = el('span', 'ops-orchestration-scroll-cue', 'Scroll ↔ ↕');
   matrixHead.append(el('h3', c.cardTitle, 'Who may message whom'), matrixMeta, matrixCue);
   const matrixBody = el('div', 'ops-orchestration-matrix-body');
   const talks = el('div', 'ops-orchestration-talks');
@@ -685,7 +685,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
                 ? '✕ not sent, explained'
                 : route.verdict === 'needs_person'
                   ? '◆ held for a person'
-                  : `sent · ${receivingWords(column.fields.receiving.value)}`,
+                  : `Allowed · ${receivingWords(column.fields.receiving.value)}`,
           ],
         ]),
       );

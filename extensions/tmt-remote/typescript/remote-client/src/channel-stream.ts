@@ -5,6 +5,7 @@
  * refreshes. The room read has no change positions yet, so the channel shows no unread count and
  * refreshes by rereading its newest page. */
 import { el } from './ops-parts.js';
+import { opsHref } from './ops-menu.js';
 import { composerSlot } from './ops-composer-slot.js';
 import { whileVisible } from './owner-reads.js';
 import type { RemoteShell } from './remote-shell.js';
@@ -332,12 +333,9 @@ export function channelStream(
     if (!channel) return;
     const name = `#${channel.squad}`;
     const room = channel.room;
-    let canSend = false,
-      busy = false;
-    if (!room) {
-      sendNote.textContent = `${name} has no channel room on this machine yet. Talk to a member directly instead.`;
-      sendNote.hidden = false;
-    } else ({ canSend, busy } = box.box(room.roomId, sendNote));
+    compose.hidden = !room;
+    if (!room) return;
+    const { canSend, busy } = box.box(room.roomId, sendNote);
     composer.show({
       key: `channel:${channel.squad}`,
       label: `Message ${name}`,
@@ -483,6 +481,15 @@ export function channelStream(
         empty.hidden = false;
         void refresh();
       } else draw();
+      if (next?.room === null) {
+        emptyTitle.textContent = 'No channel room on this machine yet';
+        if (next.lead) {
+          const link = el('a', undefined, `Talk to ${next.lead.name}`);
+          link.href = opsHref(location.pathname, { squad: next.squad, memberId: next.lead.id });
+          emptyText.replaceChildren(link, ' directly instead.');
+        } else emptyText.textContent = 'Choose a member from the sidebar to talk directly.';
+        empty.hidden = false;
+      }
       showComposer();
     },
   };
