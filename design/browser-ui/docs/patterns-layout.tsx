@@ -435,7 +435,8 @@ export const layoutPatterns: LayoutDoc[] = [
           <tbody>
             {breakpoints.map(([width, change]) => (
               <tr key={width}>
-                <td className="layout-width">{width}</td>
+                {/* One line: the value and its unit never part (non-breaking spaces). */}
+                <td className="layout-width">{width.replaceAll(' ', '\u00a0')}</td>
                 <td>{change}</td>
               </tr>
             ))}
