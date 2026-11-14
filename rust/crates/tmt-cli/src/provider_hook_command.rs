@@ -37,6 +37,13 @@ use tmt_core::binding::session::launch::{
 };
 
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
+/// With `TMT_HOOK_DEBUG=1`, the line before `ERROR_LINE` when the hook's own
+/// fixed budget ran out, so a caller can tell an overrun from a refusal.
+const BUDGET_SPENT_LINE: &str = "tmt: hook budget spent.";
+
+fn debug_budget() -> bool {
+    std::env::var_os("TMT_HOOK_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
+}
 
 /// Provider hooks always exit successfully. The existing bounded process owner
 /// terminates/reaps the internal worker on timeout; no daemon, permission decision,
@@ -138,16 +145,19 @@ pub fn execute(
         let _ = learning.succeeded(diagnostic_deadline);
     }
     let failed = result.is_err();
-    if failed && let Some(learning) = &learning {
-        if Instant::now() >= work_deadline {
-            failure_reason = Reason::BudgetTimeout;
-        }
-        if learning.fail(failure_reason, diagnostic_deadline).is_err() && !worker {
-            let _ = writeln!(
-                io::stderr().lock(),
-                "tmt: session-learning diagnostic could not be saved."
-            );
-        }
+    if failed && Instant::now() >= work_deadline {
+        failure_reason = Reason::BudgetTimeout;
+    }
+    let budget_spent = failed && matches!(failure_reason, Reason::BudgetTimeout);
+    if failed
+        && let Some(learning) = &learning
+        && learning.fail(failure_reason, diagnostic_deadline).is_err()
+        && !worker
+    {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "tmt: session-learning diagnostic could not be saved."
+        );
     }
     if (worker || failed)
         && let Some(learning) = &learning
@@ -178,6 +188,9 @@ pub fn execute(
                 let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
             }
             if !turn_end {
+                if budget_spent && !worker && debug_budget() {
+                    let _ = writeln!(io::stderr().lock(), "{BUDGET_SPENT_LINE}");
+                }
                 let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
             }
         }

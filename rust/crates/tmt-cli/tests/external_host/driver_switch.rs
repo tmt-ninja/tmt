@@ -19,8 +19,10 @@ pub(super) fn switch_provider(fixture: &Fixture, provider: &str, session: &str, 
     }
     // A shebang script is `sh` to native comm. The provider-named shell
     // reuses SteppedProvider's native ancestry shape and keeps the launch PID.
+    // A start hook that spent its own fixed budget (a slow host) proved nothing
+    // either way: it runs again with the same input, at most three times in all.
     let body = format!(
-        "printf '%s' '{payload}' | CLAUDE_PID=$$ '{}' __hook {provider} > switch.hook.out 2> switch.hook.err\nprintf '%s\\n' \"$?\" > switch.hook.status\n{AGENT}",
+        "i=0\nwhile :; do\n  printf '%s' '{payload}' | TMT_HOOK_DEBUG=1 CLAUDE_PID=$$ '{}' __hook {provider} > switch.hook.out 2> switch.hook.err\n  s=$?; i=$((i + 1))\n  head -n 1 switch.hook.err | grep -qxF 'tmt: hook budget spent.' && [ $i -lt 3 ] || break\ndone\nprintf '%s\\n' \"$s\" > switch.hook.status\n{AGENT}",
         cli.to_string_lossy()
     );
     let body = body.replace('\'', "'\\''");
@@ -307,7 +309,6 @@ fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
 /// Both driver directions use the public command. A real receipt answers the
 /// handoff; a missing answer and an already-gone provider use notebook fallback.
 #[test]
-#[ignore = "flaky on hosted runners until #4656 is resolved"]
 fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
     register();
     for (provider, target) in [("claude", "codex"), ("codex", "claude")] {

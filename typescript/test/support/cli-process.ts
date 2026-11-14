@@ -535,9 +535,17 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       pollCleanup();
     };
     const timer = setTimeout(() => {
-      failure ??= new Error(`CLI subprocess exceeded the ${deadlineMs} millisecond test bound.`);
       record('deadline');
       diagnostic.preTermination = preTerminationObservation(cliGroup, sandbox.root);
+      const stall = outputBytes === 0 ? diskStall(diagnostic.preTermination, cliGroup) : null;
+      // test/support/disk-stall.ts reads this slot to rerun the test once (#6393).
+      if (stall)
+        (globalThis as Record<symbol, unknown>)[Symbol.for('tmt.test.cliDiskStall')] = stall;
+      failure ??= new Error(
+        `CLI subprocess exceeded the ${deadlineMs} millisecond test bound.${
+          stall ? ` CLI disk stall, inconclusive (${stall}).` : ''
+        }`
+      );
       beginCleanup();
     }, deadlineMs);
     record('deadline-armed');
@@ -808,6 +816,17 @@ function residentIdentity(pid: number, root: string, preTermination = false): ob
   } catch {
     return { pid, observation: 'identity unavailable' };
   }
+}
+
+// The CLI's state at the deadline when the runner's disk held it (D state, zero CPU ticks).
+function diskStall(observation: object, cliPid: number | undefined): string | null {
+  const processes = (observation as { processes?: unknown }).processes;
+  if (cliPid === undefined || !Array.isArray(processes)) return null;
+  const cli = processes.find((entry) => (entry as { pid?: unknown }).pid === cliPid) as
+    | { state?: unknown; cpuTicks?: { user?: unknown; system?: unknown }; wchan?: unknown }
+    | undefined;
+  if (cli?.state !== 'D' || cli.cpuTicks?.user !== '0' || cli.cpuTicks.system !== '0') return null;
+  return `pid ${cliPid} in D state at ${String(cli.wchan) || 'unknown'}, 0 CPU ticks, no output`;
 }
 
 // Optional observation never supplies process ownership, signalling or cleanup evidence.

@@ -579,6 +579,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(events(worker, 'attached')).toEqual([]);
       expect(events(worker, 'started')[0].args).toEqual([
         '--no-daemon',
+        '--add-dir',
+        f.globalDir,
         '-c',
         expect.stringContaining(' __digest-hook codex --discover-launch'),
       ]);
@@ -715,6 +717,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect(records(f)).toEqual([]);
           expect(events(resumed, 'started')[0].args).toEqual([
             'resume',
+            '--add-dir',
+            f.globalDir,
             '-c',
             expect.stringContaining(' __digest-hook codex --discover-launch'),
             original,
@@ -771,6 +775,8 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         await ready(f, plain);
         expect(events(plain, 'started')[0].args).toEqual([
           'resume',
+          '--add-dir',
+          f.globalDir,
           '-c',
           expect.stringContaining(' __digest-hook codex --discover-launch'),
           original,
@@ -1169,7 +1175,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           args
         );
         await ready(f, s);
-        expect(events(s, 'started')[0].args).toEqual(['--no-daemon', ...args]);
+        expect(events(s, 'started')[0].args).toEqual([
+          '--no-daemon',
+          '--add-dir',
+          f.globalDir,
+          ...args,
+        ]);
         expect(
           f
             .capture(200, s.pane)

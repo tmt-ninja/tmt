@@ -176,6 +176,7 @@ group. Disposal cancels outstanding runs first; failure retains fixture paths
 and reports callback and cleanup failures together.
 
 Linux deadline diagnostics optionally observe the registered CLI and at most eight admitted sandbox residents before termination, with bounded identity-checked facts and explicit unavailability that never supplies signalling or cleanup authority.
+A deadline where that observation shows the CLI in D state with zero CPU ticks and no output is a runner disk stall, not a result: `test/support/disk-stall.ts` prints one line naming the test and the evidence, and the native and e2e configs rerun that test once. A second stall, and every other deadline, fails. Deadlines and assertions are unchanged.
 
 After callback cleanup, Linux's cwd guard checks inspectable same-user processes
 under the canonical sandbox root (permission-denied discovery is skipped). It

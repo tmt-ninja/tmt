@@ -194,7 +194,11 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   proposal and full binding/preferences fence. Failure never changes the command
   result; no timer, daemon, setup hook or provider settings write is needed.
   `TMT_CALLER_SESSION_DEBUG=1` opts into one stderr diagnostic naming the refusing
-  layer, without paths, IDs, provider output or content. Running out of the 500 ms is
+  layer, without paths, IDs, provider output or content. A provider hook that ran
+  out of its own fixed 2 s budget prints the same fallback line as a refusal; with
+  `TMT_HOOK_DEBUG=1` it first prints `tmt: hook budget spent.`, which test fixtures
+  use to rerun such a run (at most three in all) instead of reading a slow host as
+  a result. Running out of the 500 ms is
   the `budget` layer wherever it is noticed, including a hook-storage writer wait that
   ran out (refused at open, or SQLite's plain BUSY once the whole allowance has passed);
   lock contention, LOCKED and any other storage failure stay `storage`. The stored

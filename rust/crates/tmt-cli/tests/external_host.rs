@@ -1073,6 +1073,13 @@ fn wait_flushed(state: &std::path::Path) {
     });
 }
 
+/// The hook's opt-in (`TMT_HOOK_DEBUG=1`) line for a run that spent its own budget.
+const BUDGET_SPENT: &str = "tmt: hook budget spent.\n";
+
+fn budget_spent(stderr: &str) -> bool {
+    stderr.starts_with(BUDGET_SPENT)
+}
+
 fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while !ready() {
@@ -2337,7 +2344,17 @@ impl SteppedProvider {
     /// `hook` with these variables exported for that hook only.
     fn hook_with_env(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let turn_end = hook_ends_turn(&payload);
-        let output = self.hook_command(payload, env);
+        let start = payload["hook_event_name"] == "SessionStart";
+        let mut output = self.hook_command(payload.clone(), env);
+        // A start hook that ran out of its own fixed budget (a slow host) proved
+        // nothing either way, so it runs again with the same input, at most three
+        // times in all. Only its explicit signal counts, never a missing record.
+        for _ in 1..3 {
+            if !(start && budget_spent(&output.2)) {
+                break;
+            }
+            output = self.hook_command(payload.clone(), env);
+        }
         if turn_end {
             wait_flushed(&self.steps.parent().unwrap().join("linked/state"));
         }
@@ -2349,6 +2366,7 @@ impl SteppedProvider {
         let step = self.steps.join(self.next.to_string());
         let launch = self.launch.clone();
         let mut env = env.to_vec();
+        env.push(("TMT_HOOK_DEBUG", b"1"));
         if let Some(launch) = &launch
             && !env
                 .iter()
