@@ -93,7 +93,7 @@ The blog consumes the published `@tmt/browser-ui/static.css` and
 preference. Editorial owns the type ramp, prose rhythm, tables, figures, code and
 `tmt-ui-tag`; the renderer wraps the approved article in `tmt-ui-prose` without
 rewriting its stored bytes. `blog.css` owns the journal grids, page spacing, shared
-chrome token mapping and blog-only tone: the ninja red primitive, its translucent
+chrome token mapping and blog-only tone: the shared accent role, its translucent
 highlighter and the blended summary foreground. It contains no private design imports
 or independent font stacks. Typography follows the shared ramp; authored article CSS
 retains precedence. Colab drafts resolve the same CSS imports into a self-contained
