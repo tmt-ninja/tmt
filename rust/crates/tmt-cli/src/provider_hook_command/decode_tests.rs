@@ -254,6 +254,7 @@ fn a_finished_tool_with_nothing_waiting_says_so() {
                 lifecycle,
                 &session,
                 &activity,
+                None,
                 Run {
                     deadline: launch.deadline,
                     learning: Some(&launch.learning),

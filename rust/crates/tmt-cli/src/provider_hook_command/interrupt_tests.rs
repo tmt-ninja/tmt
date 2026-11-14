@@ -432,6 +432,7 @@ fn tool_completions_probe_only_when_storage_reports_waiting_and_never_write_the_
                 &probe,
                 &session,
                 &activity,
+                None,
                 Run {
                     deadline: Instant::now() + Duration::from_secs(2),
                     learning: None,

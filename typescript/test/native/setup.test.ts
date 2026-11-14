@@ -100,7 +100,15 @@ describe('consented provider setup and bounded hook boundary', () => {
         const preview = await runCli(sandbox, ['setup', name]);
         // Activity observers remain independent of the Stop collection choice.
         const activity =
-          name === 'codex' ? ['Interrupt'] : ['Notification', 'PostToolUse', 'PostToolUseFailure'];
+          name === 'codex'
+            ? ['Interrupt']
+            : [
+                'Notification',
+                'PostToolUse',
+                'PostToolUseFailure',
+                'PreToolUse',
+                'PermissionRequest',
+              ];
         expect(preview.stdout).toContain(
           `SessionStart, SessionEnd, UserPromptSubmit${activity
             .map((event) => `, ${event} (activity only)`)

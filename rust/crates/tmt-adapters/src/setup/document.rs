@@ -146,7 +146,7 @@ pub(crate) fn owned_event(
         serde_json::from_str(raw).map_err(|_| PlanError::InvalidSettings)?;
     let mut count = 0;
     for entry in entries {
-        count += usize::from(owned(provider, entry)?);
+        count += usize::from(owned(provider, entry, event)?);
     }
     if count > 1 {
         return Err(PlanError::EditedHook);
@@ -156,7 +156,7 @@ pub(crate) fn owned_event(
 
 /// Only the exact generated command shape establishes ownership. A matching
 /// marker in user text is not enough; edited entries are never overwritten.
-fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanError> {
+fn owned(provider: &DriverDefinition, entry: &RawValue, event: &str) -> Result<bool, PlanError> {
     let fields = object(entry.get())?;
     let mut candidates = Vec::new();
     match provider.descriptor.hooks {
@@ -201,7 +201,12 @@ fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanErro
         .ok_or(PlanError::EditedHook)?;
     let launcher = quoted.replace("'\\''", "'");
     if !std::path::Path::new(&launcher).is_absolute()
-        || !super::shipped_hooks::matches(provider, &value, &launcher)
+        || !super::shipped_hooks::matches(
+            provider,
+            &value,
+            &launcher,
+            event_matcher(provider, event),
+        )
     {
         return Err(PlanError::EditedHook);
     }
@@ -210,6 +215,7 @@ fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanErro
 
 fn event_array(
     provider: &DriverDefinition,
+    event: &str,
     text: &str,
     launcher: &str,
     removing: bool,
@@ -217,11 +223,12 @@ fn event_array(
     let entries: Vec<&RawValue> =
         serde_json::from_str(text).map_err(|_| PlanError::InvalidSettings)?;
     let mut count = 0;
-    let desired = super::hook_entry(provider, launcher)?.to_string();
+    let matcher = event_matcher(provider, event);
+    let desired = super::hook_entry(provider, launcher, matcher)?.to_string();
     let mut result = Vec::new();
     let mut changed = false;
     for entry in entries {
-        if owned(provider, entry)? {
+        if owned(provider, entry, event)? {
             count += 1;
             if count > 1 {
                 return Err(PlanError::EditedHook);
@@ -231,7 +238,7 @@ fn event_array(
             } else {
                 let old: Value =
                     serde_json::from_str(entry.get()).map_err(|_| PlanError::InvalidSettings)?;
-                if old == super::hook_entry(provider, launcher)? {
+                if old == super::hook_entry(provider, launcher, matcher)? {
                     result.push(entry.get().to_owned());
                 } else {
                     changed = true;
@@ -262,7 +269,7 @@ pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &st
         let entries: Vec<&RawValue> = serde_json::from_str(field(&hooks, event)?).ok()?;
         let mut owned_entries = 0;
         for entry in entries {
-            owned_entries += usize::from(owned(provider, entry).ok()?);
+            owned_entries += usize::from(owned(provider, entry, event).ok()?);
         }
         Some(owned_entries == 1)
     })()
@@ -278,6 +285,14 @@ pub(super) fn activity_events(provider: &DriverDefinition) -> &'static [&'static
         .runtime
         .as_ref()
         .map_or(&[], |runtime| (runtime.lifecycle)().activity_events())
+}
+
+/// The tool matcher the driver installs `event` with, if any (#6424).
+pub(super) fn event_matcher(provider: &DriverDefinition, event: &str) -> Option<&'static str> {
+    provider
+        .runtime
+        .as_ref()
+        .and_then(|runtime| (runtime.lifecycle)().activity_matcher(event))
 }
 /// The opt-in turn-end event that records context usage (#519).
 pub(super) const USAGE: &str = "Stop";
@@ -336,6 +351,7 @@ pub(super) fn settings(
         }
         let edited = event_array(
             provider,
+            event,
             old.unwrap_or("[]"),
             launcher,
             action == Action::Remove,
@@ -536,7 +552,7 @@ mod tests {
     use crate::drivers::{claude, codex};
 
     fn hook_entry(launcher: &str) -> serde_json::Value {
-        super::super::hook_entry(&claude::DRIVER, launcher).unwrap()
+        super::super::hook_entry(&claude::DRIVER, launcher, None).unwrap()
     }
 
     fn claude_settings(text: &str, launcher: &str, removing: bool) -> Result<String, PlanError> {
@@ -721,7 +737,7 @@ mod tests {
             Some("{}")
         );
         // An edited or repeated observer is refused like any owned entry.
-        let owned = super::super::hook_entry(&codex::DRIVER, "/stable/tmt").unwrap();
+        let owned = super::super::hook_entry(&codex::DRIVER, "/stable/tmt", None).unwrap();
         let mut edited = owned.clone();
         edited["hooks"][0]["timeout"] = 30.into();
         for entries in [vec![edited], vec![owned.clone(), owned]] {
@@ -737,6 +753,35 @@ mod tests {
                 Err(PlanError::EditedHook)
             );
         }
+    }
+
+    #[test]
+    fn claude_form_hooks_install_with_their_matcher_and_stay_owned() {
+        use super::super::UsageHook;
+        let installed = settings(&claude::DRIVER, "{}", "/tmt", false, UsageHook::Default).unwrap();
+        let value: Value = serde_json::from_str(&installed).unwrap();
+        let entry = &value["hooks"]["PreToolUse"][0];
+        assert_eq!(entry["matcher"], "AskUserQuestion|ExitPlanMode");
+        assert_eq!(entry["hooks"][0]["command"], "'/tmt' __hook claude");
+        assert!(
+            value["hooks"]["PermissionRequest"][0]
+                .get("matcher")
+                .is_none()
+        );
+        // A rerun keeps the owned entries as they are; a changed matcher is the user's edit.
+        let again = settings(
+            &claude::DRIVER,
+            &installed,
+            "/tmt",
+            false,
+            UsageHook::Default,
+        )
+        .unwrap();
+        assert_eq!(again, installed);
+        let edited = installed.replace("AskUserQuestion|ExitPlanMode", "AskUserQuestion");
+        assert!(settings(&claude::DRIVER, &edited, "/tmt", false, UsageHook::Default).is_err());
+        let removed = removed(&claude::DRIVER, &installed).unwrap().unwrap();
+        assert!(!removed.contains("__hook"));
     }
 
     #[test]

@@ -157,6 +157,12 @@ pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObserva
         {
             EventKind::ApprovalPrompt
         }
+        // A form the provider now waits on (#6424); its content is `provider_form`'s.
+        "PreToolUse" | "PermissionRequest"
+            if !correlated && super::provider_form::decode_claude(bytes).is_some() =>
+        {
+            EventKind::ApprovalPrompt
+        }
         "PostToolUse" | "PostToolUseFailure"
             if !correlated && !payload.subagent_id && !payload.subagent_type =>
         {

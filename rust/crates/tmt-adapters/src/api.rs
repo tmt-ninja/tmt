@@ -7,6 +7,7 @@ mod digest;
 mod dispatch;
 mod drivers;
 mod extensions;
+mod forms;
 mod identities;
 mod identity_hooks;
 mod notes;
@@ -72,6 +73,8 @@ const OPS: &[&str] = &[
     "terminal.open",
     "terminal.list",
     "terminal.close",
+    "forms.list",
+    "forms.answer",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -268,6 +271,15 @@ pub enum Request {
     /// Read-only: a built-in member's extra terminals.
     TerminalList {
         identity_id: String,
+    },
+    /// Read-only: the open provider forms, of one identity or all (#6424).
+    FormsList {
+        identity_id: Option<String>,
+    },
+    /// Checks an answer against an open form; no provider takes one yet.
+    FormsAnswer {
+        form_id: String,
+        answer: forms::Answer,
     },
     /// Closes one extra terminal, ending a running program only with `force`.
     TerminalClose {
@@ -495,6 +507,8 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "terminal.open" => terminal::decode_open(input)?,
         "terminal.list" => terminal::decode_list(input)?,
         "terminal.close" => terminal::decode_close(input)?,
+        "forms.list" => forms::decode_list(input)?,
+        "forms.answer" => forms::decode_answer(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "orchestration.job.run" => Request::JobRun {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -717,6 +731,8 @@ impl Session {
             }
             Request::TerminalOpen { identity_id } => terminal::open(paths, storage, &identity_id),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
+            Request::FormsList { identity_id } => forms::list(storage, identity_id.as_deref()),
+            Request::FormsAnswer { form_id, answer } => forms::answer(storage, &form_id, &answer),
             Request::ConsumptionHistory {
                 identities,
                 windows,

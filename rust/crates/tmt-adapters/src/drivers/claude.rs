@@ -17,7 +17,15 @@ use tmt_core::binding::session::{
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
-const ACTIVITY_EVENTS: &[&str] = &["Notification", "PostToolUse", "PostToolUseFailure"];
+/// `PreToolUse` (for the form tools only) and `PermissionRequest` report the forms Claude
+/// waits on (#6424); they never decide a permission.
+const ACTIVITY_EVENTS: &[&str] = &[
+    "Notification",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PreToolUse",
+    "PermissionRequest",
+];
 
 /// An absent `CLAUDE_PID` comes from an older Claude and proves nothing. A
 /// present one must parse, so that a malformed value cannot skip the check
@@ -494,6 +502,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 
     fn activity_events(&self) -> &'static [&'static str] {
         ACTIVITY_EVENTS
+    }
+
+    fn activity_matcher(&self, event: &str) -> Option<&'static str> {
+        (event == "PreToolUse").then_some(crate::runtime::provider_form::CLAUDE_FORM_TOOLS)
+    }
+
+    fn decode_form(&self, bytes: &[u8]) -> Option<crate::runtime::provider_form::ProviderForm> {
+        crate::runtime::provider_form::decode_claude(bytes)
     }
 
     fn decode_activity_session(&self, payload: &[u8]) -> Option<ProviderSessionId> {

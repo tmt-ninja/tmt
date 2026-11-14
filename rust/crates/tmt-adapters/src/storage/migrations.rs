@@ -444,6 +444,10 @@ const MIGRATIONS: &[Migration] = &[
         "record an empty Digest turn boundary while references are due",
         "schema/090.sql"
     ),
+    migration!(
+        "record the interactive forms a provider session waits on",
+        "schema/091.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
