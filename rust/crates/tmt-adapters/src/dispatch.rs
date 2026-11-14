@@ -37,6 +37,9 @@ struct InputWire {
     /// Absent is a request, so every request-mode intent digest is unchanged.
     #[serde(default, skip_serializing_if = "ModeWire::is_request")]
     mode: ModeWire,
+    /// Absent is no thread, so every earlier intent digest is unchanged (#6407).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_request_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -130,6 +133,10 @@ pub fn decode_input(bytes: &[u8]) -> Option<DispatchInput> {
             ModeWire::Request => DeliveryMode::Request,
             ModeWire::Passthrough => DeliveryMode::Passthrough,
         },
+        parent_request_id: match wire.parent_request_id {
+            Some(id) if !crate::request_runtime::valid_request_id(&id) => return None,
+            parent => parent,
+        },
     }
     .normalize()
 }
@@ -150,6 +157,7 @@ pub(crate) fn intent_digest(input: &DispatchInput) -> String {
             DeliveryMode::Request => ModeWire::Request,
             DeliveryMode::Passthrough => ModeWire::Passthrough,
         },
+        parent_request_id: input.parent_request_id.clone(),
     };
     // Hash the complete normalized intent, including direct vs roster semantics.
     // Identity provenance participates only when the CLI supplies a known sender.

@@ -351,6 +351,7 @@ impl Fixture {
     }
     fn input(&self) -> DispatchInput {
         DispatchInput {
+            parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: tmt_core::request::Originator::Unknown,
             kind: tmt_core::request::RequestKind::Request,

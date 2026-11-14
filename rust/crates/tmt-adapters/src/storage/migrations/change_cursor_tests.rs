@@ -14,6 +14,8 @@ const BOOKKEEPING: &[&str] = &[
     "usage_cursor",
     "usage_changes",
     "usage_floor",
+    "room_request_changes",
+    "room_change_floor",
     "extension_storage_cutovers",
     "hook_capture_receipts",
 ];

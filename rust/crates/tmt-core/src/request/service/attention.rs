@@ -103,6 +103,7 @@ fn exchange<T>(
     Exchange {
         delivery_policy,
         request_id: record.attempt.request_id,
+        thread_root_request_id: record.attempt.thread_root_request_id,
         room_id: record.attempt.room_id,
         recipient_identity_id: record.attempt.recipient_identity_id,
         prepared_at_ms: record.attempt.prepared_at_ms,
@@ -222,9 +223,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
             let view = message_state(records, &record.attempt, now)?;
             let state = final_state(&record, now, response.map(|r| r.body), delivery_policy.mode)?;
+            let thread_root = thread_root(records, &record.attempt, now)?;
             Ok(ExchangeDetail {
                 exchange: exchange(record, state, delivery_policy, view),
                 prompt: context.prompt,
+                thread_root,
             })
         })
     }
@@ -340,9 +343,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 response.map(|response| response.body),
                 delivery_policy.mode,
             )?;
+            let thread_root = thread_root(records, &record.attempt, now)?;
             Ok(ExchangeDetail {
                 exchange: exchange(record, state, delivery_policy, view),
                 prompt: context.prompt,
+                thread_root,
             })
         })
     }

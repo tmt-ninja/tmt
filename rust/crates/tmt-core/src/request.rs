@@ -212,6 +212,8 @@ impl Originator {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAttempt {
+    /// The thread this request replies in: its root request (#6407). Set by dispatch.
+    pub thread_root_request_id: Option<String>,
     pub kind: RequestKind,
     pub origin: RequestOrigin,
     /// Original communication scope, independent of current room membership.
@@ -595,6 +597,13 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<history::ConversationRecord>, Self::Error>;
+    /// The room's change position and the retained room requests changed after `since`.
+    fn room_change_counts(
+        &self,
+        room_id: &str,
+        since: Option<u64>,
+        now_ms: u64,
+    ) -> Result<history::RoomChangeCounts, Self::Error>;
     /// Counts over the same scope; `since` `None` counts nothing as changed.
     fn conversation_counts(
         &self,

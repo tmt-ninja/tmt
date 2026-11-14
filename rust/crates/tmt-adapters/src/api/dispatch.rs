@@ -153,6 +153,7 @@ mod tests {
         mode: tmt_core::request::digest::DeliveryMode,
     ) -> DispatchInput {
         DispatchInput {
+            parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: Originator::Unknown,
             operation_id: operation.into(),
@@ -236,6 +237,7 @@ mod tests {
         assert_eq!(identity(&mut storage, &sender.id).unwrap(), replacement.id);
         let operation = "6ceab579-6d31-45fc-bf61-f2ce90c96a1e";
         let input = DispatchInput {
+            parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: Originator::Unknown,
             operation_id: operation.into(),
