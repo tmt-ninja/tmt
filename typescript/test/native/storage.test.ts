@@ -245,6 +245,7 @@ function expectNativeSchema(
       'orchestration_route_grants',
       'orchestration_talk_resumes',
       'orchestration_talk_holds',
+      'provider_forms',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -271,6 +272,7 @@ function expectNativeSchema(
     'orchestration_route_grants',
     'orchestration_talk_resumes',
     'orchestration_talk_holds',
+    'provider_forms',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }
