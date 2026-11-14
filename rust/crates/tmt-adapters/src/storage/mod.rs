@@ -21,6 +21,7 @@ mod launch_observations;
 mod migrations;
 pub(crate) mod orchestration;
 mod profiles;
+mod provider_forms;
 mod requests;
 mod responses;
 mod room;
@@ -65,6 +66,7 @@ pub use orchestration::{
     ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState, OrchTalkPair,
     active_leads as orchestration_active_leads, route_refusal_decision,
 };
+pub use provider_forms::StoredForm;
 pub use requests::PassthroughFacts;
 use responses::CaptureFailure;
 pub use responses::{ResponseCapture, TurnCapture, TurnCaptureOutcome};

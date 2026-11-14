@@ -358,6 +358,18 @@ pub trait RuntimeLifecycle {
         &[]
     }
 
+    /// The tool matcher an activity event is installed with, so the provider runs the
+    /// hook only for those tools; `None` runs it for every occurrence.
+    fn activity_matcher(&self, _event: &str) -> Option<&'static str> {
+        None
+    }
+
+    /// The form an approval-prompt event shows, when the driver's hook reports its content
+    /// (#6424). `None` reports waiting without a form.
+    fn decode_form(&self, _bytes: &[u8]) -> Option<super::provider_form::ProviderForm> {
+        None
+    }
+
     /// The driver state after `turn`, given the remembered session's previous
     /// state; `None` leaves it unchanged. Reads stay under the driver's own
     /// tree in `environment`. Context and Codex consumption use bounded tails;

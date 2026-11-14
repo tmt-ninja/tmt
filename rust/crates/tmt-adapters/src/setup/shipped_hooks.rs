@@ -13,15 +13,23 @@ enum ShippedForm {
 // Both shipped a three-second timeout and the same shell-quoted launcher.
 const SHIPPED_FORMS: &[ShippedForm] = &[ShippedForm::SessionCommandV1, ShippedForm::NamedCommandV1];
 
-pub(super) fn matches(driver: &DriverDefinition, value: &Value, launcher: &str) -> bool {
+/// `matcher` is the event's generated tool matcher (#6424: Claude `PreToolUse`), the one
+/// field an owned entry for that event adds to the shipped shape.
+pub(super) fn matches(
+    driver: &DriverDefinition,
+    value: &Value,
+    launcher: &str,
+    matcher: Option<&str>,
+) -> bool {
     let quoted = format!("'{}'", launcher.replace('\'', "'\\''"));
     let command = json!({"type":"command", "command":format!("{quoted} __hook {}", driver.name()), "timeout":3});
     SHIPPED_FORMS
         .iter()
         .any(|form| match (form, driver.descriptor.hooks) {
-            (ShippedForm::SessionCommandV1, Some(HookFormat::SessionHooksJson)) => {
-                value == &json!({"hooks":[command.clone()]})
-            }
+            (ShippedForm::SessionCommandV1, Some(HookFormat::SessionHooksJson)) => match matcher {
+                None => value == &json!({"hooks":[command.clone()]}),
+                Some(matcher) => value == &json!({"matcher":matcher, "hooks":[command.clone()]}),
+            },
             (ShippedForm::NamedCommandV1, Some(HookFormat::NamedHooksJson)) => value == &command,
             _ => false,
         })
@@ -52,9 +60,9 @@ mod tests {
         ] {
             let driver = Registry::builtin().find(provider).unwrap();
             let original: Value = serde_json::from_str(fixture).unwrap();
-            assert!(matches(driver, &original, "/old/bin/tmt"));
+            assert!(matches(driver, &original, "/old/bin/tmt", None));
             assert_eq!(
-                super::super::hook_entry(driver, "/old/bin/tmt").unwrap(),
+                super::super::hook_entry(driver, "/old/bin/tmt", None).unwrap(),
                 original
             );
             for edited in [
@@ -68,7 +76,8 @@ mod tests {
                 assert!(!matches(
                     driver,
                     &serde_json::from_str(&edited).unwrap(),
-                    "/old/bin/tmt"
+                    "/old/bin/tmt",
+                    None
                 ));
             }
         }

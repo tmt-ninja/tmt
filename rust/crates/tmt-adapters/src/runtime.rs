@@ -26,6 +26,7 @@ pub mod launch_preset;
 pub mod lifecycle;
 #[cfg(test)]
 mod prompt_tests;
+pub mod provider_form;
 pub mod sampling;
 pub mod session_presence;
 pub mod skills;

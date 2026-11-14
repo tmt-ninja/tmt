@@ -330,3 +330,138 @@ it('a Stop returns while Core is locked and its queued activity commits after re
     { mode: 'input-log' }
   );
 });
+
+it('Claude form hooks record forms that close with waiting and refuse every answer (#6424)', async () => {
+  await withE2EFixture(async (fixture) => {
+    const session = '33333333-3333-4333-8333-333333333333';
+    const hook = (event: string, extra: Record<string, unknown> = {}) => ({
+      args: ['__hook', 'claude'],
+      waitForFlush:
+        event === 'Stop'
+          ? {
+              node: process.execPath,
+              script: path.resolve('test/support/wait-hook-flush.mjs'),
+              directory: fixture.globalDir,
+            }
+          : undefined,
+      input: { hook_event_name: event, session_id: session, source: 'startup', ...extra },
+    });
+    const api = (operation: string, input: Record<string, unknown>) => ({
+      args: ['api'],
+      input: { version: 1, operation, input },
+    });
+    const question = hook('PreToolUse', {
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'toolu_q',
+      tool_input: {
+        questions: [
+          {
+            question: 'Which file?',
+            header: 'File',
+            multiSelect: false,
+            options: [{ label: 'a.txt', description: 'first' }, { label: 'b.txt' }],
+          },
+        ],
+      },
+    });
+    const steps = [
+      { args: ['name', 'Form Reader', '-s', '--json'] },
+      hook('SessionStart'),
+      hook('UserPromptSubmit'),
+      question,
+      api('forms.list', {}),
+      // 4: the open question
+      {
+        ...api('forms.answer', {
+          formId: '00000000-0000-4000-8000-000000000000',
+          answer: { choices: [[0]] },
+        }),
+      },
+      // 5: unknown form
+      hook('PostToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'toolu_q' }),
+      api('forms.list', {}),
+      // 7: answered in the pane, so closed
+      hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'ls' } }),
+      api('forms.list', {}),
+      // 9: the permission form
+      hook('Stop'),
+      api('forms.list', {}),
+      // 11: the turn ended
+      hook('UserPromptSubmit'),
+      hook('PreToolUse', {
+        tool_name: 'ExitPlanMode',
+        tool_use_id: 'toolu_p',
+        tool_input: { plan: '1. write hello.txt' },
+      }),
+      api('forms.list', {}),
+      // 14: the plan approval
+    ];
+    const scenario = path.join(fixture.root, 'forms-scenario.json');
+    const report = path.join(fixture.root, 'forms-report.json');
+    fs.writeFileSync(scenario, JSON.stringify(steps));
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const command = [
+      'env',
+      `TMT_HOME=${fixture.globalDir}`,
+      '/opt/tmt-tests/claude',
+      fixture.executables.cli.executable,
+      scenario,
+      report,
+    ]
+      .map(quote)
+      .join(' ');
+    const pane = fixture.createShellPane('forms').pane;
+    fixture.watchHookFailures(pane);
+    fixture.tmux(['send-keys', '-t', pane, '-l', command]);
+    fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+    await fixture.waitFor(() => fs.existsSync(report), 15000, 'forms report');
+    const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }>;
+    expect(results).toHaveLength(steps.length);
+    // Hooks decide nothing: each prints nothing and succeeds.
+    for (const index of [3, 6, 8, 10, 13])
+      expect([results[index].code, results[index].stdout, results[index].stderr]).toEqual([
+        0,
+        '',
+        '',
+      ]);
+    const forms = (index: number) =>
+      JSON.parse(results[index].stdout).forms as Array<Record<string, unknown>>;
+    const opened = forms(4);
+    expect(opened).toEqual([
+      {
+        formId: expect.any(String),
+        identityId: expect.any(String),
+        openedMs: expect.any(Number),
+        kind: 'question',
+        questions: [
+          {
+            text: 'Which file?',
+            header: 'File',
+            choice: 'single',
+            options: [{ label: 'a.txt', description: 'first' }, { label: 'b.txt' }],
+            freeText: true,
+          },
+        ],
+        truncated: false,
+        answerable: false,
+      },
+    ]);
+    expect(JSON.parse(results[5].stdout).error.code).toBe('FORM_NOT_FOUND');
+    expect(forms(7)).toEqual([]);
+    expect(forms(9)).toEqual([
+      expect.objectContaining({
+        kind: 'permission',
+        tool: { name: 'Bash', summary: '{"command":"ls"}' },
+        answerable: false,
+      }),
+    ]);
+    expect(forms(11)).toEqual([]);
+    expect(forms(14)).toEqual([
+      expect.objectContaining({ kind: 'planApproval', plan: '1. write hello.txt' }),
+    ]);
+  });
+});

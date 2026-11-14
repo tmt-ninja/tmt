@@ -156,6 +156,8 @@ remain independent of storage access.
 | `terminal.open`          | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a built-in-host member (see [below](#terminals-under-a-member))                                                                                |
 | `terminal.list`          | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `terminals`: a built-in-host member's extra terminals, read-only (see [below](#terminals-under-a-member))                                                                                                                 |
 | `terminal.close`         | `terminalId`, optional `force` (bool)                                                                                                               | `terminalId`, `closed`: closes one extra terminal (see [below](#terminals-under-a-member))                                                                                                                                              |
+| `forms.list`             | optional `identityId` (canonical UUID)                                                                                                              | `forms`: the open provider forms, oldest first (see [below](#provider-forms))                                                                                                                                                           |
+| `forms.answer`           | `formId`, `answer`                                                                                                                                  | Checks an answer against an open form; every valid answer is `FORM_DELIVERY_UNSUPPORTED` for now (see [below](#provider-forms))                                                                                                         |
 | `dispatch.show`          | `operationId`                                                                                                                                       | Immutable acceptance receipt                                                                                                                                                                                                            |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                                                                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch)); a roster request wakes its recipients unreported                                                                    |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                                                                               | Room resource                                                                                                                                                                                                                           |
@@ -567,6 +569,59 @@ also close all of the member's terminals at once within one 5 s bound. That clos
 advisory: the member action stands, and its answer adds `terminalsLeft`, the ids still
 running, only when some are. The stream on a terminal's `socket` is
 [terminal stream v1](terminal-stream-v1.md) with the member stream's access rules.
+
+### Provider forms
+
+A provider may stop on an interactive form in its terminal: a question, a permission
+request or a plan approval. Core records the form from the same consented hooks that
+report `session.activity` (#6424). It reads nothing from the screen and never decides
+or answers a form.
+
+- **Claude** reports all three. A question comes from `PreToolUse` for `AskUserQuestion`,
+  a plan approval from `PreToolUse` for `ExitPlanMode`, and a permission from
+  `PermissionRequest`. Setup and `tmt run` install `PreToolUse` with the matcher
+  `AskUserQuestion|ExitPlanMode`, so the hook runs for those tools only. It prints no
+  decision, so Claude shows its own form as before. A subagent's form is not reported.
+- **Codex** reports no forms until its `PermissionRequest` semantics are settled (#3622).
+  It has no hook for a question form.
+- **Other drivers** report no forms.
+
+A form is open while the identity's `session.activity` is `waiting` for the same provider
+session and the form opened in that waiting period. Any admitted event that ends waiting
+closes it, including the provider's own answer, `Stop` and the next prompt. A form also
+goes with its binding. Forms changes arrive through `changes.cursor`; re-read `forms.list`.
+There is no separate form event.
+
+`forms.list` `{identityId?}` answers `{forms: [...]}`. Each form has these fields:
+
+- `formId` (UUID), `identityId`, `openedMs` and `kind`: `question`, `permission` or
+  `planApproval`.
+- `questions` for a question form: `text`, optional `header`, `choice` (`single` or
+  `multiple`), `options` (`label`, optional `description`) and `freeText`. There are at
+  most 4 questions with 8 options each.
+- `tool` (`name`, `summary`) for a permission, or `plan` for a plan approval.
+- `truncated`: content was cut to the bounds (2 KiB per text, 64 KiB per plan).
+- `answerable`: whether a client may answer it. It is `false` for every form today.
+
+An unknown `identityId` is `NAME_NOT_FOUND`.
+
+**Forms are read-only for now.** A client shows them, and the user answers in the member's
+terminal. `forms.answer` `{formId, answer}` checks the answer, then refuses it. Nothing
+reaches the provider. The answer is `{choices: [[index...], ...]}` (one list per question,
+in order), `{text}` for a one-question form that takes text, or `{decision: "allow"|"deny"}`
+for a plan approval. The refusals, in order:
+
+- `FORM_NOT_FOUND`: no form has this ID.
+- `FORM_CLOSED`: the form was answered, or its turn ended.
+- `FORM_DELIVERY_UNSUPPORTED` for a permission form, which is answered in the terminal
+  only.
+- `FORM_ANSWER_INVALID`: the answer does not fit the form, or the question form is
+  `truncated`.
+- `FORM_DELIVERY_UNSUPPORTED` for any valid answer, until a provider's answer keys are
+  verified for its version.
+
+Answering is the user's action from a client. Agents and extensions never call
+`forms.answer` on their own. Core cannot tell who calls it, as with receipts.
 
 ## Conditional identity rename
 
@@ -1830,7 +1885,9 @@ provider hooks, written by `tmt setup` or composed by a `tmt run` launch, while 
 process evidence can establish ended. `waiting` records Claude's exact
 `Notification` with `notification_type: "permission_prompt"`, observed through the
 same consented hooks. Claude may delay that notification (normally about six
-seconds); TMT does not infer a prompt from pane text or a pre-decision hook.
+seconds); TMT does not infer a prompt from pane text. Claude's form hooks also set
+waiting: `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`, and `PermissionRequest`.
+They record the form (see [Provider forms](#provider-forms)) and decide nothing.
 `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit` and `Stop` clear waiting
 through the existing admitted-event transition. Manual denial emits no installed
 clear event: waiting remains until the next admitted event, without a timer.

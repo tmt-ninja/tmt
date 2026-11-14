@@ -124,12 +124,23 @@ impl std::error::Error for PlanError {}
 
 pub const SETTINGS_LIMIT: usize = 1024 * 1024;
 
-fn hook_entry(provider: &DriverDefinition, launcher: &str) -> Result<serde_json::Value, PlanError> {
+/// The generated entry for one event; `matcher` limits it to the event's matching tools.
+fn hook_entry(
+    provider: &DriverDefinition,
+    launcher: &str,
+    matcher: Option<&str>,
+) -> Result<serde_json::Value, PlanError> {
     match provider.descriptor.hooks {
-        Some(HookFormat::SessionHooksJson) => Ok(crate::runtime::hook_protocol::command_entry(
-            provider.name(),
-            launcher,
-        )),
+        Some(HookFormat::SessionHooksJson) => {
+            let mut entry = crate::runtime::hook_protocol::command_entry(provider.name(), launcher);
+            if let Some(matcher) = matcher {
+                entry = serde_json::json!({"matcher": matcher, "hooks": entry["hooks"].clone()});
+            }
+            Ok(entry)
+        }
+        Some(HookFormat::NamedHooksJson) if matcher.is_some() => {
+            Err(PlanError::UnsupportedProvider)
+        }
         Some(HookFormat::NamedHooksJson) => Ok(crate::runtime::hook_protocol::flat_command_entry(
             provider.name(),
             launcher,
@@ -261,7 +272,7 @@ mod preview_tests {
     /// The preview names each driver-owned activity observer separately from usage consent.
     #[test]
     fn the_preview_names_the_codex_interrupt_observer_only_for_codex() {
-        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
+        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only), PreToolUse (activity only), PermissionRequest (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
         const AGY_ALL: &str = "SessionStart, PreInvocation and Stop (context usage, consumption, activity and recent responses) hooks";
@@ -285,7 +296,7 @@ mod preview_tests {
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Remove),
             format!(
-                "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and {ANSWERS} hooks"
+                "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only), PreToolUse (activity only), PermissionRequest (activity only) and {ANSWERS} hooks"
             )
         );
         assert_eq!(

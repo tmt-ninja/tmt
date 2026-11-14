@@ -1335,7 +1335,7 @@ fn observe(
             lifecycle,
             &session,
             activity.as_ref(),
-            Some(input.as_bytes()),
+            MainEvent::Prompt(input.as_bytes()),
             run,
         );
     }
@@ -1344,9 +1344,16 @@ fn observe(
             run.stopped(Stop::ActivityMissing);
             return Err(());
         };
-        return observe_activity_event(&harness, lifecycle, &session, activity, run, || {
-            ConfigPaths::discover().map_err(|_| ())
-        });
+        let form = lifecycle.decode_form(input.as_bytes());
+        return observe_activity_event(
+            &harness,
+            lifecycle,
+            &session,
+            activity,
+            form.as_ref(),
+            run,
+            || ConfigPaths::discover().map_err(|_| ()),
+        );
     }
     let Some(event) = lifecycle.decode(input.as_bytes()) else {
         // Nothing accepted the payload: say which event it was, never what it held.
@@ -2049,6 +2056,7 @@ fn observe_activity_event(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: &tmt_adapters::runtime::hook_protocol::ActivityObservation,
+    form: Option<&tmt_adapters::runtime::provider_form::ProviderForm>,
     run: Run<'_>,
     paths: impl FnOnce() -> Result<ConfigPaths, ()>,
 ) -> Result<Observation, ()> {
@@ -2085,9 +2093,16 @@ fn observe_activity_event(
         lifecycle,
         session,
         Some(activity),
-        None,
+        MainEvent::Activity(form),
         run,
     )
+}
+
+/// What a main event brings besides its activity: a prompt's payload, or the form an
+/// activity event shows (#6424).
+enum MainEvent<'a> {
+    Prompt(&'a [u8]),
+    Activity(Option<&'a tmt_adapters::runtime::provider_form::ProviderForm>),
 }
 
 /// A verified first prompt may admit an initial session; other main events observe an
@@ -2099,9 +2114,13 @@ fn observe_main_event(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
-    payload: Option<&[u8]>,
+    event: MainEvent<'_>,
     run: Run<'_>,
 ) -> Result<Observation, ()> {
+    let (payload, form) = match event {
+        MainEvent::Prompt(payload) => (Some(payload), None),
+        MainEvent::Activity(form) => (None, form),
+    };
     let deadline = run.deadline;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
@@ -2302,6 +2321,25 @@ fn observe_main_event(
                 None => tmt_adapters::storage::TurnBoundary::StartedWithoutPrompt { turn },
             }
         });
+    // When this admitted approval prompt carries a form (#6424): the waiting period it
+    // shows in, from the state this event leaves.
+    let form_period = form
+        .filter(|_| {
+            activity.is_some_and(|activity| {
+                activity.event.kind
+                    == tmt_core::binding::session::activity::EventKind::ApprovalPrompt
+            })
+        })
+        .zip(
+            activity_next
+                .as_ref()
+                .or(observed)
+                .and_then(|state| lifecycle.state_activity(state))
+                .filter(|activity| {
+                    activity.phase == tmt_core::binding::session::activity::ActivityPhase::Waiting
+                })
+                .map(|activity| activity.since_ms),
+        );
     if (next.is_some() || reading.is_some())
         && !commit_observation(
             &paths,
@@ -2314,6 +2352,21 @@ fn observe_main_event(
         )?
     {
         return Err(());
+    }
+    // Kept for that period only; a failure leaves waiting reported without its form.
+    if let Some((form, since)) = form_period
+        && Instant::now() + Duration::from_millis(100) < deadline
+        && let Ok(mut storage) = Storage::open_hook(&paths.database, deadline)
+    {
+        let _ = storage.record_provider_form(
+            &binding.id,
+            &stored.entry.identity.id,
+            session.as_str(),
+            form,
+            since,
+            tmt_adapters::request_runtime::wall_time_ms(),
+        );
+        let _ = storage.close();
     }
     let context = if context.is_empty() {
         context

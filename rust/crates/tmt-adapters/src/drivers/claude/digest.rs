@@ -123,6 +123,9 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
                     super::NAME
                 ));
             }
+            if event == "PreToolUse" {
+                entry["matcher"] = json!(crate::runtime::provider_form::CLAUDE_FORM_TOOLS);
+            }
             (event.to_owned(), entry)
         })
         .collect();
