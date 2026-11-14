@@ -323,6 +323,9 @@ for (const renderer of ['native', 'react'])
         expect((await label.boundingBox())!.x).toBe(initial.x);
         await capture('hover');
         await page.mouse.move(width - 5, 895);
+        // At 390 the tap left the link focused without focus-visible; refocus it by keyboard modality.
+        await link.blur();
+        await page.keyboard.press('Shift');
         await link.focus();
         await expect(icon).toHaveCSS('opacity', '0');
         await expect(grip).toHaveCSS('opacity', '1');
