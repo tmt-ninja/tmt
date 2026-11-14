@@ -21,6 +21,7 @@
   "dependencies": {
     "@mdx-js/react": "3.1.1",
     "@tanstack/react-router": "1.170.33",
+    "@tmt/browser-ui": "link:../design/browser-ui",
     "jotai": "3.0.0",
     "lucide-react": "1.52.0",
     "react": "19.2.8",
