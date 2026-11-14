@@ -127,7 +127,9 @@ test('Save as template names the page, refuses a taken name with a suggestion, a
   const title = page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar-title-current');
   await expect(title).toBeVisible();
   expect((await title.boundingBox())!.width).toBeGreaterThan(0);
-  await needs.click();
+  const bounds = (await needs.boundingBox())!;
+  // The compact visual keeps the same hit area as the neighbouring header icon action.
+  await page.mouse.click(bounds.x + bounds.width / 2 - 16, bounds.y + bounds.height / 2);
   await expect(page.getByRole('menu')).toBeVisible();
   await page.keyboard.press('Escape');
   await page.setViewportSize(wide);

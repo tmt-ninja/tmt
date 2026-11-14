@@ -273,7 +273,17 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     display: none;
   }
   .needs-you-header-trigger {
-    padding-inline: 0;
+    position: relative;
+    padding-inline: var(--tmt-ui-rule-width);
+  }
+  .needs-you-header-trigger::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--tmt-ui-host-icon-action-size, 34px);
+    height: var(--tmt-ui-host-icon-action-size, 34px);
+    transform: translate(-50%, -50%);
   }
 }
 /* A state that holds and matters stays in the header as a mark and a word (#4116); a phone keeps the
