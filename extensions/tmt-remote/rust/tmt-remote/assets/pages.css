@@ -1590,6 +1590,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-channel-member-facts .tmt-ui-state-mark {
   margin-right: var(--tmt-ui-space-xs);
+  vertical-align: -1px;
 }
 .ops-channel-line-task {
   color: var(--tmt-ui-color-text);
@@ -1598,6 +1599,7 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-channel-timer-chip {
   align-items: center;
   padding-left: 6px;
+  font-size: var(--tmt-ui-caption-size);
   color: var(--tmt-ui-color-secondary);
   cursor: pointer;
 }
