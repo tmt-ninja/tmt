@@ -2242,7 +2242,7 @@ body:not(:has(.tmt-ui-shell)) {
   margin-left: -4px;
 }
 .ops-thread-faces > * {
-  box-shadow: 0 0 0 1.5px var(--tmt-ui-surface-paper);
+  outline: 1.5px solid var(--tmt-ui-surface-paper);
 }
 .ops-thread-open {
   display: flex;
