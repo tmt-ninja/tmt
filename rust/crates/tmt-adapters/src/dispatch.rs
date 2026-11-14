@@ -17,7 +17,7 @@ use tmt_core::{
 pub const INPUT_LIMIT: usize = MAX_EXCHANGE_TEXT_BYTES * 6 + 4096;
 
 mod wake;
-pub use wake::{DispatchWake, wake_direct};
+pub use wake::{DispatchWake, wake_direct, wake_roster};
 #[cfg(test)]
 mod tests;
 

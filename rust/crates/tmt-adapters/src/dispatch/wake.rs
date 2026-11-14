@@ -7,6 +7,8 @@ pub struct DispatchWake<'a> {
     pub text: &'a str,
     pub passthrough: bool,
 }
+/// At most this many recipients of one roster post are woken; the rest stay inbox work.
+const ROSTER_WAKE_MAX: usize = 8;
 pub fn wake_direct(
     storage: &mut Storage,
     receipt: &DispatchReceipt,
@@ -17,10 +19,39 @@ pub fn wake_direct(
     if !created || receipt.items.len() != 1 || receipt.items[0].acceptance != Acceptance::Queued {
         return None;
     }
-    let item = &receipt.items[0];
+    Some(wake_item(storage, &receipt.items[0], settings, &input))
+}
+/// A roster post to the lead or to mentioned members is the person asking each of them
+/// directly, so each newly queued recipient gets the same one-shot wake as a direct
+/// request (#5704). The states are advisory and not reported; `requests.show` observes them.
+pub fn wake_roster(
+    storage: &mut Storage,
+    receipt: &DispatchReceipt,
+    created: bool,
+    settings: &Settings,
+    input: DispatchWake<'_>,
+) {
+    if !created {
+        return;
+    }
+    for item in receipt
+        .items
+        .iter()
+        .filter(|item| item.acceptance == Acceptance::Queued)
+        .take(ROSTER_WAKE_MAX)
+    {
+        wake_item(storage, item, settings, &input);
+    }
+}
+fn wake_item(
+    storage: &mut Storage,
+    item: &DispatchItem,
+    settings: &Settings,
+    input: &DispatchWake<'_>,
+) -> WakeState {
     let delay =
         std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
-    Some(if input.passthrough {
+    if input.passthrough {
         crate::delivery::deliver_request(
             storage,
             &item.request_id,
@@ -42,5 +73,5 @@ pub fn wake_direct(
             &message,
             delay,
         )
-    })
+    }
 }

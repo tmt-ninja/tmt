@@ -357,3 +357,38 @@ fn identities_status_says_which_recipients_can_take_typed_input() {
         "{status:#}"
     );
 }
+
+#[test]
+fn a_persons_room_post_wakes_the_addressed_member_like_a_direct_request() {
+    // A channel post to the lead or a mentioned member is the person asking that member
+    // directly (#5704), so it is not left as inbox work for the next turn boundary.
+    let fixture = world("room-post-wake");
+    mark_person(&fixture);
+    let worker = identity_id(&fixture, "worker");
+    for args in [
+        &["room", "create", "Squad", "--json"][..],
+        &["room", "join", "Squad", "--identity", "worker", "--json"],
+    ] {
+        let output = fixture.tmt(args);
+        assert!(output.status.success(), "{output:?}");
+    }
+    let room = fixture.json(&["room", "show", "Squad", "--json"]);
+    fs::write(fixture.root.join("driver/agent"), "ok").unwrap();
+    let posted = api(
+        &fixture,
+        "ok",
+        "dispatch.create",
+        serde_json::json!({
+            "operationId": OPERATION, "recipientIds": [worker], "message": "Status?",
+            "room": {"kind": "roster", "roomId": room["room"]["id"],
+                     "revision": room["room"]["revision"]},
+        }),
+    );
+    let request = posted["items"][0]["requestId"].as_str().unwrap();
+    assert_eq!(posted["items"][0]["acceptance"], "queued", "{posted:#}");
+    assert!(posted.get("wake").is_none(), "{posted:#}");
+    let prompted = fixture.requests("prompted");
+    assert_eq!(prompted.len(), 1, "{prompted:?}");
+    let text = prompted[0]["text"].as_str().unwrap();
+    assert!(text.contains(request) && text.contains("Status?"), "{text}");
+}
