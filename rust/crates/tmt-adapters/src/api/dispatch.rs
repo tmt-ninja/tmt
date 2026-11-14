@@ -61,13 +61,13 @@ pub(super) fn create_dispatch(
     let (originator, sender) = originator(storage, selector)?;
     input.originator = originator;
     let settings = settings.expect("dispatch settings");
-    let direct = input.kind == tmt_core::request::RequestKind::Request
-        && input.recipient_ids.len() == 1
-        && !matches!(
-            input.room.as_ref(),
-            Some(tmt_core::dispatch::DispatchRoom::Roster { .. })
-        );
-    let preview = direct.then(|| input.message.clone());
+    let request = input.kind == tmt_core::request::RequestKind::Request;
+    let roster = matches!(
+        input.room.as_ref(),
+        Some(tmt_core::dispatch::DispatchRoom::Roster { .. })
+    );
+    let direct = request && input.recipient_ids.len() == 1 && !roster;
+    let preview = (request && (direct || roster)).then(|| input.message.clone());
     let passthrough = input.mode == DeliveryMode::Passthrough;
     if passthrough
         && storage
@@ -85,6 +85,18 @@ pub(super) fn create_dispatch(
                 "Dispatch could not be confirmed; retain the operation ID and recover its receipt.",
             )
         })?;
+    if roster {
+        if let Some(text) = preview.as_deref() {
+            // Decode admits passthrough only for one direct recipient.
+            let input = dispatch::DispatchWake {
+                sender: &sender,
+                text,
+                passthrough: false,
+            };
+            dispatch::wake_roster(storage, &receipt, created, &settings, input);
+        }
+        return Ok(dispatch::encode_receipt_with_wake(&receipt, None));
+    }
     let wake = preview.as_deref().and_then(|text| {
         dispatch::wake_direct(
             storage,
