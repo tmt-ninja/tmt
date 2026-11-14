@@ -267,6 +267,7 @@ fn prepare_records<E>(
     // message, an anonymous one or a job's (Automation) (#4892). Finals, notices and
     // checklists are not prepared here.
     let mut held_for_person = None;
+    let mut granted_route = None;
     if delivery.mode != super::digest::DeliveryMode::Passthrough
         && input.kind == RequestKind::Request
         && input.origin != super::RequestOrigin::Automation
@@ -280,6 +281,7 @@ fn prepare_records<E>(
         use crate::orchestration::sending::OrchTalkAdmission;
         match records.talk_admission(from, to, now)? {
             OrchTalkAdmission::Allowed => {}
+            OrchTalkAdmission::Granted => granted_route = Some((from.to_owned(), to.to_owned())),
             OrchTalkAdmission::Restricted(refusal) => {
                 return Err(RequestError::RouteRestricted(refusal));
             }
@@ -390,6 +392,9 @@ fn prepare_records<E>(
     }
     if let Some((from, to)) = &held_for_person {
         records.hold_for_person(&attempt.request_id, from, to, now)?;
+    }
+    if let Some((from, to)) = &granted_route {
+        records.journal_route_grant(&attempt.request_id, from, to, now)?;
     }
     Ok(PreparedRequest {
         attempt_id,

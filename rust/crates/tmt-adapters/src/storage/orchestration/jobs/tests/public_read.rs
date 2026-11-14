@@ -34,6 +34,7 @@ fn public_jobs_page_is_complete_scoped_and_bounded_while_show_keeps_exact_text()
     assert!(first["jobs"][0].get("definition").is_none());
     assert!(!first.to_string().contains("END-PRIVATE-BODY"));
     assert!(first["jobs"][0]["lastRun"].is_null());
+    assert_eq!(first["jobs"][0]["recentRuns"], json!([]));
     assert!(first["jobs"][0]["nextRunAtMs"].as_i64().unwrap() > NOW as i64);
     let next = read(
         &f,
@@ -163,6 +164,29 @@ fn last_run_uses_canonical_final_state_without_read_mutations_or_response_bodies
         .unwrap()
         .execute_batch("PRAGMA query_only=OFF")
         .unwrap();
+    // Six more due 10-second slots: recentRuns keeps the newest five, newest first, and
+    // its first entry is lastRun's run.
+    for slot in 2..=7 {
+        let result = f
+            .storage
+            .run_orchestration_job(run_input(&job, slot * 10_000), 7, || 70_000)
+            .unwrap();
+        assert!(matches!(result, JobRunResult::Accepted { .. }));
+    }
+    let shown = read(&f, json!({"view":"jobs","jobId":job.id}));
+    let row = &shown["jobs"][0];
+    let slots = row["recentRuns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|run| run["slotMs"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(slots, [70_000, 60_000, 50_000, 40_000, 30_000]);
+    let last = &row["lastRun"];
+    assert_eq!(
+        row["recentRuns"][0],
+        json!({"id":last["id"],"slotMs":last["slotMs"],"recordedAtMs":last["recordedAtMs"],"acceptance":last["acceptance"]})
+    );
 }
 #[test]
 fn selected_job_policy_does_not_expand_the_whole_workspace_identity_inventory() {

@@ -18,7 +18,8 @@ pub struct JobRunEvidence {
 pub struct JobReadPage {
     pub policy: super::super::OrchStoredState,
     pub page: JobListPage,
-    pub last_runs: BTreeMap<String, JobRunEvidence>,
+    /// Up to five runs per job, newest first; only the newest carries its request.
+    pub recent_runs: BTreeMap<String, Vec<JobRunEvidence>>,
     pub full_message: Option<String>,
 }
 impl Storage {
@@ -47,37 +48,61 @@ impl Storage {
             .collect::<BTreeSet<_>>();
         let ids = serde_json::to_string(&owners).map_err(|_| JobError::Invalid)?;
         let policy = super::super::read_snapshot_selected(&tx, None, None, Some(&ids))?;
-        let mut last_runs = BTreeMap::new();
+        let mut recent_runs = BTreeMap::new();
         {
             let mut records = TransactionRequests(&tx, &receiving);
             let mut requests = RequestService::new(&mut records, || now);
+            let mut statement = tx
+                .prepare(
+                    "SELECT id,revision,slot_ms,recorded_ms,operation_id FROM orchestration_job_runs
+                     WHERE job_id=? ORDER BY id DESC LIMIT 5",
+                )
+                .map_err(|error| classify(error, "Read recent job runs"))?;
             for job in &page.items {
-                let row=tx.query_row("SELECT id,revision,slot_ms,recorded_ms,operation_id FROM orchestration_job_runs WHERE job_id=? ORDER BY id DESC LIMIT 1",[&job.id],|row|Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,i64>(3)?,row.get::<_,String>(4)?))).optional().map_err(|error|classify(error,"Read last job run"))?;
-                let Some((id, revision, slot_ms, recorded_ms, operation)) = row else {
-                    continue;
-                };
-                let (_, receipt) =
-                    crate::storage::dispatch::read_dispatch_operation(&tx, &operation)?
-                        .ok_or_else(corrupt)?;
-                if receipt.items.len() != 1 {
-                    return Err(corrupt().into());
-                }
-                let request = match requests.request_summary(&receipt.items[0].request_id) {
-                    Ok(summary) => Some(summary),
-                    Err(RequestError::NotFound) => None,
-                    Err(error) => return Err(crate::storage::DispatchError::from(error).into()),
-                };
-                last_runs.insert(
-                    job.id.clone(),
-                    JobRunEvidence {
+                let rows = statement
+                    .query_map([&job.id], |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, String>(4)?,
+                        ))
+                    })
+                    .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+                    .map_err(|error| classify(error, "Read recent job runs"))?;
+                let mut runs = Vec::with_capacity(rows.len());
+                for (id, revision, slot_ms, recorded_ms, operation) in rows {
+                    let (_, receipt) =
+                        crate::storage::dispatch::read_dispatch_operation(&tx, &operation)?
+                            .ok_or_else(corrupt)?;
+                    if receipt.items.len() != 1 {
+                        return Err(corrupt().into());
+                    }
+                    // Only the newest run carries its request; older runs report acceptance.
+                    let request = if runs.is_empty() {
+                        match requests.request_summary(&receipt.items[0].request_id) {
+                            Ok(summary) => Some(summary),
+                            Err(RequestError::NotFound) => None,
+                            Err(error) => {
+                                return Err(crate::storage::DispatchError::from(error).into());
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    runs.push(JobRunEvidence {
                         id: unsigned(id)?,
                         revision: unsigned(revision)?,
                         slot_ms,
                         recorded_ms: unsigned(recorded_ms)?,
                         receipt,
                         request,
-                    },
-                );
+                    });
+                }
+                if !runs.is_empty() {
+                    recent_runs.insert(job.id.clone(), runs);
+                }
             }
         }
         let full_message = if full_message {
@@ -95,7 +120,7 @@ impl Storage {
         Ok(JobReadPage {
             policy,
             page,
-            last_runs,
+            recent_runs,
             full_message,
         })
     }

@@ -104,16 +104,18 @@ fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
             None,
         ),
         OrchOperation::Routes {
+            at,
             member_query,
             limit,
             after,
         } => (
             OrchReadQuery::Routes {
+                at_ms: None,
                 member_query,
                 limit,
                 after,
             },
-            None,
+            at,
         ),
     };
     let (_paths, mut storage) = open_storage()?;

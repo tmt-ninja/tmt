@@ -62,6 +62,8 @@ pub struct OrchRouteRefusal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchTalkAdmission {
     Allowed,
+    /// Allowed only because a live route grant lets this ordered pair past its sending rule.
+    Granted,
     /// Refused before anything is stored.
     Restricted(Box<OrchRouteRefusal>),
     /// Stored and held until a person resumes the pair.

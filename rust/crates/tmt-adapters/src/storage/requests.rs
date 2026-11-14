@@ -910,6 +910,17 @@ impl RequestRecords for RequestRows<'_> {
             .ok_or_else(admitted_calendar_missing)?
             .expire_person_hold(self.0, request_id, now_ms)
     }
+    fn journal_route_grant(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .journal_route_grant(self.0, request_id, from, to, now_ms)
+    }
     fn hold_for_person(
         &mut self,
         request_id: &str,

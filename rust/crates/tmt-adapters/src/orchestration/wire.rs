@@ -186,8 +186,11 @@ pub enum OrchReadQuery {
         limit: Option<u16>,
         after: Option<String>,
     },
-    /// The sending verdict for each ordered pair among the selected members (#4892).
+    /// The sending verdict for each ordered pair among the selected members (#4892), at
+    /// `atMs` (default now). `needs_person` is reported only for now (#6383).
     Routes {
+        #[serde(rename = "atMs")]
+        at_ms: Option<u64>,
         #[serde(rename = "memberQuery")]
         member_query: Option<String>,
         limit: Option<u16>,
@@ -275,7 +278,15 @@ pub(crate) fn validate_query(query: &OrchReadQuery) -> Result<(), OrchError> {
             member_query,
             limit,
             after,
+            ..
         } => {
+            if let OrchReadQuery::Routes {
+                at_ms: Some(at), ..
+            } = query
+                && !valid_ms(*at)
+            {
+                return Err(OrchError::Invalid);
+            }
             if member_query.as_ref().is_some_and(|s| !label(s, 80))
                 || limit.is_some_and(|v| !(1..=ORCH_PAGE_MAX).contains(&v))
                 || after.as_ref().is_some_and(|s| !label(s, 160))

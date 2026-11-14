@@ -181,8 +181,13 @@ pub(in crate::grammar) fn orch() -> Command {
     );
     let routes = page(storage(spec!(
         "routes", "Read the sending verdict for each ordered pair of members",
-        ["Read a squad's routes" => "tmt orch routes --member core"]
-    )));
+        ["Read a squad's routes" => "tmt orch routes --member core", "Read routes at a later time" => "tmt orch routes --at '2026-11-16 09:00'"]
+    )))
+    .arg(
+        Arg::new("at")
+            .long("at")
+            .help("Evaluate an RFC3339 instant or local YYYY-MM-DD HH:MM; talk limits are reported only for now"),
+    );
     selection(storage(spec!(
         "orch", "Read orchestration slots and effective member policies",
         ["Read the current local day" => "tmt orch", "Inspect a week as JSON" => "tmt orch --range 7d --json"]

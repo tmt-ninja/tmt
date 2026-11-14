@@ -160,6 +160,13 @@ Mutation tags are `plan.add` (`candidate`), `plan.set` (`plan`, `candidate`),
 and `consent:true`. The digest fences this preview; it authenticates no caller.
 As with metadata writes, the same-user envelope names no originator.
 
+Client forms use these existing mutations and add none: "+ plan" is `plan.add`;
+editing one member field of a plan reads the plan, changes that field and sends
+the whole candidate through `plan.set` with the read revision (a stale revision
+is `ORCH_CONFLICT`); "+ Job" is `job.add` (see [Jobs](#jobs-read-projection)); and
+"Focus now … until" is `focus.set` with `startMs` now. Each goes through the same
+preview, consent and caller rule as above, so plan validation keeps one owner.
+
 The writer acquires one IMMEDIATE transaction, reads the current snapshot and
 revalidates the preview. Configuration, selected UUID, roster/name, zone or
 relevant time-boundary changes refuse with `ORCH_CONFLICT` (CLI exit 5) and require
@@ -306,8 +313,14 @@ The sender's effective `sending` decides the route: `anyone` allows every
 recipient, `leads` only current leads, `paused` no agent. A restricted route is
 refused before anything is stored: `ORCH_ROUTE_RESTRICTED` (CLI exit 5), no
 request, no paste. The refusal is journaled (subject = sender, action `block`,
-reason `route_restricted`, source = the sending field) in its own transaction
-after the preparation rolls back. `--urgent` does not bypass it.
+outcome `failed`, reason `route_restricted`, source = the sending field) in its
+own transaction after the preparation rolls back; a `route_restricted` entry was
+refused before sending and never attempted, so clients show it as blocked from
+the reason, not the outcome. One ordered pair journals at most one refusal per
+configuration revision every 10 minutes; later refusals in that window append
+nothing. `--urgent` does not bypass it. A request that passes only through a
+live route grant is journaled with the stored request (subject = request, action
+`send`, outcome `allowed`, reason `route_grant`, source = the sending field).
 `route.allow` (`fromId`, `toId`, `untilMs`, optional `actorId`) or
 `tmt orch route allow FROM TO [--until DURATION]` lets that ordered pair pass its
 rule until `untilMs`, at most 24 hours ahead; a later allow replaces it. The CLI
@@ -354,10 +367,14 @@ no bodies or receipts), plus `leads` (with `retired`; a retired lead's `name` is
 null) and live `routeGrants`. `routes` returns, for each ordered pair among at
 most 256 selected members (more is `ORCH_LIMIT`), the verdict `allowed`, `blocked`
 or `needs_person` and its `source` (`base`, `plan`, `member` or `grant` with
-`grantUntilMs`). Both return `nextAfter`, the cursor of the next page or null. An
+`grantUntilMs`). `routes` also takes optional `atMs` (a valid instant; CLI
+`--at`, RFC3339 or local `YYYY-MM-DD HH:MM`) and evaluates each pair's sending
+rule and route grant at that instant, echoing `atMs` beside `observedAtMs`.
+`needs_person` is reported only for the present: at any other instant a pair the
+rule allows is `allowed`. Both return `nextAfter`, the cursor of the next page or null. An
 older Core refuses an unknown view as `ORCH_INPUT_INVALID`; a client reads that as
 "not available", so it degrades cleanly. CLI: `tmt orch talks`, `tmt orch routes`
-(`--member`, `--limit`, `--after`).
+(`--member`, `--limit`, `--after`; `routes` also `--at`).
 
 ## Jobs read projection
 
@@ -390,7 +407,10 @@ present, immutable acceptance, and the actual recorded delivery/result outcome
 and reference separately. Acceptance never means completion. Missed/skipped
 dispositions appear only when recorded. Page-level
 `historyCoverage:"recorded_only"` disclaims stopped-clock and pre-migration
-history; no client reconstructs those runs.
+history; no client reconstructs those runs. `recentRuns` lists up to the 5 newest
+recorded runs, newest first, each `{id, slotMs, recordedAtMs, acceptance}` with the
+same meaning as in `lastRun`; its first entry is `lastRun`'s run, and it is empty
+when `lastRun` is null.
 
 Job pause/resume uses `orchestration.write` preview/apply with the canonical job
 UUID and this revision. Ops reads and actions use its existing background lanes;
@@ -544,8 +564,9 @@ renames and retirement cannot rewrite an entry's explanation.
 Receiving writes record real newly created holds by request and admitted checklist
 claims/settlements by identity. Claim provenance is retained with the checklist;
 settlement uses that frozen evidence even after a plan edit. Unchanged holds and
-idempotent settlement append nothing. Job and sending producers arrive with their
-own later slices. Reads, preview and configuration saves never fabricate entries,
+idempotent settlement append nothing. Sending records `route_restricted`,
+`route_grant`, `talk_limit`, `talk_resumed` and `talk_hold_expired`, as described
+in [Sending and talk limits](#sending-and-talk-limits). Reads, preview and configuration saves never fabricate entries,
 acknowledge, renew retention or prune. Writers prune within a bounded budget; reads filter
 expiry and expose journal coverage. Normal storage-open/schema admission remains
 with its existing owner. No Ops files or provider configuration are read.

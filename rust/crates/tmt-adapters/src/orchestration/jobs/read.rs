@@ -44,6 +44,11 @@ fn last_run(run: JobRunEvidence) -> Value {
         "acceptance":crate::dispatch::acceptance_value(item.acceptance),
         "request":request,"resultReference":result_reference})
 }
+/// One of a job's recent runs: what it was and how it was accepted, never its request.
+fn recent_run(run: &JobRunEvidence) -> Value {
+    json!({"id":run.id,"slotMs":run.slot_ms,"recordedAtMs":run.recorded_ms,
+        "acceptance":crate::dispatch::acceptance_value(run.receipt.items[0].acceptance)})
+}
 pub(crate) fn read(
     storage: &Storage,
     query: OrchReadQuery,
@@ -138,13 +143,16 @@ pub(crate) fn read(
         };
         let schedule = serde_json::to_value(JobScheduleDocument::from(&job.schedule))
             .map_err(|_| OrchError::Invalid)?;
+        let mut runs = selected.recent_runs.remove(&job.id).unwrap_or_default();
+        let recent = runs.iter().map(recent_run).collect::<Vec<_>>();
+        let last = (!runs.is_empty()).then(|| last_run(runs.swap_remove(0)));
         let mut value = json!({"jobId":job.id,"displayId":format!("j{}",job.number),"revision":job.revision,
             "legacy":job.legacy.as_ref().map(|legacy|json!({"roomId":legacy.room_id,"cronId":legacy.cron_id})),
             "target":{"squadRoomId":job.room_id,"identityId":job.owner_id.as_ref().filter(|_|job.owner_available),"identityName":job.owner_name.as_ref().filter(|_|job.owner_available)},
             "title":job.title,"messagePreview":job.message_preview,"schedule":schedule,"state":state,
             "manualPause":job.pause.as_ref().map(|pause|json!({"by":pause.by,"atMs":pause.at_ms})),
             "heldSlot":job.pending.map(|slot|json!({"revision":slot.revision,"atMs":slot.at_ms})),"routine":routine,
-            "nextRunAtMs":next,"lastRun":selected.last_runs.remove(&job.id).map(last_run)});
+            "nextRunAtMs":next,"lastRun":last,"recentRuns":recent});
         if full {
             value["definition"] = json!({"ownerIdentityId":job.owner_id,"squadRoomId":job.room_id,"title":job.title,
                 "message":selected.full_message.take().ok_or(JobError::NotFound)?,"schedule":schedule,

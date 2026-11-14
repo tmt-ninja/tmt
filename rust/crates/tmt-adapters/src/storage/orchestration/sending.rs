@@ -38,9 +38,13 @@ impl ReceivingCalendar {
             .iter()
             .find(|g| g.from_id == from && g.to_id == to)
             .map(|g| g.until_ms);
-        if let OrchRoute::Restricted { sending, source } =
-            sending_route(&sender.sending, leads.contains(&to), grant, now)
-        {
+        let route = sending_route(&sender.sending, leads.contains(&to), grant, now);
+        let allowed = if matches!(route, OrchRoute::Granted { .. }) {
+            OrchTalkAdmission::Granted
+        } else {
+            OrchTalkAdmission::Allowed
+        };
+        if let OrchRoute::Restricted { sending, source } = route {
             return Ok(OrchTalkAdmission::Restricted(Box::new(OrchRouteRefusal {
                 sender_id: from.into(),
                 recipient_id: to.into(),
@@ -52,18 +56,18 @@ impl ReceivingCalendar {
         }
         // A lead's requests are never counted or held.
         if leads.contains(&from) {
-            return Ok(OrchTalkAdmission::Allowed);
+            return Ok(allowed);
         }
         let recipient = effective(&stored.snapshot, to, now, zone).map_err(|_| corrupt())?;
         let Some(limit) = pair_limit(sender.talk_limit.value, recipient.talk_limit.value) else {
-            return Ok(OrchTalkAdmission::Allowed);
+            return Ok(allowed);
         };
         let start = talk_window_start(now, resumed_at(db, from, to)?);
         let counted = pair_count(db, from, to, start)?;
         Ok(if needs_person(counted, Some(limit)) {
             OrchTalkAdmission::NeedsPerson { counted, limit }
         } else {
-            OrchTalkAdmission::Allowed
+            allowed
         })
     }
 
@@ -109,6 +113,46 @@ impl ReceivingCalendar {
                 time_zone: zone.name().into(),
                 sources: vec![OrchDecisionSource {
                     field: OrchPolicyField::TalkLimit,
+                    source,
+                }],
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl ReceivingCalendar {
+    /// Journal, in the caller's transaction, that a stored request passed its sending rule
+    /// only through a live route grant.
+    pub(in crate::storage) fn journal_route_grant(
+        &self,
+        db: &Connection,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now: u64,
+    ) -> Result<(), StorageError> {
+        let stored = read_snapshot(db, None, None)?;
+        let zone = self.zone.as_ref().ok_or_else(corrupt)?;
+        let source = effective(&stored.snapshot, from, now, zone)
+            .map_err(|_| corrupt())?
+            .sending
+            .source;
+        append(
+            db,
+            &OrchDecision {
+                recorded_at_ms: now,
+                subject_kind: OrchSubjectKind::Request,
+                subject_id: request_id.into(),
+                actor_id: Some(from.into()),
+                recipient_id: Some(to.into()),
+                action: OrchDecisionAction::Send,
+                outcome: OrchDecisionOutcome::Allowed,
+                reason: "route_grant".into(),
+                configuration_revision: stored.snapshot.revision,
+                time_zone: zone.name().into(),
+                sources: vec![OrchDecisionSource {
+                    field: OrchPolicyField::Sending,
                     source,
                 }],
             },
@@ -384,18 +428,60 @@ fn pair_count(db: &Connection, a: &str, b: &str, start: u64) -> Result<u64, Stor
     .and_then(|n| u64::try_from(n).map_err(|_| corrupt()))
 }
 
-/// Journal a refused route (subject = sender, action `block`) in the caller's transaction.
+/// A refused route is journaled at most once per ordered pair and configuration revision
+/// in this window, so an agent retrying a blocked route does not flood the journal.
+pub const ROUTE_REFUSAL_COALESCE_MS: u64 = 600_000;
+
+/// Journal a refused route (subject = sender, action `block`) in the caller's transaction,
+/// unless the same pair already has one for this configuration revision in the last
+/// `ROUTE_REFUSAL_COALESCE_MS`. True when an entry was appended.
 pub(in crate::storage) fn append_route_refusal(
     db: &Connection,
     refusal: &OrchRouteRefusal,
     now: u64,
-) -> Result<(), StorageError> {
+) -> Result<bool, StorageError> {
+    let recent: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM orchestration_decisions \
+             WHERE subject_kind='identity' AND subject_id=?1 AND recipient_id=?2 \
+               AND reason='route_restricted' AND configuration_revision=?3 AND recorded_ms>?4)",
+            params![
+                refusal.sender_id,
+                refusal.recipient_id,
+                refusal.configuration_revision as i64,
+                now.saturating_sub(ROUTE_REFUSAL_COALESCE_MS) as i64
+            ],
+            |r| r.get(0),
+        )
+        .map_err(|e| classify(e, "Read recent route refusal"))?;
+    if recent {
+        return Ok(false);
+    }
     append(db, &route_refusal_decision(refusal, now))?;
-    Ok(())
+    Ok(true)
+}
+
+impl Storage {
+    /// Journal a refused route in its own transaction, after the refused preparation
+    /// rolled back; coalesced like `append_route_refusal`.
+    pub fn journal_route_refusal(
+        &mut self,
+        refusal: &OrchRouteRefusal,
+        now: u64,
+    ) -> Result<bool, StorageError> {
+        let tx = self
+            .connection_mut()?
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| classify(e, "Begin route refusal"))?;
+        let appended = append_route_refusal(&tx, refusal, now)?;
+        tx.commit()
+            .map_err(|e| classify(e, "Commit route refusal"))?;
+        Ok(appended)
+    }
 }
 
 /// The one shape of a route refusal's journal entry.
-pub fn route_refusal_decision(refusal: &OrchRouteRefusal, now: u64) -> OrchDecision {
+fn route_refusal_decision(refusal: &OrchRouteRefusal, now: u64) -> OrchDecision {
     OrchDecision {
         recorded_at_ms: now,
         subject_kind: OrchSubjectKind::Identity,
