@@ -34,15 +34,18 @@ for (const width of [1440, 390])
       await open(page, width, theme);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Orchestration');
       const plans = page.getByRole('region', { name: 'Plan list' });
-      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveText('Off');
-      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText(
-        'every other week Tue Thu 22:00–06:00 · night-*',
+      await expect(plans.getByRole('button', { name: 'Release freeze', exact: true })).toHaveText(
+        'Off',
       );
-      await expect(plans.getByRole('switch', { name: 'Shift B · Night' })).toHaveText('On');
-      await expect(plans.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
-        'aria-checked',
-        'false',
+      await expect(
+        plans.locator('.ops-orchestration-plan-select').filter({ hasText: 'Shift B · Night' }),
+      ).toContainText('every other week Tue Thu 22:00–06:00 · night-*');
+      await expect(plans.getByRole('button', { name: 'Shift B · Night', exact: true })).toHaveText(
+        '✓On',
       );
+      await expect(
+        plans.getByRole('button', { name: 'Release freeze', exact: true }),
+      ).toHaveAttribute('aria-pressed', 'false');
       const matrix = page.locator('.ops-orchestration-matrix');
       await expect(
         matrix.getByRole('button', { name: /^sample-1 to sample-lead: / }),
@@ -143,9 +146,10 @@ test('the timeline follows the range, the plan filter and the steps', async ({ p
   await expect(page.locator('.ops-orchestration-when')).toHaveText(
     'Tue 10-27 – Mon 11-02Asia/Tokyo',
   );
-  const selected = page.getByRole('region', { name: 'Plan list' }).getByRole('button', {
-    name: /Shift B · Night/,
-  });
+  const selected = page
+    .getByRole('region', { name: 'Plan list' })
+    .locator('.ops-orchestration-plan-select')
+    .filter({ hasText: 'Shift B · Night' });
   await selected.click();
   await expect(selected).toHaveAttribute('aria-pressed', 'true');
   const legend = page.getByRole('list', { name: 'Plans at the selected time' });
@@ -211,7 +215,7 @@ test('a plan switch previews the exact plans-view row and applies only after con
   page,
 }) => {
   await open(page, 1440, 'light');
-  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Running work is never interrupted.');
   let all = await calls(page);
@@ -246,10 +250,10 @@ test('a plan switch previews the exact plans-view row and applies only after con
   await expect(page.getByRole('combobox', { name: 'Plans' })).toHaveValue('');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect((await calls(page)).filter((call) => call.kind === 'write')).toHaveLength(1);
-  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
-    'aria-checked',
+  await expect(page.getByRole('button', { name: 'Release freeze', exact: true })).toHaveAttribute(
+    'aria-pressed',
     'true',
   );
   all = await calls(page);
@@ -265,7 +269,7 @@ test('a conflicting plan apply re-reads and does not retry the write', async ({ 
   await page.evaluate(() => {
     window.orchRefuseApply = 'ORCH_CONFLICT';
   });
-  await page.getByRole('switch', { name: 'Release freeze' }).click();
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
   const before = (await calls(page)).filter((call) => call.input.view === 'overview').length;
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('status')).toHaveText(
@@ -278,8 +282,8 @@ test('a conflicting plan apply re-reads and does not retry the write', async ({ 
   expect(
     callsAfter.filter((call) => call.kind === 'write').map((call) => call.input.phase),
   ).toEqual(['preview', 'apply']);
-  await expect(page.getByRole('switch', { name: 'Release freeze' })).toHaveAttribute(
-    'aria-checked',
+  await expect(page.getByRole('button', { name: 'Release freeze', exact: true })).toHaveAttribute(
+    'aria-pressed',
     'false',
   );
 });

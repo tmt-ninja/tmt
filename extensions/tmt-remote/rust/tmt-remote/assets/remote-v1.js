@@ -9474,11 +9474,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 				plan = item.id;
 				load();
 			});
-			const toggle = el("button", "ops-orchestration-plan-switch", item.enabled ? "On" : "Off");
+			const toggle = el("button", browserUiClasses.toggle);
 			toggle.type = "button";
-			toggle.setAttribute("role", "switch");
 			toggle.setAttribute("aria-label", item.name);
-			toggle.setAttribute("aria-checked", String(item.enabled));
+			toggle.setAttribute("aria-pressed", String(item.enabled));
+			const indicator = el("span", browserUiClasses.toggleIndicator, item.enabled ? "✓" : "");
+			indicator.setAttribute("aria-hidden", "true");
+			toggle.append(indicator, el("span", void 0, item.enabled ? "On" : "Off"));
 			toggle.addEventListener("click", () => {
 				toggle.disabled = true;
 				togglePlan(item).finally(() => {

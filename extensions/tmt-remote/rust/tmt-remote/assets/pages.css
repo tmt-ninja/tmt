@@ -846,8 +846,7 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-hover);
 }
-.ops-orchestration-plan-select:focus-visible,
-.ops-orchestration-plan-switch:focus-visible {
+.ops-orchestration-plan-select:focus-visible {
   outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-focus);
   outline-offset: -1px;
 }
@@ -860,30 +859,6 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-orchestration-plan-text > span {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
-}
-.ops-orchestration-plan-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-xs);
-  white-space: nowrap;
-  border: 0;
-  background: transparent;
-  color: var(--tmt-ui-color-text);
-  font: inherit;
-  cursor: pointer;
-}
-.ops-orchestration-plan-switch::before {
-  content: '';
-  box-sizing: border-box;
-  width: 2rem;
-  height: 1.125rem;
-  border: 1px solid var(--tmt-ui-color-secondary);
-  border-radius: var(--tmt-ui-radius-pill);
-  background: radial-gradient(circle at 0.5rem 50%, var(--tmt-ui-color-secondary) 0.3rem, transparent 0.32rem);
-}
-.ops-orchestration-plan-switch[aria-checked='true']::before {
-  border-color: var(--tmt-ui-color-focus);
-  background: radial-gradient(circle at 1.4rem 50%, var(--tmt-ui-color-focus) 0.3rem, transparent 0.32rem);
 }
 /* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
 .ops-orchestration-timeline {

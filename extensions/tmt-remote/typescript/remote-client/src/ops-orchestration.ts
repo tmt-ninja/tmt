@@ -267,11 +267,13 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
           plan = item.id;
           void load();
         });
-        const toggle = el('button', 'ops-orchestration-plan-switch', item.enabled ? 'On' : 'Off');
+        const toggle = el('button', c.toggle);
         toggle.type = 'button';
-        toggle.setAttribute('role', 'switch');
         toggle.setAttribute('aria-label', item.name);
-        toggle.setAttribute('aria-checked', String(item.enabled));
+        toggle.setAttribute('aria-pressed', String(item.enabled));
+        const indicator = el('span', c.toggleIndicator, item.enabled ? '✓' : '');
+        indicator.setAttribute('aria-hidden', 'true');
+        toggle.append(indicator, el('span', undefined, item.enabled ? 'On' : 'Off'));
         toggle.addEventListener('click', () => {
           toggle.disabled = true;
           void togglePlan(item).finally(() => {
