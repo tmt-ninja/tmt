@@ -613,7 +613,18 @@ export function mountShell(
   const tipFor = (anchor: HTMLElement, text: string) => {
     anchor.dataset.note = text;
   };
-  open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
+  // Opening the drawer takes focus to the current item, since the drawer covers its button;
+  // Escape returns it to the button. A keyboard opening (a click with no pointer detail) shows
+  // that focus; a tap or click does not, so the row stays at rest (shell.css).
+  open.onclick = (event) => {
+    const shown = root.dataset.drawer !== 'open';
+    setDrawer(shown);
+    if (shown)
+      (
+        rail.querySelector<HTMLElement>('[aria-current="page"]') ??
+        rail.querySelector<HTMLElement>('a[href]')
+      )?.focus({ focusVisible: event.detail === 0 } as FocusOptions);
+  };
   const close = (event: KeyboardEvent) => {
     if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target)))
       return;

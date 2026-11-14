@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  CopyPlus,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -2604,13 +2605,16 @@ function OpenPage({
           actions={
             <>
               {view.template && transport.management && !archived && (
-                <BrowserAction
-                  type="button"
-                  variant="primary"
-                  presentation="compact"
-                  label={text.templates.useTemplate}
-                  onActivate={() => setUsingTemplate(true)}
-                />
+                <span className="page-use-template">
+                  <BrowserAction
+                    type="button"
+                    variant="primary"
+                    presentation="compact"
+                    label={text.templates.useTemplate}
+                    leadingIcon={<CopyPlus aria-hidden="true" />}
+                    onActivate={() => setUsingTemplate(true)}
+                  />
+                </span>
               )}
               <PageHeaderActions
                 template={

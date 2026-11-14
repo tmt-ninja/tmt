@@ -82,6 +82,23 @@
   opacity: 0.55;
 }
 
+/* A phone bar (≤900px) keeps the page title readable: Use template turns into its mark alone, and
+   the visually hidden label stays its accessible name. Over the action's mark-and-label grid
+   (browser-ui action.css), as the Design library's New design system does. */
+@media (max-width: 900px) {
+  .page-use-template .tmt-ui-action.tmt-ui-action:has(> .tmt-ui-action-label) {
+    display: inline-flex;
+  }
+  .page-use-template .tmt-ui-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .template-badge {
   display: inline-flex;
   align-items: center;

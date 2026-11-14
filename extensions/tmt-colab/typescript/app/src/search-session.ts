@@ -110,10 +110,11 @@ export function createSearchSession(
 
   return {
     open(opener) {
-      if (disposed) return;
+      if (disposed) return Promise.resolve();
       // A failed or ended attempt is tried again by the next opening, never in a loop.
       if (!attempt || attempt.state === 'failed' || attempt.state === 'ended') attempt = begin();
-      entry.open(opener);
+      // Settles when the dialog closes, and on dispose (the entry's contract).
+      return entry.open(opener);
     },
     dispose() {
       if (disposed) return;

@@ -150,8 +150,13 @@ export function mount(
     projectHref: (name) => `/colab/?scope=${encodeURIComponent(name)}`,
     ...(placeholder === undefined ? {} : { placeholder }),
   });
-  opener.addEventListener('click', () => entry.open(opener));
+  // As the shared top bar does: the opener says it is expanded until the entry's opening settles.
+  opener.addEventListener('click', () => show(entry, opener));
   fixture = { entry, host, opener, registry, state };
+}
+function show(entry: SearchEntry, opener: HTMLButtonElement) {
+  opener.setAttribute('aria-expanded', 'true');
+  void entry.open(opener).then(() => opener.setAttribute('aria-expanded', 'false'));
 }
 function change(key: string, items: SearchItem[] | 'unavailable') {
   const own = fixture!.state[key]!;
@@ -169,7 +174,7 @@ export function removeOpsItem(key: string) {
   );
 }
 export function openDirect() {
-  fixture!.entry.open(fixture!.opener);
+  show(fixture!.entry, fixture!.opener);
 }
 export function dispose() {
   fixture?.entry.dispose();

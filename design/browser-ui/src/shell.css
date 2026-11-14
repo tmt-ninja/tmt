@@ -527,20 +527,42 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
   pointer-events: auto;
   cursor: grab;
 }
-.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-row-actions {
+/* Hover, keyboard focus or a drag reveals a row's grip and actions. A row link a tap or click
+   focused (the phone drawer focuses the current row when it opens) keeps the row at rest; plain
+   :has(:focus-visible) would hide the actions while Tab moves from the link to them. */
+.tmt-ui-rail-menu-row:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
+  > .tmt-ui-rail-row-actions {
   visibility: visible;
 }
-.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-swap {
+.tmt-ui-rail-menu-row:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
+  > .tmt-ui-swap {
   --tmt-ui-swap-progress: 1;
   --tmt-ui-swap-reveal-visibility: visible;
 }
 @media (pointer: coarse) {
-  .tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-swap {
+  .tmt-ui-rail-menu-row:is(
+      :hover,
+      :focus-within:not(:has(> a:focus:not(:focus-visible))),
+      [data-dragging]
+    )
+    > .tmt-ui-swap {
     --tmt-ui-swap-progress: 0;
     --tmt-ui-swap-reveal-visibility: hidden;
   }
 }
-.tmt-ui-rail-menu-row[data-actions]:is(:hover, :focus-within, [data-dragging])
+.tmt-ui-rail-menu-row[data-actions]:is(
+    :hover,
+    :focus-within:not(:has(> a:focus:not(:focus-visible))),
+    [data-dragging]
+  )
   .tmt-ui-shell-counts {
   visibility: hidden;
 }
@@ -758,16 +780,26 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
   .tmt-ui-rail {
     display: none;
   }
+  /* The open drawer dims the page and the bar under the same scrim as a drawer surface; a press on
+     it closes the drawer (mountShell's outside press). */
+  .tmt-ui-shell[data-drawer='open']::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 52;
+    background: var(--tmt-ui-surface-scrim);
+    backdrop-filter: blur(var(--tmt-ui-overlay-blur));
+  }
   .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
-    --tmt-ui-rail-sticky-height: var(--tmt-ui-header-compact-height);
+    --tmt-ui-rail-sticky-height: var(--tmt-ui-rail-padding-top);
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 52;
     display: flex;
     width: min(calc(var(--tmt-ui-rail-width) + var(--tmt-ui-space-2xl) * 2), 100vw);
     height: auto;
-    /* Clears the menu button that stays over the drawer's corner. */
-    padding-top: var(--tmt-ui-header-compact-height);
+    /* The drawer covers the menu button, so Search starts at the rail's own top inset. */
+    padding-top: var(--tmt-ui-rail-padding-top);
     box-shadow: var(--tmt-ui-shadow-overlay);
     transition: none;
   }

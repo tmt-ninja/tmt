@@ -10,7 +10,22 @@ for (const renderer of ['native', 'react'])
         await page.goto(`/?frame=rail&renderer=${renderer}&theme=${theme}`);
         const rail = page.locator('nav.tmt-ui-rail');
         const open = page.getByRole('button', { name: 'Open navigation', exact: true });
-        if (width === 390) await open.click();
+        if (width === 390) {
+          await open.click();
+          // The drawer covers its button, so opening it takes focus to the current item.
+          await expect(rail.locator('[aria-current="page"]')).toBeFocused();
+          // The open drawer dims the page under a scrim, and Search starts at the rail's top
+          // inset with no band above it.
+          const shell = page.locator('.tmt-ui-shell');
+          expect(
+            await shell.evaluate((node) => getComputedStyle(node, '::before').backgroundColor),
+          ).not.toBe('rgba(0, 0, 0, 0)');
+          const search = rail.getByRole('button', { name: /Search/ });
+          const inset = await rail.evaluate((node) =>
+            parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-rail-padding-top')),
+          );
+          expect((await search.boundingBox())!.y).toBeCloseTo(inset, 0);
+        }
         const selected = rail.locator('[aria-current="page"]');
         await expect(selected).toHaveCount(1);
         await expect(selected).toHaveAttribute('data-id', 'all');
@@ -117,6 +132,11 @@ for (const renderer of ['native', 'react'])
         if (width === 390) {
           await page.keyboard.press('Escape');
           await expect(open).toBeFocused();
+          await expect(rail).toBeHidden();
+          // A press on the scrim beside the drawer closes it.
+          await open.click();
+          await expect(rail).toBeVisible();
+          await page.mouse.click(370, 500);
           await expect(rail).toBeHidden();
         }
         await page.getByRole('button', { name: 'Unmount rail', exact: true }).click();
@@ -251,9 +271,32 @@ for (const renderer of ['native', 'react'])
         await page.goto(
           `/?frame=rail&interactive=true&icons=true&renderer=${renderer}&theme=${theme}`,
         );
-        if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
         const row = page.locator('li[data-menu-item="project"]');
         const link = row.locator(':scope > a');
+        const hamburger = page.getByRole('button', { name: 'Open navigation' });
+        if (width === 390) {
+          // A tap focuses the current row but leaves it at rest: its icon, no grip, no actions.
+          await hamburger.click();
+          await expect(link).toBeFocused();
+          // The swap transitions; read the row once its animations are done.
+          await row.evaluate((node) =>
+            Promise.all(node.getAnimations({ subtree: true }).map((each) => each.finished)),
+          );
+          await expect(row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest]')).toHaveCSS(
+            'opacity',
+            '1',
+          );
+          await expect(row.locator('[data-rail-part="drag"]')).toBeHidden();
+          await page.keyboard.press('Escape');
+          await expect(hamburger).toBeFocused();
+          // A keyboard opening focuses it too, and keyboard focus reveals its grip.
+          await page.keyboard.press('Enter');
+          await expect(link).toBeFocused();
+          await expect(row.locator('[data-rail-part="drag"]')).toBeVisible();
+          await page.keyboard.press('Escape');
+          await hamburger.click();
+          await expect(link).toBeFocused();
+        }
         const icon = row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest], :scope > a > svg');
         const grip = row.locator('[data-rail-part="drag"]');
         const label = link.locator('.tmt-ui-module-menu-label');
@@ -280,6 +323,9 @@ for (const renderer of ['native', 'react'])
         expect((await label.boundingBox())!.x).toBe(initial.x);
         await capture('hover');
         await page.mouse.move(width - 5, 895);
+        // At 390 the tap left the link focused without focus-visible; refocus it by keyboard modality.
+        await link.blur();
+        await page.keyboard.press('Shift');
         await link.focus();
         await expect(icon).toHaveCSS('opacity', '0');
         await expect(grip).toHaveCSS('opacity', '1');
