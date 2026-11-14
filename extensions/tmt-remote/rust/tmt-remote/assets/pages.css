@@ -829,21 +829,24 @@ body:not(:has(.tmt-ui-shell)) {
   align-items: center;
   justify-content: space-between;
   gap: var(--tmt-ui-space-m);
-  width: 100%;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.ops-orchestration-plan-select {
+  flex: 1;
+  min-width: 0;
   padding: var(--tmt-ui-space-s) 0;
   border: 0;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: transparent;
   color: var(--tmt-ui-color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.ops-orchestration-plan-row[aria-pressed='true'] {
+.ops-orchestration-plan-select[aria-pressed='true'] {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-hover);
 }
-.ops-orchestration-plan-row:focus-visible {
+.ops-orchestration-plan-select:focus-visible {
   outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-focus);
   outline-offset: -1px;
 }
@@ -856,12 +859,6 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-orchestration-plan-text > span {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
-}
-.ops-orchestration-plan-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-xs);
-  white-space: nowrap;
 }
 /* Timeline: an hour axis over a track of in-effect counts, one thin lane per plan, then the time. */
 .ops-orchestration-timeline {

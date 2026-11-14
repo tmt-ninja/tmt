@@ -34,12 +34,18 @@ for (const width of [1440, 390])
       await open(page, width, theme);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Orchestration');
       const plans = page.getByRole('region', { name: 'Plan list' });
-      await expect(plans.getByRole('button', { name: /Release freeze/ })).toContainText('Off');
-      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText(
-        'every other week Tue Thu 22:00–06:00 · night-*',
+      await expect(plans.getByRole('button', { name: 'Release freeze', exact: true })).toHaveText(
+        'Off',
       );
-      await expect(plans.getByRole('button', { name: /Shift B · Night/ })).toContainText('On');
-      await expect(plans.getByRole('switch')).toHaveCount(0);
+      await expect(
+        plans.locator('.ops-orchestration-plan-select').filter({ hasText: 'Shift B · Night' }),
+      ).toContainText('every other week Tue Thu 22:00–06:00 · night-*');
+      await expect(plans.getByRole('button', { name: 'Shift B · Night', exact: true })).toHaveText(
+        '✓On',
+      );
+      await expect(
+        plans.getByRole('button', { name: 'Release freeze', exact: true }),
+      ).toHaveAttribute('aria-pressed', 'false');
       const matrix = page.locator('.ops-orchestration-matrix');
       await expect(
         matrix.getByRole('button', { name: /^sample-1 to sample-lead: / }),
@@ -140,9 +146,10 @@ test('the timeline follows the range, the plan filter and the steps', async ({ p
   await expect(page.locator('.ops-orchestration-when')).toHaveText(
     'Tue 10-27 – Mon 11-02Asia/Tokyo',
   );
-  const selected = page.getByRole('region', { name: 'Plan list' }).getByRole('button', {
-    name: /Shift B · Night/,
-  });
+  const selected = page
+    .getByRole('region', { name: 'Plan list' })
+    .locator('.ops-orchestration-plan-select')
+    .filter({ hasText: 'Shift B · Night' });
   await selected.click();
   await expect(selected).toHaveAttribute('aria-pressed', 'true');
   const legend = page.getByRole('list', { name: 'Plans at the selected time' });
@@ -202,4 +209,81 @@ test('a stale apply saves nothing and says so', async ({ page }) => {
     'Orchestration changed since the preview; nothing was saved. Try again.',
   );
   await expect(page.getByRole('dialog')).toBeHidden();
+});
+
+test('a plan switch previews the exact plans-view row and applies only after consent', async ({
+  page,
+}) => {
+  await open(page, 1440, 'light');
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Running work is never interrupted.');
+  let all = await calls(page);
+  const read = all.find((call) => call.input.view === 'plans');
+  expect(read).toBeDefined();
+  const writes = all.filter((call) => call.kind === 'write');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]!.input).toMatchObject({
+    phase: 'preview',
+    mutation: {
+      kind: 'plan.set',
+      plan: 'plan-freeze',
+      candidate: { enabled: true, plansViewOnly: 'retained', revision: 1 },
+    },
+  });
+  expect((writes[0]!.input.mutation as { candidate: unknown }).candidate).toEqual({
+    id: 'plan-freeze',
+    name: 'Release freeze',
+    revision: 1,
+    priority: 30,
+    enabled: true,
+    targets: [{ kind: 'identity', id: '00000000-0000-4000-8000-000000000012' }],
+    schedule: {
+      kind: 'once',
+      startMs: Date.UTC(2026, 9, 26, 15) + 2 * 86_400_000 + 9 * 3_600_000,
+      endMs: Date.UTC(2026, 9, 26, 15) + 2 * 86_400_000 + 18 * 3_600_000,
+    },
+    fields: { routine: 'hold', sending: 'leads' },
+    members: [],
+    plansViewOnly: 'retained',
+  });
+  await expect(page.getByRole('combobox', { name: 'Plans' })).toHaveValue('');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await calls(page)).filter((call) => call.kind === 'write')).toHaveLength(1);
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('button', { name: 'Release freeze', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  all = await calls(page);
+  expect(all.filter((call) => call.kind === 'write').at(-1)!.input).toMatchObject({
+    phase: 'apply',
+    expectedConfigurationRevision: 3,
+    consent: true,
+  });
+});
+
+test('a conflicting plan apply re-reads and does not retry the write', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await page.evaluate(() => {
+    window.orchRefuseApply = 'ORCH_CONFLICT';
+  });
+  await page.getByRole('button', { name: 'Release freeze', exact: true }).click();
+  const before = (await calls(page)).filter((call) => call.input.view === 'overview').length;
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status')).toHaveText(
+    'Orchestration changed since the preview; nothing was saved. Try again.',
+  );
+  const callsAfter = await calls(page);
+  expect(callsAfter.filter((call) => call.input.view === 'overview').length).toBeGreaterThan(
+    before,
+  );
+  expect(
+    callsAfter.filter((call) => call.kind === 'write').map((call) => call.input.phase),
+  ).toEqual(['preview', 'apply']);
+  await expect(page.getByRole('button', { name: 'Release freeze', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
 });

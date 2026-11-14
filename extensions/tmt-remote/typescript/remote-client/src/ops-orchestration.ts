@@ -4,7 +4,7 @@
  * confirms. Nothing is computed here: each value and its source is Core's. */
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
-import { el, mark, sentence } from './ops-parts.js';
+import { el, sentence } from './ops-parts.js';
 import {
   OrchestrationRefused,
   applyInput,
@@ -252,8 +252,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
         : undefined;
     planList.replaceChildren(
       ...view.plans.map((item) => {
-        const row = el('li');
-        const button = el('button', 'ops-orchestration-plan-row');
+        const row = el('li', 'ops-orchestration-plan-row');
+        const button = el('button', 'ops-orchestration-plan-select');
         button.type = 'button';
         button.dataset.planId = item.id;
         button.ariaPressed = String(item.id === view.selectedPlanId);
@@ -262,14 +262,25 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
           el('strong', undefined, item.name),
           el('span', undefined, planSummary(item, false)),
         );
-        const state = el('span', 'ops-orchestration-plan-state');
-        state.append(mark(item.enabled ? 'dot' : 'ring', 'neutral'), item.enabled ? 'On' : 'Off');
-        button.append(text, state);
+        button.append(text);
         button.addEventListener('click', () => {
           plan = item.id;
           void load();
         });
-        row.append(button);
+        const toggle = el('button', c.toggle);
+        toggle.type = 'button';
+        toggle.setAttribute('aria-label', item.name);
+        toggle.setAttribute('aria-pressed', String(item.enabled));
+        const indicator = el('span', c.toggleIndicator, item.enabled ? '✓' : '');
+        indicator.setAttribute('aria-hidden', 'true');
+        toggle.append(indicator, el('span', undefined, item.enabled ? 'On' : 'Off'));
+        toggle.addEventListener('click', () => {
+          toggle.disabled = true;
+          void togglePlan(item).finally(() => {
+            toggle.disabled = false;
+          });
+        });
+        row.append(button, toggle);
         return row;
       }),
     );
@@ -278,6 +289,37 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       [...planList.querySelectorAll<HTMLElement>('button')]
         .find((button) => button.dataset.planId === focused)
         ?.focus({ preventScroll: true });
+    }
+  }
+
+  async function togglePlan(item: Plan) {
+    try {
+      api ??= await connect();
+      const answer = await api.read({ view: 'plans' });
+      if (!Array.isArray(answer.plans)) throw new Error('Invalid plans');
+      const rows = answer.plans.filter(
+        (row): row is Json =>
+          !!row && typeof row === 'object' && !Array.isArray(row) && row.id === item.id,
+      );
+      const current = rows[0];
+      if (rows.length !== 1 || !current || typeof current.enabled !== 'boolean')
+        throw new Error('Invalid plan');
+      if (current.enabled !== item.enabled) {
+        await load();
+        say('Orchestration changed; review the current plan and try again.');
+        return;
+      }
+      await preview(`${item.enabled ? 'Turn off' : 'Turn on'} ${item.name}`, {
+        kind: 'plan.set',
+        plan: item.id,
+        candidate: { ...current, enabled: !current.enabled },
+      });
+    } catch (error) {
+      say(
+        error instanceof OrchestrationRefused
+          ? (error.detail ?? `Core refused the read (${error.code}).`)
+          : 'Core could not read the plan; nothing was saved.',
+      );
     }
   }
 
@@ -902,6 +944,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       dialog.replaceChildren(head, body, actions);
       dialog.showModal();
     } catch (error) {
+      if (error instanceof OrchestrationRefused && error.code === 'ORCH_CONFLICT') await load();
       say(
         error instanceof OrchestrationRefused
           ? (error.detail ?? `Core refused the change (${error.code}).`)
@@ -919,6 +962,7 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       if (!status.textContent) say('Orchestration saved.');
     } catch (error) {
       dialog.close();
+      if (error instanceof OrchestrationRefused && error.code === 'ORCH_CONFLICT') await load();
       say(
         error instanceof OrchestrationRefused && error.code === 'ORCH_CONFLICT'
           ? 'Orchestration changed since the preview; nothing was saved. Try again.'
