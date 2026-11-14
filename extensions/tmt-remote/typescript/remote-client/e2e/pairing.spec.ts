@@ -5935,11 +5935,17 @@ test('the root prefetches one confined search entry and owns one shortcut across
           dialog.append(input, list);
           container.append(dialog);
           let opener;
-          dialog.addEventListener('close', () => { if (opener?.isConnected) opener.focus(); });
+          let closed, untilClosed;
+          dialog.addEventListener('close', () => {
+            closed?.(); closed = undefined; untilClosed = undefined;
+            if (opener?.isConnected) opener.focus();
+          });
           return {
             open(button) {
               window.searchProof.opens++;
+              if (dialog.open) return untilClosed;
               opener = button;
+              untilClosed = new Promise(resolve => { closed = resolve; });
               list.replaceChildren();
               for (const group of options.registry.groups()) for (const item of group.items) {
                 const target = document.createElement('button');
@@ -5949,8 +5955,9 @@ test('the root prefetches one confined search entry and owns one shortcut across
               }
               if (!dialog.open) dialog.showModal();
               input.focus();
+              return untilClosed;
             },
-            dispose() { window.searchProof.closes++; dialog.close(); dialog.remove(); }
+            dispose() { window.searchProof.closes++; dialog.close(); closed?.(); dialog.remove(); }
           };
         }
       `,
@@ -6011,12 +6018,24 @@ test('the root prefetches one confined search entry and owns one shortcut across
     'Search TMT…',
   );
   expect(await proof()).toEqual({ mounts: 1, opens: 1, closes: 0 });
+  await captureState(
+    page,
+    'root-search-open',
+    'Shared Search control uses the existing expanded icon-action role',
+    [390, 1440],
+    ['light', 'dark'],
+    undefined,
+    captures,
+  );
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
   // The same trusted shortcut inside an editor does not activate the root again.
   await page.keyboard.press(shortcut);
   expect((await proof()).opens).toBe(1);
   await page.keyboard.press('Escape');
   await expect(search).toBeFocused();
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
   await search.click();
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
   expect((await proof()).opens).toBe(2);
   await dialog.getByRole('button', { name: 'Home', exact: true }).click();
   await expect(page).toHaveURL(`${origin}/`);
@@ -6795,7 +6814,7 @@ for (const family of ['/design', '/studio']) {
         main.append(title,note); slot.main.replaceChildren(main);
         return () => {window.designProof.disposals++;main.remove();};
       }
-      export function mountSearchSession() {return {open(){},dispose(){}};}
+      export function mountSearchSession() {return {async open(){},dispose(){}};}
     `,
       });
     });

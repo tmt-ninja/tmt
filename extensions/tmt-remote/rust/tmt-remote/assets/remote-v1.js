@@ -14097,7 +14097,7 @@ var RootSearch = class {
 					placeholder: "Search TMT…"
 				});
 			}
-			if (current()) this.session.open(opener);
+			if (current()) await this.session.open(opener);
 		} catch {
 			if (!current()) return;
 			this.session?.dispose();
@@ -14606,7 +14606,7 @@ function shellApp() {
 	host.setCommonControls({
 		openSearch: (opener) => {
 			status.hidden = true;
-			search?.open(opener);
+			return search?.open(opener);
 		},
 		remote: {
 			kind: "unconfirmed",
