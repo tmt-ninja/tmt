@@ -154,6 +154,9 @@ for (const width of [1440, 390])
       await expect(rail.getByText('THIS MACHINE', { exact: true })).toBeVisible();
       const squad = rail.getByRole('link', { name: 'sample · Channel · ⏱ 1', exact: true });
       await expect(squad.locator('.tmt-ui-shell-count')).toHaveText(['⏱ 1']);
+      // Working and idle are both dots told apart by colour: the state word is in each name.
+      await expect(rail.getByRole('link', { name: /^sample-lead · Working/ })).toHaveCount(1);
+      await expect(rail.getByRole('link', { name: /^sample-1 · Idle/ })).toHaveCount(1);
       const hide = rail.getByRole('button', { name: 'Hide sample', exact: true });
       await expect(hide).toHaveAttribute('aria-expanded', 'true');
       if (width === 390) await shot(page, `rail-${width}-${theme}`);
