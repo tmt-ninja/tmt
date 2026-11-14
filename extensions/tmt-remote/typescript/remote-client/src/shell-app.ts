@@ -658,7 +658,7 @@ export function shellApp(): ShellHost | undefined {
   host.setCommonControls({
     openSearch: (opener) => {
       status.hidden = true;
-      void search?.open(opener);
+      return search?.open(opener);
     },
     remote: { kind: 'unconfirmed', href: '/remote/' },
   });
