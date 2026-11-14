@@ -1,6 +1,7 @@
 //! The forms a bound provider session waits on (#6424), recorded from its hook. A form
-//! belongs to its binding (`ON DELETE CASCADE`), and the hook clears a binding's forms when
-//! an admitted event leaves waiting, so a listed form is one the provider still shows.
+//! belongs to its binding (`ON DELETE CASCADE`). Nothing clears a form when the session
+//! leaves waiting: a read treats it as open only while the session's activity still waits
+//! in the period the form was recorded in, and the next recorded form drops older periods.
 
 use super::{
     Storage, StorageError,
@@ -81,16 +82,6 @@ impl Storage {
             .commit()
             .map_err(|e| classify(e, "Record provider form"))?;
         Ok(form_id)
-    }
-
-    /// Clears every form of the binding; the count removed.
-    pub fn clear_provider_forms(&mut self, binding_id: &str) -> Result<usize, StorageError> {
-        self.connection_mut()?
-            .execute(
-                "DELETE FROM provider_forms WHERE binding_id=?1",
-                [binding_id],
-            )
-            .map_err(|e| classify(e, "Clear provider forms"))
     }
 
     /// Open forms, oldest first, of one identity or of all, on a binding that still exists.

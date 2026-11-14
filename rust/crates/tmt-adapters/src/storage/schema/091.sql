@@ -1,6 +1,7 @@
 -- The interactive forms a bound provider session waits on (#6424), as its consented hook
 -- reported them: observation for clients to show, never an answer or a decision. A form
--- belongs to its binding and goes with it; any admitted event that leaves waiting clears it.
+-- belongs to its binding and goes with it. A read decides whether it is still open, from the
+-- session's waiting period; the next recorded form drops the binding's earlier periods.
 CREATE TABLE provider_forms (
   form_id TEXT PRIMARY KEY CHECK (length(form_id)=36),
   binding_id TEXT NOT NULL REFERENCES bindings(id) ON DELETE CASCADE,
