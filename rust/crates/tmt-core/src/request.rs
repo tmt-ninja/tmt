@@ -672,6 +672,14 @@ pub trait RequestRecords {
     /// Journal once that a request held for a person expires unsent; a no-op for any
     /// request the talk limit did not hold.
     fn expire_person_hold(&mut self, request_id: &str, now_ms: u64) -> Result<(), Self::Error>;
+    /// Journal that a prepared request passed its sending rule only through a route grant.
+    fn journal_route_grant(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     /// Keep a prepared request waiting for a person: no wake and no Digest item.
     fn hold_for_person(
         &mut self,

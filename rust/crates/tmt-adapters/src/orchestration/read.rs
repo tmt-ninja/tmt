@@ -189,7 +189,7 @@ pub fn orchestration_read_with_time(
         } => {
             let page =
                 storage.orchestration_journal(&subject, before, limit.unwrap_or(50), observed)?;
-            json!({"schemaVersion":1,"observedAtMs":observed,"subject":subject,"items":page.items,"nextBefore":page.next_before,"coverage":{"retentionMs":ORCH_JOURNAL_RETENTION_MS,"retainedAfterMs":page.retained_after_ms,"liveProducers":true,"producers":["receiving_hold","digest_claim","digest_settlement"],"historyComplete":false}})
+            json!({"schemaVersion":1,"observedAtMs":observed,"subject":subject,"items":page.items,"nextBefore":page.next_before,"coverage":{"retentionMs":ORCH_JOURNAL_RETENTION_MS,"retainedAfterMs":page.retained_after_ms,"liveProducers":true,"producers":["receiving_hold","digest_claim","digest_settlement","route_restricted","route_grant","talk_limit","talk_resumed","talk_hold_expired"],"historyComplete":false}})
         }
         OrchReadQuery::Plans { plan } => {
             let stored = storage.orchestration_snapshot(None)?;
@@ -277,16 +277,27 @@ pub fn orchestration_read_with_time(
             observed,
         )?,
         OrchReadQuery::Routes {
+            at_ms,
             member_query,
             limit,
             after,
-        } => super::talks::routes(
-            storage,
-            member_query.as_deref(),
-            limit,
-            after.as_deref(),
-            observed,
-        )?,
+        } => {
+            let at = match local_at {
+                Some(text) => Some(
+                    OrchZone::load(storage.orchestration_snapshot(None)?.time_zone.as_deref())?
+                        .parse_at(text)?,
+                ),
+                None => at_ms,
+            };
+            super::talks::routes(
+                storage,
+                member_query.as_deref(),
+                limit,
+                after.as_deref(),
+                at,
+                observed,
+            )?
+        }
     };
     let bytes = serde_json::to_vec(&value).map_err(|_| OrchError::Invalid)?;
     if bytes.len() > crate::api::OUTPUT_LIMIT {

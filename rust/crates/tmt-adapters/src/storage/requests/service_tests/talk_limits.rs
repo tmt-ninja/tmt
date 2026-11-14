@@ -81,17 +81,38 @@ fn decisions(db: &Connection, reason: &str) -> i64 {
 fn a_restricted_route_stores_nothing_until_a_grant_lets_it_through() {
     let (mut f, db, a, b) = world("{\"sending\":\"paused\"}");
     let before = count_rows(&f.database, "request_attempts");
-    assert!(matches!(
-        send(&mut f, &a, &b),
-        Err(RequestError::RouteRestricted(_))
-    ));
+    let Err(RequestError::RouteRestricted(refusal)) = send(&mut f, &a, &b) else {
+        panic!("route restricted")
+    };
     assert_eq!(count_rows(&f.database, "request_attempts"), before);
+    // The refusal journal keeps one entry per pair and configuration revision a window.
+    let window = crate::storage::orchestration::ROUTE_REFUSAL_COALESCE_MS;
+    let mut journal = |refusal: &tmt_core::orchestration::sending::OrchRouteRefusal, at: u64| {
+        f.storage.journal_route_refusal(refusal, at).unwrap()
+    };
+    assert!(journal(&refusal, NOW_MS));
+    assert!(!journal(&refusal, NOW_MS + window - 1));
+    let mut other_revision = (*refusal).clone();
+    other_revision.configuration_revision += 1;
+    assert!(journal(&other_revision, NOW_MS + 1));
+    assert!(journal(&refusal, NOW_MS + window));
+    assert_eq!(decisions(&db, "route_restricted"), 3);
     db.execute(
         "INSERT INTO orchestration_route_grants(from_id,to_id,until_ms,granted_by) VALUES(?1,?2,?3,NULL)",
         rusqlite::params![a, b, (NOW_MS + 1000) as i64],
     )
     .unwrap();
-    assert!(!send(&mut f, &a, &b).unwrap().held_for_person);
+    let granted = send(&mut f, &a, &b).unwrap();
+    assert!(!granted.held_for_person);
+    // Only the grant let it through, so the journal says so, about that request.
+    let (subject, outcome): (String, String) = db
+        .query_row(
+            "SELECT subject_id,outcome FROM orchestration_decisions WHERE reason='route_grant'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((subject, outcome.as_str()), (granted.request_id, "allowed"));
     // A grant is one ordered route, and it ends.
     assert!(matches!(
         send(&mut f, &b, &a),
@@ -169,6 +190,12 @@ fn the_limit_holds_both_directions_and_resume_restarts_the_window() {
         .unwrap();
     assert_eq!(attempt.status, AttemptStatus::Prepared);
     assert_eq!(decisions(&db, "talk_limit"), 2);
+    // The routes view reports the limit only for now; it cannot know a later count.
+    assert_eq!(verdict(&routes_at(&f, None), &a, &b), "needs_person");
+    assert_eq!(
+        verdict(&routes_at(&f, Some(NOW_MS + 60_000)), &a, &b),
+        "allowed"
+    );
     let held: Vec<_> = f
         .storage
         .orchestration_held(&a, &b)
@@ -289,4 +316,58 @@ fn resume_keeps_an_expired_hold_reported_and_releases_only_live_ones() {
     );
     // A released expiry never outlives the retained text.
     assert_eq!(expiry(&db, &live.request_id), short);
+}
+
+fn routes_at(f: &Fixture, at_ms: Option<u64>) -> serde_json::Value {
+    let mut query = serde_json::json!({"view":"routes"});
+    if let Some(at) = at_ms {
+        query["atMs"] = at.into();
+    }
+    let query =
+        crate::orchestration::decode_orch_query(&serde_json::to_vec(&query).unwrap()).unwrap();
+    serde_json::from_slice(
+        &crate::orchestration::orchestration_read_with_time(&f.storage, query, NOW_MS, None)
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+fn verdict(routes: &serde_json::Value, from: &str, to: &str) -> String {
+    routes["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["from"] == from && r["to"] == to)
+        .map(|r| r["verdict"].as_str().unwrap().to_owned())
+        .unwrap()
+}
+
+#[test]
+fn routes_at_a_chosen_time_follow_that_time_s_rule_and_grants() {
+    let (f, db, a, b) = world("{\"sending\":\"paused\"}");
+    let (start, end) = (NOW_MS + 3_600_000, NOW_MS + 7_200_000);
+    db.execute(
+        "UPDATE orchestration_plans SET schedule=?2 WHERE id=?1",
+        rusqlite::params![
+            PLAN,
+            format!("{{\"kind\":\"once\",\"startMs\":{start},\"endMs\":{end}}}")
+        ],
+    )
+    .unwrap();
+    // A grant that ends before the plan's hours.
+    db.execute(
+        "INSERT INTO orchestration_route_grants(from_id,to_id,until_ms,granted_by) VALUES(?1,?2,?3,NULL)",
+        rusqlite::params![a, b, (start - 1) as i64],
+    )
+    .unwrap();
+    let now = routes_at(&f, None);
+    assert_eq!(now["atMs"], NOW_MS);
+    assert_eq!(verdict(&now, &b, &a), "allowed");
+    let inside = routes_at(&f, Some(start + 1));
+    assert_eq!(inside["atMs"], start + 1);
+    assert_eq!(inside["observedAtMs"], NOW_MS);
+    assert_eq!(verdict(&inside, &b, &a), "blocked");
+    // The grant has ended by then, so it no longer lets a through.
+    assert_eq!(verdict(&inside, &a, &b), "blocked");
+    assert_eq!(verdict(&routes_at(&f, Some(start - 2)), &a, &b), "allowed");
 }

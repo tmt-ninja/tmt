@@ -530,6 +530,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         }),
         ["orch", "routes"] => Invocation::Orch(OrchOperation::Routes {
+            at: text(m, "at"),
             member_query: text(m, "member"),
             limit: m.get_one::<u16>("limit").copied(),
             after: text(m, "after"),

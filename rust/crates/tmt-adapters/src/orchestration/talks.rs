@@ -128,23 +128,32 @@ pub(super) fn talks(
     )
 }
 
+/// Route verdicts at `at_ms` (default `observed`). The talk count is known only for now, so
+/// at another instant a pair the rule allows is `allowed`, never `needs_person`.
 pub(super) fn routes(
     storage: &Storage,
     member_query: Option<&str>,
     limit: Option<u16>,
     after: Option<&str>,
-    at: u64,
+    at_ms: Option<u64>,
+    observed: u64,
 ) -> Result<Value, OrchReadFailure> {
+    let at = at_ms.unwrap_or(observed);
+    let now = at == observed;
     let s = Selection::load(storage, member_query)?;
     if s.selected.len() > usize::from(wire::ORCH_PAGE_MAX) {
         return Err(OrchError::Limit.into());
     }
     let leads = orchestration_active_leads(&s.snapshot);
-    let counts: BTreeMap<_, _> = storage
-        .orchestration_talks(at)?
-        .into_iter()
-        .map(|p| ((p.first_id, p.second_id), p.count))
-        .collect();
+    let counts: BTreeMap<_, _> = if now {
+        storage
+            .orchestration_talks(observed)?
+            .into_iter()
+            .map(|p| ((p.first_id, p.second_id), p.count))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
     let effective: BTreeMap<_, _> = s
         .selected
         .iter()
@@ -176,7 +185,7 @@ pub(super) fn routes(
                             .get(&(key.0.to_owned(), key.1.to_owned()))
                             .copied()
                             .unwrap_or(0);
-                        if !leads.contains(from) && needs_person(counted, limit) {
+                        if now && !leads.contains(from) && needs_person(counted, limit) {
                             // The smaller limit decides; its source explains the verdict.
                             let decider = if recipient.talk_limit.value == limit {
                                 recipient
@@ -200,6 +209,6 @@ pub(super) fn routes(
     }
     let (routes, next) = page(rows, limit, after);
     Ok(
-        json!({"schemaVersion":1,"configurationRevision":s.snapshot.revision,"observedAtMs":at,"routes":routes,"nextAfter":next}),
+        json!({"schemaVersion":1,"configurationRevision":s.snapshot.revision,"observedAtMs":observed,"atMs":at,"routes":routes,"nextAfter":next}),
     )
 }

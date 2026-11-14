@@ -437,9 +437,7 @@ fn route_restricted(
     refusal: &tmt_core::orchestration::sending::OrchRouteRefusal,
 ) -> Failure {
     use tmt_core::orchestration::*;
-    let journaled = storage.append_orchestration_decision(
-        &tmt_adapters::storage::route_refusal_decision(refusal, wall_time_ms()),
-    );
+    let journaled = storage.journal_route_refusal(refusal, wall_time_ms());
     let rule = match refusal.sending {
         OrchSending::Leads => "may message only leads",
         OrchSending::Paused => "may not message other agents",
