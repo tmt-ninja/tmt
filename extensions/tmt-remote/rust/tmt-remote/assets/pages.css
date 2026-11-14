@@ -1140,6 +1140,20 @@ body:not(:has(.tmt-ui-shell)) {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* No plans and one answer for every pair: the rule in a sentence, the grid a fold away. */
+.ops-orchestration-base-rule {
+  margin: 0 0 var(--tmt-ui-space-s);
+}
+.ops-orchestration-grid-fold > summary {
+  width: fit-content;
+  color: var(--tmt-ui-color-text-action);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ops-orchestration-grid-fold[open] > summary {
+  margin-bottom: var(--tmt-ui-space-s);
+}
 .ops-orchestration-key {
   display: flex;
   flex-wrap: wrap;
@@ -1576,10 +1590,25 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-channel-member-facts .tmt-ui-state-mark {
   margin-right: var(--tmt-ui-space-xs);
+  vertical-align: -1px;
 }
 .ops-channel-line-task {
-  flex-basis: 100%;
   color: var(--tmt-ui-color-text);
+}
+/* A DM's one timer, on the facts line; it opens the Timers panel. */
+.ops-channel-timer-chip {
+  align-items: center;
+  padding-left: 6px;
+  font-size: var(--tmt-ui-caption-size);
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.ops-channel-timer-chip:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-channel-timer-chip:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
 }
 .ops-channel-panel {
   border-bottom: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
@@ -1827,9 +1856,9 @@ body:not(:has(.tmt-ui-shell)) {
   white-space: nowrap;
 }
 .ops-composer-host {
-  /* The same width and left edge as the message rows above it. */
+  /* The box spans the content column, edge to edge with the header and the day line (Slack). */
   box-sizing: border-box;
-  width: min(100%, calc(45rem + 3rem));
+  width: 100%;
   min-height: var(--ops-composer-height);
 }
 .ops-composer-host .rich-input-surface {
@@ -1950,8 +1979,8 @@ body:not(:has(.tmt-ui-shell)) {
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--tmt-ui-space-s);
   box-sizing: border-box;
-  /* The row (and its hover or selected tint) is as wide as the reading column plus the face. */
-  width: min(100%, calc(45rem + 3rem));
+  /* The row (and its hover or selected tint) spans the column; its words keep a reading measure. */
+  width: 100%;
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
   border-radius: var(--tmt-ui-radius-s);
 }
@@ -1960,6 +1989,7 @@ body:not(:has(.tmt-ui-shell)) {
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   min-width: 0;
+  max-width: 45rem;
 }
 .ops-dm-message-head {
   display: flex;
@@ -2164,34 +2194,55 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-dm-exchange[data-pending='refused'] .ops-dm-message-state {
   color: var(--tmt-ui-color-blocked);
 }
-/* Send now under a message Core holds (#4378), and where the ask stands. */
+/* Send now ends the delivery line of a message Core holds (#4378): a text button, then where the
+ * ask stands. */
 .ops-dm-send-now {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 0 var(--tmt-ui-space-s);
-  margin: 0;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
+.ops-dm-send-now::before {
+  content: '·';
+  margin-left: var(--tmt-ui-space-xs);
+}
 .ops-dm-send-now-button {
-  padding: 2px var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width, 1px) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-pill);
-  background: var(--tmt-ui-surface-paper);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--tmt-ui-color-text-action);
   font: 600 var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-body);
   cursor: pointer;
 }
 .ops-dm-send-now-button:hover {
-  background: var(--tmt-ui-surface-hover);
+  text-decoration: underline;
 }
 .ops-dm-send-now-button:focus-visible {
-  border-color: var(--tmt-ui-color-focus);
-  outline: none;
+  border-radius: var(--tmt-ui-radius-s);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .ops-dm-send-now-note {
   color: var(--tmt-ui-color-blocked);
+}
+/* Under a post: the thread button, then Send now on the same line. */
+.ops-thread-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--tmt-ui-space-xs);
+}
+/* The repliers' faces lead the thread line, overlapping a little (Slack). */
+.ops-thread-faces {
+  display: inline-flex;
+}
+.ops-thread-faces > * + * {
+  margin-left: -4px;
+}
+.ops-thread-faces > * {
+  outline: 1.5px solid var(--tmt-ui-surface-paper);
 }
 .ops-thread-open {
   display: flex;

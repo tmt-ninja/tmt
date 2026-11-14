@@ -4,6 +4,7 @@
  * roster revision comes back refused with Core's reason and the person sends again after the board
  * refreshes. The room read has no change positions yet, so the channel shows no unread count and
  * refreshes by rereading its newest page. */
+import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
 import { el } from './ops-parts.js';
 import { opsHref } from './ops-menu.js';
 import { composerSlot } from './ops-composer-slot.js';
@@ -194,6 +195,18 @@ export function channelStream(
     const open = el('button', 'ops-thread-open');
     open.type = 'button';
     open.dataset.requestId = post.requestId;
+    // Slack's thread line: who replied, how many, and when last; the state only before any reply.
+    const shown = sides.filter((side) => side.words !== null);
+    if (shown.length) {
+      const faces = el('span', 'ops-thread-faces');
+      faces.setAttribute('aria-hidden', 'true');
+      for (const side of shown.slice(0, 3)) {
+        const face = el('span', c.avatar, avatarInitials(side.name));
+        face.dataset.size = 's';
+        faces.append(face);
+      }
+      open.append(faces);
+    }
     open.append(
       el(
         'span',
@@ -209,17 +222,25 @@ export function channelStream(
           `Last reply ${new Date(last).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`,
         ),
       );
-    const state = el('span', 'ops-dm-message-state', sides.length ? 'Answered' : deliveryText(as));
-    state.dataset.mark = sides.length ? 'answered' : deliveryMark(as);
-    open.append(state);
+    if (!shown.length) {
+      const state = el(
+        'span',
+        'ops-dm-message-state',
+        sides.length ? 'Answered' : deliveryText(as),
+      );
+      state.dataset.mark = sides.length ? 'answered' : deliveryMark(as);
+      open.append(state);
+    }
     open.setAttribute('aria-expanded', String(threadKey === post.requestId));
     open.addEventListener('click', () => openThread(post.requestId));
-    const body = row.querySelector('.ops-dm-message-body')!;
-    body.append(open);
+    // Send now ends the same line, beside the thread button rather than inside it.
+    const threadLine = el('div', 'ops-thread-line');
+    threadLine.append(open);
     if (!sides.length) {
       const control = now.control(post.items);
-      if (control) body.append(control);
+      if (control) threadLine.append(control);
     }
+    row.querySelector('.ops-dm-message-body')!.append(threadLine);
     if (threadKey === post.requestId) row.dataset.selected = '';
     return row;
   }

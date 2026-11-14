@@ -79,7 +79,8 @@ for (const width of [1440, 390])
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
       // One Timers count: in the summary row, not again as a chip.
       await expect(page.locator('.ops-channel-chips')).toHaveText('Idle alert 15m');
-      await expect(page.locator('.ops-channel-line')).toContainText('Lead sample-lead · 3 members');
+      // The member count lives once, in the summary bar.
+      await expect(page.locator('.ops-channel-line')).toHaveText('Lead sample-lead · This machine');
       await expect(page.locator('.ops-channel-compose')).toBeHidden();
       await expect(page.locator('.ops-channel-empty')).toContainText(
         'No channel room on this machine yet',
@@ -105,7 +106,12 @@ for (const width of [1440, 390])
         'Idle',
         'Offline',
       ]);
-      await expect(page.locator('.ops-member-row [data-tone]')).toHaveCount(0);
+      // Only working is coloured: idle is a dot in the text's colour, offline a ring.
+      await expect(page.locator('.ops-member-row [data-tone]')).toHaveCount(1);
+      await expect(page.locator('.ops-member-row [data-tone]')).toHaveAttribute(
+        'data-tone',
+        'working',
+      );
       await expect(page.locator('.tmt-ui-topbar-title-chips')).toHaveCount(0);
       await expect(page.locator('.tmt-ui-topbar-title-current')).toBeVisible();
       const member = page.locator('.ops-member-name').first();
@@ -148,6 +154,9 @@ for (const width of [1440, 390])
       await expect(rail.getByText('THIS MACHINE', { exact: true })).toBeVisible();
       const squad = rail.getByRole('link', { name: 'sample · Channel · ⏱ 1', exact: true });
       await expect(squad.locator('.tmt-ui-shell-count')).toHaveText(['⏱ 1']);
+      // Working and idle are both dots told apart by colour: the state word is in each name.
+      await expect(rail.getByRole('link', { name: /^sample-lead · Working/ })).toHaveCount(1);
+      await expect(rail.getByRole('link', { name: /^sample-1 · Idle/ })).toHaveCount(1);
       const hide = rail.getByRole('button', { name: 'Hide sample', exact: true });
       await expect(hide).toHaveAttribute('aria-expanded', 'true');
       if (width === 390) await shot(page, `rail-${width}-${theme}`);
@@ -185,7 +194,8 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   await link.focus();
   await page.evaluate(() => {
     window.channelBoard.agents[0]!.task = 'A changed observation';
-    // The member owns a timer, so its DM has a Timers bar (a DM without timers shows none).
+    window.channelBoard.agents.find((agent) => agent.name === 'sample-1')!.task = 'Capture pass';
+    // The member owns one timer: its DM shows it as a chip that opens the Timers panel.
     window.channelBoard.schedules = [
       ...window.channelBoard.schedules!,
       {
@@ -200,8 +210,11 @@ test('UUID selection survives rename, refuses a namesake after removal, and pres
   await expect(link).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
-  await details(page);
+  await expect(page.locator('.ops-channel-line')).toContainText('Task: Capture pass');
+  await expect(page.locator('.ops-channel-panel')).toBeHidden();
+  await page.locator('.ops-channel-timer-chip').click();
   const timers = page.getByRole('tab', { name: /^Timers/ });
+  await expect(timers).toHaveAttribute('aria-selected', 'true');
   await timers.click();
   await timers.focus();
   await page.evaluate(() => {
@@ -262,7 +275,7 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
     window.channelBoard.truncated = true;
   });
   await refresh(page);
-  await expect(page.locator('.ops-channel-line')).toContainText('Members (partial)');
+  await expect(page.locator('.ops-channel-summary')).toContainText('Members (partial)');
   await expect(page.getByRole('tabpanel', { name: 'Timers 0', exact: true })).toContainText(
     'partial read',
   );
@@ -502,7 +515,7 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
     return new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   });
   await refresh(page);
-  await expect(conversation(page).locator('.ops-dm-message-state').first()).toHaveText(
+  await expect(conversation(page).locator('.ops-dm-message-state').first()).toContainText(
     `Batched every 30 min · delivers by ${latest}`,
   );
   // Send now asks once, and is not offered again until the result has been read.
@@ -726,7 +739,9 @@ test('channel posts to the lead or each mention with the board room, and shows r
   await expect(stream.locator('.ops-dm-mention')).toHaveText('@sample-2');
   await expect(stream.locator('b')).toHaveCount(0);
   const summary = stream.getByRole('button', { name: /1 reply/ });
-  await expect(summary).toContainText('Answered');
+  // The thread line names who replied and how many; Answered only before any reply text.
+  await expect(summary.locator('.ops-thread-faces > *')).toHaveText(['SL']);
+  await expect(summary).not.toContainText('Answered');
   await expect(stream).not.toContainText('On it.');
   await summary.click();
   const thread = page.getByRole('complementary', { name: 'Thread' });

@@ -277,7 +277,8 @@ export function exchangeRows(
       ...(fromMe ? { state: deliveryText(item), mark: deliveryMark(item) } : {}),
     }),
   ];
-  if (now) out[0]!.querySelector('.ops-dm-message-body')!.append(now);
+  // Send now ends the delivery line it belongs to.
+  if (now) out[0]!.querySelector('.ops-dm-message-state')?.append(now);
   const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
   const replyShortened = fullReply === undefined ? shortenedReply(item) : undefined;
   if (replyWords !== undefined && replyWords !== null)
@@ -673,7 +674,10 @@ export function sendNowAsks(port: SendNowPort, changed: () => void) {
       // Still not offered; the next list read asks for the result again.
     }
   }
-  async function ask(ids: readonly string[]) {
+  async function ask(wanted: readonly string[]) {
+    // A second click before the redraw asks nothing again.
+    const ids = wanted.filter((id) => !asked.has(id));
+    if (!ids.length) return;
     for (const id of ids) {
       asked.add(id);
       flying.add(id);
@@ -720,7 +724,7 @@ export function sendNowAsks(port: SendNowPort, changed: () => void) {
         .filter((item) => !asked.has(item.requestId) && current(item).messageState?.canSendNow)
         .map((item) => item.requestId);
       if (!going && !note && !offered.length) return undefined;
-      const line = el('p', 'ops-dm-send-now');
+      const line = el('span', 'ops-dm-send-now');
       if (going) line.append(el('span', 'ops-dm-send-now-state', 'Sending now…'));
       else if (offered.length) {
         const button = el('button', 'ops-dm-send-now-button', 'Send now');
