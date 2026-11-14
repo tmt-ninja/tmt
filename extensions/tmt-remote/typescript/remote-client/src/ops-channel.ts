@@ -3,16 +3,27 @@
  * bottom and the composer fixed under it. The board owns members and timers; admitted
  * conversation reads own the DM stream. Writes stay unavailable until Remote names them. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
-import type { OpsAgent, OpsBoard, OpsSchedule, OpsSquad } from './ops-source.js';
+import {
+  AGENT_STATES,
+  type AgentState,
+  type OpsAgent,
+  type OpsBoard,
+  type OpsSchedule,
+  type OpsSquad,
+} from './ops-source.js';
 import { el, mark } from './ops-parts.js';
 import { opsHref, type OpsPlace } from './ops-menu.js';
-import { timerList } from './ops-timers.js';
+import { scheduleWords, timerList } from './ops-timers.js';
 import type { RemoteShell } from './remote-shell.js';
 import { channelStream, type ChannelPort } from './channel-stream.js';
 
 type ChannelPlace = Exclude<OpsPlace, string>;
 type MemberWord = 'Working' | 'Idle' | 'Offline' | 'Unknown';
-const MARKS = { Working: 'dot', Idle: 'dashed', Offline: 'ring', Unknown: 'unknown' } as const;
+/** A state word's mark, as the rail draws it. */
+const stateMark = (word: MemberWord) => {
+  const info = AGENT_STATES[word.toLowerCase() as AgentState];
+  return mark(info.mark, info.markTone);
+};
 
 export function memberState(agent: Pick<OpsAgent, 'state'>): MemberWord {
   return { working: 'Working', idle: 'Idle', offline: 'Offline', unknown: 'Unknown' }[
@@ -22,7 +33,7 @@ export function memberState(agent: Pick<OpsAgent, 'state'>): MemberWord {
 
 /** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
 function unknownMark(): HTMLElement {
-  const alone = mark(MARKS.Unknown);
+  const alone = stateMark('Unknown');
   alone.title = 'State unknown';
   alone.setAttribute('role', 'img');
   alone.setAttribute('aria-label', 'State unknown');
@@ -41,7 +52,7 @@ function stateBadge(agent: OpsAgent): HTMLElement {
   }
   const badge = el('span', `${c.chip} ops-member-state`);
   badge.dataset.state = word.toLowerCase();
-  badge.append(mark(MARKS[word]), el('span', c.chipLabel, word));
+  badge.append(stateMark(word), el('span', c.chipLabel, word));
   return badge;
 }
 
@@ -157,8 +168,11 @@ export function channelView(
     });
     panels.forEach((target, at) => (target.hidden = !open || at !== index));
   }
+  // A DM with one timer shows it as a chip on the facts line; the panel opens from it and folds away.
+  let oneTimer = false;
   function setOpen(value: boolean): void {
     open = value;
+    if (oneTimer) panel.hidden = !value;
     panel.dataset.open = String(value);
     tabs.hidden = !value;
     summary.hidden = value;
@@ -250,18 +264,12 @@ export function channelView(
       membersPanel.replaceChildren(...content);
   }
 
-  function channelFacts(
-    squad: OpsSquad | undefined,
-    people: readonly OpsAgent[],
-    truncated: boolean,
-  ): void {
+  function channelFacts(squad: OpsSquad | undefined, people: readonly OpsAgent[]): void {
     const lead = people.find((agent) => agent.role === 'lead')?.name ?? squad?.lead;
     line.replaceChildren();
+    // The member count lives once, in the summary bar below.
     if (lead) line.append('Lead ', el('strong', undefined, lead), ' · ');
-    const count = truncated
-      ? 'Members (partial)'
-      : `${people.length} member${people.length === 1 ? '' : 's'}`;
-    line.append(`${count} · This machine`);
+    line.append('This machine');
   }
 
   return {
@@ -323,13 +331,13 @@ export function channelView(
         title.textContent = member.name;
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
-        const stateMark = state === 'Unknown' ? unknownMark() : mark(MARKS[state]);
+        const marked = state === 'Unknown' ? unknownMark() : stateMark(state);
         // The member's channel is a link back to it.
         const channelHref = opsHref(pathname, { squad: member.squad });
         const squadLink = el('a', 'ops-channel-squad-link', `#${member.squad}`);
         squadLink.href = channelHref;
         facts.append(
-          stateMark,
+          marked,
           `${[
             state === 'Unknown' ? undefined : state,
             member.role === 'lead' ? 'Lead' : 'Member',
@@ -341,11 +349,26 @@ export function channelView(
           squadLink,
           ' · This machine',
         );
+        if (member.task)
+          facts.append(' · ', el('span', 'ops-channel-line-task', `Task: ${member.task}`));
         back.href = channelHref;
         back.setAttribute('aria-label', `Back to #${member.squad}`);
         back.hidden = false;
         line.replaceChildren(facts);
-        if (member.task) line.append(el('span', 'ops-channel-line-task', member.task));
+        if (jobs?.length === 1) {
+          const timer = el('button', `${c.chip} ops-channel-timer-chip`);
+          timer.type = 'button';
+          timer.append(
+            mark('clock', 'neutral'),
+            el('span', c.chipLabel, scheduleWords(jobs[0]!.when).toLowerCase()),
+          );
+          timer.setAttribute('aria-label', `Timer: ${jobs[0]!.what}. Show timers`);
+          timer.addEventListener('click', () => {
+            select(1);
+            setOpen(true);
+          });
+          line.append(timer);
+        }
       } else {
         back.hidden = true;
         face.replaceChildren();
@@ -353,10 +376,12 @@ export function channelView(
         // A chip says what is set; an unset or unknown value shows nothing (as for #6372).
         if (squad?.idleAlertMs)
           chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 60_000)}m`));
-        channelFacts(squad, people, board.truncated);
+        channelFacts(squad, people);
       }
-      // A DM with no timers has no Timers bar: an empty line on a phone says nothing.
-      panel.hidden = !!member && timerCount === 0;
+      // A DM with no timers has no Timers bar: an empty line on a phone says nothing. One timer is a
+      // chip on the facts line; two or more keep the bar.
+      oneTimer = !!member && timerCount === 1;
+      panel.hidden = (!!member && timerCount === 0) || (oneTimer && !open);
       // The Timers count lives once, in the summary row below the title.
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;

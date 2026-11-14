@@ -511,6 +511,24 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     };
   }
 
+  /** The one rule every pair follows, when every pair answers the same and nothing is blocked. */
+  function baseRule(members: readonly Member[]): string | undefined {
+    const cells = members.flatMap((row) =>
+      members.filter((column) => column !== row).map((column) => cellText(row, column)),
+    );
+    if (
+      !cells.length ||
+      cells.some((cell) => !cell.label.startsWith('allowed') || cell.text !== cells[0]!.text)
+    )
+      return undefined;
+    const timing =
+      cells[0]!.text === '·'
+        ? 'delivery timing not reported'
+        : `delivered ${receivingWords(members[1]!.fields.receiving.value).toLowerCase()}`;
+    return `Base rule for everyone: anyone may message anyone · ${timing}`;
+  }
+  let gridShown = false;
+
   function drawMatrix(view: Overview) {
     const count = view.members.length;
     matrixMeta.textContent = memberQuery
@@ -655,7 +673,16 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       );
     const keep = matrixBody.querySelector('.ops-orchestration-scroll');
     const position = keep ? [keep.scrollLeft, keep.scrollTop] : [0, 0];
-    matrixBody.replaceChildren(scroll, ...notes);
+    const rule = view.plans.length ? undefined : baseRule(view.members);
+    if (rule) {
+      // With no plans and the same answer in every cell, the grid says one sentence; it stays a
+      // fold away.
+      const fold = el('details', 'ops-orchestration-grid-fold');
+      fold.open = gridShown;
+      fold.addEventListener('toggle', () => (gridShown = fold.open));
+      fold.append(el('summary', undefined, 'Show the grid'), scroll, ...notes);
+      matrixBody.replaceChildren(el('p', 'ops-orchestration-base-rule', rule), fold);
+    } else matrixBody.replaceChildren(scroll, ...notes);
     scroll.scrollLeft = position[0]!;
     scroll.scrollTop = position[1]!;
   }

@@ -32,7 +32,7 @@ export function sentence(text: string): HTMLParagraphElement {
 }
 
 /** A state's mark, in its own colour. */
-export function mark(shape: AgentMark, tone?: string): HTMLSpanElement {
+export function mark(shape: AgentMark | 'clock', tone?: string): HTMLSpanElement {
   const node = el('span', browserUiClasses.stateMark);
   node.dataset.shape = shape;
   if (tone) node.dataset.tone = tone === 'neutral' ? 'muted' : tone;
@@ -45,7 +45,10 @@ export function stateChip(state: AgentState, text?: string): HTMLSpanElement {
   const info = AGENT_STATES[state];
   const chip = el('span', browserUiClasses.chip);
   chip.dataset.tone = info.tone;
-  chip.append(mark(info.mark), el('span', browserUiClasses.chipLabel, text ?? info.word));
+  chip.append(
+    mark(info.mark, info.markTone),
+    el('span', browserUiClasses.chipLabel, text ?? info.word),
+  );
   return chip;
 }
 

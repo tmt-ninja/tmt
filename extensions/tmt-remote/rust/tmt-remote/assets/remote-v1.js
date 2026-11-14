@@ -8794,14 +8794,18 @@ function commandCopy(text) {
 * `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
 * on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
 */
+/** Each state's mark, word and chip tone. Working and idle are both dots: working takes the
+* working colour (`markTone`), idle the text's own; offline is a ring and unknown a question mark.
+* A dashed ring read as loading. */
 var AGENT_STATES = {
 	working: {
 		mark: "dot",
+		markTone: "working",
 		word: "Working",
 		tone: "neutral"
 	},
 	idle: {
-		mark: "dashed",
+		mark: "dot",
 		word: "Idle",
 		tone: "neutral"
 	},
@@ -9659,6 +9663,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 			label: `allowed · receives ${receivingWords(column.fields.receiving.value)}`
 		};
 	}
+	/** The one rule every pair follows, when every pair answers the same and nothing is blocked. */
+	function baseRule(members) {
+		const cells = members.flatMap((row) => members.filter((column) => column !== row).map((column) => cellText(row, column)));
+		if (!cells.length || cells.some((cell) => !cell.label.startsWith("allowed") || cell.text !== cells[0].text)) return void 0;
+		return `Base rule for everyone: anyone may message anyone · ${cells[0].text === "·" ? "delivery timing not reported" : `delivered ${receivingWords(members[1].fields.receiving.value).toLowerCase()}`}`;
+	}
+	let gridShown = false;
 	function drawMatrix(view) {
 		const count = view.members.length;
 		matrixMeta.textContent = memberQuery ? `${count} matching “${memberQuery}”` : `${count} × ${count}`;
@@ -9782,7 +9793,14 @@ function orchestrationView(connect, now = () => Date.now()) {
 		if (sending.truncated) notes.push(el("p", "ops-orchestration-caption", "Core stopped at its page limit; filter members to see the rest."));
 		const keep = matrixBody.querySelector(".ops-orchestration-scroll");
 		const position = keep ? [keep.scrollLeft, keep.scrollTop] : [0, 0];
-		matrixBody.replaceChildren(scroll, ...notes);
+		const rule = view.plans.length ? void 0 : baseRule(view.members);
+		if (rule) {
+			const fold = el("details", "ops-orchestration-grid-fold");
+			fold.open = gridShown;
+			fold.addEventListener("toggle", () => gridShown = fold.open);
+			fold.append(el("summary", void 0, "Show the grid"), scroll, ...notes);
+			matrixBody.replaceChildren(el("p", "ops-orchestration-base-rule", rule), fold);
+		} else matrixBody.replaceChildren(scroll, ...notes);
 		scroll.scrollLeft = position[0];
 		scroll.scrollTop = position[1];
 	}
@@ -10094,7 +10112,7 @@ function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => 
 		} : hasDraft(id) ? { badges: [DRAFT] } : {};
 	};
 	const stateMark = (state) => {
-		const node = mark(AGENT_STATES[state].mark);
+		const node = mark(AGENT_STATES[state].mark, AGENT_STATES[state].markTone);
 		node.style.width = "9px";
 		node.style.height = "9px";
 		return node;
@@ -10727,7 +10745,7 @@ function exchangeRows(item, names, fullReply, fullPost, now) {
 			mark: deliveryMark(item)
 		} : {}
 	})];
-	if (now) out[0].querySelector(".ops-dm-message-body").append(now);
+	if (now) out[0].querySelector(".ops-dm-message-state")?.append(now);
 	const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
 	const replyShortened = fullReply === void 0 ? shortenedReply(item) : void 0;
 	if (replyWords !== void 0 && replyWords !== null) out.push(messageRow({
@@ -11050,7 +11068,9 @@ function sendNowAsks(port, changed) {
 			asked.delete(id);
 		} catch {}
 	}
-	async function ask(ids) {
+	async function ask(wanted) {
+		const ids = wanted.filter((id) => !asked.has(id));
+		if (!ids.length) return;
 		for (const id of ids) {
 			asked.add(id);
 			flying.add(id);
@@ -11098,7 +11118,7 @@ function sendNowAsks(port, changed) {
 			const going = items.some((item) => flying.has(item.requestId));
 			const offered = items.filter((item) => !asked.has(item.requestId) && current(item).messageState?.canSendNow).map((item) => item.requestId);
 			if (!going && !note && !offered.length) return void 0;
-			const line = el("p", "ops-dm-send-now");
+			const line = el("span", "ops-dm-send-now");
 			if (going) line.append(el("span", "ops-dm-send-now-state", "Sending now…"));
 			else if (offered.length) {
 				const button = el("button", "ops-dm-send-now-button", "Send now");
@@ -11588,22 +11608,36 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		const open = el("button", "ops-thread-open");
 		open.type = "button";
 		open.dataset.requestId = post.requestId;
+		const shown = sides.filter((side) => side.words !== null);
+		if (shown.length) {
+			const faces = el("span", "ops-thread-faces");
+			faces.setAttribute("aria-hidden", "true");
+			for (const side of shown.slice(0, 3)) {
+				const face = el("span", browserUiClasses.avatar, avatarInitials(side.name));
+				face.dataset.size = "s";
+				faces.append(face);
+			}
+			open.append(faces);
+		}
 		open.append(el("span", "ops-thread-count", sides.length ? `${sides.length} repl${sides.length === 1 ? "y" : "ies"}` : "No replies yet"));
 		if (last) open.append(el("span", "ops-thread-last", `Last reply ${new Date(last).toLocaleTimeString(void 0, {
 			hour: "2-digit",
 			minute: "2-digit"
 		})}`));
-		const state = el("span", "ops-dm-message-state", sides.length ? "Answered" : deliveryText(as));
-		state.dataset.mark = sides.length ? "answered" : deliveryMark(as);
-		open.append(state);
+		if (!shown.length) {
+			const state = el("span", "ops-dm-message-state", sides.length ? "Answered" : deliveryText(as));
+			state.dataset.mark = sides.length ? "answered" : deliveryMark(as);
+			open.append(state);
+		}
 		open.setAttribute("aria-expanded", String(threadKey === post.requestId));
 		open.addEventListener("click", () => openThread(post.requestId));
-		const body = row.querySelector(".ops-dm-message-body");
-		body.append(open);
+		const threadLine = el("div", "ops-thread-line");
+		threadLine.append(open);
 		if (!sides.length) {
 			const control = now.control(post.items);
-			if (control) body.append(control);
+			if (control) threadLine.append(control);
 		}
+		row.querySelector(".ops-dm-message-body").append(threadLine);
 		if (threadKey === post.requestId) row.dataset.selected = "";
 		return row;
 	}
@@ -11882,11 +11916,10 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 * channel's facts, a collapsible Members/Timers panel, the conversation stream anchored at the
 * bottom and the composer fixed under it. The board owns members and timers; admitted
 * conversation reads own the DM stream. Writes stay unavailable until Remote names them. */
-var MARKS = {
-	Working: "dot",
-	Idle: "dashed",
-	Offline: "ring",
-	Unknown: "unknown"
+/** A state word's mark, as the rail draws it. */
+var stateMark = (word) => {
+	const info = AGENT_STATES[word.toLowerCase()];
+	return mark(info.mark, info.markTone);
 };
 function memberState(agent) {
 	return {
@@ -11898,7 +11931,7 @@ function memberState(agent) {
 }
 /** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
 function unknownMark() {
-	const alone = mark(MARKS.Unknown);
+	const alone = stateMark("Unknown");
 	alone.title = "State unknown";
 	alone.setAttribute("role", "img");
 	alone.setAttribute("aria-label", "State unknown");
@@ -11916,7 +11949,7 @@ function stateBadge(agent) {
 	}
 	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
 	badge.dataset.state = word.toLowerCase();
-	badge.append(mark(MARKS[word]), el("span", browserUiClasses.chipLabel, word));
+	badge.append(stateMark(word), el("span", browserUiClasses.chipLabel, word));
 	return badge;
 }
 /** The last day's tokens (#6372) as "~1.4B 1d"; nothing when the machine did not say. */
@@ -12011,8 +12044,10 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 		});
 		panels.forEach((target, at) => target.hidden = !open || at !== index);
 	}
+	let oneTimer = false;
 	function setOpen(value) {
 		open = value;
+		if (oneTimer) panel.hidden = !value;
 		panel.dataset.open = String(value);
 		tabs.hidden = !value;
 		summary.hidden = value;
@@ -12094,12 +12129,11 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 		if (truncated) content.push(el("p", "ops-detail-note", "Partial board; some members may be missing."));
 		if (membersPanel.firstChild !== content[0] || membersPanel.childNodes.length !== content.length) membersPanel.replaceChildren(...content);
 	}
-	function channelFacts(squad, people, truncated) {
+	function channelFacts(squad, people) {
 		const lead = people.find((agent) => agent.role === "lead")?.name ?? squad?.lead;
 		line.replaceChildren();
 		if (lead) line.append("Lead ", el("strong", void 0, lead), " · ");
-		const count = truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`;
-		line.append(`${count} · This machine`);
+		line.append("This machine");
 	}
 	return {
 		node: page,
@@ -12159,29 +12193,41 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				title.textContent = member.name;
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
-				const stateMark = state === "Unknown" ? unknownMark() : mark(MARKS[state]);
+				const marked = state === "Unknown" ? unknownMark() : stateMark(state);
 				const channelHref = opsHref(pathname, { squad: member.squad });
 				const squadLink = el("a", "ops-channel-squad-link", `#${member.squad}`);
 				squadLink.href = channelHref;
-				facts.append(stateMark, `${[
+				facts.append(marked, `${[
 					state === "Unknown" ? void 0 : state,
 					member.role === "lead" ? "Lead" : "Member",
 					member.model,
 					usage(member) || void 0
 				].filter(Boolean).join(" · ")} · `, squadLink, " · This machine");
+				if (member.task) facts.append(" · ", el("span", "ops-channel-line-task", `Task: ${member.task}`));
 				back.href = channelHref;
 				back.setAttribute("aria-label", `Back to #${member.squad}`);
 				back.hidden = false;
 				line.replaceChildren(facts);
-				if (member.task) line.append(el("span", "ops-channel-line-task", member.task));
+				if (jobs?.length === 1) {
+					const timer = el("button", `${browserUiClasses.chip} ops-channel-timer-chip`);
+					timer.type = "button";
+					timer.append(mark("clock", "neutral"), el("span", browserUiClasses.chipLabel, scheduleWords(jobs[0].when).toLowerCase()));
+					timer.setAttribute("aria-label", `Timer: ${jobs[0].what}. Show timers`);
+					timer.addEventListener("click", () => {
+						select(1);
+						setOpen(true);
+					});
+					line.append(timer);
+				}
 			} else {
 				back.hidden = true;
 				face.replaceChildren();
 				title.textContent = `#${place.squad}`;
 				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
-				channelFacts(squad, people, board.truncated);
+				channelFacts(squad, people);
 			}
-			panel.hidden = !!member && timerCount === 0;
+			oneTimer = !!member && timerCount === 1;
+			panel.hidden = !!member && timerCount === 0 || oneTimer && !open;
 			const working = people.filter((agent) => memberState(agent) === "Working").length;
 			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
 			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;

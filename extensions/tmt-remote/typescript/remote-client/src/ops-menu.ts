@@ -60,7 +60,7 @@ export function opsMenu(
         : {};
   };
   const stateMark = (state: keyof typeof AGENT_STATES) => {
-    const node = mark(AGENT_STATES[state].mark);
+    const node = mark(AGENT_STATES[state].mark, AGENT_STATES[state].markTone);
     // The Ops mock uses the shared state mark at 9 px in the compact DM tree.
     node.style.width = '9px';
     node.style.height = '9px';

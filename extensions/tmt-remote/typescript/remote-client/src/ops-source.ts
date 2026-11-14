@@ -8,10 +8,16 @@ import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-r
 /** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
  * (`tmt-ui-state-mark`), the same box for every state. */
 export type AgentState = 'working' | 'idle' | 'offline' | 'unknown';
-export type AgentMark = 'dot' | 'ring' | 'dashed' | 'unknown';
-export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
-  working: { mark: 'dot', word: 'Working', tone: 'neutral' },
-  idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
+export type AgentMark = 'dot' | 'ring' | 'unknown';
+/** Each state's mark, word and chip tone. Working and idle are both dots: working takes the
+ * working colour (`markTone`), idle the text's own; offline is a ring and unknown a question mark.
+ * A dashed ring read as loading. */
+export const AGENT_STATES: Record<
+  AgentState,
+  { mark: AgentMark; markTone?: 'working'; word: string; tone: string }
+> = {
+  working: { mark: 'dot', markTone: 'working', word: 'Working', tone: 'neutral' },
+  idle: { mark: 'dot', word: 'Idle', tone: 'neutral' },
   offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
   unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
