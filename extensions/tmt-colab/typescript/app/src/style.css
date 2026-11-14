@@ -272,6 +272,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .needs-you-header-trigger > .tmt-ui-icon {
     display: none;
   }
+  .needs-you-header-trigger {
+    padding-inline: 0;
+  }
 }
 /* A state that holds and matters stays in the header as a mark and a word (#4116); a phone keeps the
    mark and hides the word visually, never from assistive technology. */
