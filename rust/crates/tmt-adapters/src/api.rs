@@ -713,7 +713,7 @@ impl Session {
             Request::TerminalStream { identity_id } => terminal::stream(storage, &identity_id),
             Request::TerminalResume { identity_id } => terminal::resume(storage, &identity_id),
             Request::TerminalRelaunch { identity_id, kind } => {
-                terminal::relaunch(storage, &identity_id, kind)
+                terminal::relaunch(paths, storage, &identity_id, kind)
             }
             Request::TerminalOpen { identity_id } => terminal::open(paths, storage, &identity_id),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),

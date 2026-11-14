@@ -279,6 +279,111 @@ fn an_agent_ended_by_ctrl_c_keeps_its_terminal_a_failed_resume_keeps_it_and_rm_c
     assert!(world.clean());
 }
 
+/// A reboot, for one member: its supervisor is gone and its binding is left as recorded.
+/// The program loses its terminal with it; `World::clean` reaps whatever outlives that.
+fn lose_supervisor(world: &mut World, name: &str) {
+    let supervisor = world.supervisor_of(name);
+    kill(Pid::from_raw(supervisor.pid() as i32), Signal::SIGKILL).unwrap();
+    wait_for_gone(&supervisor);
+}
+
+/// After a reboot the member gets a new built-in terminal in the folder the workspace
+/// capture recorded, not the caller's, and resumes its remembered session there (#6390).
+/// A shell needs the member's binding, and a member with no recorded folder starts nothing.
+#[test]
+fn a_member_whose_supervisor_is_gone_relaunches_in_its_recorded_folder() {
+    use std::io::Write as _;
+    let mut world = World::new();
+    world.json(&["identity", "create", "sender", "--json"]);
+    let provider = replying_provider(&mut world);
+    let started = world.run(&[
+        "run",
+        "--no-channel",
+        "--save",
+        "alpha",
+        provider.to_str().unwrap(),
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    let (identity, old_pane, _) = record_provider_session(&world, None, SESSION);
+    world.remember();
+    let folder = fs::canonicalize(&world.root).unwrap();
+    lose_supervisor(&mut world, "alpha");
+    // The board lists members after a reboot, which drops the lost binding.
+    assert_eq!(world.member_row("alpha")["presence"], "offline");
+
+    let shell = relaunch(&world, &identity, "shell");
+    assert_eq!(
+        shell["error"]["code"], "TERMINAL_RELAUNCH_UNSUPPORTED",
+        "{shell}"
+    );
+
+    // Called from another folder: the member still starts in its own.
+    for file in ["hook.status", "provider-argv", "alpha.pid", "provider.cwd"] {
+        fs::remove_file(world.root.join(file)).unwrap();
+    }
+    let elsewhere = world.root.join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    let mut child = world
+        .command(&["api"])
+        .current_dir(&elsewhere)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let request = serde_json::json!({"version": 1, "operation": "terminal.relaunch",
+        "input": {"identityId": identity, "kind": "resume"}});
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(request.to_string().as_bytes())
+        .unwrap();
+    let answer: Value = serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap();
+    assert_eq!(answer["relaunched"], "resume", "{answer}");
+    world.remember();
+    let pane = world.member_row("alpha")["pane"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(pane, old_pane, "a new terminal");
+    type_into(&world, &pane, b"\r");
+    let deadline = Instant::now() + WAIT;
+    while fs::read_to_string(world.root.join("hook.status"))
+        .ok()
+        .as_deref()
+        != Some("0")
+    {
+        assert!(Instant::now() < deadline, "the relaunched hook did not run");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let cwd = fs::read_to_string(world.root.join("provider.cwd")).unwrap();
+    assert_eq!(std::path::Path::new(cwd.trim_end()), folder);
+    let argv = fs::read_to_string(world.root.join("provider-argv")).unwrap();
+    assert!(
+        argv.lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|words| words == ["--resume", SESSION]),
+        "{argv}"
+    );
+    world.talk_for_reply("alpha", "after-reboot");
+
+    // With no recorded folder nothing starts.
+    lose_supervisor(&mut world, "alpha");
+    fs::remove_dir_all(support::state_dir(&world.root).join("workspace/pty")).unwrap();
+    fs::remove_file(world.root.join("alpha.pid")).unwrap();
+    let refused = relaunch(&world, &identity, "resume");
+    assert_eq!(
+        refused["error"]["code"], "TERMINAL_RELAUNCH_REFUSED",
+        "{refused}"
+    );
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(message.contains("no folder is recorded"), "{message}");
+    assert!(!world.root.join("alpha.pid").exists(), "nothing started");
+    assert_eq!(world.member_row("alpha")["presence"], "offline");
+    assert!(world.clean());
+}
+
 fn wait_for_gone(process: &ProcessIncarnation) {
     let deadline = Instant::now() + WAIT;
     while !gone(process) {

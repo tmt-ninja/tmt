@@ -68,7 +68,7 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
         .caused_by(error)
     })?;
     let started = match relaunch_kept(&executable, request, paths).unwrap_or_else(|| {
-        tmt_adapters::pty::start_member(executable.as_os_str(), &arguments(request), paths)
+        tmt_adapters::pty::start_member(executable.as_os_str(), &arguments(request), paths, None)
     }) {
         Ok(started) => started,
         Err(tmt_adapters::pty::LaunchError::Exited { status, output }) => {

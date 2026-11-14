@@ -228,6 +228,40 @@ pub fn forget_builtin_member(paths: &ConfigPaths, identity: &str) -> io::Result<
     Ok(true)
 }
 
+/// The folder a built-in member last ran in, as the built-in capture recorded it: the
+/// protected baseline's entry, else the newest generation that names the member with a
+/// folder. `None` when capture is off, the store does not exist or no entry has a folder.
+/// Read only; whether the folder still exists is the caller's check.
+pub fn builtin_member_folder(paths: &ConfigPaths, identity: &str) -> io::Result<Option<PathBuf>> {
+    let enabled = ConfigFiles {
+        paths: paths.clone(),
+    }
+    .workspace_snapshot_enabled()
+    .map_err(io::Error::other)?;
+    let directory = paths.builtin_workspace_directory();
+    if !enabled || !directory.exists() {
+        return Ok(None);
+    }
+    private_directory(&directory)?;
+    let Some(catalogue) = generations::read(&directory)? else {
+        return Ok(None);
+    };
+    let newest_first = catalogue.entries.iter().rev();
+    for entry in catalogue.protected().into_iter().chain(newest_first) {
+        let snapshot =
+            decode_builtin(&generations::acquire::<BuiltinSnapshot>(&directory, entry)?)?;
+        if let Some(cwd) = snapshot
+            .members
+            .into_iter()
+            .find(|member| member.identity.id == identity)
+            .and_then(|member| member.cwd)
+        {
+            return Ok(Some(PathBuf::from(cwd)));
+        }
+    }
+    Ok(None)
+}
+
 /// The built-in members whose binding, supervisor and program incarnation agree, as the
 /// tmux capture admits an annotation. Unverified members are left out; nothing is
 /// started, stopped or repaired. A spent budget fails rather than publish a partial set.

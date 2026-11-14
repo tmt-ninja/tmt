@@ -51,6 +51,7 @@ pub(super) fn replying_provider(world: &mut World) -> PathBuf {
 printf '%s' "$PPID" > '{root}/alpha.pid'
 printf '%s' "$$" > '{root}/alpha-peer.pid'
 printf '%s\n' "$@" >> '{root}/provider-argv'
+/bin/pwd -P > '{root}/provider.cwd'
 IFS= read -r release_hook
 printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{SESSION}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | {cli} __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
 printf '%s' "$?" > '{root}/hook.status.tmp'

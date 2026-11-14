@@ -365,7 +365,10 @@ stream through the public `terminal.stream` API rather than deriving socket path
   restores the previous member PID and marker, so the binding is unchanged. `tmt run`/`tmt
 resume` of an identity whose kept terminal runs no agent relaunch there with their own
   re-entry argv (`run_command::pty::relaunch_kept`) instead of starting a second
-  supervisor, which the kept binding would refuse. A member whose program ends during
+  supervisor, which the kept binding would refuse. When probe evidence shows the supervisor
+  gone (`EndpointLost`, as after a reboot), `terminal.relaunch` instead calls `start_member`
+  with the folder that `workspace::builtin_member_folder` reads from the built-in capture.
+  With no folder recorded it refuses and starts nothing. A member whose program ends during
   startup is closed by `start_member`. `close_pane` (`stop --close`) and
   `tmt rm`/`identity.remove` send `Close` before the existing wait for the supervisor's
   end, which an exited, not yet reaped supervisor satisfies. `stop --close` first lets the
