@@ -122,6 +122,10 @@ test('Save as template names the page, refuses a taken name with a suggestion, a
   const width = (locator: Locator) => async () => (await locator.boundingBox())?.width ?? 0;
   await expect.poll(width(page.getByRole('button', { name: 'Use template' }))).toBeLessThan(48);
   await expect.poll(width(page.locator('.tmt-ui-topbar-title-current'))).toBeGreaterThan(64);
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+  const title = page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar-title-current');
+  await expect(title).toBeVisible();
+  expect((await title.boundingBox())!.width).toBeGreaterThan(0);
   await page.setViewportSize(wide);
   await page.getByRole('button', { name: 'Use template' }).click();
   const create = page.getByRole('dialog', { name: 'New page' });

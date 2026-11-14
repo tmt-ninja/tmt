@@ -267,8 +267,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   overflow-wrap: normal;
   white-space: nowrap;
 }
-@media (max-width: 640px) {
-  .needs-you-wide {
+@media (max-width: 900px) {
+  .needs-you-wide,
+  .needs-you-header-trigger > .tmt-ui-icon {
     display: none;
   }
 }
