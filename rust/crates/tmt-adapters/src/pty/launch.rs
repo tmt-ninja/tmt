@@ -8,6 +8,7 @@ use std::{
     fs::{self, OpenOptions},
     io,
     os::unix::fs::OpenOptionsExt,
+    path::Path,
     time::Duration,
 };
 
@@ -78,10 +79,13 @@ pub fn relaunch_arguments(identity: &str, fresh: bool) -> Vec<&str> {
     words
 }
 
+/// Starts a supervisor for one member. `folder` is where the program starts; `None`
+/// keeps the caller's directory, as `tmt run` and `tmt resume` launch from it.
 pub fn start_member(
     executable: &OsStr,
     arguments: &[OsString],
     paths: &ConfigPaths,
+    folder: Option<&Path>,
 ) -> Result<StartedMember, LaunchError> {
     let directory = paths.pty_directory();
     ensure_private_directory(&directory)?;
@@ -107,7 +111,7 @@ pub fn start_member(
         cause,
     };
     let acknowledgment =
-        detached::start_line(executable, &argv, log, b"ready ").map_err(|error| {
+        detached::start_line(executable, &argv, log, b"ready ", folder).map_err(|error| {
             uncertain(io::Error::other(format!(
                 "supervisor startup is not confirmed: {error}; diagnostics: {}",
                 log_path.display()

@@ -152,7 +152,7 @@ remain independent of storage access.
 | `pane.screen`            | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                                                                               |
 | `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `socket`, `pane`, `paused`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                     |
 | `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
-| `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                   | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended (see [below](#relaunch-on-a-kept-terminal))                                                                             |
+| `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                   | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended, or a new terminal when its supervisor is gone (see [below](#relaunch-on-a-kept-terminal))                              |
 | `terminal.open`          | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a built-in-host member (see [below](#terminals-under-a-member))                                                                                |
 | `terminal.list`          | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `terminals`: a built-in-host member's extra terminals, read-only (see [below](#terminals-under-a-member))                                                                                                                 |
 | `terminal.close`         | `terminalId`, optional `force` (bool)                                                                                                               | `terminalId`, `closed`: closes one extra terminal (see [below](#terminals-under-a-member))                                                                                                                                              |
@@ -486,6 +486,39 @@ is still running; exit it first"). A launcher that ends before admitting its lau
 as a resume refusal or a missing session, is `TERMINAL_RELAUNCH_FAILED` with its exit and
 its last lines; the terminal is kept. `TERMINAL_RELAUNCH_UNCONFIRMED` means the supervisor
 did not confirm, and a program may have started.
+
+### Relaunch after the terminal is gone
+
+When fresh host evidence shows that a built-in-host member's supervisor is gone, as after
+a reboot, `terminal.relaunch` opens a new built-in terminal for it instead. The first read
+that reconciles after a reboot drops such a binding, so an identity with no binding takes
+this path too. The built-in capture is then the record that it ran on the built-in host. A
+mismatched or unknown answer stays `TERMINAL_STREAM_UNAVAILABLE`, so nothing starts beside
+a member that may still run. A binding on another host stays
+`TERMINAL_RELAUNCH_UNSUPPORTED`. An offline member that the capture lists comes back on the
+built-in host, even if it last ran on another host, and a session still live elsewhere
+makes the inner `tmt resume` refuse.
+
+- `resume` and `new` start a new supervisor running what `tmt resume --host pty -- <id>`
+  (with `--new` for `new`) runs, so its refusals, session selection and learning are that
+  command's own. The answer `{identityId, relaunched}` comes once the launch is admitted.
+- The program starts in the member's folder as the built-in
+  [workspace capture](workspace-v1.md#built-in-host-snapshots) recorded it: the protected baseline's entry,
+  else the newest generation that names the member with a folder. When capture is off,
+  no entry names the member with a folder, or that folder no longer exists, the answer is
+  `TERMINAL_RELAUNCH_REFUSED` and nothing starts. Core never picks another folder,
+  because the provider finds its session by folder.
+- The environment is the caller's, as when the caller runs `tmt resume` itself. The
+  original launch environment ended with the old supervisor.
+- `shell` is `TERMINAL_RELAUNCH_UNSUPPORTED`, since a shell needs the member's binding.
+  Resume the member or start a new session first.
+
+A launcher that ends before admitting its launch is `TERMINAL_RELAUNCH_FAILED` with its
+exit and last lines, and no terminal is kept. A supervisor that could not start is also
+`TERMINAL_RELAUNCH_FAILED`, and one that did not confirm is `TERMINAL_RELAUNCH_UNCONFIRMED`.
+Two calls at once may both find the supervisor gone: the second launcher finds the first's
+live binding and refuses, as `tmt resume` does, so the second call is
+`TERMINAL_RELAUNCH_FAILED`.
 
 ### Terminals under a member
 

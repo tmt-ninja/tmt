@@ -11,6 +11,7 @@ use crate::{
     delivery,
     host::{Host, OperationOptions, RelaunchError, ResumeError, TerminalState},
     pty::{
+        LaunchError,
         protocol::{Exit, RelaunchKind},
         terminal::{self, TerminalError},
     },
@@ -137,6 +138,13 @@ fn entry(storage: &mut Storage, id: &str) -> Result<BindingEntry, Fault> {
 /// as for `pane.screen`: an ended agent's kept terminal still has a stream to read, but a
 /// member whose supervisor is gone does not.
 fn active(entry: &BindingEntry) -> Result<&Binding, Fault> {
+    active_or_gone(entry)?.ok_or_else(unavailable)
+}
+
+/// As `active`, except that a binding whose supervisor is gone is `None` rather than an
+/// error. Only lost-endpoint evidence counts as gone; a mismatched or unknown answer
+/// stays unavailable, so a relaunch never starts beside a member that may still run.
+fn active_or_gone(entry: &BindingEntry) -> Result<Option<&Binding>, Fault> {
     let binding = entry.binding.as_ref().ok_or_else(unavailable)?;
     let probe = Host::for_server(&binding.server)
         .probe(
@@ -148,10 +156,9 @@ fn active(entry: &BindingEntry) -> Result<&Binding, Fault> {
         )
         .map_err(|_| Fault::unavailable())?;
     match evaluate_binding(entry, &probe) {
-        BindingEvidence::Active(_) => Ok(binding),
-        BindingEvidence::EndpointLost
-        | BindingEvidence::MarkerMismatch
-        | BindingEvidence::Unknown => Err(unavailable()),
+        BindingEvidence::Active(_) => Ok(Some(binding)),
+        BindingEvidence::EndpointLost => Ok(None),
+        BindingEvidence::MarkerMismatch | BindingEvidence::Unknown => Err(unavailable()),
     }
 }
 
@@ -197,17 +204,25 @@ pub(super) fn resume(storage: &mut Storage, id: &str) -> Result<Vec<u8>, Fault> 
 /// the same binding. `resume` and `new` run the in-terminal launcher that `tmt resume -- ID`
 /// and `tmt resume --new -- ID` run in a new supervisor, so its preflight, session selection
 /// and learning are the CLI's own; `shell` runs the user's login shell, which is no agent.
+/// A member whose supervisor is gone, as after a reboot, gets a new terminal instead
+/// (`relaunch_offline`). Any read that reconciles drops such a binding, so an identity with
+/// no binding takes that path too; the built-in capture then decides whether it has a folder.
 pub(super) fn relaunch(
+    paths: &ConfigPaths,
     storage: &mut Storage,
     id: &str,
     kind: RelaunchKind,
 ) -> Result<Vec<u8>, Fault> {
     let entry = entry(storage, id)?;
-    let binding = entry.binding.as_ref().ok_or_else(unavailable)?;
+    let Some(binding) = entry.binding.as_ref() else {
+        return relaunch_offline(paths, id, kind);
+    };
     if binding.server.host != HostKind::pty() {
         return Err(relaunch_unsupported());
     }
-    let binding = active(&entry)?;
+    let Some(binding) = active_or_gone(&entry)? else {
+        return relaunch_offline(paths, id, kind);
+    };
     let program = relaunch_program(id, kind)?;
     match crate::host::relaunch_member(binding, kind, program) {
         Ok(_) => serde_json::to_vec(&json!({"identityId": id, "relaunched": kind_name(kind)}))
@@ -229,6 +244,64 @@ pub(super) fn relaunch(
             "TERMINAL_RELAUNCH_UNCONFIRMED",
             format!("The relaunch was not confirmed; a program may have started: {cause}"),
         )),
+    }
+}
+
+/// A new built-in terminal for a member whose supervisor is gone, started in the folder
+/// the built-in workspace capture recorded for it, running what `tmt resume --host pty`
+/// runs there. With no recorded folder, or one that no longer exists, nothing starts: the
+/// provider finds its session by folder, so another folder would resume the wrong session.
+/// A shell needs a member's binding, so it opens only on a kept terminal.
+fn relaunch_offline(paths: &ConfigPaths, id: &str, kind: RelaunchKind) -> Result<Vec<u8>, Fault> {
+    if kind == RelaunchKind::Shell {
+        return Err(Fault::new(
+            "TERMINAL_RELAUNCH_UNSUPPORTED",
+            "A shell opens only on a member's kept terminal; resume the member or start a new session first.",
+        ));
+    }
+    let refused = |reason: String| {
+        Fault::detailed(
+            "TERMINAL_RELAUNCH_REFUSED",
+            format!("Nothing was started: {reason}."),
+        )
+    };
+    let folder = crate::workspace::builtin_member_folder(paths, id)
+        .map_err(|_| Fault::unavailable())?
+        .ok_or_else(|| {
+            refused(
+                "no folder is recorded for this member; start it with tmt resume from its folder"
+                    .into(),
+            )
+        })?;
+    if !folder.is_dir() {
+        return Err(refused(format!(
+            "the member's folder {} no longer exists",
+            folder.display()
+        )));
+    }
+    let program = relaunch_program(id, kind)?;
+    let (executable, arguments) = program.split_first().ok_or_else(Fault::unavailable)?;
+    let arguments: Vec<std::ffi::OsString> = arguments.iter().map(Into::into).collect();
+    match crate::pty::start_member(executable.as_ref(), &arguments, paths, Some(&folder)) {
+        Ok(_) => serde_json::to_vec(&json!({"identityId": id, "relaunched": kind_name(kind)}))
+            .map_err(|_| Fault::unavailable()),
+        Err(LaunchError::Exited { status, output }) => Err(Fault::detailed(
+            "TERMINAL_RELAUNCH_FAILED",
+            format!(
+                "The relaunched command ended before it started ({}); no terminal is kept.{}",
+                exit_text(status),
+                tail(&output)
+            ),
+        )),
+        Err(LaunchError::Unconfirmed { cause, .. }) => Err(Fault::detailed(
+            "TERMINAL_RELAUNCH_UNCONFIRMED",
+            format!("The relaunch was not confirmed; a program may have started: {cause}"),
+        )),
+        Err(LaunchError::NotStarted(cause)) => Err(Fault::detailed(
+            "TERMINAL_RELAUNCH_FAILED",
+            format!("Nothing was started: {cause}."),
+        )),
+        Err(LaunchError::Refused(reason)) => Err(refused(reason)),
     }
 }
 
@@ -639,6 +712,12 @@ mod tests {
     fn an_unknown_or_retired_identity_is_not_found_and_an_unbound_one_is_unavailable() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("fixture.db")).unwrap();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
         let unbound = create_or_resolve(&mut storage, "Unbound", Lifetime::Saved)
             .unwrap()
             .identity;
@@ -671,17 +750,24 @@ mod tests {
         );
         for id in [unknown, retired.id.as_str()] {
             assert_eq!(
-                relaunch(&mut storage, id, RelaunchKind::Shell)
+                relaunch(&paths, &mut storage, id, RelaunchKind::Shell)
                     .unwrap_err()
                     .code(),
                 "NAME_NOT_FOUND"
             );
         }
+        // An unbound identity the built-in capture never recorded starts nothing.
         assert_eq!(
-            relaunch(&mut storage, &unbound.id, RelaunchKind::Resume)
+            relaunch(&paths, &mut storage, &unbound.id, RelaunchKind::Resume)
                 .unwrap_err()
                 .code(),
-            "TERMINAL_STREAM_UNAVAILABLE"
+            "TERMINAL_RELAUNCH_REFUSED"
+        );
+        assert_eq!(
+            relaunch(&paths, &mut storage, &unbound.id, RelaunchKind::Shell)
+                .unwrap_err()
+                .code(),
+            "TERMINAL_RELAUNCH_UNSUPPORTED"
         );
     }
 }

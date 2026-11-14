@@ -106,6 +106,7 @@ pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
         b"R",
         false,
         Instant::now() + Duration::from_secs(3),
+        None,
     )
     .map(|_| ())
 }
@@ -113,11 +114,13 @@ pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
 /// A member supervisor acknowledges its bounded startup with one complete line.
 /// Keeping this in the detached-process owner preserves kill/reap responsibility
 /// until the line is validated; only then may the launcher leave it running.
+/// `directory` is where the supervisor, and so its program, starts; `None` keeps the caller's.
 pub(crate) fn start_line(
     program: &OsStr,
     args: &[OsString],
     log: File,
     prefix: &[u8],
+    directory: Option<&Path>,
 ) -> io::Result<Vec<u8>> {
     start_acknowledged(
         program,
@@ -126,6 +129,7 @@ pub(crate) fn start_line(
         prefix,
         true,
         Instant::now() + Duration::from_secs(3),
+        directory,
     )
 }
 
@@ -136,7 +140,7 @@ pub fn start_until(
     log: File,
     deadline: Instant,
 ) -> io::Result<()> {
-    start_acknowledged(program, args, log, b"R", false, deadline).map(|_| ())
+    start_acknowledged(program, args, log, b"R", false, deadline, None).map(|_| ())
 }
 
 fn start_acknowledged(
@@ -146,8 +150,13 @@ fn start_acknowledged(
     prefix: &[u8],
     line: bool,
     deadline: Instant,
+    directory: Option<&Path>,
 ) -> io::Result<Vec<u8>> {
-    let mut job = Exec::cmd(program)
+    let mut command = Exec::cmd(program);
+    if let Some(directory) = directory {
+        command = command.cwd(directory);
+    }
+    let mut job = command
         .args(args)
         .stdin(Redirection::Null)
         .stdout(Redirection::Pipe)

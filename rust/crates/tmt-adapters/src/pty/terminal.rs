@@ -258,7 +258,7 @@ pub fn open(
         id: id.clone(),
         cause,
     };
-    detached::start_line(executable, &argv, log, b"ready ").map_err(|error| {
+    detached::start_line(executable, &argv, log, b"ready ", None).map_err(|error| {
         uncertain(io::Error::other(format!(
             "terminal startup is not confirmed: {error}; diagnostics: {}",
             log_path.display()
