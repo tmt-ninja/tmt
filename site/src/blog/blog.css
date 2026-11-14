@@ -1,10 +1,10 @@
 @import "@tmt/browser-ui/static.css";
 @import "@tmt/browser-ui/editorial.css";
 
-/* Blog-only tone: the owner-selected ninja accent and highlighter use the shared red primitive.
+/* Blog-only tone: the owner-selected ninja accent and highlighter use the shared accent role.
    Dark is pinned on the document. Prose, tables, code and tags belong to editorial.css. */
 :root {
-  --blog-accent: var(--tmt-ui-ref-red-500);
+  --blog-accent: var(--tmt-ui-color-accent);
   --blog-summary: color-mix(in srgb, var(--tmt-ui-color-text) 40%, var(--tmt-ui-color-secondary));
   --site-paper: var(--tmt-ui-surface-paper);
   --site-mark-paper: var(--tmt-ui-surface-paper);

@@ -2,7 +2,7 @@
 
 The blog consumes the shared TMT browser token and editorial package entries.
 The document pins the dark scheme: ink paper, rice-paper text and muted text come
-from `--tmt-ui-*` semantic roles. Blog-only tone uses the shared red primitive
+from `--tmt-ui-*` semantic roles. Blog-only tone uses the shared accent role
 for the ninja accent and highlighter, and a blend of text/secondary for summaries.
 Fonts, the type ramp, prose, tables, figures, code and tags come from
 `@tmt/browser-ui/static.css` and `@tmt/browser-ui/editorial.css`; no Colab application
