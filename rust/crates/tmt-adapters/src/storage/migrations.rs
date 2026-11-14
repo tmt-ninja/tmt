@@ -448,6 +448,10 @@ const MIGRATIONS: &[Migration] = &[
         "record the interactive forms a provider session waits on",
         "schema/091.sql"
     ),
+    migration!(
+        "stamp which identity each usage write changed",
+        "schema/092.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -27,6 +27,7 @@ mod responses;
 mod room;
 mod room_roster;
 mod storage_cutover;
+mod usage_changes;
 
 // Unix-only like the crate's other test support (uid and mode checks).
 #[cfg(all(test, unix))]
@@ -73,6 +74,7 @@ pub use responses::{ResponseCapture, TurnCapture, TurnCaptureOutcome};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
 pub use storage_cutover::StorageCutover;
+pub use usage_changes::{MAX_CHANGED, UsageChanges};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

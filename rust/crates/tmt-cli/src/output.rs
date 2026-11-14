@@ -30,18 +30,8 @@ pub fn resume_document(
         if let Some(usage) = registry.remembered_usage(session) {
             resume["usage"] = usage.document();
         }
-        if let Some(mut consumption) = registry.remembered_consumption(session) {
-            // The remembered state is capped at 1024 bytes and carries no account; the newest
-            // sample names it only when it is the same observation (#5274).
-            if let (Some(limits), Some(sampled)) = (consumption.rate_limits.as_mut(), sampled)
-                && sampled.driver == session.harness.as_str()
-                && sampled.session == session.provider_session.as_str()
-                && sampled.provider == limits.provider
-                && sampled.observed_at_ms == limits.observed_at_ms
-            {
-                limits.account = Some(sampled.account.clone());
-            }
-            resume["consumption"] = consumption.document();
+        if let Some(consumption) = registry.consumption_document(session, sampled) {
+            resume["consumption"] = consumption;
         }
         resume
     })

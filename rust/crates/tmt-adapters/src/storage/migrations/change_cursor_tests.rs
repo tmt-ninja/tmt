@@ -12,6 +12,8 @@ const BOOKKEEPING: &[&str] = &[
     "_migrations",
     "change_cursor",
     "usage_cursor",
+    "usage_changes",
+    "usage_floor",
     "extension_storage_cutovers",
     "hook_capture_receipts",
 ];

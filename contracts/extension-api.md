@@ -173,6 +173,7 @@ remain independent of storage access.
 | `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                   | The skills that member's agent can invoke: `syntax`, `driver`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                  |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                                                                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                 | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
+| `consumption.changes`    | `since` (a `usage` cursor), optional `windowsMs` (0–3) and `maxBuckets`                                                                             | `usage`, `reset`, `identities`: the identities whose usage changed since `since` (see [below](#consumption-changes))                                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
 | `drivers.models`         | `{}`                                                                                                                                                | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                           |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
@@ -1173,6 +1174,32 @@ the newest `observedAtMs` and never sums them. Buckets from before schema 56 car
 neither. The identity-level `reporting`, `availableFromMs`, `lastSampleAtMs` and `latest`
 still describe the 5-second tier.
 
+### Consumption changes
+
+`consumption.changes` answers which identities' usage changed since a `usage` cursor,
+so a client can repaint only those when `changes.cursor` reports a new `usage` (#6364).
+Its input is `{since, windowsMs?, maxBuckets?}`. `since` is a `usage` value from
+`changes.cursor` or from an earlier answer. `windowsMs` (at most 3) and `maxBuckets` mean
+what they mean for `consumption.history`, bounded for 32 identities. The answer is
+`{usage, reset, identities: [...]}`:
+
+- `usage` is the cursor the list is consistent with. Pass it as the next `since`.
+- `identities` lists the non-retired identities whose sampler records changed after
+  `since`, in change order, at most 32. Each item is `{identityId, consumption, usage?,
+history?}`. `consumption` is exactly the `ls --json` `resume.consumption` projection,
+  or `null`. `usage` is exactly `resume.usage`, and `history` is exactly that identity's
+  `consumption.history` entry when `windowsMs` is given. The values are read after the
+  list, so they may already be newer than `usage`; the next answer names that identity
+  again.
+- `reset: true`, with an empty list, means: do the full read. Core answers that when
+  `since` is ahead of this store's `usage`, older than the changes it still tracks, or
+  when more than 32 identities changed.
+
+The read costs the changed identities, not the roster, and sampling is unchanged. A
+cursor is never carried across data roots: one from another root that falls inside this
+root's range cannot be told apart, so it is unsupported, as for `changes.cursor`. A core
+without the operation returns `API_INPUT_INVALID`; keep the timed full read.
+
 ## Account limits
 
 `consumption.limits` v1 is a storage-free read of the limits of every provider account Core
@@ -1571,7 +1598,8 @@ and a write that leaves every value the same is not a change either),
 notebook files, configuration files, and any extension's own storage. The usage
 sampler's records (consumption sources, buckets, rollup and family rows) advance
 `usage` instead and never `cursor`, because a sampler tick is telemetry no screen
-reloads for; `usage` is compared the same way. A core before schema 74 returns
+reloads for; `usage` is compared the same way. To read only the identities whose usage changed
+since a `usage` value, pass it to [`consumption.changes`](#consumption-changes). A core before schema 74 returns
 `cursor` alone and counts those writes in it. A client
 that reloads on a changed cursor must still reload on its own interval for
 those, and must treat `API_INPUT_INVALID` for this operation (an older core) as
