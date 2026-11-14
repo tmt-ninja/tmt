@@ -335,7 +335,8 @@ for (const width of [1440, 390])
       await expect(zero.getByRole('button')).toHaveCount(0);
       // The entry's slot is its own width while something waits; at zero only a one-pixel anchor stays.
       // The chip is as wide at 3, 2 and 1: the count box has one width for a single digit.
-      expect(initialWidth).toBeGreaterThan(40);
+      if (width <= 900) expect(initialWidth).toBe(24);
+      else expect(initialWidth).toBeGreaterThan(40);
       expect(widths).toEqual([initialWidth, initialWidth]);
       expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
       expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:resolve']);
