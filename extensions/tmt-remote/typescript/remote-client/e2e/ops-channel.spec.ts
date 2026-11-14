@@ -132,6 +132,9 @@ for (const width of [1440, 390])
       await page.keyboard.press('Enter');
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
       await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+      // A route taken with the keyboard moves focus to the title and shows its ring.
+      await expect(page.locator('.ops-channel-name')).toBeFocused();
+      await expect(page.locator('.ops-channel-name')).not.toHaveAttribute('data-quiet-focus');
       await expect(page.getByRole('region', { name: 'Talk history' })).toBeVisible();
       await expect(page.locator('.ops-dm [contenteditable="true"]')).toBeVisible();
       await expect(page.locator('.ops-channel > .ops-channel-history > .ops-dm')).toHaveCount(1);
@@ -482,6 +485,45 @@ test('DM history isolates a changed viewer and renders untrusted previews as tex
     'The checks passed. The whole reply, past its preview, ends here.',
   );
   await expect(reply).not.toHaveAttribute('title');
+  // A message Core holds says why, in Core's words, and when it goes at the latest.
+  const latest = await page.evaluate(() => {
+    const at = 1720000600000;
+    const item = window.dmNewest.items[0]!;
+    item.delivery = 'queued';
+    item.final = { status: 'not_submitted' };
+    item.responsePreview = null;
+    item.messageState = {
+      state: 'batched',
+      reason: { code: 'batched', text: 'batched every 30 min' },
+      latestMs: at,
+      remainingMs: null,
+      canSendNow: true,
+    };
+    return new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  });
+  await refresh(page);
+  await expect(conversation(page).locator('.ops-dm-message-state').first()).toHaveText(
+    `Batched every 30 min · delivers by ${latest}`,
+  );
+  // Send now asks once, and is not offered again until the result has been read.
+  const sendNow = conversation(page).getByRole('button', { name: 'Send now' });
+  await sendNow.click();
+  await expect(sendNow).toBeHidden();
+  expect(await page.evaluate(() => window.sendNowCalls)).toEqual([
+    await page.evaluate(() => window.dmNewest.items[0]!.requestId),
+  ]);
+  await page.evaluate(() => {
+    window.dmNewest.items[0]!.messageState = {
+      state: 'delivered',
+      reason: { code: 'delivered', text: 'delivered' },
+      latestMs: null,
+      remainingMs: null,
+      canSendNow: false,
+    };
+  });
+  await refresh(page);
+  await expect(conversation(page).locator('.ops-dm-message-state').first()).toHaveText('Delivered');
+  await expect(sendNow).toBeHidden();
   const stored = await positions(page);
   expect(stored).toHaveLength(2);
   expect(
@@ -692,6 +734,14 @@ test('channel posts to the lead or each mention with the board room, and shows r
   await expect(thread).toContainText('On it.');
   await expect(thread.getByRole('heading')).toHaveText('Ask @sample-2 <b>about</b> the plan');
   await expect(summary).toHaveAttribute('aria-expanded', 'true');
+  // Leaving the channel closes its thread; coming back shows the channel.
+  await page.evaluate(() => (location.hash = '#dm/00000000-0000-4000-8000-000000000002/sample'));
+  await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+  await page.evaluate(() => (location.hash = '#channel/sample'));
+  await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
+  await expect(thread).toBeHidden();
+  await summary.click();
+  await expect(thread).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(thread).toBeHidden();
   await expect(summary).toBeFocused();
@@ -715,6 +765,50 @@ test('channel posts to the lead or each mention with the board room, and shows r
   ]);
   expect(mentioned!.operationId).not.toBe(lead!.operationId);
   await expect(box).toHaveText('');
+  // A post Core holds for two members: Send now asks for each one's request once, and a refusal
+  // shows Core's sentence.
+  await page.evaluate(() => {
+    const at = 1720000300000;
+    const held = (requestId: string, recipientId: string) => ({
+      requestId,
+      recipientId,
+      roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+      sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      kind: 'request',
+      origin: 'person',
+      preparedAtMs: at,
+      delivery: 'queued',
+      messageState: {
+        state: 'batched',
+        reason: { code: 'batched', text: 'batched every 30 min' },
+        latestMs: null,
+        remainingMs: null,
+        canSendNow: true,
+      },
+      final: { status: 'not_submitted' },
+      preview: '@sample-1 @sample-2 the held post',
+    });
+    (window.roomPage.items as unknown[]).push(
+      held('req_00000014-cccc-4ccc-8ccc-cccccccccccc', '00000000-0000-4000-8000-000000000002'),
+      held('req_00000015-cccc-4ccc-8ccc-cccccccccccc', '00000000-0000-4000-8000-000000000003'),
+    );
+    window.sendNowAnswer = {
+      state: 'refused',
+      reason: 'SEND_NOW_NOT_ALLOWED',
+      reasonText: 'this message is no longer held',
+    };
+  });
+  await refresh(page);
+  const heldPost = stream.locator('.ops-dm-exchange', { hasText: 'the held post' });
+  await heldPost.getByRole('button', { name: 'Send now' }).click();
+  await expect(heldPost.locator('.ops-dm-send-now-note')).toHaveText(
+    'This message is no longer held',
+  );
+  await expect(heldPost.getByRole('button', { name: 'Send now' })).toBeHidden();
+  expect(await page.evaluate(() => window.sendNowCalls)).toEqual([
+    'req_00000014-cccc-4ccc-8ccc-cccccccccccc',
+    'req_00000015-cccc-4ccc-8ccc-cccccccccccc',
+  ]);
 });
 
 test('a busy channel lands at the latest, groups a run, offers the latest when scrolled up, and keeps it above the keyboard', async ({
@@ -842,6 +936,8 @@ test('a phone DM leads back to its channel, the rail marks drafts quietly, and a
   await back.click();
   await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
   await expect(page.locator('.ops-channel-name')).toBeFocused();
+  // A route taken with the pointer moves focus quietly, with no ring.
+  await expect(page.locator('.ops-channel-name')).toHaveAttribute('data-quiet-focus', '');
   await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   const dm = rail.getByRole('link', { name: /^sample-1/ });
   await expect(dm).toContainText('✎ Draft');

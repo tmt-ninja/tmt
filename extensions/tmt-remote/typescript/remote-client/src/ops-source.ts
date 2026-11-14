@@ -114,8 +114,9 @@ export interface OpsPayload {
 /** The four uncoloured states exposed by the board; pending is not presence. */
 function agentState(agent: OpsPayload['agents'][number]): AgentState {
   if (agent.presence === 'offline') return 'offline';
-  const activity = agent.activity?.state;
-  return activity === 'working' || activity === 'idle' ? activity : 'unknown';
+  // The provider's activity when it reports one; otherwise the state the board was told.
+  const state = agent.activity?.state ?? agent.state;
+  return state === 'working' || state === 'idle' ? state : 'unknown';
 }
 
 /** One plain sentence per reason, each saying what the person can do. */

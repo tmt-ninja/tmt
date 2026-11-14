@@ -14,11 +14,10 @@ type ChannelPlace = Exclude<OpsPlace, string>;
 type MemberWord = 'Working' | 'Idle' | 'Offline' | 'Unknown';
 const MARKS = { Working: 'dot', Idle: 'dashed', Offline: 'ring', Unknown: 'unknown' } as const;
 
-export function memberState(agent: Pick<OpsAgent, 'presence' | 'activity'>): MemberWord {
-  if (agent.presence === 'offline') return 'Offline';
-  if (agent.activity?.state === 'working') return 'Working';
-  if (agent.activity?.state === 'idle') return 'Idle';
-  return 'Unknown';
+export function memberState(agent: Pick<OpsAgent, 'state'>): MemberWord {
+  return { working: 'Working', idle: 'Idle', offline: 'Offline', unknown: 'Unknown' }[
+    agent.state
+  ] as MemberWord;
 }
 
 /** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
@@ -78,7 +77,7 @@ export function channelView(
 ): {
   node: HTMLElement;
   history: HTMLElement;
-  focusTitle(): void;
+  focusTitle(fromKeyboard: boolean): void;
   update(board: OpsBoard, place: ChannelPlace): void;
 } {
   const page = el('div', 'ops-channel');
@@ -88,6 +87,7 @@ export function channelView(
   const face = el('span', 'ops-channel-face');
   const title = el('h2', 'ops-channel-name');
   title.tabIndex = -1;
+  title.addEventListener('blur', () => title.removeAttribute('data-quiet-focus'));
   const chips = el('span', 'ops-channel-chips');
   // On a phone a DM leads with the way back to its channel, as Slack's back chevron does.
   const back = el('a', 'ops-channel-back', '‹');
@@ -268,8 +268,11 @@ export function channelView(
     node: page,
     history,
     /** After a route the person chose: the title takes focus, so reading starts at the new place. */
-    focusTitle() {
-      if (title.isConnected && !head.hidden) title.focus({ preventScroll: true });
+    focusTitle(fromKeyboard: boolean) {
+      if (!title.isConnected || head.hidden) return;
+      // The focus moves either way; only a keyboard route draws the ring.
+      title.toggleAttribute('data-quiet-focus', !fromKeyboard);
+      title.focus({ preventScroll: true });
     },
     update(board, place) {
       requestAnimationFrame(fit);
