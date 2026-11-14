@@ -335,6 +335,7 @@ fn prepare_records<E>(
         records.set_preamble_count(&preamble.identity_id, count + 1, now)?;
     }
     let attempt = RequestAttempt {
+        thread_root_request_id: None,
         kind: input.kind,
         origin: input.origin,
         room_id: input.room_id,
@@ -432,6 +433,35 @@ fn context<E>(
         attempt: raw.attempt,
         prompt,
     }))
+}
+
+/// A reply's thread root (#6407), with the root's text while it is retained.
+pub(super) fn thread_root<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<Option<crate::request::history::ThreadRoot>, RequestError<E>> {
+    let Some(root) = attempt.thread_root_request_id.as_deref() else {
+        return Ok(None);
+    };
+    let text = match context(records, root, now)?.map(|c| c.prompt) {
+        Some(RequestPrompt::Retained(prompt)) => Some(prompt.message),
+        _ => None,
+    };
+    Ok(Some(crate::request::history::ThreadRoot {
+        request_id: root.to_owned(),
+        text,
+    }))
+}
+
+impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    /// The thread root a delivery of `attempt` names before its message, if it is a reply.
+    pub fn thread_root(
+        &mut self,
+        attempt: &RequestAttempt,
+    ) -> Result<Option<crate::request::history::ThreadRoot>, RequestError<R::Error>> {
+        self.read(|records, now| thread_root(records, attempt, now))
+    }
 }
 
 fn nonempty<E>(value: &str) -> Result<(), RequestError<E>> {

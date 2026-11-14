@@ -604,6 +604,14 @@ and `digestKind` (`decision`, `review`, `fyi`); `digestKind` is separate from th
 request/announcement `kind`. Request lists and exchange documents also carry `mode`
 (`request`, or `passthrough` for typed text).
 
+Migration 93 adds an optional thread root to each request (#6407). Only a thread reply
+made through `dispatch.create` with `parentRequestId` records one: the parent's own root,
+or the parent; the root ID outlives the root's retention. The exact original message is
+unchanged; the reply's live and Digest delivery, and `x show --incoming`, carry one
+bounded thread line naming the root, as defined in
+[Thread replies](extension-api.md#thread-replies). History and exchange documents expose
+the root as `parentRequestId`.
+
 ### Passthrough
 
 `tmt talk <identity> <message> --passthrough` types a person's own message into the

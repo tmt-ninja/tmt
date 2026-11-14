@@ -199,10 +199,25 @@ fn sender(
     })
 }
 
-/// The request frame a live delivery of this attempt carries, with its own receipt.
-fn framed_for(attempt: &RequestAttempt, message: &str, sender: &str, request_id: &str) -> String {
+/// The request frame a live delivery of this attempt carries, with its own receipt. A
+/// thread reply starts with its thread line (#6407); the stored message is unchanged.
+fn framed_for(
+    storage: &mut Storage,
+    clock: fn() -> u64,
+    attempt: &RequestAttempt,
+    message: &str,
+    sender: &str,
+    request_id: &str,
+) -> Result<String, RequestError<StorageError>> {
     let receipt = encode_route_receipt(request_id, &attempt.attempt_id, &attempt.route);
-    framed_request(message, sender, request_id, &receipt)
+    let message = match RequestService::new(&mut *storage, clock).thread_root(attempt)? {
+        Some(root) => format!(
+            "{}\n{message}",
+            crate::request_frame::thread_reply_line(&root)
+        ),
+        None => message.to_owned(),
+    };
+    Ok(framed_request(&message, sender, request_id, &receipt))
 }
 
 /// A held request exactly as its live delivery reads, for a send-now that types it alone.
@@ -212,11 +227,20 @@ pub fn live_request_text(
     storage: &mut Storage,
     request_id: &str,
 ) -> Result<Option<String>, RequestError<StorageError>> {
+    live_request_text_at(storage, request_id, wall_time_ms)
+}
+
+/// `live_request_text` at `clock`'s instant.
+pub(crate) fn live_request_text_at(
+    storage: &mut Storage,
+    request_id: &str,
+    clock: fn() -> u64,
+) -> Result<Option<String>, RequestError<StorageError>> {
     let safe_id = request_id
         .strip_prefix("req_")
         .is_some_and(tmt_core::dispatch::canonical_id);
     let Some((context, true)) =
-        RequestService::new(&mut *storage, wall_time_ms).digest_reply_context(request_id)?
+        RequestService::new(&mut *storage, clock).digest_reply_context(request_id)?
     else {
         return Ok(None);
     };
@@ -225,14 +249,18 @@ pub fn live_request_text(
     };
     let attempt = &context.attempt;
     let sender = sender(storage, DigestSource::Incoming, attempt)?;
-    Ok(safe_id.then(|| {
-        framed_for(
-            attempt,
-            &prompt.message,
-            sender.name.as_deref().unwrap_or("unknown"),
-            request_id,
-        )
-    }))
+    if !safe_id {
+        return Ok(None);
+    }
+    framed_for(
+        storage,
+        clock,
+        attempt,
+        &prompt.message,
+        sender.name.as_deref().unwrap_or("unknown"),
+        request_id,
+    )
+    .map(Some)
 }
 
 /// One item exactly as its live delivery reads: a request is the generated request
@@ -292,7 +320,14 @@ fn item_block(
         ));
     };
     let body = if safe_id && replyable {
-        framed_for(attempt, &prompt.message, plain, &item.request_id)
+        framed_for(
+            storage,
+            wall_time_ms,
+            attempt,
+            &prompt.message,
+            plain,
+            &item.request_id,
+        )?
     } else {
         // Not replyable any more: the original text stays readable with a truthful
         // way to inspect the request's current state.

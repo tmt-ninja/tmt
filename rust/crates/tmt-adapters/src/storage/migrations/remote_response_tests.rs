@@ -83,7 +83,7 @@ fn the_rebuild_keeps_every_column_final_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 92);
+    assert_eq!(storage.health().unwrap().schema_version, 93);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -93,11 +93,22 @@ fn the_rebuild_keeps_every_column_final_index_and_trigger() {
         "rows are byte-identical"
     );
     assert_eq!(columns(&db), before_columns, "columns are 1:1");
+    // Indexes are equal; schema 93 keeps each trigger's cursor advance and adds the room
+    // change stamp after it (#6375).
+    let after = dependents(&db);
     assert_eq!(
-        dependents(&db),
-        before_dependents,
-        "indexes and triggers are equal"
+        after.keys().collect::<Vec<_>>(),
+        before_dependents.keys().collect::<Vec<_>>()
     );
+    for (name, sql) in &before_dependents {
+        if name.contains("_advances_change_cursor_") {
+            let stamped = sql.replace(" END", "");
+            assert!(after[name].starts_with(&stamped), "{name}");
+            assert!(after[name].contains("room_request_changes"), "{name}");
+        } else {
+            assert_eq!(&after[name], sql, "{name}");
+        }
+    }
     assert!(rows(&db, "PRAGMA foreign_key_check").is_empty());
     assert_eq!(
         rows(
@@ -231,7 +242,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 92);
+    assert_eq!(storage.health().unwrap().schema_version, 93);
     storage.close().unwrap();
     assert_eq!(
         rows(

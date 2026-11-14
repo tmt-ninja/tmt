@@ -31,6 +31,9 @@ fn failure(error: DispatchError, operation_id: &str) -> Failure {
         DispatchError::RoomRecipientNotMember => {
             "The target is no longer a member of the selected room."
         }
+        DispatchError::ParentInvalid => {
+            "The thread parent is not an available request in this room or conversation."
+        }
         DispatchError::Request(_) | DispatchError::Storage(_) => {
             "Dispatch could not be confirmed. Do not create a new operation merely to retry."
         }
@@ -112,6 +115,7 @@ fn run_with(
         storage
             .dispatch_request(
                 DispatchInput {
+                    parent_request_id: None,
                     originator,
                     kind,
                     origin: tmt_core::request::RequestOrigin::Person,

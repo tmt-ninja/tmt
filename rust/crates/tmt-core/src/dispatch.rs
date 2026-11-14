@@ -19,6 +19,9 @@ pub struct DispatchInput {
     /// What the recipient is handed. A passthrough is one request from a person to one
     /// identity, with no room, like `talk --passthrough`.
     pub mode: crate::request::digest::DeliveryMode,
+    /// The request this one replies to in a thread (#6407). Dispatch stores that
+    /// request's thread root, so threads stay one level.
+    pub parent_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

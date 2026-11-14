@@ -67,10 +67,20 @@ pub struct ResponsePreview {
     pub truncated: bool,
 }
 
+/// The thread a reply belongs to (#6407): its root request and, while retained, the
+/// root's exact text. Presentation owns the bounded, display-normalized line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadRoot {
+    pub request_id: String,
+    pub text: Option<String>,
+}
+
 pub struct HistoryRecord {
     pub attention: AttentionRecord,
     pub preview: Option<String>,
     pub response_preview: Option<ResponsePreview>,
+    /// Retained replies naming this request as their thread root (#6407).
+    pub reply_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +89,8 @@ pub struct HistoryItem<T = ()> {
     /// What a passthrough's turn earned, with its state as of the read.
     pub capture: Option<super::passthrough::PassthroughCapture>,
     pub request_id: String,
+    /// The thread root this request replies in, if any (#6407).
+    pub thread_root_request_id: Option<String>,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,
     pub originator: Originator,
@@ -97,6 +109,7 @@ pub struct HistorySummary {
     pub item: HistoryItem,
     pub preview: Option<String>,
     pub response_preview: Option<ResponsePreview>,
+    pub reply_count: u64,
 }
 
 pub struct HistoryPage {
@@ -164,6 +177,29 @@ pub struct ConversationSummary {
 pub enum ChangedSince {
     Count { count: u64, more: bool },
     Unknown,
+}
+
+/// Where a room stood (#6375): the change cursor value its stamps are compared with. A
+/// position names one store; it is never carried across data roots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RoomSince {
+    Position(u64),
+    /// Well-formed, but from another room.
+    Foreign,
+}
+
+/// What the room counts at a read: the current change position, the floor below which
+/// nothing is stamped, and the retained room requests stamped after `since` (at most the
+/// cap plus one).
+pub struct RoomChangeCounts {
+    pub position: u64,
+    pub floor: u64,
+    pub changed: u64,
+}
+
+pub struct RoomChanges {
+    pub position: u64,
+    pub changed_since: Option<ChangedSince>,
 }
 
 pub struct ConversationPage {

@@ -634,6 +634,15 @@ impl RequestRecords for RequestRows<'_> {
         history::list_conversation(self.0, query, limit, now_ms)
     }
 
+    fn room_change_counts(
+        &self,
+        room_id: &str,
+        since: Option<u64>,
+        now_ms: u64,
+    ) -> Result<tmt_core::request::history::RoomChangeCounts, Self::Error> {
+        history::room_change_counts(self.0, room_id, since, now_ms)
+    }
+
     fn conversation_counts(
         &self,
         viewer_id: &str,

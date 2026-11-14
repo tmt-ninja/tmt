@@ -38,6 +38,31 @@ pub enum ListQuery {
     History(HistoryQuery),
     Answers(AnswersQuery),
     Conversation(ConversationInput),
+    /// A room's own history (#6375): the history page plus its change position.
+    Room {
+        query: HistoryQuery,
+        since: Option<String>,
+    },
+}
+
+/// Room positions are opaque to clients: `r1-<scope>-<change cursor>`, hex. The scope tag
+/// makes a well-formed position from another room read as foreign. A position names one
+/// store and is never carried across data roots.
+fn room_tag(room_id: &str) -> String {
+    tmt_core::content_digest::framed_sha256(b"tmt-room-position-v1", room_id.as_bytes())[..12]
+        .to_owned()
+}
+pub fn encode_room_position(room_id: &str, position: u64) -> String {
+    format!("r1-{}-{position:x}", room_tag(room_id))
+}
+pub fn decode_room_position(text: &str, room_id: &str) -> RoomSince {
+    match text.split('-').collect::<Vec<_>>().as_slice() {
+        ["r1", tag, value] if *tag == room_tag(room_id) => u64::from_str_radix(value, 16)
+            .ok()
+            .filter(|v| *v <= MAX_JS_SAFE_INTEGER)
+            .map_or(RoomSince::Foreign, RoomSince::Position),
+        _ => RoomSince::Foreign,
+    }
 }
 
 /// The conversation view before the server resolves its viewer (#5807).
@@ -159,7 +184,18 @@ pub fn decode_list_query(bytes: &[u8]) -> Option<ListQuery> {
     match input.view.as_deref() {
         Some("answers") => answers_query(input).map(ListQuery::Answers),
         Some("conversation") => conversation_query(input).map(ListQuery::Conversation),
-        _ if input.member_id.is_some() || input.since.is_some() => None,
+        _ if input.member_id.is_some() => None,
+        None if input.originator_id.is_none()
+            && input.recipient_id.is_none()
+            && input.room_id.is_some() =>
+        {
+            if input.since.as_deref().is_some_and(|s| !valid_position(s)) {
+                return None;
+            }
+            let since = input.since.clone();
+            history_query(input).map(|query| ListQuery::Room { query, since })
+        }
+        _ if input.since.is_some() => None,
         _ => history_query(input).map(ListQuery::History),
     }
 }
@@ -340,7 +376,7 @@ pub(crate) fn item_document<T>(
             json!({"status":"unavailable","submittedAtMs":submitted_at_ms,"expiresAtMs":expires_at_ms})
         }
     };
-    let mut value = json!({"requestId":item.request_id,"roomId":item.room_id,"recipientId":item.recipient_identity_id,
+    let mut value = json!({"requestId":item.request_id,"parentRequestId":item.thread_root_request_id,"roomId":item.room_id,"recipientId":item.recipient_identity_id,
         "sender":{"kind":item.originator.as_str(),"identityId":item.originator.identity_id()},
         "kind":item.kind.as_str(),"origin":item.origin.as_str(),"urgent":item.delivery_policy.urgent,"digestKind":item.delivery_policy.kind.as_str(),"mode":item.delivery_policy.mode.as_str(),"preparedAtMs":item.prepared_at_ms,"delivery":item.delivery.as_str(),"messageState":message_state(&item.delivery_view),
         "recipientAcknowledged":item.recipient_acknowledged,"final":final_state});
@@ -372,6 +408,7 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
         "items":page.items.iter().map(|row| {
             let mut value = item_document(&row.item, |_| None);
             value["preview"] = json!(row.preview);
+            value["replyCount"] = json!(row.reply_count);
             if results {
                 value["responsePreview"] = json!(row.response_preview.as_ref().map(|preview| &preview.text));
                 value["previewTruncated"] = json!(row.response_preview.as_ref().is_some_and(|preview| preview.truncated));
@@ -383,6 +420,21 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
             HistoryCursor::Submitted { submitted_at_ms, request_id } => json!({"submittedAtMs":submitted_at_ms,"requestId":request_id}),
         }),
     })).expect("serializable request history")
+}
+
+/// A room page (#6375): the history page with response previews, its `changePosition`
+/// and, for `since`, `changedSince` with the conversation view's meaning and bounds.
+pub fn encode_room_page(page: &HistoryPage, changes: &RoomChanges, room_id: &str) -> Vec<u8> {
+    let mut value: Value =
+        serde_json::from_slice(&encode_history_page(page, true)).expect("history page JSON");
+    value["changePosition"] = json!(encode_room_position(room_id, changes.position));
+    if let Some(changed) = changes.changed_since {
+        value["changedSince"] = match changed {
+            ChangedSince::Count { count, more } => json!({"count":count,"more":more}),
+            ChangedSince::Unknown => json!("unknown"),
+        };
+    }
+    serde_json::to_vec(&value).expect("serializable room page")
 }
 
 /// The conversation page (#5807): the `results` item fields, plus `direction`,
@@ -401,6 +453,7 @@ pub fn encode_conversation_page(
             let mut value = serde_json::Map::new();
             for key in [
                 "requestId",
+                "parentRequestId",
                 "recipientId",
                 "sender",
                 "kind",
@@ -413,6 +466,7 @@ pub fn encode_conversation_page(
                 value.insert(key.into(), full[key].clone());
             }
             value.insert("preview".into(), json!(row.summary.preview));
+            value.insert("replyCount".into(), json!(row.summary.reply_count));
             value.insert(
                 "responsePreview".into(),
                 json!(row.summary.response_preview.as_ref().map(|p| &p.text)),

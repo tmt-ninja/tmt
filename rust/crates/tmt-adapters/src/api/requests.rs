@@ -43,6 +43,15 @@ pub(super) fn list_history(
         ListQuery::Answers(query) => service
             .request_answers(query)
             .map(|value| request_history::encode_answers_page(&value)),
+        ListQuery::Room { query, since } => {
+            let HistoryScope::Room(room_id) = query.scope.clone() else {
+                unreachable!("room queries carry a room scope")
+            };
+            let since = since.map(|text| request_history::decode_room_position(&text, &room_id));
+            service
+                .request_room_history(query, since)
+                .map(|(page, changes)| request_history::encode_room_page(&page, &changes, &room_id))
+        }
     }
     .map_err(request_error)
 }
