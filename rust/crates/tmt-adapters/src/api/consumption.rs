@@ -65,6 +65,101 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
         through_ms: value.through_ms,
     })
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChangesInput {
+    since: u64,
+    #[serde(default)]
+    windows_ms: Vec<u64>,
+    #[serde(default = "default_max_buckets")]
+    max_buckets: u64,
+}
+
+/// `consumption.changes` (#6364): `windowsMs` and `maxBuckets` mean what they mean for
+/// `consumption.history`, bounded for the most identities one answer can name.
+pub(super) fn decode_changes(input: &[u8]) -> Result<Request, Fault> {
+    let value: ChangesInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if value.windows_ms.len() > 3
+        || value.windows_ms.iter().collect::<HashSet<_>>().len() != value.windows_ms.len()
+        || !(1..=MAX_BUCKETS).contains(&value.max_buckets)
+        || value.since > tmt_core::limits::MAX_JS_SAFE_INTEGER
+    {
+        return Err(invalid());
+    }
+    let mut per_identity = 0u64;
+    for window in &value.windows_ms {
+        let resolution = window_resolution_ms(*window).ok_or_else(invalid)?;
+        per_identity += value.max_buckets.min(window / resolution);
+    }
+    if per_identity * crate::storage::MAX_CHANGED as u64 > MAX_RESPONSE_BUCKETS {
+        return Err(invalid());
+    }
+    Ok(Request::ConsumptionChanges {
+        since: value.since,
+        windows: value.windows_ms,
+        max_buckets: value.max_buckets,
+    })
+}
+
+/// The identities whose usage changed since `since`, each with the `ls --json`
+/// `resume.consumption` and `resume.usage` projections and, with windows, its
+/// `consumption.history` entry. `usage` is the cursor the list is consistent with; the
+/// values are read after it and may already be newer, which the next delta repeats.
+pub(super) fn changes(
+    storage: &mut Storage,
+    since: u64,
+    windows: Vec<u64>,
+    max_buckets: u64,
+) -> Result<Vec<u8>, Fault> {
+    let changed = storage
+        .usage_changes(since)
+        .map_err(|_| Fault::unavailable())?;
+    let registry = crate::runtime::RuntimeRegistry::first_party();
+    let history = if windows.is_empty() || changed.identities.is_empty() {
+        None
+    } else {
+        let now = crate::request_runtime::wall_time_ms();
+        Some(
+            storage
+                .consumption_history(&changed.identities, &windows, max_buckets, now, false, None)
+                .map_err(|_| Fault::unavailable())?,
+        )
+    };
+    let mut identities = Vec::with_capacity(changed.identities.len());
+    for id in &changed.identities {
+        let preferences = storage
+            .session_preferences(id)
+            .map_err(|_| Fault::unavailable())?;
+        let sampled = storage
+            .sampled_rate_account(id)
+            .map_err(|_| Fault::unavailable())?;
+        let mut item = serde_json::json!({"identityId": id, "consumption": null});
+        if let Some(session) = preferences.remembered.as_ref() {
+            if let Some(consumption) = registry.consumption_document(session, sampled.as_ref()) {
+                item["consumption"] = consumption;
+            }
+            if let Some(usage) = registry.remembered_usage(session) {
+                item["usage"] = usage.document();
+            }
+        }
+        if let Some(entry) = history.as_ref().and_then(|history| {
+            history["identities"]
+                .as_array()?
+                .iter()
+                .find(|entry| entry["id"] == id.as_str())
+        }) {
+            item["history"] = entry.clone();
+        }
+        identities.push(item);
+    }
+    serde_json::to_vec(&serde_json::json!({
+        "usage": changed.usage,
+        "reset": changed.reset,
+        "identities": identities,
+    }))
+    .map_err(|_| Fault::unavailable())
+}
+
 /// The limits of every provider account Core can read without an agent (#5418). Storage-free:
 /// each driver reads its own account sources (the pushed store and the ambient root), so the
 /// call opens no database and creates nothing.

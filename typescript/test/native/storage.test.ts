@@ -170,6 +170,7 @@ function expectNativeSchema(
     { version: 89, name: 'create canonical agent jobs and legacy import receipts' },
     { version: 90, name: 'record an empty Digest turn boundary while references are due' },
     { version: 91, name: 'record the interactive forms a provider session waits on' },
+    { version: 92, name: 'stamp which identity each usage write changed' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -246,6 +247,8 @@ function expectNativeSchema(
       'orchestration_talk_resumes',
       'orchestration_talk_holds',
       'provider_forms',
+      'usage_changes',
+      'usage_floor',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -273,6 +276,7 @@ function expectNativeSchema(
     'orchestration_talk_resumes',
     'orchestration_talk_holds',
     'provider_forms',
+    'usage_changes',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }

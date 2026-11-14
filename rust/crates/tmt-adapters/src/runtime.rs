@@ -448,6 +448,26 @@ impl RuntimeRegistry {
             .state_consumption(session.state.as_ref()?)
     }
 
+    /// The public `resume.consumption` projection, shared by `ls --json` and
+    /// `consumption.changes`. The remembered state is capped at 1024 bytes and carries no
+    /// account; the newest sample names it only when it is the same observation (#5274).
+    pub fn consumption_document(
+        &self,
+        session: &RememberedSession,
+        sampled: Option<&crate::storage::SampledAccount>,
+    ) -> Option<serde_json::Value> {
+        let mut consumption = self.remembered_consumption(session)?;
+        if let (Some(limits), Some(sampled)) = (consumption.rate_limits.as_mut(), sampled)
+            && sampled.driver == session.harness.as_str()
+            && sampled.session == session.provider_session.as_str()
+            && sampled.provider == limits.provider
+            && sampled.observed_at_ms == limits.observed_at_ms
+        {
+            limits.account = Some(sampled.account.clone());
+        }
+        Some(consumption.document())
+    }
+
     /// Harness IDs with a registration, for purging sessions of removed drivers.
     pub fn harnesses(&self) -> impl Iterator<Item = &str> {
         self.registrations
