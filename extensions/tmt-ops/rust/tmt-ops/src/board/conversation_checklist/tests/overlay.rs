@@ -1144,9 +1144,17 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Checklist);
     assert_eq!(app.overlay(), None, "the seeded form remains on the page");
     assert!(screen.contains("Todo · 0"), "{screen}");
-    assert!(screen.contains("Kind   Todo   Link "), "{screen}");
+    assert!(screen.contains("Kind    Todo   Link "), "{screen}");
     assert!(screen.contains("Title › review_the_build▏"), "{screen}");
-    assert!(screen.contains("From   worker · final"), "{screen}");
+    assert!(screen.contains("From    worker · final"), "{screen}");
+    let value_column = |label: &str, value: &str| {
+        let line = screen.lines().find(|line| line.contains(label)).unwrap();
+        unicode_width::UnicodeWidthStr::width(line.split_once(value).unwrap().0)
+    };
+    let kind_column = value_column("Kind", "Todo");
+    assert_eq!(kind_column, value_column("Title ›", "review_the_build"));
+    assert_eq!(kind_column, value_column("Link  ›", "https://"));
+    assert_eq!(kind_column, value_column("From", "worker · final"));
     assert!(
         !screen.contains("No items yet"),
         "the add form contains no list"

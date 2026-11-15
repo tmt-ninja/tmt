@@ -101,7 +101,12 @@ impl Controller {
             return;
         };
         let groups = [chip_group::ChipGroup {
-            label: "Kind  ".into(),
+            label: if owner.is_none() {
+                "  Kind   "
+            } else {
+                "Kind  "
+            }
+            .into(),
             choices: [
                 ("Todo", super::NoteKind::Todo),
                 ("Link", super::NoteKind::Link),

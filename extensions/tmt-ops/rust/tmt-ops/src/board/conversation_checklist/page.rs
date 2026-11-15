@@ -54,13 +54,13 @@ fn append_form(visual: &mut Vec<Visual<'_>>, draft: &super::Draft, notice: Optio
             draft.text(field).to_owned()
         };
         visual.push(Visual::Form(
-            crate::board::notes::single_line(&format!("  {label} › {value}")),
+            crate::board::notes::single_line(&format!("  {label:<5} › {value}")),
             if focused { Role::Accent } else { Role::Muted },
         ));
     }
     if let Some(seed) = &draft.seed {
         visual.push(Visual::Form(
-            crate::board::notes::single_line(&format!("  From   {}", seed.source.label())),
+            crate::board::notes::single_line(&format!("  From    {}", seed.source.label())),
             Role::Muted,
         ));
     }
