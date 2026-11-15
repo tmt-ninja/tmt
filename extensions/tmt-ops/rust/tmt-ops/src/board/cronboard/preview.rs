@@ -249,7 +249,7 @@ impl Review {
             hints: if self.removal().is_some() {
                 "⏎ delete · Esc cancel".into()
             } else {
-                "Esc cancel".into()
+                "← ⏎ apply · Esc cancel".into()
             },
             // The labels reserve the button line; whether they are enabled follows the areas.
             buttons: self.buttons().into(),

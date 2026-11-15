@@ -830,7 +830,7 @@ fn rename_name_enter_uses_the_same_save_plan_and_one_cas_then_closes_its_result(
     let task = {
         let _ui = crate::runner::forbid_commands();
         let text = paint(&app, 160, 36);
-        assert!(text.contains("Enter rename"), "{text}");
+        assert!(text.contains("⏎ rename"), "{text}");
         let Effect::NewMember(task) = input(&mut app, KeyCode::Enter) else {
             panic!("name-only Enter uses the existing Edit writer")
         };
@@ -862,7 +862,10 @@ fn rename_enter_reviews_other_kept_edits_and_escape_keeps_them_while_e_stays_nex
     input(&mut app, KeyCode::Esc);
     app.open_member_rename();
     let text = paint(&app, 160, 36);
-    assert!(text.contains("Enter next"), "{text}");
+    assert!(
+        !text.contains("⏎ rename"),
+        "Enter only moves to the next field: {text}"
+    );
     assert_eq!(input(&mut app, KeyCode::Enter), Effect::None);
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();

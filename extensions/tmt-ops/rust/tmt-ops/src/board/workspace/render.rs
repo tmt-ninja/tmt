@@ -1539,16 +1539,32 @@ fn whole_hints(hints: &[(&str, &str)], width: u16) -> String {
     fit_hints(&hints, width, " · ")
 }
 
-fn review_hints(draft: &super::manage::Draft) -> &'static [(&'static str, &'static str)] {
+/// The review's hints, one pattern for every dialog: the action's key and verb, extra keys,
+/// then Esc. The action key is ⏎ while the cursor is on it, else ← then ⏎.
+fn review_hints(draft: &super::manage::Draft, on_apply: bool) -> Vec<(&'static str, &'static str)> {
+    let verb = match draft
+        .operation
+        .as_ref()
+        .map(|operation| operation.confirm_label())
+    {
+        Some("Rename") => "rename",
+        Some("Leave squad") => "leave",
+        Some("Create squad") => "create",
+        Some("Add member" | "Add") => "add",
+        Some("Set lead") => "set lead",
+        Some("Clear lead") => "clear lead",
+        Some("Move") => "move",
+        Some("Publish leads") => "publish",
+        Some("Preview again") => "preview",
+        Some("Close and delete") => "delete",
+        _ => "apply",
+    };
+    let mut hints = vec![(if on_apply { "⏎" } else { "← ⏎" }, verb)];
     if draft.review_command().is_some() {
-        &[
-            ("c", "copy command"),
-            ("Esc", "cancel"),
-            ("Enter", "select"),
-        ]
-    } else {
-        &[("Esc", "cancel"), ("Enter", "select"), ("←→", "actions")]
+        hints.push(("c", "copy"));
     }
+    hints.push(("Esc", "cancel"));
+    hints
 }
 
 pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
@@ -1592,8 +1608,9 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             .as_ref()
             .map_or(0, |operation| operation.confirm_label().chars().count());
         let buttons = label + 2 + 9 + if draft.reopened { 10 } else { 0 };
-        let hints =
-            unicode_width::UnicodeWidthStr::width(whole_hints(review_hints(draft), 200).as_str());
+        let hints = unicode_width::UnicodeWidthStr::width(
+            whole_hints(&review_hints(draft, false), 200).as_str(),
+        );
         (longest.max(buttons + 2 + hints) + 4).min(80) as u16
     };
     // CRUD dialogs keep two cells of body margin on every edge at 80 and 150.
@@ -1837,7 +1854,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 frame.buffer_mut(),
                 hint,
                 Line::styled(
-                    whole_hints(review_hints(draft), hint.width),
+                    whole_hints(
+                        &review_hints(draft, cursor == Some(ReviewButton::Apply)),
+                        hint.width,
+                    ),
                     look.role(Role::Dim),
                 ),
             );

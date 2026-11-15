@@ -116,7 +116,7 @@ impl Controller {
             .rows_shown()
             .into_iter()
             .map(|row| match row {
-                Focus::More => width(&self.more_summary()) + 3,
+                Focus::More => width(&self.more_summary()) + 2,
                 Focus::Slot(model::Slot::Keep) => 21,
                 Focus::Slot(slot) => {
                     let text = self.draft.text(slot);
@@ -148,7 +148,7 @@ impl Controller {
         match self.stage {
             Stage::Form | Stage::Hosts if unavailable => "Esc close",
             Stage::Form if self.list.is_some() => "↑↓ choose · ⏎ pick · Esc back",
-            Stage::Form => "↑↓ move · ←→ change · Esc",
+            Stage::Form => "↑↓ move · ←→ change · Esc cancel",
             Stage::Template => "Ctrl-R reset · Esc close",
             _ => "Esc close",
         }
@@ -249,7 +249,7 @@ impl Controller {
                                 frame.buffer_mut(),
                                 area,
                                 Line::styled(
-                                    format!("{}  ▸", self.more_summary()),
+                                    format!("{} ▸", self.more_summary()),
                                     if focus {
                                         look.selection()
                                     } else {

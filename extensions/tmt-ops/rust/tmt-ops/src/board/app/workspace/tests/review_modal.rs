@@ -225,10 +225,10 @@ fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
 #[test]
 fn hints_drop_whole_phrases_after_whole_controls_at_narrow_and_normal_widths() {
     for (width, expected) in [
-        (24, ""),
-        (60, "c copy command · Esc cancel"),
-        (100, "c copy command · Esc cancel · Enter select"),
-        (160, "c copy command · Esc cancel · Enter select"),
+        (24, "c copy"),
+        (60, "← ⏎ rename · c copy · Esc cancel"),
+        (100, "← ⏎ rename · c copy · Esc cancel"),
+        (160, "← ⏎ rename · c copy · Esc cancel"),
     ] {
         let app = review(Kind::RenameMember, rename_operation("worker"));
         let buffer = draw(&app, width, 36);

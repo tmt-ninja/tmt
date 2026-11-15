@@ -89,6 +89,8 @@ pub struct Draft {
     pub operation: Option<Change>,
     pub shown: bool,
     pub timer_impact: Option<usize>,
+    /// Leaving takes the squad's lead with it.
+    pub loses_lead: bool,
     pub scroll: RefCell<ScrollState>,
     /// Painted Cancel / Close, apply and Discard, indexed by `ReviewButton`.
     pub controls: Cell<[Option<Rect>; 3]>,
@@ -404,6 +406,9 @@ impl Draft {
                     .map_or(member.as_str(), |member| member.name.as_str());
                 lines.push(format!("{name} leaves {}; it keeps running.", target.name));
                 lines.push("Its history and other squads stay.".into());
+                if self.loses_lead {
+                    lines.push(format!("{} loses its lead.", target.name));
+                }
                 self.timer_review(&mut lines);
             }
             Some(Operation::Assign {
@@ -976,6 +981,17 @@ impl App {
             };
             member.name = name.to_owned();
         }
+        let loses_lead = kind == Kind::Remove
+            && self.workspace_snapshot().is_some_and(|snapshot| {
+                snapshot.roster.squads.iter().any(|squad| {
+                    selected_room
+                        .as_ref()
+                        .is_some_and(|room| squad.room_id == room.id)
+                        && member
+                            .as_ref()
+                            .is_some_and(|member| squad.lead.as_deref() == Some(&member.id))
+                })
+            });
         let timer_impact = if self.cron.failure.is_none() {
             self.cron.cron.as_ref().map(|cron| {
                 cron.jobs
@@ -1009,6 +1025,7 @@ impl App {
             operation: None,
             shown: true,
             timer_impact,
+            loses_lead,
             scroll: Default::default(),
             controls: Cell::new([None; 3]),
             typed: String::new(),
