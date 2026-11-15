@@ -883,6 +883,8 @@ mod tests {
             fs::read_to_string(&ext_path).unwrap(),
             render_extension("/usr/local/bin/tmt").unwrap()
         );
+        let quoted_ext = render_extension("/a b/tm\"t\\x").unwrap();
+        assert!(quoted_ext.contains("const HOOK_BIN = \"/a b/tm\\\"t\\\\x\";"));
 
         // Tampered bytes or wrong permissions are rewritten atomically.
         fs::write(&ext_path, b"tampered").unwrap();
@@ -900,6 +902,8 @@ mod tests {
             fs::read_to_string(&ext_path).unwrap(),
             render_extension("/usr/local/bin/tmt").unwrap()
         );
+        let quoted_ext = render_extension("/a b/tm\"t\\x").unwrap();
+        assert!(quoted_ext.contains("const HOOK_BIN = \"/a b/tm\\\"t\\\\x\";"));
     }
 
     #[test]
