@@ -3390,11 +3390,11 @@ function OpenPage({
                   anchor={item.selector ?? undefined}
                   layout="anchored"
                   attached={
-                    item.thread
-                      ? resolved.includes(`${item.thread.writer}:${item.thread.id}`)
-                      : view.pageType === 'blocks' &&
-                        !!item.selector &&
-                        !!locateBlockQuote(item.selector)
+                    view.pageType === 'blocks' && !item.thread
+                      ? !!item.selector && !!locateBlockQuote(item.selector)
+                      : resolved.includes(
+                          item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
+                        )
                   }
                   anchorsChecked={anchorsChecked}
                   selection={selector}
