@@ -539,6 +539,83 @@ pub fn agy_with_model(
     )
 }
 
+/// Pi session JSONL (`docs/session-format.md`, `docs/message-types.md`):
+/// `type == "message"` with `message.role == "assistant"` or `type == "usage"`,
+/// carrying `usage: { input, output, cacheRead, cacheWrite, totalTokens }` and
+/// the provider's `model` ID.
+pub fn pi(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    now: u64,
+    deadline: Instant,
+) -> Option<State> {
+    appended_until(root, path, previous, now, pi_message, true, || {
+        Instant::now() >= deadline
+    })
+}
+
+fn pi_message(line: &str) -> Result<Option<Message>, ()> {
+    let entry: Value = serde_json::from_str(line).map_err(|_| ())?;
+    let kind = entry.get("type").and_then(Value::as_str).ok_or(())?;
+    let (usage, model, id) = match kind {
+        "message" => {
+            let message = entry.get("message").and_then(Value::as_object).ok_or(())?;
+            if message.get("role").and_then(Value::as_str) != Some("assistant") {
+                return Ok(None);
+            }
+            let Some(usage) = message.get("usage") else {
+                return Ok(None);
+            };
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(fingerprint)
+                .ok_or(())?;
+            (usage, message.get("model").and_then(attribution::model), id)
+        }
+        "usage" => {
+            let usage = entry.get("usage").ok_or(())?;
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(fingerprint)
+                .ok_or(())?;
+            (usage, entry.get("model").and_then(attribution::model), id)
+        }
+        _ => return Ok(None),
+    };
+    let cached = optional_count(usage, "cacheRead").ok_or(())?;
+    let cache_write = optional_count(usage, "cacheWrite").ok_or(())?;
+    let input = usage
+        .get("input")
+        .and_then(Value::as_u64)
+        .ok_or(())?
+        .checked_add(cached)
+        .ok_or(())?
+        .checked_add(cache_write)
+        .ok_or(())?;
+    let output = usage.get("output").and_then(Value::as_u64).ok_or(())?;
+    let counts = Counts {
+        input,
+        output,
+        cached,
+    };
+    if !counts.valid() {
+        return Err(());
+    }
+    Ok(Some(Message {
+        id,
+        request: None,
+        counts,
+        cache_write: usage
+            .get("cacheWrite")
+            .and_then(Value::as_u64)
+            .filter(|n| *n <= counts.input),
+        model,
+    }))
+}
+
 fn claude_until(
     root: &Path,
     path: &Path,

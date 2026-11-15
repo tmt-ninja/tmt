@@ -599,6 +599,7 @@ pub(super) fn run_bound(
         &launch.command,
         binding,
         owner.as_ref(),
+        &paths.global_dir,
     ) {
         Ok(command) => command,
         Err(error) => {
@@ -729,6 +730,12 @@ pub(super) fn run_bound(
         .cloned()
         .chain(lease.environment().iter().cloned())
         .chain(std::iter::once(("TMT_AGENT".into(), "1".into())))
+        .chain(
+            owner
+                .as_ref()
+                .and_then(|_| tmt_adapters::core_executable::selected().ok())
+                .map(|tmt| ("TMT_HOOK_BIN".into(), tmt.into_os_string())),
+        )
         .chain(learning.as_ref().map(|launch| {
             (
                 crate::session_learning::ENVIRONMENT.into(),
@@ -1243,6 +1250,7 @@ fn prepare_launch_hooks(
     command: &tmt_adapters::runtime::RuntimeCommand,
     binding: &Binding,
     owner: Option<&ProcessIncarnation>,
+    state_directory: &std::path::Path,
 ) -> std::io::Result<Option<tmt_adapters::runtime::RuntimeCommand>> {
     let Some(owner) = owner else {
         return Ok(None);
@@ -1260,5 +1268,6 @@ fn prepare_launch_hooks(
         launch: &launch,
         tmt: &tmt,
         environment: &environment,
+        state_directory: Some(state_directory),
     })
 }

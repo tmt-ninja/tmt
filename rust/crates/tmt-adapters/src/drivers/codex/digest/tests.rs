@@ -30,6 +30,7 @@ fn prepare_in(
         launch,
         tmt: Path::new("/a b/tm't"),
         environment: &environment,
+        state_directory: None,
     };
     let (session, cwd) = settings::launch_settings(&plan)?;
     let sources = settings::sources(&environment, &cwd, &directory.path.join("system"))?;

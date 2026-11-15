@@ -29,6 +29,7 @@ fn fixture(
         launch: &launch,
         tmt: Path::new("/a b/tm't"),
         environment: &environment,
+        state_directory: None,
     })
     .unwrap();
     assert_eq!(
@@ -81,6 +82,7 @@ fn explicit_regular_file_is_read_without_rewriting_it() {
         launch: &launch,
         tmt: Path::new("/tmt"),
         environment: &environment,
+        state_directory: None,
     })
     .unwrap();
     assert_eq!(
@@ -208,6 +210,7 @@ fn disabled_ambiguous_and_edited_settings_refuse_composition() {
                 launch: &launch,
                 tmt: Path::new("/tmt"),
                 environment: &environment,
+                state_directory: None,
             })
             .is_err()
         );

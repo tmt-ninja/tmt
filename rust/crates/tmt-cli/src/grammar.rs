@@ -65,6 +65,11 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         .filter(|driver| driver.hooks.is_some())
         .map(|driver| driver.name)
         .collect();
+    let full: Vec<&'static str> = drivers
+        .iter()
+        .filter(|driver| driver.support == tmt_core::driver::descriptor::Support::Full)
+        .map(|driver| driver.name)
+        .collect();
     let mut root = base(ROOT);
     for id in [
         "json",
@@ -155,7 +160,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::digest_hook(hooked.clone()))
     .subcommand(installation::allowance_intake(hooked.clone()))
     .subcommand(internal("__flush", "Internal finite hook queue flusher").hide(true).arg(Arg::new("log-id").required(true)))
-    .subcommand(installation::hook(hooked))
+    .subcommand(installation::hook(full))
     .subcommand(
         internal(
             "__consumption-sample",

@@ -893,7 +893,7 @@ fn the_identified_driver_is_remembered_then_preferred_then_the_exact_live_execut
     // Only without a harness does the live pane's foreground executable count.
     for (command, expected) in [
         ("gemini", Some("basic")),
-        ("pi", Some("basic")),
+        ("pi", Some("full")),
         ("opencode", Some("basic")),
         ("claude", Some("full")),
         ("/opt/bin/muse", Some("basic")),
@@ -967,7 +967,7 @@ fn json_driver_support_is_additive_a_plain_string_and_absent_never_null() {
 
     // A basic driver has no runtime, so there is no `runningDriver` to sit
     // beside; the level is still reported.
-    let value = support_document(pane_only_row("pi-1", "pi"), Some(Support::Basic));
+    let value = support_document(pane_only_row("gemini-1", "gemini"), Some(Support::Basic));
     assert_eq!(value["driverSupport"], "basic");
     assert!(value.get("runningDriver").is_none());
     assert_eq!(value["session"]["activity"]["state"], "unknown");
@@ -983,13 +983,13 @@ fn json_driver_support_is_additive_a_plain_string_and_absent_never_null() {
 
 #[test]
 fn a_running_basic_agent_carries_a_dim_basic_note_that_never_replaces_an_action() {
-    let mut basic = pane_only_row("pi-1", "pi");
+    let mut basic = pane_only_row("gemini-1", "gemini");
     basic.driver_support = Some(Support::Basic);
     let mut full = running_row("claude", CLAUDE);
     full.driver_support = Some(Support::Full);
     let text = render(vec![basic, full], Terminal::PLAIN, false);
     let lines: Vec<&str> = text.lines().collect();
-    let basic_line = lines.iter().find(|line| line.contains("pi-1")).unwrap();
+    let basic_line = lines.iter().find(|line| line.contains("gemini-1")).unwrap();
     assert!(basic_line.trim_end().ends_with("basic"), "{text}");
     let full_line = lines.iter().find(|line| line.contains("worker")).unwrap();
     assert!(!full_line.contains("basic"), "{text}");

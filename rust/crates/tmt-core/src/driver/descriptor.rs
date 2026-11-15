@@ -114,7 +114,7 @@ pub static PI: DriverDescriptor = DriverDescriptor {
     executables: &["pi"],
     hooks: None,
     hue: Hue::Neutral,
-    support: Support::Basic,
+    support: Support::Full,
     folds_queued_text: false,
 };
 
@@ -205,7 +205,7 @@ mod tests {
         for driver in ALL {
             assert_eq!(
                 driver.support == Support::Full,
-                driver.hooks.is_some(),
+                driver.hooks.is_some() || driver.name == "pi",
                 "{}",
                 driver.name
             );
@@ -213,7 +213,8 @@ mod tests {
         assert_eq!(named("claude").unwrap().support, Support::Full);
         assert_eq!(named("codex").unwrap().support, Support::Full);
         assert_eq!(named("agy").unwrap().support, Support::Full);
-        for basic in ["gemini", "pi", "opencode", "muse"] {
+        assert_eq!(named("pi").unwrap().support, Support::Full);
+        for basic in ["gemini", "opencode", "muse"] {
             assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
         }
     }

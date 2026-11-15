@@ -66,7 +66,7 @@ mod tests {
             .iter()
             .map(|d| d["driver"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["agy", "claude", "codex"]);
+        assert_eq!(names, ["agy", "claude", "codex", "pi"]);
         assert_eq!(
             drivers[0],
             json!({"driver":"agy","source":"fallback","models":[],"efforts":[]})
@@ -86,6 +86,10 @@ mod tests {
             drivers[2],
             json!({"driver":"codex","source":"provider","models":["gpt-6.1-sol","gpt-6-luna"],
                 "efforts":["low","medium","high","xhigh","max","ultra"]})
+        );
+        assert_eq!(
+            drivers[3],
+            json!({"driver":"pi","source":"fallback","models":[],"efforts":[]})
         );
 
         // Without the cache Codex falls back to its maintained lists.
