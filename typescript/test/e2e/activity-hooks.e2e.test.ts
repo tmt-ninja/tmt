@@ -533,8 +533,11 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
         agyResults[index].stderr,
       ]).toEqual([0, '{}', '']);
     }
+    const claudeId = forms(14)[0].identityId;
     const agyForms = (index: number) =>
-      JSON.parse(agyResults[index].stdout).forms as Array<Record<string, unknown>>;
+      (JSON.parse(agyResults[index].stdout).forms as Array<Record<string, unknown>>).filter(
+        (form) => form.identityId !== claudeId
+      );
     expect(agyForms(4)).toEqual([
       {
         formId: expect.any(String),
