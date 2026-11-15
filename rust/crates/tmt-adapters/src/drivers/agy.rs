@@ -697,6 +697,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         crate::runtime::provider_form::decode_agy(bytes)
     }
 
+    fn decode_activity_session(&self, payload: &[u8]) -> Option<ProviderSessionId> {
+        let (parsed, session) = parse_main_payload(payload).ok()?;
+        matches!(
+            parsed.hook_event_name.as_deref(),
+            Some("PreToolUse" | "PostToolUse")
+        )
+        .then_some(session)
+    }
+
     fn activity_state(
         &self,
         observation: &crate::runtime::hook_protocol::ActivityObservation,
@@ -1046,6 +1055,56 @@ mod tests {
         let canceled_turn = decode_turn(canceled.as_bytes()).unwrap();
         assert!(canceled_turn.interrupted);
         assert_eq!(AgyLifecycle.decode_digest_turn(canceled.as_bytes()), None);
+
+        let pre_tool = json!({
+            "hookEventName": "PreToolUse",
+            "conversationId": SESSION,
+            "toolCall": {
+                "id": "call_1",
+                "name": "ask_question",
+                "args": {"questions": [{"question": "Which?", "options": ["A", "B"]}]}
+            }
+        })
+        .to_string();
+        assert_eq!(
+            AgyLifecycle
+                .decode_activity_session(pre_tool.as_bytes())
+                .unwrap()
+                .as_str(),
+            SESSION
+        );
+        assert_eq!(
+            AgyLifecycle
+                .decode_activity(pre_tool.as_bytes())
+                .unwrap()
+                .event
+                .kind,
+            tmt_core::binding::session::activity::EventKind::ApprovalPrompt
+        );
+        assert!(AgyLifecycle.decode_form(pre_tool.as_bytes()).is_some());
+
+        let post_tool = json!({
+            "hookEventName": "PostToolUse",
+            "conversationId": SESSION,
+            "toolCall": {"id": "call_1", "name": "ask_question", "args": {}}
+        })
+        .to_string();
+        assert_eq!(
+            AgyLifecycle
+                .decode_activity_session(post_tool.as_bytes())
+                .unwrap()
+                .as_str(),
+            SESSION
+        );
+        assert_eq!(
+            AgyLifecycle
+                .decode_activity(post_tool.as_bytes())
+                .unwrap()
+                .event
+                .kind,
+            tmt_core::binding::session::activity::EventKind::ToolFinished
+        );
+        assert!(AgyLifecycle.decode_form(post_tool.as_bytes()).is_none());
     }
 
     #[test]
