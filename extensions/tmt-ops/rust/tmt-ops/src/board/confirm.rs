@@ -18,12 +18,27 @@ pub(super) struct Confirm {
     title: String,
     lines: Vec<String>,
     action: String,
+    /// A destroying action: its button is red and the row says y applies it.
+    destructive: bool,
     choice: Choice,
     state: DialogState,
     hits: RefCell<DialogHits>,
 }
 
 impl Confirm {
+    fn dialog_full(&self) -> Dialog<'_> {
+        Dialog {
+            title: self.title.clone(),
+            kind: DialogKind::Confirm,
+            placement: Placement::Center,
+            hints: if self.destructive {
+                "y delete · Esc cancel".into()
+            } else {
+                String::new()
+            },
+            buttons: buttons(&self.action, self.destructive).into(),
+        }
+    }
     #[cfg(test)]
     pub(super) fn title(&self) -> &str {
         &self.title
@@ -48,6 +63,7 @@ impl Confirm {
             .max()
             .unwrap_or_default()
             .max(self.title.chars().count() + 4)
+            .max(self.dialog_full().footer_width().into())
             .saturating_add(4)
             .max(40);
         let width = longest.min(usize::from(body.width));
@@ -61,13 +77,7 @@ impl Confirm {
             u16::try_from(width).unwrap_or(u16::MAX),
             u16::try_from(height).unwrap_or(u16::MAX),
         ];
-        let full = Dialog {
-            title: self.title.clone(),
-            kind: DialogKind::Confirm,
-            placement: Placement::Center,
-            hints: String::new(),
-            buttons: buttons(&self.action).into(),
-        };
+        let full = self.dialog_full();
         let areas = full.areas(body, size, false);
         // Never offer an action whose question cannot be shown in full: a short terminal keeps
         // only Cancel and asks for room, as the close dialog does.
@@ -77,6 +87,7 @@ impl Confirm {
             Dialog {
                 title: "Enlarge to review · Esc close".into(),
                 buttons: vec![Button::secondary("Cancel")],
+                hints: String::new(),
                 ..full
             }
         } else {
@@ -116,11 +127,34 @@ impl App {
         action: String,
         choice: Choice,
     ) -> Effect {
+        self.confirm_with(title, lines, action, false, choice)
+    }
+
+    /// [`Self::confirm`] for an action that destroys something, such as Delete timer.
+    pub(super) fn confirm_destructive(
+        &mut self,
+        title: String,
+        lines: Vec<String>,
+        action: String,
+        choice: Choice,
+    ) -> Effect {
+        self.confirm_with(title, lines, action, true, choice)
+    }
+
+    fn confirm_with(
+        &mut self,
+        title: String,
+        lines: Vec<String>,
+        action: String,
+        destructive: bool,
+        choice: Choice,
+    ) -> Effect {
         self.menu = None;
         self.confirm = Some(Confirm {
             title,
             lines,
             action,
+            destructive,
             choice,
             // Opens on Cancel: a stray Enter never applies.
             state: DialogState {
@@ -134,7 +168,7 @@ impl App {
     pub(super) fn confirm_event(&mut self, event: &Event) -> Option<Effect> {
         let confirm = self.confirm.as_mut()?;
         let action = confirm.action.clone();
-        let buttons = buttons(&action);
+        let buttons = buttons(&action, false);
         let input = match event {
             Event::Key(key) => confirm.state.key(DialogKind::Confirm, key, &[], &buttons),
             Event::Mouse(mouse) => {
@@ -172,8 +206,11 @@ impl App {
 }
 
 /// The action first, Cancel beside it.
-fn buttons(action: &str) -> [Button<'_>; 2] {
-    [Button::primary(action), Button::secondary("Cancel")]
+fn buttons(action: &str, destructive: bool) -> [Button<'_>; 2] {
+    [
+        Button::primary(action).destructive(destructive),
+        Button::secondary("Cancel"),
+    ]
 }
 
 #[cfg(test)]

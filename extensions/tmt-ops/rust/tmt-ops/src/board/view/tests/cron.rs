@@ -310,7 +310,7 @@ mod controls {
         for cancel in [KeyCode::Enter, KeyCode::Esc] {
             assert_eq!(press(&mut app, KeyCode::Char('d')), Effect::None);
             let confirm = app.confirm.as_ref().expect("a confirmation");
-            assert!(confirm.title().contains("delete product c0"));
+            assert_eq!(confirm.title(), "Delete timer c0");
             assert!(
                 app.cron_list.is_some(),
                 "the confirm is a layer over the list"
