@@ -411,9 +411,6 @@ fn blocking_digest(
     scenario: CaptureScenario,
 ) {
     register();
-    // Agy's continuation lifecycle still needs provider evidence (#5166). Its
-    // one-Stop rows prove the retained final before Digest; never invent B's authority.
-    let continued_final = driver != "agy";
     let unbound_once = scenario == CaptureScenario::UnboundOnce;
     let event = |name| match driver {
         "claude" => claude_event(name),
@@ -793,24 +790,26 @@ fn blocking_digest(
         if !observer_first {
             observer(&mut provider, first.clone(), capture, scenario);
         }
-        if continued_final {
-            let mut second = event("Stop");
-            second["stop_hook_active"] = true.into();
-            second[final_field] = "B: answer to core-1".into();
-            ok(provider.digest_hook(second.clone()));
-            if activity_only {
-                fs::write(
-                    provider
-                        .steps
-                        .join(provider.next.to_string())
-                        .with_extension("activity"),
-                    "",
-                )
-                .unwrap();
-                observer(&mut provider, second.clone(), capture, scenario);
-            }
-            observer(&mut provider, second, capture, scenario);
+        let mut second = event("Stop");
+        second[if driver == "agy" {
+            "continuationActive"
+        } else {
+            "stop_hook_active"
+        }] = true.into();
+        second[final_field] = "B: answer to core-1".into();
+        ok(provider.digest_hook(second.clone()));
+        if activity_only {
+            fs::write(
+                provider
+                    .steps
+                    .join(provider.next.to_string())
+                    .with_extension("activity"),
+                "",
+            )
+            .unwrap();
+            observer(&mut provider, second.clone(), capture, scenario);
         }
+        observer(&mut provider, second, capture, scenario);
         let timeline = passthrough::api(
             &fixture,
             "ok",
@@ -837,11 +836,7 @@ fn blocking_digest(
                 .iter()
                 .map(|e| e["kind"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            if continued_final {
-                vec!["input", "final", "input", "final"]
-            } else {
-                vec!["input", "final", "input"]
-            },
+            vec!["input", "final", "input", "final"],
             "{timeline:#}"
         );
         assert_eq!(entries[0]["requestId"], request);
@@ -853,21 +848,15 @@ fn blocking_digest(
                 .all(|e| e["inputBatchId"] == entries[0]["inputBatchId"])
         );
         let responses = timeline["responses"].as_array().unwrap();
-        assert_eq!(
-            responses.len(),
-            if continued_final { 2 } else { 1 },
-            "{timeline:#}"
-        );
+        assert_eq!(responses.len(), 2, "{timeline:#}");
         assert_eq!(responses[0]["provider"], driver);
         assert_eq!(responses[0]["text"], "A: answer to Ben");
         assert_eq!(responses[0]["requestId"], request);
-        if continued_final {
-            assert_eq!(responses[1]["provider"], driver);
-            assert_eq!(responses[1]["text"], "B: answer to core-1");
-            assert_ne!(responses[0]["responseId"], responses[1]["responseId"]);
-            assert!(responses[1].get("requestId").is_none());
-            assert_eq!(entries[3]["acknowledgements"], serde_json::json!([]));
-        }
+        assert_eq!(responses[1]["provider"], driver);
+        assert_eq!(responses[1]["text"], "B: answer to core-1");
+        assert_ne!(responses[0]["responseId"], responses[1]["responseId"]);
+        assert!(responses[1].get("requestId").is_none());
+        assert_eq!(entries[3]["acknowledgements"], serde_json::json!([]));
         assert_eq!(entries[1]["acknowledgements"][0]["identityId"], person);
         assert_eq!(entries[1]["acknowledgements"][0]["requestId"], request);
         let shown = passthrough::api(
