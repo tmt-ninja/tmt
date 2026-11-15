@@ -1,5 +1,8 @@
 # Answer blocks
 
+On a structured page (the default), ask with a `question` block instead ([blocks](blocks.md#questions-and-mockups));
+this reference covers questions on HTML pages.
+
 When authorized, place each decision beside the passage it concerns. Colab renders
 a waiting card and folds an answered question to a 32px strip; no tabs or layout HTML are needed.
 Use a unique canonical UUID for every question and group. Register each question before writing

@@ -25,24 +25,31 @@ seed; never create or disclose them to bypass pairing.
 
 ## Start and ask
 
-Start a structured page with `tmt colab page create --title T` and edit it with
-`tmt colab block` (see [blocks](references/blocks.md)). To create an HTML page from a
-template, use `page create --html --template NAME`: [templates](references/templates.md)
-(`tmt colab skill templates`).
-Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
+New pages are structured (blocks) unless they need HTML. Create, then add blocks in one batch:
 
-```html
-<div>
-  <tmt-question data-id="UUID" data-kind="single" data-agent="Your name">
-    <p data-question>Which option?</p>
-    <span data-choice>First</span><span data-choice>Second</span>
-  </tmt-question>
-</div>
+```sh
+tmt colab page create --title "Weekly plan" --json   # prints pageId
+tmt colab block batch PAGE --file ops.json --json      # all or nothing
 ```
+
+```json
+[
+  {"op":"insert","id":"UUID","type":"heading","props":{"level":2},"text":"Plan"},
+  {"op":"insert","id":"UUID","type":"paragraph","text":"What ships this week."},
+  {"op":"insert","id":"UUID","type":"question","text":"Which option?",
+   "props":{"kind":"single","agent":"Your name","choices":["First","Second"]}}
+]
+```
+
+Each `id` is a fresh UUID; one bad op refuses all (`COLAB_INPUT_INVALID`). Ask with a `question`
+block, never prose; the page's creator gets the answer. Use `page create --html` only for a template
+([templates](references/templates.md), `tmt colab skill templates`), a canvas or React page, or a
+look blocks cannot express; a mockup is a `mockup` block. HTML pages ask with `tmt-question`
+([questions](references/questions.md)).
 
 ## Set up a page
 
-Check `--help` for both extensions; install only with user consent:
+Check `--help`; install only with user consent:
 
 ```sh
 tmt extension install remote --yes
@@ -50,7 +57,7 @@ tmt extension install colab --yes --skills
 ```
 
 `--skills` installs this managed skill. Inspect unmanaged conflicts; never force silently.
-Reload provider skills, or run `tmt colab skill`, which needs no server or checkout.
+Reload provider skills or run `tmt colab skill` (no server needed).
 
 Start in the background:
 
@@ -58,36 +65,29 @@ Start in the background:
 tmt colab serve --background --json
 ```
 
-It prints readiness; `tmt colab stop` ends it. A foreground process dies with your
-task; use `--foreground --json` only under a supervisor.
-Serve attaches to a running Remote door or starts one; never start a second.
-Stopping Colab stops only its own door; `tmt remote status --json` inspects it.
+It prints readiness; `tmt colab stop` ends it. Use `--foreground --json` only under a supervisor.
+Serve attaches to a running Remote door or starts one (never a second); stop ends only its own
+door; `tmt remote status --json` inspects it.
 
-If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
-browser they intend to use, compare the four words with the terminal and confirm
-there themselves. Wait for their confirmation; never answer for them.
+If pairing is needed, ask the user to run `tmt remote pair`, open its link in their browser,
+compare the four words and confirm there themselves; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find pages: `tmt colab ls --json` (cached titles; folds misses). Create an HTML page from UTF-8 with `--html` and
-`--layout column` (most pages), `full` or `canvas --reason TEXT`, or a template (above);
-`page layout PAGE KIND` changes it:
+Find pages: `tmt colab ls --json`. An HTML page takes UTF-8, `--html`
+and `--layout column` (most), `full` or `canvas --reason TEXT`; `page layout PAGE KIND` changes it:
 
 ```sh
 tmt colab page create --html --title "Weekly plan" --layout column --file page.html --json
 ```
 
-Use `--file -` for stdin; omit `--file` for an empty page. Returns
-`pageId`, `path` (root-relative), `link`, `shortLink` and `opened`. With auto-open on and a local
-browser, creation opens the page without a TTY or with `--json`;
-`--no-open` suppresses it. Share `shortLink`, not `link`; if null,
-inspect serving status, never invent a URL.
+Use `--file -` for stdin. `page create` returns `pageId`, `path`, `link`, `shortLink` and
+`opened`; with auto-open on it opens the page (`--no-open` suppresses it). Share `shortLink`,
+not `link`; if null, inspect serving status, never invent a URL.
 `paired: false` and `next` mean user-only pairing, never an agent command. Run `read` entries first.
 `tmt colab show PAGE --json` shows the page and its link.
 
-When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
-It opens even with automatic-open off, but as an agent it only prints the link unless
-you pass `--open`. It never starts or pairs services. `--json` and `--no-open` suppress
-opening. Open browsers only on request.
+Asked to open a page: `tmt colab open PAGE` (omit PAGE for home). As an agent it only prints the
+link unless `--open`; it never starts or pairs services. Open browsers only on request.
 
 ## Check HTML
 
@@ -102,7 +102,8 @@ refuses to publish while markup findings remain. `hints` are advice that blocks 
 
 ## Edit a page
 
-Read and patch only the relevant HTML:
+Edit a structured page with `tmt colab block` ([blocks](references/blocks.md)). On an HTML page,
+read and patch only the relevant HTML:
 
 ```sh
 tmt colab page read PAGE --grep 'quoted text' --context 3 --json
@@ -127,9 +128,9 @@ editing reference; never delete the original to clear a limit.
 
 ## Page type and look
 
+Structured pages made of blocks (`page create`, the default): [blocks](references/blocks.md) (`tmt colab skill blocks`).
 Dashboards: [dashboard](references/dashboard.md) (`tmt colab skill dashboard`). Edit data only; the app owns the look.
-Structured pages made of blocks (`page create`): [blocks](references/blocks.md) (`tmt colab skill blocks`).
-HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
+HTML pages: read [layout](references/layout.md) (`tmt colab skill layout`),
 [components](references/components.md) (`tmt colab skill components`) and
 [page-style](references/page-style.md) (`tmt colab skill page-style`).
 Design-system mockups: `tmt colab skill tmt-design-system`.
