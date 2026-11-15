@@ -44,7 +44,7 @@ fn hints(draft: &Draft) -> &'static str {
         return "Esc close";
     }
     match draft.close.as_ref().and_then(|c| c.result.as_ref()) {
-        Some(Outcome::Refused { .. }) => "← ⏎ delete · j jump · Esc cancel",
+        Some(Outcome::Refused { .. }) => "← ⏎ delete · z jump · Esc cancel",
         Some(_) => "Esc close",
         None => "⏎ delete · Esc cancel",
     }

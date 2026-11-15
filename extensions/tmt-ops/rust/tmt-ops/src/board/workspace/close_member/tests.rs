@@ -620,7 +620,7 @@ fn refused_jump_uses_the_frozen_uuid_and_keeps_the_explicit_delete_review() {
             pane_reason: None,
         },
     });
-    paint(&app, 100, 36);
+    assert!(paint(&app, 100, 36).contains("z jump"));
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)),
         Effect::None
