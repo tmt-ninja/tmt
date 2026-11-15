@@ -615,7 +615,7 @@ fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() 
     let untouched = launch.diagnostic().unwrap().next_step;
     assert_eq!(
         untouched,
-        "No claude hook has arrived yet: install its hooks with tmt setup claude, then send the agent a prompt in its pane."
+        "No claude hook has arrived yet. Install its hooks, then send the agent a prompt in its pane. Install with: tmt setup claude"
     );
     learning
         .stage(SessionLearningStep::Decode, *deadline)
