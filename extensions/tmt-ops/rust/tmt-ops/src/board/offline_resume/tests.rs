@@ -168,6 +168,11 @@ fn resume_all_keeps_a_result_per_row() {
     };
     assert_eq!(identity, CORE);
     assert_eq!(now(&app, NIGHT), Some(Now::Queued(Kind::Resume)));
+    let pending = screen(&app, 120);
+    assert!(
+        !pending.contains("a resume all"),
+        "no second batch while one runs:\n{pending}"
+    );
     answer(&mut app, CORE, Kind::Resume, Ok(()));
     assert!(
         matches!(app.offline_resume_offer(), Some(Task::Relaunch { identity, .. }) if identity == NIGHT)
@@ -184,6 +189,46 @@ fn resume_all_keeps_a_result_per_row() {
     let text = screen(&app, 120);
     assert!(text.contains("✓ Resumed"), "{text}");
     assert!(text.contains("✗ no recorded folder for night-1"), "{text}");
+    // The refused row is Core's answer: neither key starts it again.
+    press(&mut app, KeyCode::Down);
+    let text = screen(&app, 120);
+    assert!(
+        !text.contains("⏎ resume") && !text.contains("n new session"),
+        "{text}"
+    );
+    press(&mut app, KeyCode::Enter);
+    assert!(matches!(now(&app, NIGHT), Some(Now::Failed(_))));
+}
+
+#[test]
+fn a_long_refusal_wraps_whole_under_its_reason_at_60_columns() {
+    let mut app = opened();
+    press(&mut app, KeyCode::Enter);
+    app.offline_resume_offer();
+    let message = "core-1 has no recorded folder in the built-in capture; nothing started";
+    answer(
+        &mut app,
+        CORE,
+        Kind::Resume,
+        Err(SquadError::new("TERMINAL_RELAUNCH_REFUSED", message)),
+    );
+    let text = screen(&app, 60);
+    assert!(
+        !text
+            .lines()
+            .any(|line| line.starts_with('│') && line.contains('…')),
+        "{text}"
+    );
+    let words: String = text
+        .lines()
+        .filter(|line| line.contains("✗") || line.starts_with("│              "))
+        .flat_map(|line| {
+            line.trim_matches(|c| c == '│' || c == ' ')
+                .split_whitespace()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(words.contains(message), "{words}\n{text}");
 }
 
 #[test]

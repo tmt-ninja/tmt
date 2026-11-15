@@ -109,8 +109,9 @@ impl Row {
             Kind::New => self.member.action != "folder_missing",
         }
     }
-    fn choosable(&self) -> bool {
-        matches!(self.now, Now::Idle | Now::Failed(_))
+    /// Only a row not yet tried can be chosen: a refusal is Core's answer, shown as it gave it.
+    pub fn choosable(&self) -> bool {
+        self.now == Now::Idle
     }
 }
 
@@ -131,7 +132,7 @@ impl Dialog {
             rows,
             selected: 0,
             shown: true,
-            state: DialogState::new(&[], &surface::buttons()),
+            state: DialogState::new(&[], &surface::buttons(true)),
             hits: RefCell::default(),
             row_hits: RefCell::default(),
         }
@@ -150,8 +151,22 @@ impl Dialog {
         row.now = Now::Queued(kind);
         true
     }
-    /// Every row Resume is offered on and not yet started; the others keep what they show.
+    /// Resume all is there while no row waits for Core and some row can still be resumed.
+    pub fn resume_all_available(&self) -> bool {
+        !self
+            .rows
+            .iter()
+            .any(|row| matches!(row.now, Now::Queued(_) | Now::Running(_)))
+            && self
+                .rows
+                .iter()
+                .any(|row| row.choosable() && row.offers(Kind::Resume))
+    }
+    /// Every row Resume is offered on and not yet tried; the others keep what they show.
     fn resume_all(&mut self) {
+        if !self.resume_all_available() {
+            return;
+        }
         for index in 0..self.rows.len() {
             self.choose(index, Kind::Resume);
         }
@@ -292,7 +307,7 @@ impl App {
 
     pub(in crate::board) fn offline_resume_event(&mut self, event: &Event) -> Option<Effect> {
         let dialog = self.offline_resume.dialog.as_mut()?;
-        let buttons = surface::buttons();
+        let buttons = surface::buttons(dialog.resume_all_available());
         let input = match event {
             Event::Key(key) => dialog.state.key(DialogKind::List, key, &[], &buttons),
             Event::Mouse(mouse) => {
@@ -342,14 +357,6 @@ impl App {
             KeyCode::End => dialog.selected = last,
             KeyCode::Enter => {
                 let index = dialog.selected;
-                // A member that came back opens full screen, as `j` on its row does.
-                if let Some(row) = dialog.rows.get(index)
-                    && matches!(row.now, Now::Done(_))
-                {
-                    let identity = row.member.identity.clone();
-                    dialog.shown = false;
-                    return self.open_member_frame(&identity);
-                }
                 dialog.choose(index, Kind::Resume);
             }
             KeyCode::Char('n') => {
