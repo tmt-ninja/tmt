@@ -325,6 +325,8 @@ export async function mount(
     discussionPending?: boolean;
     /** The page has one sub-page, so its work band opens a list. */
     subpage?: boolean;
+    /** A structured page with a text-bearing block. */
+    structured?: boolean;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -370,6 +372,18 @@ export async function mount(
   attentionFailure = false;
   current = {
     source: '<p id="selected">Exact selected text</p>',
+    ...(options.structured && {
+      pageType: 'blocks' as const,
+      blocks: {
+        [id(98)]: {
+          type: 'paragraph',
+          parent: 'root',
+          pos: 'V',
+          props: {},
+          text: { s: 'Exact selected text', marks: [] },
+        },
+      },
+    }),
     title: 'Live shared page',
     own: options.persistAttention
       ? JSON.parse(sessionStorage.getItem('test:attention-own') ?? '{}')

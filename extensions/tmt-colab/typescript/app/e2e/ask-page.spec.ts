@@ -780,6 +780,67 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
+test('a structured block opens the normal annotation and sends its quoted comment', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount', { structured: true, commentOnly: true });
+  const block = page.locator('[data-block-id]').filter({ hasText: 'Exact selected text' });
+  await expect(block).toBeVisible();
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await block.click();
+  const annotation = page.locator('.annotation-popover');
+  const input = annotation.getByRole('combobox', { name: 'Message' });
+  await expect(input).toBeFocused();
+  await expect(annotation.locator('.thread-state')).toHaveAttribute('title', 'Exact selected text');
+  await expect(annotation.getByText('This text changed on the page', { exact: false })).toHaveCount(
+    0,
+  );
+  await input.fill('Review this block');
+  await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+  await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
+  expect((await run(page, 'discussionProof'))[0].anchor).toEqual({
+    exact: 'Exact selected text',
+    prefix: '',
+    suffix: '',
+  });
+  await annotation.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+  const marker = page.getByRole('button', { name: 'Open comment 1' });
+  await expect(marker).toBeInViewport();
+  const markerBox = (await marker.boundingBox())!;
+  expect(markerBox.x + markerBox.width).toBeLessThanOrEqual(390);
+  await marker.click();
+  await expect(page.getByText('Review this block', { exact: true })).toBeVisible();
+});
+
+test('a structured text selection can ask an agent with the selected quote', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount', { structured: true });
+  const block = page.locator('[data-block-id]').filter({ hasText: 'Exact selected text' });
+  await expect(block).toBeVisible();
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  const box = (await block.getByText('Exact selected text').boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const annotation = page.locator('.annotation-popover');
+  const input = annotation.getByRole('combobox', { name: 'Message' });
+  await expect(input).toBeFocused();
+  await input.fill('@');
+  await page
+    .getByRole('option', { name: /Agent 1/ })
+    .first()
+    .click();
+  await input.fill('@Agent 1 Review this passage');
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  const thread = (await run(page, 'discussionProof'))[0];
+  expect(thread.anchor.exact).toContain('selected');
+  expect((await run(page, 'proof')).sends[0].message).toContain('Review this passage');
+});
+
 test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
   page,
 }) => {

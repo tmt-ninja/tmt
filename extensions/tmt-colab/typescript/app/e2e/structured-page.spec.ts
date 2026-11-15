@@ -1193,6 +1193,9 @@ for (const width of [1440, 390])
       await page.mouse.move(0, 0);
       // Each stage theme: Viewer (the app's), then the stage's own Light and Dark.
       const mock = host.locator('[data-block-id="mock"]');
+      const toolbar = await mock.locator('.tmt-block-mockup-toolbar').boundingBox();
+      const stage = await mock.locator('.tmt-block-mockup-viewport').boundingBox();
+      expect(stage!.y - (toolbar!.y + toolbar!.height)).toBe(8);
       const html = mock.frameLocator('iframe').locator('html');
       for (const stage of ['Viewer', 'Light', 'Dark'] as const) {
         await mock

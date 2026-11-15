@@ -412,6 +412,20 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage .tmt-block-doc-body {
   --tmt-block-gutter: var(--colab-block-inset);
 }
+.structured-page-stage[data-annotation-mode] .tmt-block {
+  cursor: crosshair;
+}
+.structured-annotation-markers {
+  position: absolute;
+  inset-inline-start: 100%;
+  top: 0;
+  display: flex;
+  gap: 2px;
+  z-index: 1;
+}
+.structured-annotation-markers button {
+  cursor: pointer;
+}
 .page-main:has(.structured-page-stage) .work-head {
   padding-inline-start: calc(var(--work-gutter) + var(--colab-block-inset));
 }
@@ -421,6 +435,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
 }
 @media (max-width: 640px) {
+  .structured-annotation-markers {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+  }
+  .tmt-block:has(> .structured-annotation-markers) {
+    padding-inline-end: 32px;
+  }
   .tmt-ui-shell:has(.structured-page-stage) {
     --colab-block-inset: 8px;
   }
