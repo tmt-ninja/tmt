@@ -825,7 +825,13 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
     const host = document.createElement('div');
     host.id = 'slow-draft-probe';
     document.body.prepend(host);
-    const state = { slow: false, handle: undefined as any };
+    const state = {
+      slow: false,
+      started: false,
+      handle: undefined as any,
+      pending: undefined as Promise<string> | undefined,
+      release: undefined as (() => void) | undefined,
+    };
     Object.assign(window, { slowDraftProbe: state });
     state.handle = await mountRenderer(
       host,
@@ -837,7 +843,13 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
         },
         designSystem: {
           release: async () => undefined,
-          draft: async () => (state.slow ? new Promise(() => {}) : initial),
+          draft: async () => {
+            if (!state.slow) return initial;
+            state.started = true;
+            return new Promise<typeof initial>(
+              (resolve) => (state.release = () => resolve(initial)),
+            );
+          },
           watch: () => () => {},
         },
       },
@@ -847,12 +859,21 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
   const iframe = page.locator('#slow-draft-probe iframe');
   const before = await iframe.getAttribute('data-render-id');
   await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
-  const result = await page.evaluate(async () => {
+  await page.evaluate(() => {
     const state = (window as any).slowDraftProbe;
     state.slow = true;
-    return state.handle.refreshDesign(
+    state.pending = state.handle.refreshDesign(
       '<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>',
     );
+  });
+  await page.waitForFunction(() => (window as any).slowDraftProbe.started);
+  await expect(iframe).toHaveAttribute('data-render-id', before!);
+  await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
+  await expect(iframe.contentFrame().locator('[data-tmt-ds-notice]')).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    const state = (window as any).slowDraftProbe;
+    state.release();
+    return state.pending;
   });
   expect(result).toBe('applied');
   await expect(iframe).toHaveAttribute('data-render-id', before!);

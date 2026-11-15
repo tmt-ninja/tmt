@@ -475,7 +475,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.tmt-ui-topbar-status [role="status"]')).toContainText(
         'Published 0.1.1.',
       );
-      await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toHaveCount(0);
       if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
       await page
         .getByRole('navigation', { name: 'Brio pages', exact: true })
@@ -516,6 +516,16 @@ for (const width of [1440, 390])
       await expect(
         designFrame(page).getByRole('heading', { name: 'Props', exact: true }),
       ).toBeVisible();
+      // A component edit makes the next version available again.
+      const componentPage = page.url().split('/').pop()!;
+      await page.evaluate((id) => {
+        (
+          window as unknown as {
+            designFixture: { patch(id: string, find: string, replace: string): void };
+          }
+        ).designFixture.patch(id, '"css": "', '"css": "/* changed */');
+      }, componentPage);
+      await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
       await expect(designFrame(page).locator('table')).toContainText('variant');
       await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
         'href',
@@ -679,7 +689,7 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   await expect(page.locator('.tmt-ui-topbar-status [role="status"]')).toContainText(
     'Published 0.1.1.',
   );
-  await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toHaveCount(0);
 });
 
 test('the Published notice sits in the header over the content, then goes away (#6272)', async ({
@@ -716,9 +726,9 @@ test('the Published notice sits in the header over the content, then goes away (
   expect(geometry.note.bottom).toBeLessThanOrEqual(geometry.bar.bottom + 1);
   expect(geometry.note.left).toBeGreaterThanOrEqual(geometry.title.right);
   expect(geometry.note.right).toBeLessThanOrEqual(geometry.viewport - 16);
-  // Like the page's other status lines it goes after a while; the Publish button stays.
+  // Like the page's other status lines it goes after a while; an unchanged draft stays published.
   await expect(notice).toHaveCount(0, { timeout: 12_000 });
-  await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toHaveCount(0);
 });
 
 test('a page titled by its own tag shows the tag once in the Design sidebar (#6272)', async ({
