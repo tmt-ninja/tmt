@@ -579,8 +579,8 @@ renameSync(output+'.tmp',output);
         fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
         // Model remains provider-default, Squad remains product, Host/session
         // remain tmux/product, and Saved remains selected. Up from AI tool
-        // passes Name and wraps to Create.
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Up', 'Up']);
+        // passes Name and Cancel, then wraps to Create.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Up', 'Up', 'Up']);
         await fixture.waitForCapture(
           (screen) =>
             screen.includes('Runs') &&
