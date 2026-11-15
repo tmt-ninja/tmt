@@ -873,6 +873,7 @@ impl Snapshot {
         for job in jobs.listed().into_iter().flat_map(|jobs| &jobs.rows) {
             instants.extend(job.next_ms());
             instants.extend(job.last_run.as_ref().map(|run| run.at_ms));
+            instants.extend(job.recent_runs.iter().map(|run| run.at_ms));
         }
         if let Jobs::Listed(jobs) = &mut jobs {
             jobs.rows.sort_by_key(|job| {

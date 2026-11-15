@@ -33,6 +33,16 @@ pub struct LastRun {
     /// `held_for_person`.
     pub acceptance: String,
 }
+/// Core lists at most this many recent runs (`recentRuns`).
+const RECENT_RUNS: usize = 5;
+impl LastRun {
+    fn read(run: &Value) -> Option<Self> {
+        Some(Self {
+            at_ms: run.get("recordedAtMs")?.as_u64()?,
+            acceptance: run.get("acceptance")?.as_str()?.to_owned(),
+        })
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobRow {
     pub job_id: String,
@@ -53,6 +63,9 @@ pub struct JobRow {
     pub hold: Option<Hold>,
     pub next_run_ms: Option<u64>,
     pub last_run: Option<LastRun>,
+    /// Up to the 5 newest recorded runs, newest first; the first is `last_run`'s. An older Core
+    /// without `recentRuns` gives `last_run` alone.
+    pub recent_runs: Vec<LastRun>,
 }
 impl JobRow {
     /// The title, else the first line of the message.
@@ -115,12 +128,15 @@ impl JobRow {
             state,
             hold,
             next_run_ms: row["nextRunAtMs"].as_u64(),
-            last_run: row["lastRun"].as_object().and_then(|run| {
-                Some(LastRun {
-                    at_ms: run.get("recordedAtMs")?.as_u64()?,
-                    acceptance: run.get("acceptance")?.as_str()?.to_owned(),
-                })
-            }),
+            last_run: LastRun::read(&row["lastRun"]),
+            recent_runs: match row["recentRuns"].as_array() {
+                Some(runs) => runs
+                    .iter()
+                    .take(RECENT_RUNS)
+                    .map(LastRun::read)
+                    .collect::<Option<Vec<_>>>()?,
+                None => LastRun::read(&row["lastRun"]).into_iter().collect(),
+            },
         })
     }
 }
