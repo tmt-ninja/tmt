@@ -186,6 +186,8 @@ struct Payload {
     hook_event_name: Option<String>,
     #[serde(default, rename = "fullyIdle")]
     fully_idle: Option<bool>,
+    #[serde(default, rename = "continuationActive")]
+    continuation_active: Option<serde_json::Value>,
 }
 
 fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
@@ -273,6 +275,13 @@ impl Payload {
             && !self.tool_call
             && !self.model_output
             && !self.model_thinking
+    }
+
+    fn is_continuation_active(&self) -> bool {
+        self.continuation_active
+            .as_ref()
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
     }
 }
 
@@ -615,6 +624,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
     fn decode_digest_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
         let (parsed, session) = parse_main_payload(payload).ok()?;
         (parsed.is_stop()
+            && !parsed.is_continuation_active()
             && parsed.termination_reason.as_deref() != Some("USER_CANCELED")
             && parsed.fully_idle != Some(false))
         .then_some(session)
@@ -668,7 +678,11 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
                 EventKind::ToolFinished
             }
         } else if payload.is_stop() {
-            EventKind::TurnEnded
+            if payload.is_continuation_active() {
+                EventKind::ContinuationEnded
+            } else {
+                EventKind::TurnEnded
+            }
         } else if payload.hook_event_name.as_deref() == Some("PreToolUse")
             && crate::runtime::provider_form::decode_agy(bytes).is_some()
         {
@@ -1044,6 +1058,45 @@ mod tests {
                 .as_str(),
             SESSION
         );
+        assert_eq!(
+            AgyLifecycle
+                .decode_activity(stop.as_bytes())
+                .unwrap()
+                .event
+                .kind,
+            EventKind::TurnEnded
+        );
+
+        for (value, expected_kind, expected_digest) in [
+            (json!(true), EventKind::ContinuationEnded, false),
+            (json!(false), EventKind::TurnEnded, true),
+            (json!("true"), EventKind::TurnEnded, true),
+            (json!(1), EventKind::TurnEnded, true),
+        ] {
+            let payload = json!({
+                "conversationId": SESSION,
+                "terminationReason": "NO_TOOL_CALL",
+                "executionNum": 1,
+                "fullyIdle": true,
+                "continuationActive": value,
+                "finalModelOutput": "Done!"
+            })
+            .to_string();
+            assert_eq!(
+                AgyLifecycle
+                    .decode_activity(payload.as_bytes())
+                    .unwrap()
+                    .event
+                    .kind,
+                expected_kind
+            );
+            assert_eq!(
+                AgyLifecycle
+                    .decode_digest_turn(payload.as_bytes())
+                    .is_some(),
+                expected_digest
+            );
+        }
 
         let canceled = json!({
             "conversationId": SESSION,

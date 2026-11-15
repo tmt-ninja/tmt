@@ -276,15 +276,11 @@ retained even if its prompt boundary was missed and activity already reads idle;
 this does not reopen activity or settle a newer batch's inputs. An ordinary Stop
 deduplicates only the same event ID or exact text in its recorded batch when neither final
 was truncated. If either was truncated, equality is unprovable and the final is kept;
-a different event ID can therefore retain an identical long retry. A Stop
-reported by Claude or Codex while the provider continues because a Stop hook blocked an earlier one
-(`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
-admitted after the earlier end, and its text is captured. Two distinct committed
-turns with separate input batches retain identical text separately; distinct
-continuations also retain their finals. Antigravity's main-turn final is retained before Digest continues it;
-the subsequent Digest-continued final is not yet captured without a new admitted
-turn start. [#5166](https://github.com/tmt-ninja/tmt/issues/5166) tracks its provider
-lifecycle evidence and capture support. The transaction appends the capture and removes overflow and expired
+a different event ID can therefore retain an identical long retry. A Stop reported by Claude or Codex (`stop_hook_active`) or by Antigravity (`continuationActive`)
+while the provider continues because a Stop hook kept it going (for example a Digest checklist)
+ends that continuation: it is admitted after the earlier end, and its text is captured.
+Two distinct committed turns with separate input batches retain identical text separately;
+distinct continuations also retain their finals. The transaction appends the capture and removes overflow and expired
 entries. A capture expires at `endedMs + 7 * 86,400,000`.
 At equality it is expired: reads omit it even before opportunistic cleanup.
 Reads and config changes never renew an existing entry's deadline.
