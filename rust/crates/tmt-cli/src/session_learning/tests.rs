@@ -611,6 +611,12 @@ fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() 
     } = &launch;
     learning.set_role(Role::Observer);
     assert_eq!(stored(&launch), "input: not_admitted");
+    // No hook of this launch has arrived: the step names the provider's hooks (#6444).
+    let untouched = launch.diagnostic().unwrap().next_step;
+    assert_eq!(
+        untouched,
+        "No claude hook has arrived yet: install its hooks with tmt setup claude, then send the agent a prompt in its pane."
+    );
     learning
         .stage(SessionLearningStep::Decode, *deadline)
         .unwrap();
@@ -629,6 +635,8 @@ fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() 
         stored(&launch),
         "input: not_admitted, stopped:activity_session:Notification:activity_missing"
     );
+    // A hook it stopped on did arrive, so the step is no longer about missing hooks.
+    assert!(!launch.diagnostic().unwrap().next_step.contains("tmt setup"));
 }
 
 fn admit(launch: &mut Launch) {
