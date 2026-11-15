@@ -53,6 +53,7 @@ describe('visible Agent grammar', () => {
       'claude-opus-med',
       'claude-sonnet-high',
       'claude-sonnet-xhigh',
+      'agy-hydrogen-med',
     ]);
     expect(Object.isFrozen(AGENT_PRESETS)).toBe(true);
   });

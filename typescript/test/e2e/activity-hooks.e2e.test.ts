@@ -463,5 +463,101 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
     expect(forms(14)).toEqual([
       expect.objectContaining({ kind: 'planApproval', plan: '1. write hello.txt' }),
     ]);
+
+    // Agy row (#6424): PreToolUse ask_question opens a question form and PostToolUse / PreInvocation close it.
+    // Provenance: agy-customizations/docs/hooks.md (PreToolUse/PostToolUse/PreInvocation invocationNum) and Antigravity CLI's ask_question tool schema.
+    const agyBin = path.join(fixture.wrapperDir, 'agy');
+    fs.copyFileSync('/opt/tmt-tests/claude', agyBin);
+    const agySession = '44444444-4444-4444-8444-444444444444';
+    const agyHook = (input: Record<string, unknown>) => ({
+      args: ['__hook', 'agy'],
+      input: { conversationId: agySession, ...input },
+    });
+    const agyAsk = (id: string) =>
+      agyHook({
+        hookEventName: 'PreToolUse',
+        toolCall: {
+          id,
+          name: 'ask_question',
+          args: {
+            questions: [
+              { question: 'Which file?', is_multi_select: false, options: ['a.txt', 'b.txt'] },
+            ],
+          },
+        },
+      });
+    const agyPane = fixture.createShellPane('agy-forms').pane;
+    const namedAgy = await fixture.runJsonCli<{ id: string }>(['name', 'Agy Form Reader', '-s'], {
+      pane: agyPane,
+    });
+    expect(namedAgy.code).toBe(0);
+    const agyIdentityId = namedAgy.json!.id;
+    const agySteps = [
+      agyHook({}),
+      agyHook({ invocationNum: 1 }),
+      agyAsk('call_q1'),
+      api('forms.list', { identityId: agyIdentityId }),
+      agyHook({
+        hookEventName: 'PostToolUse',
+        toolCall: { id: 'call_q1', name: 'ask_question', args: {} },
+      }),
+      api('forms.list', { identityId: agyIdentityId }),
+      agyAsk('call_q2'),
+      api('forms.list', { identityId: agyIdentityId }),
+      agyHook({ invocationNum: 2 }),
+      api('forms.list', { identityId: agyIdentityId }),
+    ];
+    const agyScenario = path.join(fixture.root, 'agy-forms-scenario.json');
+    const agyReport = path.join(fixture.root, 'agy-forms-report.json');
+    fs.writeFileSync(agyScenario, JSON.stringify(agySteps));
+    const agyCommand = [
+      'env',
+      `TMT_HOME=${fixture.globalDir}`,
+      agyBin,
+      fixture.executables.cli.executable,
+      agyScenario,
+      agyReport,
+    ]
+      .map(quote)
+      .join(' ');
+    fixture.watchHookFailures(agyPane);
+    fixture.tmux(['send-keys', '-t', agyPane, '-l', agyCommand]);
+    fixture.tmux(['send-keys', '-t', agyPane, 'Enter']);
+    await fixture.waitFor(() => fs.existsSync(agyReport), 15000, 'agy forms report');
+    const agyResults = JSON.parse(fs.readFileSync(agyReport, 'utf8')) as Array<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }>;
+    expect(agyResults).toHaveLength(agySteps.length);
+    for (const index of [2, 4, 6, 8]) {
+      expect([
+        agyResults[index].code,
+        agyResults[index].stdout.trim(),
+        agyResults[index].stderr,
+      ]).toEqual([0, '{}', '']);
+    }
+    const agyForms = (index: number) => JSON.parse(agyResults[index].stdout).forms;
+    expect(agyForms(3)).toEqual([
+      {
+        formId: expect.any(String),
+        identityId: agyIdentityId,
+        openedMs: expect.any(Number),
+        kind: 'question',
+        questions: [
+          {
+            text: 'Which file?',
+            choice: 'single',
+            options: [{ label: 'a.txt' }, { label: 'b.txt' }],
+            freeText: true,
+          },
+        ],
+        truncated: false,
+        answerable: false,
+      },
+    ]);
+    expect(agyForms(5)).toEqual([]);
+    expect(agyForms(7)).toHaveLength(1);
+    expect(agyForms(9)).toEqual([]);
   });
 });

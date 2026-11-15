@@ -1724,23 +1724,41 @@ fn restore_checks_each_running_member_alone_and_skips_all_of_them() {
     assert_eq!(restored["status"], "completed", "{restored:#}");
 }
 
-/// Claude's form hooks never hold a form (#6424): with storage unusable they still exit
-/// at once with no output, so Claude shows its own form. The hook's fixed budget and
-/// supervisor bound the healthy path the same way.
+/// Form hooks never hold a form (#6424): with storage unusable they still exit
+/// at once with no decision (`""` for Claude, `"{}"` for agy), so the provider shows its own form.
+/// The hook's fixed budget and supervisor bound the healthy path the same way.
 #[test]
 fn form_hooks_decide_nothing_when_storage_fails() {
     use std::io::Write as _;
     let world = World::new();
     fs::create_dir_all(support::state_dir(&world.root).join("tmt.db")).unwrap();
-    for input in [
-        serde_json::json!({"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"AskUserQuestion",
-            "tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which?","options":[{"label":"A"}]}]}}),
-        serde_json::json!({"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"ExitPlanMode",
-            "tool_input":{"plan":"1. go"}}),
-        serde_json::json!({"hook_event_name":"PermissionRequest","session_id":"s-1","tool_name":"Bash",
-            "tool_input":{"command":"ls"}}),
+    for (provider, expected_stdout, input) in [
+        (
+            "claude",
+            "",
+            serde_json::json!({"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"AskUserQuestion",
+                "tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which?","options":[{"label":"A"}]}]}}),
+        ),
+        (
+            "claude",
+            "",
+            serde_json::json!({"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"ExitPlanMode",
+                "tool_input":{"plan":"1. go"}}),
+        ),
+        (
+            "claude",
+            "",
+            serde_json::json!({"hook_event_name":"PermissionRequest","session_id":"s-1","tool_name":"Bash",
+                "tool_input":{"command":"ls"}}),
+        ),
+        (
+            "agy",
+            "{}",
+            serde_json::json!({"hookEventName":"PreToolUse","conversationId":"c-1",
+                "toolCall":{"id":"call_1","name":"ask_question","args":{"questions":[{"question":"Which?","options":["A"]}]}}}),
+        ),
     ] {
-        let mut child = support::command(&world.root, &["__hook", "claude"])
+        let mut child = support::command(&world.root, &["__hook", provider])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1754,6 +1772,10 @@ fn form_hooks_decide_nothing_when_storage_fails() {
             .unwrap();
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success(), "{input}: {output:?}");
-        assert!(output.stdout.is_empty(), "{input}: no decision: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected_stdout,
+            "{input}: no decision: {output:?}"
+        );
     }
 }

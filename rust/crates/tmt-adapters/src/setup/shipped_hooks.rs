@@ -30,7 +30,10 @@ pub(super) fn matches(
                 None => value == &json!({"hooks":[command.clone()]}),
                 Some(matcher) => value == &json!({"matcher":matcher, "hooks":[command.clone()]}),
             },
-            (ShippedForm::NamedCommandV1, Some(HookFormat::NamedHooksJson)) => value == &command,
+            (ShippedForm::NamedCommandV1, Some(HookFormat::NamedHooksJson)) => match matcher {
+                None => value == &command,
+                Some(matcher) => value == &json!({"matcher":matcher, "hooks":[command.clone()]}),
+            },
             _ => false,
         })
 }
@@ -44,25 +47,33 @@ mod tests {
     fn every_shipped_form_is_explicit_and_edits_are_not_owned() {
         // Frozen document shapes from the setup generator history, not values
         // produced by the implementation under test.
-        for (provider, fixture) in [
+        for (provider, matcher, fixture) in [
             (
                 "claude",
+                None,
                 r#"{"hooks":[{"type":"command","command":"'/old/bin/tmt' __hook claude","timeout":3}]}"#,
             ),
             (
                 "codex",
+                None,
                 r#"{"hooks":[{"type":"command","command":"'/old/bin/tmt' __hook codex","timeout":3}]}"#,
             ),
             (
                 "agy",
+                None,
                 r#"{"type":"command","command":"'/old/bin/tmt' __hook agy","timeout":3}"#,
+            ),
+            (
+                "agy",
+                Some("ask_question"),
+                r#"{"matcher":"ask_question","hooks":[{"type":"command","command":"'/old/bin/tmt' __hook agy","timeout":3}]}"#,
             ),
         ] {
             let driver = Registry::builtin().find(provider).unwrap();
             let original: Value = serde_json::from_str(fixture).unwrap();
-            assert!(matches(driver, &original, "/old/bin/tmt", None));
+            assert!(matches(driver, &original, "/old/bin/tmt", matcher));
             assert_eq!(
-                super::super::hook_entry(driver, "/old/bin/tmt", None).unwrap(),
+                super::super::hook_entry(driver, "/old/bin/tmt", matcher).unwrap(),
                 original
             );
             for edited in [
@@ -77,7 +88,7 @@ mod tests {
                     driver,
                     &serde_json::from_str(&edited).unwrap(),
                     "/old/bin/tmt",
-                    None
+                    matcher
                 ));
             }
         }

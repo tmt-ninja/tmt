@@ -186,6 +186,88 @@ fn claude_question(question: &Value, truncated: &mut bool) -> Option<FormQuestio
     })
 }
 
+/// The tool whose `PreToolUse` opens an Antigravity form; setup installs `PreToolUse`
+/// and `PostToolUse` only for it.
+pub const AGY_FORM_TOOLS: &str = "ask_question";
+
+/// An Antigravity (`agy`) main-session question form from `PreToolUse` (`ask_question`).
+/// Battle mode, subagents (`parentConversationId`), other tools and malformed payloads are none.
+///
+/// Payload provenance:
+/// - `PreToolUse` envelope (`hookEventName`, `conversationId`, `toolCall.id`, `toolCall.name`,
+///   `toolCall.args`) from Antigravity's `agy-customizations` `docs/hooks.md`.
+/// - `ask_question` args (`questions[]` with `question`, `is_multi_select`, `options: string[]`)
+///   and UI `"Other"` free-text support from Antigravity CLI's built-in `ask_question` tool schema.
+pub fn decode_agy(bytes: &[u8]) -> Option<ProviderForm> {
+    if bytes.len() > super::hook_protocol::HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Value = serde_json::from_slice(bytes).ok()?;
+    if payload["isBattleMode"].as_bool().unwrap_or(false)
+        || payload["parentConversationId"]
+            .as_str()
+            .is_some_and(|parent| !parent.is_empty())
+    {
+        return None;
+    }
+    if payload["hookEventName"].as_str()? != "PreToolUse" {
+        return None;
+    }
+    let call = &payload["toolCall"];
+    if call["name"].as_str()? != AGY_FORM_TOOLS {
+        return None;
+    }
+    let tool_use_id = call["id"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= MAX_LABEL)
+        .map(str::to_owned);
+    let asked = call["args"]["questions"].as_array()?;
+    let mut truncated = asked.len() > MAX_QUESTIONS;
+    let questions = asked
+        .iter()
+        .take(MAX_QUESTIONS)
+        .map(|question| agy_question(question, &mut truncated))
+        .collect::<Option<Vec<_>>>()?;
+    if questions.is_empty() {
+        return None;
+    }
+    Some(ProviderForm {
+        kind: FormKind::Question,
+        tool_use_id,
+        questions,
+        tool: None,
+        plan: None,
+        truncated,
+    })
+}
+
+fn agy_question(question: &Value, truncated: &mut bool) -> Option<FormQuestion> {
+    let offered = question["options"].as_array()?;
+    *truncated |= offered.len() > MAX_OPTIONS;
+    let options = offered
+        .iter()
+        .take(MAX_OPTIONS)
+        .map(|option| {
+            Some(FormOption {
+                label: bounded(option.as_str()?, MAX_LABEL, truncated),
+                description: None,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(FormQuestion {
+        text: bounded(question["question"].as_str()?, MAX_TEXT, truncated),
+        header: None,
+        choice: if question["is_multi_select"].as_bool().unwrap_or(false) {
+            Choice::Multiple
+        } else {
+            Choice::Single
+        },
+        options,
+        // Antigravity's `ask_question` UI always adds an "Other" free-text option.
+        free_text: true,
+    })
+}
+
 /// `text` cut at a character boundary within `limit` bytes; a cut sets `truncated`.
 fn bounded(text: &str, limit: usize, truncated: &mut bool) -> String {
     if text.len() <= limit {
@@ -202,6 +284,10 @@ mod tests {
 
     fn decode(value: Value) -> Option<ProviderForm> {
         decode_claude(value.to_string().as_bytes())
+    }
+
+    fn decode_agy_json(value: Value) -> Option<ProviderForm> {
+        decode_agy(value.to_string().as_bytes())
     }
 
     #[test]
@@ -232,6 +318,44 @@ mod tests {
         assert!(form.truncated);
         assert_eq!(form.questions[0].options.len(), MAX_OPTIONS);
         assert!(form.questions[0].text.len() <= MAX_TEXT);
+
+        // Antigravity (`agy`) PreToolUse ask_question: provenance in `decode_agy` docstring.
+        let agy_form = decode_agy_json(json!({
+            "hookEventName": "PreToolUse",
+            "conversationId": "c1",
+            "toolCall": {
+                "id": "call_1",
+                "name": "ask_question",
+                "args": {
+                    "questions": [
+                        {"question": "Which?", "is_multi_select": false, "options": ["A", "B"]},
+                        {"question": "Which ones?", "is_multi_select": true, "options": ["X", "Y"]}
+                    ]
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(agy_form.kind, FormKind::Question);
+        assert_eq!(agy_form.tool_use_id.as_deref(), Some("call_1"));
+        assert_eq!(agy_form.questions.len(), 2);
+        assert_eq!(agy_form.questions[0].choice, Choice::Single);
+        assert_eq!(agy_form.questions[0].header, None);
+        assert_eq!(agy_form.questions[0].options[0].label, "A");
+        assert_eq!(agy_form.questions[0].options[0].description, None);
+        assert_eq!(agy_form.questions[1].choice, Choice::Multiple);
+        assert!(agy_form.questions.iter().all(|question| question.free_text));
+        assert!(!agy_form.truncated);
+
+        let agy_many = (0..10).map(|n| format!("o{n}")).collect::<Vec<_>>();
+        let agy_trunc = decode_agy_json(json!({
+            "hookEventName": "PreToolUse",
+            "conversationId": "c1",
+            "toolCall": {"id": "call_2", "name": "ask_question", "args": {"questions": [{"question": long, "options": agy_many}]}}
+        }))
+        .unwrap();
+        assert!(agy_trunc.truncated);
+        assert_eq!(agy_trunc.questions[0].options.len(), MAX_OPTIONS);
+        assert!(agy_trunc.questions[0].text.len() <= MAX_TEXT);
     }
 
     #[test]
@@ -251,6 +375,15 @@ mod tests {
             json!({"hook_event_name":"PostToolUse","session_id":"s","tool_name":"AskUserQuestion","tool_input":{}}),
         ] {
             assert_eq!(decode(other.clone()), None, "{other}");
+        }
+        for other in [
+            json!({"hookEventName":"PreToolUse","conversationId":"c1","toolCall":{"name":"run_command","args":{}}}),
+            json!({"hookEventName":"PreToolUse","conversationId":"c1","isBattleMode":true,"toolCall":{"name":"ask_question","args":{"questions":[{"question":"q","options":["a"]}]}}}),
+            json!({"hookEventName":"PreToolUse","conversationId":"c1","parentConversationId":"p1","toolCall":{"name":"ask_question","args":{"questions":[{"question":"q","options":["a"]}]}}}),
+            json!({"hookEventName":"PreToolUse","conversationId":"c1","toolCall":{"name":"ask_question","args":{"questions":[]}}}),
+            json!({"hookEventName":"PostToolUse","conversationId":"c1","toolCall":{"name":"ask_question","args":{}}}),
+        ] {
+            assert_eq!(decode_agy_json(other.clone()), None, "{other}");
         }
     }
 }

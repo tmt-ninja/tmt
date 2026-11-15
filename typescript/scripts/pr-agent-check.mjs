@@ -16,6 +16,7 @@ export const AGENT_PRESETS = Object.freeze([
   'claude-opus-med',
   'claude-sonnet-high',
   'claude-sonnet-xhigh',
+  'agy-hydrogen-med',
 ]);
 const SEAT = /^[a-z0-9][a-z0-9-]*$/;
 const TOKEN = /^[A-Za-z0-9._-]+$/;

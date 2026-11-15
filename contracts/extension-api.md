@@ -598,6 +598,11 @@ or answers a form.
   decision, so Claude shows its own form as before. A subagent's form is not reported.
 - **Codex** reports no forms until its `PermissionRequest` semantics are settled (#3622).
   It has no hook for a question form.
+- **agy** reports question forms only. Questions come from `PreToolUse` for
+  `ask_question`, installed with the matcher `ask_question` beside `PostToolUse`. It
+  prints `{}` (no decision), so agy shows its own form as before. Permission and plan
+  approval are not reported, because agy has no hook for them. Subagent and
+  battle-mode forms are not reported.
 - **Other drivers** report no forms.
 
 A form is open while the identity's `session.activity` is `waiting` for the same provider
