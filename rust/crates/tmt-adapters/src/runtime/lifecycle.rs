@@ -371,13 +371,11 @@ pub trait RuntimeLifecycle {
     }
 
     /// The provider version a form's answer keys depend on, from the verified provider
-    /// process's own executable within `deadline`. `None` when the driver answers no form
-    /// from a client or the version cannot be read.
+    /// process's own executable, without running anything. `None` when the driver answers
+    /// no form from a client or the version cannot be read.
     fn form_provider_version(
         &self,
-        _runner: &dyn crate::process::CommandRunner,
         _process: &tmt_core::endpoint::ProcessIncarnation,
-        _deadline: std::time::Instant,
     ) -> Option<String> {
         None
     }

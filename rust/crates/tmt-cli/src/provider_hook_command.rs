@@ -2357,12 +2357,8 @@ fn observe_main_event(
     if let Some((form, since)) = form_period
         && Instant::now() + Duration::from_millis(100) < deadline
     {
-        // Read before storage opens: a client answers only versions whose keys were captured.
-        let version = lifecycle.form_provider_version(
-            &SupervisedProbeRunner,
-            &process,
-            deadline - Duration::from_millis(100),
-        );
+        // A client answers only versions whose keys were captured.
+        let version = lifecycle.form_provider_version(&process);
         if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
             let _ = storage.record_provider_form(
                 &binding.id,

@@ -52,7 +52,7 @@ pub const MINIMUM_VERSION: &str = "2.1.285";
 /// other accepted build launches with an advisory that names it.
 pub const TESTED_VERSIONS: &[&str] = &["2.1.285"];
 /// Every `--version` line of the product ends with this.
-const PRODUCT_SUFFIX: &str = " (Claude Code)";
+pub(super) const PRODUCT_SUFFIX: &str = " (Claude Code)";
 /// The MCP server name Claude sees; it is the `server:<name>` channel entry.
 pub const SERVER_NAME: &str = "tmt";
 pub const MCP_CONFIG_FLAG: &str = "--mcp-config";

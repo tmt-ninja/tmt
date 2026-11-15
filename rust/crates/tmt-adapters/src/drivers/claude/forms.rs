@@ -7,39 +7,31 @@
 //! with `capture-pane`, and compare every step with the plan below. Add the version only
 //! when every row matches; otherwise change the plan under a version check.
 
-use crate::process::{CommandRequest, CommandRunner};
 use crate::runtime::provider_form::{
     Choice, FormAnswer, FormKey, FormKind, ProviderForm, QuestionAnswer,
 };
-use std::time::{Duration, Instant};
+use std::path::Path;
 use tmt_core::endpoint::ProcessIncarnation;
 
 /// The Claude Code versions whose form keys were captured.
 pub const FORM_KEY_VERSIONS: &[&str] = &["2.1.325"];
 
-/// A `--version` read inside a hook stays short; Claude answers it at once.
-const VERSION_DEADLINE: Duration = Duration::from_millis(500);
-const VERSION_OUTPUT: usize = 256;
-
-/// The version the verified provider process's own executable reports, as
-/// `<major>.<minor>.<patch>`. Never from `PATH`: the executable is the running process's.
-pub fn provider_version(
-    runner: &dyn CommandRunner,
-    process: &ProcessIncarnation,
-    deadline: Instant,
-) -> Option<String> {
+/// The version of the verified provider process, from its own executable's path: a
+/// native install runs `…/claude/versions/<major>.<minor>.<patch>`. Nothing is run, so a
+/// hook never waits on the provider. Any other layout (an npm install runs `node`) has no
+/// version, and its forms are answered in the terminal.
+pub fn provider_version(process: &ProcessIncarnation) -> Option<String> {
     let executable = tmt_sys::process_executable(i32::try_from(process.pid()).ok()?)?;
-    let output = runner
-        .execute(CommandRequest {
-            program: executable.as_ref(),
-            args: &["--version".into()],
-            input: &[],
-            deadline: deadline.min(Instant::now() + VERSION_DEADLINE),
-            max_output_bytes: VERSION_OUTPUT,
-        })
-        .ok()?;
-    let line = String::from_utf8(output.stdout).ok()?;
-    super::channel::parse_build(line.trim()).map(|(_, number)| number.to_owned())
+    version_from_path(Path::new(&executable))
+}
+
+fn version_from_path(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    let versions = path.parent()?;
+    (versions.file_name()? == "versions" && versions.parent()?.file_name()? == "claude")
+        .then_some(())?;
+    super::channel::parse_build(&format!("{name}{}", super::channel::PRODUCT_SUFFIX))
+        .map(|(_, number)| number.to_owned())
 }
 
 /// The keys that give `answer` to `form` on `version`, or `None` when that version, that
@@ -262,5 +254,21 @@ mod tests {
             keys(&permission, "2.1.325", &FormAnswer::Decision(true)),
             None
         );
+
+        // The version comes only from a native install's executable path.
+        let version = |path: &str| version_from_path(Path::new(path));
+        assert_eq!(
+            version("/home/u/.local/share/claude/versions/2.1.325").as_deref(),
+            Some("2.1.325")
+        );
+        for other in [
+            "/usr/local/bin/node",
+            "/home/u/.local/share/claude/versions/2.1.325.tmp",
+            "/home/u/.local/share/claude/versions/02.1.325",
+            "/home/u/.local/share/other/versions/2.1.325",
+            "/opt/tmt-tests/claude",
+        ] {
+            assert_eq!(version(other), None, "{other}");
+        }
     }
 }

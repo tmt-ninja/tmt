@@ -17,7 +17,7 @@ pub struct StoredForm {
     pub identity_id: String,
     pub opened_ms: u64,
     pub form: ProviderForm,
-    /// The version the provider's own executable reported when the form was recorded.
+    /// The version of the provider's own executable when the form was recorded.
     pub provider_version: Option<String>,
     /// When a client's answer was sent, before its first key; at most once.
     pub sent_ms: Option<u64>,
@@ -27,7 +27,7 @@ impl Storage {
     /// Records the form the binding's provider session now waits on, in the waiting period
     /// that began at `since_ms`; the binding's forms from earlier periods are dropped. A
     /// repeated report of the same tool call keeps its first record; the answer is its ID.
-    /// `provider_version` is what the provider's executable reported, when it was read.
+    /// `provider_version` is the provider executable's version, when it was read.
     #[allow(clippy::too_many_arguments)]
     pub fn record_provider_form(
         &mut self,

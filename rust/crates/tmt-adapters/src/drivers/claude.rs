@@ -513,13 +513,8 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::provider_form::decode_claude(bytes)
     }
 
-    fn form_provider_version(
-        &self,
-        runner: &dyn crate::process::CommandRunner,
-        process: &ProcessIncarnation,
-        deadline: std::time::Instant,
-    ) -> Option<String> {
-        forms::provider_version(runner, process, deadline)
+    fn form_provider_version(&self, process: &ProcessIncarnation) -> Option<String> {
+        forms::provider_version(process)
     }
 
     fn form_keys(

@@ -1,5 +1,5 @@
--- Answering a provider form from a client (#6424). `provider_version` is the version the
--- verified provider process's own executable reported when its hook recorded the form;
+-- Answering a provider form from a client (#6424). `provider_version` is the version of the
+-- verified provider process's own executable when its hook recorded the form;
 -- keys are sent only to versions whose answer keys were captured. `sent_ms` is set once,
 -- before the first key is sent, so a second answer is refused and nothing is typed twice.
 ALTER TABLE provider_forms ADD COLUMN provider_version TEXT

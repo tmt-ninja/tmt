@@ -632,9 +632,11 @@ A form is `answerable` only when all of these hold:
 - it is a question or plan-approval form, not `truncated`, and no answer was sent yet;
 - the member's pane is on tmux. A form on the built-in `pty` host or on Herdr is always
   `answerIn: "terminal"`, so a client never offers to answer it there;
-- the provider's driver captured the keys for the version the provider process's own
-  executable reported when its hook recorded the form. Claude Code `2.1.325` is captured
-  today (#6424); other providers and versions are answered in the terminal.
+- the provider's driver captured the keys for the provider's version, read when its hook
+  recorded the form from the provider process's own executable, never by running it. For
+  Claude that is a native install's `…/claude/versions/<version>` path; another layout,
+  such as an npm install, has no version. Claude Code `2.1.325` is captured today
+  (#6424); other providers and versions are answered in the terminal.
 
 `forms.answer` `{formId, answer}` sends the answer. The answer is
 `{choices: [[index...], ...], other?: [text|null, ...]}` for a question form (one list per
