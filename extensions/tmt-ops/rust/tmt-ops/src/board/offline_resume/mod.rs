@@ -240,21 +240,23 @@ impl State {
 }
 
 impl App {
-    /// The lane's next offline-resume call: the capture read once the first view is up, then the
-    /// next chosen row, one at a time.
+    /// The capture read, once per board run, submitted with the other start-up reads so the first
+    /// frame never waits for it. A popup board only jumps and never asks.
+    pub(in crate::board) fn offline_resume_start(&mut self) -> Option<Task> {
+        let offline = &mut self.offline_resume;
+        if self.popup || offline.asked {
+            return None;
+        }
+        offline.asked = true;
+        offline.reading = true;
+        Some(Task::Preview)
+    }
+
+    /// The lane's next relaunch: the next chosen row, one at a time.
     pub(in crate::board) fn offline_resume_offer(&mut self) -> Option<Task> {
-        let ready = !self.popup && self.view.is_some() && !self.loading();
         let offline = &mut self.offline_resume;
         if offline.running() {
             return None;
-        }
-        if !offline.asked {
-            if !ready {
-                return None;
-            }
-            offline.asked = true;
-            offline.reading = true;
-            return Some(Task::Preview);
         }
         let dialog = offline.dialog.as_mut()?;
         let row = dialog

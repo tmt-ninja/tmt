@@ -19,7 +19,7 @@ fn member(identity: &str, name: &str, action: &str) -> Captured {
 /// A board whose capture read answered with these members.
 fn captured(members: Vec<Captured>) -> App {
     let mut app = board();
-    assert_eq!(app.offline_resume_offer(), Some(Task::Preview));
+    assert_eq!(app.offline_resume_start(), Some(Task::Preview));
     app.offline_resume_done(Completed {
         task: Task::Preview,
         result: Ok(members),
@@ -105,19 +105,19 @@ fn no_offline_member_or_a_failed_read_asks_nothing_and_the_read_is_once() {
     assert_eq!(app.overlay(), None);
 
     let mut app = board();
-    assert_eq!(app.offline_resume_offer(), Some(Task::Preview));
+    assert_eq!(app.offline_resume_start(), Some(Task::Preview));
     app.offline_resume_done(Completed {
         task: Task::Preview,
         result: Err(SquadError::new("WORKSPACE_SNAPSHOT_NOT_FOUND", "none")),
     });
     assert_eq!(app.overlay(), None);
-    assert_eq!(app.offline_resume_offer(), None, "never read again");
+    assert_eq!(app.offline_resume_start(), None, "never read again");
 
     let mut app = opened();
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.overlay(), None, "Esc is Not now");
     assert_eq!(
-        app.offline_resume_offer(),
+        app.offline_resume_start(),
         None,
         "and it does not ask again"
     );

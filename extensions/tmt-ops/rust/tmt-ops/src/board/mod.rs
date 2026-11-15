@@ -2012,6 +2012,9 @@ pub fn run(
     spawn_input(events, filter);
     app.unread.local.start();
     lane.submit(lane::Job::Versions);
+    if let Some(task) = app.offline_resume_start() {
+        lane.submit(lane::Job::OfflineResume(task));
+    }
     let resumed = std::cell::Cell::new(false);
     let result = session(
         &mut app,

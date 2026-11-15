@@ -56,7 +56,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     view.look = look;
     // The fixture's squad carries its own look; the scene shows the one asked for.
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
-    assert_eq!(app.offline_resume_offer(), Some(Task::Preview));
+    assert_eq!(app.offline_resume_start(), Some(Task::Preview));
     app.offline_resume_done(Completed {
         task: Task::Preview,
         result: Ok(MEMBERS
