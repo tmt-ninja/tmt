@@ -1081,8 +1081,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('Publish squad leads to Core') &&
-          screen.includes('Cancel') &&
-          screen.includes('Publish leads'),
+          /Publish leads[ \t]+Cancel/.test(screen),
         shell.pane
       );
       // The squad is already created; Cancel is the default for the separate Core offer.
