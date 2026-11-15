@@ -62,9 +62,8 @@ pub struct JobRow {
     pub paused_by: Option<String>,
     pub hold: Option<Hold>,
     pub next_run_ms: Option<u64>,
-    pub last_run: Option<LastRun>,
-    /// Up to the 5 newest recorded runs, newest first; the first is `last_run`'s. An older Core
-    /// without `recentRuns` gives `last_run` alone.
+    /// Up to the 5 newest recorded runs, newest first; the first is Core's `lastRun`. An older
+    /// Core without `recentRuns` gives `lastRun` alone. A run the board cannot read is left out.
     pub recent_runs: Vec<LastRun>,
 }
 impl JobRow {
@@ -128,13 +127,12 @@ impl JobRow {
             state,
             hold,
             next_run_ms: row["nextRunAtMs"].as_u64(),
-            last_run: LastRun::read(&row["lastRun"]),
             recent_runs: match row["recentRuns"].as_array() {
                 Some(runs) => runs
                     .iter()
                     .take(RECENT_RUNS)
-                    .map(LastRun::read)
-                    .collect::<Option<Vec<_>>>()?,
+                    .filter_map(LastRun::read)
+                    .collect(),
                 None => LastRun::read(&row["lastRun"]).into_iter().collect(),
             },
         })
@@ -173,4 +171,40 @@ pub fn read(
     }
     rows.more = true;
     Ok(Some(rows))
+}
+
+#[cfg(test)]
+mod recent_runs_tests {
+    use super::*;
+
+    /// A run the board cannot read is left out; the job and its other runs stay listed.
+    #[test]
+    fn a_malformed_run_keeps_the_job_and_its_other_runs() {
+        let schedule = crate::cron_service::parse_schedule_text("every 30m", "Asia/Tokyo", 0)
+            .unwrap()
+            .document();
+        let row = json!({"jobId":"30000000-0000-4000-8000-000000000001","displayId":"j1",
+            "revision":2,"legacy":null,
+            "target":{"squadRoomId":"room","identityId":"id","identityName":"core-1"},
+            "title":"Queue review","messagePreview":"Queue review",
+            "schedule":schedule,"state":"on",
+            "manualPause":null,"routine":null,"nextRunAtMs":null,
+            "lastRun":{"recordedAtMs":900,"acceptance":"queued"},
+            "recentRuns":[{"recordedAtMs":900,"acceptance":"queued"},{"acceptance":"queued"},
+                {"recordedAtMs":600,"acceptance":"route_restricted"}]});
+        let job = JobRow::read(&row).expect("the job stays listed");
+        assert_eq!(
+            job.recent_runs,
+            [
+                LastRun {
+                    at_ms: 900,
+                    acceptance: "queued".into()
+                },
+                LastRun {
+                    at_ms: 600,
+                    acceptance: "route_restricted".into()
+                },
+            ]
+        );
+    }
 }
