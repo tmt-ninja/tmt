@@ -28,7 +28,7 @@ fn visual_row_end(visual: &[Visual<'_>], mut index: usize, id: &str) -> usize {
 impl Visual<'_> {
     fn row_id(&self) -> Option<&str> {
         match self {
-            Self::Heading(..) | Self::Form(..) | Self::Kind => None,
+            Self::Heading(..) | Self::Form(..) | Self::Empty | Self::Kind => None,
             Self::Item(row, ..) | Self::Link(row, ..) => Some(row.id.as_str()),
         }
     }
@@ -37,6 +37,7 @@ impl Visual<'_> {
 enum Visual<'a> {
     Heading(&'static str, usize),
     Form(String, Role),
+    Empty,
     Kind,
     Item(&'a Row, String, usize, bool),
     Link(&'a Row, String, bool),
@@ -156,6 +157,9 @@ impl Controller {
             } else {
                 visual.push(Visual::Form("Reading the checklist…".into(), Role::Muted));
             }
+            if loaded && !completed && count == 0 && draft.is_none() {
+                visual.push(Visual::Empty);
+            }
             if !completed
                 && draft.is_some_and(|draft| match &draft.aim {
                     super::draft::Aim::Add => true,
@@ -262,6 +266,13 @@ impl Controller {
             let y = area.y + (index - offset) as u16;
             let rect = Rect::new(area.x, y, area.width, 1);
             match line {
+                Visual::Empty => {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        rect,
+                        Line::styled("   Nothing to do · a add", look.role(Role::Muted)),
+                    );
+                }
                 Visual::Kind => {
                     if let Some(draft) = draft {
                         self.paint_kind(frame, app, draft, rect, None);

@@ -476,6 +476,20 @@ fn an_empty_list_shows_zero_todo_and_done_counts() {
     assert!(!screen.contains("STATUS"), "{screen}");
     assert!(screen.contains("Todo · 0"), "{screen}");
     assert!(screen.contains("Done · 0"), "{screen}");
+    assert!(screen.contains("   Nothing to do · a add"), "{screen}");
+    let lines: Vec<_> = screen.lines().collect();
+    let todo = lines
+        .iter()
+        .position(|line| line.contains("Todo · 0"))
+        .unwrap();
+    let done = lines
+        .iter()
+        .position(|line| line.contains("Done · 0"))
+        .unwrap();
+    assert!(
+        done > todo + 1,
+        "empty sections do not stack rules: {screen}"
+    );
 }
 
 #[test]
