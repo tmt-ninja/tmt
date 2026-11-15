@@ -149,8 +149,10 @@ impl Controller {
                     let last = observation["resume"]["observedModel"]["model"]
                         .as_str()
                         .unwrap_or("unknown");
-                    lines.push(format!(
-                        "Resumes with its recorded settings · last model {last}"
+                    // It wraps rather than clipping the model at narrow widths.
+                    lines.extend(crate::board::notes::wrap(
+                        &format!("Resumes with its recorded settings · last model {last}"),
+                        usize::from(probe.content.width),
                     ));
                 }
             }
