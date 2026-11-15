@@ -63,6 +63,9 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
             })
         })
         .transpose()?;
+    // Prices are fetched while Core answers; a failed fetch falls back to the cache or built-in.
+    let lookup = crate::pricing::Lookup::start(&root, now);
+    let wake_turns = wake_turns(&core, from, now);
     let (settlements, decisions, coverage) = match &mut store {
         Some(store) => (
             store.settlements(from, now)?,
@@ -80,7 +83,44 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
         coverage: &coverage,
         names: &names,
         recompute,
+        wake_turns: wake_turns.as_deref(),
+        prices: lookup.finish().table(),
     }))
+}
+
+/// Every measured wake-up turn that ended in the window, or none when Core cannot answer
+/// (an older Core without `digest.wakeTurns` among them): the report then says so.
+fn wake_turns(core: &Core, from: u64, through: u64) -> Option<Vec<report::wake::WakeTurn>> {
+    let mut turns: Vec<report::wake::WakeTurn> = vec![];
+    let mut cursor = from;
+    // Pages overlap at their last end time, so a turn seen twice is kept once.
+    for _ in 0..64 {
+        let page = core
+            .api(
+                "digest.wakeTurns",
+                json!({"fromMs": cursor, "throughMs": through}),
+            )
+            .ok()?;
+        let (page, more) = report::wake::parse(&page).ok()?;
+        let last = page.last().map(|turn| turn.ended_at_ms);
+        for turn in page {
+            let seen = turn.ended_at_ms == cursor
+                && turns
+                    .iter()
+                    .rev()
+                    .take_while(|old| old.ended_at_ms == cursor)
+                    .any(|old| *old == turn);
+            if !seen {
+                turns.push(turn);
+            }
+        }
+        match last {
+            Some(last) if more && last > cursor => cursor = last,
+            Some(_) if more => return None,
+            _ => return Some(turns),
+        }
+    }
+    None
 }
 
 fn document(

@@ -56,6 +56,7 @@ const OPS: &[&str] = &[
     "digest.checklist.history",
     "digest.checklist.claim",
     "digest.checklist.settle",
+    "digest.wakeTurns",
     "capabilities",
     "storage.root",
     "workspace.capture",

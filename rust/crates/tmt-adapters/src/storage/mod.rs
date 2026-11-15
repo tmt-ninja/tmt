@@ -46,6 +46,7 @@ use std::{
 
 pub use bindings::PurgedSession;
 pub use compaction::{AutoVacuum, Compaction, DatabasePages, compact_database, observe_pages};
+pub use consumption_history::wake_turns;
 pub use consumption_history::{
     BUCKET_MS, ConsumptionLatest, HISTORY_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS,
     RuntimeObservation, SampledAccount, TurnBoundary, window_resolution_ms,

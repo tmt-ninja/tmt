@@ -36,6 +36,7 @@ describe('native Digest held delivery and checklist seam', () => {
         'checklist.dueNow',
         'checklist.flush',
         'stats.show',
+        'wakeTurns',
       ];
       const discovery = await api(sandbox, 'capabilities', {});
       expect(discovery.status).toBe(0);

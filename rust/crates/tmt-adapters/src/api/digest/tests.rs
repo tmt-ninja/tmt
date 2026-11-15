@@ -187,6 +187,9 @@ fn history_vectors_pin_content_free_projection_and_fit_the_consumer_byte_budget(
                             checklist_id: None,
                             context_tokens_at_arrival: item["contextTokensAtArrival"].as_u64(),
                             context_observed_at_ms: item["contextObservedAtMs"].as_u64(),
+                            phase_at_arrival: item["phaseAtArrival"].as_str().and_then(
+                                tmt_core::binding::session::activity::ActivityPhase::parse,
+                            ),
                         })
                         .collect(),
                 }

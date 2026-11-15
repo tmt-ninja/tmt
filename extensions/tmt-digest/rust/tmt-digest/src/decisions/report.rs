@@ -2,9 +2,15 @@
 //! message on its own, and optionally what another interval would have done. Only
 //! arrival and settlement times are used, so every recomputed figure is an estimate.
 
-use crate::history::{ChecklistSettlement, Coverage, Decision};
+use crate::{
+    history::{ChecklistSettlement, Coverage, Decision},
+    pricing::Table,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+pub mod wake;
+use wake::{Arrivals, WakeTurn};
 
 pub const METHOD: &str = "arrival-batching-v1";
 /// A delivery is matched to the tick's decision row written just after it settled.
@@ -26,6 +32,9 @@ pub struct Input<'a> {
     pub coverage: &'a BTreeMap<String, Coverage>,
     pub names: &'a BTreeMap<String, String>,
     pub recompute: Option<Recompute>,
+    /// Core's measured wake-up turns in the window; none when Core could not answer.
+    pub wake_turns: Option<&'a [WakeTurn]>,
+    pub prices: &'a Table,
 }
 
 #[derive(Default)]
@@ -46,6 +55,8 @@ struct Tally {
     excluded: Excluded,
     recomputed_deliveries: u64,
     recomputed_delays: Vec<u64>,
+    /// The arrival phases of the delivered messages (#6453).
+    phases: Arrivals,
 }
 
 pub fn document(input: &Input<'_>) -> Value {
@@ -78,7 +89,8 @@ pub fn document(input: &Input<'_>) -> Value {
         "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
         "delayBasis": "settled minus arrival",
         "members": rows,
-        "total": figures(&total, input.recompute.is_some()),
+        "total": with_wake(figures(&total, input.recompute.is_some()), None, &total, input),
+        "wakeMethod": wake::method(input.prices),
     });
     if let Some(recompute) = input.recompute {
         document["recompute"] = json!({
@@ -137,6 +149,13 @@ fn tally(
         member.delays.push(settled - item.created_at_ms);
         member.arrivals.push(item.created_at_ms);
     }
+    member.phases.add(
+        &checklist
+            .items
+            .iter()
+            .map(|item| item.phase_at_arrival.as_deref())
+            .collect::<Vec<_>>(),
+    );
     let rule = rules
         .iter_mut()
         .find(|(at, _, used)| {
@@ -183,6 +202,7 @@ fn merge(total: &mut Tally, member: Tally) {
     total.excluded.clock += member.excluded.clock;
     total.recomputed_deliveries += member.recomputed_deliveries;
     total.recomputed_delays.extend(member.recomputed_delays);
+    total.phases.merge(&member.phases);
 }
 
 /// Nearest-rank median, 90th percentile and maximum, or null with no messages.
@@ -227,8 +247,28 @@ fn figures(tally: &Tally, recomputed: bool) -> Value {
     value
 }
 
+/// The figures with the member's (or, for `None`, every member's) measured wake-up turns.
+fn with_wake(mut value: Value, id: Option<&str>, tally: &Tally, input: &Input<'_>) -> Value {
+    let turns = input.wake_turns.map(|turns| {
+        turns
+            .iter()
+            .filter(|turn| id.is_none_or(|id| turn.identity_id == id))
+            .collect::<Vec<_>>()
+    });
+    let wake = wake::figures(turns.as_deref(), &tally.phases, input.prices);
+    for (key, field) in wake.as_object().into_iter().flatten() {
+        value[key] = field.clone();
+    }
+    value
+}
+
 fn member_json(id: &str, tally: &Tally, input: &Input<'_>) -> Value {
-    let mut value = figures(tally, input.recompute.is_some());
+    let mut value = with_wake(
+        figures(tally, input.recompute.is_some()),
+        Some(id),
+        tally,
+        input,
+    );
     value["id"] = json!(id);
     value["name"] = json!(input.names.get(id));
     value["coverage"] = match input.coverage.get(id) {

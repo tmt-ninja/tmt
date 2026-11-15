@@ -58,6 +58,23 @@ fn event(
     response: Option<&str>,
     admitted: bool,
 ) -> bool {
+    read_event(
+        storage, path, id, session, boundary, response, admitted, None,
+    )
+}
+
+/// The same event carrying the driver's usage read, as a hook that read its transcript does.
+#[allow(clippy::too_many_arguments)]
+fn read_event(
+    storage: &mut Storage,
+    path: &std::path::Path,
+    id: &str,
+    session: &str,
+    boundary: Option<TurnBoundary<'_>>,
+    response: Option<&str>,
+    admitted: bool,
+    reading: Option<Consumption>,
+) -> bool {
     use std::sync::atomic::{AtomicU64, Ordering};
     static MOVES: AtomicU64 = AtomicU64::new(0);
     let expected = Storage::context_by_identity(path, id, now())
@@ -85,8 +102,8 @@ fn event(
             preferences: &preferences,
             remember_source: false,
             locator: None,
-            sampled: false,
-            consumption: None,
+            sampled: reading.is_some(),
+            consumption: reading,
             now_ms: now(),
             deadline: Instant::now() + Duration::from_secs(2),
             response: response.map(|text| ResponseCapture {
@@ -655,6 +672,84 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
     );
     ended(&mut storage, &path, &id);
     assert_eq!(turn_of(&storage, "waiting"), HandoverTurn::Ended);
+
+    // The turn is also a wake-up turn (#6453). Its boundaries carried no usage read, so its
+    // sum is no measurement.
+    let turns = |storage: &Storage| {
+        storage.wake_turns(&[], 0, now() + 1, 10).unwrap()["turns"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let first = &turns(&storage)[0];
+    assert_eq!(first["requestIds"], serde_json::json!(["waiting"]));
+    assert_eq!(first["startedAtMs"], at_ms);
+    assert_eq!(first["measured"], false);
+
+    // A turn whose start and end each carried a read counts only its own tokens: what the
+    // start read already left in its bucket is not the turn's.
+    let read = |input, output, sequence, by_model: Option<u64>| {
+        let mut consumption = super::tests::latest(input, output, sequence, now()).consumption;
+        consumption.delta_by_model = by_model.map(|input| {
+            vec![ModelUsage {
+                model_id: "fixture-model".into(),
+                input_tokens: input,
+                output_tokens: 80,
+                cached_input_tokens: 0,
+                cache_write_tokens: None,
+            }]
+        });
+        Some(consumption)
+    };
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        None,
+        None,
+        true,
+        read(900, 90, 1, None),
+    );
+    handed_over(&storage, &id, "measured", 0);
+    let start = TurnBoundary::Started {
+        turn: None,
+        prompt: "please review",
+    };
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(start),
+        None,
+        true,
+        read(1_000, 100, 2, None),
+    );
+    let end = TurnBoundary::Ended {
+        turn: None,
+        continuation: false,
+    };
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(end),
+        None,
+        true,
+        read(1_600, 180, 3, Some(600)),
+    );
+    let turns = turns(&storage);
+    let measured = turns.last().unwrap();
+    assert_eq!(measured["requestIds"], serde_json::json!(["measured"]));
+    assert_eq!(measured["measured"], true, "{measured}");
+    assert_eq!(
+        measured["tokens"],
+        serde_json::json!({"inputTokens": 600, "outputTokens": 80, "cachedInputTokens": 0})
+    );
+    assert_eq!(measured["byModel"][0]["modelId"], "fixture-model");
+    assert_eq!(measured["byModel"][0]["inputTokens"], 600);
     storage.close().unwrap();
 }
 

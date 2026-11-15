@@ -2091,6 +2091,7 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 | `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                                                                  |
 | `digest.checklist.claim`   | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text`                                           |
 | `digest.checklist.settle`  | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                                                                       |
+| `digest.wakeTurns`         | `fromMs`, `throughMs`, optional `identityIds` (0–256), optional `limit` (1–1,000, default 1,000)      | ended wake-up turns with measured tokens; see [Digest wake-up turns](#digest-wake-up-turns)              |
 
 UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
 integers, a set expiry is strictly future, absent revision is 0. A clear advances
@@ -2237,9 +2238,11 @@ immediately, even before physical cleanup. Existing checklist/request pruning st
 unchanged. The oldest surviving sequence is not a coverage guarantee, and absent
 records cannot be reconstructed from the cumulative delivered count.
 
-Each input is only `sequence`, `createdAtMs`, `contextTokensAtArrival` and
-`contextObservedAtMs`. Context fields are nullable immutable hold-time observations;
-missing context is unknown, never zero. No body, preview, request ID, receipt,
+Each input is only `sequence`, `createdAtMs`, `contextTokensAtArrival`,
+`contextObservedAtMs` and `phaseAtArrival`. Context fields are nullable immutable hold-time observations;
+missing context is unknown, never zero. `phaseAtArrival` is the recipient's verified
+driver activity phase when Core held the message (`working`, `waiting`, `idle`), or
+null when unknown, including references held before schema 94. No body, preview, request ID, receipt,
 reply/inspection command, attempt token or provider locator is returned.
 
 An enumeration page returns at most `limit` checklists and **128 member inputs in
@@ -2254,3 +2257,31 @@ unsettled or legacy terminal records without a sequence return no checklist.
 membership may expire between pages and clients must check completeness on each.
 The fixed numeric/UUID fields and these bounds keep encoded pages below 128 KiB,
 within Digest's existing 1 MiB Core subprocess capture limit.
+
+### Digest wake-up turns
+
+`digest.wakeTurns` v1 is a read-only, storage-only page of measured wake-up turns
+(#6453). A wake-up turn is the first main-session turn that began after one or more
+requests were handed to their recipient (the turn `requests.show` reports as
+`working`). The hook transaction that admits the turn's start and end records it;
+nothing reads a transcript, prices tokens or renews retention.
+
+Input is `fromMs` and `throughMs` (nonnegative JS-safe integers, `fromMs` ≤
+`throughMs`), optional `identityIds` (0–256 canonical UUIDs; empty means every
+identity) and optional `limit` (1–1,000, default 1,000). Unknown fields are refused.
+
+The result is `fromMs`, `throughMs`, `more` and `turns`: ended turns whose
+`endedAtMs` falls in the range, oldest end first, each with `identityId`,
+`startedAtMs`, `endedAtMs`, `requestIds` (the handed-over requests the turn carried),
+`measured`, `tokens` (`inputTokens`, `outputTokens`, `cachedInputTokens`, or null when
+no sum was kept) and `byModel` (`modelId`, `inputTokens`, `outputTokens`,
+`cachedInputTokens` rows, or null when the split is unknown). `more` means the next
+page starts at the last `endedAtMs`; a turn ending at that instant can appear twice.
+
+`tokens` is the sum of the identity's 5-second usage buckets over the turn, less what
+its start bucket already held when the start read was taken. `measured` is true only
+when both boundaries carried a usage read and continuous, complete reads cover the
+whole span between them; otherwise the sum is partial and must not be shown as exact.
+A turn whose end was never admitted is closed unmeasured by the next turn start.
+Reasoning tokens are not in the usage record. Turns are kept 30 days after they end;
+history before schema 94 has none.

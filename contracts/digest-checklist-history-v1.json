@@ -27,13 +27,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ]
           }
@@ -63,13 +65,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ],
             "membershipComplete": true
@@ -103,7 +107,8 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               }
             ]
           }
@@ -133,7 +138,8 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               }
             ],
             "membershipComplete": false
@@ -217,13 +223,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ]
           }
@@ -253,13 +261,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ],
             "membershipComplete": false
@@ -293,13 +303,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ]
           }
@@ -329,13 +341,15 @@
                 "sequence": 1,
                 "createdAtMs": 1000,
                 "contextTokensAtArrival": 1000,
-                "contextObservedAtMs": 900
+                "contextObservedAtMs": 900,
+                "phaseAtArrival": null
               },
               {
                 "sequence": 2,
                 "createdAtMs": 1200,
                 "contextTokensAtArrival": null,
-                "contextObservedAtMs": null
+                "contextObservedAtMs": null,
+                "phaseAtArrival": null
               }
             ],
             "membershipComplete": true

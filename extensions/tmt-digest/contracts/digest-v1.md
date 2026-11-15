@@ -214,7 +214,20 @@ defaults to the configured `flushCount`.
         "delayMs": { "median": 15000, "p90": 40000, "max": 40000 },
         "byRule": { "interval_deadline": 2, "unrecorded": 1 }
       },
+      "measuredSaved": 1,
+      "measuredSavedBasis": { "deliveries": 2, "idleArrivals": 3 },
+      "arrivals": { "idle": 3, "working": 2, "waiting": 0, "unknown": 1 },
       "turnsSaved": 3,
+      "wakeUps": {
+        "delivered": 3,
+        "measured": 2,
+        "tokensPerWake": {
+          "measured": { "count": 2, "mean": 2150, "median": 1200 },
+          "partial": { "count": 1, "mean": 55, "median": 55 }
+        },
+        "costPerWake": { "medianUsdMicros": 4000, "priced": 1, "reason": null }
+      },
+      "avoidedCost": { "usdMicros": 4000, "estimate": true },
       "excluded": { "notDelivered": 0, "incomplete": 0, "clock": 0 },
       "coverage": { "startsAtMs": 0, "collectedThroughMs": 0, "complete": true, "gap": null }
     }
@@ -223,9 +236,13 @@ defaults to the configured `flushCount`.
     "messages": 6,
     "baseline": { "deliveries": 6 },
     "actual": {},
+    "measuredSaved": 1,
     "turnsSaved": 3,
+    "wakeUps": {},
+    "avoidedCost": {},
     "excluded": {}
-  }
+  },
+  "wakeMethod": {}
 }
 ```
 
@@ -234,6 +251,32 @@ message, so `baseline.deliveries` equals `messages`), `turnsSaved` (`messages` m
 `actual.deliveries`) and the actual delay beside them, per member and in `total`.
 `turnsSaved` is an upper bound: without a digest a busy agent may already combine
 messages that queue up into one turn, so the real saving can be smaller.
+
+The measured figures come first (#6453). `measuredSaved` uses the phase Core recorded
+when it held each message (`phaseAtArrival` in the [history](#history)): over delivered
+checklists whose every message has a known phase, the messages that arrived while their
+member was `idle` (each would have woken it) minus those checklists' deliveries
+(`measuredSavedBasis`). Messages that arrived while it was `working` or `waiting` would
+have joined that turn and save nothing; a negative value means Digest added wake-ups.
+`arrivals` counts every delivered message by phase; `unknown` covers members whose driver
+reports no activity and history kept before the phase was recorded, and such checklists
+have no `measuredSaved` (null when none qualifies).
+
+`wakeUps` reads Core's measured wake-up turns ([`digest.wakeTurns`](../../../contracts/extension-api.md#digest-wake-up-turns))
+that ended in the window: `delivered` turns, of which `measured`; `tokensPerWake` gives the
+count, rounded mean and nearest-rank median of input plus output tokens, separately for
+measured and partial turns. `costPerWake` is the median API-equivalent cost of the measured
+turns that could be priced: each model's input tokens at its listed rate in the
+[pricing file](#pricing-file) in use (output tokens and cache discounts are not in that
+file and are not priced). A model without a price row is `no_price` and a share no model
+claims is `unattributed`; neither is ever given a cost, and `medianUsdMicros` is null with
+that `reason` when nothing could be priced (`no_measured_turn` with no measured turn).
+`avoidedCost` is the one figure labelled `estimate: true`: `measuredSaved` times that
+median, or null with its reason. When Core cannot answer `digest.wakeTurns`, `wakeUps` is
+null and `avoidedCost.reason` is `wake_turns_unavailable`; nothing is shown as zero. The
+document's `wakeMethod` states each rule, the price table's version and basis, and the
+limits: 5-second bucket edges, no reasoning tokens, unknown phases and no measured turns
+before the feature.
 `messages` and `deliveries` count only delivered checklists whose membership is
 complete, so each message's arrival is known; the rest are counted in `excluded`
 (`notDelivered`, `incomplete`, `clock` for a message that arrived after its settle time),

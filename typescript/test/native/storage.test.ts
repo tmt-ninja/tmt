@@ -172,6 +172,7 @@ function expectNativeSchema(
     { version: 91, name: 'record the interactive forms a provider session waits on' },
     { version: 92, name: 'stamp which identity each usage write changed' },
     { version: 93, name: 'record thread roots and stamp room request changes' },
+    { version: 94, name: 'measure wake-up turns and the phase a held message arrived in' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -252,6 +253,7 @@ function expectNativeSchema(
       'usage_floor',
       'room_request_changes',
       'room_change_floor',
+      'wake_turns',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -281,6 +283,7 @@ function expectNativeSchema(
     'provider_forms',
     'usage_changes',
     'room_request_changes',
+    'wake_turns',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }

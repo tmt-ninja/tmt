@@ -458,6 +458,17 @@ stored usage through its remembered driver's reader; no provider refresh or exte
 I/O occurs in the holding transaction. `api::digest` and the Digest adapter project
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
+Schema 94 adds `focus_items.phase_at_arrival`: the recipient's verified driver
+activity phase (`requests::delivery::activity`) read in the holding transaction,
+null when unknown. It also adds `wake_turns` (`consumption_history::wake_turns`,
+#6453): one row per main-session turn that opened a `request_turns` row, keyed by
+identity and start. The runtime-observation transaction keeps the start read's
+bucket as `baseline` and, at `Ended`, the identity's fine-bucket sum over the turn
+less that baseline, with the per-model split; `measured` needs both reads and full
+coverage between them. A turn without an end closes unmeasured at the next start.
+Rows are pruned 30 days after they end (`WAKE_TURN_RETENTION_MS`, Digest's decision
+history) by the closing transaction, advance no cursor and are read only through
+`digest.wakeTurns`. Prices stay in the Digest extension.
 
 `storage::hook_queue` owns the independently versioned, private WAL `hook-writes.db`.
 Core initialization provisions it under the existing main initialization writer,

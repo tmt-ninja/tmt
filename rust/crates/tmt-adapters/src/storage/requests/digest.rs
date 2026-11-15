@@ -75,8 +75,10 @@ pub(super) fn hold(
             crate::runtime::RuntimeRegistry::first_party().remembered_usage(session)
         })
         .filter(|usage| usage.observed_at_ms <= now);
-    let inserted=db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,context_tokens_at_arrival,context_observed_at_ms) VALUES(?1,?2,?3,?4,?5,?6,?7)
-        ON CONFLICT(identity_id,request_id,source) DO NOTHING",params![identity,request,kind.as_str(),source.as_str(),checked_now(now,"Digest item clock")?,usage.map(|u|u.tokens as i64),usage.map(|u|u.observed_at_ms as i64)])
+    // A held message that arrived while its recipient was working would have joined that turn.
+    let phase = super::delivery::activity(db, identity)?.map(|activity| activity.phase.as_str());
+    let inserted=db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,context_tokens_at_arrival,context_observed_at_ms,phase_at_arrival) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+        ON CONFLICT(identity_id,request_id,source) DO NOTHING",params![identity,request,kind.as_str(),source.as_str(),checked_now(now,"Digest item clock")?,usage.map(|u|u.tokens as i64),usage.map(|u|u.observed_at_ms as i64),phase])
         .map_err(|e|classify(e,"Hold digest item"))?;
     if source == DigestSource::Result {
         // These frames have no external attempt. Their canonical result hint
@@ -204,6 +206,13 @@ fn item_row(r: &rusqlite::Row<'_>, identity: &str) -> rusqlite::Result<DigestIte
             .get::<_, Option<i64>>(7)?
             .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
             .transpose()?,
+        phase_at_arrival: r
+            .get::<_, Option<String>>(8)?
+            .map(|text| {
+                tmt_core::binding::session::activity::ActivityPhase::parse(&text)
+                    .ok_or(rusqlite::Error::InvalidQuery)
+            })
+            .transpose()?,
     })
 }
 
@@ -215,7 +224,7 @@ pub(super) fn items(
     limit: u64,
     now: u64,
 ) -> Result<Vec<DigestItem>, StorageError> {
-    let mut q=db.prepare(&format!("SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms FROM focus_items i
+    let mut q=db.prepare(&format!("SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms,i.phase_at_arrival FROM focus_items i
         JOIN request_attempts a USING(request_id) WHERE {ITEM_SCOPE} ORDER BY i.sequence LIMIT ?5"))
         .map_err(|e|classify(e,"Prepare digest checklist read"))?;
     q.query_map(
@@ -261,7 +270,7 @@ pub(super) fn selected_items(
     selection: DigestSelection,
     now: u64,
 ) -> Result<Vec<DigestItem>, StorageError> {
-    let mut q=db.prepare(&format!("SELECT sequence,request_id,kind,created_at_ms,checklist_id,source,context_tokens_at_arrival,context_observed_at_ms FROM focus_items WHERE identity_id=?1 AND checklist_id IS NULL AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?2) ORDER BY sequence LIMIT ?3",selection_clause(selection)))
+    let mut q=db.prepare(&format!("SELECT sequence,request_id,kind,created_at_ms,checklist_id,source,context_tokens_at_arrival,context_observed_at_ms,phase_at_arrival FROM focus_items WHERE identity_id=?1 AND checklist_id IS NULL AND {} AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?2) ORDER BY sequence LIMIT ?3",selection_clause(selection)))
         .map_err(|e|classify(e,"Prepare selected Digest items"))?;
     q.query_map(
         params![
@@ -447,7 +456,7 @@ pub(super) fn unconfirmed_items(
 ) -> Result<Vec<DigestItem>, StorageError> {
     let mut q = db
         .prepare(&format!(
-            "SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms
+            "SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms,i.phase_at_arrival
              FROM focus_items i JOIN focus_checklists c ON c.id=i.checklist_id JOIN request_attempts a USING(request_id)
              WHERE {UNCONFIRMED} AND a.retention_expires_at_ms>?2 ORDER BY i.sequence LIMIT ?3"
         ))

@@ -30,7 +30,7 @@ const USAGE: &[&str] = &[
 ];
 
 /// Append-only journals paged on demand, independently of board refreshes.
-const ON_DEMAND_JOURNALS: &[&str] = &["orchestration_decisions"];
+const ON_DEMAND_JOURNALS: &[&str] = &["orchestration_decisions", "wake_turns"];
 
 /// Columns whose refresh is an observation made by reads, not a change.
 const OBSERVATIONS: &[(&str, &str)] = &[("bindings", "last_verified_at")];
