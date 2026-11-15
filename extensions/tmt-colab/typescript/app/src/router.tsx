@@ -1648,6 +1648,7 @@ function OpenPage({
   const [workBandSize, setWorkBandSize] = useState(0);
   const phone = useMedia('(max-width: 640px)');
   const [addingSubpage, setAddingSubpage] = useState(false);
+  const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -2683,7 +2684,11 @@ function OpenPage({
       pageHref={routing.pageHref}
       openPage={(id) => routing.open(`/pages/${id}`)}
       adding={addingSubpage}
-      onAddingChange={setAddingSubpage}
+      addDraft={addSubpageDraft}
+      onAddingChange={(open) => {
+        if (!open) addSubpageDraft.current = undefined;
+        setAddingSubpage(open);
+      }}
     />
   ) : undefined;
   const content = (

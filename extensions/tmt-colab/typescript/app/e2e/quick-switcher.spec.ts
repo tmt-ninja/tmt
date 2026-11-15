@@ -68,14 +68,18 @@ for (const width of [1440, 390]) {
     await beta.click();
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Beta review');
-    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
+    await expect(
+      page.locator(width <= 640 ? '.page-mobile-title h1' : '.tmt-ui-topbar-title h1'),
+    ).toBeFocused();
     expect((await proof(page)).pageReads).toEqual(['c0000002-1111-4111-8111-000000000001']);
     await page.keyboard.press(await shortcut(page));
     await expect(options(page)).toHaveCount(2);
     await expect(options(page).filter({ hasText: 'Beta review' })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
-    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
+    await expect(
+      page.locator(width <= 640 ? '.page-mobile-title h1' : '.tmt-ui-topbar-title h1'),
+    ).toBeFocused();
   });
 }
 

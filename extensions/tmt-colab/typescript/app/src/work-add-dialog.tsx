@@ -13,8 +13,20 @@ import {
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { FileText, Plus, Search } from 'lucide-react';
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { editFromSearch, PageListSearch, searchFromEdit } from './page-list-search.js';
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import {
+  editFromSearch,
+  PageListSearch,
+  searchFromEdit,
+  type SearchEdit,
+} from './page-list-search.js';
 import { authorCounts, filterPages, projectCounts } from './projects.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
@@ -44,9 +56,12 @@ export function AddSubpageDialog({
   onClose,
   mode = 'child',
   nowUnder,
+  draft,
 }: {
   mode?: 'child' | 'parent';
   nowUnder?: string;
+  /** Kept by the page while responsive title controls move between containers. */
+  draft?: RefObject<SearchEdit | undefined>;
   /** This page's title. */
   title: string;
   pages?: readonly PageSummary[];
@@ -56,7 +71,7 @@ export function AddSubpageDialog({
   onClose(): void;
 }): ReactNode {
   // The list's own search draft: `project:` and `by:` tokens and free text (#5868).
-  const [edit, setEdit] = useState(() => editFromSearch([], ''));
+  const [edit, setEdit] = useState(() => draft?.current ?? editFromSearch([], ''));
   const [busy, setBusy] = useState(false);
   const [active, setActive] = useState('');
   const [list, setList] = useState<HTMLDivElement | null>(null);
@@ -138,6 +153,7 @@ export function AddSubpageDialog({
                 <PageListSearch
                   edit={edit}
                   onChange={(next) => {
+                    if (draft) draft.current = next;
                     setEdit(next);
                     setError(undefined);
                   }}

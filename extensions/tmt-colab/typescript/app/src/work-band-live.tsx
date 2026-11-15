@@ -4,7 +4,16 @@ import { MoreHorizontal } from 'lucide-react';
 import { text } from './strings.js';
 import { SaveNotApplied, SaveRefused, saveMessage, type MetadataAction } from './save.js';
 import type { PageState } from './bootstrap.js';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import type { SearchEdit } from './page-list-search.js';
 import { WorkBand, type WorkBandProps } from './work-band.js';
 import { AddSubpageDialog, type AddChoice } from './work-add-dialog.js';
 import type { PageBinding, PageTransport } from './transport.js';
@@ -54,6 +63,7 @@ export function PageWorkBand({
   openPage,
   adding,
   onAddingChange,
+  addDraft,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
   /** Absent for a page that never had work. */
@@ -69,6 +79,7 @@ export function PageWorkBand({
   pageId: string;
   adding: boolean;
   onAddingChange(open: boolean): void;
+  addDraft?: RefObject<SearchEdit | undefined>;
 }): ReactNode {
   const { observed, pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -145,6 +156,7 @@ export function PageWorkBand({
       />
       {adding && (
         <AddSubpageDialog
+          draft={addDraft}
           title={title}
           pages={pages}
           refusal={tree.refusal}
