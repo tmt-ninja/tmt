@@ -893,6 +893,8 @@ pub(in crate::board) const LIST_SCENES: &[&str] = &[
     "notes-list-retired",
     "notes-list-conflict",
     "notes-form-reopened",
+    "notes-ask-waiting",
+    "notes-ask-updated",
 ];
 
 fn stamped(mut view: ItemView, title: &str, by: &str, ago_ms: u64) -> ItemView {
@@ -911,12 +913,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
     const HOURS: u64 = 9_000_000;
     const DAYS: u64 = 129_600_000;
     let items = match scene {
-        "notes-list-empty" => vec![stamped(
-            done(5),
-            "Completed item retained in storage",
-            ALICE,
-            HOURS,
-        )],
+        "notes-list-empty" => vec![],
         "notes-list-completed" => vec![stamped(
             todo(3),
             "Review the open checklist",
@@ -963,6 +960,26 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         .workspace
         .squad_looks
         .clear();
+    if scene == "notes-ask-waiting" || scene == "notes-ask-updated" {
+        let member = app
+            .conversation_checklist_key()
+            .unwrap()
+            .member()
+            .unwrap()
+            .to_owned();
+        let state = if scene == "notes-ask-waiting" {
+            super::super::AskState::Waiting {
+                sender: ACTOR.into(),
+                request: "checklist-fixture-request".into(),
+            }
+        } else {
+            super::super::AskState::Updated {
+                at_ms: crate::status::now_ms() - MINUTES,
+            }
+        };
+        app.notes.asks.insert(member, state);
+        return app;
+    }
     if scene == "notes-list-empty" {
         return app;
     }
@@ -1588,9 +1605,9 @@ fn sheet_at(app: &App, width: u16) -> (ratatui::layout::Rect, Vec<String>) {
         .unwrap();
     let buffer = terminal.backend().buffer();
     let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
-    let lines = (outer.top() + 1..outer.bottom().saturating_sub(1))
+    let lines = (outer.top()..outer.bottom())
         .map(|y| {
-            (outer.left() + 1..outer.right().saturating_sub(1))
+            (outer.left()..outer.right())
                 .map(|x| buffer[(x, y)].symbol())
                 .collect()
         })
@@ -1610,7 +1627,7 @@ const LONG_URL: &str = "https://127.0.0.1:50711/colab/p/161644f1-5d0f-4c11-9a54-
 #[test]
 fn the_pane_wraps_whole_titles_and_links() {
     for width in [60, 100, 160] {
-        let (app, _) = opened(vec![long(1, LONG_TITLE, LONG_URL)]);
+        let (mut app, _) = opened(vec![long(1, LONG_TITLE, LONG_URL)]);
         let (outer, lines) = sheet_at(&app, width);
         assert!(outer.width <= width, "{outer:?}");
         // The last line is the footer, which may be cut at a narrow width.
@@ -1629,6 +1646,21 @@ fn the_pane_wraps_whole_titles_and_links() {
         assert!(
             !words.concat().contains('…'),
             "{width}: nothing cut: {lines:#?}"
+        );
+        let link_cells = app.notes_overlay.as_ref().unwrap().link_hits.borrow();
+        let first = link_cells.iter().find(|hit| hit.link == 0).unwrap().area;
+        let last = link_cells
+            .iter()
+            .rev()
+            .find(|hit| hit.link == 0)
+            .unwrap()
+            .area;
+        if width == 60 {
+            assert!(last.y > first.y, "the link wraps onto another row");
+        }
+        drop(link_cells);
+        assert!(
+            matches!(click_at(&mut app, last.x, last.y), Effect::Act(Request::Open { link, .. }) if link == LONG_URL)
         );
     }
 }

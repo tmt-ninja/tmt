@@ -13,10 +13,31 @@ use tmt_tui::components::{
 };
 use unicode_width::UnicodeWidthStr;
 
+fn visual_row_start(visual: &[Visual<'_>], mut index: usize, id: &str) -> usize {
+    while index > 0 && visual[index - 1].row_id() == Some(id) {
+        index -= 1;
+    }
+    index
+}
+fn visual_row_end(visual: &[Visual<'_>], mut index: usize, id: &str) -> usize {
+    while index < visual.len() && visual[index].row_id() == Some(id) {
+        index += 1;
+    }
+    index
+}
+impl Visual<'_> {
+    fn row_id(&self) -> Option<&str> {
+        match self {
+            Self::Heading(..) => None,
+            Self::Item(row, ..) | Self::Link(row, ..) => Some(row.id.as_str()),
+        }
+    }
+}
+
 enum Visual<'a> {
     Heading(&'static str, usize),
-    Item(&'a Row),
-    Link(&'a Row),
+    Item(&'a Row, String, usize, bool),
+    Link(&'a Row, String, bool),
 }
 
 impl Controller {
@@ -78,18 +99,46 @@ impl Controller {
         };
         let todo = items.iter().filter(|item| !item.completed).count();
         let done = items.len().saturating_sub(todo);
-        let mut visual = vec![Visual::Heading("Todo", todo)];
-        for item in items.iter().filter(|item| !item.completed) {
-            visual.push(Visual::Item(item));
-            if item.reference.is_some() {
-                visual.push(Visual::Link(item));
-            }
-        }
-        visual.push(Visual::Heading("Done", done));
-        for item in items.iter().filter(|item| item.completed) {
-            visual.push(Visual::Item(item));
-            if item.reference.is_some() {
-                visual.push(Visual::Link(item));
+        let mut visual = Vec::new();
+        for (heading, count, completed) in [("Todo", todo, false), ("Done", done, true)] {
+            visual.push(Visual::Heading(heading, count));
+            for item in items.iter().filter(|item| item.completed == completed) {
+                let byline_width = if item.byline.is_empty() {
+                    0
+                } else {
+                    item.byline.width() + 2
+                };
+                let available = usize::from(area.width).saturating_sub(5);
+                let reserved = if byline_width + 8 <= available {
+                    byline_width
+                } else {
+                    0
+                };
+                let width = available.saturating_sub(reserved).max(1) as u16;
+                let title = crate::board::notes::single_line(&item.title);
+                let mut cursor = 0;
+                for (index, line) in
+                    tmt_tui::text::lines(&title, width, tmt_tui::style::TextFlow::Wrap)
+                        .into_iter()
+                        .enumerate()
+                {
+                    let text = line.trim_end().to_owned();
+                    let start = title[cursor..]
+                        .find(&text)
+                        .map_or(cursor, |offset| cursor + offset);
+                    cursor = start.saturating_add(text.len()).min(title.len());
+                    visual.push(Visual::Item(item, text, start, index == 0));
+                }
+                if item.reference.is_some() {
+                    let width = area.width.saturating_sub(7).max(1);
+                    for (index, line) in
+                        tmt_tui::text::lines(&item.address, width, tmt_tui::style::TextFlow::Wrap)
+                            .into_iter()
+                            .enumerate()
+                    {
+                        visual.push(Visual::Link(item, line.trim_end().to_owned(), index == 0));
+                    }
+                }
             }
         }
         let list = Self::list_rows(&items);
@@ -104,9 +153,9 @@ impl Controller {
         let selected_range = selected
             .as_ref()
             .and_then(|id| {
-                visual
-                    .iter()
-                    .position(|line| matches!(line, Visual::Item(item) if item.id.as_str() == id))
+                visual.iter().position(
+                    |line| matches!(line, Visual::Item(item, _, _, true) if item.id.as_str() == id),
+                )
             })
             .map(|i| i..i + 1);
         ui.picker
@@ -118,7 +167,7 @@ impl Controller {
         *self.ask_hit.borrow_mut() = None;
         let mut hits = Vec::new();
         let mut link_hits = Vec::new();
-        for (index, visual) in visual
+        for (index, line) in visual
             .iter()
             .enumerate()
             .skip(offset)
@@ -126,7 +175,7 @@ impl Controller {
         {
             let y = area.y + (index - offset) as u16;
             let rect = Rect::new(area.x, y, area.width, 1);
-            match visual {
+            match line {
                 Visual::Heading(title, count) => {
                     let heading = format!("{title} · {count}");
                     let note = if *title == "Todo" {
@@ -162,24 +211,27 @@ impl Controller {
                     }
                     section_rule::paint(frame.buffer_mut(), rect, &heading, note, false, look);
                 }
-                Visual::Item(item) => {
+                Visual::Item(item, title, start_byte, first) => {
                     let current = selected.as_deref() == Some(item.id.as_str());
                     let mark = if item.completed { "✓" } else { "○" };
-                    let prefix = format!(" {} {mark} ", if current { "›" } else { " " });
-                    let byline = if item.byline.is_empty() {
+                    let prefix = if *first {
+                        format!(" {} {mark} ", if current { "›" } else { " " })
+                    } else {
+                        "     ".into()
+                    };
+                    let byline = if !first || item.byline.is_empty() {
                         String::new()
                     } else {
                         format!("  {}", item.byline)
                     };
                     let available = usize::from(rect.width).saturating_sub(prefix.width());
-                    let byline = if byline.width() <= available {
+                    let byline = if byline.is_empty() || byline.width() + 8 <= available {
                         byline
                     } else {
                         String::new()
                     };
                     let title_width = available.saturating_sub(byline.width());
                     let safe_title = crate::board::notes::single_line(&item.title);
-                    let title = crate::board::view::fit(&safe_title, title_width);
                     let gap = if byline.is_empty() {
                         String::new()
                     } else {
@@ -196,7 +248,7 @@ impl Controller {
                         rect,
                         Line::from(vec![
                             Span::styled(prefix, style),
-                            Span::styled(title, style),
+                            Span::styled(title.clone(), style),
                             Span::raw(gap),
                             Span::styled(byline, look.role(Role::Muted)),
                         ]),
@@ -205,11 +257,14 @@ impl Controller {
                         .into_iter()
                         .enumerate()
                     {
-                        let start = safe_title[..range.start].width();
-                        let end = start + safe_title[range.clone()].width();
-                        if end > title_width {
+                        let part_end = start_byte.saturating_add(title.len());
+                        let overlap_start = range.start.max(*start_byte);
+                        let overlap_end = range.end.min(part_end);
+                        if overlap_start >= overlap_end {
                             continue;
                         }
+                        let start = safe_title[*start_byte..overlap_start].width();
+                        let end = start + safe_title[overlap_start..overlap_end].width();
                         let url = safe_title[range].to_owned();
                         let hovered = self.hovered.borrow().as_ref()
                             == Some(&(item.id.as_str().to_owned(), index + 1));
@@ -233,18 +288,43 @@ impl Controller {
                             }
                         }
                     }
-                    geometry.push(RowGeometry {
-                        id: item.id.as_str().into(),
-                        lines: index..index + 1 + usize::from(item.reference.is_some()),
-                        visible: Rect {
-                            height: (1 + u16::from(item.reference.is_some()))
-                                .min(area.bottom().saturating_sub(rect.y)),
-                            ..rect
-                        },
-                    });
+                    let start = visual_row_start(&visual, index, item.id.as_str());
+                    let end = visual_row_end(&visual, index, item.id.as_str());
+                    if geometry
+                        .iter()
+                        .all(|row: &RowGeometry| row.id != item.id.as_str())
+                    {
+                        geometry.push(RowGeometry {
+                            id: item.id.as_str().into(),
+                            lines: start..end,
+                            visible: Rect {
+                                height: (end - index)
+                                    .min(usize::from(area.bottom().saturating_sub(rect.y)))
+                                    as u16,
+                                ..rect
+                            },
+                        });
+                    }
                 }
-                Visual::Link(item) => {
-                    let text = format!("     ↗ {}", item.address);
+                Visual::Link(item, part, first) => {
+                    if geometry
+                        .iter()
+                        .all(|row: &RowGeometry| row.id != item.id.as_str())
+                    {
+                        let start = visual_row_start(&visual, index, item.id.as_str());
+                        let end = visual_row_end(&visual, index, item.id.as_str());
+                        geometry.push(RowGeometry {
+                            id: item.id.as_str().into(),
+                            lines: start..end,
+                            visible: Rect {
+                                height: (end - index)
+                                    .min(usize::from(area.bottom().saturating_sub(rect.y)))
+                                    as u16,
+                                ..rect
+                            },
+                        });
+                    }
+                    let text = format!("{}{}", if *first { "     ↗ " } else { "       " }, part);
                     strip::paint_left(
                         frame.buffer_mut(),
                         rect,

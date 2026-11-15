@@ -878,6 +878,8 @@ fn checklist_overlay_frames(styles: &mut Styles) -> Vec<Value> {
             // The list also paints where its title, host and author give way.
             let widths: &[u16] = if *scene == "notes-list" {
                 &[100, 160, 60]
+            } else if matches!(*scene, "notes-ask-waiting" | "notes-ask-updated") {
+                &[100, 160]
             } else {
                 &[100]
             };
@@ -1253,7 +1255,7 @@ macro_rules! oracle_groups {
         $group!(8, 448, member_session_frames($styles));
         $group!(7, 24, checklist_chip_frames($styles));
         $group!(7, 80, add_note_frames($styles));
-        $group!(7, 32, checklist_overlay_frames($styles));
+        $group!(7, 48, checklist_overlay_frames($styles));
         $group!(7, 40, one_turn_frames($styles));
         $group!(7, 24, versions_frames($styles));
         $group!(6, 696, new_member_frames($styles));
