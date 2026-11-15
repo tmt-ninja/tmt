@@ -1757,6 +1757,11 @@ fn form_hooks_decide_nothing_when_storage_fails() {
             serde_json::json!({"hookEventName":"PreToolUse","conversationId":"c-1",
                 "toolCall":{"id":"call_1","name":"ask_question","args":{"questions":[{"question":"Which?","options":["A"]}]}}}),
         ),
+        (
+            "pi",
+            "{}",
+            serde_json::json!({"event":"before_agent_start","session_id":"p-1","model":"gemini-4-hydrogen"}),
+        ),
     ] {
         let mut child = support::command(&world.root, &["__hook", provider])
             .stdin(Stdio::piped())

@@ -1160,7 +1160,7 @@ mod tests {
         assert_eq!(orphaned.remembered, None);
         assert_eq!(
             registry.harnesses().collect::<Vec<_>>(),
-            ["agy", "claude", "codex"]
+            ["agy", "claude", "codex", "pi"]
         );
     }
 

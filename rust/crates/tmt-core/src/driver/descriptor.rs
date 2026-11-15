@@ -13,13 +13,22 @@ pub enum Hue {
     Neutral,
 }
 
-/// How a driver's session lifecycle hooks are written in its JSON settings file.
+/// How a driver's session lifecycle hooks are delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookFormat {
     /// `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", ...}]}], ...}}`
     SessionHooksJson,
     /// `{"tmt": {"SessionStart": [{"type": "command", ...}], "PreInvocation": [...], ...}}`
     NamedHooksJson,
+    /// Delivered per launch (e.g. an embedded extension), not installed by `tmt setup`.
+    PerLaunch,
+}
+
+impl HookFormat {
+    /// True when `tmt setup` installs lifecycle hooks into the driver's settings file.
+    pub const fn is_installed(self) -> bool {
+        matches!(self, Self::SessionHooksJson | Self::NamedHooksJson)
+    }
 }
 
 /// Turn-end context and consumption collection. Default setup installs it
@@ -112,9 +121,9 @@ pub static AGY: DriverDescriptor = DriverDescriptor {
 pub static PI: DriverDescriptor = DriverDescriptor {
     name: "pi",
     executables: &["pi"],
-    hooks: None,
+    hooks: Some(HookFormat::PerLaunch),
     hue: Hue::Neutral,
-    support: Support::Basic,
+    support: Support::Full,
     folds_queued_text: false,
 };
 
@@ -213,7 +222,8 @@ mod tests {
         assert_eq!(named("claude").unwrap().support, Support::Full);
         assert_eq!(named("codex").unwrap().support, Support::Full);
         assert_eq!(named("agy").unwrap().support, Support::Full);
-        for basic in ["gemini", "pi", "opencode", "muse"] {
+        assert_eq!(named("pi").unwrap().support, Support::Full);
+        for basic in ["gemini", "opencode", "muse"] {
             assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
         }
     }

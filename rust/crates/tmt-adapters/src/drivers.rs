@@ -178,8 +178,12 @@ impl Registry {
 
     /// Drivers `tmt setup` can install lifecycle hooks for.
     pub fn with_hooks(&self) -> impl Iterator<Item = &'static DriverDefinition> + '_ {
-        self.iter()
-            .filter(|driver| driver.descriptor.hooks.is_some())
+        self.iter().filter(|driver| {
+            driver
+                .descriptor
+                .hooks
+                .is_some_and(HookFormat::is_installed)
+        })
     }
 
     /// Every environment variable some driver reads.

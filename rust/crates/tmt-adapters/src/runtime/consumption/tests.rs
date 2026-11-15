@@ -1811,3 +1811,73 @@ fn the_current_agy_hook_does_not_attribute_historical_baseline_responses() {
     assert_eq!(next.value.input_tokens, 8);
     assert_eq!(next.value.model_id.as_deref(), Some("gemini-4-argon"));
 }
+
+#[test]
+fn pi_reads_assistant_message_and_usage_entries_and_attributes_deltas() {
+    let root = TestDirectory::new();
+    let path = root.path.join("pi-session.jsonl");
+    let first = json!({
+        "type": "message",
+        "id": "m1",
+        "message": {
+            "role": "assistant",
+            "model": "claude-sonnet-4-5",
+            "usage": { "input": 100, "output": 25, "cacheRead": 40, "cacheWrite": 10 }
+        }
+    });
+    let user = json!({
+        "type": "message",
+        "id": "m2",
+        "message": { "role": "user", "content": "next" }
+    });
+    let second = json!({
+        "type": "usage",
+        "id": "u1",
+        "model": "gpt-5.4",
+        "usage": { "input": 50, "output": 12, "cacheRead": 5 }
+    });
+    fs::write(&path, "").unwrap();
+    let read = |previous, at| {
+        super::pi(
+            &root.path,
+            &path,
+            previous,
+            at,
+            Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .unwrap()
+    };
+    let baseline = read(None, NOW);
+    assert_eq!(baseline.value.input_tokens, 0);
+
+    append(&path, &format!("{first}\n{user}\n"));
+    let initial = read(Some(&baseline), NOW + 1);
+    assert_eq!(initial.value.input_tokens, 150);
+    assert_eq!(initial.value.output_tokens, 25);
+    assert_eq!(initial.value.cached_input_tokens, 40);
+    assert_eq!(initial.value.cache_write_tokens, Some(10));
+    assert_eq!(initial.value.model_id.as_deref(), Some("claude-sonnet-4-5"));
+
+    append(&path, &format!("{second}\n"));
+    let next = read(Some(&initial), NOW + 2);
+    assert_eq!(next.value.input_tokens, 205);
+    assert_eq!(next.value.output_tokens, 37);
+    assert_eq!(next.value.cached_input_tokens, 45);
+    assert_eq!(next.value.model_id.as_deref(), Some("gpt-5.4"));
+    let gpt_delta = next
+        .value
+        .delta_by_model
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|entry| entry.model_id == "gpt-5.4")
+        .unwrap();
+    assert_eq!(
+        (
+            gpt_delta.input_tokens,
+            gpt_delta.output_tokens,
+            gpt_delta.cached_input_tokens
+        ),
+        (55, 12, 5)
+    );
+}

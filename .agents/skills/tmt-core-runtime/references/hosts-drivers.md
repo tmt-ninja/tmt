@@ -557,14 +557,18 @@ contract owns the shape and sources.
   [installer owner](install-architecture.md#managed-skills).
 - **Support level.** Each `DriverDescriptor` carries one `Support` constant, the single
   owner of what a driver provides; no other prose lists per-driver capabilities.
-  `drivers::tests` pins `Full` to hooks plus a runtime, so the level cannot drift from the
-  declarations. `tmt ls` publishes it as
+  `drivers::tests` pins `Full` to hooks plus a runtime, so
+  the level cannot drift from the declarations. `tmt ls` publishes it as
   [`driverSupport`](../../../../contracts/identity-status-v1.md#list-driver-support).
 
-  | Level   | Drivers                            | Provides                                                                                                                      |
-  | ------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-  | `full`  | Claude, Codex, Antigravity (`agy`) | detection, launch, skills, lifecycle hooks (activity, model, consumption), resume, optional message channel                   |
-  | `basic` | Gemini, Pi, OpenCode, Muse         | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle |
+  | Level   | Drivers                                | Provides                                                                                                                                       |
+  | ------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `full`  | Claude, Codex, Antigravity (`agy`), Pi | detection, launch, skills, lifecycle hooks (activity, model, consumption), resume, optional message channel (Pi: no channel or question forms) |
+  | `basic` | Gemini, OpenCode, Muse                 | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle                  |
+
+  Pi requires no `tmt setup` hooks: `tmt run` checks `pi >= 1.3.0`, materializes its embedded
+  extension into an owner-only (`0700`/`0600`) path under the state directory, and passes
+  `--extension <path>` for that launch.
 
   Herdr is not an agent driver: it is an external **host** driver (pane discovery and
   delivery, [driver protocol](../../../../contracts/driver-protocol-v1.md)) with no level,

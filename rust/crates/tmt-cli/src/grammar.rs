@@ -60,6 +60,15 @@ pub fn grammar() -> Command {
 /// the internal hook, which completion reads.
 pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     let names: Vec<&'static str> = drivers.iter().map(|driver| driver.name).collect();
+    let setup_hooked: Vec<&'static str> = drivers
+        .iter()
+        .filter(|driver| {
+            driver
+                .hooks
+                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
+        })
+        .map(|driver| driver.name)
+        .collect();
     let hooked: Vec<&'static str> = drivers
         .iter()
         .filter(|driver| driver.hooks.is_some())
@@ -151,9 +160,9 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(requests::answer())
     .subcommand(requests::send_now())
     .subcommand(installation::install(names))
-    .subcommand(installation::setup(hooked.clone()))
-    .subcommand(installation::digest_hook(hooked.clone()))
-    .subcommand(installation::allowance_intake(hooked.clone()))
+    .subcommand(installation::setup(setup_hooked.clone()))
+    .subcommand(installation::digest_hook(setup_hooked.clone()))
+    .subcommand(installation::allowance_intake(setup_hooked))
     .subcommand(internal("__flush", "Internal finite hook queue flusher").hide(true).arg(Arg::new("log-id").required(true)))
     .subcommand(installation::hook(hooked))
     .subcommand(
