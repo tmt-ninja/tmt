@@ -2675,8 +2675,9 @@ impl App {
         let Some(row) = row else {
             return self.say("No row is selected.");
         };
-        // An offline member the built-in capture named offers its relaunch first (#6438).
-        if matches!(action.verb, Verb::Jump | Verb::Talk | Verb::Reply)
+        // `j` on an offline member the built-in capture named, while it can still be started,
+        // offers its relaunch (#6438). Talk and Reply keep queueing to it as before.
+        if action.verb == Verb::Jump
             && row["presence"] == "offline"
             && let Some(identity) = row["id"].as_str()
             && let Some(effect) = self.offline_resume_row(identity)

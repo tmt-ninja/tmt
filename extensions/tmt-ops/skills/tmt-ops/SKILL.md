@@ -718,7 +718,8 @@ member or an agent that ended shows a dialog to resume, start a new session or o
 shell there; Esc hides it. After a reboot, the board asks once per run to resume the
 offline members the built-in capture names: `⏎` resumes the selected one, `n` starts a new
 session, `a` resumes all that can be, and Esc is Not now. A member with no folder, or that Core
-refuses, shows the reason on its row. `⏎` or `j` on a listed offline member reopens the ask.
+refuses, shows the reason on its row. `j` on a listed offline member that can still start
+reopens the ask.
 On a built-in-host member, `t` opens an extra terminal (a login
 shell in its working directory, at most 8) listed under it as "Terminal N"; select one to see
 it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `j` for full screen and

@@ -268,3 +268,73 @@ fn a_narrow_dialog_keeps_esc_among_its_keys() {
     let text = screen(&app, 60);
     assert!(text.contains("esc not now"), "{text}");
 }
+
+/// The fixture's member, offline after a reboot, as the capture names it.
+fn offline_member(action: &str) -> App {
+    let mut app = board();
+    let target = app
+        .workspace
+        .selected
+        .clone()
+        .expect("the fixture's member");
+    let view = app.view.as_mut().unwrap();
+    let row = view
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap();
+    row["presence"] = "offline".into();
+    let identity = row["id"].as_str().unwrap().to_owned();
+    assert_eq!(app.offline_resume_start(), Some(Task::Preview));
+    app.offline_resume_done(Completed {
+        task: Task::Preview,
+        result: Ok(vec![member(&identity, "worker", action)]),
+    });
+    press(&mut app, KeyCode::Esc);
+    app
+}
+
+#[test]
+fn talk_still_queues_to_a_captured_offline_member_and_j_reopens_only_what_can_start() {
+    let mut app = offline_member("resumable");
+    press(&mut app, KeyCode::Enter);
+    assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
+    assert!(app.input.is_some(), "Enter opens the composer, as before");
+
+    let mut app = offline_member("resumable");
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(
+        app.overlay(),
+        Some(Overlay::OfflineResume),
+        "j offers the relaunch"
+    );
+
+    // A refused row is Core's answer: j goes on to what it does today.
+    let mut app = offline_member("resumable");
+    let identity = app.offline_resume.dialog.as_ref().unwrap().rows[0]
+        .member
+        .identity
+        .clone();
+    app.offline_resume_row(&identity);
+    press(&mut app, KeyCode::Enter);
+    app.offline_resume_offer();
+    answer(
+        &mut app,
+        &identity,
+        Kind::Resume,
+        Err(SquadError::new(
+            "TERMINAL_RELAUNCH_REFUSED",
+            "no recorded folder",
+        )),
+    );
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char('j'));
+    assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
+
+    let mut app = offline_member("folder_missing");
+    press(&mut app, KeyCode::Char('j'));
+    assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
+}
