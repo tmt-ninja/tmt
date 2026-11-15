@@ -179,7 +179,7 @@ impl Controller {
         let status = self.notice.is_some() && !unavailable;
         let wide = if self.stage == Stage::Form && self.loaded.is_some() {
             // The form is as wide as its widest row or its button row, plus the frame.
-            (self.form_width().max(usize::from(self.footer_width())) + 4).clamp(40, 100) as u16
+            super::form_dialog_width(self.form_width().max(usize::from(self.footer_width())))
         } else {
             100
         };

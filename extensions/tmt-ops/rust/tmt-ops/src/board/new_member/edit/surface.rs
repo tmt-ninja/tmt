@@ -82,7 +82,29 @@ impl Controller {
                 })
                 .unwrap_or_else(|| vec!["◌ Loading edit settings…".into()])
         };
-        let probe = dialog.areas(body, [100, 30], false);
+        // The member forms share one width rule: the widest field value, note or button row.
+        let wide = {
+            use unicode_width::UnicodeWidthStr as W;
+            let values = fields
+                .iter()
+                .map(|field| match field {
+                    Field::Member(slot) => 10 + W::width(self.draft.text(*slot)).max(22) + 2,
+                    Field::More => 10 + 40,
+                    _ => 10 + 24,
+                })
+                .max()
+                .unwrap_or(0);
+            let notes = preview
+                .iter()
+                .map(String::as_str)
+                .chain(target_error.as_deref().or(self.notice.as_deref()))
+                .map(W::width)
+                .chain([60, usize::from(dialog.footer_width())])
+                .max()
+                .unwrap_or(0);
+            super::super::form_dialog_width(values.max(notes))
+        };
+        let probe = dialog.areas(body, [wide, 30], false);
         let mut lines = Vec::new();
         let mut field_rows = Vec::new();
         if self.stage == Stage::Form {
@@ -132,7 +154,15 @@ impl Controller {
                     ));
                 }
             }
-            lines.push(String::new());
+            // A spacer only when something follows it.
+            if has_runs
+                || !preview.is_empty()
+                || target_error.is_some()
+                || self.notice.is_some()
+                || self.reopened
+            {
+                lines.push(String::new());
+            }
             if has_runs {
                 lines.push("Runs".into());
             }
@@ -157,7 +187,7 @@ impl Controller {
         }
         let areas = dialog.areas(
             body,
-            [100, (lines.len() + 4).min(u16::MAX as usize) as u16],
+            [wide, (lines.len() + 4).min(u16::MAX as usize) as u16],
             false,
         );
         let mut hits = crate::board::buttons::paint_dialog(

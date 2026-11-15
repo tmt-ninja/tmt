@@ -70,6 +70,11 @@ struct List {
     filter: Editor,
     row: usize,
 }
+/// The width rule of the member forms (New member, Edit member): as wide as their widest
+/// row or button row plus the frame, between 40 and 100 columns.
+fn form_dialog_width(content: usize) -> u16 {
+    (content + 4).clamp(40, 100) as u16
+}
 pub(in crate::board) struct Controller {
     owner: u64,
     edit: Option<edit::Edit>,

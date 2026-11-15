@@ -72,7 +72,8 @@ impl Confirm {
             .iter()
             .flat_map(|line| super::notes::wrap(line, width.saturating_sub(4)))
             .collect();
-        let height = lines.len().saturating_add(5);
+        // Frame, body, one empty row, then the buttons: like the other dialogs.
+        let height = lines.len().saturating_add(4);
         let size = [
             u16::try_from(width).unwrap_or(u16::MAX),
             u16::try_from(height).unwrap_or(u16::MAX),
