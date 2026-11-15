@@ -16,7 +16,9 @@ const NAME: &str = tmt_core::driver::descriptor::AGY.name;
 /// Antigravity has one runtime mode.
 pub const MODE_DEFAULT: &str = "default";
 
-const ACTIVITY_EVENTS: &[&str] = &[];
+/// `PreToolUse` and `PostToolUse` (matched to `ask_question` only) report the question form
+/// Antigravity waits on and when it closes (#6424); they never decide a permission.
+const ACTIVITY_EVENTS: &[&str] = &["PreToolUse", "PostToolUse"];
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::AGY,
@@ -180,6 +182,8 @@ struct Payload {
     model_thinking: bool,
     #[serde(default, rename = "executionNum", deserialize_with = "present")]
     execution_num: bool,
+    #[serde(default, rename = "hookEventName")]
+    hook_event_name: Option<String>,
     #[serde(default, rename = "fullyIdle")]
     fully_idle: Option<bool>,
 }
@@ -665,6 +669,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
             }
         } else if payload.is_stop() {
             EventKind::TurnEnded
+        } else if payload.hook_event_name.as_deref() == Some("PreToolUse")
+            && crate::runtime::provider_form::decode_agy(bytes).is_some()
+        {
+            EventKind::ApprovalPrompt
+        } else if payload.hook_event_name.as_deref() == Some("PostToolUse") && payload.tool_call {
+            EventKind::ToolFinished
         } else {
             return None;
         };
@@ -676,6 +686,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
 
     fn activity_events(&self) -> &'static [&'static str] {
         ACTIVITY_EVENTS
+    }
+
+    fn activity_matcher(&self, event: &str) -> Option<&'static str> {
+        matches!(event, "PreToolUse" | "PostToolUse")
+            .then_some(crate::runtime::provider_form::AGY_FORM_TOOLS)
+    }
+
+    fn decode_form(&self, bytes: &[u8]) -> Option<crate::runtime::provider_form::ProviderForm> {
+        crate::runtime::provider_form::decode_agy(bytes)
     }
 
     fn activity_state(

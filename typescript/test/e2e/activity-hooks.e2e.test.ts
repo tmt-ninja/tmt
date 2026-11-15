@@ -463,5 +463,97 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
     expect(forms(14)).toEqual([
       expect.objectContaining({ kind: 'planApproval', plan: '1. write hello.txt' }),
     ]);
+
+    // Agy row (#6424): PreToolUse ask_question opens a question form and PostToolUse / PreInvocation close it.
+    const agyBin = path.join(fixture.wrapperDir, 'agy');
+    fs.copyFileSync('/opt/tmt-tests/claude', agyBin);
+    const agySession = '44444444-4444-4444-8444-444444444444';
+    const agyHook = (input: Record<string, unknown>) => ({
+      args: ['__hook', 'agy'],
+      input: { conversationId: agySession, ...input },
+    });
+    const agyAsk = (id: string) =>
+      agyHook({
+        hookEventName: 'PreToolUse',
+        toolCall: {
+          id,
+          name: 'ask_question',
+          args: {
+            questions: [
+              { question: 'Which file?', is_multi_select: false, options: ['a.txt', 'b.txt'] },
+            ],
+          },
+        },
+      });
+    const agySteps = [
+      { args: ['name', 'Agy Form Reader', '-s', '--json'] },
+      agyHook({}),
+      agyHook({ invocationNum: 1 }),
+      agyAsk('call_q1'),
+      api('forms.list', {}),
+      agyHook({
+        hookEventName: 'PostToolUse',
+        toolCall: { id: 'call_q1', name: 'ask_question', args: {} },
+      }),
+      api('forms.list', {}),
+      agyAsk('call_q2'),
+      api('forms.list', {}),
+      agyHook({ invocationNum: 2 }),
+      api('forms.list', {}),
+    ];
+    const agyScenario = path.join(fixture.root, 'agy-forms-scenario.json');
+    const agyReport = path.join(fixture.root, 'agy-forms-report.json');
+    fs.writeFileSync(agyScenario, JSON.stringify(agySteps));
+    const agyCommand = [
+      'env',
+      `TMT_HOME=${fixture.globalDir}`,
+      agyBin,
+      fixture.executables.cli.executable,
+      agyScenario,
+      agyReport,
+    ]
+      .map(quote)
+      .join(' ');
+    const agyPane = fixture.createShellPane('agy-forms').pane;
+    fixture.watchHookFailures(agyPane);
+    fixture.tmux(['send-keys', '-t', agyPane, '-l', agyCommand]);
+    fixture.tmux(['send-keys', '-t', agyPane, 'Enter']);
+    await fixture.waitFor(() => fs.existsSync(agyReport), 15000, 'agy forms report');
+    const agyResults = JSON.parse(fs.readFileSync(agyReport, 'utf8')) as Array<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }>;
+    expect(agyResults).toHaveLength(agySteps.length);
+    for (const index of [3, 5, 7, 9]) {
+      expect([
+        agyResults[index].code,
+        agyResults[index].stdout.trim(),
+        agyResults[index].stderr,
+      ]).toEqual([0, '{}', '']);
+    }
+    const agyForms = (index: number) =>
+      JSON.parse(agyResults[index].stdout).forms as Array<Record<string, unknown>>;
+    expect(agyForms(4)).toEqual([
+      {
+        formId: expect.any(String),
+        identityId: expect.any(String),
+        openedMs: expect.any(Number),
+        kind: 'question',
+        questions: [
+          {
+            text: 'Which file?',
+            choice: 'single',
+            options: [{ label: 'a.txt' }, { label: 'b.txt' }],
+            freeText: true,
+          },
+        ],
+        truncated: false,
+        answerable: false,
+      },
+    ]);
+    expect(agyForms(6)).toEqual([]);
+    expect(agyForms(8)).toHaveLength(1);
+    expect(agyForms(10)).toEqual([]);
   });
 });

@@ -159,28 +159,27 @@ pub(crate) fn owned_event(
 fn owned(provider: &DriverDefinition, entry: &RawValue, event: &str) -> Result<bool, PlanError> {
     let fields = object(entry.get())?;
     let mut candidates = Vec::new();
-    match provider.descriptor.hooks {
-        Some(HookFormat::NamedHooksJson) => {
+    let grouped = !matches!(provider.descriptor.hooks, Some(HookFormat::NamedHooksJson))
+        || event_matcher(provider, event).is_some();
+    if !grouped {
+        if let Some(command) = field(&fields, "command") {
+            let command: String =
+                serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
+            if command.contains(&format!("__hook {}", provider.name())) {
+                candidates.push(command);
+            }
+        }
+    } else {
+        let handlers: Vec<&RawValue> =
+            serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
+                .map_err(|_| PlanError::InvalidSettings)?;
+        for handler in handlers {
+            let fields = object(handler.get())?;
             if let Some(command) = field(&fields, "command") {
                 let command: String =
                     serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
                 if command.contains(&format!("__hook {}", provider.name())) {
                     candidates.push(command);
-                }
-            }
-        }
-        Some(HookFormat::SessionHooksJson) | None => {
-            let handlers: Vec<&RawValue> =
-                serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
-                    .map_err(|_| PlanError::InvalidSettings)?;
-            for handler in handlers {
-                let fields = object(handler.get())?;
-                if let Some(command) = field(&fields, "command") {
-                    let command: String =
-                        serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
-                    if command.contains(&format!("__hook {}", provider.name())) {
-                        candidates.push(command);
-                    }
                 }
             }
         }

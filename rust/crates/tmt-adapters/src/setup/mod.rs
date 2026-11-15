@@ -138,13 +138,14 @@ fn hook_entry(
             }
             Ok(entry)
         }
-        Some(HookFormat::NamedHooksJson) if matcher.is_some() => {
-            Err(PlanError::UnsupportedProvider)
+        Some(HookFormat::NamedHooksJson) => {
+            let entry =
+                crate::runtime::hook_protocol::flat_command_entry(provider.name(), launcher);
+            Ok(match matcher {
+                None => entry,
+                Some(matcher) => serde_json::json!({"matcher": matcher, "hooks": [entry]}),
+            })
         }
-        Some(HookFormat::NamedHooksJson) => Ok(crate::runtime::hook_protocol::flat_command_entry(
-            provider.name(),
-            launcher,
-        )),
         None => Err(PlanError::UnsupportedProvider),
     }
 }
@@ -275,7 +276,7 @@ mod preview_tests {
         const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only), PreToolUse (activity only), PermissionRequest (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
-        const AGY_ALL: &str = "SessionStart, PreInvocation and Stop (context usage, consumption, activity and recent responses) hooks";
+        const AGY_ALL: &str = "SessionStart, PreInvocation, PreToolUse (activity only), PostToolUse (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Default),
             ALL
@@ -291,7 +292,9 @@ mod preview_tests {
         );
         assert_eq!(
             events(&agy::DRIVER, "{}", false, UsageHook::Remove),
-            format!("SessionStart, PreInvocation and {ANSWERS} hooks")
+            format!(
+                "SessionStart, PreInvocation, PreToolUse (activity only), PostToolUse (activity only) and {ANSWERS} hooks"
+            )
         );
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Remove),
