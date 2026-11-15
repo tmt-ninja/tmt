@@ -448,6 +448,7 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
         ],
         truncated: false,
         answerable: false,
+        answerIn: 'terminal',
       },
     ]);
     expect(JSON.parse(results[5].stdout).error.code).toBe('FORM_NOT_FOUND');
@@ -554,6 +555,7 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
         ],
         truncated: false,
         answerable: false,
+        answerIn: 'terminal',
       },
     ]);
     expect(agyForms(5)).toEqual([]);

@@ -460,6 +460,10 @@ const MIGRATIONS: &[Migration] = &[
         "measure wake-up turns and the phase a held message arrived in",
         "schema/094.sql"
     ),
+    migration!(
+        "record the provider version of a form and when a client sent its answer",
+        "schema/095.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

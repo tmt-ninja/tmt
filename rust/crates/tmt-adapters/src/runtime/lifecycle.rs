@@ -370,6 +370,29 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The provider version a form's answer keys depend on, from the verified provider
+    /// process's own executable within `deadline`. `None` when the driver answers no form
+    /// from a client or the version cannot be read.
+    fn form_provider_version(
+        &self,
+        _runner: &dyn crate::process::CommandRunner,
+        _process: &tmt_core::endpoint::ProcessIncarnation,
+        _deadline: std::time::Instant,
+    ) -> Option<String> {
+        None
+    }
+
+    /// The keys that give a checked `answer` to `form` on provider `version`, exactly as
+    /// captured for that version; `None` answers it in the terminal only.
+    fn form_keys(
+        &self,
+        _form: &super::provider_form::ProviderForm,
+        _version: &str,
+        _answer: &super::provider_form::FormAnswer,
+    ) -> Option<Vec<super::provider_form::FormKey>> {
+        None
+    }
+
     /// The driver state after `turn`, given the remembered session's previous
     /// state; `None` leaves it unchanged. Reads stay under the driver's own
     /// tree in `environment`. Context and Codex consumption use bounded tails;

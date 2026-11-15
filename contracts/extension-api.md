@@ -157,7 +157,7 @@ remain independent of storage access.
 | `terminal.list`          | `identityId` (canonical UUID), or `identityIds` (1 to 256)                                                                                                                    | `identityId`, `terminals`: a member's extra terminals on any host, read-only; `lists` for `identityIds` (see [below](#terminals-under-a-member))                                                                                        |
 | `terminal.close`         | `terminalId`, optional `force` (bool)                                                                                                                                         | `terminalId`, `closed`: closes one extra terminal (see [below](#terminals-under-a-member))                                                                                                                                              |
 | `forms.list`             | optional `identityId` (canonical UUID)                                                                                                                                        | `forms`: the open provider forms, oldest first (see [below](#provider-forms))                                                                                                                                                           |
-| `forms.answer`           | `formId`, `answer`                                                                                                                                                            | Checks an answer against an open form; every valid answer is `FORM_DELIVERY_UNSUPPORTED` for now (see [below](#provider-forms))                                                                                                         |
+| `forms.answer`           | `formId`, `answer`                                                                                                                                                            | Sends a client's answer to an open form as the provider's captured keys, once; `{formId, delivered}` or a refusal (see [below](#provider-forms))                                                                                        |
 | `dispatch.show`          | `operationId`                                                                                                                                                                 | Immutable acceptance receipt                                                                                                                                                                                                            |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`, `parentRequestId`                                                                        | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch)); a roster request wakes its recipients unreported                                                                    |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                                                                                                         | Room resource                                                                                                                                                                                                                           |
@@ -620,24 +620,44 @@ There is no separate form event.
   most 4 questions with 8 options each.
 - `tool` (`name`, `summary`) for a permission, or `plan` for a plan approval.
 - `truncated`: content was cut to the bounds (2 KiB per text, 64 KiB per plan).
-- `answerable`: whether a client may answer it. It is `false` for every form today.
+- `answerable`: whether a client may send an answer now, and `answerIn`: `client` when it
+  may, otherwise `terminal`. A client shows a way to the member's terminal for a
+  `terminal` form.
 
 An unknown `identityId` is `NAME_NOT_FOUND`.
 
-**Forms are read-only for now.** A client shows them, and the user answers in the member's
-terminal. `forms.answer` `{formId, answer}` checks the answer, then refuses it. Nothing
-reaches the provider. The answer is `{choices: [[index...], ...]}` (one list per question,
-in order), `{text}` for a one-question form that takes text, or `{decision: "allow"|"deny"}`
-for a plan approval. The refusals, in order:
+A form is `answerable` only when all of these hold:
+
+- it is a question or plan-approval form, not `truncated`, and no answer was sent yet;
+- the member's pane is on tmux (other hosts take no keys yet);
+- the provider's driver captured the keys for the version the provider process's own
+  executable reported when its hook recorded the form. Claude Code `2.1.325` is captured
+  today (#6424); other providers and versions are answered in the terminal.
+
+`forms.answer` `{formId, answer}` sends the answer. The answer is
+`{choices: [[index...], ...], other?: [text|null, ...]}` for a question form (one list per
+question, in order, with the text typed as the question's "Other" answer or null), or
+`{decision: "allow"|"deny"}` for a plan approval. A single choice takes exactly one
+option or an other text; a multiple choice takes options, an other text or both. For
+Claude, `allow` approves with edits approved manually (it never switches to auto mode),
+and `deny` rejects the plan.
+
+Core marks the form sent before its first key. It then waits up to 5 seconds for the
+provider to close the form through an admitted event that ends waiting. It answers
+`{formId, delivered: true}` when the form closed. It never reads the screen and never
+sends again. The refusals, in order:
 
 - `FORM_NOT_FOUND`: no form has this ID.
-- `FORM_CLOSED`: the form was answered, or its turn ended.
+- `FORM_CLOSED`: the form was answered, its turn ended, or its pane is gone.
 - `FORM_DELIVERY_UNSUPPORTED` for a permission form, which is answered in the terminal
   only.
 - `FORM_ANSWER_INVALID`: the answer does not fit the form, or the question form is
   `truncated`.
-- `FORM_DELIVERY_UNSUPPORTED` for any valid answer, until a provider's answer keys are
-  verified for its version.
+- `FORM_ANSWER_SENT`: an answer was already sent; check the member's terminal.
+- `FORM_DELIVERY_UNSUPPORTED`: the form is not `answerable` for its host or provider
+  version; answer it in the terminal.
+- `FORM_DELIVERY_UNCERTAIN`: the keys were sent, or may have been, but the provider did
+  not close the form in time. Check the member's terminal and answer there. Do not resend.
 
 Answering is the user's action from a client. Agents and extensions never call
 `forms.answer` on their own. Core cannot tell who calls it, as with receipts.

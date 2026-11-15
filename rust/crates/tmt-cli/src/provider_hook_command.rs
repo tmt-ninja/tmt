@@ -2356,17 +2356,25 @@ fn observe_main_event(
     // Kept for that period only; a failure leaves waiting reported without its form.
     if let Some((form, since)) = form_period
         && Instant::now() + Duration::from_millis(100) < deadline
-        && let Ok(mut storage) = Storage::open_hook(&paths.database, deadline)
     {
-        let _ = storage.record_provider_form(
-            &binding.id,
-            &stored.entry.identity.id,
-            session.as_str(),
-            form,
-            since,
-            tmt_adapters::request_runtime::wall_time_ms(),
+        // Read before storage opens: a client answers only versions whose keys were captured.
+        let version = lifecycle.form_provider_version(
+            &SupervisedProbeRunner,
+            &process,
+            deadline - Duration::from_millis(100),
         );
-        let _ = storage.close();
+        if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
+            let _ = storage.record_provider_form(
+                &binding.id,
+                &stored.entry.identity.id,
+                session.as_str(),
+                form,
+                version.as_deref(),
+                since,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            );
+            let _ = storage.close();
+        }
     }
     let context = if context.is_empty() {
         context

@@ -3,11 +3,14 @@
 use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure, socket_args};
 use crate::host::{DeliveryError, DeliveryStage, SCREEN_MAX_BYTES};
+use crate::runtime::provider_form::FormKey;
 use std::time::{Duration, Instant};
 use tmt_core::limits::is_valid_capture_lines;
 
 const SEND_MAX_OUTPUT: usize = 64 * 1024;
 const CAPTURE_MAX_OUTPUT: usize = 4 * 1024 * 1024;
+/// The pause between form keys, so the provider reads each one as its own input.
+pub const FORM_KEY_GAP: Duration = Duration::from_millis(50);
 
 fn validate_target(socket: &str, pane: &str) -> Result<(), TmuxError> {
     if socket.is_empty() || socket.contains('\0') || !valid_pane_id(pane) {
@@ -79,6 +82,53 @@ impl<R: CommandRunner> Tmux<R> {
             ],
             SCREEN_MAX_BYTES,
         )
+    }
+
+    /// Sends a form's keys to the explicit endpoint, one `send-keys` each, text literally.
+    /// A failure after the first key may leave some keys typed: the caller reports it as
+    /// uncertain and never sends again.
+    pub fn keys_on(&self, socket: &str, pane: &str, keys: &[FormKey]) -> Result<(), DeliveryError> {
+        self.keys_with_wait(socket, pane, keys, std::thread::sleep)
+    }
+
+    fn keys_with_wait(
+        &self,
+        socket: &str,
+        pane: &str,
+        keys: &[FormKey],
+        wait: impl Fn(Duration),
+    ) -> Result<(), DeliveryError> {
+        validate_target(socket, pane)
+            .map_err(|cause| DeliveryError::new(DeliveryStage::Prepare, cause))?;
+        if keys
+            .iter()
+            .any(|key| matches!(key, FormKey::Text(text) if text.chars().any(char::is_control)))
+        {
+            return Err(DeliveryError::new(
+                DeliveryStage::Prepare,
+                TmuxError::evidence("Form text cannot contain control characters"),
+            ));
+        }
+        for (index, key) in keys.iter().enumerate() {
+            if index > 0 {
+                wait(FORM_KEY_GAP);
+            }
+            let mut args = vec!["send-keys".into(), "-t".into(), pane.into()];
+            match key {
+                FormKey::Down => args.push("Down".into()),
+                FormKey::Enter => args.push("Enter".into()),
+                FormKey::Escape => args.push("Escape".into()),
+                FormKey::Text(text) => args.extend(["-l".into(), "--".into(), text.clone()]),
+            }
+            let stage = if index == 0 {
+                DeliveryStage::Prepare
+            } else {
+                DeliveryStage::Literal
+            };
+            self.transport_run(socket, args, SEND_MAX_OUTPUT)
+                .map_err(|cause| DeliveryError::new(stage, cause))?;
+        }
+        Ok(())
     }
 
     /// Send once to the explicit endpoint; the caller owns the original prompt.

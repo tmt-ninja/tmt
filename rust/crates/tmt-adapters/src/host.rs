@@ -1205,6 +1205,23 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// Sends a form's answer keys (#6424). Only tmux takes them; another host is
+    /// `None` and nothing is sent.
+    pub fn keys(
+        &self,
+        endpoint: &RequestEndpoint,
+        keys: &[crate::runtime::provider_form::FormKey],
+    ) -> Option<Result<(), DeliveryError>> {
+        match endpoint.server.host {
+            HostKind::Tmux => Some(self.tmux.keys_on(
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                keys,
+            )),
+            HostKind::External(_) => None,
+        }
+    }
+
     pub fn invoker_client(
         &self,
         invoker: &Invoker,

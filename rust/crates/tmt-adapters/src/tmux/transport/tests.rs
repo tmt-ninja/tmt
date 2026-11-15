@@ -67,6 +67,42 @@ fn send_pastes_the_text_as_given_with_an_explicit_socket_owned_buffer_and_one_en
     assert_eq!(*waited.borrow(), [Duration::from_millis(731)]);
     drop(calls);
     assert_deadlines_and_cap(&tmux.runner, 64 * 1024, started);
+
+    // Form keys (#6424): one `send-keys` each, text literal after `--`, a gap between keys,
+    // and text with a control character refused before any key is sent.
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(""), Ok(""), Ok(""), Ok("")]));
+    let gaps = RefCell::new(0);
+    let keys = [
+        FormKey::Down,
+        FormKey::Text("-a !b".into()),
+        FormKey::Enter,
+        FormKey::Escape,
+    ];
+    tmux.keys_with_wait(SOCKET, PANE, &keys, |gap| {
+        assert_eq!(gap, FORM_KEY_GAP);
+        *gaps.borrow_mut() += 1;
+    })
+    .unwrap();
+    let calls = tmux.runner.calls.borrow();
+    assert_socket(&calls);
+    let sent: Vec<_> = calls.iter().map(|call| call.args[3..].to_vec()).collect();
+    assert_eq!(
+        sent,
+        [
+            vec!["send-keys", "-t", PANE, "Down"],
+            vec!["send-keys", "-t", PANE, "-l", "--", "-a !b"],
+            vec!["send-keys", "-t", PANE, "Enter"],
+            vec!["send-keys", "-t", PANE, "Escape"],
+        ]
+    );
+    assert_eq!(*gaps.borrow(), 3);
+    drop(calls);
+    let tmux = Tmux::new(ScriptedRunner::new([]));
+    let error = tmux
+        .keys_on(SOCKET, PANE, &[FormKey::Down, FormKey::Text("a\nb".into())])
+        .unwrap_err();
+    assert_eq!(error.stage, DeliveryStage::Prepare);
+    assert!(tmux.runner.calls.borrow().is_empty());
 }
 
 #[test]

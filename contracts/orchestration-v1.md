@@ -568,5 +568,11 @@ idempotent settlement append nothing. Sending records `route_restricted`,
 `route_grant`, `talk_limit`, `talk_resumed` and `talk_hold_expired`, as described
 in [Sending and talk limits](#sending-and-talk-limits). Reads, preview and configuration saves never fabricate entries,
 acknowledge, renew retention or prune. Writers prune within a bounded budget; reads filter
-expiry and expose journal coverage. Normal storage-open/schema admission remains
+expiry and expose journal coverage. A `why` page's `coverage` is `{retentionMs,
+retainedAfterMs, liveProducers, producers, historyComplete}`: the journal's retention, the
+read time less that retention (older entries have expired and are not shown), whether
+the producers record now, the decisions they record (`receiving_hold`, `digest_claim`,
+`digest_settlement`, `route_restricted`, `route_grant`, `talk_limit`, `talk_resumed`,
+`talk_hold_expired`), and `historyComplete: false`, because decisions before a producer
+existed were never recorded. Normal storage-open/schema admission remains
 with its existing owner. No Ops files or provider configuration are read.

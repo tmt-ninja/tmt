@@ -397,7 +397,7 @@ pub enum BuildStatus {
 
 /// Parses a whole `--version` line as `<major>.<minor>.<patch> (Claude Code)` with
 /// canonical decimal numbers; anything else is not a version line.
-fn parse_build(line: &str) -> Option<([u32; 3], &str)> {
+pub(super) fn parse_build(line: &str) -> Option<([u32; 3], &str)> {
     let number = line.strip_suffix(PRODUCT_SUFFIX)?;
     let mut parts = number.split('.');
     let mut parsed = [0; 3];

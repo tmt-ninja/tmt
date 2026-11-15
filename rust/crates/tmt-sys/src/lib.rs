@@ -187,6 +187,38 @@ pub fn process_name(pid: i32) -> Option<String> {
     (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// The absolute path of one process's own executable (macOS `proc_pidpath`, Linux
+/// `/proc/<pid>/exe`). A process that is gone or unreadable, a path that is not UTF-8 and
+/// a replaced executable (`… (deleted)`) are `None`. Callers own incarnation checks.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub fn process_executable(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let size = u32::try_from(buffer.len()).ok()?;
+    // SAFETY: buffer is a live, writable allocation of exactly `size` bytes, and the
+    // synchronous call writes at most that many and does not retain the pointer. The
+    // returned length is checked against the buffer before any byte is read.
+    let written = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
+    let written = usize::try_from(written)
+        .ok()
+        .filter(|n| *n > 0 && *n <= buffer.len())?;
+    absolute(std::str::from_utf8(&buffer[..written]).ok()?)
+}
+
+/// The absolute path of one process's own executable; see the macOS variant.
+#[cfg(target_os = "linux")]
+pub fn process_executable(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    let path = path.into_os_string().into_string().ok()?;
+    absolute(&path).filter(|path| !path.ends_with(" (deleted)"))
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn absolute(path: &str) -> Option<String> {
     path.starts_with('/').then(|| path.to_owned())
@@ -207,6 +239,15 @@ mod tests {
 
     #[test]
     fn invalid_process_is_not_evidence() {
+        assert_eq!(
+            process_executable(std::process::id() as i32),
+            std::env::current_exe()
+                .and_then(std::fs::canonicalize)
+                .ok()
+                .and_then(|path| path.into_os_string().into_string().ok())
+        );
+        assert!(process_executable(0).is_none());
+        assert!(process_executable(i32::MAX).is_none());
         assert!(bsd_info(0).is_none());
         assert!(bsd_info(-1).is_none());
         assert!(bsd_info(i32::MAX).is_none());
