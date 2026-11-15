@@ -487,6 +487,13 @@ overlays above keep their own keys until they move onto it.
 - Mouse: a press on a button chooses it, a press on a field focuses it, and a
   press outside the dialog closes it. A read-only view's outside press also
   lands on the board underneath.
+- Layout: the title is the action and its object (`Delete worker`). The body
+  says the result in at most two lines; an error shows only when one happens.
+  The last row has the action first (`blocked` when it destroys something),
+  Cancel beside it, and `dim` key hints right-aligned, which drop before any
+  button. The width follows the content. Fields have no blank rows between
+  them; rarely changed fields fold into one More line that → expands, and a
+  pick list opens under its field.
 - Closing loses no work: the editor keeps its draft and shows it on reopen;
   only Enter or an explicit clear discards it. A form reopened on a kept draft
   adds a Discard button. While an operation runs, closing
