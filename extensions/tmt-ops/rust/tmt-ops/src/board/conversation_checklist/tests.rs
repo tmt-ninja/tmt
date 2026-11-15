@@ -740,10 +740,11 @@ mod header {
             .notes
             .write(
                 &key,
-                Write::Toggle {
+                Write::Edit {
                     item: item.clone(),
                     revision: 1,
-                    complete: true,
+                    title: "changed".into(),
+                    reference: None,
                 },
             )
             .unwrap();

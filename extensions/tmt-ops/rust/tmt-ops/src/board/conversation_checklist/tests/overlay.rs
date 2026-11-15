@@ -395,40 +395,6 @@ fn add_and_edit_forms_stay_inline_and_keep_drafts_on_escape() {
 }
 
 #[test]
-fn completed_rows_move_to_done_and_the_status_names_the_completed_title() {
-    let (mut app, key) = opened(vec![todo(1), done(2)]);
-    let (task, write) = write_of(press(&mut app, KeyCode::Enter));
-    assert!(matches!(write, Write::Toggle { complete: true, .. }));
-    accepted(&mut app, &task, vec![done(1), done(2)], Some(id(1)));
-    let screen = paint(&app);
-    assert!(screen.contains("✓ Completed item 1"), "{screen}");
-    assert!(screen.contains("Todo · 0"), "{screen}");
-    assert!(screen.contains("Done · 2"), "{screen}");
-    assert!(screen.contains("✓ item 1"), "{screen}");
-    assert_eq!(super::super::chip(app.notes.summary(&key)), "Checklist");
-    assert_eq!(app.notes.preview(&key).unwrap().current.items.len(), 2);
-}
-
-#[test]
-fn a_refused_completion_keeps_the_open_row_and_does_not_claim_completed() {
-    let (mut app, _) = opened(vec![todo(1)]);
-    let (task, _) = write_of(press(&mut app, KeyCode::Enter));
-    refused(
-        &mut app,
-        &task,
-        Error {
-            code: Code::MemberUnavailable,
-            message: "The member is unavailable.".into(),
-            current: None,
-        },
-    );
-    let screen = paint(&app);
-    assert!(screen.contains("○ item 1"), "{screen}");
-    assert!(screen.contains("The member is unavailable."), "{screen}");
-    assert!(!screen.contains("✓ Completed"), "{screen}");
-}
-
-#[test]
 fn moving_open_rows_keeps_completed_and_archived_ids_in_the_full_order() {
     let mut archived = todo(3);
     archived.item.archived = true;
@@ -658,44 +624,6 @@ fn checklist_groups_todo_and_done_and_esc_returns_to_talk() {
 }
 
 #[test]
-fn o_opens_a_link_and_enter_ticks_a_todo_at_the_revision_it_was_read_at() {
-    let (mut app, key) = opened(vec![link(2), todo(1)]);
-    // The cursor starts on the first item, a link.
-    let effect = press(&mut app, KeyCode::Char('o'));
-    assert!(
-        matches!(&effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a"),
-        "{effect:?}"
-    );
-    press(&mut app, KeyCode::Down);
-    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
-    assert_eq!(
-        write,
-        Write::Toggle {
-            item: id(1),
-            revision: 1,
-            complete: true
-        }
-    );
-    assert!(app.notes.writing(&key));
-}
-
-#[test]
-fn an_all_done_list_shows_done_and_enter_reopens_an_item() {
-    let (mut app, _) = opened(vec![done(1)]);
-    let screen = paint(&app);
-    assert!(screen.contains("Todo · 0"), "{screen}");
-    assert!(screen.contains("Done · 1"), "{screen}");
-    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
-    assert!(matches!(
-        write,
-        Write::Toggle {
-            complete: false,
-            ..
-        }
-    ));
-}
-
-#[test]
 fn a_adds_a_todo_or_a_link_and_the_cursor_follows_the_new_item() {
     let (mut app, key) = opened(vec![todo(1)]);
     press(&mut app, KeyCode::Char('a'));
@@ -893,14 +821,19 @@ fn the_first_row_does_not_move_up_and_a_second_write_waits_for_the_first() {
         Effect::None
     );
     assert!(!app.notes.writing(&key));
-    write_of(press(&mut app, KeyCode::Enter));
-    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    write_of(press_with(&mut app, KeyCode::Down, KeyModifiers::SHIFT));
+    assert_eq!(
+        press_with(&mut app, KeyCode::Down, KeyModifiers::SHIFT),
+        Effect::None
+    );
     assert!(paint(&app).contains("Saving the last change…"));
 }
 
 #[test]
 fn a_retired_members_write_is_shown_in_cores_words() {
     let (mut app, _) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('e'));
+    type_text(&mut app, " change");
     let (task, _) = write_of(press(&mut app, KeyCode::Enter));
     refused(
         &mut app,
@@ -919,6 +852,8 @@ fn a_read_that_began_before_a_write_cannot_undo_it() {
     let (mut app, key) = opened(vec![todo(1)]);
     let t1 = Instant::now() + FRESH * 2;
     let read = app.notes.offer(Some(&key), t1).expect("a refresh is due");
+    press(&mut app, KeyCode::Char('e'));
+    type_text(&mut app, " change");
     let (task, _) = write_of(press(&mut app, KeyCode::Enter));
     accepted(&mut app, &task, vec![done(1)], Some(id(1)));
     let stale = Completed {
@@ -977,7 +912,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
     let items = match scene {
         "notes-list-empty" => vec![],
         "notes-list-completed" => vec![stamped(
-            todo(3),
+            done(3),
             "Review the open checklist",
             ACTOR,
             MINUTES,
@@ -1054,18 +989,6 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         return app;
     }
     if scene == "notes-list-completed" {
-        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
-        accepted(
-            &mut app,
-            &task,
-            vec![stamped(
-                done(3),
-                "Review the open checklist",
-                ACTOR,
-                MINUTES,
-            )],
-            Some(id(3)),
-        );
         return app;
     }
     press(&mut app, KeyCode::Down);
@@ -1073,6 +996,8 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         "notes-list-retired" => {
             press(&mut app, KeyCode::Down);
             press(&mut app, KeyCode::Down);
+            press(&mut app, KeyCode::Char('e'));
+            type_text(&mut app, " change");
             let (task, _) = write_of(press(&mut app, KeyCode::Enter));
             refused(
                 &mut app,
@@ -1589,109 +1514,35 @@ fn an_outside_press_on_a_dialog_above_the_list_keeps_the_lists_unsent_form() {
     assert!(app.notes.draft(&key).is_some(), "its unsent form survives");
 }
 
-fn enter_means(app: &mut App, enter: crate::config::ChecklistEnter) {
-    app.view.as_mut().unwrap().checklist_enter = enter;
-}
-
 fn opened_link(effect: &Effect) -> bool {
     matches!(effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a")
 }
 
 #[test]
-fn enter_and_space_tick_a_link_on_the_page_and_o_opens_it() {
-    use crate::config::ChecklistEnter::{Open, Tick};
-    let ticks = |effect: Effect| {
-        let (_, write) = write_of(effect);
-        assert!(matches!(write, Write::Toggle { complete: true, .. }));
-    };
-    for enter in [Open, Tick] {
-        // Each key starts from a fresh list: a write in flight blocks the next one.
-        let press_on_link = |code| {
-            let (mut app, _) = opened(vec![link(1)]);
-            enter_means(&mut app, enter);
-            press(&mut app, code)
-        };
-        ticks(press_on_link(KeyCode::Enter));
-        ticks(press_on_link(KeyCode::Char(' ')));
-        assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
-
-        // A member terminal's + Add item opens the existing overlay. Once its
-        // write succeeds, that overlay still shows the member's list.
-        let (mut app, key) = read_with(vec![link(1)]);
-        assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
-        app.open_notes_adding(key);
-        type_text(&mut app, "new item");
-        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
-        accepted(&mut app, &task, vec![link(1), todo(2)], Some(id(2)));
-        assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Notes));
-        paint(&app);
-        press(&mut app, KeyCode::Up);
-        enter_means(&mut app, enter);
-        let effect = press(&mut app, KeyCode::Enter);
-        match enter {
-            Open => assert!(opened_link(&effect), "{effect:?}"),
-            Tick => ticks(effect),
-        }
-    }
-}
-
-#[test]
-fn enter_on_a_todo_row_ticks_whatever_the_setting_says_and_o_says_there_is_no_link() {
-    use crate::config::ChecklistEnter::{Open, Tick};
-    for enter in [Open, Tick] {
-        let (mut app, _) = opened(vec![todo(1)]);
-        enter_means(&mut app, enter);
-        let (_, write) = write_of(press(&mut app, KeyCode::Enter));
-        assert!(
-            matches!(write, Write::Toggle { complete: true, .. }),
-            "{enter:?}"
-        );
-        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
-        assert!(paint(&app).contains("This item has no link."), "{enter:?}");
-    }
-}
-
-#[test]
-fn a_completed_link_is_visible_and_space_reopens_it() {
-    let (mut app, _) = opened(vec![view(
-        1,
-        Some("https://example.com/a"),
-        Completion::Complete,
-        false,
-    )]);
-    let screen = paint(&app);
-    assert!(screen.contains("Done · 1"), "{screen}");
-    let (_, write) = write_of(press(&mut app, KeyCode::Char(' ')));
-    assert!(matches!(
-        write,
-        Write::Toggle {
-            complete: false,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn the_footer_names_enter_behavior_and_keeps_esc_back_in_view() {
-    use crate::config::ChecklistEnter::{Open, Tick};
+fn enter_opens_a_link_on_the_page_and_the_member_overlay() {
     let (mut app, _) = opened(vec![link(1)]);
-    let narrow = paint_at(&app, 60);
-    assert!(
-        narrow.contains("Checklist"),
-        "the active tab remains visible: {narrow}"
-    );
-    enter_means(&mut app, Open);
+    assert!(opened_link(&press(&mut app, KeyCode::Enter)));
+    assert_eq!(press(&mut app, KeyCode::Char(' ')), Effect::None);
+    assert!(paint_wide(&app).contains("⏎ open"));
+
+    let (mut app, key) = read_with(vec![link(1)]);
+    app.open_notes_adding(key);
+    type_text(&mut app, "new item");
+    let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+    accepted(&mut app, &task, vec![link(1), todo(2)], Some(id(2)));
+    paint(&app);
+    press(&mut app, KeyCode::Up);
+    assert!(opened_link(&press(&mut app, KeyCode::Enter)));
+    assert_eq!(press(&mut app, KeyCode::Char(' ')), Effect::None);
+}
+
+#[test]
+fn enter_on_a_row_without_a_link_does_nothing_and_hides_the_hint() {
+    let (mut app, _) = opened(vec![todo(1)]);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(press(&mut app, KeyCode::Char(' ')), Effect::None);
     let screen = paint_wide(&app);
-    assert!(
-        screen.contains("⏎ tick") && screen.contains("Esc back"),
-        "{screen}"
-    );
-    enter_means(&mut app, Tick);
-    let screen = paint_wide(&app);
-    assert!(
-        screen.contains("⏎ tick") && screen.contains("o open") && screen.contains("Esc back"),
-        "{screen}"
-    );
+    assert!(!screen.contains("⏎ open"), "{screen}");
 }
 
 /// The text inside the painted sheet at `width` columns, one string per line.
@@ -1823,10 +1674,7 @@ fn a_click_on_a_link_opens_it_and_a_click_on_the_title_chooses_the_row() {
     paint(&app);
     let title = link_area(&app, 1);
     let effect = click_at(&mut app, title.x + 2, title.y - 1);
-    assert!(
-        !matches!(effect, Effect::Act(Request::Open { .. })),
-        "{effect:?}"
-    );
+    assert_eq!(effect, Effect::None, "clicking a row only selects it");
     assert_eq!(
         app.notes_overlay
             .as_ref()

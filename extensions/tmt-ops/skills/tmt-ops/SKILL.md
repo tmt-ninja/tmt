@@ -623,17 +623,10 @@ to the same draft and caret. The page groups non-archived items into Todo and Do
 with counts, dimmed completed items, and a separate line for each link. `U` asks the
 member to update the checklist. Its waiting and updated states last for this board
 session; updated means the matching request received a final reply. Authored bindings
-keep precedence. `↑↓`/`jk` choose, Enter and Space tick, `o` opens a link,
+keep precedence. `↑↓`/`jk` choose, Enter opens the selected item’s link when present,
 `a` adds and `e` edits inline, `d` deletes after confirmation,
 and `Shift+↑↓` moves an item. Esc keeps an unsent form. A retired member's list reads
 but takes no writes.
-
-`board.checklist_enter` applies to the member Checklist when it is shown as a list
-overlay, such as after saving `+ Add item` from a member's terminal frame while Talk
-is selected. On a link row, `open` (the default) opens the link and `tick` completes
-the item; Space always ticks and `o` always opens the link. Set **checklist enter**
-in Ops Config or run `tmt ops sq config set board.checklist_enter tick`. This setting
-does not change Enter on the Agents Checklist page, where Enter always ticks.
 
 Changes by someone other than the Core user appear in the conversation as muted Checklist
 activity lines, naming the agent and the currently held item title. Missing titles say `an item`,
@@ -1559,8 +1552,8 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`,
 `reminders.stale_after`, `idle_alert.enabled` and `idle_alert.after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
-The obsolete `board.home_replies` key is ignored with a one-line deprecation
-notice; authored TOML stays unchanged. It is no longer editable. `tabs.order` and `tabs.hide`
+The obsolete `board.home_replies` and `board.checklist_enter` keys are ignored with a
+one-line deprecation notice; authored TOML stays unchanged. They are no longer editable. `tabs.order` and `tabs.hide`
 always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 

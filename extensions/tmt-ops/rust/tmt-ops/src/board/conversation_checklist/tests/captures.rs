@@ -103,10 +103,11 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
             .notes
             .write(
                 &selected,
-                Write::Toggle {
+                Write::Edit {
                     item: item.clone(),
                     revision: 1,
-                    complete: true,
+                    title: "changed".into(),
+                    reference: None,
                 },
             )
             .unwrap();

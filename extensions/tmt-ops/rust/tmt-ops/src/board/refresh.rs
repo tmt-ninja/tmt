@@ -1442,7 +1442,6 @@ fn squad_view(
         rows,
         render: config.notes_render(&squad.name)?,
         ask_lead: config.ask_lead(&squad.name)?,
-        checklist_enter: config.checklist_enter().0,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
@@ -1487,7 +1486,6 @@ fn member_view(
     let view = View {
         history_pending: false,
         ask_lead: config.ask_lead("")?,
-        checklist_enter: config.checklist_enter().0,
         token_rate: None,
         home_rate: Default::default(),
         exchanges: Vec::new(),
@@ -1535,7 +1533,6 @@ fn all_view(
     let view = View {
         history_pending: false,
         ask_lead: config.ask_lead("")?,
-        checklist_enter: config.checklist_enter().0,
         token_rate: None,
         home_rate,
         exchanges: Vec::new(),

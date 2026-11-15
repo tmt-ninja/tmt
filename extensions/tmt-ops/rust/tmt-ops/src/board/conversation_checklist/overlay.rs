@@ -216,8 +216,6 @@ impl Controller {
                     self.closed = true;
                     return Effect::None;
                 }
-                KeyCode::Char(' ') if plain(key) => return self.tick_selected(app, &items),
-                KeyCode::Char('o') if plain(key) => return self.open_selected(app, &items),
                 KeyCode::Char('a') if plain(key) => return self.begin(app, Draft::add()),
                 KeyCode::Char('e') if plain(key) => return self.edit(app, &items),
                 KeyCode::Char('d') if plain(key) => {
@@ -255,42 +253,27 @@ impl Controller {
         }
         let input = self.ui.borrow_mut().input(event, PickerField::List);
         match input {
-            Some(PickerInput::Event(PickerEvent::Confirm(id))) => self.activate(app, &items, &id),
+            Some(PickerInput::Event(PickerEvent::Confirm(id)))
+                if matches!(event, Event::Key(_)) =>
+            {
+                self.activate(app, &items, &id)
+            }
             _ => Effect::None,
         }
     }
 
-    /// Enter on an item: a link row does what `board.checklist_enter` says, open or tick; any
-    /// other row completes a todo.
-    fn activate(&mut self, app: &mut App, items: &[Row], id: &str) -> Effect {
-        let Some(row) = items.iter().find(|row| row.id.as_str() == id) else {
-            return Effect::None;
-        };
-        if app.right_tab == crate::board::shell::RightTab::Checklist {
-            return self.tick(app, row);
-        }
-        let enter = app.view.as_ref().map(|view| view.checklist_enter);
-        match (&row.reference, enter) {
-            (Some(_), Some(crate::config::ChecklistEnter::Tick)) => self.tick(app, row),
-            (Some(link), _) => Self::open(app, link),
-            (None, _) => self.tick(app, row),
-        }
+    /// Enter opens the selected item's reference, if it has one.
+    fn activate(&self, app: &App, items: &[Row], id: &str) -> Effect {
+        items
+            .iter()
+            .find(|row| row.id.as_str() == id)
+            .and_then(|row| row.reference.as_deref())
+            .map_or(Effect::None, |link| Self::open(app, link))
     }
 
-    /// Space ticks the chosen row whatever Enter is set to do.
-    fn tick_selected(&mut self, app: &mut App, items: &[Row]) -> Effect {
-        match self.selected(items) {
-            Some(row) => self.tick(app, &row),
-            None => Effect::None,
-        }
-    }
-
-    /// `o` opens the chosen row's link whatever Enter is set to do.
-    fn open_selected(&mut self, app: &mut App, items: &[Row]) -> Effect {
-        match self.selected(items).and_then(|row| row.reference) {
-            Some(link) => Self::open(app, &link),
-            None => self.say("This item has no link."),
-        }
+    pub(in crate::board) fn selected_has_link(&self, notes: &State) -> bool {
+        self.selected(&self.items(notes))
+            .is_some_and(|row| row.reference.is_some())
     }
 
     fn open(app: &App, link: &str) -> Effect {
@@ -298,18 +281,6 @@ impl Controller {
             link: link.to_owned(),
             opener: app.view.as_ref().and_then(|view| view.opener.clone()),
         })
-    }
-
-    fn tick(&mut self, app: &mut App, row: &Row) -> Effect {
-        let Some(revision) = self.revision(&app.notes, &row.id) else {
-            return Effect::None;
-        };
-        let write = Write::Toggle {
-            item: row.id.clone(),
-            revision,
-            complete: !row.completed,
-        };
-        self.write(&mut app.notes, write)
     }
 
     fn delete(&mut self, app: &mut App, item: &Id) -> Effect {

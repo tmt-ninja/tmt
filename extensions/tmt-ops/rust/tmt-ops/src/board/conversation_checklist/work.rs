@@ -28,11 +28,6 @@ pub(in crate::board) enum Write {
         title: String,
         reference: Option<String>,
     },
-    Toggle {
-        item: Id,
-        revision: u64,
-        complete: bool,
-    },
     Delete {
         item: Id,
         revision: u64,
@@ -134,19 +129,6 @@ fn apply(core: &Core, key: &Key, write: Write) -> Result<Applied, Error> {
                 body: None,
                 reference: Some(reference),
             }),
-        },
-        Write::Toggle {
-            item,
-            revision,
-            complete,
-        } => Action::Item {
-            item_id: item,
-            revision,
-            mutation: if complete {
-                Mutation::Complete
-            } else {
-                Mutation::Reopen
-            },
         },
         Write::Delete {
             item,
