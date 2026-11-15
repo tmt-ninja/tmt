@@ -399,10 +399,9 @@ impl Worker {
                                     &cancellation,
                                 ),
                                 super::usage_changes::Delta::Rows(rows) => match read {
-                                    MeterRead::Home => super::BoardEvent::HomeUsage {
+                                    MeterRead::Home => super::BoardEvent::HomeUsageChanged {
                                         cancellation: cancellation.clone(),
-                                        input: Ok(rows),
-                                        limits: None,
+                                        rows,
                                     },
                                     MeterRead::Squad(input) => super::BoardEvent::Usage {
                                         cancellation: cancellation.clone(),

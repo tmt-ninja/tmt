@@ -201,6 +201,11 @@ pub(in crate::board) enum BoardEvent {
     FileInfo(composer::files::Delivery),
     /// A finished Usage report read; no generation, it is not a load.
     UsageReport(usage_report::Delivery),
+    /// Only the identities `consumption.changes` named, merged into the last full sample.
+    HomeUsageChanged {
+        cancellation: crate::runner::Cancellation,
+        rows: std::collections::BTreeMap<String, serde_json::Value>,
+    },
     HomeUsage {
         cancellation: crate::runner::Cancellation,
         input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
@@ -330,6 +335,7 @@ impl BoardEvent {
             Self::FileInfo(_) => "FileInfo",
             Self::UsageReport(_) => "UsageReport",
             Self::HomeUsage { .. } => "HomeUsage",
+            Self::HomeUsageChanged { .. } => "HomeUsageChanged",
             Self::Conversation { .. } => "Conversation",
             Self::Message { .. } => "Message",
             Self::PaneOutput { .. } => "PaneOutput",
@@ -1260,6 +1266,12 @@ fn session(
                             if let Some(snapshot) = limits {
                                 dirty |= app.set_limits(snapshot);
                             }
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::HomeUsageChanged { cancellation, rows }) => {
+                        if !cancellation.cancelled() {
+                            dirty |= app.sample_home_changed(&rows, Instant::now());
                         }
                         Effect::None
                     }
