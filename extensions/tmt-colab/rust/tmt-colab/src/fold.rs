@@ -1618,12 +1618,10 @@ pub(crate) fn verify_log(
     let mut recipients: Arc<BTreeMap<(String, String), Issuer>> = Arc::new(BTreeMap::new());
     let mut revoked_devices = Arc::new(BTreeSet::new());
     let mut policy = PagePolicy::default();
+    // The owner key is parsed and checked against the space once for the whole log.
+    let owner = statement::Owner::new(&key.space_id, &key.owner_public())?;
     for item in log {
-        let verified = item.verify_next(
-            &key.space_id,
-            &key.owner_public(),
-            states.last().map(|s| &s.head),
-        )?;
+        let verified = item.verify_next_by(&owner, states.last().map(|s| &s.head))?;
         let mut addition = None;
         match &verified.payload {
             Payload::MemberAdd(p) => {

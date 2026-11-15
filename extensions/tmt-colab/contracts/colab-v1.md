@@ -232,6 +232,9 @@ action’s focus without losing staged files. Only confirming Remove writes the
 existing typed reference removal; Cancel writes nothing. Opening a drawer or
 showing its decorative marks never reads file bytes; opening bytes follows the same trusted-click rule as message attachments,
 but through the admitted `document-current` read of the document's current content revision.
+A serve admits one capture per object read: the later 32 KiB chunks of the same selector and scope
+reuse it while it still rechecks at the same epoch, revision and cuts, and each chunk still
+rechecks it before and after its object call.
 
 Choosing files again only adds inert local chips. "Add to page" uploads each chip as a
 `content` asset bound to the digest of the source it is being written against, then
@@ -355,7 +358,11 @@ including sign-bit/negative-zero variants, public-point decompression for A and 
 and little-endian S < L, followed by native WebCrypto verification. The bounded
 decompression guard uses only public 32-byte inputs and a fixed exponentiation chain;
 signing, verification and secret-key operations stay native. Rust requires canonical recompressed non-weak public
-keys and `verify_strict`, with no legacy, hazmat or batch path. Raw browser
+keys and `verify_strict`, with no legacy, hazmat or batch path. A Rust process keeps the
+successes it verified (`crypto::verify_signature`), bounded and in memory only, keyed by SHA-256
+over a domain tag and the length-framed exact public key, input and signature bytes: `verify_strict`
+is a pure function of those bytes, so a repeat answers the same, while any other bytes and every
+failure are verified again. Every other check still runs. Raw browser
 verification alone MUST NOT authorize anything. Valid mixed-order positives in
 the accepted corpus MUST NOT be categorically rejected.
 
@@ -5995,11 +6002,16 @@ untracked compile starts, that draft is invalidated and recompiled against the l
 change while the watched root opens is compared with the draft's list baseline once the root names
 its components. Where no live list exists (hosted, readers)
 a component edit shows on the next open or root change. A draft that does not compile shows the page's design-system notice, never a blank page.
-A page waits 4 s for its design system, then draws the notice; a followed draft that finishes later
-redraws its followers once with it.
+A page waits for its design system as long as the read takes, showing that it is loading; only a
+read that fails (an unreadable release, a hash mismatch, a draft that does not compile) draws the notice.
 A lock is verified against its release's hash and never changes. Publish records a release and
 keeps the system's own tree following its draft; the Design header can show a release in place of
-the draft for viewing.
+the draft for viewing. A release entry's optional `source` is what it compiled from: SHA-256 over
+the root's design-system config without `releases` and `version`, and each component page's
+content revision in the live page list. The comparison is unknown if any component revision is
+missing; such a publish records no `source`. The header offers the next publish when the live
+revisions give another `source`, or when the latest release has none, a revision is missing, or no
+live list exists. The initial release created with a new system has no `source` and remains unknown.
 
 Design-system runtime 2 supplies React, html and cn. Runtime 3 also supplies its system prefix and permits a component to declare
 named shared parts in its `parts` list; the host currently permits only `PageListTable`. The
@@ -7824,7 +7836,7 @@ load it), `runtime-unusable` (a runtime text could escape its element), `design-
 (the page nests past the parse depth, so its runtime marker cannot be judged). A page that names a
 design system can also get the frame's failure for its pin: `design-unknown-release`,
 `design-hash-mismatch`, `design-newer-runtime`, `design-newer-schema` or `design-draft-broken`, and
-`design-release-unavailable` when its release could not be read in time. Native export carries the
+`design-release-unavailable` when the copy's page runtime does not match its build. Native export carries the
 built-in system from the executable and a space system's locked release from its root page: it reads
 that one page read-only at its current epoch for the release's attachment and the attachment's bytes
 through the running serve, never starting one; any failure there is `design-release-unavailable`.

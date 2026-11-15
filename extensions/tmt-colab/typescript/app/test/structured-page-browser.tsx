@@ -300,6 +300,7 @@ const LAYOUT_PAGE: BlockRecord[] = (() => {
 
 declare global {
   interface Window {
+    releaseMockup(): void;
     /** The scripted agent: one exact replacement in a block's text, as `block text --find`. */
     agentReplace(id: string, find: string, replacement: string): void;
     /** The serve's text for a block now. */
@@ -390,6 +391,8 @@ export function mount(
     recipients?: boolean;
     /** The question starts with no agent of its own. */
     follows?: boolean;
+    /** Hold the mockup design system until the fixture releases it. */
+    slowMockup?: boolean;
   } = {},
 ) {
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -573,7 +576,19 @@ export function mount(
   } as unknown as ThreadBinding;
   // The real sandboxed renderer, as the router's mount uses it; one function for the page's life.
   // The built-in tmt GUI system ships with the app, so it needs no page behind it.
-  const designSystem = pageDesignSystems({} as PageTransport);
+  const normalDesignSystem = pageDesignSystems({} as PageTransport);
+  let releaseMockup = () => {};
+  const mockupGate = new Promise<void>((resolve) => (releaseMockup = resolve));
+  window.releaseMockup = releaseMockup;
+  const designSystem = options.slowMockup
+    ? {
+        ...normalDesignSystem,
+        draft: async (...args: Parameters<typeof normalDesignSystem.draft>) => {
+          await mockupGate;
+          return normalDesignSystem.draft(...args);
+        },
+      }
+    : normalDesignSystem;
   // The page's attachment list and its authorized read: two PNG attachments, read by descriptor.
   window.imageReads = [];
   window.failImage = true;
@@ -722,10 +737,11 @@ export function mount(
     source: string,
     signal: AbortSignal,
     theme?: 'light' | 'dark',
+    onReady?: () => void,
   ) =>
     mountRenderer(frameHost, source, {
       signal,
-      onState: () => {},
+      onState: () => onReady?.(),
       designSystem,
       fitContent: true,
       theme,

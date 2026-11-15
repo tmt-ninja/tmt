@@ -464,6 +464,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: var(--tmt-ui-space-m);
   background: var(--tmt-ui-surface-paper);
 }
+/* While the frame waits for its design system, the stage says so quietly instead of a notice. */
+.tmt-block-mockup-loading {
+  margin: 0;
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-m) 0;
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
 .tmt-block-mockup-frame iframe,
 .frame-host iframe {
   display: block;

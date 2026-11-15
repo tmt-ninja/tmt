@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { BrowserAction, BrowserMenu } from '@tmt/browser-ui/react';
 import type { PageTransport } from './transport.js';
 import {
+  draftSource,
   listDesignSystems,
   pinDesignTree,
   publishNext,
@@ -234,6 +235,33 @@ export function DesignLibrary({
   const builtin = path.startsWith(`${base}/ds/tui`) ? 'tui' : 'gui';
   const current =
     selected && !selected.builtIn ? `user:${selected.id}` : userPath ? 'unknown' : builtin;
+  // The live list's content revisions, against which the latest release's `source` says whether
+  // the draft changed since: Publish shows only then, with no draft compiled for it (#6450).
+  const [contents, setContents] = useState<ReadonlyMap<string, string>>();
+  useEffect(() => transport.watchPages?.(setContents), [transport]);
+  const latest = selected && !selected.builtIn ? selected.config.releases.at(-1) : undefined;
+  const [compared, setCompared] = useState<{
+    config: unknown;
+    contents: unknown;
+    source: string;
+  }>();
+  useEffect(() => {
+    if (!selected || selected.builtIn || !contents || !latest?.source) return;
+    let live = true;
+    const config = selected.config;
+    void draftSource(config, contents).then((source) => {
+      if (live) setCompared(source === undefined ? undefined : { config, contents, source });
+    });
+    return () => {
+      live = false;
+    };
+  }, [selected, contents, latest?.source]);
+  // A release made before `source` existed, or a space with no live list, offers Publish as before.
+  const unchanged =
+    !!latest?.source &&
+    compared?.config === selected?.config &&
+    compared?.contents === contents &&
+    compared?.source === latest.source;
   // One publish at a time: a second activation before the first re-renders would upload a second
   // bundle and then fail on a stale base, leaving an orphan attachment.
   const publishingNow = useRef(false);
@@ -255,7 +283,7 @@ export function DesignLibrary({
   };
   const publish = () =>
     run(async () => {
-      const result = await publishNext(transport, selected!.id);
+      const result = await publishNext(transport, selected!.id, contents);
       setNotice({ system: selected!.id, text: `Published ${result.version}.` });
       setUnpinned(result.unpinned.length ? { pin: result.pin, pages: result.unpinned } : undefined);
       await refresh();
@@ -367,7 +395,7 @@ export function DesignLibrary({
                     }}
                   />
                 </span>
-                {selected && !selected.builtIn && (
+                {selected && !selected.builtIn && !unchanged && (
                   <BrowserAction
                     type="button"
                     variant="primary"

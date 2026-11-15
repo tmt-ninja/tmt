@@ -458,8 +458,7 @@ export class AttachmentObjectChannel {
           const ok = outcome.ok;
           exactKeys(ok, ['result', 'offset', 'totalBytes', 'bytes']);
           requireValue(ok.result === 'read' && ok.offset === offset && ok.totalBytes === length);
-          const chunk = binary(ok.bytes, count, count);
-          bytes.set(chunk, offset);
+          bytes.set(binary(ok.bytes, count, count), offset);
           offset += count;
         }
         requireValue(

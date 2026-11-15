@@ -738,6 +738,8 @@ export type MountMockup = (
   signal: AbortSignal,
   /** The stage's Light or Dark; absent follows the viewer. */
   theme?: Theme,
+  /** Called when the frame settles: drawn (its components or the design system's notice) or not. */
+  onReady?: () => void,
 ) => Promise<{ destroy(): void; setTheme(theme?: Theme): void }>;
 
 /**
@@ -750,6 +752,8 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const source = mockupSource(block);
   const [failed, setFailed] = useState(false);
+  // A design system may take a while to read: the stage says it is loading until the frame draws.
+  const [ready, setReady] = useState(false);
   // The stage's theme control is this viewer's: the frame paints it, and Viewer follows the app.
   const [theme, setTheme] = useState<Theme>();
   const themeRef = useRef(theme);
@@ -760,7 +764,11 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
     if (!node || !mount) return;
     const controller = new AbortController();
     setFailed(false);
-    mount(node, source, controller.signal, themeRef.current).then(
+    setReady(false);
+    const drawn = () => {
+      if (!controller.signal.aborted) setReady(true);
+    };
+    mount(node, source, controller.signal, themeRef.current, drawn).then(
       (handle) => {
         if (controller.signal.aborted) handle.destroy();
         else {
@@ -790,7 +798,16 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
         setTheme(settings.theme === 'viewer' ? undefined : settings.theme)
       }
     >
-      <div ref={setNode} className="tmt-block-mockup-frame" />
+      {mount && !failed && !ready && (
+        <p className="tmt-block-mockup-loading" role="status">
+          Loading…
+        </p>
+      )}
+      <div
+        ref={setNode}
+        className="tmt-block-mockup-frame"
+        aria-busy={(!!mount && !failed && !ready) || undefined}
+      />
     </MockupBlock>
   );
 }

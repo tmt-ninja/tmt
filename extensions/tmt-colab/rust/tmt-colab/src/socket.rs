@@ -1652,7 +1652,10 @@ fn drive(
             Progress::Pending => {
                 // Bounded timer turns also service cross-worker delivery and
                 // acquisition/write deadlines when no input arrives.
-                let mut events = [PollFd::new(readiness.as_fd(), PollFlags::POLLIN)];
+                let mut events = [PollFd::new(
+                    readiness.as_fd(),
+                    sync_interest(connection.pending_write()),
+                )];
                 if let Err(e) = poll(&mut events, 20u16)
                     && e != nix::errno::Errno::EINTR
                 {
@@ -1662,6 +1665,13 @@ fn drive(
         }
     }
     let _ = readiness.shutdown(std::net::Shutdown::Both);
+}
+fn sync_interest(pending_write: bool) -> PollFlags {
+    let mut flags = PollFlags::POLLIN;
+    if pending_write {
+        flags |= PollFlags::POLLOUT;
+    }
+    flags
 }
 /// RFC 6455: the key is the base64 of exactly 16 bytes, so 22 symbols (the
 /// last one carrying no unused bits) and `==`.

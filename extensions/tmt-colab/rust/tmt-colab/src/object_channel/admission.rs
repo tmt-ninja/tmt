@@ -123,7 +123,7 @@ impl RequestCapture {
             }
             CapturedTarget::Read(capture) => {
                 let source = (self.source)()?;
-                capture.recheck(&source.store, &source.keyring)?;
+                capture.recheck_until(&source.store, &source.keyring, self.deadline)?;
             }
         }
         if Instant::now() >= self.deadline {

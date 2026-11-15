@@ -2143,6 +2143,15 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
     let scoped =
         attachments::capture_session(&store, &key, &owner, &message, &mut decoder, deadline())
             .unwrap();
+    // A retained per-read capture serves successive chunks only while each request's own
+    // deadline and the live session remain valid; an expired request cannot borrow its deadline.
+    scoped.recheck_until(&store, &key, deadline()).unwrap();
+    scoped.recheck_until(&store, &key, deadline()).unwrap();
+    assert!(
+        scoped
+            .recheck_until(&store, &key, std::time::Instant::now())
+            .is_err()
+    );
     assert_eq!(
         scoped.disclose(&store, &key, &objects).unwrap(),
         b"original attachment bytes"
@@ -2168,6 +2177,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         )
         .unwrap();
     assert!(archived.disclose(&store, &key, &objects).is_err());
+    assert!(scoped.recheck_until(&store, &key, deadline()).is_err());
     assert!(scoped.disclose(&store, &key, &objects).is_err());
     assert!(
         attachments::capture_root_local(&store, &key, PAGE, &message, &mut decoder, deadline())

@@ -140,6 +140,7 @@ impl PeerObjects {
             .spawn(move || {
                 let mut retained = BTreeMap::new();
                 let mut history: Option<super::history::History> = None;
+                let mut reading: Option<ReadCapture> = None;
                 loop {
                     let job = if let Some(active) = &history {
                         match incoming.recv_timeout(
@@ -165,14 +166,14 @@ impl PeerObjects {
                     if identity.closed.load(Ordering::Acquire) {
                         break;
                     }
-                    let (value, fence) = match execute(&identity, &mut retained, &mut history, &job)
-                    {
-                        Ok(pair) => pair,
-                        Err(error) => {
-                            let code = error_code(error.as_ref(), &job.request);
-                            (serde_json::json!({"error":{"code":code}}), None)
-                        }
-                    };
+                    let (value, fence) =
+                        match execute(&identity, &mut retained, &mut history, &mut reading, &job) {
+                            Ok(pair) => pair,
+                            Err(error) => {
+                                let code = error_code(error.as_ref(), &job.request);
+                                (serde_json::json!({"error":{"code":code}}), None)
+                            }
+                        };
                     if identity.closed.load(Ordering::Acquire) {
                         break;
                     }
@@ -254,10 +255,22 @@ fn original(frozen: &FrozenUpload) -> BeginInput {
     };
     input
 }
+
+/// The capture of the attachment this peer reads now. A browser reads an object in 32 KiB chunks,
+/// one request each; every chunk of the same object, in the same scope, reuses the capture the
+/// first one admitted while it still passes `recheck_until` (the session's epoch, the page
+/// revision and cuts it was taken at), instead of verifying and decoding the page again per chunk.
+/// Each chunk's request still rechecks it before and after the Remote call, as a fresh one would.
+struct ReadCapture {
+    scope: crate::sync::SyncScope,
+    selector: AttachmentSelector,
+    capture: Arc<attachments::AdmittedAttachmentRead>,
+}
 fn execute(
     peer: &Arc<PeerIdentity>,
     retained: &mut BTreeMap<String, FrozenUpload>,
     history: &mut Option<super::history::History>,
+    reading: &mut Option<ReadCapture>,
     job: &Job,
 ) -> crate::Result<(serde_json::Value, Option<Arc<RequestCapture>>)> {
     if Instant::now() >= job.deadline
@@ -483,17 +496,37 @@ fn execute(
             offset,
             count,
         } => {
-            let owner = peer
-                .admission
-                .attachment_read_owner(&peer.principal, &job.scope)?;
-            let capture = Arc::new(attachments::capture_session(
-                &view.store,
-                &view.keyring,
-                &owner,
-                selector,
-                &mut view.decoder,
-                job.deadline,
-            )?);
+            let kept = reading
+                .as_ref()
+                .filter(|kept| kept.scope == job.scope && kept.selector == *selector)
+                .map(|kept| Arc::clone(&kept.capture))
+                .filter(|kept| {
+                    kept.recheck_until(&view.store, &view.keyring, job.deadline)
+                        .is_ok()
+                });
+            let capture = match kept {
+                Some(capture) => capture,
+                None => {
+                    *reading = None;
+                    let owner = peer
+                        .admission
+                        .attachment_read_owner(&peer.principal, &job.scope)?;
+                    let capture = Arc::new(attachments::capture_session(
+                        &view.store,
+                        &view.keyring,
+                        &owner,
+                        selector,
+                        &mut view.decoder,
+                        job.deadline,
+                    )?);
+                    *reading = Some(ReadCapture {
+                        scope: job.scope.clone(),
+                        selector: selector.clone(),
+                        capture: Arc::clone(&capture),
+                    });
+                    capture
+                }
+            };
             let descriptor = capture.descriptor();
             let bytes = values::decimal(&descriptor.payload_bytes, false)?;
             if !(1..=32_768).contains(count)

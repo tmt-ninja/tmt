@@ -709,6 +709,7 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   await expect(
     mock.frameLocator('iframe').getByRole('heading', { name: '手機上的區塊選單' }),
   ).toBeVisible();
+  await expect(mock.getByRole('status')).toHaveCount(0);
   // The markup never reaches the parent's DOM.
   await expect(host.getByRole('heading', { name: '手機上的區塊選單' })).toHaveCount(0);
   expect(
@@ -736,6 +737,41 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   const inner = await frame.boundingBox();
   expect(inner!.x - sheet!.x).toBeGreaterThanOrEqual(8);
   expect(sheet!.y + sheet!.height - (inner!.y + inner!.height)).toBeGreaterThanOrEqual(8);
+});
+
+test('a mockup shows loading until its design system draws', async ({ page }) => {
+  await servePageRuntime(page);
+  for (const width of [1440, 390]) {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/structured-page-browser.tsx';
+        (await import(path)).mount('spec', { slowMockup: true });
+      });
+      const mock = page.locator('[data-block-id="mock"]');
+      await expect(mock.getByRole('status')).toHaveText('Loading…');
+      await expect(mock.locator('.tmt-block-mockup-frame')).toHaveAttribute('aria-busy', 'true');
+      const dir = process.env.COLAB_MOCKUP_CAPTURE_DIR;
+      if (dir) await mock.screenshot({ path: `${dir}/loading-${width}-${theme}.png` });
+      await page.evaluate(() => window.releaseMockup());
+      await expect(
+        mock.frameLocator('iframe').getByRole('heading', { name: '手機上的區塊選單' }),
+      ).toBeVisible();
+      await expect(mock.getByRole('status')).toHaveCount(0);
+      await expect(mock.locator('.tmt-block-mockup-frame')).not.toHaveAttribute('aria-busy');
+      if (dir) {
+        await mock.screenshot({ path: `${dir}/rendered-${width}-${theme}.png` });
+        await mock
+          .frameLocator('iframe')
+          .locator('body')
+          .screenshot({
+            path: `${dir}/frame-${width}-${theme}.png`,
+          });
+      }
+    }
+  }
 });
 
 test('a table cell edits in place, Tab walks the cells and adds a row, and the table duplicates', async ({

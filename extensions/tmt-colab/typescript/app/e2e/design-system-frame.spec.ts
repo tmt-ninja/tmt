@@ -825,7 +825,13 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
     const host = document.createElement('div');
     host.id = 'slow-draft-probe';
     document.body.prepend(host);
-    const state = { slow: false, handle: undefined as any };
+    const state = {
+      slow: false,
+      started: false,
+      handle: undefined as any,
+      pending: undefined as Promise<string> | undefined,
+      release: undefined as (() => void) | undefined,
+    };
     Object.assign(window, { slowDraftProbe: state });
     state.handle = await mountRenderer(
       host,
@@ -837,7 +843,13 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
         },
         designSystem: {
           release: async () => undefined,
-          draft: async () => (state.slow ? new Promise(() => {}) : initial),
+          draft: async () => {
+            if (!state.slow) return initial;
+            state.started = true;
+            return new Promise<typeof initial>(
+              (resolve) => (state.release = () => resolve(initial)),
+            );
+          },
           watch: () => () => {},
         },
       },
@@ -847,12 +859,21 @@ test('a slow draft refresh keeps the last compiled frame instead of replacing it
   const iframe = page.locator('#slow-draft-probe iframe');
   const before = await iframe.getAttribute('data-render-id');
   await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
-  const result = await page.evaluate(async () => {
+  await page.evaluate(() => {
     const state = (window as any).slowDraftProbe;
     state.slow = true;
-    return state.handle.refreshDesign(
+    state.pending = state.handle.refreshDesign(
       '<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>',
     );
+  });
+  await page.waitForFunction(() => (window as any).slowDraftProbe.started);
+  await expect(iframe).toHaveAttribute('data-render-id', before!);
+  await expect(iframe.contentFrame().getByRole('button', { name: 'Save' })).toBeVisible();
+  await expect(iframe.contentFrame().locator('[data-tmt-ds-notice]')).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    const state = (window as any).slowDraftProbe;
+    state.release();
+    return state.pending;
   });
   expect(result).toBe('applied');
   await expect(iframe).toHaveAttribute('data-render-id', before!);
@@ -964,7 +985,7 @@ test('an in-place edit of an unpinned page never waits for a release or a draft 
   });
   expect(result.outcome).toBe('applied');
   expect(result.reads).toEqual({ release: 0, draft: 0 });
-  // Far below the pin wait (PIN_WAIT_MS, 4 s) that turns a slow read into a notice.
+  // Applied in place, reading no release or draft again.
   expect(result.ms).toBeLessThan(1000);
   await expect(page.frameLocator('#stuck-probe iframe').locator('p')).toHaveText('Second');
 });
@@ -983,20 +1004,19 @@ test('an unreadable release and a malformed pin both say so', async ({ page }) =
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
 });
 
-test('a bad pin never stands in for a real release, and a stuck read ends in a notice', async ({
+test('a bad pin never stands in for a real release, and a slow design system still renders', async ({
   page,
 }) => {
   await servePageRuntime(page);
   await page.goto('/');
   // One document, as in the app: the outcome of one pin must not answer for another.
-  const states = await page.evaluate(
+  await page.evaluate(
     async ({ bundle, pin, wrong }) => {
       const { mountRenderer } = await import('/src/renderer.ts' as string);
       const mountOne = async (id: string, content: string, served: () => Promise<unknown>) => {
         const host = document.createElement('div');
         host.id = id;
         document.body.append(host);
-        const started = performance.now();
         await mountRenderer(
           host,
           `<meta name="tmt-ds" content="${content}"><tmt-ui-button>Go</tmt-ui-button>`,
@@ -1010,16 +1030,16 @@ test('a bad pin never stands in for a real release, and a stuck read ends in a n
             },
           },
         );
-        return performance.now() - started;
       };
       await mountOne('wrong', wrong, async () => bundle);
       await mountOne('right', pin, async () => bundle);
-      const waited = await mountOne(
-        'stuck',
-        pin.replace('0.1.0', '0.1.1'),
-        () => new Promise(() => {}),
+      // A draft slower than the fixed wait a page used to give its design system (#6450) still
+      // draws. A draft is read for each page (a lock's outcome is kept for the session).
+      void mountOne(
+        'slow',
+        pin.split('@')[0]!,
+        () => new Promise((resolve) => setTimeout(() => resolve(bundle), 5_000)),
       );
-      return { waited };
     },
     { bundle, pin, wrong: pin.replace('0.1.0', '9.9.9') },
   );
@@ -1029,9 +1049,9 @@ test('a bad pin never stands in for a real release, and a stuck read ends in a n
   await expect(
     page.frameLocator('#right iframe').getByRole('button', { name: 'Go' }),
   ).toBeVisible();
-  const stuck = page.frameLocator('#stuck iframe').locator('body');
-  await expect(stuck).toContainText('could not be read in time');
-  expect(states.waited).toBeLessThan(8000);
+  const slow = page.frameLocator('#slow iframe');
+  await expect(slow.getByRole('button', { name: 'Go' })).toBeVisible({ timeout: 15_000 });
+  await expect(slow.locator('[data-tmt-ds-notice]')).toHaveCount(0);
 });
 
 test('the page check shows its findings on the page', async ({ page }) => {

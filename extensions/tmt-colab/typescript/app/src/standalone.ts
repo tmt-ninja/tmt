@@ -54,7 +54,7 @@ export interface StandaloneDesignSystem {
   readonly terminal?: string;
 }
 /** Why a page's design system could not be carried: the frame's failure for its pin, a release
- * that could not be read in time, or (native export only) a draft-following page, which needs the
+ * that could not be read, or (native export only) a draft-following page, which needs the
  * browser's draft compiler. */
 export type StandaloneDesignReason =
   | 'design-unknown-release'
