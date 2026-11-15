@@ -46,6 +46,10 @@ pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
                 .members
                 .insert(format!("66666666-6666-4666-8666-{index:012}"), id.into());
         }
+        if scene == "agents-label-mixed" {
+            // Keep only the first member labeled so the same squad shows both alignments.
+            preferences.labels.members.retain(|id, _| id == first);
+        }
         if scene == "agents-label-stack" {
             preferences.layout = crate::config::OpsLayout::Stack;
         }

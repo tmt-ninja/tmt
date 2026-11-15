@@ -439,6 +439,7 @@ fn label_frames(styles: &mut Styles) -> Vec<Value> {
         &[
             "agents-label-none",
             "agents-label-assigned",
+            "agents-label-mixed",
             "agents-label-menu",
             "agents-label-editor",
             "agents-label-form",
@@ -1289,7 +1290,7 @@ macro_rules! oracle_groups {
         $group!(7, 16, member_terminals_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
-        $group!(7, 44, label_frames($styles));
+        $group!(7, 52, label_frames($styles));
         $group!(7, 16, quota_details_frames($styles));
         $group!(8, 448, unread_overlay_frames($styles));
         $group!(7, 192, account_limits_frames($styles));
