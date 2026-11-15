@@ -93,6 +93,7 @@ mod top_bar;
 mod tree_row;
 mod unread;
 mod unread_overlay;
+mod usage_changes;
 mod versions;
 mod web;
 mod wheel_hint;

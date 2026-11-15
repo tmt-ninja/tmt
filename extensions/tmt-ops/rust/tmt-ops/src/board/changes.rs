@@ -32,6 +32,11 @@ impl Stamp {
         self.has_cursor() && now.has_cursor() && !self.moved(now)
     }
 
+    /// Core's usage cursor, when this read had one (#6364).
+    pub(super) fn usage(&self) -> Option<u64> {
+        self.usage.as_ref().and_then(Value::as_u64)
+    }
+
     pub(super) fn has_cursor(&self) -> bool {
         self.cursor.as_ref().and_then(Value::as_u64).is_some()
     }
@@ -49,6 +54,12 @@ impl Stamp {
         // A core without the usage cursor counts those writes in `cursor`.
         let usage = self.usage.as_ref().and_then(Value::as_u64).unwrap_or(0);
         Some(cursor.saturating_add(usage))
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_usage(mut self, usage: u64) -> Self {
+        self.usage = Some(json!(usage));
+        self
     }
 
     #[cfg(test)]

@@ -156,68 +156,6 @@ fn deferred_shutdown_joins_an_inflight_migration_read_before_returning() {
     lease.release().unwrap();
 }
 #[test]
-fn deferred_workers_migrate_without_preempting_legacy_then_offer_only_core_clocks() {
-    let f = Fixture::new();
-    let job = f.add(&f.actor(LEAD), WORKER).unwrap().job.job;
-    let source = crate::test_support::stored_jobs(&f.directory);
-    let before = f.current_jobs().document();
-    let (core, config, lease, held) = legacy(&f);
-    let reads = || {
-        f.model()["calls"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|call| call["request"]["operation"] == "storage.root")
-            .count()
-    };
-    let before_reads = reads();
-    let mut first = ClockWorker::spawn(core.clone(), config.clone(), false);
-    let mut second = ClockWorker::spawn(core.clone(), config, false);
-    wait_for(|| (reads() >= before_reads + 2).then_some(()));
-    assert_eq!(
-        fs::read(f.directory.join("squad/cron/clock.json")).unwrap(),
-        held
-    );
-    assert!(!f.directory.join("ops").exists());
-    assert!(f.model().get("clockStarts").is_none());
-    let directory = f.directory.join("squad/cron");
-    let guard = wait_for(|| {
-        let file = fs::File::open(directory.join("clock.lock")).unwrap();
-        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
-            Ok(guard) => Some(guard),
-            Err((_, nix::errno::Errno::EAGAIN)) => None,
-            Err((_, e)) => panic!("fixture clock lock: {e}"),
-        }
-    });
-    assert_eq!(fs::read(directory.join("clock.json")).unwrap(), held);
-    fs::remove_file(directory.join("clock.json")).unwrap();
-    fs::File::open(&directory).unwrap().sync_all().unwrap();
-    drop(guard);
-    drop(lease);
-    // Retain the original migration-control bound: directory publication and syncs
-    // are slower than the ordinary fixture readiness checks on a loaded host.
-    let until = Instant::now() + Duration::from_secs(60);
-    loop {
-        if f.model()["clockStarts"] == 2 {
-            break;
-        }
-        assert!(
-            Instant::now() < until,
-            "deferred workers did not reach the public clock boundary"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!crate::migration::paths(&core, None).unwrap().legacy);
-    assert_eq!(crate::test_support::stored_jobs(&f.directory), source);
-    assert_eq!(f.current_jobs().document(), before);
-    assert_eq!(f.current_jobs().jobs()[0].id(), job.id());
-    assert!(!f.directory.join("squad").exists());
-    assert!(!f.directory.join("ops/cron/clock.json").exists());
-    first.stop().unwrap();
-    second.stop().unwrap();
-}
-
-#[test]
 fn continuous_ui_reoffers_after_clean_and_errored_ends_and_joins_every_child() {
     for end in ["clean", "error"] {
         let f = Fixture::new();

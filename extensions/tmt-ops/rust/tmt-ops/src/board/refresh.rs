@@ -240,6 +240,7 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
+            let mut deltas = super::usage_changes::Deltas::default();
             let retained = Arc::new(crate::core::RetainedReads::default());
             let background = core.with_retained_reads(Arc::clone(&retained));
             let previous_stamp = std::cell::RefCell::new(None::<Stamp>);
@@ -372,20 +373,43 @@ impl Worker {
                             ),
                             cancellation: cancellation.clone(),
                         },
-                        Deferred::Usage(MeterRead::Home) => {
-                            home_usage(&reader, &mut limits, cancellation.clone())
+                        Deferred::Usage(read, since) => {
+                            let now = Instant::now();
+                            if deltas.defers_full(&read.meter(), now) {
+                                return true;
+                            }
+                            full_usage(
+                                &reader,
+                                &mut limits,
+                                &mut deltas,
+                                read,
+                                since,
+                                &cancellation,
+                            )
                         }
-                        Deferred::Usage(MeterRead::Squad(input)) => {
-                            let sample = reader
-                                .json(&["ls", "--room", &input.room])
-                                .ok()
-                                .filter(|listed| listed["identities"].is_array())
-                                .map(|listed| input.listed(&listed))
-                                .ok_or(());
-                            super::BoardEvent::Usage {
-                                cancellation: cancellation.clone(),
-                                room: input.room,
-                                input: sample,
+                        Deferred::UsageChanges(read, usage) => {
+                            match deltas.read(&reader, &read.meter(), usage) {
+                                super::usage_changes::Delta::None => return true,
+                                super::usage_changes::Delta::Full => full_usage(
+                                    &reader,
+                                    &mut limits,
+                                    &mut deltas,
+                                    read,
+                                    Some(usage),
+                                    &cancellation,
+                                ),
+                                super::usage_changes::Delta::Rows(rows) => match read {
+                                    MeterRead::Home => super::BoardEvent::HomeUsage {
+                                        cancellation: cancellation.clone(),
+                                        input: Ok(rows),
+                                        limits: None,
+                                    },
+                                    MeterRead::Squad(input) => super::BoardEvent::Usage {
+                                        cancellation: cancellation.clone(),
+                                        room: input.room.clone(),
+                                        input: Ok(input.joined(&rows)),
+                                    },
+                                },
                             }
                         }
                     };
@@ -614,6 +638,47 @@ impl HistoryJob {
 /// The background HOME receipt: the listing feeds token meters and session-only
 /// limits; public account evidence owns its keys. An unsupported account method
 /// keeps the legacy session/footer path, while a failed read retains the held snapshot.
+/// The timed full read of a meter's usage; its rows become the base later deltas update.
+fn full_usage(
+    reader: &Core,
+    limits: &mut super::limits::Sampler,
+    deltas: &mut super::usage_changes::Deltas,
+    read: MeterRead,
+    since: Option<u64>,
+    cancellation: &crate::runner::Cancellation,
+) -> super::BoardEvent {
+    let meter = read.meter();
+    let now = Instant::now();
+    match read {
+        MeterRead::Home => {
+            let event = home_usage(reader, limits, cancellation.clone());
+            if let super::BoardEvent::HomeUsage {
+                input: Ok(rows), ..
+            } = &event
+            {
+                deltas.based(meter, since, rows, now);
+            }
+            event
+        }
+        MeterRead::Squad(input) => {
+            let sample = reader
+                .json(&["ls", "--room", &input.room])
+                .ok()
+                .filter(|listed| listed["identities"].is_array())
+                .map(|listed| input.listed(&listed))
+                .ok_or(());
+            if let Ok(sample) = &sample {
+                deltas.based(meter, since, &sample.resumes, now);
+            }
+            super::BoardEvent::Usage {
+                cancellation: cancellation.clone(),
+                room: input.room,
+                input: sample,
+            }
+        }
+    }
+}
+
 fn home_usage(
     reader: &Core,
     limits: &mut super::limits::Sampler,
@@ -676,7 +741,10 @@ enum Deferred {
     HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
-    Usage(MeterRead),
+    /// The timed full read, with the usage cursor read just before it.
+    Usage(MeterRead, Option<u64>),
+    /// The usage cursor moved: read what changed since the last sample (#6364).
+    UsageChanges(MeterRead, u64),
 }
 
 #[derive(Clone)]
@@ -686,6 +754,13 @@ enum MeterRead {
 }
 
 impl MeterRead {
+    fn meter(&self) -> super::usage_changes::Meter {
+        match self {
+            Self::Squad(input) => super::usage_changes::Meter::Squad(input.room.clone()),
+            Self::Home => super::usage_changes::Meter::Home,
+        }
+    }
+
     /// Whether both read the same meter, whatever roster each last listed.
     fn same_meter(&self, other: &Self) -> bool {
         match (self, other) {
@@ -855,6 +930,8 @@ fn serve(
     // stamp taken just before that load.
     let mut last: Option<(Reload, bool, Stamp)> = None;
     let mut sampling: Option<(MeterRead, Duration, Instant)> = None;
+    // The usage cursor a delta was last asked for.
+    let mut usage_seen: Option<u64> = None;
     loop {
         let wait = sampling.as_ref().map_or(check_every, |(_, _, next)| {
             check_every.min(next.saturating_duration_since(Instant::now()))
@@ -862,29 +939,41 @@ fn serve(
         let received = match pending.recv_timeout(wait) {
             Ok(wanted) => wanted,
             Err(RecvTimeoutError::Timeout) => {
+                let Some((reload, automatic, seen)) = &last else {
+                    continue;
+                };
+                let now = stamp(reload.generation, *automatic);
+                let current = generation.load(Ordering::Acquire) == reload.generation;
                 // Sampling is due on its own clock. Where a busy team moves the
                 // change stamp at every check, the reload below would otherwise
                 // come first each time and the sample would never run.
-                if let (Some((reload, _, _)), Some((input, every, next))) = (&last, &mut sampling)
-                    && Instant::now() >= *next
-                {
-                    if generation.load(Ordering::Acquire) == reload.generation
-                        && !deferred(Deferred::Usage(input.clone()), reload.generation)
+                if let Some((input, every, next)) = &mut sampling {
+                    if Instant::now() >= *next {
+                        if current
+                            && !deferred(
+                                Deferred::Usage(input.clone(), now.usage()),
+                                reload.generation,
+                            )
+                        {
+                            break;
+                        }
+                        *next = Instant::now() + *every;
+                    } else if let Some(usage) = now.usage()
+                        && usage_seen.replace(usage) != Some(usage)
+                        && current
+                        && !deferred(
+                            Deferred::UsageChanges(input.clone(), usage),
+                            reload.generation,
+                        )
                     {
+                        // A sample landed: repaint just the identities it changed (#6364).
                         break;
                     }
-                    *next = Instant::now() + *every;
                 }
-                match &last {
-                    Some((reload, automatic, seen))
-                        if {
-                            let now = stamp(reload.generation, *automatic);
-                            seen.layout_moved(&now) || (*automatic && seen.moved(&now))
-                        } =>
-                    {
-                        Work::Reload(reload.clone())
-                    }
-                    _ => continue,
+                if seen.layout_moved(&now) || (*automatic && seen.moved(&now)) {
+                    Work::Reload(reload.clone())
+                } else {
+                    continue;
                 }
             }
             Err(RecvTimeoutError::Disconnected) => break,
@@ -3760,12 +3849,72 @@ esac
             },
             |job, _| {
                 assert_eq!(published.get(), 3);
-                assert!(matches!(job, Deferred::Usage(MeterRead::Home)));
+                assert!(matches!(job, Deferred::Usage(MeterRead::Home, _)));
                 samples += 1;
                 false
             },
         );
         assert_eq!(samples, 1);
+    }
+
+    /// A sample landing moves the usage cursor: the worker asks for that delta at the next
+    /// check, once per cursor, without waiting for the timed full read (#6364).
+    #[test]
+    fn a_moved_usage_cursor_asks_for_its_delta_once_before_the_timed_read() {
+        let (sender, pending) = mpsc::channel();
+        sender
+            .send(Work::Reload(Reload {
+                preview_panes: false,
+                squad: Some(ALL.into()),
+                generation: 0,
+                demand: None,
+            }))
+            .unwrap();
+        let checks = std::cell::Cell::new(0u64);
+        // Dropping the sender after a few checks ends the worker.
+        let sender = std::cell::RefCell::new(Some(sender));
+        let mut asked = Vec::new();
+        serve(
+            &pending,
+            |_, _| true,
+            Duration::from_millis(1),
+            &AtomicU64::new(0),
+            |_, _| {
+                checks.set(checks.get() + 1);
+                if checks.get() >= 8 {
+                    sender.borrow_mut().take();
+                }
+                // The cursor moves once, then holds.
+                Stamp::cursor(1).with_usage(if checks.get() < 3 { 5 } else { 6 })
+            },
+            |_, _, _, _| {
+                let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.refresh = None;
+                view.home_rate.insert(
+                    "product".into(),
+                    super::super::app::RateView {
+                        history: None,
+                        settings: crate::config::TokenRate {
+                            enabled: true,
+                            every: Duration::from_secs(3600),
+                            ..Default::default()
+                        },
+                        input: super::super::rate::tests::input(100),
+                    },
+                );
+                Loaded::only(snapshot)
+            },
+            |job, _| match job {
+                Deferred::UsageChanges(MeterRead::Home, usage) => {
+                    asked.push(usage);
+                    true
+                }
+                Deferred::Usage(..) => panic!("the timed read is an hour away"),
+                _ => true,
+            },
+        );
+        assert_eq!(asked, [5, 6], "one delta per cursor value");
     }
 
     /// A busy team moves Core's change cursor at every check, so the shown tab
@@ -3821,8 +3970,8 @@ esac
                 |job, _| {
                     assert!(matches!(
                         (home, job),
-                        (true, Deferred::Usage(MeterRead::Home))
-                            | (false, Deferred::Usage(MeterRead::Squad(_)))
+                        (true, Deferred::Usage(MeterRead::Home, _))
+                            | (false, Deferred::Usage(MeterRead::Squad(_), _))
                     ));
                     samples += 1;
                     true
@@ -3877,7 +4026,7 @@ esac
                 Loaded::only(snapshot)
             },
             |job, generation| {
-                let Deferred::Usage(MeterRead::Squad(input)) = job else {
+                let Deferred::Usage(MeterRead::Squad(input), _) = job else {
                     panic!("unexpected attention work")
                 };
                 assert_eq!(generation, 0);
