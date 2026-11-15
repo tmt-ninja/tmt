@@ -261,10 +261,10 @@ f8 = "menu"
             .iter()
             .any(|entry| ["click", "double-click", "f8"].contains(&entry.key.as_str()))
     );
-    assert_eq!(key(&mut app, KeyCode::Char('z')), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
     assert!(
         app.menu.is_some(),
-        "the menu owns z rather than the Host action"
+        "an unbound j leaves the menu open"
     );
     assert_eq!(key(&mut app, KeyCode::F(2)), copy);
     assert!(app.menu.is_none());
