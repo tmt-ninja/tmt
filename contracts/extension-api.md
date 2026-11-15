@@ -153,8 +153,8 @@ remain independent of storage access.
 | `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `host`, `socket`, `pane`, `paused`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                     |
 | `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
 | `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                                             | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended, or a new terminal when its supervisor is gone (see [below](#relaunch-on-a-kept-terminal))                              |
-| `terminal.open`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a built-in-host member (see [below](#terminals-under-a-member))                                                                                |
-| `terminal.list`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminals`: a built-in-host member's extra terminals, read-only (see [below](#terminals-under-a-member))                                                                                                                 |
+| `terminal.open`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a member on any host (see [below](#terminals-under-a-member))                                                                                  |
+| `terminal.list`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminals`: a member's extra terminals on any host, read-only (see [below](#terminals-under-a-member))                                                                                                                   |
 | `terminal.close`         | `terminalId`, optional `force` (bool)                                                                                                                                         | `terminalId`, `closed`: closes one extra terminal (see [below](#terminals-under-a-member))                                                                                                                                              |
 | `forms.list`             | optional `identityId` (canonical UUID)                                                                                                                                        | `forms`: the open provider forms, oldest first (see [below](#provider-forms))                                                                                                                                                           |
 | `forms.answer`           | `formId`, `answer`                                                                                                                                                            | Checks an answer against an open form; every valid answer is `FORM_DELIVERY_UNSUPPORTED` for now (see [below](#provider-forms))                                                                                                         |
@@ -525,9 +525,12 @@ live binding and refuses, as `tmt resume` does, so the second call is
 
 ### Terminals under a member
 
-A built-in-host member may own up to 8 extra terminals, each a login shell
-(`$SHELL -l`, else `/bin/sh -l`) in the member's launch directory with its own
-supervisor and stream. A terminal is not an identity, binding or pane of any member:
+A member on any host (built-in, tmux or Herdr) may own up to 8 extra terminals, each a
+login shell (`$SHELL -l`, else `/bin/sh -l`) in the member's launch directory with its own
+TMT supervisor and stream. On every host the terminal is that supervisor, never a tmux or
+Herdr pane: opening one creates or changes nothing on the host. The launch directory is the
+current directory of the member's owner process (below), else `$HOME`; no directory is
+stored. A terminal is not an identity, binding or pane of any member:
 it never appears in `tmt ls`, discovery or delivery, and `talk` to its id is
 `NAME_NOT_FOUND`. Its shell starts without tmux and built-in host locators, approved
 hosts' caller variables and agent runtimes' session variables, so a `tmt` run there is
@@ -537,8 +540,8 @@ again with `terminal.list`.
 
 - `terminal.open` `{identityId}` answers `{identityId, terminalId, socket, pane,
 directory}` once the new supervisor names its owner. `terminalId` and `pane` are
-  `term_` and 32 lowercase hex digits. The binding check is `terminal.stream`'s
-  (`NAME_NOT_FOUND`, `TERMINAL_STREAM_UNAVAILABLE`). A ninth terminal is
+  `term_` and 32 lowercase hex digits. The binding check is `terminal.stream`'s fresh
+  presence check on any host (`NAME_NOT_FOUND`, `TERMINAL_STREAM_UNAVAILABLE`). A ninth terminal is
   `TERMINAL_LIMIT`; the count and the start are one step per member, so concurrent
   opens cannot pass 8. `TERMINAL_OPEN_FAILED` means nothing was started.
   `TERMINAL_OPEN_UNCONFIRMED` names the terminal id in its message: it may be running,
@@ -562,10 +565,14 @@ socket, pane, busy, createdMs, shell?, program?}]}`, oldest first, with the same
   `force`. An unknown or already ended terminal is `TERMINAL_NOT_FOUND`.
   `API_UNAVAILABLE` means the close was not confirmed and the terminal may still run.
 
-A terminal ends with its shell and with its member. Its supervisor checks every second
-that the member supervisor's PID still exists, and compares its start time when it
-opens and every 30 s, so a reused PID is gone too; it closes itself when the member is
-gone. A check that cannot observe the member keeps the terminal. `identity.stop` with `close`, `identity.remove` and `tmt rm`
+A terminal ends with its shell and with its member's owner process: the member
+supervisor on the built-in host, and the bound pane's process on tmux or Herdr. That
+process's start time is read when the terminal opens. On tmux or Herdr, a start that differs
+from the one recorded at binding is `TERMINAL_STREAM_UNAVAILABLE`, and one that cannot be read
+is `TERMINAL_OPEN_FAILED`. Its supervisor checks every second that the owner's PID still
+exists, and compares its start time when it opens and every 30 s, so a reused PID is gone
+too; it closes itself when the owner is gone. A check that cannot observe the owner keeps the
+terminal. `identity.stop` with `close`, `identity.remove` and `tmt rm`
 also close all of the member's terminals at once within one 5 s bound. That close is
 advisory: the member action stands, and its answer adds `terminalsLeft`, the ids still
 running, only when some are. The stream on a terminal's `socket` is
@@ -684,7 +691,7 @@ lifecycle. `pane` is `closed`, `gone` (already closed), or `kept` with `paneReas
 Core's sentence for why the pane stayed open (TMT did not open it, the host cannot
 tell or cannot close panes, or the close failed). `kept` is still success: the agent
 has stopped. `tmt stop --close` reports the same case as its `PANE_NOT_CLOSED` exit.
-On the built-in host, `close` also closes the member's
+On every host, `close` also closes the member's
 [extra terminals](#terminals-under-a-member); `terminalsLeft` lists any still running.
 
 **Every `identity.stop` fault means the agent may still be running.** It uses the

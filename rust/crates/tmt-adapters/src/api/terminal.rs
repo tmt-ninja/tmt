@@ -4,7 +4,7 @@
 //! stopped by job control (Ctrl-Z), and `terminal.relaunch` starts a program on the kept
 //! terminal of a member whose program ended; they are the operations here with an effect.
 //! `terminal.open`, `terminal.list` and `terminal.close` manage a member's extra terminals
-//! (`pty::terminal`): login shells the member owns, never panes or Talk targets.
+//! (`pty::terminal`) on any host: login shells the member owns, never panes or Talk targets.
 use super::{Fault, Request, invalid};
 use crate::{
     config::ConfigPaths,
@@ -134,7 +134,7 @@ fn entry(storage: &mut Storage, id: &str) -> Result<BindingEntry, Fault> {
         .ok_or_else(|| Fault::new("NAME_NOT_FOUND", "The selected identity was not found."))
 }
 
-/// The identity's built-in binding once fresh host evidence shows it Active. Presence only,
+/// The identity's binding once fresh host evidence shows it Active. Presence only,
 /// as for `pane.screen`: an ended agent's kept terminal still has a stream to read, but a
 /// member whose supervisor is gone does not.
 fn active(entry: &BindingEntry) -> Result<&Binding, Fault> {
@@ -324,17 +324,52 @@ fn tail(output: &str) -> String {
     }
 }
 
-/// The member's live built-in binding, as `terminal.stream` requires it.
+/// The member's live binding on any host, for its extra terminals (#6301). The terminals are
+/// TMT supervisors whatever the host, so only the binding's presence is checked, with the same
+/// fresh evidence as `terminal.stream`.
 fn member(storage: &mut Storage, id: &str) -> Result<Binding, Fault> {
     let entry = entry(storage, id)?;
-    if entry
-        .binding
-        .as_ref()
-        .is_none_or(|binding| binding.server.host != HostKind::pty())
-    {
-        return Err(unavailable());
+    active(&entry).cloned().map_err(|_| no_live_member())
+}
+
+fn no_live_member() -> Fault {
+    Fault::new(
+        "TERMINAL_STREAM_UNAVAILABLE",
+        "The identity has no live member.",
+    )
+}
+
+/// The process whose life a member's extra terminals follow, as its pid and start token: the
+/// supervisor on the built-in host, else the bound pane's process, read now with the token
+/// `pty::terminal::member_alive` compares. A recorded pane start that differs is a reused pid.
+fn owner_process(binding: &Binding) -> Result<(u64, String), Fault> {
+    if binding.server.host == HostKind::pty() {
+        return Ok((
+            binding.server.server_pid,
+            binding.server.server_start_time.clone(),
+        ));
     }
-    active(&entry).cloned()
+    let start = crate::process::runtime::observe_start(
+        &crate::process::UnixCommandRunner,
+        binding.pane_pid,
+        std::time::Instant::now() + std::time::Duration::from_secs(3),
+    )
+    .ok()
+    .flatten()
+    .ok_or_else(|| {
+        Fault::detailed(
+            "TERMINAL_OPEN_FAILED",
+            "Nothing was started: the member's pane process could not be observed.".into(),
+        )
+    })?;
+    if binding
+        .pane_incarnation
+        .as_ref()
+        .is_some_and(|recorded| *recorded != start)
+    {
+        return Err(no_live_member());
+    }
+    Ok((binding.pane_pid, start))
 }
 
 /// `shell` and `program` are untrusted display text, already cleaned and bounded by the
@@ -361,8 +396,9 @@ pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Resu
     let executable = crate::core_executable::selected().map_err(|_| {
         failed("Nothing was started: the Core executable could not be located.".into())
     })?;
-    // The member's launch directory is its supervisor's; doubt falls back to home.
-    let directory = i32::try_from(binding.server.server_pid)
+    let (pid, start) = owner_process(&binding)?;
+    // The member's launch directory is its owner process's; doubt falls back to home.
+    let directory = i32::try_from(pid)
         .ok()
         .and_then(tmt_sys::process_cwd)
         .or_else(|| std::env::var("HOME").ok())
@@ -370,8 +406,8 @@ pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Resu
     let shell = relaunch_program(id, RelaunchKind::Shell)?;
     let owner = terminal::Owner {
         identity: id,
-        server_pid: binding.server.server_pid,
-        server_start: &binding.server.server_start_time,
+        pid,
+        start: &start,
     };
     match terminal::open(
         executable.as_os_str(),

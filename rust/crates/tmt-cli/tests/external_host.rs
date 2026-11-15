@@ -248,7 +248,9 @@ struct Fixture {
 
 impl Fixture {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("tmt-external-{}-{name}", std::process::id()));
+        // A short root under /tmp, as `pty_host` keeps one, so the extra terminals a member
+        // opens (#6301) fit their supervisor sockets within the Unix path limit.
+        let root = PathBuf::from(format!("/tmp/tx{:x}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         for dir in ["home", "xdg", "data/state", "tmux", "driver"] {
             fs::create_dir_all(root.join(dir)).unwrap();

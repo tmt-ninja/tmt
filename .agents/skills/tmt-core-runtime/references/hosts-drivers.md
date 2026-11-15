@@ -477,8 +477,9 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   loss/replacement proves a supervisor dead. The public identity and durable exchange
   still belong to Core storage, not the supervisor.
 - **Extra terminals** (#5991, `pty::terminal`, API `api::terminal`) are supervisors started
-  with `__pty-serve --terminal-owner <uuid>` plus the member supervisor's PID and start, at
-  `term_<32 hex>` in the pty directory. The supervisor is the only record of its owner:
+  with `__pty-serve --terminal-owner <uuid>` plus the owner process's PID and start (the member
+  supervisor on pty; the bound pane's process, read fresh at open, on tmux or Herdr, #6301), at
+  `term_<32 hex>` in the pty directory, for a member on any host. The supervisor is the only record of its owner:
   `Control::Terminal` (`0x2e`, capability bit 3) answers owner, created time and `busy`
   (`tcgetpgrp` of the master is not the shell). `Control::TerminalDetail` (`0x2f`, bit 4,
   #6112) adds the shell's file name and, while busy, the foreground group leader's

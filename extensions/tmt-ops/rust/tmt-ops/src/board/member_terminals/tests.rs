@@ -73,7 +73,7 @@ fn rows_are_numbered_in_order_seen_and_an_ended_one_stays_greyed_for_the_session
 }
 
 #[test]
-fn a_closed_or_non_built_in_member_shows_no_terminals_and_is_not_asked_again_soon() {
+fn a_closed_or_unavailable_member_shows_no_terminals_and_is_not_asked_again_soon() {
     let mut terminals = Terminals::default();
     terminals.finished(listed(vec![terminal(1, 10, false)]), 0);
     terminals.finished(
@@ -295,7 +295,7 @@ mod board {
     }
 
     #[test]
-    fn t_opens_a_terminal_only_under_a_built_in_member_and_asks_core_on_the_lane() {
+    fn t_opens_a_terminal_under_a_member_on_any_host_and_asks_core_on_the_lane() {
         let (mut app, member) = listed_board();
         app.terminals.swept = true;
         press(&mut app, KeyCode::Char('t'));
@@ -305,11 +305,14 @@ mod board {
         );
         app.terminals.out = false;
 
-        // A tmux member has no terminals: nothing is asked.
+        // A tmux member has terminals too (#6301).
         let mut tmux = board();
         tmux.terminals.swept = true;
         press(&mut tmux, KeyCode::Char('t'));
-        assert_eq!(tmux.terminals.offer(&[], None, 0), None);
+        assert_eq!(
+            tmux.terminals.offer(&[], None, 0),
+            Some(Task::Open(MEMBER.into()))
+        );
         assert!(app.workspace_selected_member().is_some());
         select(&mut app, &member, 1);
         assert!(

@@ -41,6 +41,36 @@ fn remove(fixture: &Fixture, id: &str, name: &str) -> (Option<i32>, Value) {
     )
 }
 
+/// Opens one extra terminal under a member on this external host (#6301): a TMT supervisor
+/// in the pane process's directory and listed for the member. Returns its
+/// socket, which the test waits on to prove the terminal ended.
+fn open_terminal(fixture: &Fixture, id: &str) -> PathBuf {
+    let (code, opened) = api(
+        fixture,
+        "terminal.open",
+        serde_json::json!({"identityId": id}),
+    );
+    assert_eq!(code, Some(0), "{opened}");
+    assert!(
+        std::path::Path::new(opened["directory"].as_str().unwrap()).is_dir(),
+        "{opened}"
+    );
+    let (_, listed) = api(
+        fixture,
+        "terminal.list",
+        serde_json::json!({"identityId": id}),
+    );
+    assert_eq!(
+        listed["terminals"][0]["terminalId"], opened["terminalId"],
+        "{listed}"
+    );
+    PathBuf::from(opened["socket"].as_str().unwrap())
+}
+
+fn terminal_ended(socket: &std::path::Path) {
+    wait_until("the extra terminal ended", || !socket.exists());
+}
+
 fn found(fixture: &Fixture, id: &str) -> bool {
     let (_, resolved) = api(
         fixture,
@@ -57,13 +87,16 @@ fn api_stop_closes_the_pane_tmt_opened_then_remove_deletes_the_identity() {
     fs::write(fixture.root.join("driver/opened"), "true").unwrap();
     let (old, process) = start(&fixture, "claude", fixture.approve());
     let id = remembered(&fixture).entry.identity.id;
+    let terminal = open_terminal(&fixture, &id);
 
     let (code, stopped) = stop(&fixture, &id, "worker", true);
     assert_eq!(code, Some(0), "{stopped}");
+    // No `terminalsLeft`: the close also closed the member's extra terminal.
     assert_eq!(
         stopped,
         serde_json::json!({"outcome":"stopped","identityId":id,"name":"worker","pane":"closed"})
     );
+    assert!(!terminal.exists(), "stop --close closed the extra terminal");
     assert_eq!(process.seen(), Seen::Ended);
     assert_eq!(fixture.requests("closed").len(), 1);
 
@@ -186,6 +219,7 @@ fn tmt_rm_refuses_a_running_agent_and_removes_after_it_ended() {
     register();
     let fixture = Fixture::new("rm-running");
     let (old, process) = start(&fixture, "claude", fixture.approve());
+    let terminal = open_terminal(&fixture, &remembered(&fixture).entry.identity.id);
     let rm = |fixture: &Fixture| {
         fixture
             .command_in(None, &["rm", "--force", "worker", "--json"])
@@ -213,6 +247,10 @@ fn tmt_rm_refuses_a_running_agent_and_removes_after_it_ended() {
     );
     let output = rm(&fixture);
     assert!(output.status.success(), "{output:?}");
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(document.get("terminalsLeft").is_none(), "{document}");
+    // rm closes it, or it already ended with the pane process it follows.
+    terminal_ended(&terminal);
     drop(old);
     assert_drivers_ended(&fixture);
 }
