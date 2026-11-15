@@ -53,6 +53,8 @@ pub(super) enum Job {
     Versions,
     /// List, open or close a built-in member's extra terminals.
     Terminals(super::member_terminals::Task),
+    /// Read the built-in capture once, or relaunch one offline member; the dialog shows it.
+    OfflineResume(super::offline_resume::Task),
 }
 
 impl Job {
@@ -69,6 +71,7 @@ impl Job {
                 | Self::Notes(_)
                 | Self::Skills(_)
                 | Self::Versions
+                | Self::OfflineResume(_)
         ) && !matches!(self, Self::Terminals(task) if task.progress().is_none())
     }
 
@@ -82,6 +85,7 @@ impl Job {
             Self::Skills(_) => "Reading skills…",
             Self::Versions => "Reading the versions…",
             Self::Terminals(task) => task.progress().unwrap_or("Reading terminals…"),
+            Self::OfflineResume(_) => "Resuming offline members…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
             Self::SwitchTool(_) => "Preparing or switching AI tool…",
@@ -118,6 +122,9 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
         Job::Terminals(task) => {
             BoardEvent::TerminalsDone(super::member_terminals::complete(core, task))
+        }
+        Job::OfflineResume(task) => {
+            BoardEvent::OfflineResume(super::offline_resume::complete(core, task))
         }
         Job::Jump { member } => BoardEvent::Acted {
             jump: true,

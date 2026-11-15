@@ -328,8 +328,9 @@ impl Preview {
     }
 }
 
-const MEMBER_ACTIONS: [&str; 6] = [
+const MEMBER_ACTIONS: [&str; 7] = [
     "resumable",
+    "ended",
     "no_remembered_session",
     "stale_requires_retry",
     "identity_missing",

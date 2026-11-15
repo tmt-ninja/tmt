@@ -687,12 +687,13 @@ pub(super) enum Overlay {
     SwitchTool,
     IdleAlert,
     UsageControls,
+    OfflineResume,
     Confirm,
     PastePreview,
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 24] = [
+    pub(super) const ALL: [Self; 25] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -715,6 +716,7 @@ impl Overlay {
         Self::SwitchTool,
         Self::IdleAlert,
         Self::UsageControls,
+        Self::OfflineResume,
         Self::Confirm,
         Self::PastePreview,
     ];
@@ -745,6 +747,7 @@ impl Overlay {
                 Self::UsageControls => "usage-controls",
                 Self::Confirm => "confirm",
                 Self::PastePreview => "paste-preview",
+                Self::OfflineResume => "offline-resume",
             }
             .into(),
         ]
@@ -868,6 +871,8 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
+    /// The once-per-run ask to resume the built-in host's offline members.
+    pub(super) offline_resume: super::offline_resume::State,
     pub(super) notes_overlay: Option<super::conversation_checklist::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
@@ -2670,6 +2675,14 @@ impl App {
         let Some(row) = row else {
             return self.say("No row is selected.");
         };
+        // An offline member the built-in capture named offers its relaunch first (#6438).
+        if matches!(action.verb, Verb::Jump | Verb::Talk | Verb::Reply)
+            && row["presence"] == "offline"
+            && let Some(identity) = row["id"].as_str()
+            && let Some(effect) = self.offline_resume_row(identity)
+        {
+            return effect;
+        }
         if action.verb == Verb::Jump
             && let Some(effect) = self.jump_to_terminal(&row)
         {
@@ -4042,6 +4055,8 @@ impl App {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
             Some(Overlay::MemberSession)
+        } else if self.offline_resume.shown() {
+            Some(Overlay::OfflineResume)
         } else if self.notes_overlay.is_some() {
             Some(Overlay::Notes)
         } else if self.discovery_shown() {
@@ -4102,6 +4117,7 @@ impl App {
             Overlay::OrchestrationWhy => self.orchestration_why_event(event),
             Overlay::Unread => self.unread_overlay_event(event),
             Overlay::MemberSession => self.member_session_event(event),
+            Overlay::OfflineResume => self.offline_resume_event(event),
             Overlay::Notes => self.notes_event(event),
             Overlay::IdleAlert => self.idle_alert_event(event),
             Overlay::NewMember => self.new_member_event(event),
@@ -4558,6 +4574,9 @@ impl App {
         }
         if let Some(session) = &self.member_session {
             session.invalidate();
+        }
+        if let Some(dialog) = &self.offline_resume.dialog {
+            dialog.invalidate();
         }
         if let Some(notes) = &self.notes_overlay {
             notes.invalidate();

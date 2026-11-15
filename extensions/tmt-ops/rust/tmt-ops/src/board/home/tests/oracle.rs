@@ -411,6 +411,17 @@ fn member_terminals_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// The offline-resume ask (#6438): as it opens, while Resume all runs, and with every result.
+fn offline_resume_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::offline_resume::scenes::SCENES,
+        |_| grid(&[160, 120, 60], &[36]),
+        |scene, look, _, _| crate::board::offline_resume::scenes::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
 /// The Settings page's keys group: scrolled to the checklist key, and its editor open.
 fn settings_keys_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1274,6 +1285,7 @@ macro_rules! oracle_groups {
         $group!(7, 32, snapshot_frames($styles));
         $group!(7, 80, terminal_tab_frames($styles));
         $group!(7, 16, member_terminals_frames($styles));
+        $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
         $group!(7, 44, label_frames($styles));
         $group!(7, 16, quota_details_frames($styles));
