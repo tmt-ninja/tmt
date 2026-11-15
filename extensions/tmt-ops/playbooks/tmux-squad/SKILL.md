@@ -27,7 +27,8 @@ Ask, then record the answers in your notes (`tmt notes path`):
 - member names (they become identity names and window names) and branch names;
 - which agent each member runs;
 - where worktrees live. The examples put them beside the repository as
-  `<repo>-<member>`.
+  `<repo>-<member>`. Never put one under `/tmp` or `/private/tmp`: a reboot
+  clears them and deletes uncommitted work.
 
 ## Start the leads session
 

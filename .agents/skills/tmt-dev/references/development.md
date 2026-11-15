@@ -72,6 +72,11 @@ and never restart Docker Desktop.
 - **Do not schedule Docker build-cache pruning.** No `docker ... prune` is
   part of this development workflow; follow the disk threshold above.
 
+- **Worktrees live beside the main checkout**, as `<checkout>-<topic>` in its
+  parent directory. Never use `/tmp`, `/private/tmp` or a scratchpad: a reboot
+  clears them, so they hold only throwaway files. After a reboot, run
+  `git worktree list`; a `prunable` entry lost its directory and uncommitted
+  work. Tell the maintainer, then run `git worktree prune`.
 - **Each worktree keeps its own `rust/target`.** Native selectors,
   `scripts/tmt-dev.sh` and the Docker fixtures read `rust/target/debug/...`, and a
   shared directory would run another worktree's binary. Never point
