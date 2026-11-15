@@ -183,8 +183,8 @@ fn reviewed_submission(app: &mut App) -> Effect {
     assert!(result.is_ok(), "{result:?}");
     app.cron_review_ready(task, result);
     draw(app, 100, 24);
-    // The review opens on Cancel; → reaches Apply (Tab does nothing in a dialog).
-    press(app, KeyCode::Right);
+    // The review opens on Cancel; ← reaches Apply (Tab does nothing in a dialog).
+    press(app, KeyCode::Left);
     press(app, KeyCode::Enter)
 }
 

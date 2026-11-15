@@ -92,15 +92,42 @@ pub(in crate::board) struct Review {
     readable: Cell<bool>,
 }
 impl Review {
+    /// A Delete timer review: two lines and a red Delete.
+    fn removal(&self) -> Option<(&str, &str)> {
+        match &self.task.request {
+            CronRequest::Existing {
+                key,
+                squad,
+                op: super::Op::Remove,
+                ..
+            } => Some((key.id.as_str(), squad.as_str())),
+            _ => None,
+        }
+    }
+    /// The action first, Cancel beside it.
     fn buttons(&self) -> [Button<'static>; 2] {
         let readable = self.readable.get();
-        [
-            Button::secondary("Cancel").enabled(readable),
+        let apply = if self.removal().is_some() {
+            Button::primary("Delete").destructive(true)
+        } else {
             Button::primary("Apply this exact operation")
-                .enabled(readable && matches!(self.result, Some(Ok(_)))),
+        };
+        [
+            apply.enabled(readable && matches!(self.result, Some(Ok(_)))),
+            Button::secondary("Cancel").enabled(readable),
         ]
     }
     fn lines(&self) -> Vec<String> {
+        if let Some((id, squad)) = self.removal() {
+            let mut lines = vec![
+                format!("Timer {id} in {squad} stops and is removed."),
+                "Nothing changes if it changed since you looked.".into(),
+            ];
+            if let Some(Err(error)) = &self.result {
+                lines.push(format!("Preview unavailable: {error}. Nothing written."));
+            }
+            return lines;
+        }
         let mut lines = match &self.task.request {
             CronRequest::Add {
                 squad,
@@ -209,14 +236,21 @@ impl Review {
         self.invalidate();
         let look = app.look();
         let mut dialog = Dialog {
-            title: "Review timer · nothing written yet".into(),
+            title: match self.removal() {
+                Some((id, _)) => format!("Delete timer {id}"),
+                None => "Review timer · nothing written yet".into(),
+            },
             kind: DialogKind::Confirm,
             placement: if body.height < 8 {
                 Placement::Body
             } else {
                 Placement::Center
             },
-            hints: String::new(),
+            hints: if self.removal().is_some() {
+                "⏎ delete · Esc cancel".into()
+            } else {
+                "Esc cancel".into()
+            },
             // The labels reserve the button line; whether they are enabled follows the areas.
             buttons: self.buttons().into(),
         };
@@ -311,7 +345,10 @@ impl App {
             result: None,
             clock,
             scroll: Default::default(),
-            state: DialogState::new(&[], &[]),
+            // A timer review opens on Cancel; Enter never applies a change unread.
+            state: DialogState {
+                focus: tmt_tui::components::Focus::Buttons(1),
+            },
             hits: Default::default(),
             readable: Cell::new(false),
         });
@@ -340,7 +377,7 @@ impl App {
             _ => DialogInput::Ignored,
         };
         match input {
-            DialogInput::Cancel | DialogInput::Choose(0) => {
+            DialogInput::Cancel | DialogInput::Choose(1) => {
                 Some(self.close_overlay(crate::board::app::Overlay::CronReview))
             }
             DialogInput::Choose(_) => {
@@ -348,7 +385,7 @@ impl App {
                     .hits
                     .borrow()
                     .buttons
-                    .get(1)
+                    .first()
                     .copied()
                     .flatten()
                     .is_none()
@@ -495,7 +532,7 @@ mod tests {
             KeyModifiers::NONE,
         ));
         // Both buttons are disabled while the review is clipped, so neither key applies.
-        assert_eq!(app.cron_review_event(&right), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&left), Some(Effect::None));
         assert_eq!(app.cron_review_event(&enter), Some(Effect::None));
         assert!(app.cron_review.is_some());
     }
@@ -579,14 +616,14 @@ mod tests {
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
-        let right = Event::Key(ratatui::crossterm::event::KeyEvent::new(
-            KeyCode::Right,
+        let left = Event::Key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Left,
             KeyModifiers::NONE,
         ));
         assert_eq!(
-            app.cron_review_event(&right),
+            app.cron_review_event(&left),
             Some(Effect::None),
-            "→ reaches Apply"
+            "← reaches Apply"
         );
         assert_eq!(
             app.cron_review_event(&enter),
