@@ -5,19 +5,53 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::{Button, Dialog, DialogKind, Placement, strip};
 
-pub(super) fn button_labels(draft: &Draft) -> Vec<&'static str> {
-    if draft.stage == Stage::Pending {
-        return vec!["Cancel"];
-    }
-    match draft.close.as_ref().and_then(|c| c.result.as_ref()) {
-        Some(Outcome::Refused { .. }) => vec!["Cancel", "Jump to pane", "Delete identity"],
-        Some(_) => vec!["Close"],
-        None => vec!["Cancel", "Close and delete"],
+/// One button of the close dialog; its position in [`actions`] is its slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Act {
+    Delete,
+    DeleteIdentity,
+    Jump,
+    Cancel,
+    Close,
+}
+
+impl Act {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Delete => "Delete",
+            Self::DeleteIdentity => "Delete identity",
+            Self::Jump => "Jump to pane",
+            Self::Cancel => "Cancel",
+            Self::Close => "Close",
+        }
     }
 }
-fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
+
+/// The primary action first, Cancel beside it.
+pub(super) fn actions(draft: &Draft) -> Vec<Act> {
+    if draft.stage == Stage::Pending {
+        return vec![Act::Cancel];
+    }
+    match draft.close.as_ref().and_then(|c| c.result.as_ref()) {
+        Some(Outcome::Refused { .. }) => vec![Act::DeleteIdentity, Act::Jump, Act::Cancel],
+        Some(_) => vec![Act::Close],
+        None => vec![Act::Delete, Act::Cancel],
+    }
+}
+
+fn hints(draft: &Draft) -> &'static str {
+    if draft.stage == Stage::Pending {
+        return "Esc close";
+    }
+    match draft.close.as_ref().and_then(|c| c.result.as_ref()) {
+        Some(Outcome::Refused { .. }) => "← ⏎ delete · j jump · Esc cancel",
+        Some(_) => "Esc close",
+        None => "⏎ delete · Esc cancel",
+    }
+}
+fn text(draft: &Draft) -> Vec<(String, Role)> {
     let member = draft.member.as_ref().expect("frozen member");
-    let mut rows = vec![("←→ action · Enter choose · Esc close".into(), Role::Muted)];
+    let mut rows = Vec::new();
     let mut push = |text: String, role| rows.push((text, role));
     if draft.stage == Stage::Pending {
         push(
@@ -119,34 +153,11 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
             Outcome::Removed { .. } => unreachable!("removed closes the dialog"),
         }
     } else {
-        let host = app
-            .references
-            .agents
-            .get(&member.id)
-            .and_then(|agent| agent.parameters["location"]["host"].as_str())
-            .unwrap_or("its host");
         push(
-            format!("1. Stop {} through {host}.", member.name),
+            format!("{} stops and leaves the board.", member.name),
             Role::Text,
         );
-        push(
-            match host {
-                "pty" => "The built-in host ends the agent program.",
-                "tmux" => "Close only a pane TMT opened; a pane you opened stays open.",
-                _ => "The host driver handles closing; a pane you opened stays open.",
-            }
-            .into(),
-            Role::Muted,
-        );
-        push(format!("2. Delete identity {}.", member.name), Role::Text);
-        push(
-            "Conversation history and notes are kept.".into(),
-            Role::Muted,
-        );
-        push(
-            "If stop refuses, nothing is deleted automatically.".into(),
-            Role::Muted,
-        );
+        push("Its conversation and notes are kept.".into(), Role::Text);
     }
     rows
 }
@@ -155,48 +166,59 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
     let look = app.look();
     let compact = body.height < 8 || body.width < 34;
     let body = if compact { frame.area() } else { body };
-    let labels = if compact {
-        vec!["Cancel"]
+    let acts = if compact {
+        vec![Act::Cancel]
     } else {
-        button_labels(draft)
+        actions(draft)
     };
+    let pane = app
+        .references
+        .agents
+        .get(&draft.member.as_ref().unwrap().id)
+        .is_some_and(|agent| agent.parameters["pane"].as_str().is_some());
     let make_dialog = |enabled: bool| Dialog {
-        title: format!("Close and delete · {}", draft.member.as_ref().unwrap().name),
+        title: format!("Delete {}", draft.member.as_ref().unwrap().name),
         kind: DialogKind::Confirm,
         placement: Placement::Center,
-        buttons: labels
+        hints: if compact {
+            String::new()
+        } else {
+            hints(draft).into()
+        },
+        buttons: acts
             .iter()
-            .enumerate()
-            .map(|(i, label)| {
-                let enabled = i == 0
-                    || (enabled
-                        && (i != 1
-                            || labels.len() != 3
-                            || app
-                                .references
-                                .agents
-                                .get(&draft.member.as_ref().unwrap().id)
-                                .is_some_and(|agent| agent.parameters["pane"].as_str().is_some())));
-                if i == labels.len() - 1 && labels.len() > 1 {
-                    Button::primary(label).enabled(enabled)
-                } else {
-                    Button::secondary(label).enabled(enabled)
-                }
+            .map(|act| match act {
+                Act::Cancel | Act::Close => Button::secondary(act.label()),
+                Act::Jump => Button::secondary(act.label()).enabled(enabled && pane),
+                Act::Delete | Act::DeleteIdentity => Button::primary(act.label())
+                    .destructive(true)
+                    .enabled(enabled),
             })
             .collect(),
     };
     let probe = make_dialog(false).areas(body, [90, 30], false);
+    let wide = |content: &[(String, Role)]| {
+        let text = content
+            .iter()
+            .map(|(text, _)| unicode_width::UnicodeWidthStr::width(text.as_str()))
+            .max()
+            .unwrap_or(0);
+        let title = draft.member.as_ref().unwrap().name.chars().count() + 9;
+        let footer = usize::from(make_dialog(false).footer_width());
+        (text.max(title).max(footer) + 4).min(90) as u16
+    };
     let content = if compact {
         vec![("Enlarge to review · Esc close".into(), Role::Muted)]
     } else {
-        text(draft, app)
+        text(draft)
     };
+    let width = wide(&content);
     let lines: Vec<_> = content
         .into_iter()
         .flat_map(|(text, role)| {
             crate::board::notes::wrap(
                 &super::super::render::safe(&text),
-                usize::from(probe.content.width),
+                usize::from(probe.content.width.min(width.saturating_sub(4))),
             )
             .into_iter()
             .map(move |line| (line, role))
@@ -205,7 +227,7 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
     let areas = make_dialog(false).areas(
         body,
         [
-            90,
+            width,
             lines.len().saturating_add(4).min(u16::MAX as usize) as u16,
         ],
         false,
@@ -260,6 +282,7 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
     }
     draft.controls.set(controls);
     *close.hits.borrow_mut() = hits;
+    *close.painted.borrow_mut() = acts;
     app.input_band.set(Some(areas.outer));
     app.peek_areas.set(Overlay::Workspace, Some(areas.outer));
 }

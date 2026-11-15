@@ -76,7 +76,7 @@ fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
         assert_remove(&app, ROOM, 2);
         assert_eq!(app.workspace.selected, selected);
         let text = paint(&app, 100, 24).join("\n");
-        assert!(text.contains("From squad: product"), "{text}");
+        assert!(text.contains("worker leaves product"), "{text}");
         assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
         assert!(hidden(&app));
         assert_eq!(app.workspace.selected, selected);
@@ -319,9 +319,12 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
     assert_eq!(app.workspace_form.as_ref().unwrap().timer_impact, Some(2));
     assert_eq!(app.workspace_confirm(), Effect::None);
     let text = paint(&app, 80, 24).join("\n");
-    assert!(text.contains("Source timers to pause: 2"), "{text}");
+    assert!(
+        text.contains("2 of its timers pause until you resume them."),
+        "{text}"
+    );
     key(&mut app, KeyCode::End);
-    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Left);
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(effect, Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id==SECOND_ROOM && room.revision==8 && member==MEMBER)

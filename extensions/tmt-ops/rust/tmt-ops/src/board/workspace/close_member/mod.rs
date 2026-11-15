@@ -50,6 +50,8 @@ pub(crate) struct Close {
     viewer: Option<String>,
     pub result: Option<Outcome>,
     pub hits: RefCell<DialogHits>,
+    /// The actions painted with `hits`, slot for slot.
+    painted: RefCell<Vec<surface::Act>>,
 }
 impl Close {
     pub fn new(viewer: Option<String>) -> Self {
@@ -57,6 +59,7 @@ impl Close {
             viewer,
             result: None,
             hits: RefCell::new(DialogHits::default()),
+            painted: RefCell::new(Vec::new()),
         }
     }
     pub fn invalidate(&self) {
@@ -165,7 +168,14 @@ impl App {
         let Some(close) = &draft.close else {
             return Effect::None;
         };
-        let index = if delete_only { 2 } else { 1 };
+        let wanted = if delete_only {
+            surface::Act::DeleteIdentity
+        } else {
+            surface::Act::Delete
+        };
+        let Some(index) = close.painted.borrow().iter().position(|act| *act == wanted) else {
+            return Effect::None;
+        };
         if close
             .hits
             .borrow()
@@ -229,6 +239,13 @@ impl App {
         draft.stage = Stage::Result(String::new());
         draft.close.as_mut().unwrap().result = Some(completed.outcome);
         draft.review = super::manage::review_start(Kind::RemoveMember, false);
+        // After a refusal Enter stays harmless: the cursor starts on Cancel.
+        if let Some(cancel) = surface::actions(draft)
+            .iter()
+            .position(|act| *act == surface::Act::Cancel)
+        {
+            draft.review.focus = tmt_tui::components::Focus::Buttons(cancel);
+        }
         draft.invalidate();
         *draft.scroll.borrow_mut() = Default::default();
     }
@@ -240,21 +257,21 @@ impl App {
         use tmt_tui::components::{Button, DialogInput, DialogKind};
         let draft = self.workspace_form.as_ref()?;
         let close = draft.close.as_ref()?;
-        let rows = surface::button_labels(draft);
+        let acts = close.painted.borrow().clone();
         let hits = close.hits.borrow().clone();
-        let buttons: Vec<_> = rows
+        let buttons: Vec<_> = acts
             .iter()
             .enumerate()
-            .map(|(i, label)| {
-                Button::secondary(label).enabled(hits.buttons.get(i).is_some_and(Option::is_some))
+            .map(|(i, _)| {
+                Button::secondary("").enabled(hits.buttons.get(i).is_some_and(Option::is_some))
             })
             .collect();
+        let jump_slot = acts.iter().position(|act| *act == surface::Act::Jump);
         let jump = matches!(event, Event::Key(key) if key.code == KeyCode::Char('j') && key.modifiers.is_empty())
-            && matches!(close.result, Some(Outcome::Refused { .. }))
-            && buttons.get(1).is_some_and(Button::is_enabled);
+            && jump_slot.is_some_and(|slot| buttons[slot].is_enabled());
         let draft = self.workspace_form.as_mut()?;
         let input = if jump {
-            DialogInput::Choose(1)
+            DialogInput::Choose(jump_slot?)
         } else {
             match event {
                 Event::Key(key) => draft.review.key(DialogKind::Confirm, key, &[], &buttons),
@@ -262,23 +279,22 @@ impl App {
                 _ => DialogInput::Ignored,
             }
         };
-        match input {
-            DialogInput::Cancel | DialogInput::Choose(0) => {
+        let chosen = match input {
+            DialogInput::Choose(index) => acts.get(index).copied(),
+            _ => None,
+        };
+        match (input, chosen) {
+            (DialogInput::Cancel, _) | (_, Some(surface::Act::Cancel | surface::Act::Close)) => {
                 self.workspace_close();
                 Some(Effect::None)
             }
-            DialogInput::Choose(index)
-                if matches!(draft.close.as_ref()?.result, Some(Outcome::Refused { .. })) =>
-            {
-                if index == 1 {
-                    let id = draft.member.as_ref()?.id.clone();
-                    Some(Effect::Act(Action::Jump(id)))
-                } else {
-                    Some(self.close_member_submit(true))
-                }
+            (_, Some(surface::Act::Jump)) => {
+                let id = draft.member.as_ref()?.id.clone();
+                Some(Effect::Act(Action::Jump(id)))
             }
-            DialogInput::Choose(1) => Some(self.close_member_submit(false)),
-            DialogInput::Moved => Some(Effect::None),
+            (_, Some(surface::Act::DeleteIdentity)) => Some(self.close_member_submit(true)),
+            (_, Some(surface::Act::Delete)) => Some(self.close_member_submit(false)),
+            (DialogInput::Moved, _) => Some(Effect::None),
             _ => {
                 draft.scroll.borrow_mut().input(event);
                 Some(Effect::None)

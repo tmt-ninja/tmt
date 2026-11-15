@@ -6943,17 +6943,17 @@ describe('close and delete through Core', () => {
           tmux(['send-keys', '-t', pane, 'End']);
           await painted('⏎ to message worker');
           tmux(['send-keys', '-t', pane, 'x']);
-          await painted('Close and delete · worker');
-          // Cancel is the initial button: opening the review cannot delete anything.
-          tmux(['send-keys', '-t', pane, 'Enter']);
-          await vi.waitFor(() => expect(screen()).not.toContain('Close and delete · worker'), {
+          await painted('Delete worker');
+          // Select Cancel to leave the identity untouched; Delete is the default.
+          tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
+          await vi.waitFor(() => expect(screen()).not.toContain('Delete worker'), {
             timeout: 10_000,
             interval: 50,
           });
           expect(await active(worker)).toBe(true);
           tmux(['send-keys', '-t', pane, 'x']);
-          await painted('Close and delete · worker');
-          tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
+          await painted('Delete worker');
+          tmux(['send-keys', '-t', pane, 'Enter']);
           if (binding === 'offline') {
             // Core proves an unbound saved identity is not running, so the
             // confirmed close may automatically proceed to guarded removal.
@@ -6964,7 +6964,7 @@ describe('close and delete through Core', () => {
             expect(await active(worker)).toBe(true);
             // A hand-bound pane has no recorded agent session. Only a fresh
             // explicit Delete invokes Core's independent removal guard.
-            tmux(['send-keys', '-t', pane, 'Right', 'Right', 'Enter']);
+            tmux(['send-keys', '-t', pane, 'Left', 'Left', 'Enter']);
             await painted('Deleted identity worker');
           }
           expect(await active(worker)).toBe(false);

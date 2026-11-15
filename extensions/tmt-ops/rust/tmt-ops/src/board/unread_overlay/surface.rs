@@ -303,6 +303,7 @@ impl Overlay {
             title: "Mark all read".into(),
             kind: DialogKind::Confirm,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: super::confirm_buttons(true).into(),
         };
         let areas = dialog.areas(body, [70, 7], false);

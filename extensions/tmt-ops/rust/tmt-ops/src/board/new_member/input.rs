@@ -46,6 +46,7 @@ impl App {
                         c.draft.saved = saved;
                     }
                     Field::Choice(row) => c.choose(row),
+                    Field::More => c.expand(),
                 }
                 c.invalidate();
                 return Some(Effect::None);
@@ -190,6 +191,7 @@ impl App {
                     (KeyCode::Char(' '), Focus::Slot(slot)) if slot.listed() && !slot.typed() => {
                         c.cycle(slot, false);
                     }
+                    (KeyCode::Right | KeyCode::Enter, Focus::More) => c.expand(),
                     (KeyCode::Enter, Focus::Slot(Slot::Keep)) => c.draft.saved = !c.draft.saved,
                     (KeyCode::Enter, Focus::Slot(slot)) if slot.listed() => c.open_list(slot),
                     (KeyCode::Enter, Focus::Slot(_)) => c.step_focus(false),

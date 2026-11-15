@@ -20,6 +20,7 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::Form,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: vec![Button::primary("Cancel")],
         }
         .areas(body, [100, 30], false);
@@ -42,6 +43,11 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::Form,
             placement: Placement::Center,
+            hints: if self.stage == Stage::Form {
+                edit.hints(self, target_error.is_none()).into()
+            } else {
+                String::new()
+            },
             buttons,
         };
         let has_runs = target_error.is_none()
@@ -63,44 +69,50 @@ impl Controller {
             self.loaded
                 .as_ref()
                 .map(|l| {
+                    // An unchanged form says nothing; Save stays disabled.
                     edit.plan(&self.draft, l)
-                        .map(|p| p.lines(&l.display_executable))
+                        .map(|p| {
+                            if p.empty() {
+                                Vec::new()
+                            } else {
+                                p.lines(&l.display_executable)
+                            }
+                        })
                         .unwrap_or_else(|e| vec![format!("✗ {e}")])
                 })
                 .unwrap_or_else(|| vec!["◌ Loading edit settings…".into()])
         };
-        let probe = dialog.areas(body, [100, 30], false);
+        // The member forms share one width rule: the widest field value, note or button row.
+        let wide = {
+            use unicode_width::UnicodeWidthStr as W;
+            let values = fields
+                .iter()
+                .map(|field| match field {
+                    Field::Member(slot) => 10 + W::width(self.draft.text(*slot)).max(22) + 2,
+                    Field::More => 10 + 40,
+                    _ => 10 + 24,
+                })
+                .max()
+                .unwrap_or(0);
+            let notes = preview
+                .iter()
+                .map(String::as_str)
+                .chain(target_error.as_deref().or(self.notice.as_deref()))
+                .map(W::width)
+                .chain([60, usize::from(dialog.footer_width())])
+                .max()
+                .unwrap_or(0);
+            super::super::form_dialog_width(values.max(notes))
+        };
+        let probe = dialog.areas(body, [wide, 30], false);
         let mut lines = Vec::new();
         let mut field_rows = Vec::new();
         if self.stage == Stage::Form {
-            lines.extend(crate::board::notes::wrap(
-                &format!(
-                    "↑↓ field · ←→ value · {} · Esc keep",
-                    edit.enter_hint(self, target_error.is_none())
-                ),
-                usize::from(probe.content.width),
-            ));
-            lines.push(String::new());
             for _field in &fields {
                 field_rows.push(lines.len());
                 lines.push(String::new());
             }
-            lines.push(String::new());
             if let Target::Member { memberships, .. } = &edit.target {
-                lines.extend(crate::board::notes::wrap(
-                    &format!(
-                        "Host · {} (fixed)",
-                        self.draft.text(super::super::model::Slot::Host)
-                    ),
-                    usize::from(probe.content.width),
-                ));
-                lines.extend(crate::board::notes::wrap(
-                    &format!(
-                        "Session · {} (fixed)",
-                        self.draft.text(super::super::model::Slot::Session)
-                    ),
-                    usize::from(probe.content.width),
-                ));
                 if memberships.len() > 1 {
                     let Target::Member { source, .. } = &edit.target else {
                         unreachable!()
@@ -132,19 +144,25 @@ impl Controller {
                         usize::from(probe.content.width),
                     ));
                 }
-                lines.extend(crate::board::notes::wrap(
-                    "Model and effort keep the recorded resume settings.",
-                    usize::from(probe.content.width),
-                ));
+                // One dim line for the resume note.
                 if let Target::Member { observation, .. } = &edit.target {
                     let last = observation["resume"]["observedModel"]["model"]
                         .as_str()
                         .unwrap_or("unknown");
+                    // It wraps rather than clipping the model at narrow widths.
                     lines.extend(crate::board::notes::wrap(
-                        &format!("Last observed model at open · {last}"),
+                        &format!("Resumes with its recorded settings · last model {last}"),
                         usize::from(probe.content.width),
                     ));
                 }
+            }
+            // A spacer only when something follows it.
+            if has_runs
+                || !preview.is_empty()
+                || target_error.is_some()
+                || self.notice.is_some()
+                || self.reopened
+            {
                 lines.push(String::new());
             }
             if has_runs {
@@ -171,7 +189,7 @@ impl Controller {
         }
         let areas = dialog.areas(
             body,
-            [100, (lines.len() + 4).min(u16::MAX as usize) as u16],
+            [wide, (lines.len() + 4).min(u16::MAX as usize) as u16],
             false,
         );
         let mut hits = crate::board::buttons::paint_dialog(
@@ -217,6 +235,13 @@ impl Controller {
                 Line::styled(crate::board::notes::sanitize(line), look.role(Role::Muted)),
             );
         }
+        // Labels take the New member column, or the longest label and two spaces.
+        let label_width = fields
+            .iter()
+            .map(|field| field.label().chars().count() as u16 + 2)
+            .max()
+            .unwrap_or(0)
+            .max(10);
         for (i, field) in fields.iter().enumerate() {
             let row = field_rows.get(i).copied().unwrap_or(usize::MAX);
             if self.stage != Stage::Form
@@ -232,11 +257,16 @@ impl Controller {
                 areas.content.width,
                 1,
             );
-            let value_area = Rect::new(area.x + 12, area.y, area.width.saturating_sub(12), 1);
+            let value_area = Rect::new(
+                area.x + label_width,
+                area.y,
+                area.width.saturating_sub(label_width),
+                1,
+            );
             hits.fields.push(value_area);
             strip::paint_left(
                 frame.buffer_mut(),
-                Rect::new(area.x, area.y, 12.min(area.width), 1),
+                Rect::new(area.x, area.y, label_width.min(area.width), 1),
                 Line::styled(field.label(), look.role(Role::Muted)),
             );
             let focused = edit.dialog.focus == DialogFocus::Field(i);
@@ -264,7 +294,38 @@ impl Controller {
                 Field::Alert => if edit.enabled { "On" } else { "Off" }.into(),
                 Field::After => edit.after.as_str().into(),
                 Field::Hidden => if edit.hidden { "On" } else { "Off" }.into(),
+                Field::More => String::new(),
             };
+            if *field == Field::More {
+                // Effort can change; the host and session are fixed, so they read dim.
+                use super::super::model::Slot;
+                let effort = self.draft.shown(Slot::Effort).map_or_else(
+                    || "current effort".into(),
+                    |effort| format!("{effort} effort"),
+                );
+                let fixed = format!(
+                    " · {} · {} session",
+                    self.draft.text(Slot::Host),
+                    self.draft.text(Slot::Session)
+                );
+                let selected = |role| {
+                    if focused {
+                        look.selection()
+                    } else {
+                        look.role(role)
+                    }
+                };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    value_area,
+                    Line::from(vec![
+                        ratatui::text::Span::styled(effort, selected(Role::Text)),
+                        ratatui::text::Span::styled(fixed, selected(Role::Dim)),
+                        ratatui::text::Span::styled(" ▸", selected(Role::Muted)),
+                    ]),
+                );
+                continue;
+            }
             if field.kind() == FieldKind::Text {
                 let editor = match field {
                     Field::Member(slot) => &self.draft.fields[slot.index()],
@@ -354,6 +415,7 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::ReadOnly,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: Vec::new(),
         };
         let areas = dialog.areas(body, [100, 4], false);
@@ -389,6 +451,7 @@ impl Controller {
             title: format!("{} · choose", list.field.label()),
             kind: DialogKind::List,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: vec![Button::primary("Back")],
         };
         let state = DialogState::new(&[], &dialog.buttons);

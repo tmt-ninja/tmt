@@ -129,13 +129,13 @@ impl App {
                 let Request::Cron(remove) = existing(Op::Remove) else {
                     unreachable!("a cron request")
                 };
-                self.confirm(
-                    format!("delete {} {}?", job.squad, job_key.id),
+                self.confirm_destructive(
+                    format!("Delete timer {}", job_key.id),
                     vec![format!(
                         "{} in {} stops for good; this cannot be undone.",
                         job_key.id, job.squad
                     )],
-                    format!("Delete {}", job_key.id),
+                    "Delete".into(),
                     Choice::Cron(remove),
                 )
             }

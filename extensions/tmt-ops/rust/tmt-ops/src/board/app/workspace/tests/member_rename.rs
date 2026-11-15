@@ -76,8 +76,11 @@ fn rename_freezes_uuid_literal_expected_name_and_requires_visible_review_once() 
         "no geometry grants a write"
     );
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains("tmt mv ' Worker ' ' --literal-name '"));
-    assert!(screen.contains("Stops if the name changed first."));
+    assert!(
+        screen.contains(" Worker  becomes  --literal-name ."),
+        "{screen}"
+    );
+    assert!(screen.contains("Nothing changes if the name changed first."));
     app.workspace.selected = Some(OpsTarget::Pool);
     let Effect::Act(Request::WorkspaceOperation(Change::RenameMember(request))) =
         app.workspace_confirm()
@@ -443,7 +446,7 @@ fn a_kept_rename_reopens_with_its_text_target_and_discard() {
     );
     assert_eq!(app.input.as_ref().unwrap().text.to_string(), "half");
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(screen.contains("Rename worker"), "{screen}");
     assert!(screen.contains("Discard"), "{screen}");
     let discard = app.workspace_form.as_ref().unwrap().controls.get()[2].unwrap();
     let event = Event::Mouse(MouseEvent {
@@ -471,13 +474,14 @@ fn a_kept_review_reopens_on_apply_with_discard_beside_it() {
     assert!(draft.shown && draft.stage == Stage::Review);
     assert_eq!(
         draft.review.focus,
-        tmt_tui::components::Focus::Buttons(2),
-        "Cancel · Discard · Rename, on Rename"
+        tmt_tui::components::Focus::Buttons(0),
+        "Rename · Cancel · Discard, on Rename"
     );
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(screen.contains("Rename worker"), "{screen}");
     assert!(screen.contains("Discard"), "{screen}");
-    key(&mut app, KeyCode::Left);
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Right);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.workspace_form.is_none(), "Discard drops the kept draft");
 }
@@ -549,8 +553,8 @@ fn a_kept_rename_reopened_from_another_agent_still_names_its_own_target() {
     assert_eq!(draft.member.as_ref().unwrap().id, MEMBER, "the kept target");
     assert_eq!(app.input.as_ref().unwrap().text.to_string(), "half");
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains("Rename agent · worker"), "{screen}");
-    assert!(!screen.contains("Rename agent · reviewer"), "{screen}");
+    assert!(screen.contains("Rename worker"), "{screen}");
+    assert!(!screen.contains("Rename reviewer"), "{screen}");
     assert_eq!(
         app.workspace.selected,
         Some(other),

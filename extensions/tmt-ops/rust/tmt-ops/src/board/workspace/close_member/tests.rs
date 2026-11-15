@@ -187,7 +187,6 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
 fn begin(app: &mut App) -> Request {
     assert_eq!(key(app, KeyCode::Char('x')), Effect::None);
     paint(app, 100, 36);
-    assert_eq!(key(app, KeyCode::Right), Effect::None);
     paint(app, 100, 36);
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
         key(app, KeyCode::Enter)
@@ -227,11 +226,11 @@ fn any_refused_stop_allows_an_explicit_delete_but_never_replays_stop() {
         }
         for _ in 0..3 {
             if app.workspace_form.as_ref().unwrap().review.focus
-                == tmt_tui::components::Focus::Buttons(2)
+                == tmt_tui::components::Focus::Buttons(0)
             {
                 break;
             }
-            key(&mut app, KeyCode::Right);
+            key(&mut app, KeyCode::Left);
             paint(&app, 100, 36);
         }
         let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
@@ -303,7 +302,7 @@ fn explicit_delete_failure_does_not_claim_an_unproven_stop_succeeded() {
     });
     paint(&app, 100, 36);
     for _ in 0..2 {
-        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Left);
         paint(&app, 100, 36);
     }
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
@@ -418,7 +417,7 @@ fn close_pending_survives_hide_reopen_and_late_unrelated_completion_is_ignored()
 }
 
 #[test]
-fn close_controls_require_current_geometry_and_cancel_never_becomes_destructive() {
+fn close_controls_require_current_geometry_and_open_on_delete() {
     let mut app = board();
     let _commands = crate::runner::forbid_commands();
     key(&mut app, KeyCode::Char('x'));
@@ -462,7 +461,6 @@ fn close_keeps_the_reviewed_identity_and_refuses_a_different_viewer() {
     key(&mut app, KeyCode::Char('x'));
     paint(&app, 100, 36);
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::Pool);
-    key(&mut app, KeyCode::Right);
     paint(&app, 100, 36);
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
         key(&mut app, KeyCode::Enter)
@@ -474,7 +472,6 @@ fn close_keeps_the_reviewed_identity_and_refuses_a_different_viewer() {
     let mut app = board();
     key(&mut app, KeyCode::Char('x'));
     paint(&app, 100, 36);
-    key(&mut app, KeyCode::Right);
     paint(&app, 100, 36);
     app.view.as_mut().unwrap().me = Some("different-viewer".into());
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);

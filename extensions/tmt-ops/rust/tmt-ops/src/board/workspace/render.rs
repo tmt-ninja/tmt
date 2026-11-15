@@ -1539,6 +1539,34 @@ fn whole_hints(hints: &[(&str, &str)], width: u16) -> String {
     fit_hints(&hints, width, " · ")
 }
 
+/// The review's hints, one pattern for every dialog: the action's key and verb, extra keys,
+/// then Esc. The action key is ⏎ while the cursor is on it, else ← then ⏎.
+fn review_hints(draft: &super::manage::Draft, on_apply: bool) -> Vec<(&'static str, &'static str)> {
+    let verb = match draft
+        .operation
+        .as_ref()
+        .map(|operation| operation.confirm_label())
+    {
+        Some("Rename") => "rename",
+        Some("Leave squad") => "leave",
+        Some("Create squad") => "create",
+        Some("Add member" | "Add") => "add",
+        Some("Set lead") => "set lead",
+        Some("Clear lead") => "clear lead",
+        Some("Move") => "move",
+        Some("Publish leads") => "publish",
+        Some("Preview again") => "preview",
+        Some("Close and delete") => "delete",
+        _ => "apply",
+    };
+    let mut hints = vec![(if on_apply { "⏎" } else { "← ⏎" }, verb)];
+    if draft.review_command().is_some() {
+        hints.push(("c", "copy"));
+    }
+    hints.push(("Esc", "cancel"));
+    hints
+}
+
 pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     let Some(draft) = app.workspace_form.as_ref().filter(|draft| draft.shown) else {
         return;
@@ -1563,11 +1591,33 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         },
     };
     let bounds = if short { frame.area() } else { body };
+    // A review is as wide as its longest line, title or button row; a form keeps 80.
+    let wide = if draft.stage == Stage::Fields {
+        80
+    } else {
+        let text = draft.review();
+        let longest = text
+            .lines()
+            .map(unicode_width::UnicodeWidthStr::width)
+            .chain([unicode_width::UnicodeWidthStr::width(draft.title().as_str()) + 4])
+            .max()
+            .unwrap_or(0);
+        // The button row keeps room for its whole hints: the action, Cancel, Discard.
+        let label = draft
+            .operation
+            .as_ref()
+            .map_or(0, |operation| operation.confirm_label().chars().count());
+        let buttons = label + 2 + 9 + if draft.reopened { 10 } else { 0 };
+        let hints = unicode_width::UnicodeWidthStr::width(
+            whole_hints(&review_hints(draft, false), 200).as_str(),
+        );
+        (longest.max(buttons + 2 + hints) + 4).min(80) as u16
+    };
     // CRUD dialogs keep two cells of body margin on every edge at 80 and 150.
     // The shared Modal still owns chrome and interior geometry.
     let areas_for = |height: u16| {
         if crud && !short {
-            let width = 80.min(bounds.width.saturating_sub(4));
+            let width = wide.min(bounds.width.saturating_sub(4));
             let height = height.min(bounds.height.saturating_sub(4));
             Modal {
                 title: draft.title(),
@@ -1585,7 +1635,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 false,
             )
         } else {
-            modal.areas(bounds, [80, height], true, false)
+            modal.areas(bounds, [wide, height], true, false)
         }
     };
     let probe = areas_for(26);
@@ -1765,6 +1815,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 };
                 let button = if *slot == ReviewButton::Apply {
                     crate::board::buttons::Button::primary(label)
+                        .destructive(draft.kind == super::manage::Kind::Remove)
                 } else {
                     crate::board::buttons::Button::secondary(label)
                 };
@@ -1790,7 +1841,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             .map(|area| area.right())
             .max()
             .unwrap_or(areas.footer.x)
-            .saturating_add(1)
+            .saturating_add(2)
             .min(areas.footer.right());
         if start < areas.footer.right() {
             let hint = Rect::new(
@@ -1799,23 +1850,15 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 areas.footer.right() - start,
                 areas.footer.height,
             );
-            strip::paint_left(
+            strip::paint_right(
                 frame.buffer_mut(),
                 hint,
                 Line::styled(
                     whole_hints(
-                        if draft.review_command().is_some() {
-                            &[
-                                ("c", "copy command"),
-                                ("Esc", "cancel"),
-                                ("Enter", "select"),
-                            ]
-                        } else {
-                            &[("Esc", "cancel"), ("Enter", "select"), ("←→", "actions")]
-                        },
+                        &review_hints(draft, cursor == Some(ReviewButton::Apply)),
                         hint.width,
                     ),
-                    look.role(Role::Muted),
+                    look.role(Role::Dim),
                 ),
             );
         }

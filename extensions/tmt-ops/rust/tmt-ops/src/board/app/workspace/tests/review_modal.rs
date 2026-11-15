@@ -159,11 +159,11 @@ fn management_review_renders_the_frame_title_once() {
         let buffer = draw(&app, width, height);
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert_eq!(
-            text.matches("Leave squad · product").count(),
+            text.matches("Remove worker from product").count(),
             1,
             "{width}x{height}: {text}"
         );
-        assert!(text.contains("Remove membership: worker"));
+        assert!(text.contains("worker leaves product"));
     }
 }
 #[test]
@@ -225,10 +225,10 @@ fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
 #[test]
 fn hints_drop_whole_phrases_after_whole_controls_at_narrow_and_normal_widths() {
     for (width, expected) in [
-        (24, ""),
-        (60, "c copy command · Esc cancel"),
-        (100, "c copy command · Esc cancel · Enter select"),
-        (160, "c copy command · Esc cancel · Enter select"),
+        (24, "c copy"),
+        (60, "← ⏎ rename · c copy · Esc cancel"),
+        (100, "← ⏎ rename · c copy · Esc cancel"),
+        (160, "← ⏎ rename · c copy · Esc cancel"),
     ] {
         let app = review(Kind::RenameMember, rename_operation("worker"));
         let buffer = draw(&app, width, 36);
@@ -358,14 +358,15 @@ fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
 }
 
 #[test]
-fn close_member_is_cancel_default_and_frozen_to_the_displayed_name() {
+fn delete_member_opens_on_delete_and_is_frozen_to_the_displayed_name() {
     let mut app = board();
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
     for width in [80, 150] {
         let text = paint(&app, width, 43).join("\n");
-        assert!(text.contains("Close and delete"));
-        assert!(text.contains("Delete identity worker"));
-        assert!(text.contains("Conversation history and notes are kept"));
+        assert!(text.contains("Delete worker"));
+        assert!(text.contains("worker stops and leaves the board."));
+        assert!(text.contains("Its conversation and notes are kept."));
+        assert!(text.contains("⏎ delete · Esc cancel"));
         assert!(!text.contains("Copy command"));
         assert!(!text.contains("tmt rm"));
     }
@@ -385,8 +386,10 @@ fn close_member_is_cancel_default_and_frozen_to_the_displayed_name() {
         Effect::None,
         "no copy-only lifecycle command"
     );
-    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert!(hidden(&app), "initial Enter cancels");
+    assert!(
+        matches!(key(&mut app, KeyCode::Enter), Effect::Act(_)),
+        "initial Enter deletes"
+    );
 }
 
 #[test]
@@ -440,7 +443,7 @@ fn rename_review_wraps_with_body_margins_and_keeps_clipped_mutations_disabled() 
         let mut app = crud_capture_case("crud-rename-review", crate::look::Look::default());
         let text = paint(&app, width, 43).join("\n");
         let area = app.input_band.get().unwrap();
-        assert_eq!(area.width, 80.min(width - 4));
+        assert!(area.width <= 80.min(width - 4), "{area:?}");
         assert!(area.x >= 2 && area.right() <= width - 2);
         assert!(text.contains("Cancel"));
         assert!(
@@ -448,7 +451,7 @@ fn rename_review_wraps_with_body_margins_and_keeps_clipped_mutations_disabled() 
                 .as_ref()
                 .unwrap()
                 .review()
-                .contains("tmt mv worker worker-two")
+                .contains("worker becomes worker-two.")
         );
         app.invalidate_frame_geometry();
         assert_eq!(app.workspace_confirm(), Effect::None);
@@ -681,8 +684,12 @@ fn rename_review_copies_the_human_equivalent_without_changing_the_cas() {
     let draft = app.workspace_form.as_ref().unwrap();
     let before = draft.operation.clone();
     let text = draft.review();
-    assert!(text.contains("tmt mv worker worker-two"));
-    assert!(text.contains("Stops if the name changed first."));
+    assert!(text.contains("worker becomes worker-two."), "{text}");
+    assert!(
+        draft
+            .review_command()
+            .is_some_and(|command| command.contains("tmt mv worker worker-two"))
+    );
     assert!(!text.contains("printf"));
     assert!(!text.contains("identity.rename"));
     paint(&app, 80, 43);
@@ -764,23 +771,17 @@ fn switch_tool_respects_authored_keys_and_is_absent_outside_agents() {
 }
 
 #[test]
-fn close_delete_x_opens_cancel_first_confirm_instead_of_leaving_the_squad() {
+fn close_delete_x_opens_the_delete_confirm_instead_of_leaving_the_squad() {
     let mut app = board();
     let _no_commands = crate::runner::forbid_commands();
     assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
     let screen = paint(&app, 100, 36).join("\n");
     assert!(
-        screen.contains("Close and delete"),
+        screen.contains("Delete worker"),
         "x must review stopping and deleting the identity, not just leaving its squad: {screen}"
     );
-    assert!(screen.contains("worker"));
-    assert!(screen.contains("Conversation history and notes are kept"));
+    assert!(screen.contains("Its conversation and notes are kept."));
     assert!(!screen.contains("Copy command"));
-    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert!(
-        !app.modal_open(),
-        "initial Enter chooses Cancel and never dispatches"
-    );
 }
 
 #[test]
@@ -789,12 +790,10 @@ fn close_delete_explicit_confirm_dispatches_once_instead_of_copying_a_command() 
     let _no_commands = crate::runner::forbid_commands();
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
     paint(&app, 100, 36);
-    assert_eq!(key(&mut app, KeyCode::Right), Effect::None);
-    paint(&app, 100, 36);
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(&effect, Effect::Act(request) if !matches!(request, Request::Copy { .. })),
-        "explicit Close and delete must dispatch lifecycle work, not copy-only retirement: {effect:?}"
+        "explicit Delete must dispatch lifecycle work, not copy-only retirement: {effect:?}"
     );
     assert_eq!(
         key(&mut app, KeyCode::Enter),
@@ -964,7 +963,7 @@ fn squad_leads_publication_hidden_preview_reopens_cancel_first() {
     assert_eq!(app.workspace_begin(Kind::Lead), Effect::None);
     assert_eq!(
         app.workspace_form.as_ref().unwrap().review.focus,
-        tmt_tui::components::Focus::Buttons(0),
+        tmt_tui::components::Focus::Buttons(1),
         "reopening must focus Cancel"
     );
     let screen = paint(&app, 160, 36).join("\n");
@@ -1012,7 +1011,7 @@ fn squad_leads_publication_retry_dispatches_only_a_preview_and_reopens_on_cancel
     let mut app =
         lead_publication_capture("leads-publication-conflict", crate::look::Look::default());
     draw(&app, 160, 36);
-    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Left);
     assert!(matches!(
         key(&mut app, KeyCode::Enter),
         Effect::Act(Request::WorkspaceOperation(Change::PreviewLeads(_)))
@@ -1024,7 +1023,7 @@ fn squad_leads_publication_retry_dispatches_only_a_preview_and_reopens_on_cancel
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     assert_eq!(
         app.workspace_form.as_ref().unwrap().review.focus,
-        tmt_tui::components::Focus::Buttons(0)
+        tmt_tui::components::Focus::Buttons(1)
     );
     let screen = paint(&app, 160, 36).join("\n");
     assert!(screen.contains("1 removed · 1 added"), "{screen}");

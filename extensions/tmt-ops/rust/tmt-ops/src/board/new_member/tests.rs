@@ -229,7 +229,7 @@ fn a_clipped_form_and_stale_hits_cannot_start_a_launch() {
     assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Form);
 }
 #[test]
-fn arrows_reach_every_shown_field_and_both_buttons() {
+fn arrows_reach_the_four_fields_more_and_both_buttons_and_right_expands_more() {
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
     let stops = |app: &mut App| {
@@ -244,28 +244,43 @@ fn arrows_reach_every_shown_field_and_both_buttons() {
         }
     };
     use model::Slot::*;
-    let slots = |slots: &[model::Slot]| {
+    let slots = |slots: &[Focus]| {
         slots
             .iter()
-            .map(|s| Focus::Slot(*s))
-            .chain([Focus::Cancel, Focus::Create])
+            .copied()
+            .chain([Focus::Create, Focus::Cancel])
             .collect::<Vec<_>>()
     };
-    // tmux shows its Session; codex has efforts.
+    let screen = paint(&app, 150, 40);
+    assert!(screen.contains("More"), "{screen}");
+    assert!(
+        !screen.contains("Session"),
+        "folded fields stay under More: {screen}"
+    );
     assert_eq!(
         stops(&mut app),
-        slots(&[Name, Tool, Model, Effort, Host, Session, Squad, Keep])
+        slots(&[
+            Focus::Slot(Name),
+            Focus::Slot(Tool),
+            Focus::Slot(Model),
+            Focus::Slot(Squad),
+            Focus::More
+        ])
     );
     key(&mut app, KeyCode::Up);
-    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
-    // The built-in host has no session; a tool without efforts hides Effort.
-    let c = app.new_member.as_mut().unwrap();
-    c.draft.set(Host, model::BUILT_IN_HOST);
-    c.draft.set(Tool, "claude");
-    c.at = Focus::Slot(Name);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Cancel);
+    // → on More shows the folded fields in place and focuses the first one.
+    app.new_member.as_mut().unwrap().at = Focus::More;
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Slot(Effort));
+    let screen = paint(&app, 150, 40);
+    for label in ["Effort", "Host", "Session", "Keep"] {
+        assert!(screen.contains(label), "{label} after expanding: {screen}");
+    }
+    app.new_member.as_mut().unwrap().at = Focus::Slot(Name);
     assert_eq!(
         stops(&mut app),
-        slots(&[Name, Tool, Model, Host, Squad, Keep])
+        slots(&[Name, Tool, Model, Effort, Host, Session, Squad, Keep].map(Focus::Slot))
     );
 }
 #[test]
@@ -595,9 +610,8 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
                     }
                 }
                 "new-member-copy-only" | "new-member-copy-temporary" => {
-                    assert!(text.contains("Copy only · this host has no launch template"));
+                    assert!(text.contains("copy only"), "{text}");
                     assert!(text.contains("Copy commands"));
-                    assert!(!text.contains("Runs"));
                 }
                 "new-member-settings" => {
                     // People read the host's name; `pty` stays in commands only.
@@ -608,16 +622,17 @@ fn dialogs_use_compact_content_and_the_approved_copy() {
                     assert!(!text.contains("pty · builtin"));
                 }
                 "new-member-form" => {
-                    assert!(text.contains("Runs · e edit template"));
+                    assert!(text.contains("Runs"), "{text}");
+                    assert!(text.contains("e edit"), "{text}");
                     assert!(!text.contains("/tool/tmt"));
                 }
                 "new-member-built-in" => {
                     assert!(text.contains("Built-in terminal (no tmux)"));
                     assert!(!text.contains("Session"));
-                    assert!(text.contains("--effort high new-worker codex"), "{text}");
+                    assert!(text.contains("--effort high"), "{text}");
                 }
                 "new-member-list-filtered" => {
-                    assert!(text.contains("Model · type to filter"));
+                    assert!(text.contains("type to filter"), "{text}");
                     assert!(text.contains("Use “terra”"));
                     assert!(!text.contains("gpt-6.1-sol"));
                 }
@@ -948,7 +963,6 @@ fn edit_pending_hides_reopens_and_never_replays_save() {
     for _ in 0..5 {
         key(&mut app, KeyCode::Down);
     }
-    key(&mut app, KeyCode::Right);
     paint(&app, 160, 36);
     let Effect::NewMember(task) = key(&mut app, KeyCode::Enter) else {
         panic!("the painted Save must dispatch once")

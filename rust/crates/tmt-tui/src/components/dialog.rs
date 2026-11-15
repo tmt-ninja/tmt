@@ -75,6 +75,9 @@ pub struct Dialog<'a> {
     pub kind: DialogKind,
     pub placement: Placement,
     pub buttons: Vec<Button<'a>>,
+    /// Key hints, `dim` and right-aligned on the button row; they drop before
+    /// any button when the row is too narrow.
+    pub hints: String,
 }
 
 impl Dialog<'_> {
@@ -83,6 +86,32 @@ impl Dialog<'_> {
             title: self.title.clone(),
             placement: self.placement,
         }
+    }
+
+    /// Columns the button row needs inside the frame: its buttons, then two
+    /// spaces and the hints. Callers add it to their width demand so the hints
+    /// fit when the body allows.
+    pub fn footer_width(&self) -> u16 {
+        let buttons: usize = self
+            .buttons
+            .iter()
+            .map(|button| {
+                crate::text::measure(
+                    button.label,
+                    crate::style::TextFlow::Clip,
+                    crate::geometry::Space::MaxContent,
+                )[0] as usize
+                    + 2
+            })
+            .sum::<usize>()
+            + self.buttons.len().saturating_sub(1);
+        let hints = self.hints.chars().count();
+        let total = if hints == 0 {
+            buttons
+        } else {
+            buttons + 2 + hints
+        };
+        u16::try_from(total).unwrap_or(u16::MAX)
     }
 
     /// The modal size rule: as wide as `demand`, at most nine tenths of the
@@ -123,10 +152,28 @@ impl Dialog<'_> {
             active,
             hovered,
         };
+        let painted = row.paint(buffer, areas.footer, &buttons);
+        let used = painted
+            .iter()
+            .flatten()
+            .map(|rect| rect.right())
+            .max()
+            .map_or(0, |right| right.saturating_sub(areas.footer.x));
+        let hints = self.hints.chars().count() as u16;
+        if hints > 0 && used + 2 + hints <= areas.footer.width {
+            super::strip::paint_right(
+                buffer,
+                areas.footer,
+                ratatui::text::Line::styled(
+                    self.hints.clone(),
+                    tmt_cli_style::theme::screen::style(theme, tmt_cli_style::Role::Dim, depth),
+                ),
+            );
+        }
         DialogHits {
             outer: areas.outer,
             content: areas.content,
-            buttons: row.paint(buffer, areas.footer, &buttons),
+            buttons: painted,
             fields: Vec::new(),
         }
     }

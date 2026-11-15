@@ -406,7 +406,7 @@ fn viewer_or_selection_drift_disables_the_painted_save_without_retargeting_the_d
             .iter()
             .map(|b| b.label)
             .collect::<Vec<_>>(),
-        ["Cancel", "Discard"]
+        ["Discard", "Cancel"]
     );
     assert_eq!(edit.target.name(), "worker");
     assert_eq!(c.draft.text(super::super::model::Slot::Name), "renamed");
@@ -532,6 +532,52 @@ fn keep_current_choices_are_unique_so_arrows_can_reach_another_model() {
     );
 }
 #[test]
+fn edit_tool_can_be_opened_or_changed_from_the_keyboard() {
+    use super::super::model::Slot;
+    let f = Fixture::new();
+    let mut app = f.app();
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Down);
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Enter);
+    assert!(
+        app.new_member.as_ref().unwrap().list.is_some(),
+        "Enter opens AI tool choices"
+    );
+    assert!(paint(&app, 160, 36).contains("AI tool · choose"));
+
+    let mut app = f.app();
+    app.new_member
+        .as_mut()
+        .unwrap()
+        .loaded
+        .as_mut()
+        .unwrap()
+        .choices
+        .insert(
+            "claude".into(),
+            crate::board::host_launch::LaunchChoices {
+                models: vec![],
+                efforts: vec![],
+            },
+        );
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Down);
+    paint(&app, 160, 36);
+    let before = app
+        .new_member
+        .as_ref()
+        .unwrap()
+        .draft
+        .text(Slot::Tool)
+        .to_owned();
+    input(&mut app, KeyCode::Right);
+    assert_ne!(
+        app.new_member.as_ref().unwrap().draft.text(Slot::Tool),
+        before
+    );
+}
+#[test]
 fn edit_never_offers_the_plain_shell_tool_and_has_no_command_field() {
     use super::super::model::{PLAIN_TOOL, Slot};
     let f = Fixture::new();
@@ -566,7 +612,7 @@ fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
     app.open_member_edit();
     let c = app.new_member.as_mut().unwrap();
     assert!(c.shown && c.reopened);
-    c.edit.as_mut().unwrap().dialog.focus = tmt_tui::components::Focus::Buttons(1);
+    c.edit.as_mut().unwrap().dialog.focus = tmt_tui::components::Focus::Buttons(0);
     paint(&app, 160, 36);
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();
@@ -575,7 +621,7 @@ fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
             .iter()
             .map(|b| b.label)
             .collect::<Vec<_>>(),
-        ["Cancel", "Discard"]
+        ["Discard", "Cancel"]
     );
     input(&mut app, KeyCode::Enter);
     assert!(app.new_member.is_none());
@@ -830,7 +876,7 @@ fn rename_name_enter_uses_the_same_save_plan_and_one_cas_then_closes_its_result(
     let task = {
         let _ui = crate::runner::forbid_commands();
         let text = paint(&app, 160, 36);
-        assert!(text.contains("Enter rename"), "{text}");
+        assert!(text.contains("⏎ rename"), "{text}");
         let Effect::NewMember(task) = input(&mut app, KeyCode::Enter) else {
             panic!("name-only Enter uses the existing Edit writer")
         };
@@ -862,7 +908,10 @@ fn rename_enter_reviews_other_kept_edits_and_escape_keeps_them_while_e_stays_nex
     input(&mut app, KeyCode::Esc);
     app.open_member_rename();
     let text = paint(&app, 160, 36);
-    assert!(text.contains("Enter next"), "{text}");
+    assert!(
+        !text.contains("⏎ rename"),
+        "Enter only moves to the next field: {text}"
+    );
     assert_eq!(input(&mut app, KeyCode::Enter), Effect::None);
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();

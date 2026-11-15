@@ -127,6 +127,7 @@ impl Dialog {
             title: TITLE.into(),
             kind: DialogKind::List,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: buttons(resume_all).into(),
         };
         let areas = dialog.areas(

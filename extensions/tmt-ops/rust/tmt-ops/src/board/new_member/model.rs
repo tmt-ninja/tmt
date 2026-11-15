@@ -46,6 +46,10 @@ impl Slot {
             Slot::Keep => "Keep",
         }
     }
+    /// A rarely changed field, folded into the form's More line.
+    pub fn folded(self) -> bool {
+        matches!(self, Slot::Effort | Slot::Host | Slot::Session | Slot::Keep)
+    }
     /// Its text in `Draft::fields`; Keep has none.
     pub fn index(self) -> usize {
         self as usize

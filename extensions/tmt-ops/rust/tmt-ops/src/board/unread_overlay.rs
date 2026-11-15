@@ -896,9 +896,10 @@ impl App {
 pub(in crate::board) mod tests;
 
 /// Cancel, then the primary Mark all read, which Enter chooses as the confirm opens.
+/// The action first, Cancel beside it.
 fn confirm_buttons(enabled: bool) -> [Button<'static>; 2] {
     [
-        Button::secondary("Cancel").enabled(enabled),
         Button::primary("Mark all read").enabled(enabled),
+        Button::secondary("Cancel").enabled(enabled),
     ]
 }
