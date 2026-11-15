@@ -281,16 +281,21 @@ describe('scripts/ci-wake.sh', () => {
     expect(c.lines('talk.log')).toHaveLength(1);
   });
 
-  it('refuses an unsafe detached start from a Codex tool call before claiming success', () => {
-    const c = newCase([open]);
-    const result = c.run(['42', '--identity', 'core-ops'], { CODEX_TOOL_CALL_ID: 'fixture-call' });
-    expect(result.status).toBe(3);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('detached launch is unsafe in Codex tool calls');
-    expect(result.stderr).toContain('--foreground');
-    expect(c.lines('gh.log')).toEqual([]);
-    expect(c.lines('talk.log')).toEqual([]);
-    expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
+  it('refuses an unsafe detached start from a Codex or agy tool call before claiming success', () => {
+    for (const [label, env] of [
+      ['Codex', { CODEX_TOOL_CALL_ID: 'fixture-call' }],
+      ['agy', { ANTIGRAVITY_AGENT: '1' }],
+    ] as const) {
+      const c = newCase([open]);
+      const result = c.run(['42', '--identity', 'core-ops'], env);
+      expect(result.status).toBe(3);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(`detached launch is unsafe in ${label} tool calls`);
+      expect(result.stderr).toContain('--foreground');
+      expect(c.lines('gh.log')).toEqual([]);
+      expect(c.lines('talk.log')).toEqual([]);
+      expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
+    }
   });
 
   it('runs foreground mode to completion for a native retained Codex task', () => {
