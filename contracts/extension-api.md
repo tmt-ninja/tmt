@@ -593,7 +593,8 @@ or answers a form.
 
 - **Claude** reports all three. A question comes from `PreToolUse` for `AskUserQuestion`,
   a plan approval from `PreToolUse` for `ExitPlanMode`, and a permission from
-  `PermissionRequest`. Setup and `tmt run` install `PreToolUse` with the matcher
+  `PermissionRequest` for any other tool (Claude also sends it for its form tools; that
+  is the same form, not a second one). Setup and `tmt run` install `PreToolUse` with the matcher
   `AskUserQuestion|ExitPlanMode`, so the hook runs for those tools only. It prints no
   decision, so Claude shows its own form as before. A subagent's form is not reported.
 - **Codex** reports no forms until its `PermissionRequest` semantics are settled (#3622).
@@ -629,7 +630,8 @@ An unknown `identityId` is `NAME_NOT_FOUND`.
 A form is `answerable` only when all of these hold:
 
 - it is a question or plan-approval form, not `truncated`, and no answer was sent yet;
-- the member's pane is on tmux (other hosts take no keys yet);
+- the member's pane is on tmux. A form on the built-in `pty` host or on Herdr is always
+  `answerIn: "terminal"`, so a client never offers to answer it there;
 - the provider's driver captured the keys for the version the provider process's own
   executable reported when its hook recorded the form. Claude Code `2.1.325` is captured
   today (#6424); other providers and versions are answered in the terminal.
@@ -1990,7 +1992,8 @@ process evidence can establish ended. `waiting` records Claude's exact
 `Notification` with `notification_type: "permission_prompt"`, observed through the
 same consented hooks. Claude may delay that notification (normally about six
 seconds); TMT does not infer a prompt from pane text. Claude's form hooks also set
-waiting: `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`, and `PermissionRequest`.
+waiting: `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`, and `PermissionRequest`
+for any other tool.
 They record the form (see [Provider forms](#provider-forms)) and decide nothing.
 `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit` and `Stop` clear waiting
 through the existing admitted-event transition. Manual denial emits no installed
