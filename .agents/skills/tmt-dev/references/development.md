@@ -75,8 +75,10 @@ and never restart Docker Desktop.
 - **Worktrees live beside the main checkout**, as `<checkout>-<topic>` in its
   parent directory. Never use `/tmp`, `/private/tmp` or a scratchpad: a reboot
   clears them, so they hold only throwaway files. After a reboot, run
-  `git worktree list`; a `prunable` entry lost its directory and uncommitted
-  work. Tell the maintainer, then run `git worktree prune`.
+  `git worktree list`. A `prunable` entry is missing or unreachable at its
+  recorded path: stop and report it for a recovery check. A moved directory
+  needs `git worktree repair`; run `git worktree prune` only after the deletion
+  is confirmed and any recovery is done.
 - **Each worktree keeps its own `rust/target`.** Native selectors,
   `scripts/tmt-dev.sh` and the Docker fixtures read `rust/target/debug/...`, and a
   shared directory would run another worktree's binary. Never point
