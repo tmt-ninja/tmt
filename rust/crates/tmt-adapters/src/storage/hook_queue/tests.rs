@@ -3322,3 +3322,30 @@ fn the_digest_worker_restores_the_hook_wait_and_allowance_it_was_opened_with() {
     assert_eq!(busy_ms(&w.storage), opened_ms);
     assert_eq!(w.storage.hook_allowance, opened_allowance);
 }
+
+#[test]
+fn the_digest_worker_ingests_its_identity_and_leaves_other_identities_for_the_deferred_flusher() {
+    let mut w = World::new();
+    let own = w.event("pending for this worker", false);
+    let mut wire = serde_json::to_value(w.event("pending for another identity", false)).unwrap();
+    wire["id"] = serde_json::json!(uuid::Uuid::new_v4().to_string());
+    wire["capture"]["identity"] = serde_json::json!("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    let other: CaptureEvent = serde_json::from_value(wire).unwrap();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.enqueue(&other).unwrap();
+    queue.enqueue(&own).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    w.storage
+        .ingest_pending_hook_captures_for_identity_until(&w.agent, deadline)
+        .unwrap();
+
+    assert_eq!(w.final_count(), 1);
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(queue.next_uncommitted().unwrap().unwrap().id(), other.id());
+}
