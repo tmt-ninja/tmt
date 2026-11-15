@@ -182,10 +182,11 @@ fn ten_linked_room_items_and_an_empty_conversation_count_once_in_the_header() {
         state
             .write(
                 &room,
-                Write::Toggle {
+                Write::Edit {
                     item: view(1, None, Completion::Open, false).item.id,
                     revision: 1,
-                    complete: true
+                    title: "changed".into(),
+                    reference: None
                 }
             )
             .is_none()

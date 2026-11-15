@@ -1954,7 +1954,20 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           screen.includes('Finish the causal Checklist check'),
         shell.pane
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      expectJsonResult(
+        await squadCli(fixture, [
+          'checklist',
+          'complete',
+          '--room',
+          shown.room.id,
+          '--member',
+          'auth-fix',
+          '--item',
+          item,
+          '--expect-revision',
+          '1',
+        ])
+      );
       let completed: ReturnType<typeof read>;
       await fixture.waitFor(
         () => {
@@ -1969,10 +1982,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(completed?.items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('✓ Completed Finish the causal Checklist check') &&
           screen.includes('Todo · 0') &&
           screen.includes('Done · 1') &&
-          screen.includes('Nothing to do · a add') &&
+          screen.includes('✓ Finish the causal Checklist check') &&
           !screen.includes('○ Finish the causal Checklist check'),
         shell.pane
       );

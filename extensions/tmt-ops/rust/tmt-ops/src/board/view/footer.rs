@@ -955,18 +955,25 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             hints.push(("⏎".into(), "save".into()));
             hints
         } else {
-            [
-                ("↑↓", "choose"),
-                ("⏎", "tick"),
-                ("o", "open"),
-                ("a", "add"),
-                ("e", "edit"),
-                ("d", "delete"),
-                ("Shift+↑↓", "move"),
-            ]
-            .into_iter()
-            .map(|(key, label)| (key.into(), label.into()))
-            .collect()
+            let mut hints: Vec<Hint> = vec![("↑↓".into(), "choose".into())];
+            if app
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.selected_has_link(&app.notes))
+            {
+                hints.push(("⏎".into(), "open".into()));
+            }
+            hints.extend(
+                [
+                    ("a", "add"),
+                    ("e", "edit"),
+                    ("d", "delete"),
+                    ("Shift+↑↓", "move"),
+                ]
+                .into_iter()
+                .map(|(key, label)| (key.into(), label.into())),
+            );
+            hints
         };
         let hints = fit_hints(
             hints,

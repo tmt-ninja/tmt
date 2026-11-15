@@ -122,29 +122,6 @@ impl StartupTab {
     }
 }
 
-/// Enter on a link row in the member Checklist overlay; the Agents page always ticks.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ChecklistEnter {
-    #[default]
-    Open,
-    Tick,
-}
-impl ChecklistEnter {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "open" => Some(Self::Open),
-            "tick" => Some(Self::Tick),
-            _ => None,
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Tick => "tick",
-        }
-    }
-}
-
 /// Per-squad observation/reminder policy; enabling never installs hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reminders {
@@ -1990,24 +1967,6 @@ impl Config {
             None => (
                 StartupTab::Last,
                 Some("Ignored board.startup_tab: use last, agents or digest (overview opens agents).".into()),
-            ),
-        }
-    }
-
-    /// A bad authored value never prevents the board opening; the default is `open`.
-    pub fn checklist_enter(&self) -> (ChecklistEnter, Option<String>) {
-        let Some(item) = self
-            .document
-            .get("board")
-            .and_then(|board| board.get("checklist_enter"))
-        else {
-            return (ChecklistEnter::Open, None);
-        };
-        match item.as_str().and_then(ChecklistEnter::parse) {
-            Some(enter) => (enter, None),
-            None => (
-                ChecklistEnter::Open,
-                Some("Ignored board.checklist_enter: use open or tick.".into()),
             ),
         }
     }
@@ -4765,37 +4724,5 @@ filter = "not pending"
             Config::read(path.clone()).unwrap().startup_tab().0,
             StartupTab::Agents
         );
-    }
-    #[test]
-    fn checklist_enter_setting_saves_through_the_existing_writer_and_keeps_comments() {
-        let (_scratch, path) = temp("checklist-enter");
-        fs::write(
-            &path,
-            "# keep\n[board]\nchecklist_enter = 'open' # choice\nrefresh = '2s'\n",
-        )
-        .unwrap();
-        let mut cfg = Config::read(path.clone()).unwrap();
-        cfg.set_setting(None, "board.checklist_enter", "tick")
-            .unwrap();
-        let saved = fs::read_to_string(&path).unwrap();
-        assert!(
-            saved.contains("# keep")
-                && saved.contains("# choice")
-                && saved.contains("refresh = '2s'")
-        );
-        assert_eq!(
-            Config::read(path.clone()).unwrap().checklist_enter(),
-            (ChecklistEnter::Tick, None)
-        );
-        assert!(
-            cfg.set_setting(None, "board.checklist_enter", "later")
-                .is_err()
-        );
-        assert!(
-            cfg.set_setting(Some("x"), "board.checklist_enter", "open")
-                .is_err(),
-            "the setting is global"
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), saved);
     }
 }

@@ -281,18 +281,19 @@ impl Controller {
                 _ => "Reading the checklist…".into(),
             }
         };
-        let enter_ticks = app.view.as_ref().map(|view| view.checklist_enter)
-            == Some(crate::config::ChecklistEnter::Tick);
         let footer = if form_only {
             "↑↓ fields · ←→ kind · Enter save · Esc keep draft"
         } else if draft.is_some() {
             "↑↓ title/link · Enter save · Esc close, keeping the draft"
         } else if deleting.is_some() {
             "Enter delete · Esc keep"
-        } else if enter_ticks {
-            "↑↓ choose · Enter tick · o open · a add · e edit · d delete · Shift+↑↓ move · Esc close"
+        } else if items
+            .iter()
+            .any(|row| selected.as_deref() == Some(row.id.as_str()) && row.reference.is_some())
+        {
+            "↑↓ choose · Enter open · a add · e edit · d delete · Shift+↑↓ move · Esc close"
         } else {
-            "↑↓ choose · Enter open/tick · a add · e edit · d delete · Shift+↑↓ move · Esc close"
+            "↑↓ choose · a add · e edit · d delete · Shift+↑↓ move · Esc close"
         };
         let data = json!({
             "rows": rows, "notes": form, "query": "", "status": status, "footer": footer,

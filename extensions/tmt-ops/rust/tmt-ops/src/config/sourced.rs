@@ -135,7 +135,6 @@ impl Config {
                             | "ask_lead"
                             | "home_replies"
                             | "startup_tab"
-                            | "checklist_enter"
                     )
                 }) {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
