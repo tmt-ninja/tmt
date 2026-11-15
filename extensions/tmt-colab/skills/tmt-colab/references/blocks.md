@@ -69,7 +69,7 @@ PAGE ID` also drops it from the page's list; detaching one a live block still sh
 ## Ops file
 
 `block batch` takes a JSON array of ops, at most 256 and 1 MiB:
-`{"op":"insert","id","type","parent?","after?","props?","text?"}`, `move`, `props` (`set`, `unset`),
+`{"op":"insert","id","type","parent?","after?","props?","text?"}` (`id` a fresh UUID), `move`, `props` (`set`, `unset`),
 `text` (`replace`, `set` with `base`, or `format`), `delete`, `restore` and `table`. One bad op refuses
 the whole batch. `after` absent places the block last, `null` first; it must be a child of `parent`
 (`COLAB_BLOCK_BAD_AFTER`). A block inside a card has `parent` set to the card's ID; a card holds no
