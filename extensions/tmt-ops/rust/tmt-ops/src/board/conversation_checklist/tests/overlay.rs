@@ -86,6 +86,22 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
         "the tree stays visible"
     );
     assert!(checklist_page.contains("U  Ask worker to update"));
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let area = app
+        .notes_overlay
+        .as_ref()
+        .unwrap()
+        .ask_hit
+        .borrow()
+        .unwrap();
+    let actual = &terminal.backend().buffer()[(area.x + 1, area.y)];
+    let expected = crate::board::keycap::control_span(&app, "U", None).style;
+    assert_eq!(actual.symbol(), "U");
+    assert_eq!(actual.fg, expected.fg.unwrap_or_default());
+    assert_eq!(actual.bg, expected.bg.unwrap_or_default());
     let ask = press(&mut app, KeyCode::Char('U'));
     let Effect::Act(Request::ChecklistAsk {
         sender,

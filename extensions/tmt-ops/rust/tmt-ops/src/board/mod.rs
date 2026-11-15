@@ -460,6 +460,24 @@ impl From<&str> for ActionOutcome {
         Self::Message(message.into())
     }
 }
+fn chat_send(
+    core: &Core,
+    sender: &str,
+    recipient: &str,
+    name: String,
+    text: &str,
+    fallback: &str,
+    what: String,
+) -> ActionOutcome {
+    ActionOutcome::Send(Box::new(conversation::outgoing::Completed {
+        ticket: None,
+        outcome: Config::load(core)
+            .and_then(|config| send::chat(core, &config, sender, recipient, text, fallback)),
+        what,
+        to: name,
+    }))
+}
+
 fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
     if let Request::Status(action) = request {
         return Ok(ActionOutcome::Status(Box::new(match *action {
@@ -603,20 +621,13 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             squad,
             name,
         } => {
-            return Ok(ActionOutcome::Send(Box::new(
-                conversation::outgoing::Completed {
-                    ticket: None,
-                    outcome: send::talk(
-                        core,
-                        &squad,
-                        &sender,
-                        &recipient,
-                        conversation_checklist::ASK_TEXT,
-                    ),
-                    what: format!("Checklist update/{recipient}"),
-                    to: name,
-                },
-            )));
+            let text = conversation_checklist::ASK_TEXT;
+            let fallback =
+                crate::requests::message::inline_body(Some((&squad, &name)), text, false);
+            let what = format!("Checklist update/{recipient}");
+            return Ok(chat_send(
+                core, &sender, &recipient, name, text, &fallback, what,
+            ));
         }
         Request::Chat {
             sender,
@@ -625,16 +636,15 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             text,
             fallback,
         } => {
-            return Ok(ActionOutcome::Send(Box::new(
-                conversation::outgoing::Completed {
-                    ticket: None,
-                    outcome: Config::load(core).and_then(|config| {
-                        send::chat(core, &config, &sender, &recipient, &text, &fallback)
-                    }),
-                    what: "Message".into(),
-                    to: name,
-                },
-            )));
+            return Ok(chat_send(
+                core,
+                &sender,
+                &recipient,
+                name,
+                &text,
+                &fallback,
+                "Message".into(),
+            ));
         }
         Request::Annotate {
             me,
