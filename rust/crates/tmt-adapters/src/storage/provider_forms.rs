@@ -17,18 +17,25 @@ pub struct StoredForm {
     pub identity_id: String,
     pub opened_ms: u64,
     pub form: ProviderForm,
+    /// The version of the provider's own executable when the form was recorded.
+    pub provider_version: Option<String>,
+    /// When a client's answer was sent, before its first key; at most once.
+    pub sent_ms: Option<u64>,
 }
 
 impl Storage {
     /// Records the form the binding's provider session now waits on, in the waiting period
     /// that began at `since_ms`; the binding's forms from earlier periods are dropped. A
     /// repeated report of the same tool call keeps its first record; the answer is its ID.
+    /// `provider_version` is the provider executable's version, when it was read.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_provider_form(
         &mut self,
         binding_id: &str,
         identity_id: &str,
         provider_session: &str,
         form: &ProviderForm,
+        provider_version: Option<&str>,
         since_ms: u64,
         now_ms: u64,
     ) -> Result<String, StorageError> {
@@ -62,8 +69,9 @@ impl Storage {
                 transaction
                     .execute(
                         "INSERT INTO provider_forms
-                         (form_id,binding_id,identity_id,provider_session,kind,opened_ms,document)
-                         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                         (form_id,binding_id,identity_id,provider_session,kind,opened_ms,document,
+                          provider_version)
+                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                         params![
                             form_id,
                             binding_id,
@@ -71,7 +79,8 @@ impl Storage {
                             provider_session,
                             form.kind.as_str(),
                             i64::try_from(now_ms).unwrap_or(i64::MAX),
-                            document
+                            document,
+                            provider_version
                         ],
                     )
                     .map_err(|e| classify(e, "Record provider form"))?;
@@ -84,6 +93,23 @@ impl Storage {
         Ok(form_id)
     }
 
+    /// Marks a client's answer to the form as sent, once. False when it was already sent or
+    /// the form is gone: the caller then sends nothing.
+    pub fn mark_provider_form_sent(
+        &mut self,
+        form_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, StorageError> {
+        let changed = self
+            .connection_mut()?
+            .execute(
+                "UPDATE provider_forms SET sent_ms=?2 WHERE form_id=?1 AND sent_ms IS NULL",
+                params![form_id, i64::try_from(now_ms).unwrap_or(i64::MAX)],
+            )
+            .map_err(|e| classify(e, "Mark provider form sent"))?;
+        Ok(changed == 1)
+    }
+
     /// Open forms, oldest first, of one identity or of all, on a binding that still exists.
     pub fn provider_forms(
         &self,
@@ -92,7 +118,7 @@ impl Storage {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT f.form_id,f.identity_id,f.opened_ms,f.document FROM provider_forms f
+                "SELECT f.form_id,f.identity_id,f.opened_ms,f.document,f.provider_version,f.sent_ms FROM provider_forms f
                  JOIN bindings b ON b.id=f.binding_id AND b.identity_id=f.identity_id
                  WHERE ?1 IS NULL OR f.identity_id=?1 ORDER BY f.opened_ms, f.form_id",
             )
@@ -108,7 +134,7 @@ impl Storage {
     pub fn provider_form(&self, form_id: &str) -> Result<Option<StoredForm>, StorageError> {
         self.connection()?
             .query_row(
-                "SELECT f.form_id,f.identity_id,f.opened_ms,f.document FROM provider_forms f
+                "SELECT f.form_id,f.identity_id,f.opened_ms,f.document,f.provider_version,f.sent_ms FROM provider_forms f
                  JOIN bindings b ON b.id=f.binding_id AND b.identity_id=f.identity_id
                  WHERE f.form_id=?1",
                 [form_id],
@@ -128,6 +154,8 @@ fn stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
     let identity_id: String = row.get(1)?;
     let opened: i64 = row.get(2)?;
     let document: String = row.get(3)?;
+    let provider_version: Option<String> = row.get(4)?;
+    let sent: Option<i64> = row.get(5)?;
     Ok(serde_json::from_str(&document)
         .map_err(|e| incompatible(format!("A stored provider form is unreadable: {e}")))
         .map(|form| StoredForm {
@@ -135,5 +163,7 @@ fn stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<Row> {
             identity_id,
             opened_ms: u64::try_from(opened).unwrap_or(0),
             form,
+            provider_version,
+            sent_ms: sent.map(|sent| u64::try_from(sent).unwrap_or(0)),
         }))
 }

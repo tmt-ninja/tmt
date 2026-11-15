@@ -173,6 +173,10 @@ function expectNativeSchema(
     { version: 92, name: 'stamp which identity each usage write changed' },
     { version: 93, name: 'record thread roots and stamp room request changes' },
     { version: 94, name: 'measure wake-up turns and the phase a held message arrived in' },
+    {
+      version: 95,
+      name: 'record the provider version of a form and when a client sent its answer',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

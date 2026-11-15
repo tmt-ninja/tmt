@@ -9,6 +9,7 @@ mod allowance;
 mod caller_session;
 pub mod channel;
 mod digest;
+pub mod forms;
 pub mod picker;
 mod skills;
 use tmt_core::binding::session::{
@@ -510,6 +511,19 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 
     fn decode_form(&self, bytes: &[u8]) -> Option<crate::runtime::provider_form::ProviderForm> {
         crate::runtime::provider_form::decode_claude(bytes)
+    }
+
+    fn form_provider_version(&self, process: &ProcessIncarnation) -> Option<String> {
+        forms::provider_version(process)
+    }
+
+    fn form_keys(
+        &self,
+        form: &crate::runtime::provider_form::ProviderForm,
+        version: &str,
+        answer: &crate::runtime::provider_form::FormAnswer,
+    ) -> Option<Vec<crate::runtime::provider_form::FormKey>> {
+        forms::keys(form, version, answer)
     }
 
     fn decode_activity_session(&self, payload: &[u8]) -> Option<ProviderSessionId> {

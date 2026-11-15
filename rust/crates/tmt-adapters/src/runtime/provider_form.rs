@@ -81,6 +81,32 @@ pub struct ProviderForm {
     pub truncated: bool,
 }
 
+/// A checked answer to one form, as a driver's key plan takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormAnswer {
+    /// One answer per question, in order.
+    Questions(Vec<QuestionAnswer>),
+    /// A plan approval: allow (`true`) or deny.
+    Decision(bool),
+}
+
+/// The options picked for one question, ascending, and the text typed as "Other".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestionAnswer {
+    pub picks: Vec<usize>,
+    pub other: Option<String>,
+}
+
+/// One key a driver's plan sends to the provider's terminal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormKey {
+    Down,
+    Enter,
+    Escape,
+    /// Typed literally; checked free of control characters.
+    Text(String),
+}
+
 /// The tools whose `PreToolUse` opens a Claude form; setup installs that hook only for them.
 pub const CLAUDE_FORM_TOOLS: &str = "AskUserQuestion|ExitPlanMode";
 
@@ -130,7 +156,9 @@ pub fn decode_claude(bytes: &[u8]) -> Option<ProviderForm> {
             plan: Some(bounded(input["plan"].as_str()?, MAX_PLAN, &mut truncated)),
             truncated,
         },
-        ("PermissionRequest", _) => {
+        // Claude also asks permission for its own form tools; that is the same form,
+        // already reported by `PreToolUse`, so it is not a second one (#6424 live check).
+        ("PermissionRequest", tool) if CLAUDE_FORM_TOOLS.split('|').all(|form| form != tool) => {
             let summary = match input {
                 Value::Null => String::new(),
                 Value::String(text) => text.clone(),
@@ -373,6 +401,8 @@ mod tests {
             json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion","agent_id":"a","tool_input":{"questions":[{"question":"q","options":[]}]}}),
             json!({"hook_event_name":"PreToolUse","session_id":"s","tool_name":"AskUserQuestion","tool_input":{"questions":[]}}),
             json!({"hook_event_name":"PostToolUse","session_id":"s","tool_name":"AskUserQuestion","tool_input":{}}),
+            json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"AskUserQuestion","tool_input":{"questions":[]}}),
+            json!({"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"ExitPlanMode","tool_input":{"plan":"p"}}),
         ] {
             assert_eq!(decode(other.clone()), None, "{other}");
         }
