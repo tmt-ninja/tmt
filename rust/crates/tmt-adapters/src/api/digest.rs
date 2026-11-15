@@ -29,6 +29,13 @@ pub enum Operation {
     Write(DigestPolicyWrite),
     Show(Vec<String>),
     Stats(Vec<String>),
+    /// Measured wake-up turns that ended in the range (#6453); read-only.
+    WakeTurns {
+        identities: Vec<String>,
+        from_ms: u64,
+        through_ms: u64,
+        limit: usize,
+    },
     Due(String),
     Flush {
         identity: String,
@@ -115,6 +122,19 @@ struct Read {
 }
 fn page_limit() -> u64 {
     32
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WakeTurns {
+    #[serde(default)]
+    identity_ids: Vec<String>,
+    from_ms: u64,
+    through_ms: u64,
+    #[serde(default = "wake_turn_limit")]
+    limit: usize,
+}
+fn wake_turn_limit() -> usize {
+    crate::storage::wake_turns::MAX_WAKE_TURNS
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -205,6 +225,25 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 Operation::Stats(v.identities)
             } else {
                 Operation::Show(v.identities)
+            }
+        }
+        "digest.wakeTurns" => {
+            let v: WakeTurns = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if v.identity_ids.len() > 256
+                || v.from_ms > v.through_ms
+                || v.through_ms > MAX_JS_SAFE_INTEGER
+                || !(1..=crate::storage::wake_turns::MAX_WAKE_TURNS).contains(&v.limit)
+            {
+                return Err(invalid());
+            }
+            for id in &v.identity_ids {
+                uuid(id)?;
+            }
+            Operation::WakeTurns {
+                identities: v.identity_ids,
+                from_ms: v.from_ms,
+                through_ms: v.through_ms,
+                limit: v.limit,
             }
         }
         "digest.checklist.dueNow" => {
@@ -362,6 +401,14 @@ pub(super) fn execute(
                 .map_err(error)?;
             json!({"stats":stats.iter().map(|s| json!({"identityId":s.identity_id,"heldCount":s.held_count,"oldestHeldAgeMs":s.oldest_held_age_ms,"deliveredDigests":s.delivered_digests,"dueCount":s.due_count,"nextEligibleAtMs":s.next_eligible_at_ms,"observedAtMs":s.observed_at_ms})).collect::<Vec<_>>()})
         }
+        Operation::WakeTurns {
+            identities,
+            from_ms,
+            through_ms,
+            limit,
+        } => storage
+            .wake_turns(&identities, from_ms, through_ms, limit)
+            .map_err(|_| Fault::unavailable())?,
         Operation::Read {
             identity,
             checklist,
@@ -433,7 +480,8 @@ fn history_value(identity: &str, page: &tmt_core::request::digest::DigestHistory
                 "nextItemAfter":row.next_item_after,"items":row.items.iter().map(|item| json!({
                     "sequence":item.sequence,"createdAtMs":item.created_at_ms,
                     "contextTokensAtArrival":item.context_tokens_at_arrival,
-                    "contextObservedAtMs":item.context_observed_at_ms})).collect::<Vec<_>>()})
+                    "contextObservedAtMs":item.context_observed_at_ms,
+                    "phaseAtArrival":item.phase_at_arrival.map(|phase| phase.as_str())})).collect::<Vec<_>>()})
             ;
             if let tmt_core::request::digest::DigestProjection::IncomingSummary { incoming_count, urgent_count } = evidence.checklist.projection {
                 value["projection"] = json!({"kind":"incoming_summary","incomingCount":incoming_count,"urgentCount":urgent_count});

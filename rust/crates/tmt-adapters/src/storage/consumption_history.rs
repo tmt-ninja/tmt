@@ -8,6 +8,7 @@ use crate::runtime::consumption::{
     Consumption, Credits, ModelUsage, RateAccount, RateLimits, valid_service_tier,
 };
 mod details;
+pub mod wake_turns;
 use details::Details;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -431,6 +432,9 @@ impl Storage {
                 }
                 _ => None,
             };
+            // A wake turn is measured from the buckets as this event's own read leaves them.
+            let mut wake = None;
+            let read = observation.sampled && observation.consumption.is_some();
             if let Some(boundary) = observation.boundary
                 && observation.preferences != &observation.expected.preferences
             {
@@ -441,7 +445,9 @@ impl Storage {
                         super::requests::passthrough::bind(
                             connection, id, session, turn, prompt, now,
                         )?;
-                        super::requests::turns::open(connection, id, now)?;
+                        if super::requests::turns::open(connection, id, now)? > 0 {
+                            wake = Some((true, now));
+                        }
                         if binding.session.key.is_some() {
                             let batch = super::capture_batches::begin(
                                 connection, binding, remembered, turn, now,
@@ -467,6 +473,7 @@ impl Storage {
                             super::requests::end_digest_continuation(connection, id, now)?;
                         }
                         super::requests::turns::close(connection, id, now)?;
+                        wake = Some((false, now));
                         super::requests::passthrough::settle_turn(
                             connection,
                             id,
@@ -497,6 +504,11 @@ impl Storage {
                 if let Some(family) = observation.family.as_ref() {
                     super::consumption_family::apply(connection, id, family)?;
                 }
+            }
+            match wake {
+                Some((true, now)) => wake_turns::open(connection, id, now, read)?,
+                Some((false, now)) => wake_turns::close(connection, id, now, read)?,
+                None => {}
             }
             if Instant::now() >= observation.deadline {
                 return Err(invalid());

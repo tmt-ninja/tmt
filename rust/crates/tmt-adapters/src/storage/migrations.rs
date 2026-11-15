@@ -456,6 +456,10 @@ const MIGRATIONS: &[Migration] = &[
         "record thread roots and stamp room request changes",
         "schema/093.sql"
     ),
+    migration!(
+        "measure wake-up turns and the phase a held message arrived in",
+        "schema/094.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

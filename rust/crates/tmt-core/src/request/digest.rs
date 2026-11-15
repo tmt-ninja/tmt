@@ -151,6 +151,8 @@ pub struct DigestItem {
     /// Latest verified driver observation available when this reference first held.
     pub context_tokens_at_arrival: Option<u64>,
     pub context_observed_at_ms: Option<u64>,
+    /// The recipient's driver activity phase when this reference first held; none is unknown.
+    pub phase_at_arrival: Option<crate::binding::session::activity::ActivityPhase>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

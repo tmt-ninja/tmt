@@ -16,6 +16,11 @@ impl ActivityPhase {
             Self::Idle => "idle",
         }
     }
+    pub fn parse(text: &str) -> Option<Self> {
+        [Self::Working, Self::Waiting, Self::Idle]
+            .into_iter()
+            .find(|phase| phase.as_str() == text)
+    }
 }
 
 /// Distinguishes a new turn from completion within an already admitted turn.
