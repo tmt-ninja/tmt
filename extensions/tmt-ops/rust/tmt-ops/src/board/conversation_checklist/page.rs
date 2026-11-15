@@ -311,12 +311,18 @@ impl Controller {
                     } else {
                         String::new()
                     };
-                    let note = if app.bindings().contains_key("U") {
-                        note.strip_prefix("U  ").unwrap_or(&note).to_owned()
+                    let note = if let Some(label) = note.strip_prefix("U  ") {
+                        if app.bindings().contains_key("U") {
+                            Line::styled(label.to_owned(), look.role(Role::Muted))
+                        } else {
+                            Line::from(vec![
+                                crate::board::keycap::control_span(app, "U", None),
+                                Span::styled(format!(" {label}"), look.role(Role::Muted)),
+                            ])
+                        }
                     } else {
-                        note
+                        Line::styled(note, look.role(Role::Muted))
                     };
-                    let note = Line::styled(note, look.role(Role::Muted));
                     if !note.spans.is_empty() {
                         *self.ask_hit.borrow_mut() =
                             section_rule::note_area(&heading, note.width(), rect);

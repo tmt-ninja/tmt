@@ -2161,6 +2161,27 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           board.pane
         );
         expect(sends()).toHaveLength(1);
+        fixture.tmux(['send-keys', '-t', board.pane, 'C-l']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Todo · 0') && screen.includes('Ask chat-worker to update'),
+          board.pane
+        );
+        fixture.tmux(['send-keys', '-t', board.pane, 'U']);
+        const ask =
+          'Please review and update your checklist. You may complete any item, including those added by others, and add new items. In your reply, list what you changed.';
+        await fixture.waitFor(
+          () => sends().length === 2 && sends()[1]!.message_text === ask,
+          10_000,
+          'Checklist request reaches the same member as Talk'
+        );
+        await fixture.waitFor(
+          () => events().some((item) => item.event === 'paste' && item.line === ask),
+          10_000,
+          'Checklist request reaches the mock agent'
+        );
+        await fixture.waitForCapture((screen) => screen.includes('asked · waiting'), board.pane);
+        fixture.tmux(['send-keys', '-t', board.pane, 'Escape']);
+        await fixture.waitForCapture((screen) => screen.includes('⏎ send'), board.pane);
         fixture.tmux(['send-keys', '-t', board.pane, 'Escape', 'Escape', 'q']);
         await fixture.waitForCapture(
           (screen) => screen.includes('PASSTHROUGH_BOARD_EXIT=0'),

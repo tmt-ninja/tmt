@@ -42,14 +42,19 @@ pub(in crate::board) fn span(key: &str, selected: bool, look: Look) -> Span<'sta
 }
 
 /// Keyboard eligibility and pointer eligibility differ when a strip click focuses its pane.
-pub(in crate::board) fn control_span(app: &App, key: &str, action: OpsUiAction) -> Span<'static> {
+pub(in crate::board) fn control_span(
+    app: &App,
+    key: &str,
+    action: impl Into<Option<OpsUiAction>>,
+) -> Span<'static> {
     let mut cap = span(key, false, app.look());
-    if !app.workspace_strip_enabled()
-        || !app
-            .workspace_bindings()
-            .values()
-            .any(|bound| bound.verb == Verb::Ui(action))
-    {
+    if action.into().is_some_and(|action| {
+        !app.workspace_strip_enabled()
+            || !app
+                .workspace_bindings()
+                .values()
+                .any(|bound| bound.verb == Verb::Ui(action))
+    }) {
         use tmt_cli_style::theme::screen::{self, ChipKind, ChipState};
         let look = app.look();
         cap.style = screen::chip(
