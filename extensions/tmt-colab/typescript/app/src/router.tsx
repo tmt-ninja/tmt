@@ -19,6 +19,7 @@ import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
+import { blockTree } from './block-projection.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
@@ -440,6 +441,7 @@ function PageFloatingActions({
 
 function SelectionAnnotation({
   host,
+  structured,
   rectangle,
   inset,
   noticeVisible,
@@ -452,6 +454,8 @@ function SelectionAnnotation({
   children,
 }: {
   host: HTMLDivElement | null;
+  /** Structured pages are rendered in the parent rather than an author iframe. */
+  structured?: boolean;
   rectangle: SelectionRect | null;
   inset: number;
   noticeVisible: boolean;
@@ -494,7 +498,7 @@ function SelectionAnnotation({
       ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
       : null;
     const place = () => {
-      const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      const frame = (structured ? host : host?.querySelector('iframe'))?.getBoundingClientRect();
       const width = expanded ? Math.min(440, innerWidth - 24) : 34;
       // Parent chrome reserves the toggle's bottom strip only for overlapping windows.
       const margin = innerWidth <= 640 ? 16 : 24;
@@ -649,7 +653,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded, noticeVisible, toggleVisible, children]);
+  }, [host, structured, rectangle, inset, expanded, noticeVisible, toggleVisible, children]);
   return (
     <div
       ref={element}
@@ -2215,7 +2219,12 @@ function OpenPage({
     const source = workBundleSource(transport, space, (id) => routing.pageHref(id));
     return gateWorkBundleSource(source, admitted);
   }, [transport, space, routing, view.ownerOnlyWorkBundle]);
-  const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
+  const {
+    resolved: frameResolved,
+    anchorsChecked: frameAnchorsChecked,
+    pageScheme,
+    missingAnchor,
+  } = usePageRenderer({
     snapshot,
     view,
     endedError,
@@ -2291,6 +2300,46 @@ function OpenPage({
   );
   const anchoredThreads = highlights.current,
     threadTotal = numbers.size;
+  // Structured pages do not have an author frame. Resolve only unambiguous quotes against their
+  // visible block text, so a repeated passage never points to the wrong block.
+  const structuredBlocks = useMemo(
+    () => (view.pageType === 'blocks' && view.blocks ? blockTree(view.blocks).tree.flat() : []),
+    [view.pageType, view.blocks],
+  );
+  const locateBlockQuote = (quote: QuoteSelector) => {
+    const candidates = structuredBlocks.filter((block) => {
+      const value = block.text?.replace(/\s+/gu, ' ').trim() ?? '';
+      const at = value.indexOf(quote.exact);
+      return (
+        at >= 0 &&
+        value.indexOf(quote.exact, at + 1) < 0 &&
+        (!quote.prefix || value.slice(0, at).endsWith(quote.prefix)) &&
+        (!quote.suffix || value.slice(at + quote.exact.length).startsWith(quote.suffix))
+      );
+    });
+    return candidates.length === 1 ? candidates[0]!.id : undefined;
+  };
+  const blockAnchors = (() => {
+    const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
+    if (view.pageType !== 'blocks' || !view.blocks) return found;
+    for (const thread of view.threads ?? []) {
+      if (thread.deleted || isChatThread(thread) || !thread.anchor) continue;
+      const blockId = locateBlockQuote(thread.anchor);
+      if (!blockId) continue;
+      const id = `${thread.ref.writer}:${thread.threadId}`;
+      const ordinal = numbers.get(id);
+      if (ordinal === undefined) continue;
+      const list = found.get(blockId) ?? [];
+      list.push({ id, ordinal, open: !thread.resolved });
+      found.set(blockId, list);
+    }
+    return found;
+  })();
+  const resolved =
+    view.pageType === 'blocks'
+      ? [...blockAnchors.values()].flatMap((items) => items.map((item) => item.id))
+      : frameResolved;
+  const anchorsChecked = view.pageType === 'blocks' ? !!view.blocks : frameAnchorsChecked;
   const referenceEntries = useRef<readonly { id: string; number: number; excerpt: string }[]>([]);
   referenceEntries.current = shareView(
     referenceEntries.current,
@@ -2982,12 +3031,40 @@ function OpenPage({
           )}
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (
-            <div className="structured-page-stage">
+            <div
+              className="structured-page-stage"
+              data-annotation-mode={(canSelect && selectionMode) || undefined}
+            >
               <Suspense fallback={null}>
                 <LazyStructuredPage
                   onSettle={setBlockSettler}
                   blocks={view.blocks}
                   seq={view.seq}
+                  annotationMode={canSelect && selectionMode}
+                  annotations={blockAnchors}
+                  onOpenAnnotation={(id) => {
+                    const thread = latest.current.threads?.find(
+                      (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
+                    );
+                    if (thread) openThread(thread.ref, { revealInPage: false });
+                  }}
+                  onAnnotateBlock={(value, block) => {
+                    const surface = host.current?.parentElement;
+                    const exact = [...value.replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
+                    if (!surface || !exact) return;
+                    const bounds = surface.getBoundingClientRect();
+                    const rect = block.getBoundingClientRect();
+                    onSelection(
+                      { exact, prefix: '', suffix: '' },
+                      {
+                        x: rect.left - bounds.left,
+                        y: rect.top - bounds.top,
+                        width: rect.width,
+                        height: rect.height,
+                      },
+                    );
+                    annotate();
+                  }}
                   binding={liveError || archived ? undefined : snapshot.binding}
                   workSource={workSource}
                   mentionPages={atPages}
@@ -3249,7 +3326,12 @@ function OpenPage({
       )}
       {pageBinding?.discussion && (annotations.length > 0 || annotationControl) && (
         <SelectionAnnotation
-          host={host.current}
+          host={
+            view.pageType === 'blocks'
+              ? (host.current?.parentElement as HTMLDivElement | null)
+              : host.current
+          }
+          structured={view.pageType === 'blocks'}
           rectangle={annotation?.rectangle ?? rectangle}
           inset={toolbar.current?.offsetHeight ?? 0}
           noticeVisible={state === 'navigation' || state === 'failed'}
@@ -3307,9 +3389,13 @@ function OpenPage({
                   }
                   anchor={item.selector ?? undefined}
                   layout="anchored"
-                  attached={resolved.includes(
-                    item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
-                  )}
+                  attached={
+                    view.pageType === 'blocks' && !item.thread
+                      ? !!item.selector && !!locateBlockQuote(item.selector)
+                      : resolved.includes(
+                          item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
+                        )
+                  }
                   anchorsChecked={anchorsChecked}
                   selection={selector}
                   binding={pageBinding.discussion}

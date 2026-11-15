@@ -36,6 +36,10 @@ export function LiveStructuredPage({
   onSettle,
   mentionPages,
   blockPageHref,
+  annotationMode,
+  onAnnotateBlock,
+  annotations,
+  onOpenAnnotation,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   /** The view's local order (`PageView.seq`). */
@@ -60,6 +64,10 @@ export function LiveStructuredPage({
   mentionPages?: MentionPages;
   /** Where a block on another page is, for its chip. */
   blockPageHref?(page: string, block: string): string;
+  annotationMode?: boolean;
+  onAnnotateBlock?(text: string, block: HTMLElement): void;
+  annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
+  onOpenAnnotation?(id: string): void;
 }) {
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   // The agents an @ names (#6203): the ones this page can ask, and its creator.
@@ -150,6 +158,10 @@ export function LiveStructuredPage({
   return (
     <StructuredPage
       tree={tree}
+      annotationMode={annotationMode}
+      onAnnotateBlock={onAnnotateBlock}
+      annotations={annotations}
+      onOpenAnnotation={onOpenAnnotation}
       editing={editing}
       onFocus={focus}
       onTyped={typed}

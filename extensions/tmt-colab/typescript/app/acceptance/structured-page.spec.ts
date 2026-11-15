@@ -89,6 +89,56 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
   });
 });
 
+// #6449: the comment remains anchored after a real page reload.
+test('a comment on a structured block survives reopening', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'block-comment');
+    world.linkExtensions();
+    const colab = world.binaries.colab;
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Review notes',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const paragraph = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Review this release before launch.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${paragraph}"]`);
+    await expect(block).toContainText('Review this release before launch.');
+    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+    await block.click();
+    const annotation = page.locator('.annotation-popover');
+    await annotation.getByRole('combobox', { name: 'Message' }).fill('Please check this block.');
+    await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
+    // The composer echoes immediately; wait for the admitted thread before navigating away.
+    await expect(page.getByRole('button', { name: 'Open comment 1' })).toBeAttached();
+    await page.reload();
+    await page.getByRole('button', { name: 'Open comment 1' }).click();
+    await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
+  });
+});
+
 // #6005's done condition: a person writes and rearranges a page in the browser, and edits its
 // table, while an agent edits the same page through the CLI; both land, and the page the CLI reads
 // back is the page the browser draws.

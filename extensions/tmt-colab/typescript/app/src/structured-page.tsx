@@ -106,6 +106,11 @@ export function blockLabel(block: BlockRecord): string {
 
 export interface StructuredPageProps {
   tree: BlockTree;
+  /** Selection mode annotates the block instead of starting an edit. */
+  annotationMode?: boolean;
+  onAnnotateBlock?(text: string, block: HTMLElement): void;
+  annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
+  onOpenAnnotation?(id: string): void;
   /** The focused text block's (or table cell's, by row and `column`) text while it is edited, and
    * where its caret goes on a page change. */
   editing?: {
@@ -470,9 +475,44 @@ function Blocks({
           return;
         // The innermost block takes the click.
         if (target.closest('[data-block-id]') !== event.currentTarget) return;
+        if (rest.annotationMode) {
+          if (!event.isTrusted) return;
+          const selection = window.getSelection();
+          const selected =
+            selection?.anchorNode &&
+            selection.focusNode &&
+            event.currentTarget.contains(selection.anchorNode) &&
+            event.currentTarget.contains(selection.focusNode)
+              ? selection.toString().trim()
+              : '';
+          const text = selected || block.text?.trim();
+          if (text) rest.onAnnotateBlock?.(text, event.currentTarget);
+          return;
+        }
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
       }}
     >
+      {rest.annotations?.get(block.id)?.some((item) => item.open) && (
+        <div className="structured-annotation-markers">
+          {rest.annotations
+            ?.get(block.id)
+            ?.filter((item) => item.open)
+            .map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="annotation-number"
+                data-colab-thread=""
+                aria-label={`Open comment ${item.ordinal}`}
+                onClick={(event) => {
+                  if (event.isTrusted) rest.onOpenAnnotation?.(item.id);
+                }}
+              >
+                {item.ordinal}
+              </button>
+            ))}
+        </div>
+      )}
       {!rest.readonly &&
         !drag &&
         (pointer.hovered === block.id || rest.selectionFocus === block.id) && (

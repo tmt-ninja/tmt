@@ -1062,6 +1062,7 @@ a.tmt-block-mention:focus-visible {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  margin-bottom: var(--tmt-ui-space-s);
 }
 /* The pin names a whole release hash; one line, cut with an ellipsis. */
 .tmt-block-mockup-pin {
