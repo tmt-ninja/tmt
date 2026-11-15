@@ -216,6 +216,7 @@ impl Review {
             } else {
                 Placement::Center
             },
+            hints: String::new(),
             // The labels reserve the button line; whether they are enabled follows the areas.
             buttons: self.buttons().into(),
         };

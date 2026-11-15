@@ -3,7 +3,7 @@
 use super::strip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use tmt_cli_style::{
-    Depth, Theme,
+    Depth, Role, Theme,
     grid::Align,
     theme::screen::{self, ChipKind, ChipState},
 };
@@ -14,6 +14,7 @@ pub struct Button<'a> {
     focused: bool,
     selected: bool,
     enabled: bool,
+    destructive: bool,
     idle: Option<Style>,
 }
 
@@ -24,6 +25,7 @@ impl<'a> Button<'a> {
             focused: false,
             selected: false,
             enabled: true,
+            destructive: false,
             idle: None,
         }
     }
@@ -45,6 +47,12 @@ impl<'a> Button<'a> {
 
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// A destructive action, such as Delete: its label takes the `blocked` role.
+    pub fn destructive(mut self, destructive: bool) -> Self {
+        self.destructive = destructive;
         self
     }
 
@@ -88,7 +96,11 @@ impl ButtonRow<'_> {
         {
             return style;
         }
-        screen::chip(self.theme, ChipKind::Secondary, state, self.depth)
+        let chip = screen::chip(self.theme, ChipKind::Secondary, state, self.depth);
+        match screen::style(self.theme, Role::Blocked, self.depth).fg {
+            Some(red) if button.destructive && state != ChipState::Disabled => chip.fg(red),
+            _ => chip,
+        }
     }
 
     /// Fit a priority-ordered prefix of whole buttons; a clipped one is `None`.

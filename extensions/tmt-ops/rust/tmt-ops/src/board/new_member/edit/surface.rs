@@ -20,6 +20,7 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::Form,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: vec![Button::primary("Cancel")],
         }
         .areas(body, [100, 30], false);
@@ -42,6 +43,7 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::Form,
             placement: Placement::Center,
+            hints: String::new(),
             buttons,
         };
         let has_runs = target_error.is_none()
@@ -354,6 +356,7 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::ReadOnly,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: Vec::new(),
         };
         let areas = dialog.areas(body, [100, 4], false);
@@ -389,6 +392,7 @@ impl Controller {
             title: format!("{} · choose", list.field.label()),
             kind: DialogKind::List,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: vec![Button::primary("Back")],
         };
         let state = DialogState::new(&[], &dialog.buttons);

@@ -65,6 +65,7 @@ impl Confirm {
             title: self.title.clone(),
             kind: DialogKind::Confirm,
             placement: Placement::Center,
+            hints: String::new(),
             buttons: buttons(&self.action).into(),
         };
         let areas = full.areas(body, size, false);

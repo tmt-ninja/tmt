@@ -164,6 +164,7 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
         title: format!("Close and delete · {}", draft.member.as_ref().unwrap().name),
         kind: DialogKind::Confirm,
         placement: Placement::Center,
+        hints: String::new(),
         buttons: labels
             .iter()
             .enumerate()

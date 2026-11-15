@@ -282,6 +282,7 @@ fn size_follows_the_modal_rule_at_sm_md_and_lg() {
         title: "delete timer?".into(),
         kind: DialogKind::Confirm,
         placement: Placement::Center,
+        hints: String::new(),
         buttons: confirm_buttons().into(),
     };
     let width = |cells: u16| {
@@ -313,6 +314,7 @@ fn size_follows_the_modal_rule_at_sm_md_and_lg() {
     let read_only = Dialog {
         kind: DialogKind::ReadOnly,
         placement: Placement::Body,
+        hints: String::new(),
         buttons: Vec::new(),
         ..dialog
     };
@@ -329,6 +331,7 @@ fn paint_frames_the_title_and_left_aligns_buttons_with_the_cursor_focused_at_eve
         title: "delete timer?".into(),
         kind: DialogKind::Confirm,
         placement: Placement::Center,
+        hints: String::new(),
         buttons: confirm_buttons().into(),
     };
     for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
