@@ -963,7 +963,6 @@ fn edit_pending_hides_reopens_and_never_replays_save() {
     for _ in 0..5 {
         key(&mut app, KeyCode::Down);
     }
-    key(&mut app, KeyCode::Right);
     paint(&app, 160, 36);
     let Effect::NewMember(task) = key(&mut app, KeyCode::Enter) else {
         panic!("the painted Save must dispatch once")

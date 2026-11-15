@@ -104,27 +104,42 @@ impl Edit {
             "Enter choose"
         }
     }
-    fn buttons(&self, c: &Controller, current: bool) -> Vec<Button<'static>> {
+    /// The button row, action first: its position in this list is the button's index.
+    fn acts(&self, c: &Controller, current: bool) -> Vec<Act> {
         if matches!(c.stage, Stage::Result(_)) {
-            return vec![Button::primary("Close")];
+            return vec![Act::Close];
         }
-
+        let mut acts = Vec::new();
+        if current {
+            acts.push(Act::Save);
+        }
+        if (c.reopened || !current) && c.stage == Stage::Form {
+            acts.push(Act::Discard);
+        }
+        acts.push(Act::Cancel);
+        acts
+    }
+    /// What button `index` does now.
+    fn act(&self, c: &Controller, current: bool, index: usize) -> Option<Act> {
+        self.acts(c, current).get(index).copied()
+    }
+    fn buttons(&self, c: &Controller, current: bool) -> Vec<Button<'static>> {
         let plan = c.loaded.as_ref().and_then(|l| self.plan(&c.draft, l).ok());
         let copy_only = plan
             .as_ref()
             .and_then(|p| p.runtime.as_ref())
             .is_some_and(|r| r.outer.is_none());
         let enabled = current && plan.is_some_and(|p| !p.empty()) && c.stage == Stage::Form;
-        let mut buttons = vec![Button::primary("Cancel")];
-        if (c.reopened || !current) && c.stage == Stage::Form {
-            buttons.push(Button::secondary("Discard"));
-        }
-        if current {
-            buttons.push(
-                Button::secondary(if copy_only { "Copy command" } else { "Save" }).enabled(enabled),
-            );
-        }
-        buttons
+        self.acts(c, current)
+            .into_iter()
+            .map(|act| match act {
+                Act::Close => Button::primary("Close"),
+                Act::Save => Button::primary(if copy_only { "Copy command" } else { "Save" })
+                    .enabled(enabled),
+                Act::Discard => Button::secondary("Discard"),
+                Act::Cancel => Button::secondary("Cancel"),
+            })
+            .collect()
     }
     fn current_error(&self, app: &App) -> Option<String> {
         let changed =
@@ -536,7 +551,14 @@ impl App {
             return Some(Effect::None);
         }
         let input = if rename_enter {
-            match buttons.iter().position(|b| b.label == "Save") {
+            match c
+                .edit
+                .as_ref()?
+                .acts(c, target_error.is_none())
+                .iter()
+                .position(|act| *act == Act::Save)
+                .filter(|index| buttons[*index].label == "Save")
+            {
                 Some(index) => DialogInput::Choose(index),
                 None => DialogInput::Ignored,
             }
@@ -597,7 +619,9 @@ impl App {
         }
         if c.stage != Stage::Form {
             if matches!(c.stage, Stage::Result(_)) {
-                if let DialogInput::Choose(0) = input {
+                if let DialogInput::Choose(index) = input
+                    && c.edit.as_ref()?.act(c, target_error.is_none(), index) == Some(Act::Close)
+                {
                     return Some(self.new_member_close());
                 }
                 c.scroll.borrow_mut().input(event);
@@ -659,11 +683,14 @@ impl App {
         let entering = matches!(event,Event::Key(k) if k.code==KeyCode::Enter);
         let field = match input {
             DialogInput::Field(i, _) => fields.get(i).copied(),
-            // Enter on a field chooses or advances that field; it never invokes Save.
-            DialogInput::Choose(_) if entering && !rename_enter => match prior {
-                tmt_tui::components::Focus::Field(i) => fields.get(i).copied(),
-                _ => None,
-            },
+            // Enter on a field chooses or advances that field; it never invokes Save. A disabled
+            // Save leaves Enter unclaimed by the dialog, and the field still takes it.
+            DialogInput::Choose(_) | DialogInput::Ignored if entering && !rename_enter => {
+                match prior {
+                    tmt_tui::components::Focus::Field(i) => fields.get(i).copied(),
+                    _ => None,
+                }
+            }
             _ => None,
         };
         if let Some(field) = field {
@@ -715,10 +742,11 @@ impl App {
                 }
             }
         } else if let DialogInput::Choose(index) = input {
-            if index == 0 {
+            let act = c.edit.as_ref()?.act(c, target_error.is_none(), index);
+            if matches!(act, Some(Act::Cancel | Act::Close)) {
                 return Some(self.new_member_close());
             }
-            if buttons.get(index).is_some_and(|b| b.label == "Discard") {
+            if act == Some(Act::Discard) {
                 self.new_member = None;
                 return Some(Effect::None);
             }
@@ -828,4 +856,13 @@ impl App {
         c.invalidate();
         Some(Effect::None)
     }
+}
+
+/// One button of the editor's row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Act {
+    Save,
+    Discard,
+    Cancel,
+    Close,
 }

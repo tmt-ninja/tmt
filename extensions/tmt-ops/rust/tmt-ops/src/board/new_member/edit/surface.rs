@@ -43,7 +43,14 @@ impl Controller {
             title: edit.title(),
             kind: DialogKind::Form,
             placement: Placement::Center,
-            hints: String::new(),
+            hints: if self.stage == Stage::Form {
+                format!(
+                    "↑↓ field · ←→ value · {} · Esc keep",
+                    edit.enter_hint(self, target_error.is_none())
+                )
+            } else {
+                String::new()
+            },
             buttons,
         };
         let has_runs = target_error.is_none()
@@ -75,14 +82,6 @@ impl Controller {
         let mut lines = Vec::new();
         let mut field_rows = Vec::new();
         if self.stage == Stage::Form {
-            lines.extend(crate::board::notes::wrap(
-                &format!(
-                    "↑↓ field · ←→ value · {} · Esc keep",
-                    edit.enter_hint(self, target_error.is_none())
-                ),
-                usize::from(probe.content.width),
-            ));
-            lines.push(String::new());
             for _field in &fields {
                 field_rows.push(lines.len());
                 lines.push(String::new());

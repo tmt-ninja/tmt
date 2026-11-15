@@ -406,7 +406,7 @@ fn viewer_or_selection_drift_disables_the_painted_save_without_retargeting_the_d
             .iter()
             .map(|b| b.label)
             .collect::<Vec<_>>(),
-        ["Cancel", "Discard"]
+        ["Discard", "Cancel"]
     );
     assert_eq!(edit.target.name(), "worker");
     assert_eq!(c.draft.text(super::super::model::Slot::Name), "renamed");
@@ -566,7 +566,7 @@ fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
     app.open_member_edit();
     let c = app.new_member.as_mut().unwrap();
     assert!(c.shown && c.reopened);
-    c.edit.as_mut().unwrap().dialog.focus = tmt_tui::components::Focus::Buttons(1);
+    c.edit.as_mut().unwrap().dialog.focus = tmt_tui::components::Focus::Buttons(0);
     paint(&app, 160, 36);
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();
@@ -575,7 +575,7 @@ fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
             .iter()
             .map(|b| b.label)
             .collect::<Vec<_>>(),
-        ["Cancel", "Discard"]
+        ["Discard", "Cancel"]
     );
     input(&mut app, KeyCode::Enter);
     assert!(app.new_member.is_none());
