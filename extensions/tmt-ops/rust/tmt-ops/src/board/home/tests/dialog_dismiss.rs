@@ -151,6 +151,9 @@ fn close_rule_test(overlay: Overlay) -> &'static str {
         }
         Overlay::Confirm => "confirm::tests::the_confirm_follows_the_close_rule",
         Overlay::PastePreview => "home::tests::light_dismiss::every_peek_follows_the_close_rule",
+        Overlay::OfflineResume => {
+            "offline_resume::tests::the_offline_resume_dialog_follows_the_close_rule"
+        }
     }
 }
 

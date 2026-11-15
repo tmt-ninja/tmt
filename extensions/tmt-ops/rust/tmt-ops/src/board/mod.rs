@@ -43,6 +43,7 @@ mod local_time;
 mod member_session;
 mod member_terminals;
 mod new_member;
+mod offline_resume;
 mod switch_tool;
 mod tool_choices;
 pub(crate) use limits::history::document as limits_history;
@@ -295,6 +296,8 @@ pub(in crate::board) enum BoardEvent {
     SkillsRead(skills::Completed),
     /// A built-in member's terminals were listed, opened or closed.
     TerminalsDone(member_terminals::Completed),
+    /// The built-in capture was read, or an offline member relaunched (or refused).
+    OfflineResume(offline_resume::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
     /// Inside tmux, the root `WheelUpPane` binding sends wheel-up to copy-mode (read once at start).
@@ -346,6 +349,7 @@ impl BoardEvent {
             Self::NotesRead(_) => "NotesRead",
             Self::SkillsRead(_) => "SkillsRead",
             Self::TerminalsDone(_) => "TerminalsDone",
+            Self::OfflineResume(_) => "OfflineResume",
             Self::VersionsRead(_) => "VersionsRead",
             Self::WheelUpEscapes => "WheelUpEscapes",
             Self::Input(Event::Key(_)) => "Input::Key",
@@ -863,6 +867,10 @@ fn session(
         }
         if let Some(task) = app.terminals_offer() {
             io(lane::Job::Terminals(task));
+        }
+        if let Some(task) = app.offline_resume_offer() {
+            io(lane::Job::OfflineResume(task));
+            dirty = true;
         }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
@@ -1463,6 +1471,11 @@ fn session(
                         dirty = true;
                         Effect::None
                     }
+                    Ok(BoardEvent::OfflineResume(completed)) => {
+                        app.offline_resume_done(completed);
+                        dirty = true;
+                        Effect::None
+                    }
                     Ok(BoardEvent::SkillsRead(completed)) => {
                         app.skills.finished(completed, Instant::now());
                         app.update_skills();
@@ -1999,6 +2012,9 @@ pub fn run(
     spawn_input(events, filter);
     app.unread.local.start();
     lane.submit(lane::Job::Versions);
+    if let Some(task) = app.offline_resume_start() {
+        lane.submit(lane::Job::OfflineResume(task));
+    }
     let resumed = std::cell::Cell::new(false);
     let result = session(
         &mut app,

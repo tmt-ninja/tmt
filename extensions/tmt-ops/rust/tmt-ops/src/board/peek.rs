@@ -137,6 +137,12 @@ impl App {
             Overlay::IdleAlert => return self.idle_alert_close(),
             Overlay::NewMember => return self.new_member_close(),
             Overlay::MemberSession => self.member_session = None,
+            // Hidden, not dropped: a running relaunch keeps going and its row keeps the result.
+            Overlay::OfflineResume => {
+                if let Some(dialog) = &mut self.offline_resume.dialog {
+                    dialog.shown = false;
+                }
+            }
             Overlay::Notes => {
                 if let Some(notes) = self.notes_overlay.take() {
                     notes.close(&mut self.notes);

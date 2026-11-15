@@ -207,6 +207,29 @@ fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
     }
 }
 
+/// The members the built-in capture names and what a restore would do with each now; the
+/// offline-resume ask reads the same preview Recovery shows.
+pub(in crate::board) fn builtin_members(
+    core: &Core,
+) -> Result<Vec<crate::board::offline_resume::Captured>, SquadError> {
+    let job = Job::Show {
+        store: Store::Builtin,
+        name: None,
+    };
+    match execute(core, &job)? {
+        Outcome::Members(preview) => Ok(preview
+            .members
+            .into_iter()
+            .map(|member| crate::board::offline_resume::Captured {
+                identity: member.identity_id,
+                name: member.name,
+                action: member.action,
+            })
+            .collect()),
+        _ => Err(invalid()),
+    }
+}
+
 pub(super) fn unique_ids<'a>(mut ids: impl Iterator<Item = &'a str>) -> bool {
     let mut seen = std::collections::BTreeSet::new();
     ids.all(|id| !id.is_empty() && seen.insert(id))

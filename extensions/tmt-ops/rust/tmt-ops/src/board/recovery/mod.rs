@@ -3,6 +3,7 @@ mod input;
 pub(crate) mod load;
 mod model;
 mod surface;
+pub(in crate::board) use surface::member_action;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 

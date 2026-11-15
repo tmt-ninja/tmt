@@ -804,10 +804,11 @@ pub(super) fn member_results(r: &MemberRestore) -> Vec<String> {
     }
     notes
 }
-fn member_action(action: &str) -> String {
+pub(in crate::board) fn member_action(action: &str) -> String {
     match action {
         "resumable" => format!("{} Will resume", Mark::Resumable.symbol()),
         "live" => format!("{} Running: left alone", Mark::Running.symbol()),
+        "ended" => format!("{} Ended: not restored", Mark::Offline.symbol()),
         "no_remembered_session" => "◆ Action needed: no remembered conversation".into(),
         "stale_requires_retry" => "◆ Action needed: stale conversation".into(),
         "identity_missing" => "◆ Action needed: original identity missing".into(),

@@ -29,6 +29,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         session.render(frame, app, look, body);
         set(Overlay::MemberSession, session.modal_outer());
     }
+    if let Some(dialog) = &app.offline_resume.dialog
+        && dialog.shown
+    {
+        dialog.render(frame, app, body);
+    }
     if let Some(notes) = &app.notes_overlay {
         notes.render(frame, app, look, body);
         set(Overlay::Notes, notes.modal_outer());

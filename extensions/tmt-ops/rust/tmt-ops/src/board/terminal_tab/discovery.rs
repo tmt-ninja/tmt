@@ -5,7 +5,7 @@ use std::{path::PathBuf, time::Duration};
 /// How long the read may take before the tab says it could not ask.
 const WITHIN: Duration = Duration::from_secs(3);
 /// Core waits up to 60 s for a relaunched agent to admit its launch.
-const RELAUNCH_WITHIN: Duration = Duration::from_secs(70);
+pub(in crate::board) const RELAUNCH_WITHIN: Duration = Duration::from_secs(70);
 /// Core's refusal for a member that is not on the built-in host, has no binding, or has ended.
 const UNAVAILABLE: &str = "TERMINAL_STREAM_UNAVAILABLE";
 
