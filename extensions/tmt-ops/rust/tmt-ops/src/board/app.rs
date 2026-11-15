@@ -1581,6 +1581,25 @@ impl App {
         resumes: Result<&BTreeMap<String, Value>, ()>,
         now: Instant,
     ) -> bool {
+        self.sample_home_when(resumes, now, false)
+    }
+
+    /// A `consumption.changes` receipt (#6364): a sample landed, so the meters take it now
+    /// instead of at their next interval.
+    pub(super) fn sample_home_changed(
+        &mut self,
+        resumes: &BTreeMap<String, Value>,
+        now: Instant,
+    ) -> bool {
+        self.sample_home_when(Ok(resumes), now, true)
+    }
+
+    fn sample_home_when(
+        &mut self,
+        resumes: Result<&BTreeMap<String, Value>, ()>,
+        now: Instant,
+        changed: bool,
+    ) -> bool {
         self.overview_rows.borrow_mut().clear();
         if self.loading() || self.current.as_deref() != Some(super::ALL) {
             return false;
@@ -1599,7 +1618,7 @@ impl App {
             if let Some(meter) = self
                 .meters
                 .get_mut(name)
-                .filter(|meter| rate.settings.enabled && meter.due(now))
+                .filter(|meter| rate.settings.enabled && (changed || meter.due(now)))
             {
                 let input = resumes.map(|rows| rate.input.joined(rows));
                 meter.sample(input.as_ref().map_err(|_| ()), now);
@@ -6365,6 +6384,24 @@ mod token_window_tests {
                 history: None,
             },
         );
+    }
+
+    /// A sample `consumption.changes` reported is taken at once; a timed read still waits for its
+    /// interval (#6364).
+    #[test]
+    fn a_changed_usage_receipt_samples_home_before_the_interval() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let first = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), first));
+        let soon = first + Duration::from_secs(1);
+        assert!(!app.sample_home(Ok(&super::super::rate::tests::input(300).resumes), soon));
+        assert!(app.sample_home_changed(&super::super::rate::tests::input(400).resumes, soon));
+        app.agents_live.begin(&app, soon);
+        let current = app.meters["product"]
+            .observation("a", TokenWindow::MINUTE, soon)
+            .map(|(reading, _)| reading);
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, current);
     }
 
     #[test]
