@@ -134,6 +134,7 @@ impl Config {
                             | "view"
                             | "ask_lead"
                             | "home_replies"
+                            | "checklist_enter"
                             | "startup_tab"
                     )
                 }) {

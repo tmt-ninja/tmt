@@ -1971,10 +1971,22 @@ impl Config {
         }
     }
 
-    /// Recognize the removed preview setting without interpreting or rewriting it.
+    /// Recognize obsolete board settings without interpreting or rewriting them.
     pub fn obsolete_board_notice(&self) -> Option<&'static str> {
-        self.source_item(&["board", "home_replies"])
-            .map(|_| "board.home_replies is deprecated and ignored; e expands row details.")
+        let replies = self.source_item(&["board", "home_replies"]).is_some();
+        let checklist = self.source_item(&["board", "checklist_enter"]).is_some();
+        match (replies, checklist) {
+            (true, true) => Some(
+                "board.home_replies and board.checklist_enter are deprecated and ignored; e expands row details and Enter opens links.",
+            ),
+            (true, false) => {
+                Some("board.home_replies is deprecated and ignored; e expands row details.")
+            }
+            (false, true) => {
+                Some("board.checklist_enter is deprecated and ignored; Enter opens links.")
+            }
+            (false, false) => None,
+        }
     }
 
     /// Validate both layers even when the squad masks the global question.
@@ -2913,45 +2925,73 @@ mod tests {
     }
 
     #[test]
-    fn obsolete_home_replies_is_ignored_with_one_notice_and_preserves_authored_toml() {
+    fn obsolete_board_keys_are_ignored_with_one_notice_and_preserve_authored_toml() {
         let (_scratch, path) = temp("obsolete-home-replies");
-        for value in ["false", "true", "'obsolete'", "42"] {
-            let body = format!("# keep this comment\n[board]\nhome_replies={value}\n");
-            fs::write(&path, &body).unwrap();
-            let mut config = Config::read(path.clone()).unwrap();
-            assert!(config.refresh("").is_ok());
-            assert_eq!(
-                config.obsolete_board_notice(),
-                Some("board.home_replies is deprecated and ignored; e expands row details.")
-            );
-            let shown = config
-                .settings(Some(crate::tabs::ALL), false, None)
-                .unwrap()
-                .value();
-            assert!(
-                !shown["entries"]
-                    .as_array()
+        for (key, notice) in [
+            (
+                "home_replies",
+                "board.home_replies is deprecated and ignored; e expands row details.",
+            ),
+            (
+                "checklist_enter",
+                "board.checklist_enter is deprecated and ignored; Enter opens links.",
+            ),
+        ] {
+            for value in ["false", "true", "'tick'", "42"] {
+                let body = format!("# keep this comment\n[board]\n{key}={value}\n");
+                fs::write(&path, &body).unwrap();
+                let mut config = Config::read(path.clone()).unwrap();
+                assert!(config.refresh("").is_ok());
+                assert_eq!(config.obsolete_board_notice(), Some(notice));
+                let shown = config
+                    .settings(Some(crate::tabs::ALL), false, None)
                     .unwrap()
-                    .iter()
-                    .any(|entry| entry["key"] == "board.home_replies")
-            );
-            assert_eq!(
-                shown["notices"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|notice| notice.as_str() == config.obsolete_board_notice())
-                    .count(),
-                1
-            );
-            assert!(!config.can_edit_setting("board.home_replies", None));
-            assert!(
-                config
-                    .set_setting(None, "board.home_replies", "false")
-                    .is_err()
-            );
-            assert_eq!(fs::read_to_string(&path).unwrap(), body);
+                    .value();
+                assert!(
+                    !shown["entries"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|entry| entry["key"] == format!("board.{key}"))
+                );
+                assert_eq!(
+                    shown["notices"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|notice| notice.as_str() == config.obsolete_board_notice())
+                        .count(),
+                    1
+                );
+                assert!(!config.can_edit_setting(&format!("board.{key}"), None));
+                assert!(
+                    config
+                        .set_setting(None, &format!("board.{key}"), "false")
+                        .is_err()
+                );
+                assert_eq!(fs::read_to_string(&path).unwrap(), body);
+            }
         }
+        let both = "[board]\nhome_replies=true\nchecklist_enter='tick'\n";
+        fs::write(&path, both).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert!(config.refresh("").is_ok());
+        let notice = config.obsolete_board_notice().unwrap();
+        assert!(notice.contains("board.home_replies") && notice.contains("board.checklist_enter"));
+        let settings = config
+            .settings(Some(crate::tabs::ALL), false, None)
+            .unwrap()
+            .value();
+        assert_eq!(
+            settings["notices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|entry| entry.as_str() == Some(notice))
+                .count(),
+            1
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), both);
         fs::write(&path, "[board]\nunknown=true\n").unwrap();
         let config = Config::read(path.clone()).unwrap();
         assert!(

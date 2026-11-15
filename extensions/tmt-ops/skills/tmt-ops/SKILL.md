@@ -1552,8 +1552,8 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`,
 `reminders.stale_after`, `idle_alert.enabled` and `idle_alert.after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
-The obsolete `board.home_replies` key is ignored with a one-line deprecation
-notice; authored TOML stays unchanged. It is no longer editable. `tabs.order` and `tabs.hide`
+The obsolete `board.home_replies` and `board.checklist_enter` keys are ignored with a
+one-line deprecation notice; authored TOML stays unchanged. They are no longer editable. `tabs.order` and `tabs.hide`
 always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 
