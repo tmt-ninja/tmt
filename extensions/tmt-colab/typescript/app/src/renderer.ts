@@ -1809,8 +1809,7 @@ export async function mountRenderer(
     if (stopped || turn !== updates) return 'superseded';
     // A page that writes design-system tags without a pin keeps its frame across edits: its
     // findings and runtime chunks follow the new source, so a change to them needs a fresh frame
-    // (#5966). Such a page has no pin, so this never reads a release or a draft and cannot time
-    // out into a notice; a pinned page never gets here, because its frame key changes with every
+    // (#5966). Such a page has no pin, so this never reads a release or a draft; a pinned page never gets here, because its frame key changes with every
     // source. A check that fails keeps the frame as drawn.
     if (sourceFrameKey(source).startsWith('design')) {
       const next = await loadDesignSystem(source, options.designSystem).catch(() => frameDesign);
@@ -1847,9 +1846,6 @@ export async function mountRenderer(
     pendingDesign?.settle('superseded');
     const next = await loadDesignSystem(source, options.designSystem).catch(() => undefined);
     if (stopped || turn !== designUpdates) return 'superseded';
-    // A timed-out refresh must not replace an already drawn draft with a transient notice.
-    // The pending draft notifies followers when it eventually completes.
-    if (next?.failure === 'unavailable' && !frameDesign.failure) return 'applied';
     // Only the style changes in place; anything the frame's scripts were built from remounts.
     if (!next || !sameFrameDesign(next, frameDesign, { style: false })) return 'remount';
     const requestId = crypto.randomUUID();

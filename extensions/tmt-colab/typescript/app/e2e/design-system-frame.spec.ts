@@ -964,7 +964,7 @@ test('an in-place edit of an unpinned page never waits for a release or a draft 
   });
   expect(result.outcome).toBe('applied');
   expect(result.reads).toEqual({ release: 0, draft: 0 });
-  // Far below the pin wait (PIN_WAIT_MS, 4 s) that turns a slow read into a notice.
+  // Applied in place, reading no release or draft again.
   expect(result.ms).toBeLessThan(1000);
   await expect(page.frameLocator('#stuck-probe iframe').locator('p')).toHaveText('Second');
 });
@@ -983,20 +983,19 @@ test('an unreadable release and a malformed pin both say so', async ({ page }) =
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
 });
 
-test('a bad pin never stands in for a real release, and a stuck read ends in a notice', async ({
+test('a bad pin never stands in for a real release, and a slow design system still renders', async ({
   page,
 }) => {
   await servePageRuntime(page);
   await page.goto('/');
   // One document, as in the app: the outcome of one pin must not answer for another.
-  const states = await page.evaluate(
+  await page.evaluate(
     async ({ bundle, pin, wrong }) => {
       const { mountRenderer } = await import('/src/renderer.ts' as string);
       const mountOne = async (id: string, content: string, served: () => Promise<unknown>) => {
         const host = document.createElement('div');
         host.id = id;
         document.body.append(host);
-        const started = performance.now();
         await mountRenderer(
           host,
           `<meta name="tmt-ds" content="${content}"><tmt-ui-button>Go</tmt-ui-button>`,
@@ -1010,16 +1009,16 @@ test('a bad pin never stands in for a real release, and a stuck read ends in a n
             },
           },
         );
-        return performance.now() - started;
       };
       await mountOne('wrong', wrong, async () => bundle);
       await mountOne('right', pin, async () => bundle);
-      const waited = await mountOne(
-        'stuck',
-        pin.replace('0.1.0', '0.1.1'),
-        () => new Promise(() => {}),
+      // A draft slower than the fixed wait a page used to give its design system (#6450) still
+      // draws. A draft is read for each page (a lock's outcome is kept for the session).
+      void mountOne(
+        'slow',
+        pin.split('@')[0]!,
+        () => new Promise((resolve) => setTimeout(() => resolve(bundle), 5_000)),
       );
-      return { waited };
     },
     { bundle, pin, wrong: pin.replace('0.1.0', '9.9.9') },
   );
@@ -1029,9 +1028,9 @@ test('a bad pin never stands in for a real release, and a stuck read ends in a n
   await expect(
     page.frameLocator('#right iframe').getByRole('button', { name: 'Go' }),
   ).toBeVisible();
-  const stuck = page.frameLocator('#stuck iframe').locator('body');
-  await expect(stuck).toContainText('could not be read in time');
-  expect(states.waited).toBeLessThan(8000);
+  const slow = page.frameLocator('#slow iframe');
+  await expect(slow.getByRole('button', { name: 'Go' })).toBeVisible({ timeout: 15_000 });
+  await expect(slow.locator('[data-tmt-ds-notice]')).toHaveCount(0);
 });
 
 test('the page check shows its findings on the page', async ({ page }) => {

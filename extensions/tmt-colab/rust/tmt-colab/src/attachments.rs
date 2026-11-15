@@ -336,7 +336,12 @@ impl AdmittedAttachmentRead {
         &self.descriptor
     }
     pub fn recheck(&self, store: &Store, key: &Keyring) -> Result<()> {
-        remaining(self.deadline)?;
+        self.recheck_until(store, key, self.deadline)
+    }
+    /// `recheck` under the deadline of the request it serves now. A Session read keeps one
+    /// capture for every chunk of the same object, and each chunk's request has its own deadline.
+    pub fn recheck_until(&self, store: &Store, key: &Keyring, deadline: Instant) -> Result<()> {
+        remaining(deadline)?;
         if let Some(session) = &self.session {
             session.admit_epoch(self.snapshot.epoch)?;
         }

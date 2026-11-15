@@ -439,12 +439,14 @@ export class AttachmentService implements AttachmentBinding {
     const c = selector.kind === 'document-current' ? await this.#fenced() : await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
       deadline = NO_DEADLINE,
+      t6450 = performance.now(),
       admitted = await AdmittedAttachmentRead.capture(
         owner,
         selector,
         deadline,
         this.options.sharing,
       );
+    console.log(`[ds-timing] browser capture ${Math.round(performance.now() - t6450)}ms`);
     return admitted.disclose(
       c.attachmentObjects.read(selector, admitted.descriptor),
       this.options.sharing,

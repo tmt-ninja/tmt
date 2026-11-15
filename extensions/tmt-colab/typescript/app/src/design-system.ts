@@ -142,7 +142,6 @@ export async function bundleHash(bundle: DesignSystemBundle): Promise<string> {
 }
 
 export type DesignSystemFailure =
-  | 'unavailable'
   | 'unknown-release'
   | 'hash-mismatch'
   | 'newer-runtime'
@@ -187,8 +186,6 @@ export async function resolveDesignSystem(
 }
 
 const notices: Record<DesignSystemFailure, string> = {
-  unavailable:
-    'This page’s design system release could not be read in time. Reopen the page to try again.',
   'unknown-release': 'This page pins a design system release this TMT does not have.',
   'hash-mismatch': 'This page’s design system bundle does not match its pin.',
   'newer-runtime': 'This page needs a newer TMT to show its components.',
@@ -318,8 +315,6 @@ export function findingsScript(findings: readonly Finding[]): string {
   );
 }
 
-/** How long a page waits for its pinned release before it renders with a notice instead. */
-export const PIN_WAIT_MS = 4000;
 /** Each locked pin's outcome for the session, by the whole pin: a verified bundle or the failure.
  * A release never changes under its pin, and a pin that failed is not fetched again until a
  * reload, so one page's bad pin can never stand in for another release, and a dead pin costs one
@@ -344,15 +339,15 @@ function outcome(pin: DesignSystemPin, from: DesignSystemSource): Promise<Outcom
   if (!result) outcomes.set(key, (result = resolveDesignSystem(system, lock, from)));
   return result.then((value) => (typeof value === 'string' ? { failure: value } : value));
 }
-const deadline = () =>
-  new Promise<Outcome>((resolve) =>
-    setTimeout(() => resolve({ failure: 'unavailable' }), PIN_WAIT_MS),
-  );
-/** The pin's verified bundle (the draft's, for a pin with no lock), or why there is none. A slow or
- * stuck read never blanks the page: past the deadline it is `unavailable`, and the read goes on for
- * the next open. */
-export const pinnedBundle = (pin: DesignSystemPin, from: DesignSystemSource) =>
-  Promise.race([outcome(pin, from), deadline()]);
+/** The pin's verified bundle (the draft's, for a pin with no lock), or why there is none. It waits
+ * as long as the read does: a slow read is still loading, and only a read that fails (an unreadable
+ * release, a bad hash, a draft that does not compile) draws a notice. */
+export const pinnedBundle = (pin: DesignSystemPin, from: DesignSystemSource) => {
+  const t0 = performance.now();
+  const result = outcome(pin, from);
+  void result.then((o) => console.log(`[ds-timing] pinned ${pin.lock ? 'lock' : 'draft'} ${'failure' in o ? o.failure : 'ok'} ${Math.round(performance.now() - t0)}ms`));
+  return result;
+};
 
 /** The system a page follows live (its pin has no lock), for the renderer to watch. */
 export function followedSystem(source: string): string | undefined {
