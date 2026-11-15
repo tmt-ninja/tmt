@@ -191,7 +191,13 @@ fn both_capture_provider_checks_equal_the_shipped_full_runtime_registry() {
     let registry = Registry::builtin();
     let mut expected: Vec<_> = registry
         .iter()
-        .filter(|driver| driver.runtime.is_some() && driver.descriptor.hooks.is_some())
+        .filter(|driver| {
+            driver.runtime.is_some()
+                && driver
+                    .descriptor
+                    .hooks
+                    .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
+        })
         .map(|driver| driver.name())
         .collect();
     expected.sort_unstable();
@@ -221,7 +227,11 @@ fn both_capture_provider_checks_equal_the_shipped_full_runtime_registry() {
         );
     }
     for driver in registry.iter() {
-        let capture_capable = driver.runtime.is_some() && driver.descriptor.hooks.is_some();
+        let capture_capable = driver.runtime.is_some()
+            && driver
+                .descriptor
+                .hooks
+                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed);
         assert_eq!(
             response(&db, driver.name()).is_ok(),
             capture_capable,

@@ -53,7 +53,10 @@ fn plans_with(
             continue;
         }
         let hint = if matches!(detection, Detection::Present { .. })
-            && driver.descriptor.hooks.is_some()
+            && driver
+                .descriptor
+                .hooks
+                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
         {
             format!("tmt setup {}", driver.name())
         } else {

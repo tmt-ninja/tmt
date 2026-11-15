@@ -66,14 +66,14 @@ fn set(text: &str, key: &str, value: &str) -> Result<String, PlanError> {
 fn container_key(provider: &DriverDefinition) -> &'static str {
     match provider.descriptor.hooks {
         Some(HookFormat::NamedHooksJson) => "tmt",
-        Some(HookFormat::SessionHooksJson) | None => "hooks",
+        Some(HookFormat::SessionHooksJson | HookFormat::PerLaunch) | None => "hooks",
     }
 }
 
 pub(super) fn lifecycle_events(provider: &DriverDefinition) -> &'static [&'static str] {
     match provider.descriptor.hooks {
         Some(HookFormat::NamedHooksJson) => &["SessionStart", "PreInvocation"],
-        Some(HookFormat::SessionHooksJson) | None => &LIFECYCLE,
+        Some(HookFormat::SessionHooksJson | HookFormat::PerLaunch) | None => &LIFECYCLE,
     }
 }
 

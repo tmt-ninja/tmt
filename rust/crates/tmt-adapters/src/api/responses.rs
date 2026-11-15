@@ -66,7 +66,12 @@ pub(super) fn capture(
 ) -> Option<serde_json::Value> {
     let definition = crate::drivers::Registry::builtin()
         .find(driver?)
-        .filter(|definition| definition.descriptor.hooks.is_some())?;
+        .filter(|definition| {
+            definition
+                .descriptor
+                .hooks
+                .is_some_and(crate::drivers::HookFormat::is_installed)
+        })?;
     Some(serde_json::json!({"enabled": installed(definition)}))
 }
 

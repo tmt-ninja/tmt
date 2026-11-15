@@ -102,10 +102,12 @@ fn refresh_one(
         message: "The recorded driver does not support provider setup.".into(),
         next_step: Some("tmt setup".into()),
     };
-    let Some(driver) = registry
-        .find(&entry.driver)
-        .filter(|driver| driver.descriptor.hooks.is_some())
-    else {
+    let Some(driver) = registry.find(&entry.driver).filter(|driver| {
+        driver
+            .descriptor
+            .hooks
+            .is_some_and(crate::drivers::HookFormat::is_installed)
+    }) else {
         return row;
     };
     row.next_step = Some(format!("tmt setup {}", driver.name()));

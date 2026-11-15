@@ -730,12 +730,6 @@ pub(super) fn run_bound(
         .cloned()
         .chain(lease.environment().iter().cloned())
         .chain(std::iter::once(("TMT_AGENT".into(), "1".into())))
-        .chain(
-            owner
-                .as_ref()
-                .and_then(|_| tmt_adapters::core_executable::selected().ok())
-                .map(|tmt| ("TMT_HOOK_BIN".into(), tmt.into_os_string())),
-        )
         .chain(learning.as_ref().map(|launch| {
             (
                 crate::session_learning::ENVIRONMENT.into(),

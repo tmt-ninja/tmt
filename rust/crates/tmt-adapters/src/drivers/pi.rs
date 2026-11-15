@@ -212,14 +212,13 @@ pub fn decode_hook(bytes: &[u8]) -> Result<PiObservation, HookInputError> {
                 Some("resume") => SessionTransition::Resumed,
                 Some("new") => SessionTransition::Cleared,
                 Some("fork") => SessionTransition::Forked,
-                Some("startup" | "reload") | None => SessionTransition::Started,
-                Some(_) => return Err(HookInputError::Invalid),
+                Some(_) | None => SessionTransition::Started,
             };
             (transition, true)
         }
         "session_shutdown" => (SessionTransition::Ended, false),
-        "before_agent_start" | "agent_end" | "agent_settled" | "ui_prompt_start"
-        | "ui_prompt_end" | "model_select" => (SessionTransition::Started, false),
+        "before_agent_start" | "agent_settled" | "ui_prompt_start" | "ui_prompt_end"
+        | "model_select" => (SessionTransition::Started, false),
         _ => return Err(HookInputError::Invalid),
     };
     Ok(PiObservation {
@@ -287,12 +286,18 @@ fn extension_up_to_date(path: &Path, expected: &[u8]) -> bool {
     fs::read(path).is_ok_and(|bytes| bytes == expected)
 }
 
-fn materialize_extension(state_directory: &Path) -> io::Result<PathBuf> {
+fn render_extension(launcher: &str) -> io::Result<String> {
+    let quoted = serde_json::to_string(launcher).map_err(io::Error::other)?;
+    Ok(EMBEDDED_EXTENSION.replace("__TMT_HOOK_BIN__", &quoted))
+}
+
+fn materialize_extension(state_directory: &Path, launcher: &str) -> io::Result<PathBuf> {
     let pi_dir = state_directory.join(NAME);
     crate::private_file::ensure_private_directory(&pi_dir)?;
     let path = pi_dir.join(EXTENSION_FILE_NAME);
-    if !extension_up_to_date(&path, EMBEDDED_EXTENSION.as_bytes()) {
-        crate::private_file::replace(&path, EMBEDDED_EXTENSION.as_bytes())?;
+    let content = render_extension(launcher)?;
+    if !extension_up_to_date(&path, content.as_bytes()) {
+        crate::private_file::replace(&path, content.as_bytes())?;
     }
     Ok(path)
 }
@@ -306,7 +311,6 @@ fn prepare_launch_with_runner(
         .to_str()
         .filter(|path| Path::new(path).is_absolute() && !path.chars().any(char::is_control))
         .ok_or_else(|| io::Error::other("Invalid hook launcher."))?;
-    let _ = launcher;
     if !plan.launch.valid() {
         return Err(io::Error::other("Invalid hook launch coordinates."));
     }
@@ -314,7 +318,7 @@ fn prepare_launch_with_runner(
         .state_directory
         .ok_or_else(|| io::Error::other("Missing state directory for pi extension."))?;
     check_version(runner, &plan.command.executable)?;
-    let extension_path = materialize_extension(state_directory)?;
+    let extension_path = materialize_extension(state_directory, launcher)?;
     let mut command = plan.command.clone();
     let boundary = command
         .args
@@ -532,7 +536,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
 
     fn decode_digest_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
         let (parsed, session) = parse_payload(payload).ok()?;
-        (parsed.event == "agent_end").then_some(session)
+        (parsed.event == "agent_settled").then_some(session)
     }
 
     fn encode_digest_turn(&self, _digest: &str) -> Option<String> {
@@ -579,7 +583,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
             "before_agent_start" => EventKind::TurnStarted,
             "ui_prompt_start" => EventKind::ApprovalPrompt,
             "ui_prompt_end" => EventKind::ToolFinished,
-            "agent_end" | "agent_settled" => EventKind::TurnEnded,
+            "agent_settled" => EventKind::TurnEnded,
             _ => return None,
         };
         Some(crate::runtime::hook_protocol::ActivityObservation {
@@ -627,13 +631,11 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
 
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         let (parsed, session) = parse_payload(payload).ok()?;
-        matches!(parsed.event.as_str(), "agent_end" | "agent_settled").then(|| {
-            crate::runtime::lifecycle::TurnEnd {
-                session,
-                transcript: parsed.session_file.map(PathBuf::from),
-                final_text: None,
-                interrupted: false,
-            }
+        (parsed.event == "agent_settled").then(|| crate::runtime::lifecycle::TurnEnd {
+            session,
+            transcript: parsed.session_file.map(PathBuf::from),
+            final_text: None,
+            interrupted: false,
         })
     }
 
@@ -877,7 +879,10 @@ mod tests {
                 & 0o777,
             0o600
         );
-        assert_eq!(fs::read_to_string(&ext_path).unwrap(), EMBEDDED_EXTENSION);
+        assert_eq!(
+            fs::read_to_string(&ext_path).unwrap(),
+            render_extension("/usr/local/bin/tmt").unwrap()
+        );
 
         // Tampered bytes or wrong permissions are rewritten atomically.
         fs::write(&ext_path, b"tampered").unwrap();
@@ -891,7 +896,10 @@ mod tests {
                 & 0o777,
             0o600
         );
-        assert_eq!(fs::read_to_string(&ext_path).unwrap(), EMBEDDED_EXTENSION);
+        assert_eq!(
+            fs::read_to_string(&ext_path).unwrap(),
+            render_extension("/usr/local/bin/tmt").unwrap()
+        );
     }
 
     #[test]
@@ -910,11 +918,19 @@ mod tests {
         assert_eq!(obs.transition, SessionTransition::Started);
         assert_eq!(obs.model.as_deref(), Some("claude-sonnet-4-5"));
 
+        let future_start = json!({
+            "event": "session_start",
+            "session_id": session,
+            "reason": "future-reason"
+        });
+        let future_obs = decode_hook(future_start.to_string().as_bytes()).unwrap();
+        assert!(future_obs.starting);
+        assert_eq!(future_obs.transition, SessionTransition::Started);
+
         for (ev, expected_kind) in [
             ("before_agent_start", EventKind::TurnStarted),
             ("ui_prompt_start", EventKind::ApprovalPrompt),
             ("ui_prompt_end", EventKind::ToolFinished),
-            ("agent_end", EventKind::TurnEnded),
             ("agent_settled", EventKind::TurnEnded),
         ] {
             let payload = json!({

@@ -111,7 +111,12 @@ fn plan_for(
     let mut hooks = Vec::new();
     let mut kept = Vec::new();
     for (driver, detection) in &detections {
-        if !matches!(detection, Detection::Present { .. }) || driver.descriptor.hooks.is_none() {
+        if !matches!(detection, Detection::Present { .. })
+            || !driver
+                .descriptor
+                .hooks
+                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
+        {
             continue;
         }
         let path = environment

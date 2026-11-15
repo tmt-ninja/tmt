@@ -146,7 +146,7 @@ fn hook_entry(
                 Some(matcher) => serde_json::json!({"matcher": matcher, "hooks": [entry]}),
             })
         }
-        None => Err(PlanError::UnsupportedProvider),
+        Some(HookFormat::PerLaunch) | None => Err(PlanError::UnsupportedProvider),
     }
 }
 
