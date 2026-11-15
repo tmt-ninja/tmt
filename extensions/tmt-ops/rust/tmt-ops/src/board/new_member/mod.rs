@@ -39,6 +39,8 @@ enum Destination {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Field {
     Slot(model::Slot),
+    /// The folded More line.
+    More,
     Keep(bool),
     Choice(usize),
 }
@@ -46,6 +48,8 @@ enum Field {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Focus {
     Slot(model::Slot),
+    /// The folded More line; → or Enter expands it.
+    More,
     Cancel,
     Discard,
     Create,
@@ -82,6 +86,8 @@ pub(in crate::board) struct Controller {
     focus: usize,
     at: Focus,
     list: Option<List>,
+    /// The rarely changed fields are shown instead of the More line.
+    more: bool,
     template: Editor,
     notice: Option<String>,
     readable: Cell<bool>,
@@ -121,17 +127,37 @@ impl Controller {
             config: None,
         }
     }
-    /// The form's stops, in order: the shown fields (Squad only for a saved member), then
-    /// the buttons.
-    fn stops(&self) -> Vec<Focus> {
-        self.draft
+    /// The form's rows: the shown fields, with the rarely changed ones folded into one More
+    /// row until it is expanded.
+    fn rows_shown(&self) -> Vec<Focus> {
+        let slots = self.draft.visible(self.loaded.as_ref());
+        let folded = |slot: &model::Slot| slot.folded() && !self.more;
+        slots
+            .iter()
+            .filter(|slot| !folded(slot))
+            .copied()
+            .map(Focus::Slot)
+            .chain(slots.iter().any(folded).then_some(Focus::More))
+            .collect()
+    }
+    /// Expand the More line and focus its first field.
+    fn expand(&mut self) {
+        self.more = true;
+        self.at = self
+            .draft
             .visible(self.loaded.as_ref())
             .into_iter()
-            .filter(|slot| *slot != model::Slot::Squad || self.draft.saved)
-            .map(Focus::Slot)
-            .chain([Focus::Cancel])
+            .find(|slot| slot.folded())
+            .map_or(Focus::Create, Focus::Slot);
+    }
+    /// The form's stops, in order: the shown rows (Squad only for a saved member), then
+    /// the buttons, primary first.
+    fn stops(&self) -> Vec<Focus> {
+        self.rows_shown()
+            .into_iter()
+            .filter(|row| *row != Focus::Slot(model::Slot::Squad) || self.draft.saved)
+            .chain([Focus::Create, Focus::Cancel])
             .chain(self.discards().then_some(Focus::Discard))
-            .chain([Focus::Create])
             .collect()
     }
     /// ←→ on the button row move between its buttons only.
@@ -139,7 +165,7 @@ impl Controller {
         let buttons: Vec<_> = self
             .stops()
             .into_iter()
-            .filter(|stop| !matches!(stop, Focus::Slot(_)))
+            .filter(|stop| !matches!(stop, Focus::Slot(_) | Focus::More))
             .collect();
         let at = buttons.iter().position(|b| *b == self.at).unwrap_or(0);
         let n = buttons.len();
@@ -390,6 +416,7 @@ impl App {
             focus: 0,
             at: Focus::Slot(model::Slot::Name),
             list: None,
+            more: false,
             template: Editor::default(),
             notice: None,
             readable: Cell::new(false),

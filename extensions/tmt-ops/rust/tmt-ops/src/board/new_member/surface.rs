@@ -5,6 +5,8 @@ use ratatui::{Frame, text::Line};
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::strip;
 use tmt_tui::components::{Modal, Placement};
+/// The form's label column: `AI tool` and two spaces, then the value.
+const LABEL: usize = 10;
 fn safe(text: &str) -> String {
     super::super::notes::sanitize(&tmt_cli_style::table::escape(text))
 }
@@ -35,56 +37,102 @@ impl Controller {
             _ => vec![],
         }
     }
-    fn preview_lines(&self, width: u16) -> Vec<String> {
+    /// The command the form runs, one dim line: `Runs  <command>  e edit`.
+    fn runs_line(&self) -> Option<String> {
         self.loaded
             .as_ref()
             .and_then(|loaded| self.draft.review(loaded).ok())
             .map(|review| {
-                let mut text = vec![
-                    if review.outer.is_some() {
-                        "Runs · e edit template"
-                    } else {
-                        "Copy only · this host has no launch template"
-                    }
-                    .to_owned(),
-                    crate::launch::line(&review.display.command),
-                ];
-                // The follow-up commands, keep then squad, one row each.
-                text.extend(review.copy().lines().skip(1).map(str::to_owned));
-                text.iter()
-                    .flat_map(|line| super::super::notes::wrap(&safe(line), usize::from(width)))
-                    .collect()
+                let command = safe(&crate::launch::line(&review.display.command));
+                if review.outer.is_some() {
+                    format!("{command}  e edit")
+                } else {
+                    format!("{command}  copy only")
+                }
             })
-            .unwrap_or_default()
     }
-    fn temporary_hint(&self, width: u16) -> Vec<String> {
-        if self.draft.saved {
-            return vec![];
+    /// The More line's summary of its folded fields.
+    fn more_summary(&self) -> String {
+        let visible = self.draft.visible(self.loaded.as_ref());
+        let mut parts = Vec::new();
+        // The spec's order: where it runs, then how long it stays, then its effort.
+        let order = [
+            model::Slot::Host,
+            model::Slot::Session,
+            model::Slot::Keep,
+            model::Slot::Effort,
+        ];
+        for slot in order.into_iter().filter(|slot| visible.contains(slot)) {
+            match slot {
+                model::Slot::Host => parts.push(
+                    self.draft
+                        .shown(slot)
+                        .unwrap_or_else(|| "choose host".into()),
+                ),
+                model::Slot::Session => {
+                    let text = self.draft.text(slot);
+                    parts.push(format!(
+                        "{} session",
+                        if text.is_empty() { "default" } else { text }
+                    ));
+                }
+                model::Slot::Keep => parts.push(
+                    if self.draft.saved {
+                        "saved"
+                    } else {
+                        "temporary"
+                    }
+                    .into(),
+                ),
+                model::Slot::Effort => parts.push(match self.draft.shown(slot) {
+                    Some(effort) => format!("{effort} effort"),
+                    None => "default effort".into(),
+                }),
+                _ => {}
+            }
         }
-        super::super::notes::wrap(
-            "Temporary agents stay in Common pool; choose Saved to join a squad.",
-            usize::from(width),
-        )
+        safe(&parts.join(" · "))
     }
-    /// Form rows: the intro, one row per shown field with a gap, the Temporary hint, then the
-    /// command preview after one blank row.
-    fn form_height(&self, width: u16) -> (usize, usize) {
-        let fields = 2 * self.draft.visible(self.loaded.as_ref()).len() + 1;
-        let hint = self.temporary_hint(width).len();
-        (fields + hint, fields + hint + 1)
+    /// Choice rows open under the listed field.
+    fn list_slot(&self) -> Option<model::Slot> {
+        match self.list.as_ref()?.field {
+            edit::Field::Member(slot) => Some(slot),
+            _ => None,
+        }
+    }
+    /// The form's rows, the open list's choices, then a blank row and the Runs line.
+    fn form_height(&self) -> usize {
+        let rows = self.rows_shown().len() + self.list.as_ref().map_or(0, |_| self.rows().len());
+        rows + if self.runs_line().is_some() && self.list.is_none() {
+            2
+        } else {
+            0
+        }
+    }
+    /// Columns the form needs: the label column plus the widest value, or the Runs line.
+    fn form_width(&self) -> usize {
+        let width = |text: &str| unicode_width::UnicodeWidthStr::width(text);
+        let values = self
+            .rows_shown()
+            .into_iter()
+            .map(|row| match row {
+                Focus::More => width(&self.more_summary()) + 3,
+                Focus::Slot(model::Slot::Keep) => 21,
+                Focus::Slot(slot) => {
+                    let text = self.draft.text(slot);
+                    width(text).max(18) + 2
+                }
+                _ => 0,
+            })
+            .chain(self.rows().iter().map(|choice| width(&choice.label) + 2))
+            .chain(self.runs_line().map(|line| width(&line)))
+            .max()
+            .unwrap_or(0);
+        LABEL + values
     }
     fn content_height(&self, width: u16) -> usize {
         match self.stage {
-            Stage::Form if self.list.is_some() => 3 + self.rows().len(),
-            Stage::Form if self.loaded.is_some() => {
-                let (rows, preview_at) = self.form_height(width);
-                let preview = self.preview_lines(width);
-                if preview.is_empty() {
-                    rows
-                } else {
-                    preview_at + preview.len()
-                }
-            }
+            Stage::Form if self.loaded.is_some() => self.form_height(),
             Stage::Form | Stage::Hosts if self.loaded.is_none() => 1,
             Stage::Hosts => 2 + self.loaded.as_ref().map_or(0, |l| l.hosts.len()),
             Stage::Template => 2 + self.template.layout(width).lines.len(),
@@ -95,6 +143,20 @@ impl Controller {
                 .sum::<usize>()
                 .max(1),
         }
+    }
+    fn hint(&self, unavailable: bool) -> &'static str {
+        match self.stage {
+            Stage::Form | Stage::Hosts if unavailable => "Esc close",
+            Stage::Form if self.list.is_some() => "↑↓ choose · ⏎ pick · Esc back",
+            Stage::Form => "↑↓ move · ←→ change · Esc",
+            Stage::Template => "Ctrl-R reset · Esc close",
+            _ => "Esc close",
+        }
+    }
+    /// The button row's columns: Create, Cancel and a kept draft's Discard, then the hints.
+    fn footer_width(&self) -> u16 {
+        let buttons = if self.reopened { 26 } else { 16 };
+        buttons + 2 + unicode_width::UnicodeWidthStr::width(self.hint(false)) as u16
     }
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         if self.edit.is_some() {
@@ -115,12 +177,18 @@ impl Controller {
         };
         let unavailable = self.loaded.is_none() && matches!(self.stage, Stage::Form | Stage::Hosts);
         let status = self.notice.is_some() && !unavailable;
-        let probe = modal.areas(body, [100, 29], true, status);
+        let wide = if self.stage == Stage::Form && self.loaded.is_some() {
+            // The form is as wide as its widest row or its button row, plus the frame.
+            (self.form_width().max(usize::from(self.footer_width())) + 4).clamp(40, 100) as u16
+        } else {
+            100
+        };
+        let probe = modal.areas(body, [wide, 29], true, status);
         let demand = self.content_height(probe.content.width);
         let areas = modal.areas(
             body,
             [
-                100,
+                wide,
                 demand
                     .saturating_add(4 + usize::from(status))
                     .min(usize::from(u16::MAX)) as u16,
@@ -157,81 +225,45 @@ impl Controller {
                 );
                 complete = false;
             }
-            Stage::Form if self.list.is_some() => {
-                let list = self.list.as_ref().unwrap();
-                paint(
-                    frame,
-                    &format!("{} · type to filter", list.field.label()),
-                    0,
-                    Role::Muted,
-                );
-                let area = Rect::new(
-                    content.x,
-                    content.y + 1,
-                    content.width,
-                    1.min(content.height.saturating_sub(1)),
-                );
-                let layout = list.filter.layout(area.width);
-                let cursor = layout.paint(
-                    frame.buffer_mut(),
-                    area,
-                    0,
-                    list.filter.selection(),
-                    look.role(Role::Accent),
-                    look.selection(),
-                );
-                self.editor_width.set(area.width);
-                if let Some(cursor) = cursor {
-                    frame.set_cursor_position(cursor);
-                }
-                if list.filter.is_empty() && area.height > 0 {
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        area,
-                        Line::styled("filter", look.role(Role::Muted)),
-                    );
-                }
-                for (index, choice) in self.rows().iter().enumerate() {
-                    let y = 3 + index;
-                    if y >= usize::from(content.height) {
-                        complete = false;
-                        continue;
-                    }
-                    let selected = index == list.row;
-                    paint(
-                        frame,
-                        &format!("{} {}", if selected { "›" } else { " " }, choice.label),
-                        y,
-                        if selected { Role::Accent } else { Role::Text },
-                    );
-                    self.fields.borrow_mut().push((
-                        Field::Choice(index),
-                        Rect::new(content.x, content.y + y as u16, content.width, 1),
-                    ));
-                }
-            }
             Stage::Form => {
-                paint(
-                    frame,
-                    "Create an agent and start it on a host.",
-                    0,
-                    Role::Muted,
-                );
-                let slots = self.draft.visible(self.loaded.as_ref());
-                for (index, slot) in slots.iter().copied().enumerate() {
-                    let y = 2 + index * 2;
+                let label = LABEL as u16;
+                let value_width = content.width.saturating_sub(label);
+                let list_slot = self.list_slot();
+                let mut y = 0usize;
+                for row in self.rows_shown() {
                     if y >= usize::from(content.height) {
                         complete = false;
+                        y += 1;
                         continue;
                     }
+                    let at = content.y + y as u16;
+                    let area = Rect::new(content.x + label, at, value_width, 1);
+                    let focus = self.at == row && self.list.is_none();
+                    let slot = match row {
+                        Focus::More => {
+                            paint(frame, "More", y, Role::Muted);
+                            self.fields
+                                .borrow_mut()
+                                .push((Field::More, Rect::new(content.x, at, content.width, 1)));
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                area,
+                                Line::styled(
+                                    format!("{}  ▸", self.more_summary()),
+                                    if focus {
+                                        look.selection()
+                                    } else {
+                                        look.role(Role::Muted)
+                                    },
+                                ),
+                            );
+                            y += 1;
+                            continue;
+                        }
+                        Focus::Slot(slot) => slot,
+                        _ => continue,
+                    };
                     paint(frame, slot.label(), y, Role::Muted);
-                    let area = Rect::new(
-                        content.x + 12,
-                        content.y + y as u16,
-                        content.width.saturating_sub(12),
-                        1,
-                    );
-                    let focus = self.at == Focus::Slot(slot);
                     if slot == model::Slot::Keep {
                         if area.width >= 7 {
                             self.fields
@@ -259,6 +291,7 @@ impl Controller {
                                 },
                             ),
                         );
+                        y += 1;
                         continue;
                     }
                     if slot == model::Slot::Squad && !self.draft.saved {
@@ -267,24 +300,73 @@ impl Controller {
                             area,
                             Line::styled("Common pool", look.role(Role::Muted)),
                         );
+                        y += 1;
+                        continue;
+                    }
+                    if list_slot == Some(slot) {
+                        // The open list: its filter in the field, its choices under it.
+                        let list = self.list.as_ref().unwrap();
+                        let layout = list.filter.layout(area.width);
+                        let cursor = layout.paint(
+                            frame.buffer_mut(),
+                            area,
+                            0,
+                            list.filter.selection(),
+                            look.role(Role::Accent),
+                            look.selection(),
+                        );
+                        self.editor_width.set(area.width);
+                        if let Some(cursor) = cursor {
+                            frame.set_cursor_position(cursor);
+                        }
+                        let typed =
+                            unicode_width::UnicodeWidthStr::width(list.filter.as_str()) as u16;
+                        let hint = Rect::new(
+                            area.x + typed + 2,
+                            at,
+                            area.width.saturating_sub(typed + 2),
+                            1,
+                        );
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            hint,
+                            Line::styled("type to filter", look.role(Role::Muted)),
+                        );
+                        y += 1;
+                        for (index, choice) in self.rows().iter().enumerate() {
+                            if y >= usize::from(content.height) {
+                                complete = false;
+                                y += 1;
+                                continue;
+                            }
+                            let selected = index == list.row;
+                            let rect =
+                                Rect::new(content.x + label, content.y + y as u16, value_width, 1);
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                rect,
+                                Line::styled(
+                                    format!(
+                                        "{} {}",
+                                        if selected { "›" } else { " " },
+                                        safe(&choice.label)
+                                    ),
+                                    look.role(if selected { Role::Accent } else { Role::Text }),
+                                ),
+                            );
+                            self.fields.borrow_mut().push((Field::Choice(index), rect));
+                            y += 1;
+                        }
                         continue;
                     }
                     self.fields.borrow_mut().push((Field::Slot(slot), area));
-                    // A listed field keeps its last column for ▾.
-                    let text_area = if slot.listed() {
-                        Rect::new(area.x, area.y, area.width.saturating_sub(2), 1)
-                    } else {
-                        area
-                    };
-                    if slot.listed() && area.width >= 2 {
-                        strip::paint_left(
-                            frame.buffer_mut(),
-                            Rect::new(area.right() - 1, area.y, 1, 1),
-                            Line::styled("▾", look.role(Role::Muted)),
-                        );
-                    }
-                    if slot.typed() {
+                    let typed_width = if slot.typed() {
                         let editor = &self.draft.fields[slot.index()];
+                        // A listed field keeps two columns for ` ▾`.
+                        let text_area = Rect {
+                            width: area.width.saturating_sub(2 * u16::from(slot.listed())),
+                            ..area
+                        };
                         let layout = editor.layout(text_area.width);
                         let cursor = layout.paint(
                             frame.buffer_mut(),
@@ -312,22 +394,27 @@ impl Controller {
                                 }
                                 _ => "session".into(),
                             };
+                            let width = unicode_width::UnicodeWidthStr::width(placeholder.as_str());
                             strip::paint_left(
                                 frame.buffer_mut(),
                                 text_area,
                                 Line::styled(placeholder, look.role(Role::Muted)),
                             );
+                            width
+                        } else {
+                            unicode_width::UnicodeWidthStr::width(self.draft.text(slot))
                         }
                     } else {
-                        let shown = self.draft.shown(slot);
+                        let shown = self.draft.shown(slot).unwrap_or_else(|| match slot {
+                            model::Slot::Host => "choose host".into(),
+                            _ => "(provider default)".into(),
+                        });
+                        let width = unicode_width::UnicodeWidthStr::width(shown.as_str());
                         strip::paint_left(
                             frame.buffer_mut(),
-                            text_area,
+                            area,
                             Line::styled(
-                                shown.unwrap_or_else(|| match slot {
-                                    model::Slot::Host => "choose host".into(),
-                                    _ => "(provider default)".into(),
-                                }),
+                                shown,
                                 if focus {
                                     look.selection()
                                 } else {
@@ -335,19 +422,45 @@ impl Controller {
                                 },
                             ),
                         );
+                        width
+                    };
+                    if slot.listed() {
+                        let x = (typed_width as u16 + 1).min(area.width.saturating_sub(1));
+                        if area.width >= 2 {
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                Rect::new(area.x + x, at, 1, 1),
+                                Line::styled("▾", look.role(Role::Muted)),
+                            );
+                        }
                     }
+                    y += 1;
                 }
-                let (rows, preview_at) = self.form_height(content.width);
-                for (index, line) in self.temporary_hint(content.width).iter().enumerate() {
-                    paint(
-                        frame,
-                        line,
-                        rows - self.temporary_hint(content.width).len() + index,
-                        Role::Muted,
-                    );
-                }
-                for (index, line) in self.preview_lines(content.width).iter().enumerate() {
-                    paint(frame, line, preview_at + index, Role::Muted);
+                if self.list.is_none()
+                    && let Some(runs) = self.runs_line()
+                {
+                    y += 1;
+                    paint(frame, "Runs", y, Role::Muted);
+                    if y < usize::from(content.height) {
+                        let area =
+                            Rect::new(content.x + label, content.y + y as u16, value_width, 1);
+                        let fitted = runs;
+                        let width = usize::from(area.width);
+                        let line = if unicode_width::UnicodeWidthStr::width(fitted.as_str()) > width
+                        {
+                            let mut cut: String =
+                                fitted.chars().take(width.saturating_sub(1)).collect();
+                            cut.push('…');
+                            cut
+                        } else {
+                            fitted
+                        };
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            area,
+                            Line::styled(line, look.role(Role::Dim)),
+                        );
+                    }
                 }
             }
             Stage::Hosts => {
@@ -477,7 +590,7 @@ impl Controller {
                     Focus::Cancel => Some(Control::First),
                     Focus::Discard => Some(Control::Discard),
                     Focus::Create => Some(Control::Apply),
-                    Focus::Slot(_) => None,
+                    Focus::Slot(_) | Focus::More => None,
                 },
             ),
             Stage::Hosts if unavailable => ("Close", "", None),
@@ -500,6 +613,14 @@ impl Controller {
         let discard = self.discards() && !unavailable;
         let mut controls = Vec::new();
         let mut buttons = Vec::new();
+        if !apply.is_empty() {
+            controls.push(Control::Apply);
+            buttons.push(
+                super::super::buttons::Button::primary(apply)
+                    .focused(focus == Some(Control::Apply))
+                    .enabled(complete),
+            );
+        }
         if !cancel.is_empty() {
             controls.push(Control::First);
             buttons.push(
@@ -512,14 +633,6 @@ impl Controller {
             buttons.push(
                 super::super::buttons::Button::secondary("Discard")
                     .focused(focus == Some(Control::Discard)),
-            );
-        }
-        if !apply.is_empty() {
-            controls.push(Control::Apply);
-            buttons.push(
-                super::super::buttons::Button::primary(apply)
-                    .focused(focus == Some(Control::Apply))
-                    .enabled(complete),
             );
         }
         let hits = super::super::buttons::paint(
@@ -542,30 +655,22 @@ impl Controller {
         ]);
         self.discard.set(hit(Control::Discard));
         self.readable.set(complete);
-        let start = hits
+        let used = hits
             .iter()
             .flatten()
             .map(|r| r.right())
             .max()
             .unwrap_or(areas.footer.x)
-            .saturating_add(1)
-            .min(areas.footer.right());
-        let hint = match self.stage {
-            Stage::Form | Stage::Hosts if unavailable => "Esc close",
-            Stage::Form if self.list.is_some() => "↑↓ choose · type to filter · Esc back",
-            Stage::Form => "↑↓ move · ←→ change · Enter list · e template",
-            Stage::Template => "Ctrl-R reset · Esc close",
-            _ => "Esc close",
-        };
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(
-                start,
-                areas.footer.y,
-                areas.footer.right() - start,
-                areas.footer.height,
-            ),
-            Line::styled(hint, look.role(Role::Muted)),
-        );
+            .saturating_sub(areas.footer.x);
+        let hint = self.hint(unavailable);
+        let width = unicode_width::UnicodeWidthStr::width(hint) as u16;
+        // Hints are dim and right-aligned; they drop before any button.
+        if used + 2 + width <= areas.footer.width {
+            strip::paint_right(
+                frame.buffer_mut(),
+                areas.footer,
+                Line::styled(hint, look.role(Role::Dim)),
+            );
+        }
     }
 }

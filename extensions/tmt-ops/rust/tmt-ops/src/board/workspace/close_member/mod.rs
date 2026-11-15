@@ -51,7 +51,7 @@ pub(crate) struct Close {
     pub result: Option<Outcome>,
     pub hits: RefCell<DialogHits>,
     /// The actions painted with `hits`, slot for slot.
-    pub painted: RefCell<Vec<surface::Act>>,
+    painted: RefCell<Vec<surface::Act>>,
 }
 impl Close {
     pub fn new(viewer: Option<String>) -> Self {
