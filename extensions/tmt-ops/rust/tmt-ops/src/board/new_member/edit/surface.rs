@@ -233,6 +233,13 @@ impl Controller {
                 Line::styled(crate::board::notes::sanitize(line), look.role(Role::Muted)),
             );
         }
+        // Labels take the New member column, or the longest label and two spaces.
+        let label_width = fields
+            .iter()
+            .map(|field| field.label().chars().count() as u16 + 2)
+            .max()
+            .unwrap_or(0)
+            .max(10);
         for (i, field) in fields.iter().enumerate() {
             let row = field_rows.get(i).copied().unwrap_or(usize::MAX);
             if self.stage != Stage::Form
@@ -248,11 +255,16 @@ impl Controller {
                 areas.content.width,
                 1,
             );
-            let value_area = Rect::new(area.x + 10, area.y, area.width.saturating_sub(10), 1);
+            let value_area = Rect::new(
+                area.x + label_width,
+                area.y,
+                area.width.saturating_sub(label_width),
+                1,
+            );
             hits.fields.push(value_area);
             strip::paint_left(
                 frame.buffer_mut(),
-                Rect::new(area.x, area.y, 10.min(area.width), 1),
+                Rect::new(area.x, area.y, label_width.min(area.width), 1),
                 Line::styled(field.label(), look.role(Role::Muted)),
             );
             let focused = edit.dialog.focus == DialogFocus::Field(i);
