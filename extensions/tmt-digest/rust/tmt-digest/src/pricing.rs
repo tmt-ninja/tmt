@@ -100,7 +100,7 @@ impl Table {
         }))
     }
 
-    fn document(&self) -> Value {
+    pub(crate) fn document(&self) -> Value {
         json!({"version":self.version,"asOf":self.as_of,"basis":self.basis,
             "models":self.models.iter().map(|rate| json!({"modelId":rate.model_id,
                 "usdMicrosPerMillionInputTokens":rate.usd_micros_per_million_input_tokens,

@@ -86,6 +86,10 @@ pub struct Input {
     pub created_at_ms: u64,
     pub context_tokens_at_arrival: Option<u64>,
     pub context_observed_at_ms: Option<u64>,
+    /// The recipient's activity phase when Core held the message (#6453): `working` means it
+    /// would have joined a running turn. Absent is unknown, as in history kept before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase_at_arrival: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind")]

@@ -51,6 +51,15 @@ fn run(
     decisions: &[Decision],
     recompute: Option<Recompute>,
 ) -> Value {
+    run_with_wake(settlements, decisions, recompute, None)
+}
+
+fn run_with_wake(
+    settlements: &[(String, ChecklistSettlement)],
+    decisions: &[Decision],
+    recompute: Option<Recompute>,
+    wake_turns: Option<&[WakeTurn]>,
+) -> Value {
     document(&Input {
         since: "24h",
         from_ms: 0,
@@ -68,7 +77,24 @@ fn run(
         )]),
         names: &BTreeMap::from([(A.to_owned(), "worker".to_owned())]),
         recompute,
+        wake_turns,
+        prices: crate::pricing::built_in(),
     })
+}
+
+fn turn(
+    measured: bool,
+    tokens: Option<(u64, u64)>,
+    by_model: Option<Vec<(&str, u64)>>,
+) -> WakeTurn {
+    WakeTurn {
+        identity_id: A.into(),
+        ended_at_ms: 50_000,
+        measured,
+        tokens: tokens.map(|(input, output)| input + output),
+        input_tokens: tokens.map(|(input, _)| input),
+        by_model: by_model.map(|rows| rows.into_iter().map(|(m, n)| (m.to_owned(), n)).collect()),
+    }
 }
 
 fn rows(member: &str, items: Vec<ChecklistSettlement>) -> Vec<(String, ChecklistSettlement)> {
@@ -81,22 +107,48 @@ fn rows(member: &str, items: Vec<ChecklistSettlement>) -> Vec<(String, Checklist
 #[test]
 fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay() {
     // Three deliveries took 6 messages: delays 40/30/20 s, 5 s, 15/10 s.
+    // Each message keeps the phase its member was in when Core held it (#6453).
+    let phased = |mut checklist: ChecklistSettlement, phases: &[Option<&str>]| {
+        for (item, phase) in checklist.items.iter_mut().zip(phases) {
+            item.phase_at_arrival = phase.map(str::to_owned);
+        }
+        checklist
+    };
     let settlements = rows(
         A,
         vec![
-            checklist(
-                1,
-                50_000,
-                60_000,
-                &[20_000, 30_000, 40_000],
-                "delivered",
-                true,
+            phased(
+                checklist(
+                    1,
+                    50_000,
+                    60_000,
+                    &[20_000, 30_000, 40_000],
+                    "delivered",
+                    true,
+                ),
+                &[Some("idle"), Some("idle"), Some("working")],
             ),
-            checklist(2, 95_000, 100_000, &[95_000], "delivered", true),
-            checklist(3, 140_000, 150_000, &[135_000, 140_000], "delivered", true),
+            phased(
+                checklist(2, 95_000, 100_000, &[95_000], "delivered", true),
+                &[Some("idle")],
+            ),
+            phased(
+                checklist(3, 140_000, 150_000, &[135_000, 140_000], "delivered", true),
+                &[Some("working"), None],
+            ),
         ],
     );
-    let document = run(&settlements, &[], None);
+    // A measured priced turn, a measured turn of a model without a price row, and a partial one.
+    let turns = [
+        turn(
+            true,
+            Some((1_000, 200)),
+            Some(vec![("claude-opus-5-5", 1_000)]),
+        ),
+        turn(true, Some((3_000, 100)), Some(vec![("hydrogen-1", 3_000)])),
+        turn(false, Some((50, 5)), None),
+    ];
+    let document = run_with_wake(&settlements, &[], None, Some(&turns));
     assert_eq!(
         document["baseline"],
         "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway"
@@ -115,6 +167,55 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
     );
     assert_eq!(document["total"]["turnsSaved"], 3);
     assert_eq!(document["total"]["baseline"], json!({"deliveries": 6}));
+    // Measured: checklists 1 and 2 know every phase; their three idle arrivals took two
+    // deliveries. The working arrival would have joined that turn, so it saves nothing.
+    assert_eq!(member["measuredSaved"], 1);
+    assert_eq!(
+        member["arrivals"],
+        json!({"idle": 3, "working": 2, "waiting": 0, "unknown": 1})
+    );
+    let wake = &member["wakeUps"];
+    assert_eq!(
+        (wake["delivered"].clone(), wake["measured"].clone()),
+        (json!(3), json!(2))
+    );
+    assert_eq!(
+        wake["tokensPerWake"],
+        json!({"measured": {"count": 2, "mean": 2_150, "median": 1_200},
+               "partial": {"count": 1, "mean": 55, "median": 55}})
+    );
+    // 1,000 input tokens at the listed USD 4 per million; the unlisted model is not priced.
+    assert_eq!(
+        wake["costPerWake"],
+        json!({"medianUsdMicros": 4_000, "priced": 1, "reason": null})
+    );
+    assert_eq!(
+        member["avoidedCost"],
+        json!({"usdMicros": 4_000, "estimate": true})
+    );
+    assert_eq!(document["total"]["measuredSaved"], 1);
+    assert!(
+        document["wakeMethod"]["avoidedCost"]
+            .as_str()
+            .unwrap()
+            .starts_with("estimate")
+    );
+    // Only the unlisted model measured: no cost is invented.
+    let unpriced = [turn(
+        true,
+        Some((3_000, 100)),
+        Some(vec![("hydrogen-1", 3_000)]),
+    )];
+    let member = &run_with_wake(&settlements, &[], None, Some(&unpriced))["members"][0];
+    assert_eq!(
+        member["wakeUps"]["costPerWake"],
+        json!({"medianUsdMicros": null, "priced": 0, "reason": "no_price"})
+    );
+    assert_eq!(member["avoidedCost"]["usdMicros"], Value::Null);
+    // Without Core's turns the report says so rather than showing zero.
+    let member = &run(&settlements, &[], None)["members"][0];
+    assert_eq!(member["wakeUps"], Value::Null);
+    assert_eq!(member["avoidedCost"]["reason"], "wake_turns_unavailable");
     // Without an alternative nothing is recomputed or labelled as an estimate.
     assert!(member.get("recomputed").is_none());
     assert!(document.get("recompute").is_none());
@@ -308,6 +409,8 @@ fn coverage_says_where_the_evidence_begins_and_whether_it_has_a_gap() {
             coverage: &BTreeMap::from([(A.to_owned(), coverage)]),
             names: &BTreeMap::new(),
             recompute: None,
+            wake_turns: None,
+            prices: crate::pricing::built_in(),
         })["members"][0]["coverage"]
             .clone()
     };
