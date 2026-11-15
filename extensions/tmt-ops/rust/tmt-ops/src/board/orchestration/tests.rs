@@ -422,7 +422,7 @@ fn job(number: u64, owner: Option<(&str, &str)>, title: &str, schedule: &str) ->
         "target":{"squadRoomId":JOB_ROOM,"identityId":owner.map(|o| o.0),"identityName":owner.map(|o| o.1)},
         "title":title,"messagePreview":format!("{title}: list open PRs, oldest first."),
         "schedule":schedule,"state":if owner.is_some() { "on" } else { "no_owner" },
-        "manualPause":null,"heldSlot":null,"routine":null,"nextRunAtMs":null,"lastRun":null})
+        "manualPause":null,"heldSlot":null,"routine":null,"nextRunAtMs":null,"lastRun":null,"recentRuns":[]})
 }
 /// The pair's jobs: worker's held by its focus until 2500, peer's ready, a paused one and one
 /// made with `tmt orch job` (no Ops key).
@@ -433,6 +433,7 @@ fn jobs() -> Value {
         "revision":1,"slot":{"startMs":1000,"endMs":2500},"defaulted":false}});
     held["nextRunAtMs"] = 1800.into();
     held["lastRun"] = json!({"recordedAtMs":900,"acceptance":"queued"});
+    held["recentRuns"] = json!([{"id":"r1","slotMs":900,"recordedAtMs":900,"acceptance":"queued"}]);
     let mut ready = job(2, Some((OTHER, "peer")), "UI check", "every 1h");
     ready["nextRunAtMs"] = 2000.into();
     let mut paused = job(3, Some((OTHER, "peer")), "Archive review", "daily 23:30");
@@ -1373,6 +1374,18 @@ pub(in crate::board) mod captures {
         hold(&mut j1, "plan", Some(QUIET), WED_00 + 32 * HOUR);
         j1["nextRunAtMs"] = (WED_23 + HOUR / 2).into();
         j1["lastRun"] = json!({"recordedAtMs":WED_23 - 90 * 60_000,"acceptance":"queued"});
+        // Core's five newest runs, newest first; the first is `lastRun`'s (#6436).
+        let run = |minutes: u64, acceptance: &str| {
+            json!({"id":format!("r{minutes}"),"slotMs":WED_23 - minutes * 60_000,
+                "recordedAtMs":WED_23 - minutes * 60_000,"acceptance":acceptance})
+        };
+        j1["recentRuns"] = json!([
+            run(90, "queued"),
+            run(120, "route_restricted"),
+            run(150, "held_for_person"),
+            run(180, "recipient_unavailable"),
+            run(210, "queued")
+        ]);
         let mut j2 = job(2, owner(5), "UI check", "every 1h");
         hold(&mut j2, "focus", None, WED_23 + 2 * HOUR);
         j2["nextRunAtMs"] = WED_23.into();
@@ -1515,7 +1528,11 @@ pub(in crate::board) mod captures {
                         "reason":reason,"configurationRevision":9,"timeZone":"Asia/Tokyo",
                         "sources":[source]})
                 };
-                let page = json!({"schemaVersion":1,"items":[
+                // What Core records today (#6436): Digest decisions and the sending producers.
+                let coverage = json!({"retentionMs":30 * DAY,"retainedAfterMs":null,"liveProducers":true,
+                    "producers":["receiving_hold","digest_claim","digest_settlement","route_restricted",
+                        "route_grant","talk_limit","talk_resumed","talk_hold_expired"],"historyComplete":false});
+                let page = json!({"schemaVersion":1,"coverage":coverage,"items":[
                     item(9, 2, "allowed", "digest_claim", &quiet),
                     item(8, 21, "sent", "digest_delivered", &quiet),
                     item(7, 73, "allowed", "digest_claim", &quiet),
@@ -1533,7 +1550,7 @@ pub(in crate::board) mod captures {
                 });
                 if scene == "orchestration-why-paged" {
                     // `↓` at the end read one more page; it has more before it still.
-                    let older = json!({"schemaVersion":1,"items":[
+                    let older = json!({"schemaVersion":1,"coverage":coverage,"items":[
                         item(4, 26 * 60, "uncertain", "digest_uncertain", &quiet),
                         item(3, 27 * 60, "sent", "digest_delivered", &base)],
                         "nextBefore":2});
@@ -1649,4 +1666,75 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
     });
     assert_eq!(app.orchestration.query.at_ms, 2000);
     assert!(!app.orchestration.follow_now);
+}
+
+fn lines_at(app: &super::super::app::App, width: u16, height: u16) -> Vec<String> {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| super::super::view::render(frame, app))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    (0..height)
+        .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+        .collect()
+}
+
+/// The job inspector lists Core's recent runs newest first in today's words (#6436), and a short
+/// inspector keeps its other lines, giving up runs for one `+N more runs` line.
+#[test]
+fn the_job_inspector_lists_recent_runs_and_gives_up_runs_before_other_lines() {
+    let app = captures::case("orchestration-jobs", crate::look::Look::default());
+    let text = lines_at(&app, 160, 36).join("\n");
+    let order = [
+        "21:30 ✓ accepted",
+        "21:00 ✕ blocked · route restricted",
+        "20:30 ◆ held for a person",
+        "20:00 ✕ not accepted · owner unavailable",
+        "19:30 ✓ accepted",
+    ];
+    let mut at = 0;
+    for run in order {
+        let found = text[at..]
+            .find(run)
+            .unwrap_or_else(|| panic!("{run} after the last:\n{text}"));
+        at += found + run.len();
+    }
+    assert!(text.contains("Message"), "{text}");
+
+    // Stacked under the first section, runs keep the one row `Last run` had, so the matrix
+    // above keeps every member row it showed.
+    for width in [60u16, 80] {
+        let stacked = lines_at(&app, width, 36).join("\n");
+        assert!(stacked.contains("21:30 ✓ accepted · +4 more"), "{stacked}");
+        assert!(!stacked.contains("21:00 ✕ blocked"), "{stacked}");
+    }
+}
+
+/// A short side inspector gives up runs before any other line.
+#[test]
+fn a_short_side_inspector_gives_up_runs_before_other_lines() {
+    let app = captures::case("orchestration-jobs", crate::look::Look::default());
+    let short = lines_at(&app, 160, 14).join("\n");
+    assert!(short.contains("21:30 ✓ accepted"), "{short}");
+    assert!(
+        short.contains("more runs") || short.contains("· +4 more"),
+        "{short}"
+    );
+    assert!(short.contains("Run now"), "the keys stay:\n{short}");
+}
+
+/// The Why footer says what Core's coverage lists, and drops that parenthetical rather than wrap
+/// a third line in a narrow dialog.
+#[test]
+fn the_why_footer_follows_core_coverage_and_drops_it_when_narrow() {
+    let app = captures::case("orchestration-why", crate::look::Look::default());
+    let wide = lines_at(&app, 160, 36).join("\n");
+    assert!(
+        wide.contains("(claims, settlements, routes and talk limits)"),
+        "{wide}"
+    );
+    let narrow = lines_at(&app, 60, 36).join("\n");
+    assert!(narrow.contains("newest first"), "{narrow}");
+    assert!(!narrow.contains("(claims"), "{narrow}");
 }

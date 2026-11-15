@@ -19,9 +19,32 @@ use tmt_tui::{
 use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "orchestration.why.xml";
-/// What Core's journal holds for a member: its Digest claims and settlements. Holds are recorded
-/// per request, so a member's page never lists them; the dialog says so.
+/// What Core's journal holds for a member, when the page names no producers: its Digest claims
+/// and settlements. Holds are recorded per request, so a member's page never lists them.
 const COVERS: &str = "claims and settlements";
+
+/// The footer's short words for what `coverage.producers` says Core records, in this order. A
+/// producer the board does not know adds nothing; `receiving_hold` is per request, as above.
+fn covers(producers: &[String]) -> Option<String> {
+    let has = |names: &[&str]| producers.iter().any(|p| names.contains(&p.as_str()));
+    let words: Vec<&str> = [
+        (has(&["digest_claim"]), "claims"),
+        (has(&["digest_settlement"]), "settlements"),
+        (has(&["route_restricted", "route_grant"]), "routes"),
+        (
+            has(&["talk_limit", "talk_resumed", "talk_hold_expired"]),
+            "talk limits",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(on, word)| on.then_some(word))
+    .collect();
+    match words.as_slice() {
+        [] => None,
+        [one] => Some((*one).to_owned()),
+        [rest @ .., last] => Some(format!("{} and {last}", rest.join(", "))),
+    }
+}
 
 /// The dialog's state: whose decisions, the pages read so far and where the view is.
 pub(in crate::board) struct Why {
@@ -37,6 +60,8 @@ pub(in crate::board) struct Why {
     pub next_before: Option<u64>,
     /// How long Core keeps decisions (`coverage.retentionMs`), when the page says.
     pub retention_ms: Option<u64>,
+    /// What Core records (`coverage.producers`), when the page says.
+    pub producers: Option<Vec<String>>,
     pub loading: bool,
     pub failure: Option<String>,
     scroll: ScrollState,
@@ -59,6 +84,7 @@ impl Why {
             items: Vec::new(),
             next_before: None,
             retention_ms: None,
+            producers: None,
             loading: true,
             failure: None,
             scroll: ScrollState::default(),
@@ -76,6 +102,11 @@ impl Why {
         }
         self.next_before = page["nextBefore"].as_u64();
         self.retention_ms = page["coverage"]["retentionMs"].as_u64();
+        self.producers = page["coverage"]["producers"].as_array().map(|list| {
+            list.iter()
+                .filter_map(|p| p.as_str().map(str::to_owned))
+                .collect()
+        });
         self.loading = false;
         self.failure = None;
     }
@@ -283,7 +314,9 @@ impl Why {
         }
         rows
     }
-    fn footer(&self, shown: usize) -> String {
+    /// The keys and what the list holds. The parenthetical naming what Core records goes first
+    /// when the footer would otherwise wrap past two lines of `inner` cells.
+    fn footer(&self, shown: usize, inner: usize) -> String {
         let all = self.other.as_ref().map(|(_, other)| {
             if self.on_recipient() {
                 format!(" · a {other}'s decisions")
@@ -296,11 +329,24 @@ impl Why {
         } else {
             ""
         };
-        format!(
-            "↑↓ scroll{} · Esc close · {shown} recorded decision{}, newest first ({COVERS}){more}",
-            all.unwrap_or_default(),
-            if shown == 1 { "" } else { "s" }
-        )
+        let covers = self
+            .producers
+            .as_deref()
+            .and_then(covers)
+            .unwrap_or_else(|| COVERS.to_owned());
+        let line = |covers: &str| {
+            format!(
+                "↑↓ scroll{} · Esc close · {shown} recorded decision{}, newest first{covers}{more}",
+                all.clone().unwrap_or_default(),
+                if shown == 1 { "" } else { "s" }
+            )
+        };
+        let full = line(&format!(" ({covers})"));
+        if full.chars().count().div_ceil(inner.max(1)) > 2 {
+            line("")
+        } else {
+            full
+        }
     }
     /// The box's markup for its title and size: at most 92 columns, as tall as its rows.
     fn template(&mut self, width: u16, height: u16) -> &surface::Template<()> {
@@ -359,9 +405,9 @@ impl Why {
             .iter()
             .filter(|r| r["id"].as_str().is_some_and(|id| id.starts_with('d')))
             .count();
-        let footer = self.footer(shown);
         // Borders, the rows, a blank line and the footer as it wraps inside the box.
         let inner = usize::from(width.saturating_sub(4)).max(1);
+        let footer = self.footer(shown, inner);
         let footer_lines = footer.chars().count().div_ceil(inner) as u16;
         let height = body.height.min(rows.len() as u16 + 3 + footer_lines).max(5);
         let value = json!({"rows": rows, "footer": footer});

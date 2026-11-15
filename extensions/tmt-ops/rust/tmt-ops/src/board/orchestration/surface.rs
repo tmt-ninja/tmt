@@ -240,8 +240,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 if jobs_folded { full[2].min(1) } else { full[2] },
             ];
+            // The stack keeps the row count `Last run` had, so it never takes member rows from
+            // the first section: runs fold onto one line there; the full list is the side's.
             let stack = if narrow {
-                inspector_lines(app, Some(snapshot), list.width)
+                one_line_runs(inspector_lines(app, Some(snapshot), list.width))
             } else {
                 Vec::new()
             };
@@ -2003,9 +2005,14 @@ fn stacked_height(lines: &[InspectorLine], two: bool) -> u16 {
     let mut rows = 0u16;
     let mut index = 0;
     while index < lines.len() {
-        let pair = two
-            && matches!(lines[index], InspectorLine::Row(..))
-            && matches!(lines.get(index + 1), Some(InspectorLine::Row(..)));
+        let pair =
+            two && matches!(
+                lines[index],
+                InspectorLine::Row(..) | InspectorLine::Run(..)
+            ) && matches!(
+                lines.get(index + 1),
+                Some(InspectorLine::Row(..) | InspectorLine::Run(..))
+            );
         index += if pair { 2 } else { 1 };
         rows += 1;
     }
@@ -2014,14 +2021,18 @@ fn stacked_height(lines: &[InspectorLine], two: bool) -> u16 {
 /// The stacked inspector under the first section: as `place`, with consecutive key/value rows
 /// two to a line when `two` (90 columns and wider).
 fn place_columns(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: Rect, two: bool) {
+    let lines = fit_runs(lines, area.height, two);
     if !two {
         return place(frame, app, lines, area);
     }
     let mut slots: Vec<Vec<InspectorLine>> = Vec::new();
     let mut lines = lines.into_iter().peekable();
     while let Some(first) = lines.next() {
-        let pair = matches!(first, InspectorLine::Row(..))
-            && matches!(lines.peek(), Some(InspectorLine::Row(..)));
+        let pair = matches!(first, InspectorLine::Row(..) | InspectorLine::Run(..))
+            && matches!(
+                lines.peek(),
+                Some(InspectorLine::Row(..) | InspectorLine::Run(..))
+            );
         let mut slot = vec![first];
         if pair {
             slot.extend(lines.next());
@@ -2065,6 +2076,7 @@ fn place_columns(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: 
 }
 /// The inspector lines from the top of `area`; what does not fit ends in a count of what is below.
 fn place(frame: &mut Frame, app: &App, lines: Vec<InspectorLine>, area: Rect) {
+    let lines = fit_runs(lines, area.height, false);
     let rows = usize::from(area.height);
     let (shown, hidden) = if lines.len() > rows {
         (rows.saturating_sub(1), lines.len() - rows.saturating_sub(1))
@@ -2143,20 +2155,30 @@ fn job_lines(app: &App, snapshot: &Snapshot, job: &JobRow, width: u16) -> Vec<In
             None,
         ));
     }
-    let (last, last_role) = match &job.last_run {
-        None => ("no run recorded".to_owned(), Role::Muted),
-        Some(run) => {
-            let (words, role) = match run.acceptance.as_str() {
-                "queued" => ("✓ accepted", Role::Text),
-                "recipient_unavailable" => ("✕ not accepted · owner unavailable", Role::Blocked),
-                "route_restricted" => ("✕ not accepted · route restricted", Role::Blocked),
-                "held_for_person" => ("◆ held for a person", Role::Waiting),
-                other => (other, Role::Text),
-            };
-            (format!("{} {words}", snapshot.clock(run.at_ms)), role)
-        }
-    };
-    lines.push(InspectorLine::Row("Last run", last, last_role, None));
+    if job.recent_runs.is_empty() {
+        lines.push(InspectorLine::Row(
+            "Runs",
+            "no run recorded".into(),
+            Role::Muted,
+            None,
+        ));
+    }
+    // Newest first, one line each; `fit_runs` keeps as many as the inspector has room for.
+    for (index, run) in job.recent_runs.iter().enumerate() {
+        let (words, role) = match run.acceptance.as_str() {
+            "queued" => ("✓ accepted", Role::Text),
+            "recipient_unavailable" => ("✕ not accepted · owner unavailable", Role::Blocked),
+            // Core keeps outcome `failed`; the board names the reason as a block (#6436).
+            "route_restricted" => ("✕ blocked · route restricted", Role::Blocked),
+            "held_for_person" => ("◆ held for a person", Role::Waiting),
+            other => (other, Role::Text),
+        };
+        lines.push(InspectorLine::Run(
+            index == 0,
+            format!("{} {words}", snapshot.clock(run.at_ms)),
+            role,
+        ));
+    }
     let message = app
         .orchestration
         .job_message
@@ -2363,6 +2385,57 @@ enum InspectorLine {
     Text(String, Role),
     Styled(Line<'static>),
     Blank,
+    /// One recorded run of the selected job; the first carries the `Runs` key. In the
+    /// two-column stack, where runs are one line, it pairs as a key/value row does.
+    Run(bool, String, Role),
+}
+
+/// The runs as one line, the newest with a count of the rest.
+fn one_line_runs(mut lines: Vec<InspectorLine>) -> Vec<InspectorLine> {
+    let runs: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| matches!(line, InspectorLine::Run(..)))
+        .map(|(index, _)| index)
+        .collect();
+    if let [first, .., last] = runs[..] {
+        let others = runs.len() - 1;
+        lines.drain(first + 1..=last);
+        if let Some(InspectorLine::Run(_, value, _)) = lines.get_mut(first) {
+            value.push_str(&format!(" · +{others} more"));
+        }
+    }
+    lines
+}
+
+/// A short inspector gives up runs, never its other lines: past the first run, what does not
+/// fit in `rows` becomes one `+N more runs` line.
+fn fit_runs(mut lines: Vec<InspectorLine>, rows: u16, two: bool) -> Vec<InspectorLine> {
+    let runs: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| matches!(line, InspectorLine::Run(..)))
+        .map(|(index, _)| index)
+        .collect();
+    let need = stacked_height(&lines, two);
+    if need <= rows || runs.len() < 2 {
+        return lines;
+    }
+    // Dropping `d` runs for one more line frees `d - 1` rows. The first run always stays; if
+    // that is still too tall, `place` counts what is below as it does for any inspector.
+    let over = usize::from(need - rows);
+    if over + 1 < runs.len() {
+        let drop = over + 1;
+        let first_dropped = runs[runs.len() - drop];
+        lines.drain(first_dropped..first_dropped + drop);
+        lines.insert(
+            first_dropped,
+            InspectorLine::Run(false, format!("+{drop} more runs"), Role::Muted),
+        );
+        return lines;
+    }
+    // Not even a separate more line fits: the newest run says how many follow it.
+    one_line_runs(lines)
 }
 impl InspectorLine {
     fn paint(self, frame: &mut Frame, app: &App, area: Rect) {
@@ -2379,6 +2452,10 @@ impl InspectorLine {
                 false,
                 look,
             ),
+            Self::Run(first, value, role) => {
+                Self::Row(if first { "Runs" } else { "" }, value, role, None)
+                    .paint(frame, app, area)
+            }
             Self::Row(key, value, role, source) => {
                 let shown = super::super::key_value::line(
                     &super::super::key_value::Row {
