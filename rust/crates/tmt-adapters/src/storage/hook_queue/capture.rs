@@ -685,13 +685,15 @@ impl Storage {
         let deadline = self
             .hook_allowance
             .unwrap_or_else(|| std::time::Instant::now() + Duration::from_secs(3));
-        let _ = queue.start_flusher(deadline);
         for _ in 0..64 {
             let next = match identity {
                 Some(identity) => queue.next_uncommitted_for_identity(identity)?,
                 None => queue.next_uncommitted()?,
             };
             let Some(event) = next else {
+                if identity.is_some() && queue.next_uncommitted()?.is_some() {
+                    let _ = queue.start_flusher(deadline);
+                }
                 return Ok(());
             };
             self.ingest_hook_capture(&event)?;
@@ -702,10 +704,14 @@ impl Storage {
             None => queue.next_uncommitted()?,
         };
         if remaining.is_some() {
+            let _ = queue.start_flusher(deadline);
             return Err(StorageError::new(
                 super::super::StorageErrorCode::Busy,
                 "Additional hook captures remain for the flusher",
             ));
+        }
+        if identity.is_some() && queue.next_uncommitted()?.is_some() {
+            let _ = queue.start_flusher(deadline);
         }
         Ok(())
     }

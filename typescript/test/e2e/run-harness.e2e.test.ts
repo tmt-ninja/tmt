@@ -358,6 +358,13 @@ exec /opt/tmt-tests/claude "$@"
         expect(before.name).toMatch(/^claude-[0-9a-f]{12}$/);
         expect(before.lifetime).toBe('temporary');
         const binding = db.prepare('SELECT id FROM bindings WHERE identity_id = ?').get(before.id);
+        await fixture.waitFor(
+          () =>
+            preferences(fixture).find((row) => row.identity_id === before.id)
+              ?.provider_session_id === session,
+          5_000,
+          'SessionStart worker recorded provider_session_id'
+        );
         expect(preferences(fixture).find((row) => row.identity_id === before.id)).toMatchObject({
           preferred_harness: 'claude',
           provider_session_id: session,

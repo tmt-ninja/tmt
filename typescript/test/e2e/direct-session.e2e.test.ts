@@ -518,6 +518,18 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             readonly: true,
           });
           try {
+            await fixture.waitFor(
+              () => {
+                const remembered = database
+                  .prepare(
+                    'SELECT provider_session_id FROM identity_session_preferences WHERE identity_id = ?'
+                  )
+                  .get(identity.id) as { provider_session_id: string | null } | undefined;
+                return (remembered?.provider_session_id ?? null) === expectedSession;
+              },
+              5_000,
+              'SessionStart worker recorded provider_session_id'
+            );
             const remembered = database
               .prepare(
                 'SELECT provider_session_id FROM identity_session_preferences WHERE identity_id = ?'
