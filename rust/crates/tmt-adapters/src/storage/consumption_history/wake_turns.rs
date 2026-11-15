@@ -21,6 +21,8 @@ struct Baseline {
     output_tokens: u64,
     cached_input_tokens: u64,
     covered_ms: u64,
+    /// When the start read was taken: its delta and coverage are in this slot.
+    read_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     models: Option<Vec<ModelUsage>>,
 }
@@ -41,14 +43,14 @@ fn ms(value: u64, what: &str) -> Result<i64, StorageError> {
         })
 }
 
-/// A main turn that carried at least one handed-over request started at `now`. `read` says the
-/// start event carried a usage read, so the baseline is the bucket after it. A turn still open
-/// lost its end, so it closes unmeasured here.
+/// A main turn that carried at least one handed-over request started at `now`. `read` is when
+/// the start event's own usage read was taken, if it carried one: the baseline is that read's
+/// bucket after it. A turn still open lost its end, so it closes unmeasured here.
 pub(in crate::storage) fn open(
     db: &Connection,
     identity: &str,
     now: u64,
-    read: bool,
+    read: Option<u64>,
 ) -> Result<(), StorageError> {
     let now_i64 = ms(now, "Wake turn start")?;
     db.execute(
@@ -56,14 +58,15 @@ pub(in crate::storage) fn open(
         params![identity, now_i64],
     )
     .map_err(|e| classify(e, "Close a wake turn that lost its end"))?;
-    let baseline = if read {
-        let bucket = Bucket::read(db, FINE, identity, slot(now))?;
+    let baseline = if let Some(read_at_ms) = read {
+        let bucket = Bucket::read(db, FINE, identity, slot(read_at_ms))?;
         Some(
             serde_json::to_string(&Baseline {
                 input_tokens: bucket.input,
                 output_tokens: bucket.output,
                 cached_input_tokens: bucket.cached,
                 covered_ms: bucket.covered,
+                read_at_ms,
                 models: bucket.details.by_model,
             })
             .map_err(|_| invalid())?,
@@ -79,13 +82,13 @@ pub(in crate::storage) fn open(
     Ok(())
 }
 
-/// The open turn of `identity` ended at `now`. `read` says the end event carried a usage read,
-/// so every token of the turn is in its buckets.
+/// The open turn of `identity` ended at `now`. `read` is when the end event's own usage read was
+/// taken, if it carried one: every token of the turn is then in its buckets.
 pub(in crate::storage) fn close(
     db: &Connection,
     identity: &str,
     now: u64,
-    read: bool,
+    read: Option<u64>,
 ) -> Result<(), StorageError> {
     let open: Option<(u64, Option<String>)> = db
         .query_row(
@@ -104,6 +107,11 @@ pub(in crate::storage) fn close(
         .map(serde_json::from_str)
         .transpose()
         .map_err(|_| invalid())?;
+    // The reads, not this transaction's clock, bound what the buckets hold.
+    let first = baseline
+        .as_ref()
+        .map_or(started, |b| b.read_at_ms.min(started));
+    let last = read.map_or(ended, |at| at.max(ended));
     let mut statement = db
         .prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details,from_ms FROM consumption_buckets WHERE identity_id=?1 AND from_ms BETWEEN ?2 AND ?3 ORDER BY from_ms")
         .map_err(|e| classify(e, "Read a wake turn's usage"))?;
@@ -111,8 +119,8 @@ pub(in crate::storage) fn close(
         .query_map(
             params![
                 identity,
-                ms(slot(started), "Wake turn start")?,
-                ms(slot(ended), "Wake turn end")?
+                ms(slot(first), "Wake turn start")?,
+                ms(slot(last), "Wake turn end")?
             ],
             |row| Bucket::from_row(row, integer(row, 10)?),
         )
@@ -121,14 +129,12 @@ pub(in crate::storage) fn close(
         .map_err(|e| classify(e, "Read a wake turn's usage"))?;
     let (mut input, mut output, mut cached, mut covered) = (0u64, 0u64, 0u64, 0u64);
     let mut details = Details::default();
-    let mut clean = true;
     for bucket in &buckets {
         input = input.checked_add(bucket.input).ok_or_else(invalid)?;
         output = output.checked_add(bucket.output).ok_or_else(invalid)?;
         cached = cached.checked_add(bucket.cached).ok_or_else(invalid)?;
         covered = covered.checked_add(bucket.covered).ok_or_else(invalid)?;
         details.merge(&bucket.details)?;
-        clean &= !bucket.incomplete && !bucket.gap && !bucket.discontinuous;
     }
     let start = baseline.as_ref();
     let less = |total: u64, base: Option<u64>| total.checked_sub(base.unwrap_or(0));
@@ -149,9 +155,13 @@ pub(in crate::storage) fn close(
         // A bucket pruned or rewritten under a long turn: what is left is no measurement.
         _ => (0, 0, 0, 0, false),
     };
-    let every_slot = buckets.len() as u64 == (slot(ended) - slot(started)) / BUCKET_MS + 1;
-    let measured =
-        read && start.is_some() && consistent && clean && every_slot && covered >= ended - started;
+    // Coverage is added only for a continuous pair of complete reads, so coverage of the whole
+    // span between the two reads proves no read in it failed, broke or was incomplete. The
+    // start bucket's own flags may come from before the turn and are not its evidence.
+    let measured = match (start, read) {
+        (Some(start), Some(end)) => consistent && covered >= end.saturating_sub(start.read_at_ms),
+        _ => false,
+    };
     let models = models
         .map(|rows| serde_json::to_string(&rows))
         .transpose()

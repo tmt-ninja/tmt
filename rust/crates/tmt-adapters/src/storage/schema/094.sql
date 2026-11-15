@@ -4,8 +4,8 @@
 -- it keeps the identity's usage bucket as the start read left it (`baseline`, JSON), so the
 -- tokens already in that bucket are not counted; at the end it keeps the measured sum of the
 -- identity's fine usage buckets over the turn. `measured` is 1 only when both boundaries
--- carried a usage read and every bucket in between is present, complete, gap-free,
--- continuous and covered; otherwise the sum is partial and never shown as exact. A row whose
+-- carried a usage read and continuous complete reads cover the whole span between them;
+-- otherwise the sum is partial and never shown as exact. A row whose
 -- turn never ended is closed unmeasured by the next turn start. Paged on demand by
 -- `digest.wakeTurns`, so it advances no cursor. Kept 30 days after it ended.
 CREATE TABLE wake_turns (

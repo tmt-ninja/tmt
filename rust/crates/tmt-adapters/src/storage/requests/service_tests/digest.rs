@@ -1586,6 +1586,26 @@ fn arrival_context_uses_the_recorded_driver_usage_once_and_preserves_unknown() {
         .digest_checklist_items(&target, None, 0, 128)
         .unwrap();
     assert_eq!(items[1].context_tokens_at_arrival, Some(182340));
+    // The recipient's phase is unknown without verified driver activity for its bound session;
+    // a message held while that session works would have joined the running turn (#6453).
+    assert_eq!(
+        (items[0].phase_at_arrival, items[1].phase_at_arrival),
+        (None, None)
+    );
+    db.execute(
+        "DELETE FROM identity_session_preferences WHERE identity_id=?",
+        [&target],
+    )
+    .unwrap();
+    super::delivery_state::bind_with_activity(&f, &target, "working", NOW_MS - 1);
+    held(&mut f, &target, &sender, "while-working");
+    let (items, _) = service(&mut f)
+        .digest_checklist_items(&target, None, 0, 128)
+        .unwrap();
+    assert_eq!(
+        items[2].phase_at_arrival,
+        Some(tmt_core::binding::session::activity::ActivityPhase::Working)
+    );
 }
 
 #[test]

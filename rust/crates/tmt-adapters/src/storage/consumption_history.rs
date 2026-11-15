@@ -434,7 +434,8 @@ impl Storage {
             };
             // A wake turn is measured from the buckets as this event's own read leaves them.
             let mut wake = None;
-            let read = observation.sampled && observation.consumption.is_some();
+            let read = (observation.sampled && observation.consumption.is_some())
+                .then_some(observation.now_ms);
             if let Some(boundary) = observation.boundary
                 && observation.preferences != &observation.expected.preferences
             {
