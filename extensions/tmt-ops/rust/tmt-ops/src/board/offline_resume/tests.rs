@@ -298,21 +298,21 @@ fn offline_member(action: &str) -> App {
 }
 
 #[test]
-fn talk_still_queues_to_a_captured_offline_member_and_j_reopens_only_what_can_start() {
+fn talk_still_queues_to_a_captured_offline_member_and_z_reopens_only_what_can_start() {
     let mut app = offline_member("resumable");
     press(&mut app, KeyCode::Enter);
     assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
     assert!(app.input.is_some(), "Enter opens the composer, as before");
 
     let mut app = offline_member("resumable");
-    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('z'));
     assert_eq!(
         app.overlay(),
         Some(Overlay::OfflineResume),
-        "j offers the relaunch"
+        "z offers the relaunch"
     );
 
-    // A refused row is Core's answer: j goes on to what it does today.
+    // A refused row is Core's answer: z goes on to what it does today.
     let mut app = offline_member("resumable");
     let identity = app.offline_resume.dialog.as_ref().unwrap().rows[0]
         .member
@@ -331,10 +331,10 @@ fn talk_still_queues_to_a_captured_offline_member_and_j_reopens_only_what_can_st
         )),
     );
     press(&mut app, KeyCode::Esc);
-    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('z'));
     assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
 
     let mut app = offline_member("folder_missing");
-    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('z'));
     assert_ne!(app.overlay(), Some(Overlay::OfflineResume));
 }

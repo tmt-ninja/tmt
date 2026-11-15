@@ -200,7 +200,7 @@ impl Framed {
 }
 
 #[test]
-fn j_fills_the_board_with_the_member_under_one_header_and_ctrl_g_leads_back() {
+fn z_fills_the_board_with_the_member_under_one_header_and_ctrl_g_leads_back() {
     let mut framed = Framed::new(b"hello from the agent");
     let lines = draw(&framed.app, WIDTH, HEIGHT);
     assert!(lines[0].starts_with("▌ "), "{}", lines[0]);

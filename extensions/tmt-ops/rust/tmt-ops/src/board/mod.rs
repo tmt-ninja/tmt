@@ -2761,7 +2761,7 @@ mod tests {
                         .unwrap();
                     // A value row keeps the ? panel open; Esc closes it before the board's `z`.
                     events.send(key(KeyCode::Esc)).unwrap();
-                    events.send(key(KeyCode::Char('j'))).unwrap();
+                    events.send(key(KeyCode::Char('z'))).unwrap();
                 }
                 lane::Job::Jump {
                     member: identity, ..
@@ -2857,7 +2857,7 @@ mod tests {
                             board_pane: None,
                         })
                         .unwrap();
-                    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Char('j')] {
+                    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Char('z')] {
                         events.send(key(code)).unwrap();
                     }
                 }
@@ -3403,7 +3403,7 @@ print(json.dumps(out))
             let (events, input) = channel();
             let mut app = app::workspace::tests::board();
             app.popup = popup;
-            events.send(key(KeyCode::Char('j'))).unwrap();
+            events.send(key(KeyCode::Char('z'))).unwrap();
             let jumps = std::cell::Cell::new(0);
             let ended = session(
                 &mut app,

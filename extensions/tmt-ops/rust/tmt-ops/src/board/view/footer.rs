@@ -1261,6 +1261,7 @@ mod tests {
                 ", settings",
                 "c timers",
                 "j host",
+                "z host",
                 "p pin",
                 "@ names",
                 "←→ fold",
