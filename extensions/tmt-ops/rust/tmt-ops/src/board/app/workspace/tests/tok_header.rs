@@ -199,6 +199,43 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
 const LISTS: [&str; 1] = ["squads"];
 
 #[test]
+fn activity_header_and_b_cycle_the_same_saved_window() {
+    use crate::config::ActivityWindow;
+    for (current, next_window) in [
+        (ActivityWindow::Minute, ActivityWindow::FiveMinutes),
+        (ActivityWindow::FiveMinutes, ActivityWindow::TenMinutes),
+        (ActivityWindow::TenMinutes, ActivityWindow::Hour),
+        (ActivityWindow::Hour, ActivityWindow::Minute),
+    ] {
+        let mut app = open(SavingsUnit::Tokens);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .activity_window = current;
+        let buffer = frame(&app, 160);
+        let area = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+        assert!(text(&buffer, area).starts_with(&format!("ACTIVITY {}", current.argument())));
+        let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), area)
+        else {
+            panic!("click must save the next window")
+        };
+        assert_eq!(next.activity_window, next_window);
+        let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+            key(&mut app, KeyCode::Char('b'))
+        else {
+            panic!("b must save the next window")
+        };
+        assert_eq!(next.activity_window, next_window);
+    }
+}
+
+#[test]
 fn a_click_on_the_unit_word_switches_every_row_and_selects_nothing() {
     for name in LISTS {
         for (held, wanted) in [

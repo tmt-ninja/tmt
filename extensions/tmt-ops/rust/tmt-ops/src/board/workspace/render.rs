@@ -365,9 +365,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         look,
         app.cron_glyphs,
         app.tok_heading(),
+        app.activity_window(),
         &marks,
     );
     let mut strip_hits = app.workspace_strip_hits.borrow_mut();
+    if let Some(area) = header.activity {
+        strip_hits.push((area, Choice::ActivityWindow));
+    }
     strip_hits.extend(
         header
             .tok

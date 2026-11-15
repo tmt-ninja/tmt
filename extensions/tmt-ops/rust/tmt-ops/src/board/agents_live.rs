@@ -21,6 +21,7 @@ pub(in crate::board) struct Projection {
     pub(in crate::board) squads: RefCell<BTreeMap<String, Option<Reading>>>,
     generation: RefCell<Vec<(u64, u64)>>,
     at: Cell<Option<Instant>>,
+    window: Cell<crate::config::ActivityWindow>,
 }
 
 impl Projection {
@@ -42,11 +43,13 @@ impl Projection {
             .filter(|(_, rate)| rate.settings.enabled)
             .filter_map(|(name, _)| app.home_meter(name).map(|meter| meter.evidence_key(now)))
             .collect::<Vec<_>>();
-        if *self.generation.borrow() != generation {
+        let window = app.activity_window();
+        if *self.generation.borrow() != generation || self.window.get() != window {
             self.usage.borrow_mut().clear();
             self.missing.borrow_mut().clear();
             self.squads.borrow_mut().clear();
             *self.generation.borrow_mut() = generation;
+            self.window.set(window);
         }
         self.at.set(Some(now));
         self.seen.borrow_mut().clear();
@@ -94,7 +97,7 @@ impl Projection {
                 let minute = meter
                     .observation(id, crate::config::TokenWindow::MINUTE, now)
                     .map(|(reading, _)| reading);
-                let activity = meter.member_trend(id, now);
+                let activity = meter.member_trend_window(id, now, self.window.get().token_window());
                 best = Some((rank, AgentsLiveUsage { minute, activity }));
             }
         }

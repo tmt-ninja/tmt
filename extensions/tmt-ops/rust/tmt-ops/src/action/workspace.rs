@@ -10,6 +10,7 @@ pub enum OpsUiAction {
     SavingsUnit,
     UsageControls,
     CycleTokRange,
+    CycleActivityWindow,
     DigestPreviousWindow,
     Inspect,
     MonitorDetails,
@@ -295,6 +296,13 @@ const SPECS: &[OpsUiSpec] = &[
         "cycle-tok-range",
         "TOK range",
         "cycle the shared Agents and Digest TOK range",
+        12
+    ),
+    spec!(
+        CycleActivityWindow,
+        "cycle-activity-window",
+        "activity window",
+        "cycle the Agents activity window",
         12
     ),
     spec!(

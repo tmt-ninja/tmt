@@ -412,6 +412,7 @@ pub enum Choice {
     /// A Details tab chip on the Digest tab.
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
+    ActivityWindow,
     /// A click on an Agents column header: sort by it, or reverse it.
     SortBy(super::header_sort::Header),
     /// A click on an exchange matrix cell: Talk opens with the row's agent.
@@ -3395,6 +3396,7 @@ impl App {
             Choice::DigestWindowMenu => self.digest_window_menu(),
             Choice::DigestBasis => super::digest_dashboard::open_basis(self),
             Choice::TokRange(range) => self.select_tok_range(range),
+            Choice::ActivityWindow => self.cycle_activity_window(),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
                 self.open_exchange_pair(&sender, &recipient)

@@ -350,6 +350,20 @@ impl Meter {
             .member_trend(id, self.milliseconds(now), TokenWindow::HOUR)
     }
 
+    pub(in crate::board) fn member_trend_window<const N: usize>(
+        &self,
+        id: &str,
+        now: Instant,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        // Keep the twelve cells aligned to closed intervals, so they shift
+        // once per cell rather than on every underlying five-second sample.
+        let cell_ms = window.milliseconds() / N as u64;
+        let closed = self.milliseconds(now) / cell_ms * cell_ms;
+        self.rate
+            .member_trend(id, closed.saturating_sub(super::rate::SLOT_MS), window)
+    }
+
     pub(in crate::board) fn history(&self) -> &Rate {
         &self.rate
     }

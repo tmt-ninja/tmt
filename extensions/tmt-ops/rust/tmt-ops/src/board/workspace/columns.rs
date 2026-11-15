@@ -313,6 +313,7 @@ pub fn paint_agents_header(
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
     tok: TokHeading,
+    activity: crate::config::ActivityWindow,
     marks: &crate::board::header_sort::Marks,
 ) -> AgentsHeaderHits {
     use crate::board::header_sort::{Header, word_hit};
@@ -329,7 +330,10 @@ pub fn paint_agents_header(
         let base = look.role(Role::Muted);
         let mut word = field.caption(glyphs);
         let mut style = base;
-        let caption = if *field == AgentsField::Tokens {
+        let caption = if *field == AgentsField::Activity {
+            hits.activity = Some(*slot);
+            format!("ACTIVITY {}", activity.argument())
+        } else if *field == AgentsField::Tokens {
             if let Some(cell) = marks.tokens(None, tok, slot.width, base, look) {
                 for (from, size, control) in cell.parts {
                     let hit =
@@ -387,6 +391,7 @@ pub fn paint_agents_header(
 pub struct AgentsHeaderHits {
     /// The unit and window words of `TOK 1h`.
     pub tok: Vec<(Rect, crate::board::header_sort::Control)>,
+    pub activity: Option<Rect>,
     pub sorts: Vec<(Rect, crate::board::header_sort::Header)>,
 }
 
@@ -1022,6 +1027,7 @@ mod tests {
             look,
             Default::default(),
             Default::default(),
+            Default::default(),
             &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
         );
         let x = (0..slot.width)
@@ -1054,6 +1060,7 @@ mod tests {
                     Rect { height: 2, ..area },
                     &slots,
                     look,
+                    Default::default(),
                     Default::default(),
                     Default::default(),
                     &crate::board::header_sort::Marks::new(

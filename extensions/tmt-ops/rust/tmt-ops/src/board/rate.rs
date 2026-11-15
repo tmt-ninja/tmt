@@ -199,6 +199,9 @@ struct Bucket {
     gap: bool,
     /// Whole core rollup tokens cannot be split at a shorter window boundary.
     source_from: Option<u64>,
+    /// Source interval for every padded history slot, used to avoid placing
+    /// coarse evidence into an activity cell it crosses.
+    source_bounds: Option<(u64, u64)>,
     /// Keep source-backed duration distinct from live receipt evidence. History
     /// padding slots carry no independent token or duration observation.
     origin: BucketOrigin,
@@ -591,6 +594,7 @@ impl Rate {
                     }
                     *bucket = Bucket {
                         slot: Some(slot),
+                        source_bounds: Some((slice.from_ms, slice.to_ms)),
                         evidence: slice.complete,
                         gap: !slice.complete || slice.gap || slice.discontinuous,
                         origin: BucketOrigin::History {
@@ -658,6 +662,7 @@ impl Rate {
                         evidence: slice.complete || slice.covered_ms > 0,
                         gap: !slice.complete || slice.gap || slice.discontinuous,
                         source_from: Some(slice.from_ms),
+                        source_bounds: Some((slice.from_ms, slice.to_ms)),
                         origin: BucketOrigin::History {
                             covered_ms: u32::try_from(slice.covered_ms).ok(),
                         },
@@ -864,6 +869,14 @@ impl Rate {
                     .slot
                     .is_some_and(|slot| (first..=last).contains(&slot))
                 {
+                    let cell_from = first.saturating_mul(SLOT_MS);
+                    let cell_to = last.saturating_add(1).saturating_mul(SLOT_MS);
+                    if bucket
+                        .source_bounds
+                        .is_some_and(|(from, to)| from < cell_from || to > cell_to)
+                    {
+                        continue;
+                    }
                     if bucket
                         .source_from
                         .is_none_or(|from| from >= now.saturating_sub(window.milliseconds()))

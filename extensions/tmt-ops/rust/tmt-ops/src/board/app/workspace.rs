@@ -207,6 +207,22 @@ impl App {
         self.select_tok_range(self.tok_range().next())
     }
 
+    pub(in crate::board) fn activity_window(&self) -> crate::config::ActivityWindow {
+        self.workspace_snapshot()
+            .map_or(crate::config::ActivityWindow::default(), |snapshot| {
+                snapshot.preferences.activity_window
+            })
+    }
+
+    pub(in crate::board) fn cycle_activity_window(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.activity_window = next.activity_window.next();
+        self.workspace_save(next)
+    }
+
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.digest_window
     }
@@ -819,6 +835,12 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
+        if self.shell.tab == OpsTab::Agents {
+            keys.insert(
+                "b".into(),
+                Action::parse("cycle-activity-window").expect("factory activity action"),
+            );
+        }
         if self.shell.tab == OpsTab::Digest {
             for (key, action) in [
                 ("o", "digest"),
@@ -1107,6 +1129,7 @@ impl App {
             QuotaDetails => return self.open_quota_details(),
             SavingsUnit => return self.cycle_savings_unit(),
             CycleTokRange => return self.cycle_tok_range(),
+            CycleActivityWindow => return self.cycle_activity_window(),
             DigestPreviousWindow => {
                 let windows = crate::config::DigestWindow::ALL;
                 let at = windows
@@ -1339,8 +1362,9 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
-            | UsageControls | CycleTokRange | DigestPreviousWindow | Unread | Help | Quit
-            | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            | UsageControls | CycleTokRange | CycleActivityWindow | DigestPreviousWindow
+            | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown
+            | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
