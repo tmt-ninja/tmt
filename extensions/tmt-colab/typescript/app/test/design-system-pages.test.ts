@@ -864,6 +864,11 @@ describe('template, publish and the renderer source', () => {
     expect(latest.source).toBe(await draftSource(config(), contents));
     // A component edit, or a config edit, makes it differ.
     const button = config().components.find((entry) => entry.tag === 'button')!.page!;
+    const incomplete = new Map(contents);
+    incomplete.delete(button);
+    expect(await draftSource(config(), incomplete)).toBeUndefined();
+    await publishNext(transport, rootId, incomplete);
+    expect(config().releases.at(-1)?.source).toBeUndefined();
     expect(await draftSource(config(), new Map([...contents, [button, 'r2']]))).not.toBe(
       latest.source,
     );
@@ -1215,8 +1220,8 @@ describe('live draft (#5967)', () => {
     const opensBefore = open.total;
     const second = await source.draft(rootId);
     expect(second.hash).not.toBe(first.hash);
-    // The recompile reads the root and the two pages that moved; every other doc is reused.
-    expect(open.total - opensBefore).toBe(3);
+    // The subscribed root and unchanged docs are reused; only the two changed pages open.
+    expect(open.total - opensBefore).toBe(2);
     // A page outside the system moving does not change the draft.
     write(pages.keys().next().value!, '<h1>Notes again</h1>');
     await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
@@ -1246,12 +1251,12 @@ describe('live draft (#5967)', () => {
     const opensBefore = open.total;
     expect(await source.draft(rootId)).toBe(first);
     expect(open.total - opensBefore).toBe(0);
-    // A component edit still redraws, reading only the root and the page that moved.
+    // A component edit still redraws, reading only the page that moved.
     write(button, recolor(pages.get(button)!.source));
     await vi.waitFor(() => expect(changes).toBe(1), { timeout: DRAFT_SETTLE_MS * 4 });
     const redrawn = await source.draft(rootId);
     expect(redrawn.hash).not.toBe(first.hash);
-    expect(open.total - opensBefore).toBe(2);
+    expect(open.total - opensBefore).toBe(1);
     stop();
   });
 
@@ -1268,8 +1273,8 @@ describe('live draft (#5967)', () => {
     const next = pageDesignSystems(transport);
     const stop = next.watch(rootId, () => {});
     expect((await next.draft(rootId)).hash).toBe(drawn.hash);
-    // Its follow's root and the draft's root: no component page is read again.
-    expect(open.total - opensBefore).toBe(2);
+    // The draft reuses its followed root and cached components.
+    expect(open.total - opensBefore).toBe(1);
     stop();
   });
 

@@ -6008,8 +6008,10 @@ A lock is verified against its release's hash and never changes. Publish records
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing. A release entry's optional `source` is what it compiled from: SHA-256 over
 the root's design-system config without `releases` and `version`, and each component page's
-content revision in the live page list. The header offers the next publish only while the live
-revisions give another `source`, or when the latest release has none or no live list exists.
+content revision in the live page list. The comparison is unknown if any component revision is
+missing; such a publish records no `source`. The header offers the next publish when the live
+revisions give another `source`, or when the latest release has none, a revision is missing, or no
+live list exists. The initial release created with a new system has no `source` and remains unknown.
 
 Design-system runtime 2 supplies React, html and cn. Runtime 3 also supplies its system prefix and permits a component to declare
 named shared parts in its `parts` list; the host currently permits only `PageListTable`. The

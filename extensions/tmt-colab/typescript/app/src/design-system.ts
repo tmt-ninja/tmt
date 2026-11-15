@@ -342,12 +342,7 @@ function outcome(pin: DesignSystemPin, from: DesignSystemSource): Promise<Outcom
 /** The pin's verified bundle (the draft's, for a pin with no lock), or why there is none. It waits
  * as long as the read does: a slow read is still loading, and only a read that fails (an unreadable
  * release, a bad hash, a draft that does not compile) draws a notice. */
-export const pinnedBundle = (pin: DesignSystemPin, from: DesignSystemSource) => {
-  const t0 = performance.now();
-  const result = outcome(pin, from);
-  void result.then((o) => console.log(`[ds-timing] pinned ${pin.lock ? 'lock' : 'draft'} ${'failure' in o ? o.failure : 'ok'} ${Math.round(performance.now() - t0)}ms`));
-  return result;
-};
+export const pinnedBundle = (pin: DesignSystemPin, from: DesignSystemSource) => outcome(pin, from);
 
 /** The system a page follows live (its pin has no lock), for the renderer to watch. */
 export function followedSystem(source: string): string | undefined {

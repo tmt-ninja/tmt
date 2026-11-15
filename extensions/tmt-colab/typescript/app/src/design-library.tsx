@@ -240,13 +240,17 @@ export function DesignLibrary({
   const [contents, setContents] = useState<ReadonlyMap<string, string>>();
   useEffect(() => transport.watchPages?.(setContents), [transport]);
   const latest = selected && !selected.builtIn ? selected.config.releases.at(-1) : undefined;
-  const [compared, setCompared] = useState<{ config: unknown; contents: unknown; source: string }>();
+  const [compared, setCompared] = useState<{
+    config: unknown;
+    contents: unknown;
+    source: string;
+  }>();
   useEffect(() => {
     if (!selected || selected.builtIn || !contents || !latest?.source) return;
     let live = true;
     const config = selected.config;
     void draftSource(config, contents).then((source) => {
-      if (live) setCompared({ config, contents, source });
+      if (live) setCompared(source === undefined ? undefined : { config, contents, source });
     });
     return () => {
       live = false;

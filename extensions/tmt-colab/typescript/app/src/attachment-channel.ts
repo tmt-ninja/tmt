@@ -452,17 +452,13 @@ export class AttachmentObjectChannel {
         const bytes = new Uint8Array(length);
         for (let offset = 0; offset < length;) {
           requireValue(performance.now() < deadline);
-          const t6450 = performance.now();
-          const w6450 = Date.now();
           const count = Math.min(ATTACHMENT_CHUNK_BYTES, length - offset),
             outcome = await this.call(request(offset, count), deadline);
-          console.log(`[ds-timing] chunk ${offset} ${Math.round(performance.now() - t6450)}ms sent ${w6450} got ${Date.now()}`);
           if ('error' in outcome) throw new AttachmentReadError(readCodeReason(outcome.error.code));
           const ok = outcome.ok;
           exactKeys(ok, ['result', 'offset', 'totalBytes', 'bytes']);
           requireValue(ok.result === 'read' && ok.offset === offset && ok.totalBytes === length);
-          const chunk = binary(ok.bytes, count, count);
-          bytes.set(chunk, offset);
+          bytes.set(binary(ok.bytes, count, count), offset);
           offset += count;
         }
         requireValue(

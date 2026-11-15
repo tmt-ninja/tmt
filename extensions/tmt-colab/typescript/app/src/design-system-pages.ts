@@ -102,14 +102,6 @@ async function openPage(
   id: string,
   stopped: () => boolean = () => false,
 ): Promise<Snapshot> {
-  const t0 = performance.now();
-  try { return await openPage0(transport, id, stopped); } finally { console.log(`[ds-timing] open ${id.slice(0, 8)} ${Math.round(performance.now() - t0)}ms`); }
-}
-async function openPage0(
-  transport: PageTransport,
-  id: string,
-  stopped: () => boolean = () => false,
-): Promise<Snapshot> {
   let page: Snapshot | undefined;
   for (let attempt = 0; !page; attempt++) {
     if (stopped()) throw new Error('Page follow ended');
@@ -139,9 +131,7 @@ export async function withPage<T>(
 async function readyFiles(page: Snapshot) {
   const files = page.binding?.files;
   if (!files) throw new Error('This page cannot read its files here.');
-  const t0 = performance.now();
   await files.attachments.settle?.();
-  console.log(`[ds-timing] settle ${Math.round(performance.now() - t0)}ms`);
   return files;
 }
 
@@ -229,9 +219,7 @@ export function pageDesignSystems(
           );
           if (!descriptor) return undefined;
           const files = await readyFiles(root);
-          const t1 = performance.now();
           const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
-          console.log(`[ds-timing] attachment ${bytes.length}B ${Math.round(performance.now() - t1)}ms`);
           return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
         });
   const shownRelease = async (system: string, version: string) => {
@@ -355,7 +343,12 @@ export function pageDesignSystems(
       const draft: Promise<DesignSystemBundle> = listed
         .then(() => {
           follow.draftBaseline = follow.latest ? new Map(follow.latest) : null;
-          return compileDraft(transport, system, undefined, docs);
+          // The live root is already admitted and subscribed by this follow. Reuse its latest
+          // source instead of opening the same page a second time for every draft compile.
+          const config = follow.root && readBlock<DesignSystemConfig>(follow.root, 'design-system');
+          return config
+            ? draftOf(transport, system, config, nextVersion(config), docs)
+            : compileDraft(transport, system, undefined, docs);
         })
         .catch((error: unknown) => {
           if (follow.draft === draft) follow.draft = undefined;
@@ -488,14 +481,13 @@ export function pageExamples(source: string): { title: string; markup: string }[
   }));
 }
 
-/** What a draft compiles from, as one digest: the root's design-system config but its releases
- * and version, and each component page's content revision as the live page list names it (null
- * when the list does not name it). A release records it at publish; the Design header offers a new
- * publish only while the live revisions give another digest, and never compiles a draft for it. */
+/** What a draft compiles from, as one digest: the root's config without releases and version,
+ * plus each component page's content revision. Missing revisions make the comparison unknown. */
 export async function draftSource(
   config: DesignSystemConfig,
   contents: ReadonlyMap<string, string>,
-): Promise<string> {
+): Promise<string | undefined> {
+  if (config.components.some((entry) => !entry.page || !contents.has(entry.page))) return undefined;
   const { releases: _releases, version: _version, ...draft } = config;
   const pages = config.components.map((entry) => [
     entry.page ?? null,

@@ -6,6 +6,38 @@ use tmt_colab_model::{certificate, link, values, wrap};
 use tungstenite::{Message, WebSocket, protocol::Role};
 
 #[test]
+fn sync_waits_for_writability_only_when_a_frame_is_blocked() {
+    let (mut sender, mut receiver) = UnixStream::pair().unwrap();
+    sender.set_nonblocking(true).unwrap();
+    receiver.set_nonblocking(true).unwrap();
+    let bytes = [0u8; 8192];
+    loop {
+        match sender.write(&bytes) {
+            Ok(0) => panic!("socket stopped"),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("socket write: {error}"),
+        }
+    }
+    let mut blocked = [PollFd::new(sender.as_fd(), sync_interest(true))];
+    assert_eq!(poll(&mut blocked, 0u16).unwrap(), 0);
+    let mut read = [0u8; 8192];
+    loop {
+        match receiver.read(&mut read) {
+            Ok(0) => panic!("socket stopped"),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("socket read: {error}"),
+        }
+    }
+    let mut writable = [PollFd::new(sender.as_fd(), sync_interest(true))];
+    assert_eq!(poll(&mut writable, 0u16).unwrap(), 1);
+    assert!(writable[0].revents().unwrap().contains(PollFlags::POLLOUT));
+    let mut idle = [PollFd::new(sender.as_fd(), sync_interest(false))];
+    assert_eq!(poll(&mut idle, 0u16).unwrap(), 0);
+}
+
+#[test]
 fn response_drains_input_sent_after_its_fin_until_peer_eof() {
     let (mut socket, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(limits::RESPONSE)).unwrap();
@@ -837,6 +869,7 @@ fn mounted_blocked_readers_drop_frames_and_chunk_continuations_twice() {
                         principal.clone(),
                     )
                     .unwrap();
+                assert!(!connection.pending_write());
                 let mut peer = WebSocket::from_raw_socket(client, Role::Client, None);
                 send_reader(
                     &mut peer,
@@ -903,6 +936,10 @@ fn mounted_blocked_readers_drop_frames_and_chunk_continuations_twice() {
                 assert!(
                     attempted.load(Ordering::SeqCst) > 0,
                     "write was never blocked"
+                );
+                assert!(
+                    connection.pending_write(),
+                    "blocked frame must wait for writability"
                 );
                 assert_eq!(written.load(Ordering::SeqCst), before);
                 change_reader(&mut f, &mount, change);

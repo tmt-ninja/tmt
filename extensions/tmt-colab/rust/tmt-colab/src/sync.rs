@@ -2992,6 +2992,10 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     pub fn poll(&mut self) -> Progress {
         self.poll_at(Instant::now())
     }
+    /// A partially written frame needs writable readiness, as well as inbound readiness.
+    pub(crate) fn pending_write(&self) -> bool {
+        self.blocked_since.is_some()
+    }
     /// The caller supplies a monotonic clock instant for deadlines and tests.
     pub fn poll_at(&mut self, now: Instant) -> Progress {
         if self.socket.is_none() {

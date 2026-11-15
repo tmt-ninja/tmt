@@ -42,13 +42,20 @@ fn verified_key(key: &VerifyingKey, input: &[u8], signature: &[u8]) -> Result<[u
 /// signatures of one key.
 pub fn verify_with(key: &VerifyingKey, input: &[u8], signature: &[u8]) -> Result<()> {
     let cached = verified_key(key, input, signature)?;
-    let verified = |set: &Option<HashSet<[u8; 32]>>| set.as_ref().is_some_and(|set| set.contains(&cached));
-    if verified(&VERIFIED.lock().unwrap_or_else(|poisoned| poisoned.into_inner())) {
+    let verified =
+        |set: &Option<HashSet<[u8; 32]>>| set.as_ref().is_some_and(|set| set.contains(&cached));
+    if verified(
+        &VERIFIED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    ) {
         return Ok(());
     }
     let parsed = Signature::from_slice(signature).map_err(|_| Invalid)?;
     key.verify_strict(input, &parsed).map_err(|_| Invalid)?;
-    let mut set = VERIFIED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut set = VERIFIED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let set = set.get_or_insert_with(HashSet::new);
     if set.len() >= VERIFIED_LIMIT {
         set.clear();

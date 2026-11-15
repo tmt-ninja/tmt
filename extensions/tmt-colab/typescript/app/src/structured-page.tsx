@@ -803,7 +803,11 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
           Loading…
         </p>
       )}
-      <div ref={setNode} className="tmt-block-mockup-frame" aria-busy={!ready || undefined} />
+      <div
+        ref={setNode}
+        className="tmt-block-mockup-frame"
+        aria-busy={(!!mount && !failed && !ready) || undefined}
+      />
     </MockupBlock>
   );
 }
