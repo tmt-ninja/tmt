@@ -78,7 +78,7 @@ fn link_text(row: &Row) -> String {
 }
 
 /// The field with a caret where the next character goes.
-fn with_caret(draft: &Draft, field: usize) -> String {
+pub(super) fn with_caret(draft: &Draft, field: usize) -> String {
     let text = draft.text(field);
     let at = draft.fields[field].cursor().min(text.len());
     let at = (0..=at)

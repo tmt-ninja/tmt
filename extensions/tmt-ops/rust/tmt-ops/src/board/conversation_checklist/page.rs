@@ -28,7 +28,7 @@ fn visual_row_end(visual: &[Visual<'_>], mut index: usize, id: &str) -> usize {
 impl Visual<'_> {
     fn row_id(&self) -> Option<&str> {
         match self {
-            Self::Heading(..) => None,
+            Self::Heading(..) | Self::Form(..) => None,
             Self::Item(row, ..) | Self::Link(row, ..) => Some(row.id.as_str()),
         }
     }
@@ -36,8 +36,45 @@ impl Visual<'_> {
 
 enum Visual<'a> {
     Heading(&'static str, usize),
+    Form(String, Role),
     Item(&'a Row, String, usize, bool),
     Link(&'a Row, String, bool),
+}
+
+fn append_form(visual: &mut Vec<Visual<'_>>, draft: &super::Draft, notice: Option<&str>) {
+    for (field, label) in [(0, "Title"), (1, "Link")] {
+        let focused = draft.field() == Some(field);
+        let value = if focused {
+            super::surface::with_caret(draft, field)
+        } else {
+            draft.text(field).to_owned()
+        };
+        visual.push(Visual::Form(
+            crate::board::notes::single_line(&format!("  {label} › {value}")),
+            if focused { Role::Accent } else { Role::Muted },
+        ));
+    }
+    if draft.reopened {
+        visual.push(Visual::Form(
+            if draft.on_discard() {
+                "› Discard"
+            } else {
+                "  Discard"
+            }
+            .into(),
+            if draft.on_discard() {
+                Role::Accent
+            } else {
+                Role::Muted
+            },
+        ));
+    }
+    if let Some(notice) = notice {
+        visual.push(Visual::Form(
+            crate::board::notes::single_line(notice),
+            Role::Waiting,
+        ));
+    }
 }
 
 impl Controller {
@@ -46,10 +83,7 @@ impl Controller {
             return;
         }
         let look = app.look();
-        if app.notes.draft(&self.key).is_some() {
-            self.render(frame, app, look, area);
-            return;
-        }
+        let draft = app.notes.draft(&self.key);
         if app.notes.preview(&self.key).is_none() {
             *self.ask_hit.borrow_mut() = None;
             let message = match app.notes.summary(&self.key) {
@@ -65,7 +99,9 @@ impl Controller {
             return;
         }
         let items = self.items(&app.notes);
-        let status = if let Some(notice) = &self.notice {
+        let status = if draft.is_some() {
+            String::new()
+        } else if let Some(notice) = &self.notice {
             notice.clone()
         } else if app.notes.writing(&self.key) {
             "Saving…".into()
@@ -102,7 +138,32 @@ impl Controller {
         let mut visual = Vec::new();
         for (heading, count, completed) in [("Todo", todo, false), ("Done", done, true)] {
             visual.push(Visual::Heading(heading, count));
+            if !completed
+                && draft.is_some_and(|draft| match &draft.aim {
+                    super::draft::Aim::Add => true,
+                    super::draft::Aim::Edit { item, .. } => {
+                        !items.iter().any(|row| &row.id == item)
+                    }
+                })
+            {
+                append_form(&mut visual, draft.unwrap(), self.notice.as_deref());
+            }
             for item in items.iter().filter(|item| item.completed == completed) {
+                if let Some(draft) = draft
+                    && matches!(&draft.aim, super::draft::Aim::Edit { item: id, .. } if id == &item.id)
+                {
+                    if draft.differs_from_original(&item.title, item.reference.as_deref()) {
+                        visual.push(Visual::Form(
+                            format!(
+                                "  Current: {}",
+                                crate::board::notes::single_line(&item.title)
+                            ),
+                            Role::Muted,
+                        ));
+                    }
+                    append_form(&mut visual, draft, self.notice.as_deref());
+                    continue;
+                }
                 let byline_width = if item.byline.is_empty() {
                     0
                 } else {
@@ -150,14 +211,20 @@ impl Controller {
             ui.select(id.as_str());
         }
         let selected = ui.picker.list.selected().map(str::to_owned);
-        let selected_range = selected
-            .as_ref()
-            .and_then(|id| {
-                visual.iter().position(
+        let selected_range = visual
+            .iter()
+            .position(|line| matches!(line, Visual::Form(..)))
+            .map(|i| i..i + 1)
+            .or_else(|| {
+                selected
+                    .as_ref()
+                    .and_then(|id| {
+                        visual.iter().position(
                     |line| matches!(line, Visual::Item(item, _, _, true) if item.id.as_str() == id),
                 )
-            })
-            .map(|i| i..i + 1);
+                    })
+                    .map(|i| i..i + 1)
+            });
         ui.picker
             .list
             .scroll
@@ -176,6 +243,16 @@ impl Controller {
             let y = area.y + (index - offset) as u16;
             let rect = Rect::new(area.x, y, area.width, 1);
             match line {
+                Visual::Form(text, role) => {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        rect,
+                        Line::styled(
+                            crate::board::view::fit(text, usize::from(rect.width)),
+                            look.role(*role),
+                        ),
+                    );
+                }
                 Visual::Heading(title, count) => {
                     let heading = format!("{title} · {count}");
                     let note = if *title == "Todo" {

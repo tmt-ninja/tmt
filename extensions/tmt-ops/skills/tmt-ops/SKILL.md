@@ -623,8 +623,8 @@ to the same draft and caret. The page groups non-archived items into Todo and Do
 with counts, dimmed completed items, and a separate line for each link. `U` asks the
 member to update the checklist. Its waiting and updated states last for this board
 session; updated means the matching request received a final reply. Authored bindings
-keep precedence. `↑↓`/`jk` choose, Enter follows **checklist enter** for links,
-Space ticks, `o` opens a link, `a` adds, `e` edits, `d` deletes after confirmation,
+keep precedence. `↑↓`/`jk` choose, Enter and Space tick, `o` opens a link,
+`a` adds and `e` edits inline, `d` deletes after confirmation,
 and `Shift+↑↓` moves an item. Esc keeps an unsent form. A retired member's list reads
 but takes no writes.
 

@@ -360,6 +360,36 @@ fn paint_at(app: &App, width: u16) -> String {
 }
 
 #[test]
+fn add_and_edit_forms_stay_inline_and_keep_drafts_on_escape() {
+    for (key, word) in [
+        (KeyCode::Char('a'), "new words"),
+        (KeyCode::Char('e'), " edited"),
+    ] {
+        let (mut app, scope) = opened(vec![todo(1), todo(2)]);
+        press(&mut app, key);
+        type_text(&mut app, word);
+        let screen = paint_wide(&app);
+        assert_eq!(app.overlay(), None, "the form remains on the page");
+        assert!(screen.contains("Todo · 2"), "{screen}");
+        assert!(screen.contains("Title ›"), "{screen}");
+        assert!(screen.contains("○ item 2"), "{screen}");
+        assert!(!screen.contains("┌ Checklist ·"), "{screen}");
+        assert!(
+            screen.contains("⏎ save") && screen.contains("Esc close"),
+            "{screen}"
+        );
+        press(&mut app, KeyCode::Esc);
+        assert!(
+            app.notes
+                .draft(&scope)
+                .unwrap()
+                .text(0)
+                .contains(word.trim())
+        );
+    }
+}
+
+#[test]
 fn completed_rows_move_to_done_and_the_status_names_the_completed_title() {
     let (mut app, key) = opened(vec![todo(1), done(2)]);
     let (task, write) = write_of(press(&mut app, KeyCode::Enter));
@@ -606,10 +636,10 @@ fn checklist_groups_todo_and_done_and_esc_returns_to_talk() {
 }
 
 #[test]
-fn enter_opens_a_link_and_ticks_a_todo_at_the_revision_it_was_read_at() {
+fn o_opens_a_link_and_enter_ticks_a_todo_at_the_revision_it_was_read_at() {
     let (mut app, key) = opened(vec![link(2), todo(1)]);
     // The cursor starts on the first item, a link.
-    let effect = press(&mut app, KeyCode::Enter);
+    let effect = press(&mut app, KeyCode::Char('o'));
     assert!(
         matches!(&effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a"),
         "{effect:?}"
@@ -1521,7 +1551,7 @@ fn opened_link(effect: &Effect) -> bool {
 }
 
 #[test]
-fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other() {
+fn enter_and_space_tick_a_link_on_the_page_and_o_opens_it() {
     use crate::config::ChecklistEnter::{Open, Tick};
     let ticks = |effect: Effect| {
         let (_, write) = write_of(effect);
@@ -1534,10 +1564,7 @@ fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other()
             enter_means(&mut app, enter);
             press(&mut app, code)
         };
-        match enter {
-            Open => assert!(opened_link(&press_on_link(KeyCode::Enter)), "{enter:?}"),
-            Tick => ticks(press_on_link(KeyCode::Enter)),
-        }
+        ticks(press_on_link(KeyCode::Enter));
         ticks(press_on_link(KeyCode::Char(' ')));
         assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
     }
@@ -1586,7 +1613,7 @@ fn the_footer_names_enter_behavior_and_keeps_esc_back_in_view() {
     enter_means(&mut app, Open);
     let screen = paint_wide(&app);
     assert!(
-        screen.contains("⏎ open/tick") && screen.contains("Esc back"),
+        screen.contains("⏎ tick") && screen.contains("Esc back"),
         "{screen}"
     );
     enter_means(&mut app, Tick);

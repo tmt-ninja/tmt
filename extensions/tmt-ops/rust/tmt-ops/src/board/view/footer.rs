@@ -935,56 +935,40 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         });
     if app.right_tab == crate::board::shell::RightTab::Checklist
         && app.focused() == crate::config::Pane::Replies
-        && app
-            .notes_overlay
-            .as_ref()
-            .is_some_and(|controller| !controller.owns_typing(&app.notes))
+        && app.notes_overlay.is_some()
         && app.error.is_none()
         && app.migration_notice.is_none()
     {
-        let enter_label = if app
-            .view
+        let form = app
+            .notes_overlay
             .as_ref()
-            .is_some_and(|view| view.checklist_enter == crate::config::ChecklistEnter::Tick)
-        {
-            "tick"
+            .is_some_and(|controller| controller.owns_typing(&app.notes));
+        let hints: Vec<Hint> = if form {
+            [("↑↓", "title/link"), ("⏎", "save")]
+                .into_iter()
+                .map(|(key, label)| (key.into(), label.into()))
+                .collect()
         } else {
-            "open/tick"
+            [
+                ("↑↓", "choose"),
+                ("⏎", "tick"),
+                ("o", "open"),
+                ("a", "add"),
+                ("e", "edit"),
+                ("d", "delete"),
+                ("Shift+↑↓", "move"),
+            ]
+            .into_iter()
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect()
         };
-        let mut hints: Vec<Hint> = [
-            ("↑↓", "choose"),
-            ("⏎", enter_label),
-            ("o", "open"),
-            ("a", "add"),
-            ("e", "edit"),
-            ("d", "delete"),
-            ("Shift+↑↓", "move"),
-        ]
-        .into_iter()
-        .map(|(key, label)| (key.into(), label.into()))
-        .collect();
-        if !app.bindings().contains_key("U")
-            && let Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) =
-                app.workspace_selected_member()
-            && let Some(member) = app
-                .workspace_snapshot()
-                .and_then(|snapshot| snapshot.roster.members.get(identity_id))
-        {
-            hints.push((
-                "U".into(),
-                format!(
-                    "ask {} to update",
-                    crate::board::notes::single_line(&member.name)
-                ),
-            ));
-        }
-        if let Some(key) = crate::board::keycap::key(app, crate::action::OpsUiAction::PaneTalk, "T")
-        {
-            hints.push((key, "talk".into()));
-        }
         let hints = fit_hints(
             hints,
-            vec![("Esc".into(), "back".into())],
+            if form {
+                vec![("Esc".into(), "close keeping the draft".into())]
+            } else {
+                vec![("Esc".into(), "back".into())]
+            },
             usize::from(hint_area.width),
         );
         strip::paint_left(

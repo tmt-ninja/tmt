@@ -425,8 +425,8 @@ squad keeps the squad Checklist surface. The page groups non-archived items unde
 and a reference gets its own line. The controller retains its existing link hits,
 write epochs, edit forms, and unsent drafts. The `U` action asks the selected member
 to update the checklist; its session-only state changes to updated only after the
-matching final reply. Authored bindings retain precedence. Enter on a link continues
-to follow `board.checklist_enter`; Space ticks and `o` opens the link.
+matching final reply. Authored bindings retain precedence. On the page Enter and
+Space tick an item; `o` opens its link. Add and edit fields appear inline in the list.
 
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment
