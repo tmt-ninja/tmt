@@ -532,6 +532,51 @@ fn keep_current_choices_are_unique_so_arrows_can_reach_another_model() {
     );
 }
 #[test]
+fn edit_tool_can_be_opened_or_changed_from_the_keyboard() {
+    use super::super::model::Slot;
+    let f = Fixture::new();
+    let mut app = f.app();
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Down);
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Enter);
+    assert!(
+        app.new_member.as_ref().unwrap().list.is_some(),
+        "Enter opens AI tool choices"
+    );
+
+    let mut app = f.app();
+    app.new_member
+        .as_mut()
+        .unwrap()
+        .loaded
+        .as_mut()
+        .unwrap()
+        .choices
+        .insert(
+            "claude".into(),
+            crate::board::host_launch::LaunchChoices {
+                models: vec![],
+                efforts: vec![],
+            },
+        );
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Down);
+    paint(&app, 160, 36);
+    let before = app
+        .new_member
+        .as_ref()
+        .unwrap()
+        .draft
+        .text(Slot::Tool)
+        .to_owned();
+    input(&mut app, KeyCode::Right);
+    assert_ne!(
+        app.new_member.as_ref().unwrap().draft.text(Slot::Tool),
+        before
+    );
+}
+#[test]
 fn edit_never_offers_the_plain_shell_tool_and_has_no_command_field() {
     use super::super::model::{PLAIN_TOOL, Slot};
     let f = Fixture::new();

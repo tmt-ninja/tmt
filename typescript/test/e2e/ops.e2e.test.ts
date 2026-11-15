@@ -789,7 +789,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture((screen) => screen.includes('e edit'), board);
       fixture.tmux(['send-keys', '-t', board, 'e']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Edit member') && screen.includes('nothing changed yet'),
+        (screen) => screen.includes('Edit member · worker') && screen.includes('Save'),
         board
       );
       // Name is first; choose Tool and Model through the same lists as New member.
@@ -807,9 +807,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           screen.includes('--model=switch-model'),
         board
       );
-      // Down stops at the footer, whether the driver's Effort field is present or not.
-      // Cancel is first; Right chooses the one coalesced Save.
-      fixture.tmux(['send-keys', '-t', board, 'Down', 'Down', 'Down', 'Down', 'Right', 'Enter']);
+      // Down stops at the footer; Save is the primary action.
+      fixture.tmux(['send-keys', '-t', board, 'Down', 'Down', 'Down', 'Down', 'Enter']);
       try {
         await fixture.waitFor(
           () => fixture.capture(100, board).includes('worker is running claude'),
@@ -1068,7 +1067,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
         (screen) =>
-          /Cancel[ \t]+Create squad/.test(screen) && screen.includes('New squad: product'),
+          /Create squad[ \t]+Cancel/.test(screen) && screen.includes('New squad: product'),
         shell.pane
       );
       const beforeApply = await fixture.runJsonCli(['room', 'show', 'squad-product']);
@@ -1080,7 +1079,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('Publish squad leads to Core') &&
-          /Cancel[ \t]+Publish leads/.test(screen),
+          screen.includes('Cancel') &&
+          screen.includes('Publish leads'),
         shell.pane
       );
       // The squad is already created; Cancel is the default for the separate Core offer.
@@ -1112,7 +1112,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture(
-        (screen) => !/Cancel[ \t]+Create squad/.test(screen) && screen.includes('product'),
+        (screen) => !/Create squad[ \t]+Cancel/.test(screen) && screen.includes('product'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
