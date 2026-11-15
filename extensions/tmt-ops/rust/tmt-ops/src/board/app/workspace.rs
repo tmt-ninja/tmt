@@ -798,7 +798,7 @@ impl App {
                 let unchanged = keys.get(&event) == defaults.get(&event);
                 if unchanged
                     && (source.is_some_and(|source| source == "workspace default")
-                        || ((matches!(event.as_str(), "e" | "i")
+                        || ((matches!(event.as_str(), "e" | "i" | "z")
                             || (self.shell.tab == OpsTab::Digest
                                 && matches!(event.as_str(), "u" | "[")))
                             && source.is_none()))
@@ -839,18 +839,18 @@ impl App {
                 "enter".into(),
                 Action::parse("talk").expect("factory message action"),
             );
-            if let Some(action) = self.workspace_factory_j(Some(&target)) {
-                keys.insert("j".into(), action);
+            if let Some(action) = self.workspace_factory_z(Some(&target)) {
+                keys.insert("z".into(), action);
             }
         }
         keys
     }
-    /// The tree's factory j follows its recipient.
-    pub(super) fn workspace_factory_j(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
+    /// The tree's factory z follows its recipient.
+    pub(super) fn workspace_factory_z(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
         if self.shell.tab == OpsTab::Agents && recipient.is_some() {
             Some(Action::parse("jump").expect("factory host action"))
         } else {
-            crate::config::workspace_defaults(self.workspace_scope()).remove("j")
+            crate::config::workspace_defaults(self.workspace_scope()).remove("z")
         }
     }
     pub(in crate::board) fn workspace_selected_host(&self) -> Option<&str> {
@@ -1628,7 +1628,7 @@ impl App {
             chip: None,
             separator: false,
             key: String::new(),
-            label: "Bindings · j presets".into(),
+            label: "Bindings · z presets".into(),
             choice: Choice::HostAction,
         });
         entries.push(MenuEntry {

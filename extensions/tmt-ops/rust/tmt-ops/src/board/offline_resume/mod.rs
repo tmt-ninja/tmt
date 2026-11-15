@@ -290,8 +290,8 @@ impl App {
         self.invalidate_frame_geometry();
     }
 
-    /// `j` on an offline row the capture named opens the dialog on it while the row can still
-    /// start (not tried, and Resume or New is offered). `None` keeps what `j` does today.
+    /// `z` on an offline row the capture named opens the dialog on it while the row can still
+    /// start (not tried, and Resume or New is offered). `None` keeps what `z` does today.
     pub(in crate::board) fn offline_resume_row(&mut self, identity: &str) -> Option<Effect> {
         let dialog = self.offline_resume.dialog.as_mut()?;
         let index = dialog

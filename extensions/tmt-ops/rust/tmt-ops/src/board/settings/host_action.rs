@@ -1,4 +1,4 @@
-//! The binding editor holds an opening sample and typed Config destination; j presets share it.
+//! The binding editor holds an opening sample and typed Config destination; z presets share it.
 use crate::{
     action::{Action, Verb},
     config::{Config, OpsKeyScope},
@@ -50,7 +50,7 @@ impl HostAction {
             .editing
             .as_ref()
             .and_then(|(key, _)| key.strip_prefix("bind."))
-            .unwrap_or("j");
+            .unwrap_or("z");
         let meaning = self.meaning(text);
         let destination = self.destination_notice(overlay.config.as_ref().unwrap(), event);
         let scope = format!(
@@ -182,12 +182,12 @@ impl HostAction {
             .collect::<Result<Vec<_>, _>>()?;
         bindings.sort_by(|(a, binding_a), (b, binding_b)| {
             (
-                a != "j",
+                a != "z",
                 binding_a.action.is_none() && binding_a.authored.is_none(),
                 a,
             )
                 .cmp(&(
-                    b != "j",
+                    b != "z",
                     binding_b.action.is_none() && binding_b.authored.is_none(),
                     b,
                 ))

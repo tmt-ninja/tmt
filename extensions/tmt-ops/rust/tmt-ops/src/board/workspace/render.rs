@@ -761,21 +761,19 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 &crate::board::tree_row::Row {
                     source: row,
                     label: match &row.target {
-                        OpsTarget::Member { identity_id, .. } if snapshot.labels_present => Some(
-                            snapshot
-                                .preferences
-                                .labels
-                                .members
-                                .get(identity_id)
-                                .and_then(|id| {
-                                    snapshot
-                                        .preferences
-                                        .labels
-                                        .definitions
-                                        .iter()
-                                        .find(|label| &label.id == id)
-                                }),
-                        ),
+                        OpsTarget::Member { identity_id, .. } => snapshot
+                            .preferences
+                            .labels
+                            .members
+                            .get(identity_id)
+                            .and_then(|id| {
+                                snapshot
+                                    .preferences
+                                    .labels
+                                    .definitions
+                                    .iter()
+                                    .find(|label| &label.id == id)
+                            }),
                         _ => None,
                     },
                     expanded,

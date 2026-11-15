@@ -268,10 +268,10 @@ is inferred. Form/worker ownership is in [the board reference](board.md).
 
 ## Settings inspection and editing
 
-The `?` panel settings rows offer workspace layout, the Digest window, Bindings (with j presets),
+The `?` panel settings rows offer workspace layout, the Digest window, Bindings (with z presets),
 Theme, Token window and Actions. It does not expose the former general
 configuration-inspection overlay. Bindings reuses the Settings list, editor and
-Config CAS writer for every admitted event, including unassigned keys; j presets
+Config CAS writer for every admitted event, including unassigned keys; z presets
 share that editor. Typed global/host/exact-section locations carry a literal event
 separately, so punctuation keys never pass through a split display label. The command
 uses the shared Editor for caret movement; ↓ reaches its separate Scope row, where
@@ -349,7 +349,7 @@ scoped override semantics; CLI configuration remains available for explicit edit
   UI catalog also exposes Close and delete through Actions. The rename form freezes its UUID and literal current name for Core's
   `identity.rename` CAS, with explicit review and no automatic retry.
   Default Enter talks for a member and inspects a squad or the Common pool, on every host;
-  double-click inspects; list `j` jumps, while Reader `j/k` scroll. The host table
+  double-click inspects; list `z` jumps, while Reader `j/k` scroll. The host table
   uses only Core's published `location.host` (`tmux` or an external host); missing or
   unknown location supplies no host override. Retired actions produce located migration
   notices and preserve authored bytes. Arguments are fully resolved before execution;

@@ -1,4 +1,4 @@
-//! The member frame as the board shows it (#5989): `j` fills the board with a built-in member's
+//! The member frame as the board shows it (#5989): `z` fills the board with a built-in member's
 //! terminal under one header row, every key but the back key is the program's, and the paused
 //! and ended dialogs and header menus act through core.
 use super::{
@@ -147,8 +147,8 @@ impl Framed {
         let mut app = reader();
         app.terminal = tab;
         app.focus = 0;
-        app.key(key(KeyCode::Char('j'), KeyModifiers::NONE));
-        assert!(app.framed(), "j opens the frame");
+        app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(app.framed(), "z opens the frame");
         located(&mut app, fake.address.clone(), MemberTerm::default());
         assert!(app.terminal_sync());
         let mut peer = fake.accept();
@@ -268,7 +268,7 @@ fn a_bound_back_key_replaces_ctrl_g_and_shows_on_the_header() {
     );
     app.terminal = tab().0;
     app.focus = 0;
-    app.key(key(KeyCode::Char('j'), KeyModifiers::NONE));
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
     assert!(app.framed());
     assert!(text(&app).lines().next().unwrap().contains("alt-b  Board"));
     app.key(key(KeyCode::Char('b'), KeyModifiers::ALT));

@@ -24,41 +24,51 @@ pub(super) fn render(
             .filter(|target| !target.is_empty())
             .map_or_else(|| host.to_owned(), |target| format!("{host} {target}"))
     });
-    line(
-        frame,
-        area,
-        y,
-        identity_line::member(
-            &identity_line::Member {
-                squad: squad.map_or("Common pool", |squad| squad.name.as_str()),
-                lead: squad.is_some_and(|squad| squad.lead.as_deref() == Some(id)),
-                runtime: observed
-                    .and_then(|agent| agent.runtime.as_deref())
-                    .or_else(|| observed.filter(|agent| agent.basic).map(|_| "basic")),
-                model: observed
-                    .and_then(|agent| agent.model.as_deref())
-                    .or_else(|| row["fields"]["model"].as_str()),
-                host: host.as_deref(),
-                label: app.workspace_snapshot().and_then(|snapshot| {
+    let identity = identity_line::Member {
+        squad: squad.map_or("Common pool", |squad| squad.name.as_str()),
+        lead: squad.is_some_and(|squad| squad.lead.as_deref() == Some(id)),
+        runtime: observed
+            .and_then(|agent| agent.runtime.as_deref())
+            .or_else(|| observed.filter(|agent| agent.basic).map(|_| "basic")),
+        model: observed
+            .and_then(|agent| agent.model.as_deref())
+            .or_else(|| row["fields"]["model"].as_str()),
+        host: host.as_deref(),
+        label: app.workspace_snapshot().and_then(|snapshot| {
+            snapshot
+                .preferences
+                .labels
+                .members
+                .get(id)
+                .and_then(|label_id| {
                     snapshot
                         .preferences
                         .labels
-                        .members
-                        .get(id)
-                        .and_then(|label_id| {
-                            snapshot
-                                .preferences
-                                .labels
-                                .definitions
-                                .iter()
-                                .find(|label| &label.id == label_id)
-                                .map(|label| label.name.as_str())
-                        })
-                }),
-            },
-            look,
-        ),
-    );
+                        .definitions
+                        .iter()
+                        .find(|label| &label.id == label_id)
+                        .map(|label| label.name.as_str())
+                })
+        }),
+    };
+    let line_y = *y;
+    let host_range = identity_line::member_host_range(&identity);
+    line(frame, area, y, identity_line::member(&identity, look));
+    if *y > line_y
+        && app.workspace_selection_visible()
+        && let Some((start, width)) = host_range
+        && let Some(action) = app.bindings().get("z").cloned()
+        && start < usize::from(area.width)
+    {
+        let visible = width.min(usize::from(area.width) - start);
+        if visible > 0 {
+            app.workspace_action_hits.borrow_mut().push((
+                Rect::new(area.x + start as u16, line_y, visible as u16, 1),
+                target.clone(),
+                crate::board::app::Choice::Action(action),
+            ));
+        }
+    }
     // A squad member's Checklist is a chip on the Talk/Measure row (#5992); one of the Common
     // pool has no room, so it keeps the link line.
     if conversation_checklist::Key::of(target).is_none() {

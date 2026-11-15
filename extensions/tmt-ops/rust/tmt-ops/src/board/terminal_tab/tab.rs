@@ -521,7 +521,7 @@ pub(in crate::board) mod tests {
         Located::Stream(address(name), MemberTerm::default())
     }
 
-    /// The workspace test board with its member on the built-in host, so `j` frames it.
+    /// The workspace test board with its member on the built-in host, so `z` frames it.
     pub(in crate::board) fn built_in(mut app: crate::board::app::App) -> crate::board::app::App {
         let target = app.workspace.selected.clone().unwrap();
         let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;

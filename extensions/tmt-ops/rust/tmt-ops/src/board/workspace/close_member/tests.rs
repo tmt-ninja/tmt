@@ -622,11 +622,11 @@ fn refused_jump_uses_the_frozen_uuid_and_keeps_the_explicit_delete_review() {
     });
     paint(&app, 100, 36);
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)),
+        app.key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)),
         Effect::None
     );
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Action::Jump(MEMBER.into()))
     );
     assert!(app.workspace_form.as_ref().unwrap().shown);

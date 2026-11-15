@@ -900,14 +900,14 @@ fn render_target(
         header.push(Line::default());
     }
     let host_action = bindings
-        .get("j")
+        .get("z")
         .filter(|action| {
             matches!(
                 action.verb,
                 crate::action::Verb::Jump | crate::action::Verb::Run
             )
         })
-        .map(|action| ("j", action))
+        .map(|action| ("z", action))
         .or_else(|| {
             bindings
                 .iter()

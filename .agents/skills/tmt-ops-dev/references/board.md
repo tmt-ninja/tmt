@@ -664,7 +664,7 @@ module depends on `tmt-pty-protocol` for frames only.
 
 ### Member frame
 
-`j` on a built-in-host member (`App::jump_to_terminal`; a tmux member keeps the host jump), a
+`z` on a built-in-host member (`App::jump_to_terminal`; a tmux member keeps the host jump), a
 clean built-in New member create, and Enter on a plain program open the frame
 (`App::open_member_frame`): the member's terminal fills the board under one TMT header row
 (`paint::frame`). `tab::Tab` (on `App`) holds the answer of `terminal.stream` per member
@@ -721,13 +721,13 @@ the selected member's list when it is 2 s old (a member with no terminals is ask
 60 s). `with_terminal_rows` puts the rows under their member in `workspace_rows` at depth + 1
 as `OpsTarget::Terminal`, which is never a recipient, room or Talk target; the member gets
 `▾`/`▸`, and ←/→ fold them. A terminal row has its own key scope (`OpsKeyScope::Terminal`):
-`t` `terminal-new` (also on member rows), `⏎` `terminal-type`, `j` `terminal-full-screen`,
+`t` `terminal-new` (also on member rows), `⏎` `terminal-type`, `z` `terminal-full-screen`,
 `x` `terminal-close`. `x` closes an idle terminal at once, asks first for a busy one (the
 board's confirm, Cancel first), and removes an ended row without asking Core. The right panel
 (`panel`) is the selected live terminal through `terminal_tab`'s one stream (keyed by the
 terminal id, with the address from the list; `terminal.stream` is never asked for it), under
 the rule `member · Terminal N · directory`, a status line and a footer line; `⏎` sends keys to
-it until the `member-back` key, and `j` puts it in the member frame. Core reports only `busy`,
+it until the `member-back` key, and `z` puts it in the member frame. Core reports only `busy`,
 so the confirm and the status line do not name the program or the shell yet (#6112).
 
 ## Checklist controller

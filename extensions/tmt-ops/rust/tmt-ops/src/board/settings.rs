@@ -653,7 +653,7 @@ impl Overlay {
                         .settings
                         .entries
                         .iter()
-                        .find(|entry| entry.key == "bind.j")
+                        .find(|entry| entry.key == "bind.z")
                         .and_then(|entry| entry.value.as_str())
                         .unwrap_or_default();
                     if let Some(line) =
@@ -661,8 +661,8 @@ impl Overlay {
                     {
                         self.edit_start = Some(line.clone());
                         self.edit_kept = false;
-                        self.editing = Some(("bind.j".into(), line.into()));
-                        self.begin_binding("j");
+                        self.editing = Some(("bind.z".into(), line.into()));
+                        self.begin_binding("z");
                         self.preview();
                         return Input::Preview;
                     }
@@ -1169,7 +1169,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     let mut grouped = false;
     for pick in &overlay.picks {
         if pick.id != "actions" && !grouped {
-            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":if overlay.host_action.is_some() {"j presets"} else {PICK_GROUP}}]}));
+            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":if overlay.host_action.is_some() {"z presets"} else {PICK_GROUP}}]}));
             grouped = true;
         }
         let id = pick_row_id(pick);

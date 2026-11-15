@@ -140,7 +140,7 @@ impl App {
         let target = crate::board::app::RowTarget::Workspace(row.target.clone());
         if let Some(raw) = self.target_row(&target) {
             let bindings = self.bindings();
-            let host_action = bindings.get("j").map(|action| ("j", action)).or_else(|| {
+            let host_action = bindings.get("z").map(|action| ("z", action)).or_else(|| {
                 bindings
                     .iter()
                     .find(|(_, action)| action.verb == crate::action::Verb::Jump)

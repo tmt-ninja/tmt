@@ -2703,7 +2703,7 @@ impl App {
         let Some(row) = row else {
             return self.say("No row is selected.");
         };
-        // `j` on an offline member the built-in capture named, while it can still be started,
+        // `z` on an offline member the built-in capture named, while it can still be started,
         // offers its relaunch (#6438). Talk and Reply keep queueing to it as before.
         if action.verb == Verb::Jump
             && row["presence"] == "offline"
@@ -2734,11 +2734,11 @@ impl App {
         };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
-            // A plain program has no chat: Enter opens its terminal, as `j` does (#5769).
+            // A plain program has no chat: Enter opens its terminal, as `z` does (#5769).
             Verb::Talk | Verb::Reply if row["plainProgram"].is_string() => {
                 return self.jump_to_terminal(&row).unwrap_or_else(|| {
                     self.say(format!(
-                        "{} runs a plain program, not an AI agent; it has no chat. Use j to reach its terminal.",
+                        "{} runs a plain program, not an AI agent; it has no chat. Use z to reach its terminal.",
                         row["name"].as_str().unwrap_or("This member")
                     ))
                 });
@@ -3957,12 +3957,12 @@ impl App {
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };
-        let direct_jump = menu.anchor.is_some() && key.code == KeyCode::Char('j');
+        let direct_jump = menu.anchor.is_some() && key.code == KeyCode::Char('z');
         let chosen = match key.code {
-            KeyCode::Char('j') if direct_jump => menu
+            KeyCode::Char('z') if direct_jump => menu
                 .entries
                 .iter()
-                .find(|entry| entry.key == "j")
+                .find(|entry| entry.key == "z")
                 .map(|entry| entry.choice.clone()),
             KeyCode::Esc | KeyCode::Char('q') => None,
             KeyCode::Up | KeyCode::Char('k') => {

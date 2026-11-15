@@ -1,6 +1,6 @@
 //! The right panel while a terminal row is selected (#5991, mock 8): the title rule
 //! `member · Terminal N · directory`, a status line `shell · running · cols×rows`, the terminal
-//! itself, live, and one footer line. `⏎` types into it here; `j` shows it full screen.
+//! itself, live, and one footer line. `⏎` types into it here; `z` shows it full screen.
 use crate::board::{
     app::App,
     section_rule,
@@ -90,7 +90,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let words = match (row.ended, typing) {
         (true, _) => format!(" {} ended · x removes it", row.title()),
         (false, true) => format!(" Typing into {} · {back} back to list", row.title()),
-        (false, false) => format!(" {} live · ⏎ type in · j full screen", row.title()),
+        (false, false) => format!(" {} live · ⏎ type in · z full screen", row.title()),
     };
     muted(frame, footer, &words, app);
 }

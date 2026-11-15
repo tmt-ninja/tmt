@@ -1,5 +1,5 @@
 //! The keys of a member's terminals (#5991): `t` opens one, `⏎` types into the selected one in
-//! the right panel, `j` shows it full screen, `x` closes it (asking first while a program runs),
+//! the right panel, `z` shows it full screen, `x` closes it (asking first while a program runs),
 //! and the back key (Ctrl-g) returns to the list. Each one only changes board state or queues a
 //! lane task; nothing here calls Core.
 use crate::{

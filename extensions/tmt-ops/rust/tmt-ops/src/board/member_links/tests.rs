@@ -623,7 +623,7 @@ mod additional_tests {
             .get_mut(&crate::config::OpsKeyScope::Member)
             .unwrap()
             .insert(
-                "j".into(),
+                "z".into(),
                 crate::action::Action::parse("run recorder {id}").unwrap(),
             );
         app.invoker_tmux = false;
@@ -644,7 +644,7 @@ mod additional_tests {
             .get_mut(&crate::config::OpsKeyScope::Member)
             .unwrap()
             .insert(
-                "j".into(),
+                "z".into(),
                 crate::action::Action::parse("jump lead").unwrap(),
             );
         app.invoker_tmux = true;
@@ -679,12 +679,12 @@ mod visibility_tests {
         let action = crate::action::Action::parse("run recorder {id}").unwrap();
         snapshot.hosts.insert(
             "tmux".into(),
-            [(OpsKeyScope::Member, [("j".into(), action.clone())].into())].into(),
+            [(OpsKeyScope::Member, [("z".into(), action.clone())].into())].into(),
         );
         app.workspace_reconcile();
         assert!(!app.workspace_selection_visible());
         assert_eq!(
-            app.bindings()["j"].verb,
+            app.bindings()["z"].verb,
             crate::action::Verb::Jump,
             "hidden row supplies no implicit host override"
         );
