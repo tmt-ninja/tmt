@@ -1110,6 +1110,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                 'contextObservedAtMs',
                 'contextTokensAtArrival',
                 'createdAtMs',
+                'phaseAtArrival',
                 'sequence',
               ]);
             }
