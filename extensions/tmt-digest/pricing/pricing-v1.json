@@ -1,7 +1,7 @@
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-11-05",
-  "asOf": "2026-11-05",
+  "version": "2026-11-15",
+  "asOf": "2026-11-15",
   "basis": "standard-base-input",
   "models": [
     {
@@ -97,6 +97,26 @@
     {
       "modelId": "gemini-4-argon-high",
       "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-hydrogen",
+      "usdMicrosPerMillionInputTokens": 1500000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-hydrogen-low",
+      "usdMicrosPerMillionInputTokens": 1500000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-hydrogen-medium",
+      "usdMicrosPerMillionInputTokens": 1500000,
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    {
+      "modelId": "gemini-4-hydrogen-high",
+      "usdMicrosPerMillionInputTokens": 1500000,
       "source": "https://ai.google.dev/gemini-api/docs/pricing"
     }
   ]
