@@ -486,21 +486,26 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
           },
         },
       });
+    const agyPane = fixture.createShellPane('agy-forms').pane;
+    const namedAgy = await fixture.runJsonCli<{ id: string }>(['name', 'Agy Form Reader', '-s'], {
+      pane: agyPane,
+    });
+    expect(namedAgy.code).toBe(0);
+    const agyIdentityId = namedAgy.json!.id;
     const agySteps = [
-      { args: ['name', 'Agy Form Reader', '-s', '--json'] },
       agyHook({}),
       agyHook({ invocationNum: 1 }),
       agyAsk('call_q1'),
-      api('forms.list', {}),
+      api('forms.list', { identityId: agyIdentityId }),
       agyHook({
         hookEventName: 'PostToolUse',
         toolCall: { id: 'call_q1', name: 'ask_question', args: {} },
       }),
-      api('forms.list', {}),
+      api('forms.list', { identityId: agyIdentityId }),
       agyAsk('call_q2'),
-      api('forms.list', {}),
+      api('forms.list', { identityId: agyIdentityId }),
       agyHook({ invocationNum: 2 }),
-      api('forms.list', {}),
+      api('forms.list', { identityId: agyIdentityId }),
     ];
     const agyScenario = path.join(fixture.root, 'agy-forms-scenario.json');
     const agyReport = path.join(fixture.root, 'agy-forms-report.json');
@@ -515,7 +520,6 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
     ]
       .map(quote)
       .join(' ');
-    const agyPane = fixture.createShellPane('agy-forms').pane;
     fixture.watchHookFailures(agyPane);
     fixture.tmux(['send-keys', '-t', agyPane, '-l', agyCommand]);
     fixture.tmux(['send-keys', '-t', agyPane, 'Enter']);
@@ -526,22 +530,18 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
       stderr: string;
     }>;
     expect(agyResults).toHaveLength(agySteps.length);
-    for (const index of [3, 5, 7, 9]) {
+    for (const index of [2, 4, 6, 8]) {
       expect([
         agyResults[index].code,
         agyResults[index].stdout.trim(),
         agyResults[index].stderr,
       ]).toEqual([0, '{}', '']);
     }
-    const claudeId = forms(14)[0].identityId;
-    const agyForms = (index: number) =>
-      (JSON.parse(agyResults[index].stdout).forms as Array<Record<string, unknown>>).filter(
-        (form) => form.identityId !== claudeId
-      );
-    expect(agyForms(4)).toEqual([
+    const agyForms = (index: number) => JSON.parse(agyResults[index].stdout).forms;
+    expect(agyForms(3)).toEqual([
       {
         formId: expect.any(String),
-        identityId: expect.any(String),
+        identityId: agyIdentityId,
         openedMs: expect.any(Number),
         kind: 'question',
         questions: [
@@ -556,8 +556,8 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
         answerable: false,
       },
     ]);
-    expect(agyForms(6)).toEqual([]);
-    expect(agyForms(8)).toHaveLength(1);
-    expect(agyForms(10)).toEqual([]);
+    expect(agyForms(5)).toEqual([]);
+    expect(agyForms(7)).toHaveLength(1);
+    expect(agyForms(9)).toEqual([]);
   });
 });
