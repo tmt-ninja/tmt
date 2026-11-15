@@ -789,7 +789,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture((screen) => screen.includes('e edit'), board);
       fixture.tmux(['send-keys', '-t', board, 'e']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Edit member · worker') && screen.includes('Save'),
+        (screen) =>
+          screen.includes('Edit member · worker') &&
+          /More\s+current effort/.test(screen),
         board
       );
       // Name is first; choose Tool and Model through the same lists as New member.

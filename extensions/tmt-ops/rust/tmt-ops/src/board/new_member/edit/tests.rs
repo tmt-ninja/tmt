@@ -544,6 +544,7 @@ fn edit_tool_can_be_opened_or_changed_from_the_keyboard() {
         app.new_member.as_ref().unwrap().list.is_some(),
         "Enter opens AI tool choices"
     );
+    assert!(paint(&app, 160, 36).contains("AI tool · choose"));
 
     let mut app = f.app();
     app.new_member
