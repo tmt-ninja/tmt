@@ -89,6 +89,52 @@ pub(super) fn with_caret(draft: &Draft, field: usize) -> String {
 }
 
 impl Controller {
+    pub(super) fn paint_kind(
+        &self,
+        frame: &mut Frame,
+        app: &App,
+        draft: &Draft,
+        area: Rect,
+        owner: Option<Overlay>,
+    ) {
+        let Some(seed) = &draft.seed else {
+            return;
+        };
+        let groups = [chip_group::ChipGroup {
+            label: "Kind  ".into(),
+            choices: [
+                ("Todo", super::NoteKind::Todo),
+                ("Link", super::NoteKind::Link),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (label, kind))| chip_group::Choice {
+                id: format!("kind-{index}"),
+                actionable: true,
+                text: format!(" {label} "),
+                gap: " ".into(),
+                selected: seed.kind == kind,
+                disabled: draft.sent(),
+                cursor: draft.focus == 0 && seed.kind == kind,
+            })
+            .collect(),
+        }];
+        self.kind_hits.borrow_mut().extend(
+            chip_group::paint(frame.buffer_mut(), area, &groups, app, owner)
+                .into_iter()
+                .map(|hit| {
+                    (
+                        hit.area,
+                        if hit.id == "kind-0" {
+                            super::NoteKind::Todo
+                        } else {
+                            super::NoteKind::Link
+                        },
+                    )
+                }),
+        );
+    }
+
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         let items = self.items(&app.notes);
         let draft = app.notes.draft(&self.key);
@@ -250,52 +296,20 @@ impl Controller {
             ui.render_modal(FILE, template, data, frame, look, body);
             self.kind_hits.borrow_mut().clear();
             if let Some(draft) = draft
-                && let Some(seed) = &draft.seed
+                && draft.seed.is_some()
                 && let Some(map) = &ui.frame
                 && let Some(kind) = map
                     .hits
                     .iter()
                     .find(|hit| hit.id.last().is_some_and(|id| id == "kind"))
             {
-                let groups = [chip_group::ChipGroup {
-                    label: "Kind  ".into(),
-                    choices: [
-                        ("Todo", super::NoteKind::Todo),
-                        ("Link", super::NoteKind::Link),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, (label, kind))| chip_group::Choice {
-                        id: format!("kind-{index}"),
-                        actionable: true,
-                        text: format!(" {label} "),
-                        gap: " ".into(),
-                        selected: seed.kind == kind,
-                        disabled: draft.sent(),
-                        cursor: draft.focus == 0 && seed.kind == kind,
-                    })
-                    .collect(),
-                }];
                 let area = Rect::new(
                     map.areas.content.x,
                     kind.rect.y,
                     map.areas.content.width,
                     kind.rect.height,
                 );
-                self.kind_hits.borrow_mut().extend(
-                    chip_group::paint(frame.buffer_mut(), area, &groups, app, Some(Overlay::Notes))
-                        .into_iter()
-                        .map(|hit| {
-                            (
-                                hit.area,
-                                if hit.id == "kind-0" {
-                                    super::NoteKind::Todo
-                                } else {
-                                    super::NoteKind::Link
-                                },
-                            )
-                        }),
-                );
+                self.paint_kind(frame, app, draft, area, Some(Overlay::Notes));
             }
         } else {
             ui.render(FILE, template, data, frame, look, body);

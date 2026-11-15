@@ -78,6 +78,12 @@ impl Controller {
         notes.draft(&self.key).is_some_and(|draft| !draft.sent())
     }
 
+    pub(in crate::board) fn seeded_form(&self, notes: &State) -> bool {
+        notes
+            .draft(&self.key)
+            .is_some_and(|draft| draft.seed.is_some())
+    }
+
     /// Esc or an outside press: the unsent form's text is kept for the next open, except an
     /// empty form or an edit that changed nothing, which is not worth keeping.
     pub(in crate::board) fn close(&self, notes: &mut State) {
@@ -571,6 +577,10 @@ impl App {
         }
         self.menu = None;
         self.notes_overlay = Some(controller);
+        if self.shell.tab == crate::board::shell::OpsTab::Agents {
+            self.right_tab = crate::board::shell::RightTab::Checklist;
+            self.focus = 1;
+        }
         Effect::None
     }
 

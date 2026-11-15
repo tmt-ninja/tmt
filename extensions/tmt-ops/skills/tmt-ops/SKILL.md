@@ -633,7 +633,8 @@ activity lines, naming the agent and the currently held item title. Missing titl
 missing names `an agent`. Reordering says `reordered the checklist`. Older unknown or pruned
 activity and failed reads are explicit; the board never infers a change from the current list.
 These lines describe activity and grant no reply, request-source or unread authority.
-The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
+Adding from a conversation selection or link opens a prefilled inline Checklist form;
+`↑↓` changes fields and `←→` changes its Todo/Link kind.
 Authored bindings use `member-checklist` (default `C` in member/Reader scopes; `N` stays create-squad).
 This is a breaking rename before launch: replace the former `member-notes` action;
 it has no alias and receives the ordinary unknown-action notice. The private identity

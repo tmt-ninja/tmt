@@ -28,7 +28,7 @@ fn visual_row_end(visual: &[Visual<'_>], mut index: usize, id: &str) -> usize {
 impl Visual<'_> {
     fn row_id(&self) -> Option<&str> {
         match self {
-            Self::Heading(..) | Self::Form(..) => None,
+            Self::Heading(..) | Self::Form(..) | Self::Kind => None,
             Self::Item(row, ..) | Self::Link(row, ..) => Some(row.id.as_str()),
         }
     }
@@ -37,11 +37,15 @@ impl Visual<'_> {
 enum Visual<'a> {
     Heading(&'static str, usize),
     Form(String, Role),
+    Kind,
     Item(&'a Row, String, usize, bool),
     Link(&'a Row, String, bool),
 }
 
 fn append_form(visual: &mut Vec<Visual<'_>>, draft: &super::Draft, notice: Option<&str>) {
+    if draft.seed.is_some() {
+        visual.push(Visual::Kind);
+    }
     for (field, label) in [(0, "Title"), (1, "Link")] {
         let focused = draft.field() == Some(field);
         let value = if focused {
@@ -52,6 +56,12 @@ fn append_form(visual: &mut Vec<Visual<'_>>, draft: &super::Draft, notice: Optio
         visual.push(Visual::Form(
             crate::board::notes::single_line(&format!("  {label} › {value}")),
             if focused { Role::Accent } else { Role::Muted },
+        ));
+    }
+    if let Some(seed) = &draft.seed {
+        visual.push(Visual::Form(
+            crate::board::notes::single_line(&format!("  From   {}", seed.source.label())),
+            Role::Muted,
         ));
     }
     if draft.reopened {
@@ -71,7 +81,7 @@ fn append_form(visual: &mut Vec<Visual<'_>>, draft: &super::Draft, notice: Optio
     }
     if let Some(notice) = notice {
         visual.push(Visual::Form(
-            crate::board::notes::single_line(notice),
+            crate::board::notes::single_line(&format!("  {notice}")),
             Role::Waiting,
         ));
     }
@@ -84,7 +94,8 @@ impl Controller {
         }
         let look = app.look();
         let draft = app.notes.draft(&self.key);
-        if app.notes.preview(&self.key).is_none() {
+        let loaded = app.notes.preview(&self.key).is_some();
+        if !loaded && draft.is_none() {
             *self.ask_hit.borrow_mut() = None;
             let message = match app.notes.summary(&self.key) {
                 Some(super::Summary::Unavailable(words)) => words.as_str(),
@@ -137,7 +148,14 @@ impl Controller {
         let done = items.len().saturating_sub(todo);
         let mut visual = Vec::new();
         for (heading, count, completed) in [("Todo", todo, false), ("Done", done, true)] {
-            visual.push(Visual::Heading(heading, count));
+            if !loaded && completed {
+                continue;
+            }
+            if loaded {
+                visual.push(Visual::Heading(heading, count));
+            } else {
+                visual.push(Visual::Form("Reading the checklist…".into(), Role::Muted));
+            }
             if !completed
                 && draft.is_some_and(|draft| match &draft.aim {
                     super::draft::Aim::Add => true,
@@ -232,6 +250,7 @@ impl Controller {
         let offset = ui.picker.list.scroll.offset();
         let mut geometry = Vec::new();
         *self.ask_hit.borrow_mut() = None;
+        self.kind_hits.borrow_mut().clear();
         let mut hits = Vec::new();
         let mut link_hits = Vec::new();
         for (index, line) in visual
@@ -243,6 +262,11 @@ impl Controller {
             let y = area.y + (index - offset) as u16;
             let rect = Rect::new(area.x, y, area.width, 1);
             match line {
+                Visual::Kind => {
+                    if let Some(draft) = draft {
+                        self.paint_kind(frame, app, draft, rect, None);
+                    }
+                }
                 Visual::Form(text, role) => {
                     strip::paint_left(
                         frame.buffer_mut(),

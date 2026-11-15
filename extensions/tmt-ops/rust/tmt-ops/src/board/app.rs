@@ -4488,7 +4488,11 @@ impl App {
             && self.notes_overlay.is_some()
             && self.focused() == Pane::Replies
         {
-            if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
+            if !self
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing(&self.notes))
+                && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
                 && matches!(key.code, KeyCode::Char('T' | 'M' | 'U' | 'u'))
             {
                 return self.perform(&action);

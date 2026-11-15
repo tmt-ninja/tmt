@@ -63,6 +63,11 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     assert!(paint(&app).contains("^L"));
     press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
     assert!(app.notes_overlay.is_some(), "Ctrl+L opens member Checklist");
+    let narrow = paint_at(&app, 60);
+    assert!(
+        narrow.contains("Checklist"),
+        "the active tab remains visible with the retained draft: {narrow}"
+    );
     let checklist_page = paint(&app);
     assert!(
         checklist_page.contains("Todo · 1"),
@@ -494,15 +499,18 @@ fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
 }
 
 #[test]
-fn checklist_page_follows_the_selected_member_but_a_seeded_form_keeps_its_target() {
+fn checklist_page_follows_selection_and_preserves_a_seeded_draft() {
     let (mut app, key) = read_with(vec![]);
     app.add_to_notes(note_seed(&app, NoteKind::Todo));
     app.select(0);
     assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
-    assert_eq!(
-        app.notes_overlay.as_ref().unwrap().key,
-        key,
-        "seeded form keeps its target"
+    assert!(
+        app.notes_overlay.is_none(),
+        "the page closes on a squad row"
+    );
+    assert!(
+        app.notes.draft(&key).is_some(),
+        "the original member's draft is retained"
     );
 
     let mut app = crate::board::app::workspace::tests::populated_board(1, 2);
@@ -806,6 +814,16 @@ fn e_edits_the_chosen_item_and_a_conflict_keeps_the_draft_on_the_new_version() {
     assert!(
         screen.contains("Changed elsewhere. Your draft is kept"),
         "{screen}"
+    );
+    let area = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    let notice = screen
+        .lines()
+        .find(|line| line.contains("Changed elsewhere."))
+        .unwrap();
+    let prefix = notice.split_once("Changed elsewhere.").unwrap().0;
+    assert_eq!(
+        unicode_width::UnicodeWidthStr::width(prefix),
+        usize::from(area.x) + 2
     );
     assert!(screen.contains("item 1 (v2)"), "the words stay: {screen}");
     assert!(
@@ -1123,7 +1141,9 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
     let body = seed.source.body();
     app.add_to_notes(seed);
     let screen = paint(&app);
-    assert!(screen.contains("Add to checklist · worker"), "{screen}");
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Checklist);
+    assert_eq!(app.overlay(), None, "the seeded form remains on the page");
+    assert!(screen.contains("Todo · 0"), "{screen}");
     assert!(screen.contains("Kind   Todo   Link "), "{screen}");
     assert!(screen.contains("Title › review_the_build▏"), "{screen}");
     assert!(screen.contains("From   worker · final"), "{screen}");
@@ -1131,12 +1151,12 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
         !screen.contains("No items yet"),
         "the add form contains no list"
     );
-    type_text(&mut app, " today");
+    type_text(&mut app, " today T");
     let (_, write) = write_of(press(&mut app, KeyCode::Enter));
     assert_eq!(
         write,
         Write::Add {
-            title: "review_the_build today".into(),
+            title: "review_the_build today T".into(),
             reference: Some("https://example.com/review_the_build?ref=chat#jobs".into()),
             body: Some(body),
             inventory: Some(1),
@@ -1266,7 +1286,7 @@ fn loading_and_a_replaced_conversation_never_submit_a_seed_to_another_member() {
     app.select(0);
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert!(!app.notes.draft(&key).unwrap().sent());
-    assert!(paint(&app).contains("The conversation changed"));
+    assert!(app.notes_overlay.is_none(), "the stale page is closed");
 
     let (mut app, _) = read_with(vec![]);
     let seed = note_seed(&app, NoteKind::Todo);
@@ -1414,18 +1434,23 @@ fn add_forms_show_their_kind_and_source_at_every_width_and_keep_low_height_maps_
                         .collect::<String>();
                     if height == 36 {
                         assert!(
-                            text.contains("Add to checklist"),
+                            text.contains("Todo · 0"),
                             "{scene} {look:?} {width}: {text}"
                         );
                         assert!(text.contains("Kind "), "{scene} {look:?} {width}: {text}");
                         assert!(text.contains("From "), "{scene} {look:?} {width}: {text}");
                         assert!(!text.contains("No items yet"), "the add form has no list");
                     }
+                    assert_eq!(app.overlay(), None, "the form is on the page");
                     let frame = app.notes_overlay.as_ref().unwrap().ui.borrow();
-                    assert!(
-                        frame.frame.as_ref().unwrap().list.is_none(),
-                        "no hidden list row can act: {scene} {width}x{height}"
-                    );
+                    if let Some(map) = &frame.frame {
+                        assert!(
+                            map.list
+                                .as_ref()
+                                .is_none_or(|list| list.geometry.is_empty()),
+                            "no hidden list row can act: {scene} {width}x{height}"
+                        );
+                    }
                 }
             }
         }
@@ -1610,6 +1635,11 @@ fn a_completed_link_is_visible_and_space_reopens_it() {
 fn the_footer_names_enter_behavior_and_keeps_esc_back_in_view() {
     use crate::config::ChecklistEnter::{Open, Tick};
     let (mut app, _) = opened(vec![link(1)]);
+    let narrow = paint_at(&app, 60);
+    assert!(
+        narrow.contains("Checklist"),
+        "the active tab remains visible: {narrow}"
+    );
     enter_means(&mut app, Open);
     let screen = paint_wide(&app);
     assert!(

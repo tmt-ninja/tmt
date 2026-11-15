@@ -944,10 +944,16 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             .as_ref()
             .is_some_and(|controller| controller.owns_typing(&app.notes));
         let hints: Vec<Hint> = if form {
-            [("↑↓", "title/link"), ("⏎", "save")]
-                .into_iter()
-                .map(|(key, label)| (key.into(), label.into()))
-                .collect()
+            let mut hints = vec![("↑↓".into(), "title/link".into())];
+            if app
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.seeded_form(&app.notes))
+            {
+                hints.push(("←→".into(), "kind".into()));
+            }
+            hints.push(("⏎".into(), "save".into()));
+            hints
         } else {
             [
                 ("↑↓", "choose"),

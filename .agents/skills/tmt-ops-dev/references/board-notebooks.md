@@ -431,8 +431,8 @@ Space tick an item; `o` opens its link. Add and edit fields appear inline in the
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source
-text flattened into the title. Kind, Title, Link and From share the conversation checklist modal;
-Tab changes fields; Kind uses the shared flat chips, with Left/Right or a current
+text flattened into the title. On Agents, Kind, Title, Link and From appear inline on the
+Checklist page; Up/Down changes fields. Kind uses the shared flat chips, with Left/Right or a current
 chip click selecting the explicit kind. An existing
 unsent draft is retained instead of being replaced. The held room/member/actor
 must still match at entry and submission; an unread checklist cannot be written.
