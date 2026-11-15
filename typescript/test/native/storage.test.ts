@@ -171,6 +171,7 @@ function expectNativeSchema(
     { version: 90, name: 'record an empty Digest turn boundary while references are due' },
     { version: 91, name: 'record the interactive forms a provider session waits on' },
     { version: 92, name: 'stamp which identity each usage write changed' },
+    { version: 93, name: 'record thread roots and stamp room request changes' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -249,6 +250,8 @@ function expectNativeSchema(
       'provider_forms',
       'usage_changes',
       'usage_floor',
+      'room_request_changes',
+      'room_change_floor',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -277,6 +280,7 @@ function expectNativeSchema(
     'orchestration_talk_holds',
     'provider_forms',
     'usage_changes',
+    'room_request_changes',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }
@@ -645,6 +649,8 @@ function expectNativeSchema(
       remote_target_id: null,
       remote_target_name: null,
       remote_sender_name: null,
+      // Schema 93: only a thread reply names its root.
+      thread_root_request_id: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -658,6 +664,7 @@ function expectNativeSchema(
     ['remote_target_id', 'TEXT'],
     ['remote_target_name', 'TEXT'],
     ['remote_sender_name', 'TEXT'],
+    ['thread_root_request_id', 'TEXT'],
   ]) {
     expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
       name,
@@ -681,6 +688,7 @@ function expectNativeSchema(
     'request_history_recipient_room',
     'request_history_room',
     'request_history_originator_results',
+    'request_thread_root',
   ]) {
     expect(newAttempts.indexes.some((index) => index.name === name)).toBe(true);
   }

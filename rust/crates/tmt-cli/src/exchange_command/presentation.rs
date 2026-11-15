@@ -89,6 +89,9 @@ fn exchange_document<T>(
     if let Some(room_id) = &exchange.room_id {
         document["roomId"] = room_id.clone().into();
     }
+    if let Some(root) = &exchange.thread_root_request_id {
+        document["parentRequestId"] = root.clone().into();
+    }
     document
 }
 
@@ -125,6 +128,10 @@ pub(super) fn document(report: &Report) -> Value {
         ResultKind::Show { detail, receipt } => {
             let mut exchange = exchange_document(&detail.exchange, |body| Some(json!(body)));
             exchange["prompt"] = prompt_document(&detail.prompt);
+            if let Some(root) = &detail.thread_root {
+                exchange["thread"] =
+                    json!({"line": tmt_adapters::request_frame::thread_reply_line(root)});
+            }
             if let Some(receipt) = receipt {
                 exchange["reply"] = json!({"receipt": receipt, "command": format!("tmt reply {} --receipt {} --message <text>", detail.exchange.request_id, receipt)});
             }

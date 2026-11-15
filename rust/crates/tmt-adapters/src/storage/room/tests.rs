@@ -241,7 +241,7 @@ fn a_roster_post_reaches_only_the_addressed_members() {
     assert_eq!(receipt.items[0].recipient_id, bob);
     let mut outsider = input;
     outsider.operation_id = uuid::Uuid::new_v4().to_string();
-    outsider.recipient_ids = vec![bob, carol];
+    outsider.recipient_ids = vec![bob.clone(), carol.clone()];
     assert_eq!(
         storage
             .dispatch_request(outsider, 90, || panic!("a non-member must not create work"))
@@ -249,6 +249,228 @@ fn a_roster_post_reaches_only_the_addressed_members() {
             .code(),
         "ROOM_ROSTER_CHANGED"
     );
+
+    // Thread replies (#6407): each reply stores the thread root, a reply to a reply stores
+    // the same root, and a parent outside the post's scope stores nothing.
+    use tmt_core::request::{
+        Originator, RequestService,
+        history::{ChangedSince, HistoryQuery, HistoryScope, RoomSince},
+    };
+    let op = || uuid::Uuid::new_v4().to_string();
+    let post =
+        |storage: &mut Storage, input: DispatchInput| storage.dispatch_request(input, 90, || 2000);
+    let reply_in_room = |parent: &str, to: &str, operation: String| {
+        let mut input = dispatch(&room);
+        input.operation_id = operation;
+        input.recipient_ids = vec![to.to_owned()];
+        input.message = "On it.".into();
+        input.parent_request_id = Some(parent.to_owned());
+        input
+    };
+    let root = receipt.items[0].request_id.clone();
+    let first = post(&mut storage, reply_in_room(&root, &alice, op())).unwrap();
+    let first_id = first.items[0].request_id.clone();
+    let nested_op = op();
+    let nested = post(
+        &mut storage,
+        reply_in_room(&first_id, &bob, nested_op.clone()),
+    )
+    .unwrap();
+    let nested_id = nested.items[0].request_id.clone();
+    assert_eq!(
+        post(&mut storage, reply_in_room(&root, &bob, nested_op))
+            .unwrap_err()
+            .code(),
+        "DISPATCH_IDEMPOTENCY_CONFLICT",
+        "the parent is part of the intent"
+    );
+    const OTHER_ROOM: &str = "33333333-3333-4333-8333-333333333333";
+    let other = storage
+        .save_meeting_room(OTHER_ROOM, write(0, vec![alice.clone()]))
+        .unwrap();
+    let mut elsewhere = dispatch(&other);
+    elsewhere.operation_id = op();
+    let elsewhere = post(&mut storage, elsewhere).unwrap().items[0]
+        .request_id
+        .clone();
+    // A direct exchange between Alice and Bob: talk outside the room.
+    let direct = |from: &str, to: &str, parent: Option<&str>| DispatchInput {
+        originator: Originator::Explicit(from.to_owned()),
+        recipient_ids: vec![to.to_owned()],
+        room: None,
+        operation_id: op(),
+        parent_request_id: parent.map(str::to_owned),
+        ..dispatch(&room)
+    };
+    let direct_root = post(&mut storage, direct(&alice, &bob, None))
+        .unwrap()
+        .items[0]
+        .request_id
+        .clone();
+    let direct_reply = post(&mut storage, direct(&bob, &alice, Some(&direct_root))).unwrap();
+    let count = |storage: &Storage| -> i64 {
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM request_attempts", [], |r| r.get(0))
+            .unwrap()
+    };
+    let before = count(&storage);
+    for refused in [
+        reply_in_room(&elsewhere, &alice, op()),
+        reply_in_room(&direct_root, &alice, op()),
+        direct(&alice, &carol, Some(&direct_root)),
+        reply_in_room("req_00000000-0000-4000-8000-000000000009", &alice, op()),
+    ] {
+        assert_eq!(
+            post(&mut storage, refused).unwrap_err().code(),
+            "DISPATCH_PARENT_INVALID"
+        );
+    }
+    assert_eq!(count(&storage), before, "a refused parent stores nothing");
+
+    // After reopen the room stream groups by root: replies name it, the root counts them,
+    // and the direct exchange never appears in the room.
+    let path = directory.path.join("rooms.db");
+    storage.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    let room_query = || HistoryQuery {
+        scope: HistoryScope::Room(ROOM.into()),
+        limit: 50,
+        before: None,
+    };
+    let (page, changes) = RequestService::new(&mut storage, || 3000)
+        .request_room_history(room_query(), None)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(
+        &crate::request_history::encode_room_page(&page, &changes, ROOM),
+    )
+    .unwrap();
+    let item = |id: &str| {
+        value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["requestId"] == id)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(value["items"].as_array().unwrap().len(), 3);
+    assert_eq!(item(&root)["replyCount"], 2);
+    assert!(item(&root)["parentRequestId"].is_null());
+    assert_eq!(item(&first_id)["parentRequestId"], root.as_str());
+    assert_eq!(item(&nested_id)["parentRequestId"], root.as_str());
+    // The reply is delivered with one bounded line naming its root.
+    let shown = RequestService::new(&mut storage, || 3000)
+        .show_incoming_request(&alice, &first_id)
+        .unwrap();
+    let line = format!("Thread: {root} · \"Review the saved sketch.\"");
+    assert_eq!(
+        shown
+            .thread_root
+            .as_ref()
+            .map(crate::request_frame::thread_reply_line),
+        Some(line.clone())
+    );
+    // The live and Digest delivery frames the line with the message as one untrusted body:
+    // the same frame, one reply block, the exact message after the line.
+    let delivered = crate::digest::live_request_text_at(&mut storage, &first_id, || 3000)
+        .unwrap()
+        .unwrap();
+    assert!(delivered.starts_with(&format!("{line}\nOn it.\n\n<tmt-reply from=")));
+    assert_eq!(delivered.matches("<tmt-reply").count(), 1);
+    assert_eq!(
+        shown.exchange.thread_root_request_id.as_deref(),
+        Some(root.as_str())
+    );
+    let direct_shown = RequestService::new(&mut storage, || 3000)
+        .show_incoming_request(&alice, &direct_reply.items[0].request_id)
+        .unwrap();
+    assert_eq!(
+        direct_shown.exchange.thread_root_request_id.as_deref(),
+        Some(direct_root.as_str())
+    );
+
+    // Room changes (#6375): an unchanged room counts 0, a final after the position counts
+    // and carries its preview, and another room's position is unknown.
+    let since = |text: &str| crate::request_history::decode_room_position(text, ROOM);
+    let position = value["changePosition"].as_str().unwrap().to_owned();
+    let (_, unchanged) = RequestService::new(&mut storage, || 3000)
+        .request_room_history(room_query(), Some(since(&position)))
+        .unwrap();
+    assert_eq!(
+        unchanged.changed_since,
+        Some(ChangedSince::Count {
+            count: 0,
+            more: false
+        })
+    );
+    let attempt: String = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT attempt_id FROM request_attempts WHERE request_id=?",
+            [&first_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let route = tmt_core::request::RequestRoute::Inbox {
+        recipient_identity_id: alice.clone(),
+    };
+    RequestService::new(&mut storage, || 3000)
+        .submit_response(tmt_core::request::SubmitResponse {
+            request_id: first_id.clone(),
+            proof: tmt_core::request::ResponseProof::Compact(
+                tmt_core::request::correlation::response_token(&first_id, &attempt, &route),
+            ),
+            body: "Done.\nDetails follow.".into(),
+        })
+        .unwrap();
+    let (page, changed) = RequestService::new(&mut storage, || 4000)
+        .request_room_history(room_query(), Some(since(&position)))
+        .unwrap();
+    assert_eq!(
+        changed.changed_since,
+        Some(ChangedSince::Count {
+            count: 1,
+            more: false
+        })
+    );
+    let value: serde_json::Value = serde_json::from_slice(
+        &crate::request_history::encode_room_page(&page, &changed, ROOM),
+    )
+    .unwrap();
+    let replied = value["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["requestId"] == first_id.as_str())
+        .unwrap();
+    assert_eq!(replied["responsePreview"], "Done.");
+    let foreign = crate::request_history::encode_room_position(OTHER_ROOM, changed.position);
+    assert_eq!(since(&foreign), RoomSince::Foreign);
+    let (_, unknown) = RequestService::new(&mut storage, || 4000)
+        .request_room_history(room_query(), Some(since(&foreign)))
+        .unwrap();
+    assert_eq!(unknown.changed_since, Some(ChangedSince::Unknown));
+    // Room change rows go with their requests when retention purges them.
+    let stamps = |storage: &Storage| -> i64 {
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM room_request_changes", [], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    assert!(stamps(&storage) > 0);
+    let past_retention = 4000 + 200 * 86_400_000;
+    for _ in 0..3 {
+        RequestService::new(&mut storage, || past_retention)
+            .cleanup()
+            .unwrap();
+    }
+    assert_eq!(stamps(&storage), 0);
     storage.close().unwrap();
 }
 
@@ -267,6 +489,7 @@ fn identity(storage: &mut Storage, name: &str) -> String {
 }
 fn dispatch(room: &MeetingRoom) -> DispatchInput {
     DispatchInput {
+        parent_request_id: None,
         origin: tmt_core::request::RequestOrigin::Person,
         originator: tmt_core::request::Originator::Unknown,
         kind: tmt_core::request::RequestKind::Request,

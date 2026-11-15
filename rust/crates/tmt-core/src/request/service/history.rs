@@ -93,6 +93,7 @@ fn item<T>(
         delivery_policy,
         capture,
         request_id: record.attempt.request_id,
+        thread_root_request_id: record.attempt.thread_root_request_id,
         room_id: record.attempt.room_id,
         recipient_identity_id: record.attempt.recipient_identity_id,
         originator: record.attempt.originator,
@@ -115,6 +116,7 @@ fn summary<E>(
         item: summary_item(records, row.attention, now)?,
         preview: row.preview,
         response_preview: row.response_preview,
+        reply_count: row.reply_count,
     })
 }
 
@@ -130,6 +132,51 @@ fn changed_since(
                 && since.member <= now.member
                 && counts.retained_at_since >= since.retained =>
         {
+            ChangedSince::Count {
+                count: counts.changed.min(CHANGED_SINCE_CAP),
+                more: counts.changed > CHANGED_SINCE_CAP,
+            }
+        }
+        _ => ChangedSince::Unknown,
+    }
+}
+
+fn history_page<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    query: &HistoryQuery,
+    now: u64,
+) -> Result<HistoryPage, RequestError<E>> {
+    let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
+    let mut rows = records.list_request_history(query, query.limit + 1, now)?;
+    let more = rows.len() as u64 > query.limit;
+    rows.truncate(query.limit as usize);
+    let next_before = more.then(|| {
+        let row = &rows.last().expect("positive page limit").attention.attempt;
+        if results {
+            HistoryCursor::Submitted {
+                submitted_at_ms: row
+                    .response_submitted_at_ms
+                    .expect("submitted results only"),
+                request_id: row.request_id.clone(),
+            }
+        } else {
+            HistoryCursor::Prepared {
+                prepared_at_ms: row.prepared_at_ms,
+                request_id: row.request_id.clone(),
+            }
+        }
+    });
+    let items = rows
+        .into_iter()
+        .map(|row| summary(records, row, now))
+        .collect::<Result<_, RequestError<E>>>()?;
+    Ok(HistoryPage { items, next_before })
+}
+
+/// A stale, foreign, future or pre-floor room position is unknown, never a count of 0.
+fn room_changed_since(since: &RoomSince, counts: &RoomChangeCounts) -> ChangedSince {
+    match since {
+        RoomSince::Position(since) if *since <= counts.position && *since >= counts.floor => {
             ChangedSince::Count {
                 count: counts.changed.min(CHANGED_SINCE_CAP),
                 more: counts.changed > CHANGED_SINCE_CAP,
@@ -225,30 +272,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         }
         let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
         let observe = |records: &mut dyn RequestRecords<Error = R::Error>, now| {
-            let mut rows = records.list_request_history(&query, query.limit + 1, now)?;
-            let more = rows.len() as u64 > query.limit;
-            rows.truncate(query.limit as usize);
-            let next_before = more.then(|| {
-                let row = &rows.last().expect("positive page limit").attention.attempt;
-                if results {
-                    HistoryCursor::Submitted {
-                        submitted_at_ms: row
-                            .response_submitted_at_ms
-                            .expect("submitted results only"),
-                        request_id: row.request_id.clone(),
-                    }
-                } else {
-                    HistoryCursor::Prepared {
-                        prepared_at_ms: row.prepared_at_ms,
-                        request_id: row.request_id.clone(),
-                    }
-                }
-            });
-            let items = rows
-                .into_iter()
-                .map(|row| summary(records, row, now))
-                .collect::<Result<_, RequestError<R::Error>>>()?;
-            Ok(HistoryPage { items, next_before })
+            history_page(records, &query, now)
         };
         if results {
             let clock = &self.clock;
@@ -257,6 +281,41 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         } else {
             self.read(observe)
         }
+    }
+
+    /// A room's history page with its change position and, for `since`, how many of its
+    /// retained requests changed after it (#6375), all from one read.
+    pub fn request_room_history(
+        &mut self,
+        query: HistoryQuery,
+        since: Option<RoomSince>,
+    ) -> Result<(HistoryPage, RoomChanges), RequestError<R::Error>> {
+        let HistoryScope::Room(room_id) = &query.scope else {
+            return Err(RequestError::Invalid("Invalid room history query."));
+        };
+        if !valid_query(&query) {
+            return Err(RequestError::Invalid("Invalid request history query."));
+        }
+        let room_id = room_id.clone();
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            let from = match &since {
+                Some(RoomSince::Position(position)) => Some(*position),
+                _ => None,
+            };
+            let counts = records.room_change_counts(&room_id, from, now)?;
+            let page = history_page(records, &query, now)?;
+            Ok((
+                page,
+                RoomChanges {
+                    position: counts.position,
+                    changed_since: since
+                        .as_ref()
+                        .map(|since| room_changed_since(since, &counts)),
+                },
+            ))
+        })
     }
 
     /// The originator's answered requests, newest answer first. Metadata only, so a

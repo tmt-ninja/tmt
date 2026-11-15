@@ -62,6 +62,8 @@ impl<T> FinalState<T> {
 pub struct Exchange<T = ()> {
     pub delivery_policy: super::digest::DeliveryPolicy,
     pub request_id: String,
+    /// The thread root this request replies in, if any (#6407).
+    pub thread_root_request_id: Option<String>,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,
     pub prepared_at_ms: u64,
@@ -80,6 +82,8 @@ pub struct Exchange<T = ()> {
 pub struct ExchangeDetail {
     pub exchange: Exchange<String>,
     pub prompt: RequestPrompt,
+    /// The thread this request replies in, with the root's retained text (#6407).
+    pub thread_root: Option<super::history::ThreadRoot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

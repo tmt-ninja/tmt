@@ -129,6 +129,7 @@ pub(super) fn decode(params: &RawValue) -> Option<ToolCall> {
         "tmt_send" => {
             let input: Send = serde_json::from_str(arguments).ok()?;
             let input = tmt_core::dispatch::DispatchInput {
+                parent_request_id: None,
                 operation_id: input.operation_id,
                 recipient_ids: vec![input.recipient_id],
                 message: input.message,

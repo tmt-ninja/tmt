@@ -433,6 +433,7 @@ mod tests {
         };
         let item = IncomingItem {
             exchange: Exchange {
+                thread_root_request_id: None,
                 delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
                 request_id: "request-id".into(),
                 room_id: None,

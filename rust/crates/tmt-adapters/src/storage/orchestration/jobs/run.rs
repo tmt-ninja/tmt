@@ -81,6 +81,7 @@ fn job_dispatch(
 ) -> Result<DispatchInput, JobError> {
     let owner = job.owner_id.as_ref().ok_or(JobError::NoOwner)?;
     Ok(DispatchInput {
+        parent_request_id: None,
         originator: input.originator.clone(),
         kind: RequestKind::Request,
         origin: RequestOrigin::Automation,

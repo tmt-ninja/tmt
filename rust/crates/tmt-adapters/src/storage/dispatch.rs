@@ -24,6 +24,8 @@ pub enum DispatchError {
     IdempotencyConflict,
     RoomRosterChanged,
     RoomRecipientNotMember,
+    /// The named parent is not an available request in this post's scope (#6407).
+    ParentInvalid,
     Request(RequestError<StorageError>),
     Storage(StorageError),
 }
@@ -35,6 +37,7 @@ impl DispatchError {
             Self::IdempotencyConflict => "DISPATCH_IDEMPOTENCY_CONFLICT",
             Self::RoomRosterChanged => "ROOM_ROSTER_CHANGED",
             Self::RoomRecipientNotMember => "ROOM_RECIPIENT_NOT_MEMBER",
+            Self::ParentInvalid => "DISPATCH_PARENT_INVALID",
             Self::Request(_) | Self::Storage(_) => "STORAGE_UNAVAILABLE",
         }
     }
@@ -159,6 +162,11 @@ pub(super) fn dispatch_in_transaction(
         }
     }
     let now = clock();
+    let thread_root = input
+        .parent_request_id
+        .as_deref()
+        .map(|parent| thread_root(transaction, parent, &input, now))
+        .transpose()?;
     let expires_at_ms =
         checked_deadline(now, REQUEST_MIN_EXPIRY_MS).ok_or(DispatchError::Invalid)?;
     let mut repository = TransactionRequests(transaction, calendar);
@@ -189,6 +197,14 @@ pub(super) fn dispatch_in_transaction(
                 ..DeliveryPolicy::default()
             },
         );
+        if let (Ok(_), Some(root)) = (&result, &thread_root) {
+            transaction
+                .execute(
+                    "UPDATE request_attempts SET thread_root_request_id=?1 WHERE request_id=?2",
+                    params![root, request_id],
+                )
+                .map_err(|error| classify(error, "Record thread root"))?;
+        }
         let acceptance = match result {
             Ok(prepared) if prepared.held_for_person => Acceptance::HeldForPerson,
             Ok(_) => Acceptance::Queued,
@@ -218,6 +234,53 @@ pub(super) fn dispatch_in_transaction(
         params![receipt.operation_id,digest,encoded],
     ).map_err(|error| classify(error, "Store dispatch receipt"))?;
     Ok((receipt, true))
+}
+
+/// The thread root a reply to `parent` belongs to: the parent's own root, or the parent.
+/// The parent must be an available request in the post's scope: the same room for a room
+/// post; for a direct post, no room and the same sender and recipient pair, either way.
+fn thread_root(
+    connection: &Connection,
+    parent: &str,
+    input: &DispatchInput,
+    now: u64,
+) -> Result<String, DispatchError> {
+    let row = connection
+        .query_row(
+            "SELECT thread_root_request_id, room_id, originator_identity_id, recipient_identity_id
+             FROM request_attempts WHERE request_id=?1 AND retention_expires_at_ms>?2",
+            params![parent, i64::try_from(now).unwrap_or(i64::MAX)],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| classify(error, "Read thread parent"))?;
+    let Some((root, room, from, to)) = row else {
+        return Err(DispatchError::ParentInvalid);
+    };
+    let in_scope = match &input.room {
+        Some(post) => room.as_deref() == Some(post.room_id()),
+        None => {
+            let sender = input.originator.identity_id();
+            room.is_none()
+                && sender.is_some()
+                && input.recipient_ids.iter().all(|recipient| {
+                    let pair = (from.as_deref(), to.as_deref());
+                    pair == (sender, Some(recipient.as_str()))
+                        || pair == (Some(recipient.as_str()), sender)
+                })
+        }
+    };
+    if !in_scope {
+        return Err(DispatchError::ParentInvalid);
+    }
+    Ok(root.unwrap_or_else(|| parent.to_owned()))
 }
 
 pub(super) fn read_dispatch_operation(

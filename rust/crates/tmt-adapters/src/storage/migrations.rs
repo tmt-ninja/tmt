@@ -452,6 +452,10 @@ const MIGRATIONS: &[Migration] = &[
         "stamp which identity each usage write changed",
         "schema/092.sql"
     ),
+    migration!(
+        "record thread roots and stamp room request changes",
+        "schema/093.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

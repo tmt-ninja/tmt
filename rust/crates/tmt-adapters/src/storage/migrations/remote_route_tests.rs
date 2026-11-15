@@ -178,7 +178,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 92);
+    assert_eq!(storage.health().unwrap().schema_version, 93);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -194,12 +194,24 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
         "children still reference the table"
     );
     // Every index and trigger is back by name and SQL; the update trigger also watches the new columns.
+    // Schema 93 adds the thread root index (#6407).
+    let mut expected = before.dependents.keys().cloned().collect::<Vec<_>>();
+    expected.push("request_thread_root".to_owned());
+    expected.sort();
     assert_eq!(
-        after.dependents.keys().collect::<Vec<_>>(),
-        before.dependents.keys().collect::<Vec<_>>()
+        after.dependents.keys().cloned().collect::<Vec<_>>(),
+        expected
     );
+    // Schema 93 watches the thread root and stamps room changes after the cursor advance.
+    let without_93 = |sql: &str| match sql.split_once("WHERE id = 1;") {
+        Some((head, _)) => format!("{head}WHERE id = 1; END").replace(
+            "   OR OLD.thread_root_request_id IS NOT NEW.thread_root_request_id\n",
+            "",
+        ),
+        None => sql.to_owned(),
+    };
     for (name, sql) in &before.dependents {
-        let rebuilt = &after.dependents[name];
+        let rebuilt = &without_93(&after.dependents[name]);
         if name == "request_attempts_advances_change_cursor_on_update" {
             let added = "   OR OLD.remote_ref IS NOT NEW.remote_ref\n   OR OLD.remote_target_id IS NOT NEW.remote_target_id\n   OR OLD.remote_target_name IS NOT NEW.remote_target_name\n   OR OLD.remote_sender_name IS NOT NEW.remote_sender_name\n";
             assert_eq!(&rebuilt.replace(added, ""), sql, "{name}");
@@ -453,7 +465,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 92);
+    assert_eq!(storage.health().unwrap().schema_version, 93);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,

@@ -100,6 +100,18 @@ fn history_select_with(
         WHERE {condition}", rows::qualified_attempt_columns())
 }
 
+/// How many retained replies name this row as their thread root (#6407), counted at read
+/// from the `request_thread_root` index; `now` is the query's retention parameter.
+fn reply_count_column(now: &str) -> String {
+    format!(
+        ", (SELECT COUNT(*) FROM request_attempts AS reply INDEXED BY request_thread_root \
+         WHERE reply.thread_root_request_id=a.request_id AND reply.retention_expires_at_ms > {now})"
+    )
+}
+fn reply_count(row: &rusqlite::Row<'_>) -> rusqlite::Result<u64> {
+    rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 6)
+}
+
 pub(super) fn history_query(scope: &HistoryScope, has_cursor: bool) -> String {
     let results = matches!(scope, HistoryScope::OriginatorResults { .. });
     let time = if results {
@@ -132,19 +144,21 @@ pub(super) fn history_query(scope: &HistoryScope, has_cursor: bool) -> String {
     } else {
         "?3 IS NULL AND ?4 IS NULL".into()
     };
-    let select = history_select(
+    let select = history_select_with(
         &format!("request_attempts AS a INDEXED BY {index}"),
         &format!("{condition} AND a.retention_expires_at_ms > ?6 AND {cursor}"),
         &format!(
             "CASE WHEN a.message_expires_at_ms > ?6 THEN substr(CAST(a.message_text AS BLOB),1,{PREVIEW_BYTES}) ELSE NULL END"
         ),
-        &if results {
+        // A results page and a room page (#6375) carry the bounded response preview.
+        &if results || matches!(scope, HistoryScope::Room(_)) {
             format!(
                 "CASE WHEN response.response_expires_at_ms > ?6 THEN substr(CAST(response.body AS BLOB),1,{RESPONSE_PREVIEW_BYTES}) ELSE NULL END"
             )
         } else {
             "NULL".into()
         },
+        &reply_count_column("?6"),
     );
     format!("{select} ORDER BY a.{time} DESC,a.request_id DESC LIMIT ?5")
 }
@@ -190,6 +204,7 @@ pub(super) fn list_request_history(
                     attention: rows::recipient_attention_row(row)?,
                     preview: history_preview(row)?,
                     response_preview: response_preview(row)?,
+                    reply_count: reply_count(row)?,
                 })
             },
         )
@@ -230,7 +245,7 @@ pub(super) fn conversation_sql(paged: bool) -> String {
             &format!(
                 "CASE WHEN response.response_expires_at_ms > ?6 THEN substr(CAST(response.body AS BLOB),1,{RESPONSE_PREVIEW_BYTES}) ELSE NULL END"
             ),
-            &format!(", {CONVERSATION_SIDES}"),
+            &format!("{}, {CONVERSATION_SIDES}", reply_count_column("?6")),
         )
     };
     format!(
@@ -268,13 +283,14 @@ pub(super) fn list_conversation(
             |row| {
                 Ok(ConversationRecord {
                     position: (
-                        rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 6)?,
                         rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 7)?,
+                        rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 8)?,
                     ),
                     history: HistoryRecord {
                         attention: rows::recipient_attention_row(row)?,
                         preview: history_preview(row)?,
                         response_preview: response_preview(row)?,
+                        reply_count: reply_count(row)?,
                     },
                 })
             },
@@ -286,6 +302,46 @@ pub(super) fn list_conversation(
 
 /// Retained in-scope requests; those that existed at `since` (by the recipient revision
 /// they got when created, which never changes); and those either side moved past it.
+/// A room's change position (#6375): the change cursor, the stamp floor, and the retained
+/// room requests stamped after `since`, counted up to the cap plus one.
+pub(super) fn room_change_counts(
+    connection: &Connection,
+    room_id: &str,
+    since: Option<u64>,
+    now_ms: u64,
+) -> Result<tmt_core::request::history::RoomChangeCounts, StorageError> {
+    let value = |sql: &str| {
+        connection
+            .query_row(sql, [], |row| rows::u64_at(row, 0))
+            .map_err(|error| classify(error, "Read room change position"))
+    };
+    let position = value("SELECT value FROM change_cursor WHERE id=1")?;
+    let floor = value("SELECT value FROM room_change_floor WHERE id=1")?;
+    let changed = match since {
+        None => 0,
+        Some(since) => connection
+            .query_row(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM room_request_changes AS c
+                   JOIN request_attempts AS a ON a.request_id=c.request_id
+                   WHERE c.room_id=?1 AND c.change_seq>?2 AND a.retention_expires_at_ms>?3
+                   LIMIT ?4)",
+                params![
+                    room_id,
+                    checked_i64(since, "Room change position")?,
+                    checked_now(now_ms, "Room retention cutoff")?,
+                    checked_limit(tmt_core::request::history::CHANGED_SINCE_CAP + 1)?
+                ],
+                |row| rows::u64_at(row, 0),
+            )
+            .map_err(|error| classify(error, "Count room changes"))?,
+    };
+    Ok(tmt_core::request::history::RoomChangeCounts {
+        position,
+        floor,
+        changed,
+    })
+}
+
 pub(super) fn conversation_counts(
     connection: &Connection,
     viewer_id: &str,
@@ -477,6 +533,7 @@ pub(super) fn list_open_requests(
                     attention: rows::recipient_attention_row(row)?,
                     preview: history_preview(row)?,
                     response_preview: None,
+                    reply_count: 0,
                 })
             },
         )

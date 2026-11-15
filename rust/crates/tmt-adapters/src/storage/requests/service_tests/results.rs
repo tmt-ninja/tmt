@@ -358,7 +358,8 @@ fn results_preview_sanitizes_the_first_line_and_bounds_utf8_without_changing_exa
             false,
         );
         let mut statement = oracle.prepare(&sql).unwrap();
-        let column = statement.column_count() - 1;
+        // The response preview, then the reply count (#6407).
+        let column = statement.column_count() - 2;
         let prefix: Vec<u8> = statement
             .query_row(
                 rusqlite::params![
