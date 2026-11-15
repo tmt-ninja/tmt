@@ -298,8 +298,12 @@ provider-native retained background task (a persistent execution session). The
 waiter stays in that task until it sends the wake; keep its session identifier.
 Do not wrap it in `nohup` or `&`: a fast-completing Codex exec call can kill its
 detached children before startup. The script refuses that unsafe default when
-`CODEX_TOOL_CALL_ID` identifies the tool context. Ordinary and Claude shells keep
-the detached default.
+`CODEX_TOOL_CALL_ID` identifies the tool context. `agy` seats also use
+`--foreground` via `run_command` with `WaitMsBeforeAsync` (for example `500`) so
+`agy` promotes the waiter to a provider-native background task instead of tearing
+down detached children when a fast tool call returns; `ANTIGRAVITY_AGENT` refuses
+the detached default the same way. Ordinary and Claude shells keep the detached
+default.
 
 The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the script's
 header documents its final states, bounds, log and exit codes. Logs record launch,

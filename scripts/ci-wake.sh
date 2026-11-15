@@ -24,8 +24,8 @@
 # delivered wake and kept when the send fails.
 # Exit codes: 0 started (detached) or completed (foreground); 2 usage;
 # 3 unsafe detached context, unresolved identity, or failed wake delivery.
-# Codex tool calls must use --foreground in a provider-native retained task;
-# detached children of a fast-completing exec call may be killed before startup.
+# Codex and agy tool calls must use --foreground in a provider-native background task;
+# detached children of a fast-completing tool call may be killed before startup.
 # Foreground mode does not return until the wait ends. Other shells keep the
 # detached default. Launch, waiter startup, exit and caught signals are logged.
 # GH, TMT, CI_WAKE_SLEEP and CI_WAKE_CLOCK override the executables, for isolated tests.
@@ -93,9 +93,14 @@ anonymous() {
 }
 
 if [ -z "$run" ]; then
-  if [ -z "$foreground" ] && [ -n "${CODEX_TOOL_CALL_ID:-}" ]; then
-    printf '%s\n' 'ci-wake: detached launch is unsafe in Codex tool calls; start with --foreground in a provider-native retained background task.' >&2
-    exit 3
+  if [ -z "$foreground" ]; then
+    seat=
+    [ -n "${CODEX_TOOL_CALL_ID:-}" ] && seat=Codex
+    [ -z "$seat" ] && [ -n "${ANTIGRAVITY_AGENT:-}" ] && seat=agy
+    if [ -n "$seat" ]; then
+      printf 'ci-wake: detached launch is unsafe in %s tool calls; start with --foreground in a provider-native retained background task.\n' "$seat" >&2
+      exit 3
+    fi
   fi
   # Refuse at once, in the seat's own turn, when there is nobody to wake.
   if ! anonymous "$TMT" identity show "$self" --json >/dev/null 2>&1; then
