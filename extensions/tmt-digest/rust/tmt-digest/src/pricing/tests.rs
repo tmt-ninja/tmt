@@ -166,8 +166,8 @@ fn price(resolved: &Resolved, model: &str) -> u64 {
 #[test]
 fn the_embedded_file_is_the_documented_table() {
     let document = Resolved::built_in().document();
-    assert_eq!(document["version"], "2026-11-05");
-    assert_eq!(document["asOf"], "2026-11-05");
+    assert_eq!(document["version"], "2026-11-15");
+    assert_eq!(document["asOf"], "2026-11-15");
     assert_eq!(document["basis"], "standard-base-input");
     assert_eq!(document["origin"], "built-in");
     assert!(document.get("fetchedAtMs").is_none());
@@ -199,6 +199,10 @@ fn the_embedded_file_is_the_documented_table() {
             "gemini-4-argon-low",
             "gemini-4-argon-medium",
             "gemini-4-argon-high",
+            "gemini-4-hydrogen",
+            "gemini-4-hydrogen-low",
+            "gemini-4-hydrogen-medium",
+            "gemini-4-hydrogen-high",
             "codex-auto-review"
         ]
     );
@@ -355,7 +359,7 @@ fn quotes_use_the_table_in_hand() {
     assert_eq!(quote["usdMicrosPerMillionInputTokens"], 5_000_000);
     assert_eq!(quote["usdMicros"], 5_000);
     let old = built_in().quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(old["pricingVersion"], "2026-11-05");
+    assert_eq!(old["pricingVersion"], "2026-11-15");
     assert_eq!(old["usdMicros"], 4_000);
     assert!(fetched.quote("unknown-model", 7, 1).is_none());
 }
@@ -514,8 +518,8 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
 fn a_fetched_file_older_than_the_cached_one_is_dropped() {
     // Newer than the built-in table, older than the cache: valid, but it would roll back.
     let mut between = newer();
-    between["version"] = json!("2026-11-10");
-    between["asOf"] = json!("2026-11-10");
+    between["version"] = json!("2026-11-18");
+    between["asOf"] = json!("2026-11-18");
     between["models"][0]["usdMicrosPerMillionInputTokens"] = json!(4_500_000);
     let server = Server::answering(Answer::Body(bytes(&between)));
 
@@ -526,7 +530,7 @@ fn a_fetched_file_older_than_the_cached_one_is_dropped() {
         "fetched",
         "alone it is usable"
     );
-    assert_eq!(resolved.document()["version"], "2026-11-10");
+    assert_eq!(resolved.document()["version"], "2026-11-18");
 
     let temp = Temp::new();
     cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
@@ -723,6 +727,10 @@ fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unkno
         ("gemini-4-argon-low", 2_000_000),
         ("gemini-4-argon-medium", 2_000_000),
         ("gemini-4-argon-high", 2_000_000),
+        ("gemini-4-hydrogen", 1_500_000),
+        ("gemini-4-hydrogen-low", 1_500_000),
+        ("gemini-4-hydrogen-medium", 1_500_000),
+        ("gemini-4-hydrogen-high", 1_500_000),
     ] {
         let quote = built_in().quote(model, 1000, 1_000_000).unwrap();
         assert_eq!(quote["usdMicros"], rate, "{model}");

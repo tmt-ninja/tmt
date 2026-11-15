@@ -399,16 +399,19 @@ basis, origin, fetchedAtMs?, models:[{modelId, usdMicrosPerMillionInputTokens,
 source}]}`, acquired with the same status call. It names the one table every quote of
 that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-input`;
 `source` is the official source URL and `asOf` is the verification date. Version
-`2026-11-05` keeps the canonical Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
+`2026-11-15` adds `gemini-4-hydrogen` and `gemini-4-hydrogen-{low,medium,high}` ($1.50/M
+Standard base input on Google's pricing page, verified 2026-11-15), keeps the canonical
+Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
 adds `gpt-6.1-terra` ($1/M) and `gpt-6-astra` ($10/M) from OpenAI's model pages,
 and keeps these exact Gemini IDs from Google's paid Standard text-input pricing:
 `gemini-3-flash-preview` ($0.50/M), `gemini-3.1-flash-lite` ($0.25/M),
 `gemini-3.1-pro-preview` ($2/M base tier, prompts <=200k),
 `gemini-3.5-flash-lite` ($0.30/M), `gemini-3.6-flash` and `gemini-3.8-flash`
 ($0.75/M introductory through 2026-12-31), and `gemini-4-argon` ($2/M introductory
-through 2026-11-30). Agy's normalized `gemini-3.8-flash-{low,medium,high}` and
-`gemini-4-argon-{low,medium,high}` labels have explicit rows at their family's
-base input rate; effort is not a separate provider input-price tier. Other
+through 2026-11-30). Agy's normalized `gemini-3.8-flash-{low,medium,high}`,
+`gemini-4-argon-{low,medium,high}`, and `gemini-4-hydrogen-{low,medium,high}` labels
+have explicit rows at their family's base input rate; effort is not a separate provider
+input-price tier. Other
 aliases and unverified slugs remain unpriced. The [provider page](https://ai.google.dev/gemini-api/docs/pricing)
 announces $1.50/M for those Flash models starting 2027-01-01 and $4/M for Argon
 starting 2026-12-01. Those later rates require new verified immutable versions;
@@ -476,8 +479,8 @@ status `pricing` object plus `schema`:
 ```json
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-11-05",
-  "asOf": "2026-11-05",
+  "version": "2026-11-15",
+  "asOf": "2026-11-15",
   "basis": "standard-base-input",
   "models": [
     {
