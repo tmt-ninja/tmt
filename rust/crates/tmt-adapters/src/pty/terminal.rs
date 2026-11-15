@@ -36,11 +36,13 @@ const OPEN_LOCK_WAIT: Duration = Duration::from_secs(2);
 /// How long a closed terminal's process may take to end, for one or for all of a member's.
 const CLOSE_WAIT: Duration = Duration::from_secs(5);
 
-/// The member a terminal belongs to: its identity and its supervisor's incarnation.
+/// The member a terminal belongs to: its identity and the incarnation of the process whose
+/// life the terminal follows, the member supervisor on the built-in host and the bound pane's
+/// process on tmux or Herdr (#6301).
 pub struct Owner<'a> {
     pub identity: &'a str,
-    pub server_pid: u64,
-    pub server_start: &'a str,
+    pub pid: u64,
+    pub start: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,10 +134,10 @@ pub fn environment() -> Vec<(OsString, Option<OsString>)> {
         .collect()
 }
 
-/// How often a terminal compares its member supervisor's start identity, off its loop.
+/// How often a terminal compares its owner process's start identity, off its loop.
 const START_CHECK: Duration = Duration::from_secs(30);
 
-/// Whether the member supervisor `pid`, started at `start`, still runs. It is called on the
+/// Whether the owner process `pid` (`Owner`), started at `start`, still runs. It is called on the
 /// supervisor's loop, so each call only signals the PID (`kill(pid, 0)`, no fork, no wait):
 /// a PID that is gone ends the terminal. The start identity, which needs `ps`, is compared on a
 /// helper thread at the first call and then every `START_CHECK`; a reused PID with another
@@ -241,9 +243,9 @@ pub fn open(
         "--terminal-owner".into(),
         owner.identity.into(),
         "--member-pid".into(),
-        owner.server_pid.to_string().into(),
+        owner.pid.to_string().into(),
         "--member-start".into(),
-        owner.server_start.into(),
+        owner.start.into(),
         "--created-ms".into(),
         created_ms.to_string().into(),
         "--terminal-directory".into(),
@@ -277,6 +279,22 @@ pub fn open(
 /// The live terminals of `identity`, oldest first. All supervisors are asked in parallel
 /// within one `PER_SOCKET`; one that does not answer, or names another owner, is left out.
 pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
+    list_owned(paths, &[identity.to_owned()])
+        .remove(identity)
+        .unwrap_or_default()
+}
+
+/// The live terminals of each of `identities`, oldest first, from one scan (#6301): every
+/// supervisor is asked once and in parallel within one `PER_SOCKET`, whatever the number of
+/// members, and each terminal goes to the owner it names. Every requested identity is a key.
+pub fn list_owned(
+    paths: &ConfigPaths,
+    identities: &[String],
+) -> std::collections::BTreeMap<String, Vec<Terminal>> {
+    let mut owned: std::collections::BTreeMap<String, Vec<Terminal>> = identities
+        .iter()
+        .map(|identity| (identity.clone(), Vec::new()))
+        .collect();
     let pty = paths.pty_directory();
     // Every supervisor is asked at once, so hung ones cost one `PER_SOCKET` in all.
     let deadline = Instant::now() + PER_SOCKET;
@@ -290,20 +308,21 @@ pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
         });
     }
     drop(sender);
-    let mut terminals = Vec::new();
     for _ in &ids {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let Ok((id, answer)) = answers.recv_timeout(remaining + Duration::from_millis(50)) else {
             break;
         };
         if let Some(answer) = answer
-            && answer.owner == identity
+            && let Some(terminals) = owned.get_mut(&answer.owner)
         {
             terminals.push(answer.terminal(&pty, id));
         }
     }
-    terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
-    terminals
+    for terminals in owned.values_mut() {
+        terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
+    }
+    owned
 }
 
 /// Closes terminal `id`: refused while busy unless `force`, then confirmed once its

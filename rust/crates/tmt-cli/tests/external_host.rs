@@ -248,8 +248,33 @@ struct Fixture {
 
 impl Fixture {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("tmt-external-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        // A short root under /tmp, as `pty_host` keeps one, so the extra terminals a member
+        // opens (#6301) fit their supervisor sockets within the Unix path limit. It is created
+        // fresh and owner-only: a leftover of the same name is refused, never reused, and
+        // `Drop` removes it.
+        let root = PathBuf::from(format!("/tmp/tx{:x}-{name}", std::process::id()));
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&root)
+                .unwrap_or_else(|error| panic!("a fresh private fixture root {root:?}: {error}"));
+        }
+        // Its tmux directory never names the host server: these tests only run tmux stand-ins,
+        // and a tmux started there would get this private default socket.
+        let uid = nix::unistd::Uid::current();
+        let private_socket = root.join(format!("tmux/tmux-{uid}/default"));
+        let host_dir =
+            std::env::var_os("TMUX_TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+        for host in [
+            host_dir.join(format!("tmux-{uid}/default")),
+            PathBuf::from(format!("/private/tmp/tmux-{uid}/default")),
+        ] {
+            assert_ne!(
+                private_socket, host,
+                "the fixture tmux socket is not the host default"
+            );
+        }
         for dir in ["home", "xdg", "data/state", "tmux", "driver"] {
             fs::create_dir_all(root.join(dir)).unwrap();
         }

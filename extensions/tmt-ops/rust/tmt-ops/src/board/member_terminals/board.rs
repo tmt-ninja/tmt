@@ -7,8 +7,8 @@ use crate::board::{
 };
 
 impl App {
-    /// The built-in-host members the board shows, each once.
-    fn builtin_members(&self) -> Vec<String> {
+    /// The members with a pane on any host that the board shows, each once (#6301).
+    fn bound_members(&self) -> Vec<String> {
         let Some(snapshot) = self.workspace_snapshot() else {
             return Vec::new();
         };
@@ -17,7 +17,7 @@ impl App {
             .iter()
             .filter_map(|(target, row)| match target {
                 OpsTarget::Member { identity_id, .. }
-                    if row["pane"]["location"]["host"].as_str() == Some("pty") =>
+                    if row["pane"]["location"]["host"].is_string() =>
                 {
                     Some(identity_id.clone())
                 }
@@ -29,12 +29,12 @@ impl App {
         members
     }
 
-    /// Whether `identity` is a member on the built-in host, as the board last read it.
-    pub(in crate::board) fn builtin_member(&self, identity: &str) -> bool {
+    /// Whether `identity` is a member with a pane on any host, as the board last read it.
+    pub(in crate::board) fn bound_member(&self, identity: &str) -> bool {
         self.workspace_snapshot().is_some_and(|snapshot| {
             snapshot.rows.iter().any(|(target, row)| {
                 matches!(target, OpsTarget::Member { identity_id, .. } if identity_id == identity)
-                    && row["pane"]["location"]["host"].as_str() == Some("pty")
+                    && row["pane"]["location"]["host"].is_string()
             })
         })
     }
@@ -67,7 +67,7 @@ impl App {
         if self.loading() {
             return None;
         }
-        let members = self.builtin_members();
+        let members = self.bound_members();
         let selected = self
             .terminals_owner()
             .filter(|identity| members.iter().any(|member| member == identity))

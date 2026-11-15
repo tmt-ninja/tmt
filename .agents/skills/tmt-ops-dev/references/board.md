@@ -710,7 +710,7 @@ mouse.
 
 ### Member terminals
 
-`board/member_terminals/` shows a built-in member's extra terminals (#5991; Core's
+`board/member_terminals/` shows the extra terminals of a member on any host (#5991, #6301; Core's
 `terminal.open`, `terminal.list`, `terminal.close`). `Terminals` (on `App`) holds, per member,
 the rows Core last listed, numbered "Terminal N" in the order the board first saw them, and
 keeps a row Core no longer lists as ended (`○ ended`) for this board session only: nothing is

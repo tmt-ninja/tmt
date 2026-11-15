@@ -25,8 +25,8 @@ impl App {
                 let Some(identity) = self.terminals_owner().map(str::to_owned) else {
                     return Effect::None;
                 };
-                if !self.builtin_member(&identity) {
-                    return self.say("Only an agent on the built-in host has terminals.");
+                if !self.bound_member(&identity) {
+                    return self.say("Only an agent with a live pane has terminals.");
                 }
                 self.terminals.open(&identity);
                 Effect::None

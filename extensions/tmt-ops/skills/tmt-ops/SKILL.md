@@ -720,7 +720,7 @@ offline members the built-in capture names: `⏎` resumes the selected one, `n` 
 session, `a` resumes all that can be, and Esc is Not now. A member with no folder, or that Core
 refuses, shows the reason on its row. `j` on a listed offline member that can still start
 reopens the ask.
-On a built-in-host member, `t` opens an extra terminal (a login
+On a member on any host, `t` opens an extra terminal (a login
 shell in its working directory, at most 8) listed under it as "Terminal N"; select one to see
 it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `j` for full screen and
 `x` to close it, which asks first while a program runs there and names that program when Core

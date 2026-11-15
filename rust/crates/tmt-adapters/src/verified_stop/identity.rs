@@ -12,7 +12,7 @@ use crate::{
 use std::time::Instant;
 use tmt_core::{
     binding::{
-        Binding, BindingEndpoint, BindingEntry, BindingError, BindingEvidence, BindingRepository,
+        BindingEndpoint, BindingEntry, BindingError, BindingEvidence, BindingRepository,
         RemoveOutcome, remove_identity, remove_identity_by_id,
     },
     host::HostKind,
@@ -177,7 +177,7 @@ pub fn stop_identity(
         })
     };
     let terminals_left = if close {
-        close_terminals(paths, old, &identity.id)
+        close_terminals(paths, &identity.id)
     } else {
         Vec::new()
     };
@@ -210,26 +210,22 @@ pub fn remove_by_name<O: BindingEndpoint>(
     Ok((removed, left))
 }
 
-/// A built-in member's supervisor keeps its terminal after the agent ends, so a removed
-/// identity's terminal is closed with it, after its extra terminals. Advisory: the removal
-/// already committed, and a supervisor that is not closed in time keeps serving a terminal
-/// nothing is bound to. Returns the extra terminals still running.
+/// A removed identity's extra terminals are closed on any host, bound or not (#6301). A
+/// built-in member's supervisor keeps its terminal after the agent ends, so that terminal is
+/// closed next. Advisory: the removal already committed, and a supervisor that is not closed in
+/// time keeps serving a terminal nothing is bound to. Returns the extra terminals still running.
 fn close_kept_terminal(paths: &ConfigPaths, removed: &BindingEntry) -> Vec<String> {
-    let Some(binding) = &removed.binding else {
-        return Vec::new();
-    };
-    let left = close_terminals(paths, binding, &removed.identity.id);
-    let _ = crate::host::close_removed_member(binding);
+    let left = close_terminals(paths, &removed.identity.id);
+    if let Some(binding) = &removed.binding {
+        let _ = crate::host::close_removed_member(binding);
+    }
     left
 }
 
-/// Closes a built-in member's extra terminals, all at once within one bound, and returns
-/// those still running. Advisory, like closing its kept terminal; a terminal also ends by
-/// itself once its member's supervisor is gone.
-fn close_terminals(paths: &ConfigPaths, binding: &Binding, identity_id: &str) -> Vec<String> {
-    if binding.server.host != HostKind::pty() {
-        return Vec::new();
-    }
+/// Closes a member's extra terminals on any host (#6301), all at once within one bound, and
+/// returns those still running. Advisory, like closing its kept terminal; a terminal also ends
+/// by itself once its owner process is gone.
+fn close_terminals(paths: &ConfigPaths, identity_id: &str) -> Vec<String> {
     crate::pty::terminal::close_all(paths, identity_id)
 }
 
