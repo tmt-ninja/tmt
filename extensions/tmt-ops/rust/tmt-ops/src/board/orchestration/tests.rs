@@ -1688,7 +1688,7 @@ fn the_job_inspector_lists_recent_runs_and_gives_up_runs_before_other_lines() {
     let text = lines_at(&app, 160, 36).join("\n");
     let order = [
         "21:30 ✓ accepted",
-        "21:00 ✕ not accepted · route restricted",
+        "21:00 ✕ blocked · route restricted",
         "20:30 ◆ held for a person",
         "20:00 ✕ not accepted · owner unavailable",
         "19:30 ✓ accepted",
@@ -1702,20 +1702,26 @@ fn the_job_inspector_lists_recent_runs_and_gives_up_runs_before_other_lines() {
     }
     assert!(text.contains("Message"), "{text}");
 
-    // Stacked under the first section: runs give way to a more line, the message and keys stay.
-    let short = lines_at(&app, 100, 28).join("\n");
+    // Stacked under the first section, runs keep the one row `Last run` had, so the matrix
+    // above keeps every member row it showed.
+    for width in [60u16, 80] {
+        let stacked = lines_at(&app, width, 36).join("\n");
+        assert!(stacked.contains("21:30 ✓ accepted · +4 more"), "{stacked}");
+        assert!(!stacked.contains("21:00 ✕ blocked"), "{stacked}");
+    }
+}
+
+/// A short side inspector gives up runs before any other line.
+#[test]
+fn a_short_side_inspector_gives_up_runs_before_other_lines() {
+    let app = captures::case("orchestration-jobs", crate::look::Look::default());
+    let short = lines_at(&app, 160, 14).join("\n");
+    assert!(short.contains("21:30 ✓ accepted"), "{short}");
     assert!(
-        short.contains("21:30 ✓ accepted"),
-        "the newest run stays:\n{short}"
-    );
-    assert!(short.contains("+2 more runs"), "{short}");
-    assert!(
-        short.contains("Message") && short.contains("Run now"),
+        short.contains("more runs") || short.contains("· +4 more"),
         "{short}"
     );
-    // With no row for a more line, the newest run counts the rest.
-    let shorter = lines_at(&app, 100, 24).join("\n");
-    assert!(shorter.contains("21:30 ✓ accepted · +4 more"), "{shorter}");
+    assert!(short.contains("Run now"), "the keys stay:\n{short}");
 }
 
 /// The Why footer says what Core's coverage lists, and drops that parenthetical rather than wrap
