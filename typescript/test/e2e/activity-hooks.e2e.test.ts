@@ -465,6 +465,7 @@ it('Claude form hooks record forms that close with waiting and refuse every answ
     ]);
 
     // Agy row (#6424): PreToolUse ask_question opens a question form and PostToolUse / PreInvocation close it.
+    // Provenance: agy-customizations/docs/hooks.md (PreToolUse/PostToolUse/PreInvocation invocationNum) and Antigravity CLI's ask_question tool schema.
     const agyBin = path.join(fixture.wrapperDir, 'agy');
     fs.copyFileSync('/opt/tmt-tests/claude', agyBin);
     const agySession = '44444444-4444-4444-8444-444444444444';
