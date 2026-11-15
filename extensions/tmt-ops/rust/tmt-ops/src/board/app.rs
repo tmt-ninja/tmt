@@ -847,7 +847,7 @@ pub struct App {
     pub(in crate::board) right_tab: super::shell::RightTab,
     /// The Talk pane's Terminal tab for built-in-host members.
     pub(in crate::board) terminal: super::terminal_tab::tab::Tab,
-    /// Built-in members' extra terminals under their rows (#5991).
+    /// Members' extra terminals under their rows, on any host (#5991, #6301).
     pub(in crate::board) terminals: super::member_terminals::Terminals,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,

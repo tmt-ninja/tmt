@@ -265,13 +265,17 @@ pub enum Request {
         identity_id: String,
         kind: crate::pty::protocol::RelaunchKind,
     },
-    /// Opens an extra terminal under a built-in member.
+    /// Opens an extra terminal under a member on any host (#6301).
     TerminalOpen {
         identity_id: String,
     },
-    /// Read-only: a built-in member's extra terminals.
+    /// Read-only: a member's extra terminals, after its binding check.
     TerminalList {
         identity_id: String,
+    },
+    /// Read-only: several members' extra terminals from one scan, without a host probe.
+    TerminalListMany {
+        identity_ids: Vec<String>,
     },
     /// Read-only: the open provider forms, of one identity or all (#6424).
     FormsList {
@@ -739,6 +743,9 @@ impl Session {
             }
             Request::TerminalOpen { identity_id } => terminal::open(paths, storage, &identity_id),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
+            Request::TerminalListMany { identity_ids } => {
+                terminal::list_many(paths, storage, &identity_ids)
+            }
             Request::FormsList { identity_id } => forms::list(storage, identity_id.as_deref()),
             Request::FormsAnswer { form_id, answer } => forms::answer(storage, &form_id, &answer),
             Request::ConsumptionHistory {

@@ -13,13 +13,21 @@ fn terminal(n: u8, created_ms: u64, busy: bool) -> Listed {
     }
 }
 
+/// Terminals as production builds them: Core is asked on its own (#6301).
+fn automatic() -> Terminals {
+    Terminals {
+        automatic: true,
+        ..Terminals::default()
+    }
+}
+
 fn listed(terminals: Vec<Listed>) -> Completed {
     Completed::Listed(vec![(MEMBER.into(), List::Terminals(terminals))])
 }
 
 #[test]
 fn rows_are_numbered_in_order_seen_and_an_ended_one_stays_greyed_for_the_session() {
-    let mut terminals = Terminals::default();
+    let mut terminals = automatic();
     terminals.finished(
         listed(vec![terminal(2, 20, true), terminal(1, 10, false)]),
         0,
@@ -74,7 +82,7 @@ fn rows_are_numbered_in_order_seen_and_an_ended_one_stays_greyed_for_the_session
 
 #[test]
 fn a_closed_or_unavailable_member_shows_no_terminals_and_is_not_asked_again_soon() {
-    let mut terminals = Terminals::default();
+    let mut terminals = automatic();
     terminals.finished(listed(vec![terminal(1, 10, false)]), 0);
     terminals.finished(
         Completed::Listed(vec![(MEMBER.into(), List::Unavailable)]),
@@ -91,7 +99,7 @@ fn a_closed_or_unavailable_member_shows_no_terminals_and_is_not_asked_again_soon
 
 #[test]
 fn the_lane_gets_one_task_at_a_time_asked_for_work_first_then_one_sweep_then_the_selected() {
-    let mut terminals = Terminals::default();
+    let mut terminals = automatic();
     let members = [MEMBER.to_owned(), "other".to_owned()];
     terminals.open(MEMBER);
     assert_eq!(
@@ -125,7 +133,7 @@ fn the_lane_gets_one_task_at_a_time_asked_for_work_first_then_one_sweep_then_the
 
 #[test]
 fn a_failed_open_says_why_and_a_close_removes_the_row_or_keeps_it_with_the_reason() {
-    let mut terminals = Terminals::default();
+    let mut terminals = automatic();
     let applied = terminals.finished(
         Completed::Opened {
             identity: MEMBER.into(),
@@ -168,7 +176,7 @@ fn a_failed_open_says_why_and_a_close_removes_the_row_or_keeps_it_with_the_reaso
 
 #[test]
 fn folding_needs_rows_and_a_new_terminal_unfolds_its_member() {
-    let mut terminals = Terminals::default();
+    let mut terminals = automatic();
     assert!(!terminals.toggle_fold(MEMBER, false), "nothing to fold");
     terminals.finished(listed(vec![terminal(1, 10, false)]), 0);
     assert!(terminals.toggle_fold(MEMBER, false));
@@ -298,6 +306,7 @@ mod board {
     fn t_opens_a_terminal_under_a_member_on_any_host_and_asks_core_on_the_lane() {
         let (mut app, member) = listed_board();
         app.terminals.swept = true;
+        app.terminals.automatic = true;
         press(&mut app, KeyCode::Char('t'));
         assert_eq!(
             app.terminals.offer(&[], None, 0),
@@ -308,6 +317,7 @@ mod board {
         // A tmux member has terminals too (#6301).
         let mut tmux = board();
         tmux.terminals.swept = true;
+        tmux.terminals.automatic = true;
         press(&mut tmux, KeyCode::Char('t'));
         assert_eq!(
             tmux.terminals.offer(&[], None, 0),
@@ -329,6 +339,7 @@ mod board {
     fn x_closes_an_idle_terminal_and_asks_first_for_a_busy_one() {
         let (mut app, member) = listed_board();
         app.terminals.swept = true;
+        app.terminals.automatic = true;
         select(&mut app, &member, 1);
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
@@ -444,6 +455,7 @@ mod board {
     fn x_on_an_ended_terminal_removes_the_row_without_asking_core() {
         let (mut app, member) = listed_board();
         app.terminals.swept = true;
+        app.terminals.automatic = true;
         app.terminals.finished(
             Completed::Listed(vec![(
                 MEMBER.into(),

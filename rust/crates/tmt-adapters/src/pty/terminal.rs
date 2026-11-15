@@ -279,6 +279,22 @@ pub fn open(
 /// The live terminals of `identity`, oldest first. All supervisors are asked in parallel
 /// within one `PER_SOCKET`; one that does not answer, or names another owner, is left out.
 pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
+    list_owned(paths, &[identity.to_owned()])
+        .remove(identity)
+        .unwrap_or_default()
+}
+
+/// The live terminals of each of `identities`, oldest first, from one scan (#6301): every
+/// supervisor is asked once and in parallel within one `PER_SOCKET`, whatever the number of
+/// members, and each terminal goes to the owner it names. Every requested identity is a key.
+pub fn list_owned(
+    paths: &ConfigPaths,
+    identities: &[String],
+) -> std::collections::BTreeMap<String, Vec<Terminal>> {
+    let mut owned: std::collections::BTreeMap<String, Vec<Terminal>> = identities
+        .iter()
+        .map(|identity| (identity.clone(), Vec::new()))
+        .collect();
     let pty = paths.pty_directory();
     // Every supervisor is asked at once, so hung ones cost one `PER_SOCKET` in all.
     let deadline = Instant::now() + PER_SOCKET;
@@ -292,20 +308,21 @@ pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
         });
     }
     drop(sender);
-    let mut terminals = Vec::new();
     for _ in &ids {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let Ok((id, answer)) = answers.recv_timeout(remaining + Duration::from_millis(50)) else {
             break;
         };
         if let Some(answer) = answer
-            && answer.owner == identity
+            && let Some(terminals) = owned.get_mut(&answer.owner)
         {
             terminals.push(answer.terminal(&pty, id));
         }
     }
-    terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
-    terminals
+    for terminals in owned.values_mut() {
+        terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
+    }
+    owned
 }
 
 /// Closes terminal `id`: refused while busy unless `force`, then confirmed once its

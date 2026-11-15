@@ -90,7 +90,30 @@ pub(super) fn decode_open(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
+/// At most this many members in one batch `terminal.list`.
+pub const LIST_MANY_LIMIT: usize = 256;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ListManyInput {
+    identity_ids: Vec<String>,
+}
+
+/// `{identityId}` lists one member after its binding check; `{identityIds}` lists several
+/// from one scan (#6301), so a board's start sweep is one call.
 pub(super) fn decode_list(input: &[u8]) -> Result<Request, Fault> {
+    if let Ok(many) = serde_json::from_slice::<ListManyInput>(input) {
+        let mut ids = many.identity_ids;
+        if ids.is_empty()
+            || ids.len() > LIST_MANY_LIMIT
+            || !ids.iter().all(|id| tmt_core::dispatch::canonical_id(id))
+        {
+            return Err(invalid());
+        }
+        ids.sort();
+        ids.dedup();
+        return Ok(Request::TerminalListMany { identity_ids: ids });
+    }
     Ok(Request::TerminalList {
         identity_id: identity_id(input)?,
     })
@@ -454,6 +477,41 @@ pub(super) fn list(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Resu
         .map_err(|_| Fault::unavailable())
 }
 
+/// The batch form: each requested member with a stored binding and its terminals, possibly
+/// none; an unknown or unbound id is left out. It reads the stored bindings in one transaction
+/// and probes no host: a terminal names its owner and ends by itself once that owner is gone.
+pub(super) fn list_many(
+    paths: &ConfigPaths,
+    storage: &mut Storage,
+    identity_ids: &[String],
+) -> Result<Vec<u8>, Fault> {
+    use tmt_core::binding::BindingRepository;
+    let bound = storage
+        .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+            let mut bound = Vec::new();
+            for id in identity_ids {
+                if records
+                    .entry_by_id(id)?
+                    .is_some_and(|entry| entry.binding.is_some())
+                {
+                    bound.push(id.clone());
+                }
+            }
+            Ok(bound)
+        })
+        .map_err(|_| Fault::unavailable())?;
+    let lists: Vec<_> = terminal::list_owned(paths, &bound)
+        .into_iter()
+        .map(|(identity, terminals)| {
+            json!({
+                "identityId": identity,
+                "terminals": terminals.iter().map(terminal_json).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::to_vec(&json!({"lists": lists})).map_err(|_| Fault::unavailable())
+}
+
 pub(super) fn close(paths: &ConfigPaths, terminal_id: &str, force: bool) -> Result<Vec<u8>, Fault> {
     match terminal::close(paths, terminal_id, force) {
         Ok(()) => serde_json::to_vec(&json!({"terminalId": terminal_id, "closed": true}))
@@ -691,6 +749,21 @@ mod tests {
             decode_list(input.as_bytes()).unwrap(),
             Request::TerminalList { identity_id } if identity_id == id
         ));
+        let other = "22222222-2222-4222-8222-222222222222";
+        let many = serde_json::json!({"identityIds": [other, id, other]}).to_string();
+        assert!(matches!(
+            decode_list(many.as_bytes()).unwrap(),
+            Request::TerminalListMany { identity_ids } if identity_ids == [id, other]
+        ));
+        let too_many = vec![id; LIST_MANY_LIMIT + 1];
+        for bad in [
+            serde_json::json!({"identityIds": []}),
+            serde_json::json!({"identityIds": ["not-a-uuid"]}),
+            serde_json::json!({"identityIds": too_many}),
+            serde_json::json!({"identityIds": [id], "identityId": id}),
+        ] {
+            assert!(decode_list(bad.to_string().as_bytes()).is_err(), "{bad}");
+        }
         let terminal = format!("term_{}", "a1".repeat(16));
         for (input, force) in [
             (serde_json::json!({"terminalId": terminal}), false),

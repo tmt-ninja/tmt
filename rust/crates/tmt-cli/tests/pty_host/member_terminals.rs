@@ -136,6 +136,29 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
     // only under its own member.
     assert_eq!(listed(&world, &identity), std::slice::from_ref(&terminal));
     assert!(listed(&world, &other).is_empty());
+    // The batch form lists every bound member from one scan and leaves an unknown id out
+    // (#6301).
+    let unknown = "99999999-9999-4999-8999-999999999999";
+    let batch = call(
+        &world,
+        "terminal.list",
+        serde_json::json!({"identityIds": [identity, other, unknown]}),
+    );
+    let mut lists: Vec<(String, usize)> = batch["lists"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{batch}"))
+        .iter()
+        .map(|entry| {
+            (
+                entry["identityId"].as_str().unwrap().to_owned(),
+                entry["terminals"].as_array().unwrap().len(),
+            )
+        })
+        .collect();
+    lists.sort();
+    let mut expected = vec![(identity.clone(), 1), (other.clone(), 0)];
+    expected.sort();
+    assert_eq!(lists, expected, "{batch}");
     // The world has no `SHELL`, so the terminal runs `/bin/sh`; at its prompt no
     // program is named (#6112).
     let idle = call(

@@ -19,8 +19,6 @@ const UNAVAILABLE_FOR_MS: u64 = 60_000;
 const LIST_WITHIN: Duration = Duration::from_secs(3);
 /// Opening waits for the new supervisor to confirm; closing for it to end.
 const ACT_WITHIN: Duration = Duration::from_secs(10);
-/// Core's refusal for a member that is not on the built-in host or has no running supervisor.
-const UNAVAILABLE: &str = "TERMINAL_STREAM_UNAVAILABLE";
 
 /// One terminal row under a member.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,7 +57,7 @@ pub(in crate::board) struct Listed {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) enum List {
     Terminals(Vec<Listed>),
-    /// Not a built-in member, or its supervisor is gone: it has no terminals.
+    /// Not a bound member, or its owner is gone: it has no terminals.
     Unavailable,
     Failed(String),
 }
@@ -116,7 +114,6 @@ struct Member {
     unavailable_ms: Option<u64>,
 }
 
-#[derive(Default)]
 pub(in crate::board) struct Terminals {
     members: BTreeMap<String, Member>,
     /// Members whose terminal rows are folded away.
@@ -127,8 +124,28 @@ pub(in crate::board) struct Terminals {
     out: bool,
     /// Every member was listed once after the board started.
     swept: bool,
+    /// Core is asked on its own: the start sweep and the selected member's re-list. Always on
+    /// in production; the test default turns it off so a strict stand-in lane sees only the
+    /// jobs a test asks for (#6301).
+    automatic: bool,
     /// Keys go to this terminal in the right panel until the back key.
     typing: Option<String>,
+}
+
+impl Default for Terminals {
+    /// `automatic` is off only in tests; this module's tests turn it on to cover the sweep and
+    /// the re-list (#6301).
+    fn default() -> Self {
+        Self {
+            members: BTreeMap::new(),
+            folded: BTreeSet::new(),
+            queued: VecDeque::new(),
+            out: false,
+            swept: false,
+            automatic: !cfg!(test),
+            typing: None,
+        }
+    }
 }
 
 impl Terminals {
@@ -213,6 +230,9 @@ impl Terminals {
             return None;
         }
         let task = self.queued.pop_front().or_else(|| {
+            if !self.automatic {
+                return None;
+            }
             if !self.swept && !members.is_empty() {
                 self.swept = true;
                 return Some(Task::List(members.to_vec()));
@@ -302,7 +322,7 @@ impl Terminals {
                     self.add(identity, terminal);
                 }
             }
-            // The member is closed or not built-in: nothing it owned is shown.
+            // The member is closed or unbound: nothing it owned is shown.
             List::Unavailable => {
                 let member = self.members.entry(identity.to_owned()).or_default();
                 member.rows.clear();
@@ -359,15 +379,7 @@ pub(in crate::board) fn target(member: &OpsTarget, terminal: &str) -> Option<Ops
 /// One lane task through Core. Runs on the lane, never the loop.
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     match task {
-        Task::List(identities) => Completed::Listed(
-            identities
-                .into_iter()
-                .map(|identity| {
-                    let list = list(core, &identity);
-                    (identity, list)
-                })
-                .collect(),
-        ),
+        Task::List(identities) => Completed::Listed(list(core, identities)),
         Task::Open(identity) => {
             let outcome = core
                 .api_within(
@@ -408,24 +420,43 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     }
 }
 
-fn list(core: &Core, identity: &str) -> List {
+/// Every member's terminals in one Core call (#6301), so a sweep of a whole board is one lane
+/// job however many members it has. A member Core leaves out has no stored binding.
+fn list(core: &Core, identities: Vec<String>) -> Vec<(String, List)> {
     match core.api_within(
         "terminal.list",
-        serde_json::json!({"identityId": identity}),
+        serde_json::json!({"identityIds": identities}),
         LIST_WITHIN,
     ) {
-        Ok(value) => List::Terminals(
-            value["terminals"]
-                .as_array()
+        Ok(value) => {
+            let lists = value["lists"].as_array().cloned().unwrap_or_default();
+            identities
                 .into_iter()
-                .flatten()
-                .filter_map(listed)
-                .collect(),
-        ),
-        Err(error) if error.code == UNAVAILABLE || error.code == "NAME_NOT_FOUND" => {
-            List::Unavailable
+                .map(|identity| {
+                    let list = lists
+                        .iter()
+                        .find(|entry| entry["identityId"] == identity.as_str())
+                        .map_or(List::Unavailable, |entry| {
+                            List::Terminals(
+                                entry["terminals"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(listed)
+                                    .collect(),
+                            )
+                        });
+                    (identity, list)
+                })
+                .collect()
         }
-        Err(error) => List::Failed(crate::board::notes::single_line(&error.message)),
+        Err(error) => {
+            let failed = crate::board::notes::single_line(&error.message);
+            identities
+                .into_iter()
+                .map(|identity| (identity, List::Failed(failed.clone())))
+                .collect()
+        }
     }
 }
 
