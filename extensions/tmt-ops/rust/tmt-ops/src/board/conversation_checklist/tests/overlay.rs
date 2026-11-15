@@ -53,7 +53,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 
 #[test]
 fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
-    let (mut app, _) = read_with(vec![todo(1)]);
+    let (mut app, key) = read_with(vec![todo(1), done(2)]);
     press(&mut app, KeyCode::Enter);
     assert!(app.input.is_some(), "Talk opens the editor");
     type_text(&mut app, "draft words");
@@ -63,6 +63,125 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     assert!(paint(&app).contains("^L"));
     press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
     assert!(app.notes_overlay.is_some(), "Ctrl+L opens member Checklist");
+    let narrow = paint_at(&app, 60);
+    assert!(
+        narrow.contains("Checklist"),
+        "the active tab remains visible with the retained draft: {narrow}"
+    );
+    let checklist_page = paint(&app);
+    assert!(
+        checklist_page.contains("Todo · 1"),
+        "Checklist is a right-pane page: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("Done · 1"),
+        "done items remain visible: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("✓ item 2"),
+        "done rows have a mark: {checklist_page}"
+    );
+    assert!(
+        checklist_page.contains("SQUAD / AGENT"),
+        "the tree stays visible"
+    );
+    assert!(checklist_page.contains("U  Ask worker to update"));
+    let ask = press(&mut app, KeyCode::Char('U'));
+    let Effect::Act(Request::ChecklistAsk {
+        sender,
+        recipient,
+        squad,
+        name,
+    }) = ask
+    else {
+        panic!("U must request a checklist update: {ask:?}");
+    };
+    assert_eq!(name, "worker");
+    assert_eq!(squad, "product");
+    assert_eq!(recipient, key.member().unwrap());
+    assert_eq!(
+        super::super::ASK_TEXT,
+        "Please review and update your checklist. You may complete any item, including those added by others, and add new items. In your reply, list what you changed."
+    );
+    app.finished_send(crate::board::conversation::outgoing::Completed {
+        ticket: None,
+        outcome: Ok(crate::send::Accepted {
+            request: "req_checklist".into(),
+            disposition: crate::send::Disposition::Sent,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: false,
+            fallback: None,
+            warning: None,
+        }),
+        what: format!("Checklist update/{recipient}"),
+        to: name,
+    });
+    assert!(paint(&app).contains("asked · waiting"));
+    let finals = crate::board::home_leads::FinalsKey {
+        sender: sender.clone(),
+        agent: recipient.clone(),
+    };
+    app.apply_finals(
+        finals.clone(),
+        Ok(vec![serde_json::json!({
+            "requestId": "some-other-request", "recipientId": recipient,
+            "response": "done", "submittedAtMs": crate::status::now_ms() - 120_000,
+        })]),
+    );
+    assert!(paint(&app).contains("asked · waiting"));
+    assert!(
+        app.conversation_finals().is_some(),
+        "Checklist keeps the existing selected-member final reader active"
+    );
+    assert!(app.finals_read().is_none(), "the unrelated result was held");
+    app.observe_cursor(Some(42));
+    assert!(
+        app.finals_read().is_some(),
+        "a changed source cursor refreshes the awaiting request's finals"
+    );
+    app.apply_finals(
+        finals,
+        Ok(vec![serde_json::json!({
+            "requestId": "req_checklist", "recipientId": recipient,
+            "response": "completed one item", "submittedAtMs": crate::status::now_ms() - 120_000,
+        })]),
+    );
+    assert!(paint(&app).contains("updated 2m ago"));
+    let ask_hit = app
+        .notes_overlay
+        .as_ref()
+        .unwrap()
+        .ask_hit
+        .borrow()
+        .expect("painted ask control");
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: ask_hit.x,
+        row: ask_hit.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert!(matches!(
+        app.mouse(click, Instant::now()),
+        Effect::Act(Request::ChecklistAsk { .. })
+    ));
+    app.finished_send(crate::board::conversation::outgoing::Completed {
+        ticket: None,
+        outcome: Ok(crate::send::Accepted {
+            request: "req_uncertain".into(),
+            disposition: crate::send::Disposition::Uncertain,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: false,
+            fallback: None,
+            warning: None,
+        }),
+        what: format!("Checklist update/{recipient}"),
+        to: "worker".into(),
+    });
+    assert!(paint(&app).contains("U  Ask worker to update"));
     press(&mut app, KeyCode::Esc);
     let input = app.input.as_ref().expect("Esc returns to the editor");
     assert_eq!(input.text.to_string(), before);
@@ -97,6 +216,58 @@ fn authored_ctrl_l_wins_over_checklist_while_composing() {
         "authored key must not open Checklist"
     );
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Measure);
+    app.open_notes_from_input();
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert(
+            "U".into(),
+            crate::action::Action::parse("pane-measure").unwrap(),
+        );
+    }
+    assert!(
+        !paint(&app).contains("U  Ask worker to update"),
+        "the authored key is not advertised for the button"
+    );
+    press(&mut app, KeyCode::Char('U'));
+    assert_eq!(
+        app.right_tab,
+        crate::board::shell::RightTab::Measure,
+        "authored U wins over the update request"
+    );
+    assert!(app.notes.asks.is_empty());
+    app.open_notes_from_input();
+    for keys in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .values_mut()
+    {
+        keys.insert(
+            "u".into(),
+            crate::action::Action::parse("pane-measure").unwrap(),
+        );
+    }
+    press(&mut app, KeyCode::Char('u'));
+    assert_eq!(
+        app.right_tab,
+        crate::board::shell::RightTab::Measure,
+        "lowercase u keeps its authored action"
+    );
+    assert!(app.notes.asks.is_empty());
 }
 
 #[test]
@@ -194,26 +365,46 @@ fn paint_at(app: &App, width: u16) -> String {
 }
 
 #[test]
-fn completed_rows_leave_immediately_and_the_status_names_the_completed_title() {
+fn add_and_edit_forms_stay_inline_and_keep_drafts_on_escape() {
+    for (key, word) in [
+        (KeyCode::Char('a'), "new words"),
+        (KeyCode::Char('e'), " edited"),
+    ] {
+        let (mut app, scope) = opened(vec![todo(1), todo(2)]);
+        press(&mut app, key);
+        type_text(&mut app, word);
+        let screen = paint_wide(&app);
+        assert_eq!(app.overlay(), None, "the form remains on the page");
+        assert!(screen.contains("Todo · 2"), "{screen}");
+        assert!(screen.contains("Title ›"), "{screen}");
+        assert!(screen.contains("○ item 2"), "{screen}");
+        assert!(!screen.contains("┌ Checklist ·"), "{screen}");
+        assert!(
+            screen.contains("⏎ save") && screen.contains("Esc close"),
+            "{screen}"
+        );
+        press(&mut app, KeyCode::Esc);
+        assert!(
+            app.notes
+                .draft(&scope)
+                .unwrap()
+                .text(0)
+                .contains(word.trim())
+        );
+    }
+}
+
+#[test]
+fn completed_rows_move_to_done_and_the_status_names_the_completed_title() {
     let (mut app, key) = opened(vec![todo(1), done(2)]);
-    paint(&app);
-    assert_eq!(
-        app.notes_overlay.as_ref().unwrap().items(&app.notes).len(),
-        1
-    );
     let (task, write) = write_of(press(&mut app, KeyCode::Enter));
     assert!(matches!(write, Write::Toggle { complete: true, .. }));
     accepted(&mut app, &task, vec![done(1), done(2)], Some(id(1)));
     let screen = paint(&app);
     assert!(screen.contains("✓ Completed item 1"), "{screen}");
-    assert!(screen.contains("No items yet"), "{screen}");
-    assert!(
-        app.notes_overlay
-            .as_ref()
-            .unwrap()
-            .items(&app.notes)
-            .is_empty()
-    );
+    assert!(screen.contains("Todo · 0"), "{screen}");
+    assert!(screen.contains("Done · 2"), "{screen}");
+    assert!(screen.contains("✓ item 1"), "{screen}");
     assert_eq!(super::super::chip(app.notes.summary(&key)), "Checklist");
     assert_eq!(app.notes.preview(&key).unwrap().current.items.len(), 2);
 }
@@ -279,11 +470,26 @@ fn every_row_shows_who_added_it_when_on_its_second_line() {
 }
 
 #[test]
-fn an_empty_list_has_no_header_row() {
+fn an_empty_list_shows_zero_todo_and_done_counts() {
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
     assert!(!screen.contains("STATUS"), "{screen}");
-    assert!(screen.contains("No items yet"), "{screen}");
+    assert!(screen.contains("Todo · 0"), "{screen}");
+    assert!(screen.contains("Done · 0"), "{screen}");
+    assert!(screen.contains("   Nothing to do · a add"), "{screen}");
+    let lines: Vec<_> = screen.lines().collect();
+    let todo = lines
+        .iter()
+        .position(|line| line.contains("Todo · 0"))
+        .unwrap();
+    let done = lines
+        .iter()
+        .position(|line| line.contains("Done · 0"))
+        .unwrap();
+    assert!(
+        done > todo + 1,
+        "empty sections do not stack rules: {screen}"
+    );
 }
 
 #[test]
@@ -307,61 +513,87 @@ fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
 }
 
 #[test]
-fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
-    for form in [false, true] {
-        let (mut app, key) = read_with(vec![]);
-        if form {
-            app.add_to_notes(note_seed(&app, NoteKind::Todo));
-        } else {
-            press(&mut app, KeyCode::Char('C'));
-            press(&mut app, KeyCode::Char('a'));
-        }
-        app.select(0);
-        assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
-        let screen = paint(&app);
-        let title = if form {
-            "Add to checklist · worker"
-        } else {
-            "Checklist · worker · 0 items"
-        };
-        assert!(screen.contains(title), "{screen}");
-        assert!(screen.contains("Title ›"), "{screen}");
-        assert!(screen.contains("Enter save"), "{screen}");
-        assert!(!screen.contains("Note ›"), "{screen}");
-        assert_eq!(app.notes_overlay.as_ref().unwrap().key, key);
-    }
+fn checklist_page_follows_selection_and_preserves_a_seeded_draft() {
+    let (mut app, key) = read_with(vec![]);
+    app.add_to_notes(note_seed(&app, NoteKind::Todo));
+    app.select(0);
+    assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
+    assert!(
+        app.notes_overlay.is_none(),
+        "the page closes on a squad row"
+    );
+    assert!(
+        app.notes.draft(&key).is_some(),
+        "the original member's draft is retained"
+    );
+
+    let mut app = crate::board::app::workspace::tests::populated_board(1, 2);
+    let members: Vec<_> = app
+        .workspace_rows()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| matches!(row.target, OpsTarget::Member { .. }).then_some(index))
+        .collect();
+    assert_eq!(members.len(), 2);
+    app.notes = State::reading();
+    app.select(members[0]);
+    let first = app.conversation_checklist_key().unwrap();
+    let now = Instant::now();
+    let task = app.notes.offer(Some(&first), now).unwrap();
+    app.finished_notes(
+        Completed {
+            key: task.key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Ok(preview(vec![todo(1)])),
+                activity: activity::Read::default(),
+            },
+        },
+        now,
+    );
+    app.open_notes();
+    assert!(paint(&app).contains("item 1"));
+    app.select(members[1]);
+    let second = app.conversation_checklist_key().unwrap();
+    assert_ne!(first, second);
+    assert_eq!(app.notes_overlay.as_ref().unwrap().key, second);
+    let task = app.notes.offer(Some(&second), now).unwrap();
+    app.finished_notes(
+        Completed {
+            key: task.key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Ok(preview(vec![todo(2)])),
+                activity: activity::Read::default(),
+            },
+        },
+        now,
+    );
+    let screen = paint(&app);
+    assert!(
+        screen.contains("item 2"),
+        "selected member's checklist: {screen}"
+    );
+    assert!(
+        !screen.contains("item 1"),
+        "previous member must not leak: {screen}"
+    );
 }
 
 #[test]
-fn an_unread_caption_uses_the_frozen_roster_then_an_explicit_uuid_fallback() {
-    let (mut app, key) = read_with(vec![]);
+fn an_unread_page_does_not_follow_a_former_member_after_selection_changes() {
+    let (mut app, _) = read_with(vec![]);
     app.notes = State::reading();
     press(&mut app, KeyCode::Char('C'));
+    assert!(paint(&app).contains("Reading the checklist…"));
     app.select(0);
     let screen = paint(&app);
-    assert!(screen.contains("Checklist · worker"), "{screen}");
-    assert!(screen.contains("Reading the checklist…"), "{screen}");
-    let target = OpsTarget::Member {
-        room_id: Some(key.room.clone()),
-        identity_id: key.member().unwrap().into(),
-    };
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .rows
-        .remove(&target);
-    let screen = paint(&app);
-    assert!(screen.contains("Checklist · member 22222222"), "{screen}");
-    assert!(!screen.contains("Checklist · product"), "{screen}");
+    assert!(!screen.contains("Reading the checklist…"), "{screen}");
+    assert!(app.notes_overlay.is_none());
 }
 
 #[test]
-fn checklist_captions_escape_held_names_and_fit_long_unicode_names() {
-    // Unicode and markup punctuation exercise held user data, not translated UI copy.
+fn checklist_page_does_not_use_untrusted_preview_names_for_the_target() {
     for name in [
         "worker <&\" 界",
         "worker\nnext\u{1b}[31m",
@@ -381,19 +613,9 @@ fn checklist_captions_escape_held_names_and_fit_long_unicode_names() {
             .unwrap()
             .name = Some(name.into());
         let screen = paint(&app);
-        assert!(screen.contains("Checklist · "), "{screen}");
-        if name.chars().count() < 40 {
-            assert!(
-                screen.contains(&crate::board::notes::single_line(name)),
-                "{screen}"
-            );
-        }
-        let overlay = app.notes_overlay.as_ref().unwrap();
-        assert!(
-            overlay.ui.borrow().frame.is_some(),
-            "the escaped title admits a modal"
-        );
-        assert_eq!(overlay.key, key);
+        assert!(screen.contains("Ask worker to update"), "{screen}");
+        assert!(!screen.contains('\u{1b}'), "{screen}");
+        assert_eq!(app.notes_overlay.as_ref().unwrap().key, key);
     }
 }
 
@@ -421,42 +643,25 @@ fn clicking_the_chip_opens_the_list_for_the_selected_member() {
 }
 
 #[test]
-fn the_list_is_one_mixed_list_of_two_line_rows_without_a_header_and_esc_closes_it() {
+fn checklist_groups_todo_and_done_and_esc_returns_to_talk() {
     let (mut app, _) = opened(vec![todo(1), link(2), done(3)]);
     let screen = paint(&app);
-    assert!(screen.contains("Checklist · worker · 2 items"), "{screen}");
+    assert!(screen.contains("Todo · 2"), "{screen}");
+    assert!(screen.contains("Done · 1"), "{screen}");
     assert!(
-        !screen.contains("STATUS") && !screen.contains("TITLE"),
+        screen.contains("○ item 1") && screen.contains("○ item 2") && screen.contains("✓ item 3"),
         "{screen}"
     );
-    assert!(
-        !screen.contains("Links ·") && !screen.contains("Todo ·"),
-        "{screen}"
-    );
-    let lines: Vec<&str> = screen.lines().collect();
-    let line = |text: &str| lines.iter().position(|line| line.contains(text));
-    let (todo_at, link_at) = (line("○ item 1"), line("○ item 2"));
-    assert!(
-        todo_at.is_some() && link_at > todo_at,
-        "stored order, not links first: {screen}"
-    );
-    let address = line("↗ example.com/a").expect("the link is on its own line");
-    assert_eq!(Some(address), link_at.map(|at| at + 1), "{screen}");
-    let (_, sheet) = sheet_at(&app, 120);
-    assert!(
-        !sheet.iter().any(|line| line.contains('—')),
-        "a todo shows no link: {sheet:#?}"
-    );
-    assert!(!screen.contains("item 3"), "{screen}");
+    assert!(screen.contains("↗ example.com/a"), "{screen}");
     press(&mut app, KeyCode::Esc);
     assert!(app.notes_overlay.is_none());
 }
 
 #[test]
-fn enter_opens_a_link_and_ticks_a_todo_at_the_revision_it_was_read_at() {
+fn o_opens_a_link_and_enter_ticks_a_todo_at_the_revision_it_was_read_at() {
     let (mut app, key) = opened(vec![link(2), todo(1)]);
     // The cursor starts on the first item, a link.
-    let effect = press(&mut app, KeyCode::Enter);
+    let effect = press(&mut app, KeyCode::Char('o'));
     assert!(
         matches!(&effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.com/a"),
         "{effect:?}"
@@ -475,17 +680,19 @@ fn enter_opens_a_link_and_ticks_a_todo_at_the_revision_it_was_read_at() {
 }
 
 #[test]
-fn an_all_done_list_is_empty_and_enter_cannot_reopen_an_item() {
+fn an_all_done_list_shows_done_and_enter_reopens_an_item() {
     let (mut app, _) = opened(vec![done(1)]);
-    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-    assert!(
-        app.notes_overlay
-            .as_ref()
-            .unwrap()
-            .items(&app.notes)
-            .is_empty()
-    );
-    assert!(paint(&app).contains("No items yet"));
+    let screen = paint(&app);
+    assert!(screen.contains("Todo · 0"), "{screen}");
+    assert!(screen.contains("Done · 1"), "{screen}");
+    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+    assert!(matches!(
+        write,
+        Write::Toggle {
+            complete: false,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -622,6 +829,16 @@ fn e_edits_the_chosen_item_and_a_conflict_keeps_the_draft_on_the_new_version() {
         screen.contains("Changed elsewhere. Your draft is kept"),
         "{screen}"
     );
+    let area = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
+    let notice = screen
+        .lines()
+        .find(|line| line.contains("Changed elsewhere."))
+        .unwrap();
+    let prefix = notice.split_once("Changed elsewhere.").unwrap().0;
+    assert_eq!(
+        unicode_width::UnicodeWidthStr::width(prefix),
+        usize::from(area.x) + 2
+    );
     assert!(screen.contains("item 1 (v2)"), "the words stay: {screen}");
     assert!(
         screen.contains("item 1 elsewhere"),
@@ -738,6 +955,8 @@ pub(in crate::board) const LIST_SCENES: &[&str] = &[
     "notes-list-retired",
     "notes-list-conflict",
     "notes-form-reopened",
+    "notes-ask-waiting",
+    "notes-ask-updated",
 ];
 
 fn stamped(mut view: ItemView, title: &str, by: &str, ago_ms: u64) -> ItemView {
@@ -756,12 +975,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
     const HOURS: u64 = 9_000_000;
     const DAYS: u64 = 129_600_000;
     let items = match scene {
-        "notes-list-empty" => vec![stamped(
-            done(5),
-            "Completed item retained in storage",
-            ALICE,
-            HOURS,
-        )],
+        "notes-list-empty" => vec![],
         "notes-list-completed" => vec![stamped(
             todo(3),
             "Review the open checklist",
@@ -808,6 +1022,26 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         .workspace
         .squad_looks
         .clear();
+    if scene == "notes-ask-waiting" || scene == "notes-ask-updated" {
+        let member = app
+            .conversation_checklist_key()
+            .unwrap()
+            .member()
+            .unwrap()
+            .to_owned();
+        let state = if scene == "notes-ask-waiting" {
+            super::super::AskState::Waiting {
+                sender: ACTOR.into(),
+                request: "checklist-fixture-request".into(),
+            }
+        } else {
+            super::super::AskState::Updated {
+                at_ms: crate::status::now_ms() - MINUTES,
+            }
+        };
+        app.notes.asks.insert(member, state);
+        return app;
+    }
     if scene == "notes-list-empty" {
         return app;
     }
@@ -883,33 +1117,18 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
 }
 
 #[test]
-fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
-    // A list that fits has nothing to locate.
+fn section_counts_include_all_non_archived_items() {
     let (app, _) = opened(vec![link(1), todo(2), todo(3), done(4), done(5)]);
     let screen = paint(&app);
     assert!(
-        !screen.contains(" of 3") && !screen.contains("of 7"),
-        "{screen}"
-    );
-    // One that overflows counts its 30 open items, not the headings between the groups.
-    let (app, _) = opened(
-        (1..=30)
-            .map(todo)
-            .chain((31..=40).map(done))
-            .collect::<Vec<_>>(),
-    );
-    let screen = paint(&app);
-    assert!(screen.contains(" of 30"), "{screen}");
-    assert!(
-        !screen.contains("of 31") && !screen.contains("of 32"),
+        screen.contains("Todo · 3") && screen.contains("Done · 2"),
         "{screen}"
     );
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
-    assert!(screen.contains("No items yet"), "{screen}");
     assert!(
-        !screen.contains("–1 of 1") && !screen.contains("of 0"),
-        "no counter on an empty list\n{screen}"
+        screen.contains("Todo · 0") && screen.contains("Done · 0"),
+        "{screen}"
     );
 }
 
@@ -936,20 +1155,30 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
     let body = seed.source.body();
     app.add_to_notes(seed);
     let screen = paint(&app);
-    assert!(screen.contains("Add to checklist · worker"), "{screen}");
-    assert!(screen.contains("Kind   Todo   Link "), "{screen}");
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Checklist);
+    assert_eq!(app.overlay(), None, "the seeded form remains on the page");
+    assert!(screen.contains("Todo · 0"), "{screen}");
+    assert!(screen.contains("Kind    Todo   Link "), "{screen}");
     assert!(screen.contains("Title › review_the_build▏"), "{screen}");
-    assert!(screen.contains("From   worker · final"), "{screen}");
+    assert!(screen.contains("From    worker · final"), "{screen}");
+    let value_column = |label: &str, value: &str| {
+        let line = screen.lines().find(|line| line.contains(label)).unwrap();
+        unicode_width::UnicodeWidthStr::width(line.split_once(value).unwrap().0)
+    };
+    let kind_column = value_column("Kind", "Todo");
+    assert_eq!(kind_column, value_column("Title ›", "review_the_build"));
+    assert_eq!(kind_column, value_column("Link  ›", "https://"));
+    assert_eq!(kind_column, value_column("From", "worker · final"));
     assert!(
         !screen.contains("No items yet"),
         "the add form contains no list"
     );
-    type_text(&mut app, " today");
+    type_text(&mut app, " today T");
     let (_, write) = write_of(press(&mut app, KeyCode::Enter));
     assert_eq!(
         write,
         Write::Add {
-            title: "review_the_build today".into(),
+            title: "review_the_build today T".into(),
             reference: Some("https://example.com/review_the_build?ref=chat#jobs".into()),
             body: Some(body),
             inventory: Some(1),
@@ -1079,7 +1308,7 @@ fn loading_and_a_replaced_conversation_never_submit_a_seed_to_another_member() {
     app.select(0);
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert!(!app.notes.draft(&key).unwrap().sent());
-    assert!(paint(&app).contains("The conversation changed"));
+    assert!(app.notes_overlay.is_none(), "the stale page is closed");
 
     let (mut app, _) = read_with(vec![]);
     let seed = note_seed(&app, NoteKind::Todo);
@@ -1227,18 +1456,23 @@ fn add_forms_show_their_kind_and_source_at_every_width_and_keep_low_height_maps_
                         .collect::<String>();
                     if height == 36 {
                         assert!(
-                            text.contains("Add to checklist"),
+                            text.contains("Todo · 0"),
                             "{scene} {look:?} {width}: {text}"
                         );
                         assert!(text.contains("Kind "), "{scene} {look:?} {width}: {text}");
                         assert!(text.contains("From "), "{scene} {look:?} {width}: {text}");
                         assert!(!text.contains("No items yet"), "the add form has no list");
                     }
+                    assert_eq!(app.overlay(), None, "the form is on the page");
                     let frame = app.notes_overlay.as_ref().unwrap().ui.borrow();
-                    assert!(
-                        frame.frame.as_ref().unwrap().list.is_none(),
-                        "no hidden list row can act: {scene} {width}x{height}"
-                    );
+                    if let Some(map) = &frame.frame {
+                        assert!(
+                            map.list
+                                .as_ref()
+                                .is_none_or(|list| list.geometry.is_empty()),
+                            "no hidden list row can act: {scene} {width}x{height}"
+                        );
+                    }
                 }
             }
         }
@@ -1276,14 +1510,17 @@ fn outside(app: &App) -> (u16, u16) {
 }
 
 #[test]
-fn an_outside_press_closes_the_list_and_does_not_land_on_the_board() {
+fn an_outside_press_keeps_the_page_and_does_not_change_selection() {
     let (mut app, _) = opened(vec![link(1), todo(2)]);
     paint(&app);
     let (x, y) = outside(&app);
     let selected = app.selected;
     assert_eq!(click_at(&mut app, x, y), Effect::None);
-    assert!(app.notes_overlay.is_none());
-    assert_eq!(app.selected, selected, "the press is taken by the close");
+    assert!(app.notes_overlay.is_some());
+    assert_eq!(
+        app.selected, selected,
+        "the press does not change the selection"
+    );
 }
 
 #[test]
@@ -1296,7 +1533,7 @@ fn a_press_inside_the_sheet_keeps_the_list_open() {
 }
 
 #[test]
-fn an_outside_press_keeps_an_unsent_form_for_the_next_open() {
+fn an_outside_press_keeps_the_unsent_form() {
     let (mut app, key) = opened(vec![todo(1)]);
     press(&mut app, KeyCode::Char('a'));
     type_text(&mut app, "half typed");
@@ -1304,7 +1541,7 @@ fn an_outside_press_keeps_an_unsent_form_for_the_next_open() {
     paint(&app);
     let (x, y) = outside(&app);
     click_at(&mut app, x, y);
-    assert!(app.notes_overlay.is_none());
+    assert!(app.notes_overlay.is_some());
     assert!(
         app.notes.draft(&key).is_some(),
         "the draft is kept, as Esc keeps it"
@@ -1312,14 +1549,14 @@ fn an_outside_press_keeps_an_unsent_form_for_the_next_open() {
 }
 
 #[test]
-fn an_outside_press_while_asked_to_delete_leaves_the_item_in_place() {
+fn an_outside_press_during_delete_leaves_the_item_in_place() {
     let (mut app, key) = opened(vec![todo(1)]);
     press(&mut app, KeyCode::Char('d'));
     paint(&app);
     let (x, y) = outside(&app);
     let effect = click_at(&mut app, x, y);
     assert_eq!(effect, Effect::None, "no delete write was sent");
-    assert!(app.notes_overlay.is_none());
+    assert!(app.notes_overlay.is_some());
     assert!(app.notes.preview(&key).is_some());
 }
 
@@ -1361,7 +1598,7 @@ fn opened_link(effect: &Effect) -> bool {
 }
 
 #[test]
-fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other() {
+fn enter_and_space_tick_a_link_on_the_page_and_o_opens_it() {
     use crate::config::ChecklistEnter::{Open, Tick};
     let ticks = |effect: Effect| {
         let (_, write) = write_of(effect);
@@ -1374,12 +1611,27 @@ fn enter_on_a_link_row_follows_the_setting_and_space_and_o_always_do_the_other()
             enter_means(&mut app, enter);
             press(&mut app, code)
         };
-        match enter {
-            Open => assert!(opened_link(&press_on_link(KeyCode::Enter)), "{enter:?}"),
-            Tick => ticks(press_on_link(KeyCode::Enter)),
-        }
+        ticks(press_on_link(KeyCode::Enter));
         ticks(press_on_link(KeyCode::Char(' ')));
         assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
+
+        // A member terminal's + Add item opens the existing overlay. Once its
+        // write succeeds, that overlay still shows the member's list.
+        let (mut app, key) = read_with(vec![link(1)]);
+        assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+        app.open_notes_adding(key);
+        type_text(&mut app, "new item");
+        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+        accepted(&mut app, &task, vec![link(1), todo(2)], Some(id(2)));
+        assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Notes));
+        paint(&app);
+        press(&mut app, KeyCode::Up);
+        enter_means(&mut app, enter);
+        let effect = press(&mut app, KeyCode::Enter);
+        match enter {
+            Open => assert!(opened_link(&effect), "{effect:?}"),
+            Tick => ticks(effect),
+        }
     }
 }
 
@@ -1400,36 +1652,45 @@ fn enter_on_a_todo_row_ticks_whatever_the_setting_says_and_o_says_there_is_no_li
 }
 
 #[test]
-fn a_completed_link_is_hidden_and_cannot_be_reopened_by_space() {
+fn a_completed_link_is_visible_and_space_reopens_it() {
     let (mut app, _) = opened(vec![view(
         1,
         Some("https://example.com/a"),
         Completion::Complete,
         false,
     )]);
-    assert_eq!(press(&mut app, KeyCode::Char(' ')), Effect::None);
-    assert!(
-        app.notes_overlay
-            .as_ref()
-            .unwrap()
-            .items(&app.notes)
-            .is_empty()
-    );
+    let screen = paint(&app);
+    assert!(screen.contains("Done · 1"), "{screen}");
+    let (_, write) = write_of(press(&mut app, KeyCode::Char(' ')));
+    assert!(matches!(
+        write,
+        Write::Toggle {
+            complete: false,
+            ..
+        }
+    ));
 }
 
 #[test]
-fn the_footer_names_what_enter_does_under_each_setting_and_keeps_esc_close_in_view() {
+fn the_footer_names_enter_behavior_and_keeps_esc_back_in_view() {
     use crate::config::ChecklistEnter::{Open, Tick};
     let (mut app, _) = opened(vec![link(1)]);
-    enter_means(&mut app, Open);
-    assert!(paint(&app).contains("Enter open/tick · a add"));
-    assert!(paint(&app).contains("Esc close"));
-    enter_means(&mut app, Tick);
-    let screen = paint(&app);
-    assert!(screen.contains("Enter tick · o open"));
+    let narrow = paint_at(&app, 60);
     assert!(
-        screen.contains("Esc close"),
-        "the longer footer is not cut: {screen}"
+        narrow.contains("Checklist"),
+        "the active tab remains visible: {narrow}"
+    );
+    enter_means(&mut app, Open);
+    let screen = paint_wide(&app);
+    assert!(
+        screen.contains("⏎ tick") && screen.contains("Esc back"),
+        "{screen}"
+    );
+    enter_means(&mut app, Tick);
+    let screen = paint_wide(&app);
+    assert!(
+        screen.contains("⏎ tick") && screen.contains("o open") && screen.contains("Esc back"),
+        "{screen}"
     );
 }
 
@@ -1441,9 +1702,9 @@ fn sheet_at(app: &App, width: u16) -> (ratatui::layout::Rect, Vec<String>) {
         .unwrap();
     let buffer = terminal.backend().buffer();
     let outer = app.notes_overlay.as_ref().unwrap().modal_outer().unwrap();
-    let lines = (outer.top() + 1..outer.bottom().saturating_sub(1))
+    let lines = (outer.top()..outer.bottom())
         .map(|y| {
-            (outer.left() + 1..outer.right().saturating_sub(1))
+            (outer.left()..outer.right())
                 .map(|x| buffer[(x, y)].symbol())
                 .collect()
         })
@@ -1461,14 +1722,11 @@ const LONG_TITLE: &str = "Report links: PM status page, usage analysis, daily re
 const LONG_URL: &str = "https://127.0.0.1:50711/colab/p/161644f1-5d0f-4c11-9a54-7a2f0c3be8d1/section/report?view=wide&tab=usage";
 
 #[test]
-fn the_sheet_follows_the_board_width_and_wraps_whole_titles_and_links() {
+fn the_pane_wraps_whole_titles_and_links() {
     for width in [60, 100, 160] {
-        let (app, _) = opened(vec![long(1, LONG_TITLE, LONG_URL)]);
+        let (mut app, _) = opened(vec![long(1, LONG_TITLE, LONG_URL)]);
         let (outer, lines) = sheet_at(&app, width);
-        assert!(
-            outer.width >= width * 9 / 10 - 1 && outer.width <= width,
-            "{width}: the sheet takes the board's width: {outer:?}"
-        );
+        assert!(outer.width <= width, "{outer:?}");
         // The last line is the footer, which may be cut at a narrow width.
         let words = lines[..lines.len() - 1].join(" ");
         let words: Vec<&str> = words.split_whitespace().collect();
@@ -1485,6 +1743,21 @@ fn the_sheet_follows_the_board_width_and_wraps_whole_titles_and_links() {
         assert!(
             !words.concat().contains('…'),
             "{width}: nothing cut: {lines:#?}"
+        );
+        let link_cells = app.notes_overlay.as_ref().unwrap().link_hits.borrow();
+        let first = link_cells.iter().find(|hit| hit.link == 0).unwrap().area;
+        let last = link_cells
+            .iter()
+            .rev()
+            .find(|hit| hit.link == 0)
+            .unwrap()
+            .area;
+        if width == 60 {
+            assert!(last.y > first.y, "the link wraps onto another row");
+        }
+        drop(link_cells);
+        assert!(
+            matches!(click_at(&mut app, last.x, last.y), Effect::Act(Request::Open { link, .. }) if link == LONG_URL)
         );
     }
 }
@@ -1663,18 +1936,13 @@ fn a_web_link_inside_a_title_highlights_under_the_pointer_and_opens_on_a_press()
 }
 
 #[test]
-fn the_member_checklist_follows_the_close_rule() {
-    let open = || {
-        let (mut app, _) = opened(vec![todo(1)]);
-        press(&mut app, KeyCode::Char('a'));
-        type_text(&mut app, "half typed");
-        app
-    };
-    crate::board::home::tests::dialog_dismiss::assert_close_rule(
-        &mut open(),
-        &mut open(),
-        crate::board::app::Overlay::Notes,
-    );
+fn esc_closes_the_checklist_page_and_keeps_an_unsent_form() {
+    let (mut app, key) = opened(vec![todo(1)]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half typed");
+    press(&mut app, KeyCode::Esc);
+    assert!(app.notes_overlay.is_none());
+    assert!(app.notes.draft(&key).is_some());
 }
 
 #[test]

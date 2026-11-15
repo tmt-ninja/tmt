@@ -347,7 +347,7 @@ impl App {
         };
         let valid = match field {
             LabelField::Glyph => crate::config::valid_label_glyph(&value),
-            LabelField::Name => !value.trim().is_empty() && !value.chars().any(char::is_control),
+            LabelField::Name => crate::config::valid_label_name(&value),
             LabelField::Color => false,
         };
         if !valid {
@@ -383,7 +383,7 @@ impl App {
         if !crate::config::valid_label_glyph(&draft.value.glyph) {
             return self.say("Use one nonblank character or emoji, one or two cells wide, without joined characters.");
         }
-        if draft.value.name.trim().is_empty() || draft.value.name.chars().any(char::is_control) {
+        if !crate::config::valid_label_name(&draft.value.name) {
             return self.say("Label names must be nonblank text.");
         }
         self.apply_label_edit(crate::config::LabelEdit::Upsert(draft.value.clone()))

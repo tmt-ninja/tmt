@@ -617,32 +617,31 @@ shows a hidden squad. The read-only full monitor values remain under Measure's
 Observed values control and named action, including UUID, memberships and long
 values. `e` does not open that reader.
 
-A squad member's Checklist chip follows Talk / Measure on the pane's tab row: `Checklist 2`
-with the open todo count (`Checklist` with none, `✗ Checklist` when the list cannot be read),
-led by its key as a keycap like the tab labels (` C  Checklist 2`; no keycap when the key is
-unbound). A narrow pane leaves the chip out. `C` or a click on the chip opens the list.
-When chat input has focus, `Ctrl+L` opens it and Esc returns to the same draft and
-caret; the strip and input hint show `^L` only when that target has Checklist. The list is
-as wide as the board: one list in stored order, links and todos mixed, two lines per item. The first
-line is `○` and the whole title; the second is `↗` and the whole link (a GitHub issue or pull reads
-`owner/repo#N`, any other address in full without its scheme), then who added the item and how long
-ago (`you`, the member's name, or nothing for an item stored before the board recorded it). A todo's
-second line has only who and when. Long titles and links wrap; nothing is cut. The pointer over a
-link highlights it, as does the chosen row, and a click on it opens it; a web address
-written in a title highlights and opens the same way. `↑↓`/`jk` choose,
-Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
-Enter tick a link row too; edit **checklist enter** in Ops Config or run
-`tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; ↑↓ move
-between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
-moves an item one place in the list and Esc closes the list, keeping a form you have not sent.
-A change someone else made first is reported in one line and your words stay in the form.
-A retired member's list reads but takes no writes.
+A squad member's Checklist chip follows Talk / Measure in the right pane. `C` opens
+that member's Checklist; from a focused chat input, `Ctrl+L` opens it and Esc returns
+to the same draft and caret. The page groups non-archived items into Todo and Done,
+with counts, dimmed completed items, and a separate line for each link. `U` asks the
+member to update the checklist. Its waiting and updated states last for this board
+session; updated means the matching request received a final reply. Authored bindings
+keep precedence. `↑↓`/`jk` choose, Enter and Space tick, `o` opens a link,
+`a` adds and `e` edits inline, `d` deletes after confirmation,
+and `Shift+↑↓` moves an item. Esc keeps an unsent form. A retired member's list reads
+but takes no writes.
+
+`board.checklist_enter` applies to the member Checklist when it is shown as a list
+overlay, such as after saving `+ Add item` from a member's terminal frame while Talk
+is selected. On a link row, `open` (the default) opens the link and `tick` completes
+the item; Space always ticks and `o` always opens the link. Set **checklist enter**
+in Ops Config or run `tmt ops sq config set board.checklist_enter tick`. This setting
+does not change Enter on the Agents Checklist page, where Enter always ticks.
+
 Changes by someone other than the Core user appear in the conversation as muted Checklist
 activity lines, naming the agent and the currently held item title. Missing titles say `an item`,
 missing names `an agent`. Reordering says `reordered the checklist`. Older unknown or pruned
 activity and failed reads are explicit; the board never infers a change from the current list.
 These lines describe activity and grant no reply, request-source or unread authority.
-The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
+Adding from a conversation selection or link opens a prefilled inline Checklist form;
+`↑↓` changes fields and `←→` changes its Todo/Link kind.
 Authored bindings use `member-checklist` (default `C` in member/Reader scopes; `N` stays create-squad).
 This is a breaking rename before launch: replace the former `member-notes` action;
 it has no alias and receives the ordinary unknown-action notice. The private identity

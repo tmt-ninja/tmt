@@ -213,6 +213,10 @@ pub(crate) fn valid_label_glyph(glyph: &str) -> bool {
     tmt_tui::text::is_single_cell_or_wide_grapheme(glyph)
 }
 
+pub(crate) fn valid_label_name(name: &str) -> bool {
+    !name.trim().is_empty() && !name.chars().any(char::is_control)
+}
+
 fn validate_label(label: &BoardLabel) -> Result<(), SquadError> {
     if label.id.is_empty()
         || label.id.len() > 64
@@ -233,7 +237,7 @@ fn validate_label(label: &BoardLabel) -> Result<(), SquadError> {
     if crate::look::role(&label.color).is_none() {
         return Err(invalid("Choose a board palette color."));
     }
-    if label.name.trim().is_empty() || label.name.chars().any(char::is_control) {
+    if !valid_label_name(&label.name) {
         return Err(invalid("Label names must be nonblank text."));
     }
     Ok(())

@@ -40,6 +40,7 @@ pub(in crate::board) struct Controller {
     pub(super) link_hits: RefCell<Vec<super::surface::LinkHit>>,
     /// The link under the pointer: its item and which of the item's links it is.
     pub(super) hovered: RefCell<Option<(String, usize)>>,
+    pub(super) ask_hit: RefCell<Option<Rect>>,
     closed: bool,
 }
 
@@ -60,6 +61,7 @@ impl Controller {
             kind_hits: RefCell::new(Vec::new()),
             link_hits: RefCell::new(Vec::new()),
             hovered: RefCell::new(None),
+            ask_hit: RefCell::new(None),
             closed: false,
         }
     }
@@ -74,6 +76,12 @@ impl Controller {
     /// An unsent form takes every key, digits and letters included, until it is sent.
     pub(in crate::board) fn owns_typing(&self, notes: &State) -> bool {
         notes.draft(&self.key).is_some_and(|draft| !draft.sent())
+    }
+
+    pub(in crate::board) fn seeded_form(&self, notes: &State) -> bool {
+        notes
+            .draft(&self.key)
+            .is_some_and(|draft| draft.seed.is_some())
     }
 
     /// Esc or an outside press: the unsent form's text is kept for the next open, except an
@@ -199,6 +207,7 @@ impl Controller {
                 return Effect::None;
             }
             match key.code {
+                KeyCode::Char('U') if plain(key) => return app.ask_checklist_update(),
                 KeyCode::Esc => {
                     self.closed = true;
                     return Effect::None;
@@ -225,6 +234,15 @@ impl Controller {
                 _ => {}
             }
         }
+        if let Event::Mouse(mouse) = event
+            && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+            && self
+                .ask_hit
+                .borrow()
+                .is_some_and(|area| area.contains((mouse.column, mouse.row).into()))
+        {
+            return app.ask_checklist_update();
+        }
         // A press on a link opens it; the rest of the row still chooses the row.
         if let Event::Mouse(mouse) = event
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
@@ -248,6 +266,9 @@ impl Controller {
         let Some(row) = items.iter().find(|row| row.id.as_str() == id) else {
             return Effect::None;
         };
+        if app.right_tab == crate::board::shell::RightTab::Checklist {
+            return self.tick(app, row);
+        }
         let enter = app.view.as_ref().map(|view| view.checklist_enter);
         match (&row.reference, enter) {
             (Some(_), Some(crate::config::ChecklistEnter::Tick)) => self.tick(app, row),
@@ -286,7 +307,7 @@ impl Controller {
         let write = Write::Toggle {
             item: row.id.clone(),
             revision,
-            complete: true,
+            complete: !row.completed,
         };
         self.write(&mut app.notes, write)
     }
@@ -556,6 +577,10 @@ impl App {
         }
         self.menu = None;
         self.notes_overlay = Some(controller);
+        if self.shell.tab == crate::board::shell::OpsTab::Agents {
+            self.right_tab = crate::board::shell::RightTab::Checklist;
+            self.focus = 1;
+        }
         Effect::None
     }
 
@@ -583,6 +608,10 @@ impl App {
             draft.reopened = !draft.untouched();
         }
         self.notes_overlay = Some(Controller::new(key));
+        if self.shell.tab == crate::board::shell::OpsTab::Agents {
+            self.right_tab = crate::board::shell::RightTab::Checklist;
+            self.focus = 1;
+        }
         Effect::None
     }
 
@@ -598,11 +627,91 @@ impl App {
         effect
     }
 
+    pub(in crate::board) fn ask_checklist_update(&mut self) -> Effect {
+        let Some(key) = self.conversation_checklist_key() else {
+            return Effect::None;
+        };
+        let Some(recipient) = key.member().map(str::to_owned) else {
+            return Effect::None;
+        };
+        if self.notes.preview(&key).is_none() {
+            return self.say("The checklist is unavailable; nothing was sent.");
+        }
+        if matches!(
+            self.notes.asks.get(&recipient),
+            Some(super::AskState::Sending { .. } | super::AskState::Waiting { .. })
+        ) {
+            return Effect::None;
+        }
+        let Some(sender) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
+            return self.say("No sender is available; nothing was sent.");
+        };
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Effect::None;
+        };
+        let Some(squad) = snapshot
+            .roster
+            .squads
+            .iter()
+            .find(|squad| squad.room_id == key.room)
+            .map(|squad| squad.name.clone())
+        else {
+            return Effect::None;
+        };
+        let Some(name) = snapshot
+            .roster
+            .members
+            .get(&recipient)
+            .map(|member| member.name.clone())
+        else {
+            return Effect::None;
+        };
+        self.notes.asks.insert(
+            recipient.clone(),
+            super::AskState::Sending {
+                sender: sender.clone(),
+            },
+        );
+        Effect::Act(Request::ChecklistAsk {
+            sender,
+            recipient,
+            squad,
+            name,
+        })
+    }
+
+    pub(in crate::board) fn close_notes_page(&mut self) {
+        if let Some(controller) = self.notes_overlay.take() {
+            controller.close(&mut self.notes);
+        }
+    }
+
+    pub(in crate::board) fn sync_notes_page(&mut self) {
+        if self.right_tab != crate::board::shell::RightTab::Checklist {
+            return;
+        }
+        let Some(key) = self.conversation_checklist_key() else {
+            self.close_notes_page();
+            self.right_tab = crate::board::shell::RightTab::Talk;
+            return;
+        };
+        if self
+            .notes_overlay
+            .as_ref()
+            .is_none_or(|controller| controller.key != key)
+        {
+            self.close_notes_page();
+            self.notes_overlay = Some(Controller::new(key));
+        }
+    }
+
     pub(in crate::board) fn notes_event(&mut self, event: &Event) -> Option<Effect> {
         let mut controller = self.notes_overlay.take()?;
         let effect = controller.event(self, event);
         if !controller.closed {
             self.notes_overlay = Some(controller);
+        } else if self.right_tab == crate::board::shell::RightTab::Checklist {
+            self.right_tab = crate::board::shell::RightTab::Talk;
         }
         Some(effect)
     }

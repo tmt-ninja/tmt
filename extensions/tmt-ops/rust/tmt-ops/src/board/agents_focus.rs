@@ -235,6 +235,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.focused() == Pane::Replies,
         app.look(),
     );
+    if app.right_tab == crate::board::shell::RightTab::Checklist
+        && let Some(controller) = &app.notes_overlay
+        && let Some(row) = raw
+    {
+        let mut y = area.y.saturating_add(1);
+        member::render(frame, app, area, &mut y, row, selected, squad);
+        controller.render_page(
+            frame,
+            app,
+            Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y)),
+        );
+        return;
+    }
     // A member running a plain program has no chat: a message would run as a command (#5770).
     let admitted_input = retained.is_none()
         && row.is_none_or(|row| row["plainProgram"].is_null())

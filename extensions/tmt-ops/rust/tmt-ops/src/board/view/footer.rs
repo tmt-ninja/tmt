@@ -933,6 +933,57 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         .map_or(last_row, |text| {
             crate::board::notice::paint_links(frame, app, last_row, text, app.notice_clock.failed)
         });
+    if app.right_tab == crate::board::shell::RightTab::Checklist
+        && app.focused() == crate::config::Pane::Replies
+        && app.notes_overlay.is_some()
+        && app.error.is_none()
+        && app.migration_notice.is_none()
+    {
+        let form = app
+            .notes_overlay
+            .as_ref()
+            .is_some_and(|controller| controller.owns_typing(&app.notes));
+        let hints: Vec<Hint> = if form {
+            let mut hints = vec![("↑↓".into(), "title/link".into())];
+            if app
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.seeded_form(&app.notes))
+            {
+                hints.push(("←→".into(), "kind".into()));
+            }
+            hints.push(("⏎".into(), "save".into()));
+            hints
+        } else {
+            [
+                ("↑↓", "choose"),
+                ("⏎", "tick"),
+                ("o", "open"),
+                ("a", "add"),
+                ("e", "edit"),
+                ("d", "delete"),
+                ("Shift+↑↓", "move"),
+            ]
+            .into_iter()
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect()
+        };
+        let hints = fit_hints(
+            hints,
+            if form {
+                vec![("Esc".into(), "close keeping the draft".into())]
+            } else {
+                vec![("Esc".into(), "back".into())]
+            },
+            usize::from(hint_area.width),
+        );
+        strip::paint_left(
+            frame.buffer_mut(),
+            hint_area,
+            paint_hints(&hints, look, Role::Muted),
+        );
+        return;
+    }
     let legend = if footer.height > 0 && app.error.is_none() && app.migration_notice.is_none() {
         agents_line(
             app,

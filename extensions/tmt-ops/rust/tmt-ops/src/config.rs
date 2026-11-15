@@ -37,6 +37,7 @@ pub use workspace::{
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults, valid_label_glyph,
+    valid_label_name,
 };
 
 /// A Config-owned write location. The event is always a separate literal key.
@@ -121,7 +122,7 @@ impl StartupTab {
     }
 }
 
-/// What Enter does on a Checklist row that has a link; a todo row always ticks.
+/// Enter on a link row in the member Checklist overlay; the Agents page always ticks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ChecklistEnter {
     #[default]

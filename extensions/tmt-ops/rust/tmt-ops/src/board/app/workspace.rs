@@ -1014,6 +1014,7 @@ impl App {
         } else {
             self.workspace_reconcile();
         }
+        self.sync_notes_page();
         self.follow = true;
         self.invalidate_frame_geometry();
     }
@@ -1430,6 +1431,12 @@ impl App {
         if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name)) {
             return self.perform(&action);
         }
+        if key.code == KeyCode::Char('C')
+            && key.modifiers.is_empty()
+            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.clone()
+        {
+            return self.open_room_checklist(room);
+        }
         Effect::None
     }
 
@@ -1681,6 +1688,9 @@ impl App {
         tab: super::super::shell::RightTab,
     ) -> Effect {
         if self.shell.tab == OpsTab::Agents && self.right_tab != tab {
+            if self.right_tab == super::super::shell::RightTab::Checklist {
+                self.close_notes_page();
+            }
             self.right_tab = tab;
             self.invalidate_frame_geometry();
         }

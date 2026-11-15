@@ -325,8 +325,14 @@ fn workspace_checklist_reads_the_visible_room_uuid_and_keeps_its_selection_on_cl
     ] {
         let mut app = workspace::board();
         app.workspace.selected = Some(target.clone());
-        let Effect::Checklist(task) = app.open_checklist() else {
-            panic!("Checklist must read through its existing worker")
+        app.workspace_reconcile();
+        let effect = if matches!(target, OpsTarget::Squad(_)) {
+            app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE))
+        } else {
+            app.open_checklist()
+        };
+        let Effect::Checklist(task) = effect else {
+            panic!("Checklist must read through its existing worker: {effect:?}")
         };
         assert_eq!(task.job, load::Job::Read);
         assert_eq!(task.key.room, Some(id(workspace::ROOM)));

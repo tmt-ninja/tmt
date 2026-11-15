@@ -1949,7 +1949,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-t', shell.pane, 'C']);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('Checklist · auth-fix') &&
+          screen.includes('Todo · 1') &&
+          screen.includes('Done · 0') &&
           screen.includes('Finish the causal Checklist check'),
         shell.pane
       );
@@ -1969,7 +1970,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('✓ Completed Finish the causal Checklist check') &&
-          screen.includes('No items yet') &&
+          screen.includes('Todo · 0') &&
+          screen.includes('Done · 1') &&
+          screen.includes('Nothing to do · a add') &&
           !screen.includes('○ Finish the causal Checklist check'),
         shell.pane
       );

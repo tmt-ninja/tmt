@@ -71,6 +71,10 @@ impl Draft {
         self.fields[field].as_str()
     }
 
+    pub(super) fn differs_from_original(&self, title: &str, reference: Option<&str>) -> bool {
+        self.original[0] != title || self.original[1] != reference.unwrap_or("")
+    }
+
     /// Nothing worth keeping: an empty new note, or an edit that changed nothing.
     pub fn untouched(&self) -> bool {
         match self.aim {

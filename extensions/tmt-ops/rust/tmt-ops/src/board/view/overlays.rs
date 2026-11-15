@@ -34,7 +34,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     {
         dialog.render(frame, app, body);
     }
-    if let Some(notes) = &app.notes_overlay {
+    if let Some(notes) = &app.notes_overlay
+        && app.right_tab != crate::board::shell::RightTab::Checklist
+    {
         notes.render(frame, app, look, body);
         set(Overlay::Notes, notes.modal_outer());
     }

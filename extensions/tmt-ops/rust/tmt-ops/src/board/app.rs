@@ -195,6 +195,12 @@ pub enum Request {
         to: String,
         text: String,
     },
+    ChecklistAsk {
+        sender: String,
+        recipient: String,
+        squad: String,
+        name: String,
+    },
     Chat {
         sender: String,
         recipient: String,
@@ -261,7 +267,10 @@ impl Request {
             Self::Digest(_) => "Saving digest…",
             Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
-            Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } => "Sending…",
+            Self::Talk { .. }
+            | Self::Chat { .. }
+            | Self::Annotate { .. }
+            | Self::ChecklistAsk { .. } => "Sending…",
             Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
@@ -279,6 +288,7 @@ impl Request {
         matches!(
             self,
             Self::Talk { .. }
+                | Self::ChecklistAsk { .. }
                 | Self::Chat { .. }
                 | Self::Annotate { .. }
                 | Self::SendNow { .. }
@@ -4077,7 +4087,9 @@ impl App {
             Some(Overlay::MemberSession)
         } else if self.offline_resume.shown() {
             Some(Overlay::OfflineResume)
-        } else if self.notes_overlay.is_some() {
+        } else if self.notes_overlay.is_some()
+            && self.right_tab != super::shell::RightTab::Checklist
+        {
             Some(Overlay::Notes)
         } else if self.discovery_shown() {
             Some(Overlay::Discovery)
@@ -4472,7 +4484,24 @@ impl App {
         {
             return self.open_notes_from_input();
         }
-        if self.input.is_some() {
+        if self.right_tab == super::shell::RightTab::Checklist
+            && self.notes_overlay.is_some()
+            && self.focused() == Pane::Replies
+        {
+            if !self
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing(&self.notes))
+                && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
+                && matches!(key.code, KeyCode::Char('T' | 'M' | 'U' | 'u'))
+            {
+                return self.perform(&action);
+            }
+            if let Some(effect) = self.notes_event(&Event::Key(key)) {
+                return effect;
+            }
+        }
+        if self.input.is_some() && self.right_tab != super::shell::RightTab::Checklist {
             self.update_mentions();
             if let Some(effect) = self.mention_key(key) {
                 return effect;
@@ -4697,7 +4726,8 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
-        let notes_changed = self.overlay() == Some(Overlay::Notes)
+        let notes_changed = (self.overlay() == Some(Overlay::Notes)
+            || self.right_tab == super::shell::RightTab::Checklist)
             && self
                 .notes_overlay
                 .as_ref()
@@ -4856,6 +4886,17 @@ impl App {
             return effect;
         }
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
+            return effect;
+        }
+        if self.right_tab == super::shell::RightTab::Checklist
+            && self
+                .notes_overlay
+                .as_ref()
+                .and_then(|controller| controller.modal_outer())
+                .is_some_and(|area| area.contains((event.column, event.row).into()))
+            && let Some(effect) = self.notes_event(&Event::Mouse(event))
+        {
+            self.focus = 1;
             return effect;
         }
         if self.menu.is_some() {
