@@ -9,7 +9,7 @@ import {
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
-import { ArrowLeft, ChevronDown, ListTree } from 'lucide-react';
+import { ArrowLeft, ListTree } from 'lucide-react';
 import { useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -41,9 +41,7 @@ function PageItem({ row, href, current }: { row: SubpageRow; href: string; curre
 /**
  * The page's place in its hierarchy for the shared bar (#5506): `parent` goes before the title (a
  * hierarchy icon, the direct parent's name linking to it, and its progress chip, whose menu goes back
- * up or across to a sibling), `subpages` after it (`N sub-pages`, listing the direct sub-pages). Both come from the
- * owner list the viewer already has; a part that does not apply, or that the list cannot name, is
- * absent.
+ * up or across to a sibling). The owner list also tells the page whether it has sub-pages.
  */
 export function usePageHierarchy({
   transport,
@@ -57,7 +55,7 @@ export function usePageHierarchy({
   pageId: string;
   work?: StoredWork;
   pageHref(pageId: string): string;
-}): { parent?: ReactNode; subpages?: ReactNode } {
+}): { parent?: ReactNode; hasSubpages: boolean; parentPage?: { id: string; title: string } } {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const { pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -110,32 +108,9 @@ export function usePageHierarchy({
       </span>
     );
   }
-  const subpages =
-    tree.top.length === 0 ? undefined : (
-      <UiTheme theme={theme}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={`page-hierarchy-subpages ${c.countChip}`}
-              aria-label={t.subpages(tree.top.length)}
-            >
-              <span className="page-hierarchy-wide" aria-hidden="true">
-                {t.subpages(tree.top.length)}
-              </span>
-              <span className="page-hierarchy-narrow" aria-hidden="true">
-                {tree.top.length}
-              </span>
-              <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="page-hierarchy-menu">
-            {tree.top.map((row) => (
-              <PageItem key={row.id} row={row} href={pageHref(row.id)} />
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </UiTheme>
-    );
-  return { parent, subpages };
+  return {
+    parent,
+    hasSubpages: tree.top.length > 0,
+    parentPage: link && holder ? { id: link.page, title: holder.title } : undefined,
+  };
 }

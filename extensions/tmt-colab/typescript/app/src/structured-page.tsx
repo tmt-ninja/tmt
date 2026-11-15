@@ -12,6 +12,7 @@ import { Plus } from 'lucide-react';
 import {
   Block,
   blockActions,
+  nextBlockMenuItem,
   BlockDocument,
   BlockDropLine,
   BlockGhost,
@@ -193,6 +194,7 @@ export interface StructuredPageProps {
   onInsertAfter?(id: string): void;
   /** The first typed text or insert gesture creates the first paragraph. */
   onInsertFirst?(text: string): Promise<boolean>;
+  onOpenFirstPicker?(): void;
   /** Text from a refused first insert, kept so it can be retried. */
   failedFirstText?: string;
   onMove?(id: string, parent: string, index: number): void;
@@ -210,7 +212,7 @@ export interface StructuredPageProps {
   /** The file blocks this tab is adding, drawn as their upload tile. */
   uploads?: ReadonlyMap<string, BlockUpload>;
   /** "Image or file" was chosen in the insert menu: the file picker opens once per `id`. */
-  choosing?: { after: string; id: number };
+  choosing?: { after?: string; id: number };
   /** Download a file card's file through the page's confirmed download path (#6202). */
   onDownloadFile?(attachmentId: string): void;
 }
@@ -326,6 +328,11 @@ export function StructuredPage(props: StructuredPageProps) {
           <EmptyDocument
             readonly={props.readonly}
             onInsert={props.onInsertFirst}
+            onOpenPicker={props.onOpenFirstPicker}
+            menu={props.menu?.id === 'empty' ? props.menu : undefined}
+            onPick={props.onPick}
+            onHover={props.onHover}
+            onCloseMenu={props.onCloseMenu}
             failedText={props.failedFirstText}
           />
         )}
@@ -369,10 +376,20 @@ export function StructuredPage(props: StructuredPageProps) {
 function EmptyDocument({
   readonly,
   onInsert,
+  onOpenPicker,
+  menu,
+  onPick,
+  onHover,
+  onCloseMenu,
   failedText,
 }: {
   readonly?: boolean;
   onInsert?(text: string): Promise<boolean>;
+  onOpenPicker?(): void;
+  menu?: InsertMenu;
+  onPick?(entry: string): void;
+  onHover?(entry: string): void;
+  onCloseMenu?(): void;
   failedText?: string;
 }) {
   const [editing, setEditing] = useState(failedText !== undefined);
@@ -395,7 +412,7 @@ function EmptyDocument({
           type="button"
           className="tmt-block-handle-button"
           aria-label="Insert block"
-          onClick={() => insert('/')}
+          onClick={onOpenPicker}
         >
           <Plus aria-hidden="true" />
         </button>
@@ -424,6 +441,9 @@ function EmptyDocument({
             Retry
           </button>
         </p>
+      )}
+      {menu && (
+        <InsertPopover menu={menu} onPick={onPick} onHover={onHover} onCloseMenu={onCloseMenu} />
       )}
     </Block>
   );
@@ -593,17 +613,45 @@ function ActionsPopover({
   onClose?(): void;
 }) {
   const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
+  const popup = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const dismiss = useCallback(() => {
+    const handle = popup.current
+      ?.closest('[data-block-id]')
+      ?.querySelector<HTMLButtonElement>('[data-grip]');
+    closeRef.current?.();
+    requestAnimationFrame(() => handle?.focus());
+  }, []);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !popup.current?.contains(event.target)) dismiss();
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismiss();
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', escape, true);
+    };
+  }, [dismiss]);
   const actions = blockActions.filter((action) =>
     (BLOCK_MENU_ACTIONS as readonly string[]).includes(action.id),
   );
   return (
     <div
+      ref={popup}
       className="tmt-block-insert tmt-block-actions"
       data-sheet={sheet ? '' : undefined}
       onMouseDown={(event) => {
         if (!sheet || event.target !== event.currentTarget) return;
         event.preventDefault();
-        onClose?.();
+        dismiss();
       }}
     >
       <BlockMenu
@@ -642,10 +690,37 @@ function InsertPopover({
   onCloseMenu,
 }: Pick<StructuredPageProps, 'onPick' | 'onHover' | 'onCloseMenu'> & { menu: InsertMenu }) {
   const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
+  const element = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (menu.direct) element.current?.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+  }, [menu.direct]);
   return (
     <div
+      ref={element}
       className="tmt-block-insert"
       data-sheet={sheet ? '' : undefined}
+      onKeyDown={(event) => {
+        if (!menu.direct) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          onCloseMenu?.();
+          return;
+        }
+        if (event.key === 'Enter' && menu.active) {
+          event.preventDefault();
+          event.stopPropagation();
+          onPick?.(menu.active);
+          return;
+        }
+        if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const ids = menu.entries.map((entry) => entry.id);
+          const next = nextBlockMenuItem(ids, menu.active, event.key);
+          if (next) onHover?.(next);
+        }
+      }}
       onMouseDown={(event) => {
         // The scrim closes the sheet; focus stays in the editor.
         if (!sheet || event.target !== event.currentTarget) return;

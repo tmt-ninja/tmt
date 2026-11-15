@@ -188,6 +188,17 @@ export function ReaderApp({
       {attachmentDownload.bar}
       <ColabHeader
         reader
+        headingSuffix={
+          state.kind === 'ready' && !shell ? (
+            <WorkBand
+              onSize={setWorkBandSize}
+              subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
+              pageState={
+                state.view.state === undefined ? (state.view.pageState ?? 'todo') : state.view.state
+              }
+            />
+          ) : undefined
+        }
         brandOnly={state.kind !== 'ready'}
         headerRef={bar}
         caption={
@@ -297,15 +308,6 @@ export function ReaderApp({
         ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">
-              <WorkBand
-                onSize={setWorkBandSize}
-                subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
-                pageState={
-                  state.view.state === undefined
-                    ? (state.view.pageState ?? 'todo')
-                    : state.view.state
-                }
-              />
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}

@@ -12,6 +12,27 @@ async function mountFixture(page: Page) {
   return page.locator('#structured-page-fixture');
 }
 
+test('block actions dismiss with Escape or an outside click and return focus to the handle', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const host = await mountFixture(page);
+  const block = host.locator('[data-block-id="p"]');
+  await block.hover();
+  const handle = block.getByRole('button', { name: 'Block actions' });
+  const menu = page.getByRole('menu', { name: 'Block actions' });
+  await handle.click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(handle).toBeFocused();
+  await handle.click();
+  await expect(menu).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(menu).toHaveCount(0);
+  await expect(handle).toBeFocused();
+});
+
 /** Move the pointer from `from` to `to` in small steps, as a hand does, and say whether the
  * handle was there after every step. */
 async function travel(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
@@ -125,8 +146,12 @@ for (const block of ['two', 'nested'] as const)
       await page.mouse.up();
       if (button === 'Block actions')
         await expect(page.getByRole('menu', { name: 'Block actions' })).toBeVisible();
-      // Insert block starts a new block after this one; the page answers it later.
-      else
+      // Add chooses a type before inserting after this block.
+      else {
+        await page
+          .getByRole('listbox', { name: 'Insert a block' })
+          .getByRole('option', { name: /^Paragraph/ })
+          .click();
         await expect
           .poll(() =>
             page.evaluate(
@@ -142,6 +167,7 @@ for (const block of ['two', 'nested'] as const)
             ),
           )
           .toBe(1);
+      }
     });
 
 test('in the app, the handle stays on the last block entered until another is entered', async ({

@@ -38,6 +38,8 @@ export type PageHeaderAction =
   | 'creator'
   | 'archive'
   | 'put-under'
+  | 'add-subpage'
+  | 'open-parent'
   | 'template-save'
   | 'template-settings'
   | 'template-remove';
@@ -73,6 +75,8 @@ export function PageHeaderActions({
   canProjects,
   canArchive = false,
   canMove = false,
+  canAddSubpage = false,
+  parentTitle,
   onConvert,
   onRevert,
   showSource = true,
@@ -90,6 +94,8 @@ export function PageHeaderActions({
   canProjects: boolean;
   canArchive?: boolean;
   canMove?: boolean;
+  canAddSubpage?: boolean;
+  parentTitle?: string;
   onConvert?(): void;
   onRevert?(): void;
   showSource?: boolean;
@@ -108,6 +114,7 @@ export function PageHeaderActions({
   const remoteAvailable = useRemoteHeaderSource() && !sharedBar;
   // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
   const compact = useMedia('(max-width: 900px)');
+  const phone = useMedia('(max-width: 640px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
   // After Pin and before About, set apart (#5077).
   const templateItems: BrowserMenuItem[] =
@@ -143,6 +150,7 @@ export function PageHeaderActions({
       ...(index === 0 ? { separated: true } : {}),
     })),
     ...(canMove ? [{ key: 'put-under', label: text.workBand.putUnder }] : []),
+    ...(canAddSubpage ? [{ key: 'add-subpage', label: text.workBand.addSubpage }] : []),
     { key: 'questions', label: text.metadata.questionsItem },
     { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
     ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
@@ -188,6 +196,24 @@ export function PageHeaderActions({
         ...(pinItem ? [{ ...pinItem, leadingIcon: <Pin /> }] : []),
         ...(canMove
           ? [{ key: 'put-under', label: text.workBand.putUnder, leadingIcon: <CornerDownRight /> }]
+          : []),
+        ...(canAddSubpage
+          ? [
+              {
+                key: 'add-subpage',
+                label: text.workBand.addSubpage,
+                leadingIcon: <CornerDownRight />,
+              },
+            ]
+          : []),
+        ...(phone && parentTitle
+          ? [
+              {
+                key: 'open-parent',
+                label: text.pageHierarchy.back(parentTitle),
+                leadingIcon: <CornerDownRight />,
+              },
+            ]
           : []),
         { key: 'questions', label: text.metadata.questionsItem, leadingIcon: <CircleHelp /> },
         { key: 'creator', label: text.moreCreator, meta: creatorLabel, leadingIcon: <UserRound /> },
@@ -235,6 +261,13 @@ export function PageHeaderActions({
               },
             ]
           : []),
+        ...(sharedBar && phone
+          ? (['light', 'dark', 'system'] as const).map((theme) => ({
+              key: theme,
+              label: text.themeChoice[theme],
+              checked: choice === theme,
+            }))
+          : []),
         { key: 'about', label: text.aboutPage, leadingIcon: <Info /> },
       ],
     },
@@ -257,6 +290,8 @@ export function PageHeaderActions({
         key === 'creator' ||
         key === 'archive' ||
         key === 'put-under' ||
+        key === 'add-subpage' ||
+        key === 'open-parent' ||
         key === 'agents' ||
         key === 'manage' ||
         key === 'about' ||

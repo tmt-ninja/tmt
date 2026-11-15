@@ -140,6 +140,7 @@ export function LiveStructuredPage({
     openBlockMenu,
     insertAfter,
     insertFirst,
+    openFirstPicker,
     failedFirstText,
     closeBlockMenu,
     hoverBlockMenu,
@@ -199,6 +200,7 @@ export function LiveStructuredPage({
       onOpenBlockMenu={openBlockMenu}
       onInsertAfter={insertAfter}
       onInsertFirst={insertFirst}
+      onOpenFirstPicker={openFirstPicker}
       failedFirstText={failedFirstText}
       onMove={move}
       onAttach={files && ((picked, after) => void attach(picked, after))}

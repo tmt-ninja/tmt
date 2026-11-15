@@ -1,13 +1,6 @@
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import {
-  useLayoutEffect,
-  useId,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { text } from './strings.js';
 import type { PageState } from './bootstrap.js';
 import type { SubpageCounts, SubpageRow } from './work-tree.js';
@@ -47,11 +40,7 @@ function StateChip({ state }: { state?: PageState | null }) {
   );
 }
 
-/**
- * The page's work panel: one head row, pinned under the nav, that opens one list of sub-pages.
- * A sub-page with sub-pages of its own expands its next level in place. Progress counts only the
- * direct sub-pages, each by its own state.
- */
+/** Title-row state and sub-page count; the count opens the editable sub-page tree. */
 export function WorkBand({
   onSize,
   pageState,
@@ -64,84 +53,52 @@ export function WorkBand({
   const [open, setOpen] = useState(false);
   const listId = useId();
   const section = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const element = section.current;
-    if (!element || !onSize) return;
-    const measure = () => onSize(element.getBoundingClientRect().height);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+  useEffect(() => {
+    onSize?.(0);
   }, [onSize]);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !section.current?.contains(event.target) &&
+        !(event.target instanceof Element && event.target.closest('[role="menu"], [role="dialog"]'))
+      )
+        setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        !(event.target instanceof Element && event.target.closest('[role="menu"], [role="dialog"]'))
+      )
+        setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
   const empty = subpages.length === 0;
-  // With nothing attached the head invites adding instead of toggling an empty list.
-  const activate = empty ? onAdd : () => setOpen((now) => !now);
-  const progress = slots.counts?.(subpages);
-  const buckets = progress
-    ? ([
-        ['done', progress.done],
-        ['in-progress', progress.inProgress],
-        ['todo', progress.todo],
-        ['unknown', progress.unknown],
-      ] as const)
-    : [];
   return (
     <section ref={section} className="work-band" aria-label={t.label}>
-      {/* The head is a plain row. Its toggle is one real button whose hit area stretches over the
-          free row (::after); the chip and Add sit above it and keep their own roles and names. */}
       <div className="work-head" data-empty={empty}>
         <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
-        {empty ? (
-          <>
-            <span className="work-quiet">{t.noSubpages}</span>
-            {onAdd && (
-              <button type="button" className="work-add-text" onClick={onAdd}>
-                <Plus aria-hidden="true" />
-                {t.add}
-              </button>
-            )}
-          </>
-        ) : (
-          <>
-            {progress && (
-              <>
-                <span
-                  className="work-segments"
-                  role="img"
-                  aria-label={buckets
-                    .map(
-                      ([state, count]) =>
-                        `${state === 'unknown' ? t.unknown : t.taskState[state]} ${count}`,
-                    )
-                    .join(', ')}
-                >
-                  {buckets.map(
-                    ([state, count]) =>
-                      count > 0 && (
-                        <span key={state} data-state={state} style={{ flexGrow: count }} />
-                      ),
-                  )}
-                </span>
-                <span className="work-progress">
-                  <span className="work-wide">{t.progress(progress.done, progress.total)}</span>
-                  <span className="work-narrow">
-                    {t.progressShort(progress.done, progress.total)}
-                  </span>
-                </span>
-              </>
-            )}
-          </>
-        )}
-        {activate && (
+        {!empty && (
           <button
             type="button"
-            className="work-toggle"
-            aria-label={empty ? t.addSubpage : open ? t.collapsePanel : t.expandPanel}
-            aria-expanded={empty ? undefined : open}
-            aria-controls={empty ? undefined : listId}
-            onClick={activate}
+            className={`work-toggle ${ui.countChip}`}
+            aria-label={text.pageHierarchy.subpages(subpages.length)}
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setOpen((now) => !now)}
           >
-            {!empty && <ChevronDown className="work-chevron" data-open={open} aria-hidden="true" />}
+            <span className="work-count-wide">{text.pageHierarchy.subpages(subpages.length)}</span>
+            <span className="work-count-compact" aria-hidden="true">
+              {subpages.length}
+            </span>
+            <ChevronDown className="work-chevron" data-open={open} aria-hidden="true" />
           </button>
         )}
       </div>

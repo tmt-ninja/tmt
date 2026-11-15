@@ -17,7 +17,7 @@ async function openWorkBand(page: Page, tall = false) {
     (await import(path)).mountWorkPage(true, 'tree', tall);
   }, tall);
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: 'Expand work panel' }).click();
+  await band.locator('.work-toggle').click();
   await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
   await expect(
     band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }),

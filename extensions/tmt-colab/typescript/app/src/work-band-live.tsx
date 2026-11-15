@@ -43,8 +43,7 @@ async function writeState(binding: PageBinding, shown: PageState | null | undefi
   await binding.metadata('page.state' satisfies MetadataAction, { state: next }, revision);
 }
 
-/** The page's band with the owner's controls, where this device may change the work; anywhere
- * else it is the read-only band. */
+/** The title-row work controls; without owner authority the state and tree are read-only. */
 export function PageWorkBand({
   binding,
   transport,
@@ -53,6 +52,8 @@ export function PageWorkBand({
   work,
   title,
   openPage,
+  adding,
+  onAddingChange,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
   /** Absent for a page that never had work. */
@@ -66,6 +67,8 @@ export function PageWorkBand({
   transport: PageTransport;
   space?: string;
   pageId: string;
+  adding: boolean;
+  onAddingChange(open: boolean): void;
 }): ReactNode {
   const { observed, pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -85,7 +88,6 @@ export function PageWorkBand({
     }
   }, [transport, space]);
   const owner = binding?.work !== undefined && binding.canWork?.() === true;
-  const [adding, setAdding] = useState(false);
   const stateControl = <PageStateMenu binding={binding} state={band.pageState} />;
   const shared = {
     ...band,
@@ -123,7 +125,7 @@ export function PageWorkBand({
     <>
       <WorkBand
         {...shared}
-        onAdd={() => setAdding(true)}
+        onAdd={() => onAddingChange(true)}
         rowState={(row) => (
           <RowStateMenu
             row={row}
@@ -146,7 +148,7 @@ export function PageWorkBand({
           title={title}
           pages={pages}
           refusal={tree.refusal}
-          onClose={() => setAdding(false)}
+          onClose={() => onAddingChange(false)}
           onChoose={add}
         />
       )}

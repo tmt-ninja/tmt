@@ -327,6 +327,8 @@ export async function mount(
     subpage?: boolean;
     /** A structured page with a text-bearing block. */
     structured?: boolean;
+    /** A long structured page with headings for the outline. */
+    structuredOutline?: boolean;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -372,17 +374,42 @@ export async function mount(
   attentionFailure = false;
   current = {
     source: '<p id="selected">Exact selected text</p>',
-    ...(options.structured && {
+    ...((options.structured || options.structuredOutline) && {
       pageType: 'blocks' as const,
-      blocks: {
-        [id(98)]: {
-          type: 'paragraph',
-          parent: 'root',
-          pos: 'V',
-          props: {},
-          text: { s: 'Exact selected text', marks: [] },
-        },
-      },
+      blocks: options.structuredOutline
+        ? Object.fromEntries(
+            ['Overview', 'Details', 'Decisions'].flatMap((title, index) => [
+              [
+                id(101 + index * 2),
+                {
+                  type: 'heading',
+                  parent: 'root',
+                  pos: String.fromCharCode(65 + index * 2),
+                  props: { level: index === 1 ? 3 : 2 },
+                  text: { s: title, marks: [] },
+                },
+              ],
+              [
+                id(102 + index * 2),
+                {
+                  type: 'paragraph',
+                  parent: 'root',
+                  pos: String.fromCharCode(66 + index * 2),
+                  props: {},
+                  text: { s: `${title} section. `.repeat(100), marks: [] },
+                },
+              ],
+            ]),
+          )
+        : {
+            [id(98)]: {
+              type: 'paragraph',
+              parent: 'root',
+              pos: 'V',
+              props: {},
+              text: { s: 'Exact selected text', marks: [] },
+            },
+          },
     }),
     title: 'Live shared page',
     own: options.persistAttention

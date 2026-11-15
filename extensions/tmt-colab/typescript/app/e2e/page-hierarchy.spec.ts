@@ -53,11 +53,11 @@ test('Mock P1: "N sub-pages" after the title lists the direct sub-pages with the
   const chip = bar.getByRole('button', { name: '4 sub-pages' });
   await expect(chip).toBeVisible();
   await chip.click();
-  const items = page.locator('.page-hierarchy-menu').getByRole('menuitem');
-  await expect(items).toHaveCount(4);
-  await expect(items.first()).toContainText('Remote pages v2');
-  await expect(items.first()).toContainText('In progress');
-  await items.first().click();
+  const rows = page.locator('.work-row-line');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.first()).toContainText('Remote pages v2');
+  await expect(rows.first()).toContainText('In progress');
+  await rows.first().getByRole('link', { name: 'Remote pages v2' }).click();
   await expect(page).toHaveURL(new RegExp(PAGE.remote));
 });
 
@@ -68,25 +68,17 @@ test('parts that do not apply are absent', async ({ page }) => {
   await expect(bar.locator('.page-hierarchy-parent')).toHaveCount(1);
 });
 
-test('phone (pending owner answer): only the parent progress chip and the title remain', async ({
+test('phone keeps the state and sub-page count, with parent navigation in More', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const bar = await mount(page);
-  await expect(bar.locator('.page-hierarchy-icon')).toBeHidden();
-  await expect(bar.locator('.page-hierarchy-name')).toBeHidden();
-  await expect(bar.locator('.page-hierarchy-subpages')).toBeHidden();
-  const chip = bar.getByRole('button', { name: 'Remote launch, 0 of 2 sub-pages done' });
-  await expect(chip).toHaveText('0/2');
-  // The title takes the remaining width and stays readable; the chip keeps its natural width.
+  await expect(bar.locator('.page-hierarchy-parent')).toBeHidden();
+  await expect(bar.getByRole('button', { name: '4 sub-pages' })).toBeVisible();
   const title = bar.locator('.tmt-ui-topbar-title-current');
   expect((await title.boundingBox())!.width).toBeGreaterThan(40);
-  const natural = await chip.evaluate((node) => node.scrollWidth);
-  expect((await chip.boundingBox())!.width).toBeGreaterThanOrEqual(natural);
-  await chip.click();
-  await expect(page.locator('.page-hierarchy-menu').getByRole('menuitem').first()).toHaveText(
-    'Back to Remote launch',
-  );
+  await bar.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Back to Remote launch' })).toBeVisible();
 });
 
 for (const width of [1440, 390])
@@ -96,11 +88,11 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const bar = await mount(page);
       await page.screenshot({ path: capturePath(`top-bar-p1-${width}-${theme}.png`) });
-      await bar.locator('.page-hierarchy-count').click();
+      if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
+      else await bar.locator('.page-hierarchy-count').click();
       await page.screenshot({ path: capturePath(`top-bar-parent-menu-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      if (width === 390) return;
-      await bar.locator('.page-hierarchy-subpages').click();
+      await bar.locator('.work-toggle').click();
       await page.screenshot({ path: capturePath(`top-bar-subpages-menu-${width}-${theme}.png`) });
     });
 
@@ -117,17 +109,17 @@ for (const width of [1440, 390])
       expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
       expect((await bar.boundingBox())!.height).toBeLessThan(80);
       await page.screenshot({ path: capturePath(`top-bar-filled-${width}-${theme}.png`) });
-      await bar.locator('.page-hierarchy-count').click();
+      if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
+      else await bar.locator('.page-hierarchy-count').click();
       await page.screenshot({
         path: capturePath(`top-bar-filled-parent-menu-${width}-${theme}.png`),
       });
       await page.keyboard.press('Escape');
-      if (width === 390) return;
-      const subpages = bar.locator('.page-hierarchy-subpages');
-      await expect(subpages).toHaveText(/^3 sub-pages/);
+      const subpages = bar.locator('.work-toggle');
+      await expect(subpages).toHaveAccessibleName('3 sub-pages');
       await subpages.click();
-      const menu = page.locator('.page-hierarchy-menu');
-      await expect(menu.getByRole('menuitem')).toHaveCount(3);
+      const menu = bar.locator('.work-body');
+      await expect(menu.locator('.work-row-line')).toHaveCount(3);
       await expect(menu).not.toContainText('Release notes draft');
       await page.screenshot({
         path: capturePath(`top-bar-filled-subpages-menu-${width}-${theme}.png`),

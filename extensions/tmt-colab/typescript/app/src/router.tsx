@@ -439,6 +439,105 @@ function PageFloatingActions({
   );
 }
 
+/** A structured page's visible headings, kept in the trusted parent alongside the blocks. */
+function PageOutline({
+  headings,
+  stage,
+}: {
+  headings: readonly { id: string; title: string; level: number }[];
+  stage: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tmt:colab:outline');
+      return saved === null ? innerWidth > 640 : saved === 'open';
+    } catch {
+      return innerWidth > 640;
+    }
+  });
+  const [current, setCurrent] = useState(0);
+  useEffect(() => {
+    if (headings.length < 3) return;
+    const update = () => {
+      const bar = document.querySelector<HTMLElement>('.tmt-ui-shell-bar, .tmt-ui-header');
+      const edge = (bar?.getBoundingClientRect().bottom ?? 0) + (innerWidth <= 640 ? 64 : 24);
+      let active = 0;
+      headings.forEach((heading, index) => {
+        const node = stage.current?.querySelector<HTMLElement>(
+          `[data-block-id="${CSS.escape(heading.id)}"]`,
+        );
+        if (node && node.getBoundingClientRect().top <= edge) active = index;
+      });
+      setCurrent(active);
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [headings, stage]);
+  if (headings.length < 3) return null;
+  return (
+    <nav className="page-outline" aria-label="Page outline">
+      <button
+        type="button"
+        className="page-outline-toggle"
+        aria-expanded={expanded}
+        onClick={() => {
+          const next = !expanded;
+          setExpanded(next);
+          try {
+            localStorage.setItem('tmt:colab:outline', next ? 'open' : 'closed');
+          } catch {
+            /* The page stays usable without storage. */
+          }
+        }}
+      >
+        <span className="page-outline-desktop">Outline</span>
+        <span className="page-outline-phone">{headings[current]?.title}</span>
+        <span className="page-outline-count">
+          {current + 1} / {headings.length}
+        </span>
+        <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+      </button>
+      {expanded && (
+        <ol className="page-outline-list">
+          {headings.map((heading, index) => (
+            <li key={heading.id} data-level={heading.level}>
+              <button
+                type="button"
+                aria-current={index === current ? 'location' : undefined}
+                onClick={() => {
+                  const target = stage.current?.querySelector<HTMLElement>(
+                    `[data-block-id="${CSS.escape(heading.id)}"]`,
+                  );
+                  setCurrent(index);
+                  if (innerWidth <= 640) {
+                    setExpanded(false);
+                    try {
+                      localStorage.setItem('tmt:colab:outline', 'closed');
+                    } catch {
+                      /* Optional preference. */
+                    }
+                    // Closing the phone list changes the target's position in the page.
+                    requestAnimationFrame(() =>
+                      target?.scrollIntoView({ block: 'start', behavior: 'instant' }),
+                    );
+                  } else target?.scrollIntoView({ block: 'start', behavior: 'instant' });
+                }}
+              >
+                {heading.title}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </nav>
+  );
+}
+
 function SelectionAnnotation({
   host,
   structured,
@@ -1538,6 +1637,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
+  const [addingSubpage, setAddingSubpage] = useState(false);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1850,6 +1950,7 @@ function OpenPage({
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
+  const structuredStage = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!design) return;
     const bar = host.current
@@ -2306,6 +2407,17 @@ function OpenPage({
     () => (view.pageType === 'blocks' && view.blocks ? blockTree(view.blocks).tree.flat() : []),
     [view.pageType, view.blocks],
   );
+  const outlineHeadings = useMemo(
+    () =>
+      structuredBlocks.flatMap((block) =>
+        block.type === 'heading' &&
+        (block.props.level === 2 || block.props.level === 3) &&
+        block.text?.trim()
+          ? [{ id: block.id, title: block.text.trim(), level: block.props.level }]
+          : [],
+      ),
+    [structuredBlocks],
+  );
   const locateBlockQuote = (quote: QuoteSelector) => {
     const candidates = structuredBlocks.filter((block) => {
       const value = block.text?.replace(/\s+/gu, ' ').trim() ?? '';
@@ -2560,7 +2672,22 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {hierarchy.subpages}
+              {!design && (
+                <PageWorkBand
+                  onSize={setWorkBandSize}
+                  work={view.work}
+                  pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+                  binding={archived || liveError ? undefined : snapshot.binding}
+                  transport={transport}
+                  space={space}
+                  pageId={snapshot.id}
+                  title={view.title}
+                  pageHref={routing.pageHref}
+                  openPage={(id) => routing.open(`/pages/${id}`)}
+                  adding={addingSubpage}
+                  onAddingChange={setAddingSubpage}
+                />
+              )}
               <PageProjects
                 transport={transport}
                 space={space}
@@ -2698,6 +2825,15 @@ function OpenPage({
                   !archived &&
                   !liveError
                 }
+                canAddSubpage={
+                  !design &&
+                  !hierarchy.hasSubpages &&
+                  !!snapshot.binding?.work &&
+                  !!snapshot.binding.canWork?.() &&
+                  !archived &&
+                  !liveError
+                }
+                parentTitle={hierarchy.parentPage?.title}
                 pin={pin}
                 creatorLabel={creatorName(view)}
                 showSource={view.pageType !== 'blocks'}
@@ -2722,7 +2858,11 @@ function OpenPage({
                     : undefined
                 }
                 onSelect={(action) => {
-                  if (action === 'put-under') {
+                  if (action === 'open-parent' && hierarchy.parentPage) {
+                    routing.open(`/pages/${hierarchy.parentPage.id}`);
+                  } else if (action === 'add-subpage') {
+                    setAddingSubpage(true);
+                  } else if (action === 'put-under') {
                     setChoosingParent(true);
                   } else if (action === 'archive') {
                     setPageOperation('page.archive');
@@ -2944,20 +3084,6 @@ function OpenPage({
       <div className="workspace">
         {!design && pageLinkBar}
         {attachmentDownload.bar}
-        {!design && (
-          <PageWorkBand
-            onSize={setWorkBandSize}
-            work={view.work}
-            pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-            binding={archived ? undefined : snapshot.binding}
-            transport={transport}
-            space={space}
-            pageId={snapshot.id}
-            title={view.title}
-            pageHref={routing.pageHref}
-            openPage={(id) => routing.open(`/pages/${id}`)}
-          />
-        )}
         <div
           className={view.pageType === 'blocks' ? 'canvas canvas-structured' : 'canvas'}
           data-layout={framedLayout(view.layout) ? view.layout : undefined}
@@ -3032,73 +3158,80 @@ function OpenPage({
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (
             <div
-              className="structured-page-stage"
-              data-annotation-mode={(canSelect && selectionMode) || undefined}
+              className="structured-layout"
+              data-outline={outlineHeadings.length >= 3 || undefined}
             >
               <Suspense fallback={null}>
-                <LazyStructuredPage
-                  onSettle={setBlockSettler}
-                  blocks={view.blocks}
-                  seq={view.seq}
-                  annotationMode={canSelect && selectionMode}
-                  annotations={blockAnchors}
-                  onOpenAnnotation={(id) => {
-                    const thread = latest.current.threads?.find(
-                      (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
-                    );
-                    if (thread) openThread(thread.ref, { revealInPage: false });
-                  }}
-                  onAnnotateBlock={(value, block) => {
-                    const surface = host.current?.parentElement;
-                    const exact = [...value.replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
-                    if (!surface || !exact) return;
-                    const bounds = surface.getBoundingClientRect();
-                    const rect = block.getBoundingClientRect();
-                    onSelection(
-                      { exact, prefix: '', suffix: '' },
-                      {
-                        x: rect.left - bounds.left,
-                        y: rect.top - bounds.top,
-                        width: rect.width,
-                        height: rect.height,
-                      },
-                    );
-                    annotate();
-                  }}
-                  binding={liveError || archived ? undefined : snapshot.binding}
-                  workSource={workSource}
-                  mentionPages={atPages}
-                  blockPageHref={(page, block) =>
-                    `${new URL(routing.pageHref(page), window.location.href).href}#block-${block}`
-                  }
-                  pageViewSource={pageViewSource}
-                  mountMockup={mountMockup}
-                  imageSource={blockImageSource}
-                  onDownloadFile={(id) => attachmentDownload.request(id)}
-                  questionPage={{
-                    title: view.title || snapshot.title,
-                    questions: view.questions,
-                    threads: view.threads,
-                    discussionPending: view.discussionPending,
-                    creator: view.creator,
-                    creationRecipient: view.creationRecipient,
-                    originalAuthor: view.originalAuthor,
-                    asks: view.asks,
-                    discussion: snapshot.binding?.discussion,
-                    ask: snapshot.binding?.ask,
-                    blocked: !!(liveError || archived),
-                    metadata:
-                      snapshot.binding && !liveError && !archived
-                        ? { view, binding: snapshot.binding }
-                        : undefined,
-                  }}
-                  onLink={(href, newTab) =>
-                    requestPageLink(
-                      { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
-                      true,
-                    )
-                  }
-                />
+                <PageOutline headings={outlineHeadings} stage={structuredStage} />
+                <div
+                  className="structured-page-stage"
+                  ref={structuredStage}
+                  data-annotation-mode={(canSelect && selectionMode) || undefined}
+                >
+                  <LazyStructuredPage
+                    onSettle={setBlockSettler}
+                    blocks={view.blocks}
+                    seq={view.seq}
+                    annotationMode={canSelect && selectionMode}
+                    annotations={blockAnchors}
+                    onOpenAnnotation={(id) => {
+                      const thread = latest.current.threads?.find(
+                        (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
+                      );
+                      if (thread) openThread(thread.ref, { revealInPage: false });
+                    }}
+                    onAnnotateBlock={(value, block) => {
+                      const surface = host.current?.parentElement;
+                      const exact = [...value.replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
+                      if (!surface || !exact) return;
+                      const bounds = surface.getBoundingClientRect();
+                      const rect = block.getBoundingClientRect();
+                      onSelection(
+                        { exact, prefix: '', suffix: '' },
+                        {
+                          x: rect.left - bounds.left,
+                          y: rect.top - bounds.top,
+                          width: rect.width,
+                          height: rect.height,
+                        },
+                      );
+                      annotate();
+                    }}
+                    binding={liveError || archived ? undefined : snapshot.binding}
+                    workSource={workSource}
+                    mentionPages={atPages}
+                    blockPageHref={(page, block) =>
+                      `${new URL(routing.pageHref(page), window.location.href).href}#block-${block}`
+                    }
+                    pageViewSource={pageViewSource}
+                    mountMockup={mountMockup}
+                    imageSource={blockImageSource}
+                    onDownloadFile={(id) => attachmentDownload.request(id)}
+                    questionPage={{
+                      title: view.title || snapshot.title,
+                      questions: view.questions,
+                      threads: view.threads,
+                      discussionPending: view.discussionPending,
+                      creator: view.creator,
+                      creationRecipient: view.creationRecipient,
+                      originalAuthor: view.originalAuthor,
+                      asks: view.asks,
+                      discussion: snapshot.binding?.discussion,
+                      ask: snapshot.binding?.ask,
+                      blocked: !!(liveError || archived),
+                      metadata:
+                        snapshot.binding && !liveError && !archived
+                          ? { view, binding: snapshot.binding }
+                          : undefined,
+                    }}
+                    onLink={(href, newTab) =>
+                      requestPageLink(
+                        { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
+                        true,
+                      )
+                    }
+                  />
+                </div>
               </Suspense>
             </div>
           )}

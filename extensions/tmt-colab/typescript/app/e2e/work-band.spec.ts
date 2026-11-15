@@ -1,4 +1,3 @@
-import { writeFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
@@ -44,12 +43,9 @@ const row = (band: Locator, title: string) =>
     .locator('.work-row-line')
     .filter({ has: band.page().getByRole('link', { name: title, exact: true }) });
 const calls = (page: Page) => page.evaluate(() => window.__workPage!.calls);
-/** A point of the head away from its chip and Add. */
-const blank = (band: Locator) =>
-  head(band).evaluate((node) => ({ x: node.clientWidth - 80, y: node.clientHeight / 2 }));
 async function expand(band: Locator) {
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
-  await head(band).click({ position: await blank(band) });
+  await toggle(band).click();
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
 }
 async function openAdd(page: Page, band: Locator) {
@@ -58,7 +54,6 @@ async function openAdd(page: Page, band: Locator) {
   await expect(dialog).toBeVisible();
   return dialog;
 }
-const px = (value: string) => Number.parseFloat(value);
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
@@ -119,17 +114,17 @@ test('archiving the open page remains in effect across a live update and can be 
   await page.getByRole('menuitem', { name: 'Archive…' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Archive page' }).click();
   await expect(page.getByText('Archived “Release plan”.')).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Add a sub-page', includeHidden: true }),
-  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.evaluate(async (path) => (await import(path)).updatePage(), fixture);
   await expect(page.getByRole('button', { name: 'Restore page' })).toBeVisible();
   await page.getByRole('button', { name: 'Restore page' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Restore page' }).click();
   await expect(page.getByText('Restored “Release plan”.')).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Add a sub-page', includeHidden: true }),
-  ).toHaveCount(1);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
   expect(
     (await page.evaluate(async (path) => (await import(path)).moveState(), fixture)).archived,
   ).toBe(false);
@@ -197,71 +192,34 @@ for (const width of [1440, 390])
       ]);
     });
 
-test('Mock 1: the collapsed head shows the page state and direct sub-page progress', async ({
-  page,
-}) => {
+test('the title row shows the page state and the sub-page count', async ({ page }) => {
   const band = await mount(page);
-  // Four direct sub-pages by their own states (2 done, 2 in progress).
   await expect(head(band)).toContainText('In progress');
-  await expect(head(band)).toContainText('2 of 4 done');
-  await expect(band.locator('.work-segments')).toHaveAttribute(
-    'aria-label',
-    'Done 2, In progress 2, To do 0, Unknown 0',
-  );
-  await expect(toggle(band)).toHaveCSS('cursor', 'pointer');
-  // The chip and the toggle keep their own roles: no control is nested in another.
-  await expect(band.locator('.work-head [role="button"]')).toHaveCount(0);
-  await expect(toggle(band)).toHaveAccessibleName('Expand work panel');
-  const before = await head(band).evaluate((node) => getComputedStyle(node).backgroundColor);
-  await head(band).hover({ position: await blank(band) });
-  await expect
-    .poll(() => head(band).evaluate((node) => getComputedStyle(node).backgroundColor))
-    .not.toBe(before);
-});
-
-test('the whole head toggles the list, by pointer or Enter/Space, but its state chip does not', async ({
-  page,
-}) => {
-  const band = await mount(page);
-  const width = await head(band).evaluate((node) => node.clientWidth);
-  for (const x of [Math.round(width / 2), width - 20]) {
-    await head(band).click({ position: { x, y: 22 } });
-    await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
-    await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
-    await head(band).click({ position: { x, y: 22 } });
-    await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
-  }
+  await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await band.getByRole('button', { name: 'Page state' }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Done', exact: true })).toBeVisible();
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
   await toggle(band).focus();
   await page.keyboard.press('Enter');
-  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
-  await page.keyboard.press(' ');
+  await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('Mock 2: with nothing attached there is no bar, a quiet line and Add; the row opens Add', async ({
-  page,
-}) => {
+test('a page without sub-pages offers Add in its page menu', async ({ page }) => {
   const band = await mount(page, true, 'empty');
-  await expect(head(band)).toContainText('No sub-pages yet');
-  await expect(band.locator('.work-segments')).toHaveCount(0);
-  await expect(toggle(band)).not.toHaveAttribute('aria-expanded');
-  await expect(toggle(band)).toHaveAccessibleName('Add a sub-page');
-  await head(band).click({ position: await blank(band) });
+  await expect(toggle(band)).toHaveCount(0);
+  await expect(head(band)).not.toContainText('No sub-pages yet');
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add a sub-page' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Release plan”' });
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await head(band).getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(dialog).toBeVisible();
   expect(await calls(page)).toEqual([]);
-
-  // A viewer who cannot add sees the line and no control.
   const shared = await mount(page, false, 'empty');
-  await expect(head(shared)).toContainText('No sub-pages yet');
   await expect(toggle(shared)).toHaveCount(0);
   await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 });
@@ -327,7 +285,7 @@ test('Mock 5: Add attaches a chosen page and filters unavailable pages', async (
     { page: 'notes', action: 'subpage.attach', body: { pageId: PAGE.dataPlan } },
   ]);
   await expect(row(band, 'Remote data plan design')).toBeVisible();
-  await expect(head(band)).toContainText('2 of 5 done');
+  await expect(toggle(band)).toHaveAccessibleName('5 sub-pages');
 });
 
 // #5868: the Add window's field is the list's search input, with its tokens and its matcher.
@@ -482,7 +440,7 @@ test("a sub-page's state chip changes that page's state, and progress follows", 
   await band.getByRole('button', { name: 'State of Machines list' }).click();
   await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
   await expect(band.getByRole('button', { name: 'State of Machines list' })).toContainText('Done');
-  await expect(head(band)).toContainText('3 of 4 done');
+  await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   expect(await calls(page)).toEqual([
     { page: PAGE.machines, action: 'page.state', body: { state: 'done' } },
   ]);
@@ -495,13 +453,13 @@ test('an archived sub-page leaves the panel and its counts; unarchived, it is ba
   await expand(band);
   const titles = () => band.locator('.work-row-line').getByRole('link').allInnerTexts();
   const before = await titles();
-  await expect(head(band)).toContainText('2 of 4 done');
+  await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   await page.evaluate((id) => window.__workPage!.setArchived!(id, true), PAGE.invites);
   await expect(row(band, 'Invites tab')).toHaveCount(0);
-  await expect(head(band)).toContainText('1 of 3 done');
+  await expect(toggle(band)).toHaveAccessibleName('3 sub-pages');
   await page.evaluate((id) => window.__workPage!.setArchived!(id, false), PAGE.invites);
   await expect(row(band, 'Invites tab')).toHaveCount(1);
-  await expect(head(band)).toContainText('2 of 4 done');
+  await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   expect(await titles()).toEqual(before);
   // Archiving writes nothing: the link was never removed.
   expect(await calls(page)).toEqual([]);
@@ -533,123 +491,11 @@ test('the band stays under the nav as the page scrolls, and only its list scroll
   await expect
     .poll(() => body.evaluate((node) => node.scrollHeight > node.clientHeight))
     .toBe(true);
-  const shown = (await band.boundingBox())!;
+  const shown = (await body.boundingBox())!;
   expect(shown.y + shown.height).toBeLessThanOrEqual(420);
   await body.evaluate((node) => node.scrollBy(0, 120));
   await expect.poll(() => body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   expect((await head(band).boundingBox())!.y).toBe(top);
-});
-
-test('opening animates with the motion tokens and is instant under reduced motion', async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  const band = await mount(page);
-  const transition = band.locator('.work-body-transition');
-  await expect(transition).toHaveCSS('transition-duration', /0\.18s/);
-  // A frame part-way through opening is shorter than the open list.
-  const heights = await transition.evaluate(async (node) => {
-    node.closest('.work-band')!.querySelector<HTMLElement>('.work-toggle')!.click();
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const mid = node.getBoundingClientRect().height;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    return { mid, end: node.getBoundingClientRect().height };
-  });
-  expect(heights.mid).toBeLessThan(heights.end);
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(transition).toHaveCSS('transition-duration', /^0s/);
-});
-
-test('measured spacing matches the mock table at 1440 and 390', async ({ page }) => {
-  const measured: Record<string, unknown> = {};
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    const band = await mount(page);
-    await expand(band);
-    await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
-    const gutter = (
-      await page.evaluate(() =>
-        getComputedStyle(document.querySelector('.work-band')!).getPropertyValue(
-          '--tmt-ui-header-padding-inline',
-        ),
-      )
-    ).trim();
-    const style = (locator: Locator) =>
-      locator.first().evaluate((node) => {
-        const s = getComputedStyle(node);
-        return {
-          height: s.height,
-          paddingTop: s.paddingTop,
-          paddingBottom: s.paddingBottom,
-          paddingLeft: s.paddingLeft,
-          paddingRight: s.paddingRight,
-          gap: s.columnGap,
-          marginTop: s.marginTop,
-          borderTop: s.borderTopWidth,
-          borderRadius: s.borderRadius,
-          columns: s.gridTemplateColumns,
-        };
-      });
-    const values = {
-      gutter,
-      head: await style(head(band)),
-      body: await style(band.locator('.work-body-content')),
-      list: await style(band.locator('.work-body-content > .work-tree')),
-      top: await style(row(band, 'Remote pages v2')),
-      topName: await style(row(band, 'Remote pages v2').locator('.work-row-name')),
-      nestedName: await style(row(band, 'Machines detail').locator('.work-row-name')),
-      add: await style(band.locator('.work-add-row')),
-    };
-    measured[width] = values;
-    expect(values.head.height).toBe('44px');
-    expect(values.head.paddingLeft).toBe(gutter);
-    expect(values.head.paddingRight).toBe(gutter);
-    expect(values.head.gap).toBe('12px');
-    expect(values.body.paddingTop).toBe('4px');
-    expect(values.body.paddingBottom).toBe('16px');
-    expect(values.body.paddingLeft).toBe(gutter);
-    expect(values.top.height).toBe('40px');
-    expect(values.top.gap).toBe('8px');
-    expect(values.top.paddingLeft).toBe('8px');
-    expect(values.top.paddingRight).toBe('8px');
-    expect(values.top.borderRadius).toBe('2px');
-    expect(values.topName.gap).toBe('8px');
-    expect(px(values.nestedName.paddingLeft) - px(values.topName.paddingLeft)).toBe(24);
-    expect(values.add.marginTop).toBe('8px');
-    expect(values.add.paddingTop).toBe('8px');
-    expect(values.add.borderTop).toBe('1px');
-    expect(values.list.columns.split(' ').at(-1)).toBe('32px');
-    // Collapsed, the band is exactly its head and rule.
-    await head(band).click({ position: await blank(band) });
-    await expect.poll(async () => (await band.boundingBox())!.height).toBe(45);
-    await head(band).click({ position: await blank(band) });
-    if (width === 1440) {
-      await expect(head(band).locator('.work-wide')).toBeVisible();
-    } else {
-      await expect(row(band, 'Remote pages v2').locator('.work-row-progress')).toBeHidden();
-      await expect(row(band, 'Remote pages v2').locator('.work-row-more')).toHaveCSS(
-        'opacity',
-        '1',
-      );
-      await expect(head(band).locator('.work-narrow')).toHaveText('2/4');
-    }
-    const dialog = await openAdd(page, band);
-    await dialog.getByRole('combobox').fill('remote');
-    const content = page.locator('.work-add-dialog');
-    const option = dialog.getByRole('option').first();
-    measured[`${width}-dialog`] = {
-      width: (await content.boundingBox())!.width,
-      padding: await content.evaluate((node) => getComputedStyle(node).padding),
-      search: await dialog.getByRole('combobox').evaluate((node) => getComputedStyle(node).height),
-      option: await option.evaluate((node) => getComputedStyle(node).height),
-    };
-    if (width === 1440) expect((await content.boundingBox())!.width).toBe(440);
-    await expect(content).toHaveCSS('padding', '16px');
-    // The field is one control-size-l area: its rule border sits inside, around icon and input.
-    await expect(dialog.locator('.page-list-search-field')).toHaveCSS('height', '36px');
-    expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(40);
-  }
-  writeFileSync(capturePath('work-panel-spacing.json'), JSON.stringify(measured, null, 2));
 });
 
 for (const width of [1440, 390])
@@ -660,7 +506,7 @@ for (const width of [1440, 390])
       const shot = (name: string) =>
         page.screenshot({ path: capturePath(`work-panel-${name}-${width}-${theme}.png`) });
       let band = await mount(page);
-      await head(band).hover({ position: await blank(band) });
+      await toggle(band).hover();
       await shot('mock1-collapsed');
       await expand(band);
       await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
@@ -674,7 +520,7 @@ for (const width of [1440, 390])
       await dialog.getByRole('combobox').fill('remote');
       await shot('mock5-add');
       band = await mount(page, true, 'empty');
-      await expect(head(band)).toContainText('No sub-pages yet');
+      await expect(toggle(band)).toHaveCount(0);
       await shot('mock2-empty');
     });
 

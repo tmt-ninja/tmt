@@ -23,7 +23,7 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 
 test.afterEach(disposeActiveWorlds);
 
-test('manual state persists, an empty band offers Add to the owner only, and share readers have no owner controls', async () => {
+test('manual state persists, an empty page offers Add to the owner only, and share readers have no owner controls', async () => {
   await withWorld(async (world) => {
     const created = createPage(world, 'Status panel', '<h1>Status panel source</h1>');
     const colab = (args: string[]) =>
@@ -35,9 +35,11 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     const browser = await pairBrowser(world, 'status-owner');
     const page = await openPage(door, browser, created);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    // A page without sub-pages: the band says so and offers Add.
-    await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
-    await expect(band.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+    // An empty page keeps its state in the title and offers Add in the page menu.
+    await expect(band.locator('.work-toggle')).toHaveCount(0);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
+    await page.keyboard.press('Escape');
     await band
       .locator('.work-head-chip')
       .getByRole('button', { name: /Page state/ })
@@ -53,7 +55,7 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     await expect(
       band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
     ).toContainText('Done');
-    await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
+    await expect(band.locator('.work-toggle')).toHaveCount(0);
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
       mkdirSync(captures, { recursive: true });
@@ -75,7 +77,7 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     const reader = await openReaderLink(world, door, link.readerPath, 'status-reader');
     const shared = reader.page.getByRole('region', { name: 'Work on this page' });
     await expect(shared.locator('.work-page-state')).toHaveText('Done');
-    await expect(shared.locator('.work-head')).toContainText('No sub-pages yet');
+    await expect(shared.locator('.work-toggle')).toHaveCount(0);
     await expect(shared.getByRole('button', { name: /Page state/ })).toHaveCount(0);
     await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
     await expect(shared.locator('.work-toggle')).toHaveCount(0);
@@ -94,7 +96,7 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
   });
 });
 
-test('opening a page with sub-pages reads details once and never shows a wrong progress frame', async () => {
+test('opening a page with sub-pages reads details once and lists the child', async () => {
   await withWorld(async (world) => {
     const parent = createPage(world, 'Status parent', '<h1>Status parent source</h1>');
     const child = createPage(world, 'Status child', '<h1>Status child source</h1>');
@@ -108,25 +110,12 @@ test('opening a page with sub-pages reads details once and never shows a wrong p
       if (new URL(request.url()).pathname.endsWith(`/api/pages/${parent.pageId}/summary-details`))
         reads++;
     });
-    await browser.context.addInitScript(() => {
-      const frames: string[] = [];
-      Object.assign(window, { statusProgressFrames: frames });
-      new MutationObserver(() => {
-        const value = document.querySelector('.work-band .work-progress .work-wide')?.textContent;
-        if (value) frames.push(value);
-      }).observe(document, { childList: true, subtree: true, characterData: true });
-    });
     const page = await openPage(door, browser, parent);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await expect(band.locator('.work-progress .work-wide')).toHaveText('0 of 1 done');
-    await band.getByRole('button', { name: 'Expand work panel', exact: true }).click();
+    await expect(band.locator('.work-toggle')).toHaveAccessibleName('1 sub-page');
+    await band.locator('.work-toggle').click();
     await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
     expect(reads).toBe(1);
-    const frames = await page.evaluate(
-      () => (window as unknown as { statusProgressFrames: string[] }).statusProgressFrames,
-    );
-    expect(frames.length).toBeGreaterThan(0);
-    for (const frame of frames) expect(frame).toBe('0 of 1 done');
   });
 });
 
@@ -143,7 +132,8 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     // The middle page already has a parent and still takes a child of its own (#5820).
     const page = await openPage(door, browser, middle);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await band.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Add a sub-page' }).click();
     const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Attach middle”' });
     await dialog.getByRole('combobox').fill('Attach');
     await expect(dialog.getByRole('option', { name: /Attach top/ })).toHaveCount(0);
@@ -153,7 +143,7 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     await expect(dialog).toHaveCount(0);
     const listed = () => colab(['subpage', 'ls', middle.pageId]).children as string[];
     expect(listed()).toEqual([grand.pageId]);
-    await band.getByRole('button', { name: 'Expand work panel' }).click();
+    await band.locator('.work-toggle').click();
     await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toBeVisible();
     // Create makes the page with the typed name and attaches it.
     await band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }).click();

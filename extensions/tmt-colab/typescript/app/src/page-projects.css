@@ -137,8 +137,7 @@
     display: contents;
   }
   .tmt-ui-topbar-title-chips :is(.page-project-group[data-location='header'], .page-header-pin),
-  .tmt-ui-topbar-title-chips:has(.page-header-projects)
-    :is(.template-badge, .page-hierarchy-subpages, .tmt-ui-caption) {
+  .tmt-ui-topbar-title-chips:has(.page-header-projects) :is(.template-badge, .tmt-ui-caption) {
     display: none;
   }
   /* The hidden group's anchor takes no room in the title; More's anchor is fixed and the picker

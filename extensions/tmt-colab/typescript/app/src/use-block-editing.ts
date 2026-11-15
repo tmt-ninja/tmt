@@ -80,6 +80,8 @@ function drawnText(
 export interface InsertMenu {
   id: string;
   entries: InsertEntry[];
+  /** The picker was opened by Add, before any block was inserted. */
+  direct?: boolean;
   /** The active entry's id. */
   active?: string;
 }
@@ -291,6 +293,9 @@ export function useBlockEditing(
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The block the insert menu is open on, and its active entry. */
   const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
+  const [insertAt, setInsertAt] = useState<{ after?: string; active?: string }>();
+  const insertAtRef = useRef(insertAt);
+  insertAtRef.current = insertAt;
   /** The question block whose editor is open (#6194): a new question from the insert menu, or
    * Enter on a selected one. */
   const [authoring, setAuthoring] = useState<string>();
@@ -306,7 +311,7 @@ export function useBlockEditing(
   const insertRef = useRef(insertEntries);
   insertRef.current = insertEntries;
   /** "Image or file" was chosen: the page opens its file picker, and the files go after `after`. */
-  const [choosing, setChoosing] = useState<{ after: string; id: number }>();
+  const [choosing, setChoosing] = useState<{ after?: string; id: number }>();
   const [mentionAt, setMentionAt] = useState<{
     id: string;
     from: number;
@@ -799,6 +804,34 @@ export function useBlockEditing(
    * type is fixed once made), focused when it holds text; a paragraph just clears the slash. */
   const pick = useCallback(
     async (entry: string) => {
+      const insert = insertAtRef.current;
+      if (insert) {
+        setInsertAt(undefined);
+        if (entry === 'file') {
+          setChoosing((now) => ({ after: insert.after, id: (now?.id ?? 0) + 1 }));
+          return;
+        }
+        const type = insertType(entry);
+        const newId = crypto.randomUUID();
+        const text = TEXT_TYPES.has(type);
+        const ops: BlockOp[] = [
+          insertBlock(treeRef.current, {
+            id: newId,
+            type,
+            after: insert.after,
+            ...(text && { text: '' }),
+            ...(type === 'question' && { props: newQuestionProps() }),
+          }),
+        ];
+        history.current.record(treeRef.current, ops);
+        if (text) {
+          arriving.current = newId;
+          open(new BlockTextSync(newId, ''), 0);
+        } else if (type === 'question') setAuthoring(newId);
+        if (!(await out(undefined, ops)) && arriving.current === newId)
+          arriving.current = undefined;
+        return;
+      }
       const current = sync.current;
       const at = menuRef.current;
       if (!current || at?.id !== current.id) return;
@@ -1291,8 +1324,18 @@ export function useBlockEditing(
     },
     [flush, open, out],
   );
-  /** ＋ on the handle opens the same slash paragraph and insert menu. */
-  const insertAfter = useCallback((id: string) => void insertParagraph('/', id), [insertParagraph]);
+  /** Add opens the picker without creating a block until a type is chosen. */
+  const insertAfter = useCallback(
+    (id?: string) => {
+      flush();
+      sync.current = undefined;
+      setEditing(undefined);
+      setMenuAt(undefined);
+      setBlockMenu(undefined);
+      setInsertAt({ after: id });
+    },
+    [flush],
+  );
 
   /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
@@ -1390,6 +1433,15 @@ export function useBlockEditing(
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const menu = useMemo((): InsertMenu | undefined => {
+    if (insertAt) {
+      const entries = filterInsert(insertEntries, '');
+      return {
+        id: insertAt.after ?? 'empty',
+        direct: true,
+        entries,
+        active: insertAt.active ?? entries[0]?.id,
+      };
+    }
     if (!menuAt || editing?.id !== menuAt.id) return undefined;
     const entries = filterInsert(insertEntries, menuAt.query);
     const active =
@@ -1397,8 +1449,11 @@ export function useBlockEditing(
         ? menuAt.active
         : entries[0]?.id;
     return { id: menuAt.id, entries, ...(active && { active }) };
-  }, [menuAt, editing?.id, insertEntries]);
-  const closeMenu = useCallback(() => setMenuAt(undefined), []);
+  }, [insertAt, menuAt, editing?.id, insertEntries]);
+  const closeMenu = useCallback(() => {
+    setInsertAt(undefined);
+    setMenuAt(undefined);
+  }, []);
   const mention = useMemo((): MentionMenu | undefined => {
     if (!mentionAt || editing?.id !== mentionAt.id) return undefined;
     const entries = mentionEntries(tree, agents, mentionAt.query, mentionAt.id, other);
@@ -1410,6 +1465,7 @@ export function useBlockEditing(
     setMentionAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
   const hover = useCallback((entry: string) => {
+    setInsertAt((at) => (at ? { ...at, active: entry } : at));
     setMenuAt((at) => (at ? { ...at, active: entry } : at));
   }, []);
 
@@ -1446,6 +1502,7 @@ export function useBlockEditing(
     openBlockMenu,
     insertAfter,
     insertFirst: insertParagraph,
+    openFirstPicker: () => insertAfter(),
     failedFirstText,
     closeBlockMenu: () => setBlockMenu(undefined),
     hoverBlockMenu: (action: string) =>

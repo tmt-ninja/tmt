@@ -63,8 +63,12 @@ for (const width of [1440, 800])
         await page.mouse.up();
         if (button === 'Block actions')
           await expect(page.getByRole('menu', { name: 'Block actions' })).toBeVisible();
-        // Insert block starts a new block after this one; the page answers it later.
-        else
+        // Add chooses a type before inserting after this block.
+        else {
+          await page
+            .getByRole('listbox', { name: 'Insert a block' })
+            .getByRole('option', { name: /^Paragraph/ })
+            .click();
           await expect
             .poll(() =>
               page.evaluate(
@@ -80,6 +84,7 @@ for (const width of [1440, 800])
               ),
             )
             .toBe(1);
+        }
       });
 
 for (const width of [1440, 800])
@@ -120,8 +125,11 @@ for (const width of [1440, 800, 390])
   test(`at ${width}px the blocks' text lines up with the page bar's text`, async ({ page }) => {
     await mountShell(page, width);
     const text = await textEdge(page, '.structured-page-stage [data-block-id="one"]');
-    // The To do row under the bar, at every width.
-    expect(text).toBe(await textEdge(page, '.work-head-chip'));
+    // State is now inside the title bar, not a separate row aligned with the blocks.
+    const bar = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
+    const state = (await page.locator('.work-head-chip').boundingBox())!;
+    expect(state.y).toBeGreaterThanOrEqual(bar.y);
+    expect(state.y + state.height).toBeLessThanOrEqual(bar.y + bar.height);
     // The page title, where the bar shows it at the page's edge (beside the sidebar).
     if (width > 900) expect(text).toBe(await textEdge(page, '.tmt-ui-topbar-title h1'));
   });

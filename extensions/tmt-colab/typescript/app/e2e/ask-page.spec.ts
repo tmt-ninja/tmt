@@ -780,6 +780,43 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
+for (const width of [1440, 390])
+  test(`structured page outline navigates headings and remembers collapse at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount', { structuredOutline: true });
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    await expect(outline).toBeVisible();
+    const toggle = outline.locator('.page-outline-toggle');
+    if (width === 390) await toggle.click();
+    await expect(outline.getByRole('button', { name: 'Details' })).toBeVisible();
+    await outline.getByRole('button', { name: 'Details' }).click();
+    if (width === 390) {
+      await expect(toggle).toContainText('Details');
+      const heading = page
+        .locator('.structured-page-stage')
+        .getByRole('heading', { name: 'Details' });
+      await expect(heading).toBeInViewport();
+      const headingBox = (await heading.boundingBox())!;
+      const outlineBox = (await outline.boundingBox())!;
+      expect(headingBox.y).toBeGreaterThanOrEqual(outlineBox.y + outlineBox.height - 1);
+    } else
+      await expect(outline.getByRole('button', { name: 'Details' })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+    if (width !== 390) await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await run(page, 'mount', { structuredOutline: true });
+    await expect(
+      page.getByRole('navigation', { name: 'Page outline' }).locator('.page-outline-toggle'),
+    ).toHaveAttribute('aria-expanded', 'false');
+    await run(page, 'mount', { structured: true });
+    await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
+  });
+
 test('a structured block opens the normal annotation and sends its quoted comment', async ({
   page,
 }) => {
