@@ -172,6 +172,24 @@ pub fn read_for_session(
     })
 }
 
+/// The model of the identity's recorded launch that no session was ever tied to, when it ran
+/// the same executable (#6444). A launch whose starting hook never arrived keeps its preset
+/// unassociated, and a later bare resume would otherwise forget the model it was asked for.
+pub fn unassociated_model(
+    storage: &Storage,
+    identity: &str,
+    executable: &std::ffi::OsStr,
+) -> Result<Option<String>, StorageError> {
+    let name = |path: &std::path::Path| path.file_name().map(std::ffi::OsStr::to_owned);
+    Ok(read(storage, identity)?
+        .filter(|preset| {
+            preset.harness.is_none()
+                && name(std::path::Path::new(&preset.executable))
+                    == name(std::path::Path::new(executable))
+        })
+        .and_then(|preset| preset.model))
+}
+
 /// Preserve a validated associated preset when its driver becomes inactive.
 /// Resume coordinates still come from the session record, never this metadata.
 pub fn retain(
@@ -474,6 +492,16 @@ mod tests {
         let preset = capture(&["--model", "opus", "--effort", "high"]);
         let session = session("claude", "sonnet");
         assert!(remember(&mut storage, &identity.id, &preset).unwrap());
+        // Before any session is tied to it, a bare resume of the same executable still finds
+        // the launch's model, and only that executable's (#6444).
+        let unassociated = |storage: &Storage, executable: &str| {
+            unassociated_model(storage, &identity.id, std::ffi::OsStr::new(executable)).unwrap()
+        };
+        assert_eq!(
+            unassociated(&storage, &preset.executable).as_deref(),
+            Some("opus")
+        );
+        assert_eq!(unassociated(&storage, "/elsewhere/codex"), None);
         assert!(
             !read(&storage, &identity.id)
                 .unwrap()
@@ -507,6 +535,8 @@ mod tests {
         let mut storage = Storage::open(&database).unwrap();
         let saved = read(&storage, &identity.id).unwrap().unwrap();
         assert!(saved.matches(&session));
+        // Once tied to a session, the session's own record decides instead.
+        assert_eq!(unassociated(&storage, &preset.executable), None);
         assert_eq!(saved.model.as_deref(), Some("sonnet"));
         assert_eq!(saved.effort.as_deref(), Some("high"));
         assert!(clear(&mut storage, &identity.id).unwrap());

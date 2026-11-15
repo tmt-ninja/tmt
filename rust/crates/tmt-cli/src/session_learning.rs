@@ -597,6 +597,26 @@ impl Learning {
     }
 }
 
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "No {driver} hook has arrived yet. Install its hooks, then send the agent a prompt in its pane. Install with: tmt setup {driver}",
+        &[""],
+        &[("{driver}", "claude")],
+    ),
+];
+
+/// The launch intent is untouched: no hook of this launch has reached Core, not even one it
+/// stopped on (that one leaves a detail).
+fn no_hook_yet(observed: &LaunchObservation) -> bool {
+    observed.status == LaunchStatus::Intent
+        && observed.diagnostic.as_ref().is_some_and(|diagnostic| {
+            diagnostic.step == SessionLearningStep::Input
+                && diagnostic.reason == SessionLearningReason::NotAdmitted
+                && diagnostic.detail.is_none()
+        })
+}
+
 fn digest_stopped(observed: &LaunchObservation) -> bool {
     observed
         .diagnostic
@@ -721,6 +741,13 @@ fn from_observation(
             NO_ADMITTED_START_NEXT_STEP.to_owned()
         } else if admitted {
             DIGEST_STOP_NEXT_STEP.to_owned()
+        } else if no_hook_yet(&observed) {
+            // No hook of this launch arrived at all: the provider's hooks are missing, or, as
+            // agy does, it reports its session only at the first prompt (#6444).
+            format!(
+                "No {driver} hook has arrived yet. Install its hooks, then send the agent a prompt in its pane. Install with: tmt setup {driver}",
+                driver = observed.driver.as_str()
+            )
         } else {
             tmt_core::binding::session::launch::session_learning_recovery(
                 identity,

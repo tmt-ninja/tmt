@@ -284,6 +284,20 @@ pub(super) fn run_bound(
         {
             settings.model = Some(model);
         }
+        // No hook reported a model and no preset is tied to this session: the identity's
+        // own launch of the same executable that was never admitted still names the model
+        // it was asked for (#6444).
+        if settings.model.is_none()
+            && replay.is_none()
+            && let Some(identity) = &existing
+        {
+            settings.model = tmt_adapters::runtime::launch_preset::unassociated_model(
+                storage,
+                &identity.id,
+                &launch.command.executable,
+            )
+            .map_err(storage_failure)?;
+        }
         if options.model.is_some() {
             settings.model = options.model.clone();
         }

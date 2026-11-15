@@ -1369,6 +1369,38 @@ fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
     fixture.approve();
     let bound = fixture.tmt_in(Some("f1"), &["name", "worker", "--save"]);
     assert!(bound.status.success(), "{bound:?}");
+    // The stand-in `claude` records the argv it was started with; the last start wins.
+    let bin = fixture.root.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let claude = bin.join("claude");
+    fs::write(
+        &claude,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > argv\n{AGENT}\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display());
+    // A launch with a model that no hook ever admits, as an agent without its hooks (#6444).
+    let mut command = fixture.command_in(
+        Some("f1"),
+        &[
+            "run",
+            "--model",
+            "fixture-model",
+            "--no-channel",
+            "worker",
+            "claude",
+        ],
+    );
+    command.env("PATH", &path);
+    let mut run = Launched::start(&fixture, command);
+    run.adopt("agent.pid", false);
+    let (code, stderr) = run.finish();
+    assert_eq!(code, Some(7), "{stderr}");
+    // The next stand-in waits for its own release.
+    for file in ["agent.pid", "release", "acked"] {
+        let _ = fs::remove_file(fixture.root.join(file));
+    }
     // A new agent in the pane has no name yet.
     fs::remove_file(fixture.root.join("driver/agentname")).unwrap();
     fs::remove_file(fixture.root.join("driver/named")).unwrap();
@@ -1390,11 +1422,6 @@ fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
         })
         .unwrap();
     storage.close().unwrap();
-    let bin = fixture.root.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let claude = bin.join("claude");
-    fs::write(&claude, format!("#!/bin/sh\n{AGENT}\n")).unwrap();
-    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
     if renamed {
         let moved = fixture.tmt(&["mv", &identity.id, "renamed"]);
         assert!(moved.status.success(), "{moved:?}");
@@ -1407,10 +1434,7 @@ fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
         "worker"
     };
     let mut command = fixture.command_in(Some("f1"), &["resume", selector]);
-    command.env(
-        "PATH",
-        format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
-    );
+    command.env("PATH", &path);
     let mut resume = Launched::start(&fixture, command);
     resume.adopt("agent.pid", false);
     let agent_name = fixture.root.join("driver/agentname");
@@ -1419,6 +1443,15 @@ fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
     assert_eq!(fs::read_to_string(&agent_name).unwrap(), expected);
     let (code, stderr) = resume.finish();
     assert_eq!(code, Some(7), "{stderr}");
+    // The bare resume carries the unadmitted launch's model (#6444).
+    let argv = fs::read_to_string(fixture.root.join("argv")).unwrap();
+    assert!(
+        argv.lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|pair| pair == ["--model", "fixture-model"]),
+        "{argv}"
+    );
     assert_eq!(named(&fixture).len(), 1, "{:?}", named(&fixture));
     if renamed {
         // The namesake was never bound: the resume stayed on the selected identity.

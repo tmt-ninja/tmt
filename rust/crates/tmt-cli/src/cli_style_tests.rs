@@ -320,6 +320,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("driver_command.rs", crate::driver_command::PRINTED_HINTS),
         (
+            "session_learning.rs",
+            crate::session_learning::PRINTED_HINTS,
+        ),
+        (
             "exchange_command/listen.rs",
             crate::exchange_command::LISTEN_HINTS,
         ),

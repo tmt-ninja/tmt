@@ -399,7 +399,10 @@ recovery step. An unresolved observation projects `session.unbound=true` and
 the existing message-state `session_not_bound` reason without authorizing or
 blocking delivery itself. `nextStep` never suggests resume without remembered
 coordinates: it asks the user to exit the agent and either resume the retained
-session or start through `tmt run`.
+session or start through `tmt run`. One exception: while no hook of the launch
+has reached Core at all (the row is still `input: not_admitted` with no detail),
+`nextStep` names `tmt setup <driver>` and asks for a prompt in the agent's pane.
+A provider that reports its session only at its first prompt is admitted then.
 
 Hook diagnostics share the original work budget; they never extend it, retry a
 hook or leave an unbounded writer. A failed optional context step cannot erase
