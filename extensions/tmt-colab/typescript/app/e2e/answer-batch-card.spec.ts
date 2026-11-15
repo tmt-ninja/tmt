@@ -1,3 +1,4 @@
+import { anchorQuote } from '../src/thread-records.js';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
@@ -127,7 +128,7 @@ test('three comments make one Ask per distinct recipient; only the canonical que
   await openRecorded(group, 2);
   const threads: readonly ThreadView[] = await run(page, 'discussionProof');
   expect(threads).toHaveLength(3);
-  expect(threads.map((thread) => thread.anchor?.exact)).toEqual([
+  expect(threads.map((thread) => anchorQuote(thread.anchor)?.exact)).toEqual([
     'Which heading should we use?',
     'What should the introduction say?',
     'What should section 3 explain?',
@@ -316,7 +317,7 @@ for (const recordBeforeFail of [false, true]) {
     await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toBeEnabled();
     const before: readonly ThreadView[] = await run(page, 'discussionProof');
     const successful = before.filter(
-      (thread) => thread.anchor?.exact !== 'Which heading should we use?',
+      (thread) => anchorQuote(thread.anchor)?.exact !== 'Which heading should we use?',
     );
     const first = await run(page, 'answerBatchProof');
     expect(first).toHaveLength(1);

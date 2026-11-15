@@ -220,6 +220,12 @@ test('on a phone the readable title and full work labels scroll together', async
   await expect(band.getByRole('button', { name: 'Page state' })).toHaveText('In progress');
   await expect(toggle(band)).toContainText('4 sub-pages');
   expect(await toggle(band).evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('#work-page-fixture .frame-host iframe').boundingBox())?.height ?? 0,
+    )
+    .toBeGreaterThan(900);
   const before = heading.y;
   await page.evaluate(() => window.scrollBy(0, 100));
   await expect.poll(async () => (await title.boundingBox())!.y).toBeLessThan(before);

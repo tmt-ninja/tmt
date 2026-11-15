@@ -137,7 +137,12 @@ import { presentationOf } from './thread-status-presentation.js';
 import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-view.js';
 import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
-import type { DiscussionRef, QuoteSelector } from './thread-records.js';
+import {
+  anchorQuote,
+  type DiscussionRef,
+  type QuoteSelector,
+  type ThreadAnchor,
+} from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
 import { ColdPageList } from './home-cold.js';
@@ -449,14 +454,16 @@ function PageOutline({
   headings: readonly { id: string; title: string; level: number }[];
   stage: React.RefObject<HTMLDivElement | null>;
 }) {
-  const [expanded, setExpanded] = useState(() => {
+  const phone = useMedia('(max-width: 640px)');
+  const [preference, setPreference] = useState<boolean | undefined>(() => {
     try {
       const saved = localStorage.getItem('tmt:colab:outline');
-      return saved === null ? innerWidth > 640 : saved === 'open';
+      return saved === null ? undefined : saved === 'open';
     } catch {
-      return innerWidth > 640;
+      return undefined;
     }
   });
+  const expanded = preference ?? !phone;
   const [current, setCurrent] = useState(0);
   useEffect(() => {
     if (headings.length < 3) return;
@@ -489,7 +496,7 @@ function PageOutline({
         aria-expanded={expanded}
         onClick={() => {
           const next = !expanded;
-          setExpanded(next);
+          setPreference(next);
           try {
             localStorage.setItem('tmt:colab:outline', next ? 'open' : 'closed');
           } catch {
@@ -517,7 +524,7 @@ function PageOutline({
                   );
                   setCurrent(index);
                   if (innerWidth <= 640) {
-                    setExpanded(false);
+                    setPreference(false);
                     try {
                       localStorage.setItem('tmt:colab:outline', 'closed');
                     } catch {
@@ -2391,7 +2398,7 @@ function OpenPage({
   highlights.current = shareView(
     highlights.current,
     (view.threads ?? []).flatMap((thread) =>
-      isStatusThread(thread) && !thread.resolved && thread.anchor
+      isStatusThread(thread) && !thread.resolved && thread.anchor && !('block' in thread.anchor)
         ? [
             {
               id: `${thread.ref.writer}:${thread.threadId}`,
@@ -2432,12 +2439,27 @@ function OpenPage({
     });
     return candidates.length === 1 ? candidates[0]!.id : undefined;
   };
+  const locateBlockAnchor = (anchor: ThreadAnchor) => {
+    if (!('block' in anchor)) return locateBlockQuote(anchor);
+    const block = structuredBlocks.find((candidate) => candidate.id === anchor.block);
+    if (!block) return undefined;
+    if (!anchor.quote) return block.id;
+    const value = block.text?.replace(/\s+/gu, ' ').trim() ?? '';
+    const at = value.indexOf(anchor.quote.exact);
+    return at >= 0 &&
+      value.indexOf(anchor.quote.exact, at + 1) < 0 &&
+      (!anchor.quote.prefix || value.slice(0, at).endsWith(anchor.quote.prefix)) &&
+      (!anchor.quote.suffix ||
+        value.slice(at + anchor.quote.exact.length).startsWith(anchor.quote.suffix))
+      ? block.id
+      : undefined;
+  };
   const blockAnchors = (() => {
     const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
     if (view.pageType !== 'blocks' || !view.blocks) return found;
     for (const thread of view.threads ?? []) {
       if (thread.deleted || isChatThread(thread) || !thread.anchor) continue;
-      const blockId = locateBlockQuote(thread.anchor);
+      const blockId = locateBlockAnchor(thread.anchor);
       if (!blockId) continue;
       const id = `${thread.ref.writer}:${thread.threadId}`;
       const ordinal = numbers.get(id);
@@ -2466,7 +2488,11 @@ function OpenPage({
             {
               id,
               number,
-              excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()].slice(0, 80).join(''),
+              excerpt: [
+                ...(anchorQuote(thread.anchor)?.exact ?? 'Block').replace(/\s+/gu, ' ').trim(),
+              ]
+                .slice(0, 80)
+                .join(''),
             },
           ];
     }),
@@ -2498,14 +2524,16 @@ function OpenPage({
   const quietRef = useRef<{ id: string; selector: QuoteSelector } | undefined>(undefined);
   quietRef.current = shareView(
     quietRef.current,
-    quietCandidate?.anchor ? { id: activeThread!, selector: quietCandidate.anchor } : undefined,
+    quietCandidate?.anchor && !('block' in quietCandidate.anchor)
+      ? { id: activeThread!, selector: quietCandidate.anchor }
+      : undefined,
   );
   const quietThread = quietRef.current;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
       anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
-      annotation?.selector ?? undefined,
+      anchorQuote(annotation?.selector),
       threadTotal,
       quietThread,
       unsentHighlights,
@@ -3148,7 +3176,11 @@ function OpenPage({
               {unsentAnnotations.map((item) => (
                 <li key={item.key}>
                   <X aria-hidden="true" className="page-unsent-mark" />
-                  <span>{text.annotationUnsent(quoteExcerpt(item.selector?.exact ?? ''))}</span>
+                  <span>
+                    {text.annotationUnsent(
+                      quoteExcerpt(anchorQuote(item.selector)?.exact ?? 'Block'),
+                    )}
+                  </span>
                   <BrowserAction
                     type="button"
                     variant="text"
@@ -3188,12 +3220,18 @@ function OpenPage({
                     }}
                     onAnnotateBlock={(value, block) => {
                       const surface = host.current?.parentElement;
-                      const exact = [...value.replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
-                      if (!surface || !exact) return;
+                      const id = block.dataset.blockId;
+                      const exact = [...(value ?? '').replace(/\s+/gu, ' ').trim()]
+                        .slice(0, 512)
+                        .join('');
+                      if (!surface || !id) return;
                       const bounds = surface.getBoundingClientRect();
                       const rect = block.getBoundingClientRect();
                       onSelection(
-                        { exact, prefix: '', suffix: '' },
+                        {
+                          block: id,
+                          ...(exact ? { quote: { exact, prefix: '', suffix: '' } } : {}),
+                        },
                         {
                           x: rect.left - bounds.left,
                           y: rect.top - bounds.top,
@@ -3373,7 +3411,7 @@ function OpenPage({
                 threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
                 resolved={resolved}
                 anchorsChecked={anchorsChecked}
-                selection={selector}
+                selection={anchorQuote(selector) ?? null}
                 binding={
                   liveError?.message === managementChanged
                     ? undefined
@@ -3390,7 +3428,15 @@ function OpenPage({
                 }
                 showInPage={(ref) => {
                   // The panel stays: it is beside or over the page, not a modal that hides it.
-                  renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+                  const thread = view.threads?.find(
+                    (item) => item.ref.writer === ref.writer && item.ref.id === ref.id,
+                  );
+                  const block = thread?.anchor && locateBlockAnchor(thread.anchor);
+                  if (block)
+                    structuredStage.current
+                      ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(block)}"]`)
+                      ?.scrollIntoView({ block: 'start' });
+                  else renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
                 }}
                 presentations={view.threadPresentations}
                 onStatusChange={
@@ -3530,13 +3576,13 @@ function OpenPage({
                   layout="anchored"
                   attached={
                     view.pageType === 'blocks' && !item.thread
-                      ? !!item.selector && !!locateBlockQuote(item.selector)
+                      ? !!item.selector && !!locateBlockAnchor(item.selector)
                       : resolved.includes(
                           item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
                         )
                   }
                   anchorsChecked={anchorsChecked}
-                  selection={selector}
+                  selection={anchorQuote(selector) ?? null}
                   binding={pageBinding.discussion}
                   ask={pageBinding.ask}
                   asks={view.asks ?? []}

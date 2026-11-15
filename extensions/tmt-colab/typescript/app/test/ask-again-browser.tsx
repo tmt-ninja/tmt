@@ -6,7 +6,7 @@ import { ChatPanel } from '../src/chat-panel.js';
 import { ThreadWindow } from '../src/thread-panel.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { CommentContext, ThreadBinding } from '../src/thread-store.js';
-import type { ThreadView } from '../src/thread-records.js';
+import { anchorQuote, type ThreadView } from '../src/thread-records.js';
 import { record } from '../src/storage.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { destination, id, selection } from './ask-fixtures.js';
@@ -170,7 +170,7 @@ export async function mount(
           ...input,
           thread: context.thread.id,
           messageIds: [context.message.id],
-          quote: state.thread.anchor?.exact ?? '',
+          quote: anchorQuote(state.thread.anchor)?.exact ?? '',
           comment: comment.body,
         };
         const f = await fixtureAttempt(captured, input.destination, {

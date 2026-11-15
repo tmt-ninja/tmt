@@ -1096,6 +1096,13 @@ pub(crate) fn freeze_own_records(
     now: u64,
 ) -> Result<FrozenPublication> {
     use crate::decoder::UpdateBatch;
+    let structured = folded.meta["pageType"].as_str() == Some("blocks");
+    if records.iter().any(|record| {
+        record.root == "threads"
+            && crate::threads::validate_page_anchor(&record.value, structured).is_err()
+    }) {
+        return Err(Fault::Invalid.into());
+    }
     let updates: Vec<&[u8]> = folded
         .local_own_update
         .as_ref()

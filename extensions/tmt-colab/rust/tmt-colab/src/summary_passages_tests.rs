@@ -229,17 +229,17 @@ fn control_characters_never_reach_the_browser_and_an_empty_label_is_left_out() {
 
 #[test]
 fn ignored_thread_reference_text_does_not_make_question_quote_ambiguous() {
-    use crate::export::conversations::Anchor;
+    use crate::export::conversations::{Anchor, Quote};
     let id = "10000000-0000-4000-8000-000000000001";
     let source = format!(
         "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000101\" data-thread=\"20000000-0000-4000-8000-000000000001\">Question?</tmt-thread-ref><tmt-question data-id=\"{id}\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>"
     );
     let mut discussion = thread("20000000-0000-4000-8000-000000000001", false, vec![]);
-    discussion.anchor = Some(Anchor {
+    discussion.anchor = Some(Anchor::Quote(Quote {
         exact: "Question?".into(),
         prefix: String::new(),
         suffix: String::new(),
-    });
+    }));
     let (_, anchors) = crate::page_check::summary(&source, &[discussion]).unwrap();
     assert_eq!(anchors.threads(id).len(), 1);
 }

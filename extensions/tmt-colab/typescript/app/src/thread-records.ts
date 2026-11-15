@@ -24,6 +24,32 @@ export interface QuoteSelector {
   prefix: string;
   suffix: string;
 }
+/** A block reference is scoped to this page; its optional quote never retargets another block. */
+export interface BlockAnchor {
+  block: string;
+  quote?: QuoteSelector;
+}
+export type ThreadAnchor = QuoteSelector | BlockAnchor;
+export function anchorQuote(anchor: ThreadAnchor | null | undefined): QuoteSelector | undefined {
+  return anchor ? ('block' in anchor ? anchor.quote : anchor) : undefined;
+}
+/** Inert context for an agent; a block identifier conveys location, not authority. */
+export function anchorContext(anchor: ThreadAnchor | null | undefined): string {
+  const quote = anchorQuote(anchor)?.exact ?? '';
+  return anchor && 'block' in anchor ? `Block ${anchor.block}${quote ? `: ${quote}` : ''}` : quote;
+}
+export function sameAnchor(a: ThreadAnchor | null, b: ThreadAnchor | null): boolean {
+  if (!a || !b) return a === b;
+  if ('block' in a !== 'block' in b) return false;
+  if ('block' in a && 'block' in b && a.block !== b.block) return false;
+  const first = anchorQuote(a),
+    second = anchorQuote(b);
+  return first === undefined || second === undefined
+    ? first === second
+    : first.exact === second.exact &&
+        first.prefix === second.prefix &&
+        first.suffix === second.suffix;
+}
 export interface DiscussionScope {
   spaceId: string;
   pageId: string;
@@ -44,7 +70,7 @@ export interface DiscussionRecordScope extends DiscussionScope {
 export interface ThreadRecord extends DiscussionRecordScope {
   kind: 'thread';
   threadId: string;
-  anchor: QuoteSelector | null;
+  anchor: ThreadAnchor | null;
   resolved: boolean;
 }
 export interface CommentRecord extends DiscussionRecordScope {
@@ -90,6 +116,14 @@ export function validateSelector(value: unknown): asserts value is QuoteSelector
       typeof context === 'string' && [...context].length <= 32 && text(context).length <= 128,
     );
 }
+export function validateAnchor(value: unknown): asserts value is ThreadAnchor {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  if (!Object.hasOwn(value, 'block')) return validateSelector(value);
+  const anchor = value as Record<string, unknown>;
+  exactKeys(anchor, ['block', ...(Object.hasOwn(anchor, 'quote') ? ['quote'] : [])]);
+  generatedId(anchor.block as string);
+  if (Object.hasOwn(anchor, 'quote')) validateSelector(anchor.quote);
+}
 export function validateRef(value: unknown): asserts value is DiscussionRef {
   exactKeys(value, ['writer', 'id']);
   generatedId(value.writer as string);
@@ -125,7 +159,7 @@ export function validateDiscussionRecord(
     exactKeys(r, [...scope, 'threadId', 'anchor', 'resolved']);
     requireValue(root === 'threads' && typeof r.resolved === 'boolean');
     generatedId(r.threadId as string);
-    if (r.anchor !== null) validateSelector(r.anchor);
+    if (r.anchor !== null) validateAnchor(r.anchor);
     requireValue(!r.deleted || r.anchor === null);
   } else if (r.kind === 'thread-status' || r.kind === 'thread-notification') {
     requireValue(root === 'messages');

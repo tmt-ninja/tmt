@@ -65,7 +65,7 @@ export function LiveStructuredPage({
   /** Where a block on another page is, for its chip. */
   blockPageHref?(page: string, block: string): string;
   annotationMode?: boolean;
-  onAnnotateBlock?(text: string, block: HTMLElement): void;
+  onAnnotateBlock?(text: string | undefined, block: HTMLElement): void;
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
   onOpenAnnotation?(id: string): void;
 }) {

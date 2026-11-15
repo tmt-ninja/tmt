@@ -6,6 +6,7 @@ import {
   OWN_RECORDS,
   UPDATE_BYTES,
   validateOwn,
+  validateOwnPage,
   type JsonValue,
   type OwnRecord,
   type OwnState,
@@ -17,6 +18,7 @@ import corpus from '../../../contracts/vectors/attachment-v1.json';
 import { ThreadStore, attachmentBlock, commentForAsk } from '../src/thread-store.js';
 import { projectConversations, renderConversationsMarkdown } from '../src/conversations.js';
 import {
+  anchorQuote,
   discussionKey,
   isChatThread,
   nextSequence,
@@ -42,6 +44,30 @@ function put(
     structuredClone(record) as unknown as JsonValue;
 }
 afterEach(() => vi.unstubAllGlobals());
+
+it('block anchor vectors admit only the bounded shared record shape', () => {
+  const thread = fixture.thread as ThreadRecord;
+  for (const row of fixture.blockAnchorCases as {
+    name: string;
+    anchor: unknown;
+    valid: boolean;
+  }[]) {
+    const check = () =>
+      validateDiscussionRecord('threads', `${thread.threadId}:1`, {
+        ...thread,
+        anchor: row.anchor,
+      });
+    if (row.valid) expect(check, row.name).not.toThrow();
+    else expect(check, row.name).toThrow();
+  }
+});
+
+it('refuses a block anchor on an HTML page', () => {
+  const own: OwnState = {};
+  put(own, { ...fixture.thread, anchor: { block: '00000000-0000-4000-8000-000000000010' } });
+  expect(() => validateOwnPage(own, 'blocks')).not.toThrow();
+  expect(() => validateOwnPage(own, undefined)).toThrow();
+});
 it('numbers admitted creation clocks, preserving edit/status order and renumbering deletion', () => {
   const own: OwnState = {};
   const first = { ...fixture.thread, at: '20' } as ThreadRecord;
@@ -190,7 +216,7 @@ it('projects revisions and terminal tombstones but rejects changed references, m
   });
   expect(read()[0].comments).toEqual([]);
 });
-function storeFixture(options: { admitted?(): void } = {}) {
+function storeFixture(options: { admitted?(): void; blockAnchors?(): boolean } = {}) {
   let connections = 0;
   let device = a,
     denied = false,
@@ -231,6 +257,7 @@ function storeFixture(options: { admitted?(): void } = {}) {
     deviceName: () => 'Browser',
     own: () => own,
     available: () => true,
+    blockAnchors: options.blockAnchors,
     connection: async () => {
       connections++;
       return c;
@@ -266,6 +293,33 @@ function storeFixture(options: { admitted?(): void } = {}) {
     },
   };
 }
+it('creates a block comment only for an admitted structured page', async () => {
+  const anchor = { block: '00000000-0000-4000-8000-000000000010' };
+  const html = storeFixture();
+  await expect(html.store.create('Review', anchor)).rejects.toThrow();
+  expect(html.batches).toEqual([]);
+  const structured = storeFixture({ blockAnchors: () => true });
+  await structured.store.create('Review', anchor);
+  expect(structured.batches[0]?.[0]?.value).toMatchObject({ anchor });
+});
+it('exports a block comment with its reference and optional quote', async () => {
+  const f = storeFixture({ blockAnchors: () => true });
+  const anchor = {
+    block: '00000000-0000-4000-8000-000000000010',
+    quote: { exact: 'selected', prefix: '', suffix: '' },
+  };
+  await f.store.create('Review', anchor);
+  const conversations = await projectConversations({
+    ...fixture.scope,
+    title: 'Review',
+    membershipHead: { revision: '1', statementHash: '00'.repeat(32) },
+    own: f.own,
+    signingKey: () => new Uint8Array(32),
+    statusWriter: () => true,
+  });
+  expect(JSON.stringify(conversations.threads[0].anchor)).toBe(JSON.stringify(anchor));
+  expect(renderConversationsMarkdown(conversations)).toContain(`Block: \`${anchor.block}\``);
+});
 it('exposes the admitted scope for attention without a read, write or mutable scope authority', () => {
   const f = storeFixture();
   expect(f.store.scope).toEqual(fixture.scope);
@@ -337,7 +391,7 @@ it('Ask gets exact verified comment context and rejects stale revisions or dupli
   expect(commentForAsk(read(), context)).toEqual({
     thread: thread.threadId,
     messageIds: [comment.messageId],
-    quote: thread.anchor!.exact,
+    quote: anchorQuote(thread.anchor)!.exact,
     comment: comment.body,
   });
   expect(() => commentForAsk(read(), { ...context, messageRevision: '2' })).toThrow();

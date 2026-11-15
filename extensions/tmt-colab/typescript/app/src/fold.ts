@@ -8,6 +8,7 @@ import {
   WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
+  validateOwnPage,
   type FoldCommand,
   type FoldResult,
   type DecoderCommand,
@@ -126,6 +127,7 @@ export class Fold {
           ]);
           validateProjection(value.projection);
           validateOwn(value.projection.own);
+          validateOwnPage(value.projection.own, value.projection.pageType);
           if (
             !sameContent(value.projection, this.#pending.expected) ||
             !withinStateBytes(value.projection)
@@ -175,6 +177,7 @@ export class Fold {
           throw new Error('Rejected decoder output');
         validateProjection(value);
         validateOwn(value.own);
+        validateOwnPage(value.own, value.pageType);
         requireValue(
           Object.keys(value.own).length === this.#pending.writers.size &&
             Object.keys(value.own).every((writer) => this.#pending!.writers.has(writer)),
@@ -277,6 +280,7 @@ export class Fold {
     validateProjection(base);
     validateProjection({ ...base, source });
     validateOwn(base.own);
+    validateOwnPage(base.own, base.pageType);
     if (!withinStateBytes({ ...base, source })) throw new Error('Decoder input capacity');
     return this.#run({
       type: 'prepare-content',

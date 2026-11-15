@@ -120,7 +120,7 @@ export function useQuestionLayer({
   );
   const identity = JSON.stringify(
     threads.flatMap((thread) =>
-      thread.anchor
+      thread.anchor && !('block' in thread.anchor)
         ? [
             {
               id: `${thread.ref.writer}:${thread.ref.id}`,

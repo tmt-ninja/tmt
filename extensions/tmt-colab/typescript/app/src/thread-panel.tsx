@@ -29,7 +29,13 @@ import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './a
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
-import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
+import {
+  anchorContext,
+  anchorQuote,
+  isOwnDiscussionWriter,
+  threadNumbers,
+  type ThreadAnchor,
+} from './thread-records.js';
 import { text } from './strings.js';
 import {
   echoLanded,
@@ -395,7 +401,7 @@ export function CommentExchange({
     !comment.deleted &&
     isOwnDiscussionWriter(comment.ref.writer, binding?.deviceId)
       ? {
-          quote: thread.anchor?.exact ?? '',
+          quote: anchorContext(thread.anchor),
           comment: comment.body,
           title,
           url: location.href,
@@ -453,7 +459,7 @@ export type ThreadWindowProps = {
   creationRecipient?: CreatorTarget;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
-  anchor?: QuoteSelector;
+  anchor?: ThreadAnchor;
   layout?: 'panel' | 'anchored' | 'discussion';
   attached: boolean;
   anchorsChecked: boolean;
@@ -534,6 +540,8 @@ export function ThreadWindow({
   const collapsed = !discussion && !!thread && !!shownResolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
+  const quote = anchorQuote(anchor);
+  const anchorText = quote?.exact ?? (anchor && 'block' in anchor ? 'Block' : '');
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
   const tracked = !!anchor && !shownResolved;
@@ -672,13 +680,15 @@ export function ThreadWindow({
                 : 'detached'
         }
         title={
-          <span className="thread-state" title={anchor?.exact}>
+          <span className="thread-state" title={anchorText}>
             {number !== undefined && <span className="annotation-number">{number}</span>}
             {thread && <span className="annotation-heading">{text.threadHeading}</span>}
             {thread && (shownResolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
-                ? text.annotateSelection
+                ? anchor && 'block' in anchor
+                  ? text.annotateBlock
+                  : text.annotateSelection
                 : thread.deleted
                   ? text.threadDeleted
                   : shownResolved
@@ -751,19 +761,19 @@ export function ThreadWindow({
                     <button
                       type="button"
                       className="discussion-quote thread-state"
-                      title={anchor.exact}
-                      aria-label={`${text.threadShowInPage}: ${anchor.exact}`}
+                      title={anchorText}
+                      aria-label={`${text.threadShowInPage}: ${anchorText}`}
                       onClick={(event) => {
                         if (event.isTrusted) onShowInPage();
                       }}
                     >
                       {number !== undefined && <span className="annotation-number">{number}</span>}
-                      <q>{anchor.exact}</q>
+                      {quote ? <q>{anchorText}</q> : <span>{anchorText}</span>}
                     </button>
                   ) : (
-                    <div className="discussion-quote thread-state" title={anchor.exact}>
+                    <div className="discussion-quote thread-state" title={anchorText}>
                       {number !== undefined && <span className="annotation-number">{number}</span>}
-                      <q>{anchor.exact}</q>
+                      {quote ? <q>{anchorText}</q> : <span>{anchorText}</span>}
                     </div>
                   ))}
                 {anchor && (
@@ -777,9 +787,9 @@ export function ThreadWindow({
                 )}
               </>
             )}
-            {layout === 'anchored' && anchor && (
-              <blockquote className="annotation-quote" title={anchor.exact}>
-                <q>{anchor.exact}</q>
+            {layout === 'anchored' && anchor && quote && (
+              <blockquote className="annotation-quote" title={anchorText}>
+                <q>{anchorText}</q>
               </blockquote>
             )}
             {observationUnavailable && (

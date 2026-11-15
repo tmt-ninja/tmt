@@ -24,7 +24,7 @@ import {
 import type { QuestionState, RegisteredAgent, RegisteredQuestion } from './question-registry.js';
 import type { QuestionDraft } from './components/question-card.js';
 import type { CommentContext, ThreadBinding } from './thread-store.js';
-import type { QuoteSelector, ThreadView } from './thread-records.js';
+import { anchorQuote, type QuoteSelector, type ThreadView } from './thread-records.js';
 
 export interface Draft extends QuestionDraft {
   pending?: CommentContext;
@@ -374,7 +374,7 @@ export function useQuestionAnswers({
       return;
     return {
       context: canonical.context,
-      quote: canonical.thread.anchor?.exact ?? '',
+      quote: anchorQuote(canonical.thread.anchor)?.exact ?? '',
       comment: canonical.comment.body,
       title,
       url: location.href,

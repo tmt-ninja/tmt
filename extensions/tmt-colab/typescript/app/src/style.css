@@ -533,6 +533,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage[data-annotation-mode] .tmt-block {
   cursor: crosshair;
 }
+.structured-page-stage[data-annotation-mode] .tmt-block iframe {
+  pointer-events: none;
+}
 .structured-annotation-markers {
   position: absolute;
   inset-inline-start: 100%;

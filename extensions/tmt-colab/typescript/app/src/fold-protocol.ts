@@ -239,6 +239,17 @@ export function validateOwn(value: unknown): asserts value is OwnState {
   requireValue(threads <= 1000);
   validateEditLockLimits(value as OwnState);
 }
+
+/** A block reference is meaningful only on a structured page. */
+export function validateOwnPage(own: OwnState, pageType: string | undefined): void {
+  if (pageType === 'blocks') return;
+  for (const projection of Object.values(own))
+    for (const record of Object.values(projection.threads)) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      const anchor = (record as Record<string, unknown>).anchor;
+      requireValue(!anchor || typeof anchor !== 'object' || !Object.hasOwn(anchor, 'block'));
+    }
+}
 export interface FoldResult extends Projection {
   own: OwnState;
   update: Uint8Array;

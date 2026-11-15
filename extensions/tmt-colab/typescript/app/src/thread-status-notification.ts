@@ -1,5 +1,10 @@
 import { requireValue } from '@tmt/colab-client';
-import type { DiscussionRef, ThreadView } from './thread-records.js';
+import {
+  anchorContext,
+  sameAnchor,
+  type DiscussionRef,
+  type ThreadView,
+} from './thread-records.js';
 import { discussionRefKey, type ThreadRecipient } from './thread-status.js';
 import { conversationText } from './thread-store.js';
 import type { PageAsk } from './ask-panel.js';
@@ -61,19 +66,19 @@ export function statusNotificationForAsk(
         current[0].deviceName === comment.deviceName,
     );
   }
-  requireValue((thread.anchor?.exact ?? '') === (captured.anchor?.exact ?? ''));
+  requireValue(sameAnchor(thread.anchor, captured.anchor));
   return {
     thread: thread.threadId,
     messageIds: [],
     operationId: recipient.operationId,
-    quote: captured.anchor?.exact ?? '',
+    quote: anchorContext(captured.anchor),
     comment: conversationText(
       comments,
       pageId,
       thread.threadId,
       `Thread resolved by ${status.deviceName || 'a person'}.`,
       [],
-      captured.anchor?.exact ?? '',
+      anchorContext(captured.anchor),
     ),
   };
 }

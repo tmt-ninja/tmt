@@ -1,3 +1,4 @@
+import { anchorQuote, type ThreadAnchor } from '../src/thread-records.js';
 import { pendingVectorData, type PendingVector } from './pending-vector.js';
 /** Deterministic app data/Remote double. Never imported by production. */
 import '@tmt/browser-ui/static.css';
@@ -329,6 +330,7 @@ export async function mount(
     structured?: boolean;
     /** A long structured page with headings for the outline. */
     structuredOutline?: boolean;
+    structuredKind?: 'duplicate' | 'image' | 'mockup';
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -424,6 +426,45 @@ export async function mount(
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
   };
+  if (options.structuredKind) {
+    const kind = options.structuredKind;
+    current = {
+      ...current,
+      blocks: {
+        ...current.blocks,
+        [id(99)]:
+          kind === 'duplicate'
+            ? {
+                type: 'paragraph',
+                parent: 'root',
+                pos: 'W',
+                props: {},
+                text: { s: 'Exact selected text', marks: [] },
+              }
+            : kind === 'image'
+              ? {
+                  type: 'image',
+                  parent: 'root',
+                  pos: 'W',
+                  props: {
+                    layout: 'grid',
+                    images: [
+                      {
+                        src: 'colab-attachment:00000000-0000-4000-8000-000000000098',
+                        alt: 'A screenshot',
+                      },
+                    ],
+                  },
+                }
+              : {
+                  type: 'mockup',
+                  parent: 'root',
+                  pos: 'W',
+                  props: { system: 'tmt-gui', markup: '<p>Preview</p>', preset: '390' },
+                },
+      },
+    };
+  }
   registryAgents =
     options.agents ??
     Array.from({ length: 5 }, (_, index) => ({
@@ -739,7 +780,7 @@ export async function mount(
   }
   function createThread(
     body: string,
-    anchor: QuoteSelector | null,
+    anchor: ThreadAnchor | null,
     threadId: string,
     attach?: MessageAttachments,
     questionId?: string,
@@ -1351,6 +1392,13 @@ export function setLayout(next: { layout?: Projection['layout']; layoutReason?: 
 export function currentSource() {
   return current.source;
 }
+export function removeStructuredBlock(block: string) {
+  const blocks = { ...current.blocks };
+  delete blocks[block];
+  current = { ...current, blocks };
+  emit();
+}
+
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();
@@ -2046,7 +2094,9 @@ export function reviewSibling(options: {
   /** Anchor the thread elsewhere than on the whole heading. */
   anchor?: QuoteSelector;
 }) {
-  const first = current.threads!.find((thread) => thread.anchor?.exact.startsWith('Section'))!;
+  const first = current.threads!.find((thread) =>
+    anchorQuote(thread.anchor)?.exact.startsWith('Section'),
+  )!;
   const writer = id(options.writer ?? 2),
     threadId = id(300 + (options.writer ?? 2)),
     messageId = id(400 + (options.writer ?? 2));

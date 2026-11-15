@@ -308,9 +308,6 @@ a.work-row-title:hover {
   .page-hierarchy-parent .page-hierarchy-separator {
     display: none;
   }
-  body:has(.page-mobile-title) .tmt-ui-topbar-common > span:has(button[aria-label^='Theme:']) {
-    display: none;
-  }
   .page-mobile-title .work-body-transition {
     left: 0;
     right: auto;

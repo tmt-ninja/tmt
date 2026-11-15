@@ -4,11 +4,16 @@ import { useMemo, useSyncExternalStore } from 'react';
 export function useMedia(query: string): boolean {
   const subscribe = useMemo(
     () => (changed: () => void) => {
+      if (typeof matchMedia !== 'function') return () => {};
       const media = matchMedia(query);
       media.addEventListener('change', changed);
       return () => media.removeEventListener('change', changed);
     },
     [query],
   );
-  return useSyncExternalStore(subscribe, () => matchMedia(query).matches);
+  return useSyncExternalStore(
+    subscribe,
+    () => typeof matchMedia === 'function' && matchMedia(query).matches,
+    () => false,
+  );
 }

@@ -19,7 +19,35 @@ pub struct Head {
     pub statement_hash: String,
 }
 #[derive(Serialize)]
-pub struct Anchor {
+#[serde(untagged)]
+pub enum Anchor {
+    Quote(Quote),
+    Block {
+        block: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        quote: Option<Quote>,
+    },
+}
+impl Anchor {
+    pub fn html_quote(&self) -> Option<&Quote> {
+        match self {
+            Self::Quote(quote) => Some(quote),
+            Self::Block { .. } => None,
+        }
+    }
+    pub fn label(&self) -> String {
+        match self {
+            Self::Quote(quote) => quote.exact.clone(),
+            Self::Block {
+                block,
+                quote: Some(quote),
+            } => format!("Block {block}: {}", quote.exact),
+            Self::Block { block, quote: None } => format!("Block {block}"),
+        }
+    }
+}
+#[derive(Serialize)]
+pub struct Quote {
     pub exact: String,
     pub prefix: String,
     pub suffix: String,
@@ -286,11 +314,21 @@ pub(crate) fn threads(
                     continue;
                 };
                 let anchor = record.get("anchor").filter(|a| !a.is_null()).and_then(|a| {
-                    Some(Anchor {
-                        exact: owned(a, "exact")?,
-                        prefix: owned(a, "prefix")?,
-                        suffix: owned(a, "suffix")?,
-                    })
+                    let quote = |a: &Value| {
+                        Some(Quote {
+                            exact: owned(a, "exact")?,
+                            prefix: owned(a, "prefix")?,
+                            suffix: owned(a, "suffix")?,
+                        })
+                    };
+                    if let Some(block) = owned(a, "block") {
+                        Some(Anchor::Block {
+                            block,
+                            quote: a.get("quote").and_then(quote),
+                        })
+                    } else {
+                        quote(a).map(Anchor::Quote)
+                    }
                 });
                 threads.insert(
                     format!("{writer}:{id}"),
@@ -593,7 +631,15 @@ impl Conversations {
                     ]);
                 }
             }
-            match &thread.anchor {
+            let quote = match &thread.anchor {
+                Some(Anchor::Block { block, quote }) => {
+                    lines.extend([format!("Block: {}", code_span(block)), String::new()]);
+                    quote.as_ref()
+                }
+                Some(Anchor::Quote(quote)) => Some(quote),
+                None => None,
+            };
+            match quote {
                 Some(anchor) => lines.extend([
                     "Quoted text:".into(),
                     String::new(),
@@ -781,6 +827,21 @@ fn when(ms: u64) -> String {
 mod question_revision_tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn block_anchor_export_keeps_the_reference_and_quote() {
+        let anchor = Anchor::Block {
+            block: "00000000-0000-4000-8000-000000000010".into(),
+            quote: Some(Quote {
+                exact: "selected".into(),
+                prefix: "".into(),
+                suffix: "".into(),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_string(&anchor).unwrap(),
+            r#"{"block":"00000000-0000-4000-8000-000000000010","quote":{"exact":"selected","prefix":"","suffix":""}}"#
+        );
+    }
     #[test]
     fn an_answer_cannot_be_retargeted_by_a_later_comment_revision() {
         let first = json!({"kind":"comment","revision":"1","deleted":false,"sequence":"1","thread":{"writer":"w","id":"t"},"questionId":"00000000-0000-0000-0000-000000000001"});

@@ -2,6 +2,7 @@ import type { PageAsk } from './ask-panel.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { conversationAsks } from './thread-store.js';
 import {
+  anchorContext,
   isChatThread,
   isOwnDiscussionWriter,
   type DiscussionRef,
@@ -83,7 +84,7 @@ export function projectReplyNotifications(
           ? { questionId: classification.questionThreads!.get(threadKey(thread!.ref))! }
           : {}),
         ...(thread ? { thread: thread.ref } : {}),
-        ...(destination === 'Thread' ? { quote: thread!.anchor!.exact } : {}),
+        ...(destination === 'Thread' ? { quote: anchorContext(thread!.anchor) } : {}),
         recordKey: conversationRecordKey('reply', ask.writer, ask.operationId),
       });
     }
@@ -112,7 +113,7 @@ export function projectReplyNotifications(
           ? { questionId: classification.questionThreads!.get(threadKey(thread.ref))! }
           : {}),
         thread: thread.ref,
-        ...(destination === 'Thread' ? { quote: thread.anchor!.exact } : {}),
+        ...(destination === 'Thread' ? { quote: anchorContext(thread.anchor) } : {}),
         recordKey: conversationRecordKey('comment', comment.ref.writer, comment.messageId),
         revision: comment.revision,
       });

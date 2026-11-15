@@ -321,6 +321,7 @@ export const text = {
   selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotateSelection: 'Annotate the selection',
+  annotateBlock: 'Annotate the block',
   threadHeading: 'Thread',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',

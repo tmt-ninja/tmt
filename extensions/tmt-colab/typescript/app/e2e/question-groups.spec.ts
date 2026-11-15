@@ -1,3 +1,4 @@
+import { anchorQuote } from '../src/thread-records.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -51,8 +52,8 @@ test('drafts survive disclosure changes; one group Send and verified answers sur
   const before: readonly ThreadView[] = await run(page, 'discussionProof');
   expect(before).toHaveLength(2);
   expect(before.every((thread) => thread.comments.length === 1)).toBe(true);
-  expect(before[0].anchor?.exact).toBe('Which heading should we use?');
-  expect(before[0].anchor?.suffix).toContain('Consider clarity');
+  expect(anchorQuote(before[0].anchor)?.exact).toBe('Which heading should we use?');
+  expect(anchorQuote(before[0].anchor)?.suffix).toContain('Consider clarity');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   const attempts = await run(page, 'answerBatchProof');
   expect(attempts).toHaveLength(1);
@@ -489,7 +490,7 @@ for (const width of [1440, 390])
         await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
         const threads: readonly ThreadView[] = await run(page, 'discussionProof');
         expect(threads).toHaveLength(1);
-        expect(threads[0].anchor?.exact).toBe('Which heading should we use?');
+        expect(anchorQuote(threads[0].anchor)?.exact).toBe('Which heading should we use?');
         // The compact row is parent-owned; its hidden authored title remains the quote source.
         await run(page, 'questionAsk', 'replied');
         await rows.first().click();

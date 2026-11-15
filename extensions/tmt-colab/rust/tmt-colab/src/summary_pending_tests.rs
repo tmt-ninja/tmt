@@ -1,5 +1,5 @@
 use super::*;
-use crate::export::conversations::{Anchor, Ask, Head, Reply};
+use crate::export::conversations::{Anchor, Ask, Head, Quote, Reply};
 use serde_json::{Value, json};
 
 fn string(value: &Value, key: &str) -> String {
@@ -15,9 +15,9 @@ pub(crate) fn view(case: &Value) -> Conversations {
             sequence: string(comment, "sequence"), deleted: comment["deleted"] == true,
             body: string(comment, "body"), device_name: "Fixture".into(), at: comment["at"].as_str().unwrap_or("1").into(), attachments: Vec::new(),
         }).collect();
-        let anchor = row.get("anchor").filter(|anchor| !anchor.is_null()).map(|anchor| Anchor {
+        let anchor = row.get("anchor").filter(|anchor| !anchor.is_null()).map(|anchor| Anchor::Quote(Quote {
             exact: string(anchor, "exact"), prefix: string(anchor, "prefix"), suffix: string(anchor, "suffix"),
-        });
+        }));
         let status = row.get("status").map(|status| crate::threads::status::Status {
             action: serde_json::from_value(json!({
                 "version":1,"kind":"thread-status","spaceId":"fixture","pageId":id,"epoch":"1",

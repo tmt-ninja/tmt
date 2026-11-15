@@ -1,7 +1,12 @@
 import { requireValue } from '@tmt/colab-client';
 import { readAskRecords } from './ask-records.js';
 import type { OwnState } from './fold-protocol.js';
-import { compareCommentOrder, readThreads } from './thread-records.js';
+import {
+  anchorQuote,
+  compareCommentOrder,
+  readThreads,
+  type ThreadAnchor,
+} from './thread-records.js';
 import type { ThreadNotificationRecord, ThreadStatusView } from './thread-status.js';
 
 /** The authorized discussion view of one captured page snapshot: verified threads,
@@ -27,7 +32,7 @@ export interface ConversationThread {
   writer: string;
   id: string;
   revision: string;
-  anchor: { exact: string; prefix: string; suffix: string } | null;
+  anchor: ThreadAnchor | null;
   resolved: boolean;
   deleted: boolean;
   deviceName: string;
@@ -147,7 +152,24 @@ export async function projectConversations(input: ConversationsInput): Promise<C
       writer: thread.ref.writer,
       id: thread.ref.id,
       revision: thread.revision,
-      anchor: thread.anchor ? { ...thread.anchor } : null,
+      anchor: thread.anchor
+        ? 'block' in thread.anchor
+          ? {
+              block: thread.anchor.block,
+              ...(thread.anchor.quote && {
+                quote: {
+                  exact: thread.anchor.quote.exact,
+                  prefix: thread.anchor.quote.prefix,
+                  suffix: thread.anchor.quote.suffix,
+                },
+              }),
+            }
+          : {
+              exact: thread.anchor.exact,
+              prefix: thread.anchor.prefix,
+              suffix: thread.anchor.suffix,
+            }
+        : null,
       resolved: thread.resolved,
       deleted: thread.deleted,
       deviceName: thread.deviceName,
@@ -340,7 +362,10 @@ export function renderConversationsMarkdown(conversations: Conversations): strin
       for (const notification of thread.notifications ?? [])
         lines.push(`- Notification ${notification.operationId}: ${notification.reason}`, '');
     }
-    if (thread.anchor) lines.push('Quoted text:', '', fence(thread.anchor.exact), '');
+    if (thread.anchor && 'block' in thread.anchor)
+      lines.push(`Block: ${codeSpan(thread.anchor.block)}`, '');
+    const quote = anchorQuote(thread.anchor);
+    if (quote) lines.push('Quoted text:', '', fence(quote.exact), '');
     else lines.push('Quoted text: none', '');
     const comments = [...thread.comments].sort(byCommentOrder);
     comments.forEach((comment, position) => {

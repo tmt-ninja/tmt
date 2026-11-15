@@ -8,7 +8,7 @@ import { ASK_MESSAGE_BYTES } from './ask-records.js';
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 import type { AgentDestination } from './live-ask.js';
 import { answerOf, type Question, type QuestionGroup } from './questions.js';
-import type { QuoteSelector, ThreadView } from './thread-records.js';
+import { anchorQuote, type QuoteSelector, type ThreadView } from './thread-records.js';
 import {
   captureConversation,
   commentForAsk,
@@ -145,7 +145,8 @@ export function batchFits(input: Pick<AnswerBatchInput, 'answers' | 'title' | 'u
     requireValue(answer !== undefined);
     return { title: question.title, answer };
   });
-  const quote = input.answers[0].thread?.anchor?.exact ?? input.answers[0].selector.exact;
+  const quote =
+    anchorQuote(input.answers[0].thread?.anchor)?.exact ?? input.answers[0].selector.exact;
   const message = formatAskMessage({
     title: input.title,
     url: input.url,

@@ -28,6 +28,33 @@ impl QuoteSelector {
     }
 }
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum ThreadAnchor {
+    Quote(QuoteSelector),
+    Block(BlockAnchor),
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BlockAnchor {
+    block: String,
+    #[serde(default)]
+    quote: Option<QuoteSelector>,
+}
+impl ThreadAnchor {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Quote(quote) => quote.validate(),
+            Self::Block(anchor) => {
+                values::generated_id(&anchor.block)?;
+                if let Some(quote) = &anchor.quote {
+                    quote.validate()?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ThreadRecord {
     version: u8,
@@ -41,7 +68,7 @@ struct ThreadRecord {
     device_name: String,
     at: String,
     thread_id: String,
-    anchor: Option<QuoteSelector>,
+    anchor: Option<ThreadAnchor>,
     #[serde(rename = "resolved")]
     _resolved: bool,
 }
@@ -102,6 +129,16 @@ fn timestamp(at: &str) -> Result<()> {
 fn require(valid: bool) -> Result<()> {
     if valid { Ok(()) } else { Err(Invalid) }
 }
+/// A valid block anchor is usable only in the structured page that admitted it.
+pub(crate) fn validate_page_anchor(value: &Value, structured: bool) -> Result<()> {
+    require(
+        structured
+            || value
+                .get("anchor")
+                .and_then(|anchor| anchor.get("block"))
+                .is_none(),
+    )
+}
 /// Retired proposal records remain in the own document but have no current projection.
 pub(crate) fn retired_record(root: &str, value: &Value) -> bool {
     match value.get("kind").and_then(Value::as_str) {
@@ -114,6 +151,12 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
     match value.get("kind").and_then(Value::as_str) {
         Some("thread-status" | "thread-notification") => status::validate(root, key, value)?,
         Some("thread") => {
+            // Optional quote may be absent, never explicit null.
+            if let Some(anchor) = value.get("anchor").and_then(Value::as_object)
+                && anchor.contains_key("block")
+            {
+                require(anchor.get("quote").is_none_or(Value::is_object))?;
+            }
             require(
                 value
                     .as_object()
@@ -191,6 +234,27 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn block_anchor_vectors_validate_the_same_record_shape() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let mut thread = f["thread"].clone();
+        let key = format!("{}:1", thread["threadId"].as_str().unwrap());
+        for case in f["blockAnchorCases"].as_array().unwrap() {
+            thread["anchor"] = case["anchor"].clone();
+            assert_eq!(
+                validate_record("threads", &key, &thread).is_ok(),
+                case["valid"] == true,
+                "{}",
+                case["name"]
+            );
+        }
+        thread["anchor"] = f["blockAnchorCases"][0]["anchor"].clone();
+        assert!(validate_page_anchor(&thread, true).is_ok());
+        assert!(validate_page_anchor(&thread, false).is_err());
+    }
     #[test]
     fn comment_sequence_is_a_canonical_decimal_up_to_two_to_the_53_minus_1() {
         let f: Value = serde_json::from_str(include_str!(
