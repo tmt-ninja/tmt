@@ -1614,6 +1614,24 @@ fn enter_and_space_tick_a_link_on_the_page_and_o_opens_it() {
         ticks(press_on_link(KeyCode::Enter));
         ticks(press_on_link(KeyCode::Char(' ')));
         assert!(opened_link(&press_on_link(KeyCode::Char('o'))), "{enter:?}");
+
+        // A member terminal's + Add item opens the existing overlay. Once its
+        // write succeeds, that overlay still shows the member's list.
+        let (mut app, key) = read_with(vec![link(1)]);
+        assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+        app.open_notes_adding(key);
+        type_text(&mut app, "new item");
+        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+        accepted(&mut app, &task, vec![link(1), todo(2)], Some(id(2)));
+        assert_eq!(app.overlay(), Some(crate::board::app::Overlay::Notes));
+        paint(&app);
+        press(&mut app, KeyCode::Up);
+        enter_means(&mut app, enter);
+        let effect = press(&mut app, KeyCode::Enter);
+        match enter {
+            Open => assert!(opened_link(&effect), "{effect:?}"),
+            Tick => ticks(effect),
+        }
     }
 }
 

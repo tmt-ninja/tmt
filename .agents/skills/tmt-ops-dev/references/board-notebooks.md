@@ -427,6 +427,9 @@ write epochs, edit forms, and unsent drafts. The `U` action asks the selected me
 to update the checklist; its session-only state changes to updated only after the
 matching final reply. Authored bindings retain precedence. On the page Enter and
 Space tick an item; `o` opens its link. Add and edit fields appear inline in the list.
+The member terminal's `+ Add item` can still open the older list overlay after its
+write; on that overlay `board.checklist_enter` controls Enter on link rows. The
+Agents Checklist page always ticks regardless of that setting.
 
 `n Add to checklist` in the conversation Link popover or Selection menu opens the existing
 checklist draft. Links preselect Link and keep the full URL, with its last path segment

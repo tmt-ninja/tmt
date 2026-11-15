@@ -122,7 +122,7 @@ impl StartupTab {
     }
 }
 
-/// What Enter does on a Checklist row that has a link; a todo row always ticks.
+/// Enter on a link row in the member Checklist overlay; the Agents page always ticks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ChecklistEnter {
     #[default]

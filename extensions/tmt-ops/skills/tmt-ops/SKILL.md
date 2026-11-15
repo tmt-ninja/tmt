@@ -628,6 +628,13 @@ keep precedence. `↑↓`/`jk` choose, Enter and Space tick, `o` opens a link,
 and `Shift+↑↓` moves an item. Esc keeps an unsent form. A retired member's list reads
 but takes no writes.
 
+`board.checklist_enter` applies to the member Checklist when it is shown as a list
+overlay, such as after saving `+ Add item` from a member's terminal frame while Talk
+is selected. On a link row, `open` (the default) opens the link and `tick` completes
+the item; Space always ticks and `o` always opens the link. Set **checklist enter**
+in Ops Config or run `tmt ops sq config set board.checklist_enter tick`. This setting
+does not change Enter on the Agents Checklist page, where Enter always ticks.
+
 Changes by someone other than the Core user appear in the conversation as muted Checklist
 activity lines, naming the agent and the currently held item title. Missing titles say `an item`,
 missing names `an agent`. Reordering says `reordered the checklist`. Older unknown or pruned
