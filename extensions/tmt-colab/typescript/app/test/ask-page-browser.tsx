@@ -385,7 +385,7 @@ export async function mount(
                   type: 'heading',
                   parent: 'root',
                   pos: String.fromCharCode(65 + index * 2),
-                  props: { level: index === 1 ? 3 : 2 },
+                  props: index === 0 ? {} : { level: index === 1 ? 3 : 2 },
                   text: { s: title, marks: [] },
                 },
               ],

@@ -2413,10 +2413,8 @@ function OpenPage({
   const outlineHeadings = useMemo(
     () =>
       structuredBlocks.flatMap((block) =>
-        block.type === 'heading' &&
-        (block.props.level === 2 || block.props.level === 3) &&
-        block.text?.trim()
-          ? [{ id: block.id, title: block.text.trim(), level: block.props.level }]
+        block.type === 'heading' && block.text?.trim()
+          ? [{ id: block.id, title: block.text.trim(), level: block.props.level === 3 ? 3 : 2 }]
           : [],
       ),
     [structuredBlocks],
