@@ -532,7 +532,7 @@ mod tests {
             KeyModifiers::NONE,
         ));
         // Both buttons are disabled while the review is clipped, so neither key applies.
-        assert_eq!(app.cron_review_event(&left), Some(Effect::None));
+        assert_eq!(app.cron_review_event(&right), Some(Effect::None));
         assert_eq!(app.cron_review_event(&enter), Some(Effect::None));
         assert!(app.cron_review.is_some());
     }

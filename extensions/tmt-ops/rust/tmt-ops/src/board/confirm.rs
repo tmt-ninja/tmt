@@ -122,8 +122,9 @@ impl App {
             lines,
             action,
             choice,
+            // Opens on Cancel: a stray Enter never applies.
             state: DialogState {
-                focus: Focus::Buttons(0),
+                focus: Focus::Buttons(1),
             },
             hits: RefCell::default(),
         });
@@ -145,27 +146,21 @@ impl App {
         // The letters the menu this replaced used: n keeps, y chooses the action like its button.
         let input = match (input, event) {
             (DialogInput::Ignored, Event::Key(key)) if key.code == KeyCode::Char('n') => {
-                DialogInput::Choose(0)
+                DialogInput::Choose(1)
             }
             (DialogInput::Ignored, Event::Key(key)) if key.code == KeyCode::Char('y') => {
-                DialogInput::Choose(1)
+                DialogInput::Choose(0)
             }
             (input, _) => input,
         };
         Some(match input {
-            DialogInput::Cancel | DialogInput::Choose(0) => self.close_overlay(Overlay::Confirm),
+            DialogInput::Cancel | DialogInput::Choose(1) => self.close_overlay(Overlay::Confirm),
             DialogInput::Choose(_) => {
                 let confirm = self.confirm.take().expect("open confirm");
-                // Only a painted button applies, never one from a stale or clipped frame.
-                if confirm
-                    .hits
-                    .borrow()
-                    .buttons
-                    .get(1)
-                    .copied()
-                    .flatten()
-                    .is_none()
-                {
+                // Only a painted action applies, never one from a stale or clipped frame; a
+                // short terminal paints Cancel alone.
+                let hits = confirm.hits.borrow().buttons.clone();
+                if hits.len() != 2 || hits[0].is_none() {
                     self.confirm = Some(confirm);
                     return Some(Effect::None);
                 }
@@ -176,8 +171,9 @@ impl App {
     }
 }
 
+/// The action first, Cancel beside it.
 fn buttons(action: &str) -> [Button<'_>; 2] {
-    [Button::secondary("Cancel"), Button::primary(action)]
+    [Button::primary(action), Button::secondary("Cancel")]
 }
 
 #[cfg(test)]

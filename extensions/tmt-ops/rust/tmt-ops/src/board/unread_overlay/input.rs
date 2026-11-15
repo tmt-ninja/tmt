@@ -63,7 +63,7 @@ impl Overlay {
             _ => DialogInput::Ignored,
         };
         match input {
-            DialogInput::Cancel | DialogInput::Choose(0) => {
+            DialogInput::Cancel | DialogInput::Choose(1) => {
                 self.confirmation = None;
                 *self.confirm_hits.borrow_mut() = DialogHits::default();
                 self.painted.borrow_mut().clear();

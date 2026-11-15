@@ -43,7 +43,7 @@ fn enter_starts_on_cancel_and_the_action_needs_a_move_to_it() {
 
     let mut app = opened();
     paint(&app);
-    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Left);
     press(&mut app, KeyCode::Enter);
     assert!(app.confirm.is_none());
     assert!(app.panels_picker.is_some(), "the action applies its choice");
@@ -65,7 +65,7 @@ fn n_keeps_and_y_applies_as_the_menu_it_replaced() {
 #[test]
 fn an_unpainted_action_never_applies() {
     let mut app = opened();
-    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Left);
     press(&mut app, KeyCode::Enter);
     assert!(app.confirm.is_some(), "nothing was painted to choose from");
     assert!(app.panels_picker.is_none());
