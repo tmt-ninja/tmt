@@ -1370,8 +1370,8 @@ fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     assert_eq!(app.workspace_begin(Kind::Remove), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     let screen = paint(&app, 80, 24).join("\n");
-    assert!(screen.contains("Source timers to pause: unknown"));
-    assert!(screen.contains("identity, process, history"));
+    assert!(screen.contains("Its timers may pause; refresh to check."));
+    assert!(screen.contains("Its history and other squads stay."));
     assert!(screen.contains("Leave squad"));
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
@@ -1404,7 +1404,7 @@ fn confirmation_requires_current_geometry_and_does_not_replay_while_pending() {
         Effect::None,
         "Tab does nothing"
     );
-    key(&mut app, KeyCode::Right); // Cancel -> apply
+    key(&mut app, KeyCode::Left); // Cancel -> apply
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(effect,Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id == ROOM && member == MEMBER)
@@ -1442,25 +1442,13 @@ fn resized_or_clipped_confirmation_has_no_stale_pointer_or_key_authority() {
     );
 }
 #[test]
-fn short_terminal_review_uses_the_screen_and_scrolls_the_frozen_operation() {
+fn short_terminal_review_uses_the_screen_and_shows_the_whole_operation() {
     let mut app = board();
     app.workspace_begin(Kind::Remove);
-    let first = paint(&app, 60, 8).join("\n");
-    assert!(first.contains("Leave squad"));
-    assert!(first.contains("From squad"), "{first}");
-    key(&mut app, KeyCode::Tab);
-    key(&mut app, KeyCode::Down);
-    let next = paint(&app, 60, 8).join("\n");
-    assert!(next.contains(ROOM), "{next}");
-    key(&mut app, KeyCode::End);
-    let last = paint(&app, 60, 8).join("\n");
-    let reflowed = last
-        .lines()
-        .map(|line| line.trim().trim_matches('│').trim())
-        .collect::<Vec<_>>()
-        .join(" ");
-    assert!(reflowed.contains("only explicit Resume does."), "{last}");
-    assert!(last.contains("Read"));
+    let screen = paint(&app, 60, 8).join("\n");
+    assert!(screen.contains("Leave squad"), "{screen}");
+    assert!(screen.contains("worker leaves product"), "{screen}");
+    assert!(screen.contains("Its timers may pause"), "{screen}");
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     key(&mut app, KeyCode::Esc);
     assert!(hidden(&app));
@@ -5889,31 +5877,4 @@ pub(in crate::board) fn assert_list_input_owner(app: &App) {
         app.workspace_input_owner(),
         crate::board::shell::OpsInputOwner::List
     );
-}
-#[test]
-fn only_a_removal_review_starts_on_cancel() {
-    use crate::board::workspace::manage::review_start;
-    use tmt_tui::components::Focus;
-    for (kind, start) in [
-        (Kind::Remove, 0),
-        (Kind::RemoveMember, 0),
-        (Kind::Create, 1),
-        (Kind::Add, 1),
-        (Kind::Lead, 1),
-        (Kind::RenameSquad, 1),
-        (Kind::RenameMember, 1),
-    ] {
-        assert_eq!(
-            review_start(kind, false).focus,
-            Focus::Buttons(start),
-            "{kind:?}"
-        );
-        // A reopened review adds Discard between Cancel and Apply.
-        let reopened = if start == 0 { 0 } else { 2 };
-        assert_eq!(
-            review_start(kind, true).focus,
-            Focus::Buttons(reopened),
-            "{kind:?}"
-        );
-    }
 }

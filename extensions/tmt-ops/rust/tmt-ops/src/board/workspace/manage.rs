@@ -105,18 +105,28 @@ pub struct Draft {
 }
 /// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
 /// any other review starts on its apply button, so Enter applies what was just reviewed.
+/// A review opens on its action, except Leave squad, which opens on Cancel. Delete member
+/// opens on Delete, so Enter deletes (Ben, #6462).
 pub(in crate::board) fn review_start(
     kind: Kind,
     reopened: bool,
 ) -> tmt_tui::components::DialogState {
-    let destructive = matches!(kind, Kind::Remove | Kind::RemoveMember);
-    let apply = review_buttons(reopened)
-        .iter()
-        .position(|button| *button == ReviewButton::Apply)
-        .unwrap_or_default();
     tmt_tui::components::DialogState {
-        focus: tmt_tui::components::Focus::Buttons(if destructive { 0 } else { apply }),
+        focus: if kind == Kind::Remove {
+            review_cancel(reopened)
+        } else {
+            tmt_tui::components::Focus::Buttons(0)
+        },
     }
+}
+/// The Cancel button's focus on a review's button row.
+pub(in crate::board) fn review_cancel(reopened: bool) -> tmt_tui::components::Focus {
+    tmt_tui::components::Focus::Buttons(
+        review_buttons(reopened)
+            .iter()
+            .position(|button| *button == ReviewButton::Cancel)
+            .unwrap_or_default(),
+    )
 }
 /// A form's buttons, also the slots of `Draft::controls`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,12 +139,12 @@ pub(in crate::board) enum ReviewButton {
 pub(in crate::board) fn review_buttons(reopened: bool) -> &'static [ReviewButton] {
     if reopened {
         &[
+            ReviewButton::Apply,
             ReviewButton::Cancel,
             ReviewButton::Discard,
-            ReviewButton::Apply,
         ]
     } else {
-        &[ReviewButton::Cancel, ReviewButton::Apply]
+        &[ReviewButton::Apply, ReviewButton::Cancel]
     }
 }
 impl Draft {
@@ -280,20 +290,22 @@ impl Draft {
             Kind::Create => "Create squad".into(),
             Kind::Add => format!("Add member · {name}"),
             Kind::Lead => format!("Set/clear lead · {name}"),
-            Kind::RenameSquad => format!("Rename squad · {name}"),
+            Kind::RenameSquad => format!("Rename squad {name}"),
             Kind::RenameMember | Kind::RemoveMember => {
                 let label = if self.kind == Kind::RenameMember {
-                    "Rename agent"
+                    "Rename"
                 } else {
-                    "Close and delete"
+                    "Delete"
                 };
-                // A reopened draft names the agent it was opened for.
-                match self.member.as_ref().filter(|_| self.reopened) {
-                    Some(member) => format!("{label} · {}", member.name),
+                match self.member.as_ref() {
+                    Some(member) => format!("{label} {}", member.name),
                     None => label.into(),
                 }
             }
-            Kind::Remove => format!("Leave squad · {name}"),
+            Kind::Remove => match self.member.as_ref() {
+                Some(member) => format!("Remove {} from {name}", member.name),
+                None => format!("Leave squad {name}"),
+            },
         }
     }
     pub fn review_command(&self) -> Option<String> {
@@ -327,11 +339,10 @@ impl Draft {
         };
         let room =
             |room: &RoomTarget| format!("{} · {} · revision {}", room.name, room.id, room.revision);
-        if matches!(self.operation, Some(Change::RenameMember(_))) {
+        if let Some(Change::RenameMember(request)) = &self.operation {
             return format!(
-                "{}\n\nStops if the name changed first.",
-                self.review_command()
-                    .unwrap_or_else(|| "Unavailable: name cannot be copied safely.".into())
+                "{} becomes {}.\nNothing changes if the name changed first.",
+                request.expected_name, request.name
             );
         }
         let mut lines = vec![];
@@ -380,17 +391,19 @@ impl Draft {
                 ));
             }
             Some(Operation::RenameSquad { room: target, name }) => {
-                lines.push(format!("Squad: {}", room(target)));
-                lines.push(format!("New name: {name}"));
-                lines.push("Room UUID, timer IDs and pause state stay the same. A partial rename provides an explicit repair command.".into());
+                lines.push(format!("{} becomes {name}.", target.name));
+                lines.push("Its timers and their pause state stay the same.".into());
             }
             Some(Operation::Remove {
                 room: target,
                 member,
             }) => {
-                lines.push(format!("Remove membership: {}", identity(member)));
-                lines.push(format!("From squad: {}", room(target)));
-                lines.push("Other memberships, identity, process, history and session draft remain. Removing this squad's lead clears its leadership.".into());
+                let name = self
+                    .identities
+                    .get(member)
+                    .map_or(member.as_str(), |member| member.name.as_str());
+                lines.push(format!("{name} leaves {}; it keeps running.", target.name));
+                lines.push("Its history and other squads stay.".into());
                 self.timer_review(&mut lines);
             }
             Some(Operation::Assign {
@@ -444,15 +457,15 @@ impl Draft {
         }
         lines.join("\n")
     }
+    /// Only a leave that pauses timers says so.
     fn timer_review(&self, lines: &mut Vec<String>) {
-        lines.push(format!(
-            "Source timers to pause: {}",
-            self.timer_impact.map_or_else(
-                || "unknown; refresh to inspect the timer list".into(),
-                |count| count.to_string()
-            )
-        ));
-        lines.push("Source timers stay in their original squad. Re-adding or reassigning the owner never resumes them; only explicit Resume does.".into());
+        match self.timer_impact {
+            Some(0) => {}
+            Some(count) => lines.push(format!(
+                "{count} of its timers pause until you resume them."
+            )),
+            None => lines.push("Its timers may pause; refresh to check.".into()),
+        }
     }
     pub fn invalidate(&self) {
         if let Some(close) = &self.close {
@@ -811,7 +824,7 @@ impl App {
                 if draft.stage == Stage::Review {
                     draft.review = review_start(draft.kind, draft.reopened);
                     if publication {
-                        draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                        draft.review.focus = review_cancel(draft.reopened);
                     }
                 }
                 draft.invalidate();

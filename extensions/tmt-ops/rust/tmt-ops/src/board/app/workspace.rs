@@ -1736,7 +1736,7 @@ impl App {
                 ));
                 draft.stage = crate::board::workspace::manage::Stage::Review;
                 draft.reopened = false;
-                draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                draft.review.focus = crate::board::workspace::manage::review_cancel(draft.reopened);
                 draft.invalidate();
                 *draft.scroll.borrow_mut() = Default::default();
                 self.set_notice(
@@ -1798,7 +1798,7 @@ impl App {
                 draft.operation = Some(crate::board::workspace::manage::Change::PreviewLeads(
                     preview.clone(),
                 ));
-                draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                draft.review.focus = crate::board::workspace::manage::review_cancel(draft.reopened);
             }
             draft.stage = crate::board::workspace::manage::Stage::Result(message);
             draft.invalidate();
