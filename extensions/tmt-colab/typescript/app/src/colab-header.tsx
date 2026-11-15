@@ -29,6 +29,9 @@ const captionId = 'colab-header-caption';
  * else in the module's own header. */
 export function focusPageHeading(): void {
   const title =
+    [...document.querySelectorAll<HTMLElement>('.page-mobile-title h1')].find(
+      (node) => node.getClientRects().length > 0,
+    ) ??
     document.querySelector<HTMLElement>('.tmt-ui-topbar-title h1') ??
     document.querySelector<HTMLElement>('.tmt-ui-header h1');
   if (!title) return;

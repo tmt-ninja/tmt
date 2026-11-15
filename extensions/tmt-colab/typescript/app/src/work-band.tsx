@@ -31,6 +31,37 @@ export interface WorkBandProps {
   onAdd?(): void;
 }
 
+/** On phones the page title and work controls scroll together as one content block. */
+export function MobileWorkTitle({
+  title,
+  onSize,
+  children,
+}: {
+  title: string;
+  onSize(height: number): void;
+  children: ReactNode;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = element.current;
+    if (!node) return;
+    const measure = () => onSize(node.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => {
+      observer.disconnect();
+      onSize(0);
+    };
+  }, [onSize]);
+  return (
+    <div className="page-mobile-title" ref={element}>
+      <h1>{title}</h1>
+      {children}
+    </div>
+  );
+}
+
 function StateChip({ state }: { state?: PageState | null }) {
   const t = text.workBand;
   return (

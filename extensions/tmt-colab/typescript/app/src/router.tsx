@@ -3,6 +3,8 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { MobileWorkTitle } from './work-band.js';
+import { useMedia } from './use-media.js';
 import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
 import { pageLocation, parentRefusal } from './work-tree.js';
@@ -1637,6 +1639,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
+  const phone = useMedia('(max-width: 640px)');
   const [addingSubpage, setAddingSubpage] = useState(false);
   const {
     reset: resetPageLinks,
@@ -2642,6 +2645,21 @@ function OpenPage({
     work: view.work,
     pageHref: (pageId) => routing.pageHref(pageId),
   });
+  const workControls = !design ? (
+    <PageWorkBand
+      work={view.work}
+      pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+      binding={archived || liveError ? undefined : snapshot.binding}
+      transport={transport}
+      space={space}
+      pageId={snapshot.id}
+      title={view.title}
+      pageHref={routing.pageHref}
+      openPage={(id) => routing.open(`/pages/${id}`)}
+      adding={addingSubpage}
+      onAddingChange={setAddingSubpage}
+    />
+  ) : undefined;
   const content = (
     <section
       className="page"
@@ -2672,22 +2690,7 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {!design && (
-                <PageWorkBand
-                  onSize={setWorkBandSize}
-                  work={view.work}
-                  pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-                  binding={archived || liveError ? undefined : snapshot.binding}
-                  transport={transport}
-                  space={space}
-                  pageId={snapshot.id}
-                  title={view.title}
-                  pageHref={routing.pageHref}
-                  openPage={(id) => routing.open(`/pages/${id}`)}
-                  adding={addingSubpage}
-                  onAddingChange={setAddingSubpage}
-                />
-              )}
+              {!phone && workControls}
               <PageProjects
                 transport={transport}
                 space={space}
@@ -3082,6 +3085,11 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
+        {phone && workControls && (
+          <MobileWorkTitle title={view.title || snapshot.title} onSize={setWorkBandSize}>
+            {workControls}
+          </MobileWorkTitle>
+        )}
         {!design && pageLinkBar}
         {attachmentDownload.bar}
         <div

@@ -208,6 +208,23 @@ test('the title row shows the page state and the sub-page count', async ({ page 
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
 });
 
+test('on a phone the readable title and full work labels scroll together', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  const band = await mount(page, true, 'tree', true);
+  const title = page.locator('.page-mobile-title:visible h1');
+  await expect(title).toHaveText('Release plan');
+  const heading = (await title.boundingBox())!;
+  const controls = (await band.boundingBox())!;
+  expect(heading.width).toBeGreaterThan(100);
+  expect(controls.y).toBeGreaterThanOrEqual(heading.y + heading.height);
+  await expect(band.getByRole('button', { name: 'Page state' })).toHaveText('In progress');
+  await expect(toggle(band)).toContainText('4 sub-pages');
+  expect(await toggle(band).evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  const before = heading.y;
+  await page.evaluate(() => window.scrollBy(0, 100));
+  await expect.poll(async () => (await title.boundingBox())!.y).toBeLessThan(before);
+});
+
 test('a page without sub-pages offers Add in its page menu', async ({ page }) => {
   const band = await mount(page, true, 'empty');
   await expect(toggle(band)).toHaveCount(0);

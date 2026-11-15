@@ -254,8 +254,8 @@ a.work-row-title:hover {
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 
-/* Mock 6: a phone keeps title, state and ⋯ (always shown: there is no hover), and a short count. */
-@media (max-width: 900px) {
+/* Intermediate widths keep the title and compact controls in the bar. */
+@media (min-width: 641px) and (max-width: 900px) {
   .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.work-band) {
     display: contents;
   }
@@ -288,21 +288,33 @@ a.work-row-title:hover {
   .work-toggle .work-chevron {
     display: none;
   }
-  .work-body-transition {
-    position: fixed;
-    top: var(--tmt-ui-header-height);
-    left: var(--tmt-ui-space-s);
-    right: var(--tmt-ui-space-s);
-    width: auto;
-  }
 }
 @media (max-width: 640px) {
+  .page-mobile-title {
+    box-sizing: border-box;
+    padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);
+  }
+  .page-mobile-title h1 {
+    margin: 0 0 var(--tmt-ui-space-s);
+    font-size: 1.375rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  body:has(.page-mobile-title) .tmt-ui-topbar-title-current,
+  body:has(.page-mobile-title) .tmt-ui-header h1 {
+    display: none;
+  }
   .page-hierarchy-parent .page-hierarchy-count,
   .page-hierarchy-parent .page-hierarchy-separator {
     display: none;
   }
-  .tmt-ui-topbar:has(.work-band) .tmt-ui-topbar-common > span:has(button[aria-label^='Theme:']) {
+  body:has(.page-mobile-title) .tmt-ui-topbar-common > span:has(button[aria-label^='Theme:']) {
     display: none;
+  }
+  .page-mobile-title .work-body-transition {
+    left: 0;
+    right: auto;
+    width: min(36rem, calc(100vw - 2 * var(--tmt-ui-header-padding-inline)));
   }
   .work-wide {
     display: none;

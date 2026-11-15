@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
  * status and note, or the owner page's status band. */
 const noteSize = (page: Page) =>
   page
-    .locator('.reader-note, .reader-status-row')
+    .locator('.reader-note, .reader-status-row, .page-mobile-title')
     .evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getClientRects().length)

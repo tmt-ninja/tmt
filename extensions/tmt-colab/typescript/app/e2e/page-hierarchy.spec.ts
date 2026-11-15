@@ -74,8 +74,8 @@ test('phone keeps the state and sub-page count, with parent navigation in More',
   await page.setViewportSize({ width: 390, height: 844 });
   const bar = await mount(page);
   await expect(bar.locator('.page-hierarchy-parent')).toBeHidden();
-  await expect(bar.getByRole('button', { name: '4 sub-pages' })).toBeVisible();
-  const title = bar.locator('.tmt-ui-topbar-title-current');
+  await expect(page.getByRole('button', { name: '4 sub-pages' })).toBeVisible();
+  const title = page.locator('.page-mobile-title:visible h1');
   expect((await title.boundingBox())!.width).toBeGreaterThan(40);
   await bar.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Back to Remote launch' })).toBeVisible();
@@ -92,7 +92,7 @@ for (const width of [1440, 390])
       else await bar.locator('.page-hierarchy-count').click();
       await page.screenshot({ path: capturePath(`top-bar-parent-menu-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await bar.locator('.work-toggle').click();
+      await page.locator('.work-toggle').click();
       await page.screenshot({ path: capturePath(`top-bar-subpages-menu-${width}-${theme}.png`) });
     });
 
@@ -105,8 +105,13 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const bar = await mount(page, 'filled');
       // The long titles end in an ellipsis and stay on one line; the bar keeps its height.
-      const title = bar.locator('.tmt-ui-topbar-title-current');
-      expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+      const title =
+        width === 390
+          ? page.locator('.page-mobile-title:visible h1')
+          : bar.locator('.tmt-ui-topbar-title-current');
+      expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
+        width !== 390,
+      );
       expect((await bar.boundingBox())!.height).toBeLessThan(80);
       await page.screenshot({ path: capturePath(`top-bar-filled-${width}-${theme}.png`) });
       if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
@@ -115,10 +120,10 @@ for (const width of [1440, 390])
         path: capturePath(`top-bar-filled-parent-menu-${width}-${theme}.png`),
       });
       await page.keyboard.press('Escape');
-      const subpages = bar.locator('.work-toggle');
+      const subpages = page.locator('.work-toggle');
       await expect(subpages).toHaveAccessibleName('3 sub-pages');
       await subpages.click();
-      const menu = bar.locator('.work-body');
+      const menu = page.locator('.work-body');
       await expect(menu.locator('.work-row-line')).toHaveCount(3);
       await expect(menu).not.toContainText('Release notes draft');
       await page.screenshot({
