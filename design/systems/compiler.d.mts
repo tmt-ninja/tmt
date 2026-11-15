@@ -45,6 +45,8 @@ export interface DesignSystemConfig {
     attachment?: string;
     runtime: string;
     at?: string;
+    /** What the release compiled from (`draftSource`); absent for releases made before it. */
+    source?: string;
   }[];
 }
 export interface Bundle {

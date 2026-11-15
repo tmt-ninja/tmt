@@ -140,6 +140,7 @@ impl PeerObjects {
             .spawn(move || {
                 let mut retained = BTreeMap::new();
                 let mut history: Option<super::history::History> = None;
+                let mut reading: Option<ReadCapture> = None;
                 loop {
                     let job = if let Some(active) = &history {
                         match incoming.recv_timeout(
@@ -165,7 +166,8 @@ impl PeerObjects {
                     if identity.closed.load(Ordering::Acquire) {
                         break;
                     }
-                    let (value, fence) = match execute(&identity, &mut retained, &mut history, &job)
+                    wall6450("exec start");
+                    let (value, fence) = match execute(&identity, &mut retained, &mut history, &mut reading, &job)
                     {
                         Ok(pair) => pair,
                         Err(error) => {
@@ -215,6 +217,7 @@ impl PeerObjects {
         }
         let sender = self.requests.as_ref().ok_or(crate::sync::Code::Denied)?;
         pending.insert(id.clone());
+        wall6450("submit");
         if sender
             .try_send(Job {
                 scope,
@@ -231,6 +234,7 @@ impl PeerObjects {
     }
     pub(crate) fn take_reply(&self) -> Option<ObjectReply> {
         let reply = self.replies.try_recv().ok()?;
+        wall6450("taken");
         super::locked(&self.pending).remove(&reply.id);
         Some(reply)
     }
@@ -254,16 +258,44 @@ fn original(frozen: &FrozenUpload) -> BeginInput {
     };
     input
 }
+
+pub(crate) fn wall6450(what: &str) {
+    use std::io::Write;
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/private/tmp/claude-501/-Users-benhsieh-dev-tmux-team/014dfc2e-29c9-428f-8956-bd135f7f7854/scratchpad/6450/serve-trace.log") {
+        let _ = writeln!(f, "WALL {what} {ms}");
+    }
+}
+fn trace6450(what: &str, since: Instant) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/private/tmp/claude-501/-Users-benhsieh-dev-tmux-team/014dfc2e-29c9-428f-8956-bd135f7f7854/scratchpad/6450/serve-trace.log") {
+        let _ = writeln!(f, "{what} {}ms", since.elapsed().as_millis());
+    }
+}
+/// The capture of the attachment this peer reads now. A browser reads an object in 32 KiB chunks,
+/// one request each; every chunk of the same object, in the same scope, reuses the capture the
+/// first one admitted while it still passes `recheck_until` (the session's epoch, the page
+/// revision and cuts it was taken at), instead of verifying and decoding the page again per chunk.
+/// Each chunk's request still rechecks it before and after the Remote call, as a fresh one would.
+struct ReadCapture {
+    scope: crate::sync::SyncScope,
+    selector: AttachmentSelector,
+    capture: Arc<attachments::AdmittedAttachmentRead>,
+}
 fn execute(
     peer: &Arc<PeerIdentity>,
     retained: &mut BTreeMap<String, FrozenUpload>,
     history: &mut Option<super::history::History>,
+    reading: &mut Option<ReadCapture>,
     job: &Job,
 ) -> crate::Result<(serde_json::Value, Option<Arc<RequestCapture>>)> {
-    if Instant::now() >= job.deadline
-        || !peer
+    let t6450 = Instant::now();
+    let waited = peer
             .client
-            .wait_origin(peer.origin, &peer.closed, job.deadline)
+            .wait_origin(peer.origin, &peer.closed, job.deadline);
+    trace6450("wait_origin", t6450);
+    if Instant::now() >= job.deadline
+        || !waited
     {
         return Ok((serde_json::json!({"error":{"code":"unavailable"}}), None));
     }
@@ -483,17 +515,39 @@ fn execute(
             offset,
             count,
         } => {
-            let owner = peer
-                .admission
-                .attachment_read_owner(&peer.principal, &job.scope)?;
-            let capture = Arc::new(attachments::capture_session(
-                &view.store,
-                &view.keyring,
-                &owner,
-                selector,
-                &mut view.decoder,
-                job.deadline,
-            )?);
+            let t6450 = Instant::now();
+            let kept = reading
+                .as_ref()
+                .filter(|kept| kept.scope == job.scope && kept.selector == *selector)
+                .map(|kept| Arc::clone(&kept.capture))
+                .filter(|kept| {
+                    kept.recheck_until(&view.store, &view.keyring, job.deadline)
+                        .is_ok()
+                });
+            let capture = match kept {
+                Some(capture) => capture,
+                None => {
+                    *reading = None;
+                    let owner = peer
+                        .admission
+                        .attachment_read_owner(&peer.principal, &job.scope)?;
+                    let capture = Arc::new(attachments::capture_session(
+                        &view.store,
+                        &view.keyring,
+                        &owner,
+                        selector,
+                        &mut view.decoder,
+                        job.deadline,
+                    )?);
+                    *reading = Some(ReadCapture {
+                        scope: job.scope.clone(),
+                        selector: selector.clone(),
+                        capture: Arc::clone(&capture),
+                    });
+                    capture
+                }
+            };
+            trace6450("read capture", t6450);
             let descriptor = capture.descriptor();
             let bytes = values::decimal(&descriptor.payload_bytes, false)?;
             if !(1..=32_768).contains(count)
@@ -563,14 +617,18 @@ fn execute(
     });
     // No late call crosses the effect boundary. Callback acquisition/effect and
     // disclosure each recheck the same captured owner and input independently.
+    let t6450 = Instant::now();
     capture.current()?;
+    trace6450("current", t6450);
     if Instant::now() >= job.deadline {
         return Ok((serde_json::json!({"error":{"code":"unavailable"}}), None));
     }
     let owner: Arc<dyn CallbackOwner> = admission.clone();
+    let t6450 = Instant::now();
     let outcome = peer
         .client
         .request(peer.origin, call.clone(), owner, job.deadline);
+    trace6450("client.request", t6450);
     let usage = if matches!(&outcome, Ok(Outcome::Failure(ErrorCode::Capacity(_))))
         && capture.current().is_ok()
     {

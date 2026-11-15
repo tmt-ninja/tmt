@@ -7,7 +7,6 @@ import {
 } from '../../../../../design/systems/compiler.mjs';
 import {
   DesignDraftError,
-  PIN_WAIT_MS,
   type DesignSystemBundle,
   type DesignSystemLock,
   type DesignSystemSource,
@@ -103,6 +102,14 @@ async function openPage(
   id: string,
   stopped: () => boolean = () => false,
 ): Promise<Snapshot> {
+  const t0 = performance.now();
+  try { return await openPage0(transport, id, stopped); } finally { console.log(`[ds-timing] open ${id.slice(0, 8)} ${Math.round(performance.now() - t0)}ms`); }
+}
+async function openPage0(
+  transport: PageTransport,
+  id: string,
+  stopped: () => boolean = () => false,
+): Promise<Snapshot> {
   let page: Snapshot | undefined;
   for (let attempt = 0; !page; attempt++) {
     if (stopped()) throw new Error('Page follow ended');
@@ -132,7 +139,9 @@ export async function withPage<T>(
 async function readyFiles(page: Snapshot) {
   const files = page.binding?.files;
   if (!files) throw new Error('This page cannot read its files here.');
+  const t0 = performance.now();
   await files.attachments.settle?.();
+  console.log(`[ds-timing] settle ${Math.round(performance.now() - t0)}ms`);
   return files;
 }
 
@@ -220,7 +229,9 @@ export function pageDesignSystems(
           );
           if (!descriptor) return undefined;
           const files = await readyFiles(root);
+          const t1 = performance.now();
           const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
+          console.log(`[ds-timing] attachment ${bytes.length}B ${Math.round(performance.now() - t1)}ms`);
           return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
         });
   const shownRelease = async (system: string, version: string) => {
@@ -333,7 +344,6 @@ export function pageDesignSystems(
         },
       };
       if (follow.draft) return follow.draft;
-      const started = Date.now();
       // Without revisions yet, no doc could be kept or reused: wait briefly for the first list.
       const listed =
         follow.latest || !transport.watchPages
@@ -347,19 +357,10 @@ export function pageDesignSystems(
           follow.draftBaseline = follow.latest ? new Map(follow.latest) : null;
           return compileDraft(transport, system, undefined, docs);
         })
-        .then(
-          (bundle) => {
-            // A page stops waiting after PIN_WAIT_MS and draws the notice; a draft that was slower
-            // tells the followers once, so they draw it now rather than at the next edit.
-            if (Date.now() - started >= PIN_WAIT_MS && follow.draft === draft && !follow.stopped)
-              for (const listener of follow.listeners) listener();
-            return bundle;
-          },
-          (error: unknown) => {
-            if (follow.draft === draft) follow.draft = undefined;
-            throw error;
-          },
-        );
+        .catch((error: unknown) => {
+          if (follow.draft === draft) follow.draft = undefined;
+          throw error;
+        });
       follow.draft = draft;
       return draft;
     },
@@ -430,8 +431,8 @@ async function draftOf(
 ): Promise<Bundle> {
   for (const entry of config.components)
     if (!entry.page) throw new DesignDraftError(`${entry.tag} has no page.`);
-  // A few component pages open at once, in order: a system has far more component pages than a
-  // page may wait for one after another (PIN_WAIT_MS), and far more than the door's tunnels.
+  // A few component pages open at once, in order: one after another is slow for a system with
+  // many component pages, and all at once would take more than the door's tunnels.
   const components = Array.from<ComponentDoc | undefined>({ length: config.components.length });
   let next = 0;
   const reader = async () => {
@@ -487,6 +488,22 @@ export function pageExamples(source: string): { title: string; markup: string }[
   }));
 }
 
+/** What a draft compiles from, as one digest: the root's design-system config but its releases
+ * and version, and each component page's content revision as the live page list names it (null
+ * when the list does not name it). A release records it at publish; the Design header offers a new
+ * publish only while the live revisions give another digest, and never compiles a draft for it. */
+export async function draftSource(
+  config: DesignSystemConfig,
+  contents: ReadonlyMap<string, string>,
+): Promise<string> {
+  const { releases: _releases, version: _version, ...draft } = config;
+  const pages = config.components.map((entry) => [
+    entry.page ?? null,
+    entry.page ? (contents.get(entry.page) ?? null) : null,
+  ]);
+  return `sha256-${await sha256Hex(JSON.stringify({ draft, pages }))}`;
+}
+
 export interface PublishResult {
   pin: string;
   bundle: Bundle;
@@ -530,10 +547,20 @@ export async function publishDesignSystem(
   binding: PageBinding,
   source: string,
   version: string,
-  { pinTree = true, docs }: { pinTree?: boolean; docs?: ComponentDocs } = {},
+  {
+    pinTree = true,
+    docs,
+    contents,
+  }: {
+    pinTree?: boolean;
+    docs?: ComponentDocs;
+    /** The live list's content revisions when the compile started, for the release's `source`. */
+    contents?: ReadonlyMap<string, string>;
+  } = {},
 ): Promise<PublishResult> {
   const config = readBlock<DesignSystemConfig>(source, 'design-system');
   if (!config) throw new Error('This page has no design-system block.');
+  const compiledFrom = contents && (await draftSource(config, contents));
   const bundle = await draftOf(transport, rootId, config, version, docs);
   const files = binding.files;
   if (!files) throw new Error('Files are not available on this page.');
@@ -560,6 +587,7 @@ export async function publishDesignSystem(
         attachment: stored.original.descriptor.attachmentId,
         runtime: bundle.runtime,
         at: new Date().toISOString(),
+        ...(compiledFrom && { source: compiledFrom }),
       },
     ],
   };
@@ -1320,6 +1348,7 @@ export async function adoptDesignSystem(transport: PageTransport, rootId: string
 export async function publishNext(
   transport: PageTransport,
   rootId: string,
+  contents?: ReadonlyMap<string, string>,
 ): Promise<PublishResult & { version: string }> {
   return withPage(transport, rootId, async (root) => {
     const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
@@ -1327,7 +1356,9 @@ export async function publishNext(
     if (!root.binding) throw new Error('This design system cannot be published here.');
     const version = nextVersion(config);
     return {
-      ...(await publishDesignSystem(transport, rootId, root.binding, root.source, version)),
+      ...(await publishDesignSystem(transport, rootId, root.binding, root.source, version, {
+        contents,
+      })),
       version,
     };
   });

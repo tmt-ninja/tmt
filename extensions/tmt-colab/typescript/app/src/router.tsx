@@ -2170,12 +2170,18 @@ function OpenPage({
   // A mockup block's markup renders in the same sandboxed frame and runtime admission as an HTML
   // page (#6005): never in the parent's DOM.
   const mountMockup = useCallback(
-    (frameHost: HTMLElement, source: string, signal: AbortSignal, theme?: Theme) =>
+    (
+      frameHost: HTMLElement,
+      source: string,
+      signal: AbortSignal,
+      theme?: Theme,
+      onReady?: () => void,
+    ) =>
       mountRenderer(frameHost, source, {
         signal,
         fitContent: true,
         theme,
-        onState: () => {},
+        onState: () => onReady?.(),
         onLink: requestPageLink,
         designSystem: {
           release: async (system, lock) => designSystems?.release(system, lock),

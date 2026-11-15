@@ -33,7 +33,7 @@ async function pinnedDesignSystem(
   if ('failure' in bundle)
     return {
       reason:
-        bundle.failure === 'unavailable' || bundle.failure === 'runtime-mismatch'
+        bundle.failure === 'runtime-mismatch'
           ? 'design-release-unavailable'
           : `design-${bundle.failure}`,
     };

@@ -116,20 +116,25 @@ impl Envelope {
         owner: &[u8; 32],
         previous: Option<&Head>,
     ) -> Result<Verified<'a>> {
+        self.verify_next_by(&Owner::new(space, owner)?, previous)
+    }
+    /// `verify_next` for a caller that verifies a whole log under one owner, checked once.
+    pub fn verify_next_by<'a>(
+        &'a self,
+        owner: &Owner,
+        previous: Option<&Head>,
+    ) -> Result<Verified<'a>> {
+        let space = owner.space.as_str();
         let h = decode(&self.statement)?;
-        require(
-            h.space == space
-                && crypto::space_id(owner)? == space
-                && crypto::digest(&self.payload) == *h.payload_digest,
-        )?;
+        require(h.space == space && crypto::digest(&self.payload) == *h.payload_digest)?;
         let rev = values::decimal(h.revision, false)?;
         require(match previous {
             Some(p) => p.revision.checked_add(1) == Some(rev) && p.hash == *h.previous_hash,
             None => rev == 1 && *h.previous_hash == [0; 32],
         })?;
-        crypto::verify_signature(owner, &self.statement, &self.signature)?;
+        crypto::verify_with(&owner.key, &self.statement, &self.signature)?;
         let payload = payload::decode(h.operation, &self.payload)?;
-        validate_scope(&payload, space, h.revision, owner)?;
+        validate_scope(&payload, space, h.revision, &owner.bytes)?;
         let owner_member = owner_binding(&payload, previous)?;
         Ok(Verified {
             header: h,
@@ -139,6 +144,23 @@ impl Envelope {
                 hash: self.hash()?,
                 owner_member,
             },
+        })
+    }
+}
+/// A space owner key, parsed and checked against its space ID once for a whole log.
+pub struct Owner {
+    space: String,
+    bytes: [u8; 32],
+    key: ed25519_dalek::VerifyingKey,
+}
+impl Owner {
+    pub fn new(space: &str, owner: &[u8; 32]) -> Result<Self> {
+        let key = crypto::public_key(owner)?;
+        require(crypto::space_id(owner)? == space)?;
+        Ok(Self {
+            space: space.into(),
+            bytes: *owner,
+            key,
         })
     }
 }
