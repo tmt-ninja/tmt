@@ -910,3 +910,69 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
         .activity = partial;
     assert_eq!(activity_text(&app), "         · █");
 }
+
+#[test]
+fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
+    use crate::board::{activity::Phase, workspace::OpsTarget};
+    use std::time::Duration;
+
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.squad_looks.clear();
+    workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .phase = Phase::Idle;
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.overview_rows.borrow_mut().clear();
+    frame(&app, 160);
+    let key = format!(
+        "{:?}",
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        }
+    );
+    let now = Instant::now();
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, now);
+    app.agents_live
+        .row_flash(key.clone(), true, false, 0, true, now);
+    let first = frame(&app, 160);
+    let row = (0..first.area.height)
+        .find(|y| {
+            (0..first.area.width)
+                .map(|x| first[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    let row_end = (0..first.area.width)
+        .find(|x| first[(*x, row)].symbol() == "│")
+        .expect("workspace divider");
+    let later_start = Instant::now() - Duration::from_millis(600);
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, later_start);
+    app.agents_live
+        .row_flash(key, true, false, 0, true, later_start);
+    let second = frame(&app, 160);
+    let changes = first.diff(&second);
+    assert!(
+        !changes.is_empty(),
+        "the flash must change at its next stage"
+    );
+    for (x, y, cell) in changes {
+        assert_eq!(y, row, "only the flashing row should change at x={x}");
+        assert!(x < row_end, "only the flashing row should change at x={x}");
+        let previous = &first[(x, y)];
+        assert_eq!(previous.symbol(), cell.symbol(), "glyph at x={x}");
+        assert_ne!(previous, cell, "changed cell at x={x}");
+    }
+}
