@@ -976,3 +976,48 @@ fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
         assert_ne!(previous, cell, "changed cell at x={x}");
     }
 }
+
+#[test]
+fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
+    use crate::board::agents_live::AgentsLiveUsage;
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    frame(&app, 160);
+    let mut activity = [Some(0.0); 12];
+    activity[1] = None;
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity,
+        },
+    );
+    let actual = frame(&app, 160);
+    let area = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+    let y = (0..actual.area.height)
+        .find(|y| {
+            (0..actual.area.width)
+                .map(|x| actual[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    assert_eq!(
+        actual[(area.x, y)].bg,
+        ratatui::style::Color::Rgb(56, 56, 56)
+    );
+    assert_eq!(actual[(area.x + 1, y)].symbol(), "·");
+    assert_ne!(actual[(area.x + 1, y)].bg, actual[(area.x, y)].bg);
+}

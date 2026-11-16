@@ -863,6 +863,27 @@ impl Rate {
         Self::trend_of(self.members.get(id).into_iter(), now, window, false)
     }
 
+    /// A continuously observed member has a known empty open interval even
+    /// before a receipt lands in its first five-second bucket.
+    pub fn member_open_known(&self, id: &str, from: u64, now: u64) -> bool {
+        self.members.get(id).is_some_and(|member| {
+            member.reporter
+                && !member.blocked
+                && member
+                    .previous
+                    .as_ref()
+                    .is_some_and(|counter| counter.usable)
+                && member.began.is_some_and(|began| began <= from)
+                && member.sampled.is_some()
+                && !member.buckets.iter().any(|bucket| {
+                    bucket.gap
+                        && bucket
+                            .slot
+                            .is_some_and(|slot| (from / SLOT_MS..=now / SLOT_MS).contains(&slot))
+                })
+        })
+    }
+
     pub fn member_activity<const N: usize>(
         &self,
         id: &str,

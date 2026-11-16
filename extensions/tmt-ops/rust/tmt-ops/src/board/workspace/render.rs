@@ -979,14 +979,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         OpsTarget::Squad(room) => app.agents_live.squad_activity(app, room),
                         _ => [None; 12],
                     };
+                    let empty_cells = values.map(|value| value == Some(0.0));
                     let values = values
                         .into_iter()
                         .map(|value| match value {
                             Some(value) if value.is_finite() && value > 0.0 => {
                                 Some((value.round() as u64).max(1))
                             }
-                            Some(0.0) => None, // Component's missing glyph is the observed-empty dot.
-                            _ => Some(0), // Component's zero glyph is blank for unobserved buckets.
+                            Some(0.0) => Some(1), // Known empty uses the lowest grey level.
+                            _ => None,            // Missing evidence retains the unknown dot.
                         })
                         .collect();
                     let mut grid = ds::CellGrid::new(ds::Size {
@@ -1003,6 +1004,17 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         },
                         &mut grid,
                     );
+                    for (x, empty) in empty_cells
+                        .into_iter()
+                        .enumerate()
+                        .take(usize::from(cell.width))
+                    {
+                        if empty && let Some(mut value) = grid.get(x as u16, 0).cloned() {
+                            value.glyph = "▁".into();
+                            value.heat_level = Some(ds::HeatLevel::Zero);
+                            grid.set(x as u16, 0, value);
+                        }
+                    }
                     if selected && look.depth == tmt_cli_style::Depth::None {
                         for x in 0..cell.width {
                             if let Some(mut value) = grid.get(x, 0).cloned() {

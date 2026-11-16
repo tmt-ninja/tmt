@@ -365,10 +365,16 @@ impl Meter {
         // observed activity in the open rightmost cell. At the next boundary,
         // that cell moves left and a new, initially unknown cell enters.
         let cell_ms = window.milliseconds() / N as u64;
-        let open_end = (self.milliseconds(now) / cell_ms * cell_ms)
+        let at = self.milliseconds(now);
+        let open_start = at / cell_ms * cell_ms;
+        let open_end = open_start
             .saturating_add(cell_ms)
             .saturating_sub(super::rate::SLOT_MS);
-        self.rate.member_activity(id, open_end, window)
+        let mut cells = self.rate.member_activity(id, open_end, window);
+        if cells[N - 1].is_none() && self.rate.member_open_known(id, open_start, at) {
+            cells[N - 1] = Some(0.0);
+        }
+        cells
     }
 
     pub(in crate::board) fn history(&self) -> &Rate {

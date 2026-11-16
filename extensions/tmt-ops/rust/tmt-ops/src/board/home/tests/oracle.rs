@@ -723,154 +723,198 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
     use crate::board::workspace::OpsTarget;
     use crate::config::ActivityWindow;
     use std::time::{Duration, Instant};
-    scene_group(
-        styles,
-        &[
-            "activity-1m",
-            "activity-5m",
-            "activity-10m",
-            "activity-1h",
-            "activity-count-mid",
-            "activity-count-settled",
-            "activity-working",
-            "activity-heat-zero",
-            "activity-heat-low",
-            "activity-heat-normal",
-            "activity-heat-high",
-            "activity-row-flash",
-            "activity-squad",
-            "activity-motion-off",
-            "activity-partial",
-        ],
-        |_| grid(&[160, 100, 80], &[36]),
-        |state, look, width, height| {
-            let mut app = metered(look);
-            let window = match state {
-                "activity-1m" | "activity-partial" => ActivityWindow::Minute,
-                "activity-5m" => ActivityWindow::FiveMinutes,
-                "activity-10m" => ActivityWindow::TenMinutes,
-                _ => ActivityWindow::Hour,
-            };
-            let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-            workspace.preferences.activity_window = window;
-            workspace.preferences.motion_off = state == "activity-motion-off";
-            let member = workspace.roster.members.get_mut(MEMBER).unwrap();
-            member.activity.phase = crate::board::activity::Phase::Working;
-            member.activity.since_ms = Some(NOW - 192_000);
-            if state == "activity-row-flash" {
-                app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-                workspace.roster.squads[0]
-                    .member_states
-                    .get_mut(MEMBER)
-                    .unwrap()
-                    .waiting = true;
-            }
-            if state == "activity-squad" {
-                app.workspace.expanded.clear();
-                app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-            }
-            app.overview_rows.borrow_mut().clear();
-            let now = Instant::now();
-            // A full synthetic hour exposes the existing grey scale at every
-            // selected resolution; partial evidence remains explicit.
-            let mut seed = crate::board::rate::tests::fixture_seeds(
-                &crate::board::rate::tests::history_fixture(),
-            )
-            .remove("a")
-            .unwrap()
-            .unwrap();
-            seed.from = NOW - 3_600_000;
-            seed.through = NOW;
-            seed.available = Some(seed.from);
-            seed.sampled = Some(NOW - 5_000);
-            seed.buckets = (0..720)
-                .map(|i| {
-                    let from = seed.from + i * 5_000;
-                    let gap = match state {
-                        "activity-1m" => i == 714,
-                        "activity-5m" => (705..710).contains(&i),
-                        "activity-10m" => (700..710).contains(&i),
-                        "activity-partial" => i % 17 == 0,
-                        _ => false,
+    let states = [
+        "activity-1m",
+        "activity-5m",
+        "activity-10m",
+        "activity-1h",
+        "activity-count-mid",
+        "activity-count-settled",
+        "activity-working",
+        "activity-heat-zero",
+        "activity-heat-low",
+        "activity-heat-normal",
+        "activity-heat-high",
+        "activity-row-flash",
+        "activity-squad",
+        "activity-motion-off",
+        "activity-partial",
+    ];
+    let mut frames = Vec::new();
+    for state in states {
+        let window_ms = match state {
+            "activity-1m" | "activity-partial" => 60_000,
+            "activity-5m" => 300_000,
+            "activity-10m" => 600_000,
+            _ => 3_600_000,
+        };
+        let scene_now = NOW + window_ms / 12 * 3 / 5;
+        frames.extend(crate::status::with_now_ms(scene_now, || {
+            scene_group(
+                styles,
+                &[state],
+                |_| grid(&[160, 100, 80], &[36]),
+                |state, look, width, height| {
+                    let mut app = metered(look);
+                    let window = match state {
+                        "activity-1m" | "activity-partial" => ActivityWindow::Minute,
+                        "activity-5m" => ActivityWindow::FiveMinutes,
+                        "activity-10m" => ActivityWindow::TenMinutes,
+                        _ => ActivityWindow::Hour,
                     };
-                    let age = 719 - i;
-                    let tokens = 2 * (1 + age / 60 % 6) * (1 + age / 5 * 7 % 12) + age % 5;
-                    crate::board::rate::history::Slice {
-                        from_ms: from,
-                        to_ms: from + 5_000,
-                        input_tokens: if gap { 0 } else { tokens },
-                        output_tokens: 0,
-                        cached_input_tokens: 0,
-                        covered_ms: if gap { 0 } else { 5_000 },
-                        complete: !gap,
-                        gap,
-                        discontinuous: false,
-                        by_driver: if gap {
-                            Vec::new()
-                        } else {
-                            vec![("codex".to_owned(), tokens)]
-                        },
+                    let workspace =
+                        &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    workspace.preferences.activity_window = window;
+                    workspace.preferences.motion_off = state == "activity-motion-off";
+                    let member = workspace.roster.members.get_mut(MEMBER).unwrap();
+                    member.activity.phase = crate::board::activity::Phase::Working;
+                    member.activity.since_ms = Some(scene_now - 192_000);
+                    if state == "activity-row-flash" {
+                        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+                        workspace.roster.squads[0]
+                            .member_states
+                            .get_mut(MEMBER)
+                            .unwrap()
+                            .waiting = true;
                     }
-                })
-                .collect();
-            let seeds = std::collections::BTreeMap::from([(MEMBER.into(), Some(seed))]);
-            let mut view = app.view.take().unwrap();
-            view.home_rate.get_mut("product").unwrap().history = Some(seeds);
-            let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-            snapshot.tabs = app.tabs.clone();
-            snapshot.view = Ok(view);
-            app.apply(snapshot);
-
-            let rate = match state {
-                "activity-heat-zero" => 0,
-                "activity-heat-low" => 500,
-                "activity-heat-normal" => 5_000,
-                "activity-heat-high" => 20_000,
-                _ => 2_000,
-            };
-            app.agents_live
-                .set_capture_rate(MEMBER, rate, state == "activity-heat-high", now);
-            if state == "activity-row-flash" {
-                let key = format!(
-                    "{:?}",
-                    OpsTarget::Member {
-                        room_id: Some(ROOM.into()),
-                        identity_id: MEMBER.into()
+                    if state == "activity-squad" {
+                        app.workspace.expanded.clear();
+                        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
                     }
-                );
-                let future = now + Duration::from_secs(60);
-                app.agents_live
-                    .row_flash(key.clone(), false, false, 0, true, future);
-                app.agents_live.row_flash(key, true, false, 0, true, future);
-            }
-            if state == "activity-count-mid" || state == "activity-count-settled" {
-                // Establish actual visible geometry, then place the count at a deterministic frame.
-                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                terminal
-                    .draw(|frame| crate::board::view::render(frame, &app))
+                    app.overview_rows.borrow_mut().clear();
+                    let now = Instant::now();
+                    // A full synthetic hour exposes the existing grey scale at every
+                    // selected resolution; partial evidence remains explicit.
+                    let mut seed = crate::board::rate::tests::fixture_seeds(
+                        &crate::board::rate::tests::history_fixture(),
+                    )
+                    .remove("a")
+                    .unwrap()
                     .unwrap();
-                if let Some(target) = app.overview_member_usage(MEMBER) {
-                    let key = format!("agents:member:{MEMBER}:range:1h");
-                    let mut counters = app.home_counters.borrow_mut();
-                    let mut start = target;
-                    start.tokens /= 2;
-                    counters.live_value(key.clone(), Some(start), false, now);
-                    counters.live_value(key, Some(target), false, now);
-                    counters.tick(
-                        now + if state == "activity-count-mid" {
-                            Duration::from_millis(250)
-                        } else {
-                            Duration::from_millis(800)
-                        },
+                    seed.from = NOW - 3_600_000;
+                    seed.through = scene_now;
+                    seed.available = Some(seed.from);
+                    seed.sampled = Some(scene_now);
+                    seed.buckets = (0..720)
+                        .map(|i| {
+                            let from = seed.from + i * 5_000;
+                            let gap = match state {
+                                "activity-1m" => i == 714,
+                                "activity-5m" => (705..710).contains(&i),
+                                "activity-10m" => (700..710).contains(&i),
+                                "activity-partial" => i % 17 == 0,
+                                _ => false,
+                            };
+                            let age = 719 - i;
+                            let tokens = 2 * (1 + age / 60 % 6) * (1 + age / 5 * 7 % 12) + age % 5;
+                            crate::board::rate::history::Slice {
+                                from_ms: from,
+                                to_ms: from + 5_000,
+                                input_tokens: if gap { 0 } else { tokens },
+                                output_tokens: 0,
+                                cached_input_tokens: 0,
+                                covered_ms: if gap { 0 } else { 5_000 },
+                                complete: !gap,
+                                gap,
+                                discontinuous: false,
+                                by_driver: if gap {
+                                    Vec::new()
+                                } else {
+                                    vec![("codex".to_owned(), tokens)]
+                                },
+                            }
+                        })
+                        .collect();
+                    for from in (NOW..seed.through).step_by(5_000) {
+                        seed.buckets.push(crate::board::rate::history::Slice {
+                            from_ms: from,
+                            to_ms: (from + 5_000).min(scene_now),
+                            input_tokens: 25,
+                            output_tokens: 0,
+                            cached_input_tokens: 0,
+                            covered_ms: (scene_now - from).min(5_000),
+                            complete: scene_now - from >= 5_000,
+                            gap: false,
+                            discontinuous: false,
+                            by_driver: vec![("codex".to_owned(), 25)],
+                        });
+                    }
+                    let seeds = std::collections::BTreeMap::from([(MEMBER.into(), Some(seed))]);
+                    let mut view = app.view.take().unwrap();
+                    view.home_rate.get_mut("product").unwrap().history = Some(seeds);
+                    let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+                    snapshot.tabs = app.tabs.clone();
+                    snapshot.view = Ok(view);
+                    app.apply(snapshot);
+
+                    let rate = match state {
+                        "activity-heat-zero" => 0,
+                        "activity-heat-low" => 500,
+                        "activity-heat-normal" => 5_000,
+                        "activity-heat-high" => 20_000,
+                        _ => 2_000,
+                    };
+                    app.agents_live.set_capture_rate(
+                        MEMBER,
+                        rate,
+                        state == "activity-heat-high",
+                        now,
                     );
-                }
-            }
-            app
-        },
-        |captured, app| {
-            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
-        },
-    )
+                    if state == "activity-row-flash" {
+                        let key = format!(
+                            "{:?}",
+                            OpsTarget::Member {
+                                room_id: Some(ROOM.into()),
+                                identity_id: MEMBER.into()
+                            }
+                        );
+                        let future = now + Duration::from_secs(60);
+                        app.agents_live
+                            .row_flash(key.clone(), false, false, 0, true, future);
+                        app.agents_live.row_flash(key, true, false, 0, true, future);
+                    }
+                    if state == "activity-count-mid" || state == "activity-count-settled" {
+                        // Establish actual visible geometry, then place the count at a deterministic frame.
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        if let Some(target) = app.overview_member_usage(MEMBER) {
+                            let key = format!("agents:member:{MEMBER}:range:1h");
+                            let mut counters = app.home_counters.borrow_mut();
+                            let mut start = target;
+                            start.tokens /= 2;
+                            counters.live_value(key.clone(), Some(start), false, now);
+                            counters.live_value(key, Some(target), false, now);
+                            counters.tick(
+                                now + if state == "activity-count-mid" {
+                                    Duration::from_millis(250)
+                                } else {
+                                    Duration::from_millis(800)
+                                },
+                            );
+                        }
+                    }
+                    app
+                },
+                |captured, app| {
+                    captured["stripHits"] =
+                        json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+                },
+            )
+        }));
+    }
+    let look_order = ["tmt", "tmt-light", "terminal", "NO_COLOR"];
+    frames.sort_by_key(|frame| {
+        let look = frame["look"].as_str().unwrap();
+        let state = frame["state"].as_str().unwrap();
+        (
+            look_order.iter().position(|name| *name == look).unwrap(),
+            states.iter().position(|name| *name == state).unwrap(),
+            std::cmp::Reverse(frame["width"].as_u64().unwrap()),
+        )
+    });
+    frames
 }
 
 /// Paste attachments and forms share their scene owner with decoded review.

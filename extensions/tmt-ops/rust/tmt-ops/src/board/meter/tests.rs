@@ -284,8 +284,8 @@ fn activity_shows_open_cell_and_shifts_it_on_each_window_boundary() {
         TokenWindow::parse("10m").unwrap(),
         TokenWindow::HOUR,
     ] {
-        let mut meter = Meter::new(TokenRate::default(), &input(100), now);
-        meter.origin_ms = 0;
+        let mut meter =
+            crate::status::with_now_ms(0, || Meter::new(TokenRate::default(), &input(100), now));
         meter.sample(Ok(&input(200)), now + Duration::from_secs(1));
         let cell_ms = window.milliseconds() / 12;
         let open =
@@ -294,6 +294,17 @@ fn activity_shows_open_cell_and_shifts_it_on_each_window_boundary() {
         let next =
             meter.member_trend_window::<12>("a", now + Duration::from_millis(cell_ms), window);
         assert_eq!(&open[1..], &next[..11], "{window:?} shift");
-        assert_eq!(next[11], None, "{window:?} new cell stays unknown");
+        assert_eq!(
+            next[11],
+            Some(0.0),
+            "{window:?} connected new cell is known empty"
+        );
+        meter.suspend(now + Duration::from_millis(cell_ms));
+        let disconnected =
+            meter.member_trend_window::<12>("a", now + Duration::from_millis(cell_ms), window);
+        assert_eq!(
+            disconnected[11], None,
+            "{window:?} disconnected cell is unknown"
+        );
     }
 }
