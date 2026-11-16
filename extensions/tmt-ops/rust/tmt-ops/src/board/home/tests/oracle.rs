@@ -786,11 +786,15 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
             seed.buckets = (0..720)
                 .map(|i| {
                     let from = seed.from + i * 5_000;
-                    let gap = (matches!(state, "activity-1m" | "activity-5m" | "activity-10m")
-                        && i == 714)
-                        || (state == "activity-partial" && i % 17 == 0);
+                    let gap = match state {
+                        "activity-1m" => i == 714,
+                        "activity-5m" => (705..710).contains(&i),
+                        "activity-10m" => (700..710).contains(&i),
+                        "activity-partial" => i % 17 == 0,
+                        _ => false,
+                    };
                     let age = 719 - i;
-                    let tokens = 10 * (1 + ((age / 5 * 7 + age % 5 * 3) % 12));
+                    let tokens = 2 * (1 + age / 60 % 6) * (1 + age / 5 * 7 % 12) + age % 5;
                     crate::board::rate::history::Slice {
                         from_ms: from,
                         to_ms: from + 5_000,
