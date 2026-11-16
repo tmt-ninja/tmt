@@ -29,13 +29,21 @@ fn minute_style(rate: Option<u128>, look: Look) -> Style {
         5_000..10_000 => HeatLevel::Four,
         _ => HeatLevel::Five,
     };
-    let ramp = tmt_cli_style::theme::screen::neutral_ramp(&look.theme, look.depth, level.into());
     let old_role = match rate {
         0 => Role::Dim,
         1..1_000 => Role::Muted,
         _ => Role::Text,
     };
     let base = look.role(old_role);
+    // The first ramp fills are too close to terminal backgrounds as text.
+    // Use the existing Dim ink for those steps, preserving flash modifiers.
+    if matches!(level, HeatLevel::Zero | HeatLevel::One | HeatLevel::Two) {
+        return base.fg(look
+            .role(Role::Dim)
+            .fg
+            .unwrap_or(ratatui::style::Color::Reset));
+    }
+    let ramp = tmt_cli_style::theme::screen::neutral_ramp(&look.theme, look.depth, level.into());
     ramp.bg.map_or(base, |color| base.fg(color))
 }
 
@@ -466,8 +474,15 @@ mod tests {
                     (9_999, 4),
                     (10_000, 5),
                 ] {
-                    let expected =
-                        tmt_cli_style::theme::screen::neutral_ramp(&look.theme, depth, step).bg;
+                    let expected = if step <= 2 {
+                        Some(
+                            look.role(Role::Dim)
+                                .fg
+                                .unwrap_or(ratatui::style::Color::Reset),
+                        )
+                    } else {
+                        tmt_cli_style::theme::screen::neutral_ramp(&look.theme, depth, step).bg
+                    };
                     assert_eq!(
                         minute_style(Some(value), look).fg,
                         expected,
