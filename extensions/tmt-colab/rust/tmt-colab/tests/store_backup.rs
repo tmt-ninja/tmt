@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds attachment_unreferenced, so dropping that table and the version is that store.
+/// step adds the work-number tables, so dropping them and the version recreates that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -45,8 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            // Schema 22 (#5876) adds no table: the previous schema is the same tables.
-            "PRAGMA user_version={previous}"
+            "DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -237,7 +236,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();

@@ -76,7 +76,7 @@ pub fn set_command() -> Command {
         "Change a page's work fields",
         "Only named fields change; explicit clear flags remove optional values.",
         &[Example {
-            command: "tmt colab page set PAGE --priority high --next 'Review the result' --json",
+            command: "tmt colab page set 01234567 --priority high --next 'Review the result' --json",
             note: "Update two work fields in one revision",
         }],
     )

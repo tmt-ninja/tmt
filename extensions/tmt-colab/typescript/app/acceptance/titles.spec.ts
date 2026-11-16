@@ -85,7 +85,9 @@ test('native page titles fill missing visible home labels without opening the pa
     expect(sent).not.toContain('subscribe');
     await row().getByRole('link').click();
     await expect(
-      page.locator('.tmt-ui-topbar-title').getByRole('heading', { name: title, exact: true }),
+      page
+        .locator('.tmt-ui-topbar-title')
+        .getByRole('heading', { name: `W-1 ${title}`, exact: true }),
     ).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
     await expect.poll(() => sent.filter((type) => type === 'subscribe').length).toBe(1);

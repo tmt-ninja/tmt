@@ -74,7 +74,7 @@
 }
 @container colab-work-title (max-width: 800px) {
   .work-head {
-    gap: var(--tmt-ui-space-xs);
+    gap: 0;
   }
   .page-hierarchy-count,
   .page-hierarchy-icon,
@@ -84,6 +84,10 @@
   }
   .work-field-chip,
   .work-toggle {
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+  .work-state-control .tmt-ui-menu-trigger {
+    gap: 0;
     padding-inline: var(--tmt-ui-space-xs);
   }
 }
