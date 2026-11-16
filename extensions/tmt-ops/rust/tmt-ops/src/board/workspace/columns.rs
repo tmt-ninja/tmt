@@ -312,11 +312,11 @@ pub fn paint_agents_header(
     slots: &[(AgentsField, Rect)],
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
-    tok: TokHeading,
-    activity: crate::config::ActivityWindow,
+    windows: (TokHeading, crate::config::ActivityWindow),
     marks: &crate::board::header_sort::Marks,
 ) -> AgentsHeaderHits {
     use crate::board::header_sort::{Header, word_hit};
+    let (tok, activity) = windows;
     let mut hits = AgentsHeaderHits::default();
     if area.height == 0 {
         return hits;
@@ -1026,8 +1026,7 @@ mod tests {
             &[(AgentsField::Cron, slot)],
             look,
             Default::default(),
-            Default::default(),
-            Default::default(),
+            (Default::default(), Default::default()),
             &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
         );
         let x = (0..slot.width)
@@ -1061,8 +1060,7 @@ mod tests {
                     &slots,
                     look,
                     Default::default(),
-                    Default::default(),
-                    Default::default(),
+                    (Default::default(), Default::default()),
                     &crate::board::header_sort::Marks::new(
                         Default::default(),
                         None,

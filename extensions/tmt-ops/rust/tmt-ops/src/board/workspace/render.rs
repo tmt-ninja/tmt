@@ -412,8 +412,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         &slots,
         look,
         app.cron_glyphs,
-        app.tok_heading(),
-        app.activity_window(),
+        (app.tok_heading(), app.activity_window()),
         &marks,
     );
     let mut strip_hits = app.workspace_strip_hits.borrow_mut();
@@ -740,7 +739,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     app.frame_clocks
                         .borrow_mut()
                         .push(crate::board::view::ClockSurface::SquadBreath);
-                    if (now_ms / 600) % 2 == 0 {
+                    if (now_ms / 600).is_multiple_of(2) {
                         for span in &mut state.spans {
                             if span.content == "●" {
                                 span.style =
