@@ -32,7 +32,7 @@ for (const width of [1440, 1100, 800, 390])
     await mount(page, 'work-fields');
     const work = page.getByRole('region', { name: 'Work on this page' });
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
-    await expect(work.getByLabel('↑ Priority high')).toBeVisible();
+    await expect(work.getByLabel('Priority high')).toBeVisible();
     await expect(work.locator('.work-owner-chip')).toBeVisible();
     await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
     await expect(work.locator('.work-count-wide')).toBeVisible();

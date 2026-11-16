@@ -773,6 +773,25 @@ pub fn backfill_page_todos(
     Ok(())
 }
 
+/// Stable to-do IDs in page order from an already admitted projection.
+pub(crate) fn todo_ids(blocks: Option<&serde_json::Value>) -> Vec<String> {
+    let mut todos: Vec<_> = blocks
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|blocks| blocks.iter())
+        .filter(|(_, block)| block["type"] == "todo")
+        .map(|(id, block)| {
+            (
+                block["parent"].as_str().unwrap_or_default().to_owned(),
+                block["pos"].as_str().unwrap_or_default().to_owned(),
+                id.clone(),
+            )
+        })
+        .collect();
+    todos.sort();
+    todos.into_iter().map(|(_, _, id)| id).collect()
+}
+
 /// Unlike `read_work`, distinguishes a verified shell from an unreadable page.
 pub(crate) fn read_work_or_shell(
     store: &Store,
@@ -790,22 +809,7 @@ pub(crate) fn read_work_or_shell(
     let children = crate::work::children(work).map_err(|_| Fault::Invalid)?;
     let summary = work.get("summary").cloned();
     let legacy = (work["version"] == 1).then(|| work.clone());
-    let mut todos: Vec<_> = view
-        .blocks
-        .as_ref()
-        .and_then(serde_json::Value::as_object)
-        .into_iter()
-        .flat_map(|blocks| blocks.iter())
-        .filter(|(_, block)| block["type"] == "todo")
-        .map(|(id, block)| {
-            (
-                block["parent"].as_str().unwrap_or_default().to_owned(),
-                block["pos"].as_str().unwrap_or_default().to_owned(),
-                id.clone(),
-            )
-        })
-        .collect();
-    todos.sort();
+    let todos = todo_ids(view.blocks.as_ref());
     Ok(Some(WorkPage {
         state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
         fields: serde_json::Value::Object(
@@ -818,7 +822,7 @@ pub(crate) fn read_work_or_shell(
                 })
                 .collect(),
         ),
-        todo_ids: todos.into_iter().map(|(_, _, id)| id).collect(),
+        todo_ids: todos,
         space_id: key.space_id.clone(),
         page_id: page.into(),
         title: view.title,

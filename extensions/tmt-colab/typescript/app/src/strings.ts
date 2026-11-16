@@ -781,8 +781,10 @@ export const text = {
     unknownPage: 'Unknown page',
     subpages: 'Sub-pages',
     pageState: 'Page state',
-    priorityHigh: '↑ Priority high',
+    priorityHigh: 'Priority high',
     priorityLow: 'Priority low',
+    priorityHighChip: '↑ High',
+    priorityLowChip: 'Low',
     savingState: 'Saving state…',
     taskState: {
       todo: 'To do',

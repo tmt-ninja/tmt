@@ -60,7 +60,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     const browser = await pairBrowser(world, 'work-fields-owner');
     const page = await openPage(door, browser, created);
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-1');
-    await expect(page.getByLabel('↑ Priority high', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Priority high', { exact: true })).toBeVisible();
     await expect(page.locator('.work-owner-chip')).toBeVisible();
     await expect(page.locator('.work-owner-chip')).toHaveAttribute(
       'aria-label',
@@ -72,6 +72,31 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Verify live numbering']);
     await expect(page.getByRole('checkbox', { name: 'Verify live numbering' })).toBeVisible();
     await expect(page.getByText('COLAB-5', { exact: true })).toBeVisible();
+    // Model the owner's first lookup arriving before its new to-do number is allocated.
+    const known = new Set<string>(
+      colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
+    );
+    let earlyLookup = false;
+    await page.route('**/api/work-numbers', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { pageId: string; numbers: Record<string, string> };
+      const requested = route.request().postDataJSON() as { blocks: string[] };
+      if (!earlyLookup && requested.blocks.some((id) => !known.has(id))) {
+        earlyLookup = true;
+        body.numbers = Object.fromEntries(
+          Object.entries(body.numbers).filter(([id]) => known.has(id)),
+        );
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.locator('[data-block-id]').filter({ hasText: 'Publish the release' }).hover();
+    await page.getByRole('button', { name: 'Insert block' }).click();
+    await page
+      .getByRole('listbox', { name: 'Insert a block' })
+      .getByRole('option', { name: /To-do/ })
+      .click();
+    await expect(page.getByText('COLAB-6', { exact: true })).toBeVisible();
+    expect(earlyLookup).toBe(true);
     const todo = page.getByRole('checkbox', { name: 'Ship the fix' });
     await todo.check();
     await expect(todo).toBeChecked();
@@ -158,7 +183,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     colab(['share', 'mode', created.pageId, 'link', '--yes']);
     const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
     const reader = await openReaderLink(world, door, link.readerPath, 'work-fields-reader');
-    await expect(reader.page.getByLabel('↑ Priority high', { exact: true })).toBeVisible();
+    await expect(reader.page.getByLabel('Priority high', { exact: true })).toBeVisible();
     await expect(reader.page.locator('.work-owner-chip')).toBeVisible();
     await expect(reader.page.locator('.colab-work-number:visible')).toHaveCount(0);
   });

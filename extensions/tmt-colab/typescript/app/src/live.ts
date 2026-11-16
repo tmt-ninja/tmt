@@ -141,6 +141,8 @@ export class Live implements PageBinding {
   #todoNumbers: Record<string, string> = {};
   #todoKey = '';
   #todoGeneration = 0;
+  #todoRetryGeneration = 0;
+  #todoTimer?: ReturnType<typeof setTimeout>;
   #threadProjection?: { connection: Connection; admission: Admission; view: PageView };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #verifiedAsks = new VerifiedAsks();
@@ -363,27 +365,58 @@ export class Live implements PageBinding {
       progress: current ? this.#progress : null,
     });
   }
-  #refreshTodoNumbers(value: PageView) {
-    const ids = Object.entries(value.blocks ?? {})
+  #todoIds(value: PageView) {
+    return Object.entries(value.blocks ?? {})
       .filter(([, block]) => block.type === 'todo' && block.deleted === undefined)
       .map(([id]) => id)
       .sort();
+  }
+  #cancelTodoRetries() {
+    this.#todoRetryGeneration++;
+    clearTimeout(this.#todoTimer);
+    this.#todoTimer = undefined;
+  }
+  async #refreshTodoNumbers(value: PageView, force = false) {
+    const ids = this.#todoIds(value);
     const key = ids.join(',');
-    if (key === this.#todoKey) return;
+    if (key === this.#todoKey && (!force || ids.every((id) => this.#todoNumbers[id]))) return;
+    if (key !== this.#todoKey) this.#cancelTodoRetries();
     this.#todoKey = key;
     const generation = ++this.#todoGeneration;
     if (ids.length === 0) {
       this.#todoNumbers = {};
       return;
     }
-    void readWorkNumbers(this.mount, this.page.pageId, ids, this.signal)
-      .then((numbers) => {
-        if (!this.#closed && generation === this.#todoGeneration) {
-          this.#todoNumbers = numbers;
-          this.#publish();
-        }
-      })
-      .catch(() => {});
+    try {
+      const numbers = await readWorkNumbers(this.mount, this.page.pageId, ids, this.signal);
+      if (!this.#closed && generation === this.#todoGeneration) {
+        this.#todoNumbers = numbers;
+        if (ids.every((id) => numbers[id])) this.#cancelTodoRetries();
+        this.#publish();
+      }
+    } catch {
+      // Numbering is optional; a later acknowledged write can retry it.
+    }
+  }
+  #retryTodoNumbers() {
+    this.#cancelTodoRetries();
+    const generation = this.#todoRetryGeneration;
+    const delays = [500, 1000, 2500];
+    const attempt = (index: number) => {
+      if (
+        this.#closed ||
+        generation !== this.#todoRetryGeneration ||
+        this.#todoIds(this.#admitted).every((id) => this.#todoNumbers[id])
+      )
+        return;
+      this.#todoTimer = setTimeout(async () => {
+        this.#todoTimer = undefined;
+        if (this.#closed || generation !== this.#todoRetryGeneration) return;
+        await this.#refreshTodoNumbers(this.#admitted, true);
+        if (index + 1 < delays.length) attempt(index + 1);
+      }, delays[index]);
+    };
+    attempt(0);
   }
   #publish() {
     this.#listeners.forEach((listener) => listener.publish(this.#view()));
@@ -492,7 +525,7 @@ export class Live implements PageBinding {
         (value) => {
           if (!this.#owns(open)) return;
           this.#admitted = { ...structuredClone(value), seq: ++this.#contentSeq };
-          this.#refreshTodoNumbers(value);
+          void this.#refreshTodoNumbers(value);
           const progressKey = canonical({ work: value.work, state: value.state });
           if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
             this.#progressKey = progressKey;
@@ -1086,6 +1119,7 @@ export class Live implements PageBinding {
     await this.#showsRevision(result.revision);
     // The objects show the commit once it is admitted; its content may still be folding.
     await c.applied();
+    if (this.canWork()) this.#retryTodoNumbers();
     // A status reply carries no receipt: the page's text then shows what landed.
     return { droppedHunks: result.receipt?.droppedHunks ?? [], seq: this.#contentSeq };
   }
@@ -1333,6 +1367,7 @@ export class Live implements PageBinding {
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#cancelTodoRetries();
     this.#progressReads.close();
     this.#opening = null;
     this.#observation?.abort();

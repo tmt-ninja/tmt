@@ -166,7 +166,7 @@ export function WorkBand({
             className={`${ui.countChip} work-field-chip`}
             aria-label={priority === 'high' ? t.priorityHigh : t.priorityLow}
           >
-            {priority === 'high' ? '↑ High' : 'Low'}
+            {priority === 'high' ? t.priorityHighChip : t.priorityLowChip}
           </span>
         )}
         {owner && (

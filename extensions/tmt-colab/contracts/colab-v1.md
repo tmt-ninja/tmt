@@ -6416,13 +6416,18 @@ display data, not authority.
 `tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
-ID; delete and restore keep that number. After a content publication commits, the owner reads its
-admitted page view and best-effort allocates missing numbers separately from the publication. The
-owner startup scan retries missing numbers, without changing page content; a reader
+ID; delete and restore keep that number. After a new content publication commits, the owner queues
+its existing background summary refresh, which uses the admitted page view to best-effort allocate
+missing numbers separately from the publication and its reply. The owner startup scan retries
+missing numbers, without changing page content; a reader
 never allocates them. The paired owner browser can POST `{pageId,blocks}` to `/api/work-numbers`
 for at most 2,048 distinct block IDs and receives `{pageId,numbers}`, where `numbers` maps only
 known requested IDs to labels. The body and reply are bounded to 192 KiB; invalid IDs, non-owner
 contexts, and unknown pages are refused. Share readers have no number lookup.
+After an acknowledged owner block publication, a browser with missing labels retries the lookup at
+most three times, approximately 0.5, 1.5 and 4 seconds after the acknowledgement. It cancels those
+retries when the page closes, the shown to-do set changes, all labels arrive or a newer acknowledgement
+starts a fresh sequence; no retry timer runs when all shown to-dos have labels.
 
 Projects are display-only names the owner uses to organize the page list; a page can be in
 several. They carry no authority and are **not signed**: a project never changes who can read

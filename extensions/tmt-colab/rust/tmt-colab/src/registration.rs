@@ -734,19 +734,6 @@ impl Registration {
             chain,
             now,
         )?;
-        if matches!(
-            job.manifest.kind,
-            crate::publication::PublicationKind::Content
-        ) && matches!(
-            committed.record.outcome,
-            crate::publication::Outcome::Committed { .. }
-        ) {
-            let page = &job.manifest.page_id;
-            // Display numbers are best effort after the durable write; startup retries missing ones.
-            let _ = self.engine.decoder(page).and_then(|decoder| {
-                crate::page::backfill_page_todos(&mut self.store, &self.keyring, page, decoder)
-            });
-        }
         let mut combined = None;
         if committed.accepted == crate::store::Accepted::New
             && matches!(
@@ -779,6 +766,19 @@ impl Registration {
                     stream,
                     through: done.through,
                 });
+        }
+        if committed.accepted == crate::store::Accepted::New
+            && matches!(
+                job.manifest.kind,
+                crate::publication::PublicationKind::Content
+            )
+            && matches!(
+                committed.record.outcome,
+                crate::publication::Outcome::Committed { .. }
+            )
+            && let Some(open) = &self.summary_source
+        {
+            crate::summary::after_write(&self.summaries, open);
         }
         // The sync mutex is held, so no other writer can move the page between the combine and
         // this read: the revision is the one this write's reply reports.
