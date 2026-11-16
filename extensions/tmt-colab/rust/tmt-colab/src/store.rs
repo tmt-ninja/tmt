@@ -7,6 +7,7 @@ pub mod publication;
 mod schema;
 #[cfg(test)]
 mod tests;
+pub(crate) mod work_numbers;
 /// The schema version this build writes. Migration tests read it instead of naming the latest.
 pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};

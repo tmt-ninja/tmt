@@ -497,7 +497,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=2;",
     )
     .unwrap();
     let store = Store::open(&f.layout).unwrap();
@@ -1023,6 +1023,7 @@ fn create_page(
                 operation_id: operation,
                 expected_revision: expected,
                 action: tmt_colab::transitions::OwnerAction::Create {
+                    project: None,
                     creator: None,
                     template: None,
                     template_page: None,
@@ -1281,6 +1282,7 @@ fn a_creation_from_a_user_template_needs_a_creator_a_name_and_a_template_page_th
                 operation_id: PAGE,
                 expected_revision: 0,
                 action: OwnerAction::Create {
+                    project: None,
                     creator,
                     template,
                     template_page,
@@ -1336,6 +1338,7 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
                     operation_id: PAGE,
                     expected_revision: 0,
                     action: OwnerAction::Create {
+                        project: None,
                         creator: None,
                         template: None,
                         template_page: None,

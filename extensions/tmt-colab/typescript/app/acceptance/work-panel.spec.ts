@@ -23,6 +23,172 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 
 test.afterEach(disposeActiveWorlds);
 
+test('CLI work fields and to-do numbers appear on the owner page', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    await world.startAgent('release-coordination-agent');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = colab([
+      'page',
+      'create',
+      '--title',
+      'Release readiness and cross-team delivery plan',
+      '--project',
+      'Colab',
+      '--no-open',
+    ]);
+    colab([
+      'page',
+      'set',
+      created.pageId,
+      '--owner',
+      'release-coordination-agent',
+      '--priority',
+      'high',
+      '--next',
+      'Review the result',
+    ]);
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Ship the fix']);
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Review the change']);
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Publish the release']);
+    const parent = colab(['page', 'create', '--title', 'Release coordination', '--no-open']);
+    colab(['subpage', 'attach', parent.pageId, created.pageId]);
+    for (const title of ['Investigate', 'Implement', 'Verify'])
+      colab(['subpage', 'create', created.pageId, '--title', title]);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'work-fields-owner');
+    const page = await openPage(door, browser, created);
+    await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-1');
+    await expect(page.getByLabel('Priority high', { exact: true })).toBeVisible();
+    await expect(page.locator('.work-owner-chip')).toBeVisible();
+    await expect(page.locator('.work-owner-chip')).toHaveAttribute(
+      'aria-label',
+      'release-coordination-agent',
+    );
+    await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
+    await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Verify live numbering']);
+    await expect(page.getByRole('checkbox', { name: 'Verify live numbering' })).toBeVisible();
+    await expect(page.getByText('COLAB-5', { exact: true })).toBeVisible();
+    // Model the owner's first lookup arriving before its new to-do number is allocated.
+    const known = new Set<string>(
+      colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
+    );
+    let earlyLookup = false;
+    await page.route('**/api/work-numbers', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { pageId: string; numbers: Record<string, string> };
+      const requested = route.request().postDataJSON() as { blocks: string[] };
+      if (!earlyLookup && requested.blocks.some((id) => !known.has(id))) {
+        earlyLookup = true;
+        body.numbers = Object.fromEntries(
+          Object.entries(body.numbers).filter(([id]) => known.has(id)),
+        );
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await page.locator('[data-block-id]').filter({ hasText: 'Publish the release' }).hover();
+    await page.getByRole('button', { name: 'Insert block' }).click();
+    await page
+      .getByRole('listbox', { name: 'Insert a block' })
+      .getByRole('option', { name: /To-do/ })
+      .click();
+    await expect(page.getByText('COLAB-6', { exact: true })).toBeVisible();
+    expect(earlyLookup).toBe(true);
+    const todo = page.getByRole('checkbox', { name: 'Ship the fix' });
+    await todo.check();
+    await expect(todo).toBeChecked();
+    const persisted = (name: string) => {
+      const listing = colab(['block', 'ls', created.pageId]);
+      return listing.blocks.find((block: { text?: { s?: string } }) => block.text?.s === name)
+        ?.props?.checked;
+    };
+    await expect.poll(() => persisted('Ship the fix')).toBe(true);
+    await page.getByRole('checkbox', { name: 'Review the change' }).check();
+    await expect.poll(() => persisted('Review the change')).toBe(true);
+    await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
+    const captures = process.env.COLAB_WORK_FIELDS_CAPTURE_DIR;
+    if (captures) {
+      mkdirSync(captures, { recursive: true });
+      for (const width of [1440, 1100, 800, 390])
+        for (const theme of ['light', 'dark']) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.reload();
+          await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
+          await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
+          if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
+          if (width === 1100) {
+            await expect(page.locator('.page-hierarchy-name')).toBeHidden();
+            await page.getByRole('button', { name: 'More', exact: true }).click();
+            await expect(
+              page.getByRole('menuitem', { name: 'Back to Release coordination' }),
+            ).toBeVisible();
+            await page.keyboard.press('Escape');
+            const pin = page.locator('.page-header-pin:visible');
+            const controls = page.locator('.tmt-ui-topbar-controls:visible');
+            if (await pin.count()) {
+              const pinBox = await pin.boundingBox();
+              const controlsBox = await controls.boundingBox();
+              expect(pinBox!.x + pinBox!.width).toBeLessThan(controlsBox!.x);
+            } else {
+              await page.getByRole('button', { name: 'More', exact: true }).click();
+              await expect(page.getByRole('menuitem', { name: 'Pin to top' })).toBeVisible();
+              await page.keyboard.press('Escape');
+            }
+          } else {
+            await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          }
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          await page.screenshot({
+            path: `${captures}/filled-high-${width}-${theme}.png`,
+            animations: 'disabled',
+          });
+        }
+    }
+    colab(['page', 'set', created.pageId, '--clear-owner', '--priority', 'low']);
+    await expect(page.getByLabel('Priority low', { exact: true })).toBeVisible();
+    await expect(page.locator('.work-owner-chip')).toHaveCount(0);
+    if (captures) {
+      for (const width of [1440, 1100, 800, 390])
+        for (const theme of ['light', 'dark']) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.reload();
+          await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
+          await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
+          if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
+          if (width === 1100) await expect(page.locator('.page-hierarchy-name')).toBeHidden();
+          else await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          await page.screenshot({
+            path: `${captures}/filled-low-${width}-${theme}.png`,
+            animations: 'disabled',
+          });
+        }
+    }
+    colab([
+      'page',
+      'set',
+      created.pageId,
+      '--owner',
+      'release-coordination-agent',
+      '--priority',
+      'high',
+    ]);
+    colab(['share', 'mode', created.pageId, 'link', '--yes']);
+    const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
+    const reader = await openReaderLink(world, door, link.readerPath, 'work-fields-reader');
+    await expect(reader.page.getByLabel('Priority high', { exact: true })).toBeVisible();
+    await expect(reader.page.locator('.work-owner-chip')).toBeVisible();
+    await expect(reader.page.locator('.colab-work-number:visible')).toHaveCount(0);
+  });
+});
+
 test('manual state persists, an empty page offers Add to the owner only, and share readers have no owner controls', async () => {
   await withWorld(async (world) => {
     const created = createPage(world, 'Status panel', '<h1>Status panel source</h1>');

@@ -358,7 +358,7 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   expect(withNotice.menuHeight).toBe(0);
   expect(withNotice.frame).toBeCloseTo(beforeNotice.frame + noticeBox!.height);
   await expect(page.getByRole('alert')).toHaveCount(1);
-  await expect(header.locator('.page-attention[data-attention="projects"]')).not.toHaveAttribute(
+  await expect(page.locator('.page-attention[data-attention="projects"]')).not.toHaveAttribute(
     'role',
     'alert',
   );

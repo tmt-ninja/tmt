@@ -1646,7 +1646,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
-  const phone = useMedia('(max-width: 640px)');
+  const compactWorkTitle = useMedia('(max-width: 900px)');
   const [addingSubpage, setAddingSubpage] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
@@ -1758,9 +1758,14 @@ function OpenPage({
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     blocks: snapshot.blocks,
+    todoNumbers: snapshot.todoNumbers,
     convertedAt: snapshot.convertedAt,
     shell: snapshot.shell,
     work: snapshot.work,
+    owner: snapshot.owner,
+    priority: snapshot.priority,
+    next: snapshot.next,
+    blocked: snapshot.blocked,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -2731,6 +2736,8 @@ function OpenPage({
   const workControls = !design ? (
     <PageWorkBand
       work={view.work}
+      priority={view.priority}
+      owner={view.owner}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
       binding={archived || liveError ? undefined : snapshot.binding}
       transport={transport}
@@ -2747,6 +2754,19 @@ function OpenPage({
       }}
     />
   ) : undefined;
+  const projectControls = (
+    <PageProjects
+      transport={transport}
+      space={space}
+      pageId={snapshot.id}
+      title={view.title || snapshot.title}
+      request={projects.request}
+      from={projects.from}
+      open={() => openProjects()}
+      pinRequest={pinRequest}
+      onPinState={setPin}
+    />
+  );
   const content = (
     <section
       className="page"
@@ -2767,6 +2787,7 @@ function OpenPage({
       />
       {!design && (
         <ColabHeader
+          workNumber={snapshot.workNumber}
           embedded={embedded}
           remoteMenu={false}
           remoteChip={false}
@@ -2777,23 +2798,13 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {!phone && workControls}
-              <PageProjects
-                transport={transport}
-                space={space}
-                pageId={snapshot.id}
-                title={view.title || snapshot.title}
-                request={projects.request}
-                from={projects.from}
-                open={() => openProjects()}
-                pinRequest={pinRequest}
-                onPinState={setPin}
-              />
+              {!compactWorkTitle && workControls}
+              {!compactWorkTitle && projectControls}
             </>
           }
           crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
           // A sub-page names its parent where the remembered scope would be (#5506).
-          lead={hierarchy.parent}
+          lead={compactWorkTitle ? undefined : hierarchy.parent}
           barRef={toolbar}
           page
           title={view.title || snapshot.title || text.unknownPageTitle}
@@ -3172,9 +3183,15 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
-        {phone && workControls && (
-          <MobileWorkTitle title={view.title || snapshot.title} onSize={setWorkBandSize}>
+        {compactWorkTitle && workControls && (
+          <MobileWorkTitle
+            title={view.title || snapshot.title}
+            workNumber={snapshot.workNumber}
+            onSize={setWorkBandSize}
+            parent={hierarchy.parent}
+          >
             {workControls}
+            {projectControls}
           </MobileWorkTitle>
         )}
         {!design && pageLinkBar}
@@ -3280,6 +3297,7 @@ function OpenPage({
                   <LazyStructuredPage
                     onSettle={setBlockSettler}
                     blocks={view.blocks}
+                    todoNumbers={view.todoNumbers}
                     seq={view.seq}
                     annotationMode={canSelect && selectionMode}
                     annotations={blockAnchors}

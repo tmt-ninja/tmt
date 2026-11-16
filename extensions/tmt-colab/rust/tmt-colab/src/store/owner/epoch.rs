@@ -10,7 +10,7 @@ pub const MAX_REVOKE_FOLDS: usize = 512;
 /// (colab-v1, "Append at an earlier membership revision"); a writer further behind catches up.
 pub const MAX_UNRELATED_WINDOW: u64 = 256;
 /// The payload of a stored membership statement. Statements were authenticated at append.
-fn decoded_payload(envelope: &[u8]) -> Result<payload::Payload> {
+pub(in crate::store) fn decoded_payload(envelope: &[u8]) -> Result<payload::Payload> {
     let wire: serde_json::Value = serde_json::from_slice(envelope)?;
     let bytes = values::binary(wire["statement"].as_str().ok_or(OwnerFault::Invalid)?, 1024)?;
     let header = statement::decode(&bytes)?;

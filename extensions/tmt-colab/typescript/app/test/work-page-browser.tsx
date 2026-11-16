@@ -120,7 +120,7 @@ let pageTitle = 'Release plan';
  */
 export function mountWorkPage(
   owner = false,
-  scenario: 'tree' | 'empty' | 'many' | 'filled' = 'tree',
+  scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
 ) {
   root?.unmount();
@@ -177,6 +177,9 @@ export function mountWorkPage(
     source,
     state: manualState,
     pageState: manualState,
+    ...(scenario === 'work-fields'
+      ? { priority: 'high' as const, owner: { id: id(88), name: 'gui-3' } }
+      : {}),
     ...(current ? { work: current } : {}),
   });
   const summary = (row: Row): PageSummary => ({
@@ -312,7 +315,20 @@ export function mountWorkPage(
     close() {},
   });
   const transport = localTransport('Review space', [
-    { id: THIS, title: pageTitle, source, sharing: 'private', binding },
+    {
+      id: THIS,
+      title: pageTitle,
+      source,
+      sharing: 'private',
+      binding,
+      ...(scenario === 'work-fields'
+        ? {
+            workNumber: 'COLAB-128',
+            priority: 'high' as const,
+            owner: { id: id(88), name: 'gui-3' },
+          }
+        : {}),
+    },
   ]);
   const routed = {
     ...transport,

@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 /// 5: the work of a page is its sub-pages, and a task-era value not yet migrated is marked
 /// (#5825); older entries are refolded.
-const VERSION: u64 = 5;
+const VERSION: u64 = 6;
 
 /// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
 /// unreadable), and `None` is a verified shell.
@@ -25,6 +25,7 @@ pub type Found = BTreeMap<String, Option<PageWork>>;
 /// One page's work, as the list and the link rules need it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageWork {
+    pub fields: Value,
     /// The verified manual page state.
     pub state: String,
     /// The direct sub-pages, in the page's order.
@@ -40,9 +41,9 @@ impl Kept for Option<PageWork> {
     fn to_json(&self) -> Value {
         match self {
             Some(work) if work.legacy => {
-                json!({"state":work.state,"children":work.children,"legacy":true})
+                json!({"state":work.state,"children":work.children,"legacy":true,"fields":work.fields})
             }
-            Some(work) => json!({"state":work.state,"children":work.children}),
+            Some(work) => json!({"state":work.state,"children":work.children,"fields":work.fields}),
             None => json!({}),
         }
     }
@@ -55,7 +56,16 @@ impl Kept for Option<PageWork> {
         }
         let children =
             crate::work::children(&json!({"version":2,"order":entry.get("children")?})).ok()?;
+        let fields = entry.get("fields")?;
+        if !fields
+            .as_object()?
+            .iter()
+            .all(|(key, value)| crate::page_state::valid_work_field(key, value))
+        {
+            return None;
+        }
         Some(Some(PageWork {
+            fields: fields.clone(),
             state: state.as_str()?.to_owned(),
             children,
             legacy: entry.get("legacy") == Some(&Value::Bool(true)),
@@ -100,6 +110,7 @@ pub fn scan_with_live(
 fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option<Option<PageWork>> {
     match page::read_work_or_shell(store, key, id, decoder) {
         Ok(Some(read)) => Some(Some(PageWork {
+            fields: read.fields,
             state: read.state,
             children: read.children,
             legacy: read.legacy.is_some(),
@@ -124,6 +135,12 @@ pub fn page_work(meta: &Value) -> Option<PageWork> {
         Some(_) => return None,
     };
     Some(PageWork {
+        fields: Value::Object(
+            crate::page_state::WORK_FIELDS
+                .into_iter()
+                .filter_map(|key| meta.get(key).map(|value| (key.to_owned(), value.clone())))
+                .collect(),
+        ),
         state: state.to_owned(),
         children,
         legacy: work["version"] == 1,
@@ -138,6 +155,7 @@ mod tests {
 
     fn work(children: &[&str]) -> Option<PageWork> {
         Some(PageWork {
+            fields: json!({}),
             state: "todo".into(),
             children: children.iter().map(|id| (*id).to_owned()).collect(),
             legacy: false,
@@ -241,8 +259,15 @@ mod tests {
         assert_eq!(entry["legacy"], true);
         assert_eq!(<Option<PageWork>>::from_json("p", &entry), Some(Some(read)));
         assert_eq!(
-            <Option<PageWork>>::from_json("p", &json!({"state":"todo","children":[CHILD]})),
+            <Option<PageWork>>::from_json(
+                "p",
+                &json!({"state":"todo","children":[CHILD],"fields":{}})
+            ),
             Some(work(&[CHILD]))
+        );
+        assert!(
+            <Option<PageWork>>::from_json("p", &json!({"state":"todo","children":[CHILD]}))
+                .is_none()
         );
         assert!(page_work(&json!({"pageType":"shell"})).is_none());
     }

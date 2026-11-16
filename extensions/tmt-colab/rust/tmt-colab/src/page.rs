@@ -697,6 +697,10 @@ pub fn read_shell(
 pub struct WorkPage {
     #[serde(skip)]
     pub state: String,
+    #[serde(skip)]
+    pub fields: serde_json::Value,
+    #[serde(skip)]
+    pub todo_ids: Vec<String>,
     pub space_id: String,
     pub page_id: String,
     pub title: String,
@@ -747,6 +751,47 @@ pub fn read_work(
     read_work_or_shell(store, key, page, decoder)?.ok_or_else(|| Fault::Invalid.into())
 }
 
+/// Number missing to-dos from the owner's admitted page after its publication is durable.
+pub fn backfill_page_todos(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<()> {
+    let Some(work) = read_work_or_shell(store, key, page, decoder)? else {
+        return Ok(());
+    };
+    let mut missing = Vec::new();
+    for id in work.todo_ids {
+        if store.work_number(&format!("{page}:{id}"))?.is_none() {
+            missing.push(id);
+        }
+    }
+    if !missing.is_empty() {
+        store.backfill_todo_numbers(key, page, &missing)?;
+    }
+    Ok(())
+}
+
+/// Stable to-do IDs in page order from an already admitted projection.
+pub(crate) fn todo_ids(blocks: Option<&serde_json::Value>) -> Vec<String> {
+    let mut todos: Vec<_> = blocks
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|blocks| blocks.iter())
+        .filter(|(_, block)| block["type"] == "todo")
+        .map(|(id, block)| {
+            (
+                block["parent"].as_str().unwrap_or_default().to_owned(),
+                block["pos"].as_str().unwrap_or_default().to_owned(),
+                id.clone(),
+            )
+        })
+        .collect();
+    todos.sort();
+    todos.into_iter().map(|(_, _, id)| id).collect()
+}
+
 /// Unlike `read_work`, distinguishes a verified shell from an unreadable page.
 pub(crate) fn read_work_or_shell(
     store: &Store,
@@ -764,8 +809,20 @@ pub(crate) fn read_work_or_shell(
     let children = crate::work::children(work).map_err(|_| Fault::Invalid)?;
     let summary = work.get("summary").cloned();
     let legacy = (work["version"] == 1).then(|| work.clone());
+    let todos = todo_ids(view.blocks.as_ref());
     Ok(Some(WorkPage {
         state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
+        fields: serde_json::Value::Object(
+            crate::page_state::WORK_FIELDS
+                .into_iter()
+                .filter_map(|name| {
+                    view.meta
+                        .get(name)
+                        .map(|value| (name.to_owned(), value.clone()))
+                })
+                .collect(),
+        ),
+        todo_ids: todos,
         space_id: key.space_id.clone(),
         page_id: page.into(),
         title: view.title,

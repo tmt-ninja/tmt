@@ -486,7 +486,7 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
         CREATE TABLE checkpoints(page TEXT, epoch TEXT, stream TEXT, namespace TEXT, seq TEXT,
             hash BLOB NOT NULL, digest BLOB NOT NULL, head BLOB NOT NULL, payload BLOB, pinned INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(page,epoch,stream,namespace,seq), FOREIGN KEY(page,epoch,stream) REFERENCES streams(page,epoch,stream));
-        PRAGMA user_version=1;
+        DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=1;
         INSERT INTO pages VALUES ('legacy','7');
         INSERT INTO streams VALUES ('legacy','7','writer',1);
         INSERT INTO receipts VALUES ('legacy','7','writer','00000000000000000003','own',X'01',X'02',X'0304');
@@ -654,7 +654,7 @@ fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO modern_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY,digest BLOB NOT NULL,outcome BLOB NOT NULL);
         INSERT INTO owner_operations SELECT id,digest,outcome FROM modern_operations;
-        DROP TABLE modern_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=5;").unwrap();
+        DROP TABLE modern_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=5;").unwrap();
     let before: (String, Vec<u8>, Vec<u8>) = db
         .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))

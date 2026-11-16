@@ -152,6 +152,8 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Create {
+    #[serde(default, deserialize_with = "present_text")]
+    project: Option<String>,
     #[serde(default, deserialize_with = "creator_selection")]
     creator: Option<Value>,
     #[serde(default, deserialize_with = "present_text")]
@@ -243,6 +245,13 @@ struct ProjectManage {
     name: String,
     #[serde(default, deserialize_with = "present_text")]
     to: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectPrefix {
+    action: String,
+    name: String,
+    prefix: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -365,6 +374,16 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                     return Err(tmt_colab_model::Invalid);
                 }
                 return Ok(Action::Project(Change::Pins(names.to_vec())));
+            }
+            if tag.action == "prefix" {
+                let value: ProjectPrefix = typed(bytes)?;
+                if value.action != "prefix" || !valid(&value.name) {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::Project(Change::Prefix {
+                    name: value.name,
+                    prefix: value.prefix,
+                }));
             }
             let value: ProjectManage = typed(bytes)?;
             let named = |name: &String| valid(name).then(|| name.clone());
@@ -536,6 +555,11 @@ impl Command {
             let selected = if creating {
                 let create: Create = typed(&payload)?;
                 if create.page_id != value.page
+                    || create
+                        .project
+                        .as_deref()
+                        .is_some_and(|name| !crate::projects::valid(name))
+                    || (create.page_type.as_deref() == Some("shell") && create.project.is_some())
                     || create.title.is_empty()
                     || create.title.len() > crate::decoder::BASELINE_TITLE_BYTES
                     || create.source.len() > crate::decoder::BASELINE_BYTES
@@ -719,6 +743,7 @@ fn apply(
                 OwnerAction::CreateBlocks {
                     page,
                     title,
+                    project: v.project.as_deref(),
                     publisher_agent,
                     creation_recipient,
                 }
@@ -734,6 +759,7 @@ fn apply(
         Action::Create(v) => OwnerAction::Create {
             page: &v.page_id,
             title: &v.title,
+            project: v.project.as_deref(),
             source: &v.source,
             publisher_agent: v.publisher_agent.as_deref(),
             creation_recipient: v.creation_recipient.as_ref(),
@@ -939,6 +965,7 @@ fn new_page(
                 action: OwnerAction::Create {
                     page: &new.page_id,
                     title: &new.title,
+                    project: None,
                     source: &source,
                     publisher_agent: None,
                     creation_recipient: None,

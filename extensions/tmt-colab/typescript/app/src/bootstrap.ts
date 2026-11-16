@@ -102,6 +102,8 @@ export interface PageInfo extends ExpiryInfo {
   state?: PageState | null;
   stateError?: 'page-unavailable';
   pageId: string;
+  /** Owner-local permanent work number, when allocated. */
+  workNumber?: string;
   epoch: string;
   sharing: 'private' | 'link' | 'public';
   history: 'shared' | 'current';
@@ -267,6 +269,7 @@ export async function discover(
       'expiresAtMs',
       'warnings',
       'projects',
+      ...(page !== null && typeof page === 'object' && 'workNumber' in page ? ['workNumber'] : []),
       ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
       ...(page !== null && typeof page === 'object' && 'kind' in page ? ['kind'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
@@ -283,6 +286,11 @@ export async function discover(
           PAGE_REVISION.test(page.revision) &&
           typeof page.contentRevision === 'string' &&
           CONTENT_REVISION.test(page.contentRevision),
+      );
+    if ('workNumber' in page)
+      requireValue(
+        typeof page.workNumber === 'string' &&
+          /^[A-Z]{1,6}-[1-9][0-9]{0,18}$/.test(page.workNumber),
       );
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('kind' in page) requireValue(page.kind === 'design-system');

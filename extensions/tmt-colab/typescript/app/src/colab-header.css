@@ -160,6 +160,11 @@ body:not(:has(.tmt-ui-shell)) {
     white-space: nowrap;
   }
 }
+.colab-work-number {
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-mono);
+  white-space: nowrap;
+}
 .colab-title-divider {
   flex: none;
   color: var(--c-muted);

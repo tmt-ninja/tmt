@@ -128,7 +128,7 @@ for (const width of [1440, 800, 390])
     // State is now inside the title bar, not a separate row aligned with the blocks.
     const bar = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
     const state = (await page.locator('.work-head-chip').boundingBox())!;
-    if (width <= 640) {
+    if (width <= 900) {
       const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
       expect(state.y).toBeGreaterThanOrEqual(title.y + title.height);
       expect(state.x + state.width).toBeLessThanOrEqual(width);

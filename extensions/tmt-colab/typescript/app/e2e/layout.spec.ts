@@ -521,7 +521,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
-    const visibleHeading = width <= 640 ? page.locator('.page-mobile-title:visible h1') : heading;
+    const visibleHeading = width <= 900 ? page.locator('.page-mobile-title:visible h1') : heading;
     await expect(visibleHeading).toBeVisible();
     await expect(visibleHeading).toHaveText(title);
     const actions = bar.getByRole('navigation', { name: 'Page actions' });

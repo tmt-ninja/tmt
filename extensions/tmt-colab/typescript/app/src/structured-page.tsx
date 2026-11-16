@@ -107,6 +107,7 @@ export function blockLabel(block: BlockRecord): string {
 
 export interface StructuredPageProps {
   tree: BlockTree;
+  todoNumbers?: Readonly<Record<string, string>>;
   /** Selection mode annotates the block instead of starting an edit. */
   annotationMode?: boolean;
   onAnnotateBlock?(text: string | undefined, block: HTMLElement): void;
@@ -1214,6 +1215,7 @@ function Content({
       return (
         <TodoBlock
           checked={block.props.checked === true}
+          label={block.text || strings.blockText.todo}
           indent={indentOf(block)}
           onCheckedChange={
             rest.readonly || !rest.onChecked
@@ -1222,6 +1224,11 @@ function Content({
           }
           editing={typing}
         >
+          {rest.todoNumbers?.[block.id] && (
+            <>
+              <span className="tmt-block-todo-number">{rest.todoNumbers[block.id]}</span>{' '}
+            </>
+          )}
           {text}
         </TodoBlock>
       );

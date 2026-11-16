@@ -720,11 +720,11 @@ pub(crate) fn commit_creation(
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
 ) -> Result<Created> {
-    commit_creation_with(root, title, source, page_layout, shell, false, None)
+    commit_creation_with(root, title, source, page_layout, shell, false, (None, None))
 }
 /// A new empty blocks page for a sub-page create, without opening or printing it.
 pub(crate) fn commit_blocks_creation(root: &Path, title: &str) -> Result<Created> {
-    commit_creation_with(root, title, String::new(), None, false, true, None)
+    commit_creation_with(root, title, String::new(), None, false, true, (None, None))
 }
 fn commit_creation_with(
     root: &Path,
@@ -733,8 +733,9 @@ fn commit_creation_with(
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
     blocks: bool,
-    metadata: Option<crate::cli_metadata::CreateMetadata>,
+    context: (Option<crate::cli_metadata::CreateMetadata>, Option<&str>),
 ) -> Result<Created> {
+    let (metadata, project) = context;
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
     }
@@ -772,6 +773,12 @@ fn commit_creation_with(
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if let Some(project) = project {
+        if shell || !tmt_colab::projects::valid(project) {
+            return Err(input("Invalid project name."));
+        }
+        payload["project"] = json!(project);
+    }
     if let Some(selected) = &selected {
         let mut creator = json!({"agent":selected.agent});
         if let Some(machine) = &observation.machine_id {
@@ -893,7 +900,21 @@ fn create_page_kind(
         page_id,
         result,
         observation,
-    } = commit_creation_with(root, title, source, page_layout, shell, blocks, metadata)?;
+    } = commit_creation_with(
+        root,
+        title,
+        source,
+        page_layout,
+        shell,
+        blocks,
+        (
+            metadata,
+            args.try_get_one::<String>("project")
+                .ok()
+                .flatten()
+                .map(String::as_str),
+        ),
+    )?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {
@@ -1498,6 +1519,11 @@ fn attach_state_progress(
     archived: &std::collections::BTreeSet<String>,
 ) {
     let id = page["pageId"].as_str().unwrap_or_default().to_owned();
+    if let Some(Some(work)) = graph.0.get(&id)
+        && let (Some(page), Some(fields)) = (page.as_object_mut(), work.fields.as_object())
+    {
+        page.extend(fields.clone());
+    }
     match (graph.page_state(&id), graph.progress(&id, archived)) {
         (Some(state), Some(progress)) => {
             page["state"] = json!(state);

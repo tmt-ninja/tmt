@@ -3,7 +3,7 @@
 //! too slow for a list read, so a serve-process cache holds them: a read replies with what is
 //! fresh and schedules a background drain of every page that is not, newest first (contract:
 //! Page summary).
-//! Nothing here is signed, stored or part of the owner log; a restart refills the cache lazily.
+//! Summaries are not signed or stored. The same background fold also fills owner-local work labels.
 use crate::{
     Result, decoder, discussion, export::conversations::Conversations, page, page::save::Source,
 };
@@ -120,12 +120,15 @@ pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
 
 /// One page through the owner fold: the same snapshot and materialize path `threads` reads.
 pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProjection> {
-    fold_details(source, page).map(|(projection, _)| projection)
+    fold_details(source, page).map(|(projection, _, _)| projection)
 }
 
 /// [`summarize_details`] and the page's verified title, which the same fold already holds: `Some`
 /// only for an active page, since an archived or deleted one keeps no local title.
-fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, Option<String>)> {
+fn fold_details(
+    source: &mut Source,
+    page: &str,
+) -> Result<(SummaryProjection, Option<String>, Vec<String>)> {
     let snapshot = page::snapshot(&source.store, &source.keyring, page, false)?;
     let active = snapshot.authority.policy.writable();
     let folded = snapshot.materialize(&source.keyring, page, &mut source.decoder)?;
@@ -155,6 +158,11 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
     let mut summary = count(&conversations, &folded.meta, u32::try_from(pending.len())?);
     summary.work = crate::work_index::page_work(&folded.meta).map(Box::new);
     let title = active.then(|| folded.title.clone());
+    let todos = if active {
+        crate::page::todo_ids(folded.blocks.as_ref())
+    } else {
+        Vec::new()
+    };
     Ok((
         SummaryProjection {
             summary,
@@ -163,6 +171,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
             latest: crate::summary_passages::latest(&conversations),
         },
         title,
+        todos,
     ))
 }
 
@@ -175,9 +184,19 @@ fn summarize_current(
     fingerprint: &str,
 ) -> Result<SummaryProjection> {
     require_fingerprint(source, page, fingerprint)?;
-    let (projection, title) = fold_details(source, page)?;
+    let (projection, title, todos) = fold_details(source, page)?;
     require_fingerprint(source, page, fingerprint)?;
     titles.record(&source.keyring, page, fingerprint, title.as_deref());
+    let missing: Vec<_> = todos
+        .into_iter()
+        .filter(|id| matches!(source.store.work_number(&format!("{page}:{id}")), Ok(None)))
+        .collect();
+    if !missing.is_empty()
+        && let Ok(mut writer) = crate::store::Store::write_existing(&source.layout)
+    {
+        // Numbers are display-only; the admitted content stays committed if this fails.
+        let _ = writer.backfill_todo_numbers(&source.keyring, page, &missing);
+    }
     Ok(projection)
 }
 
@@ -198,8 +217,14 @@ pub struct SummaryCache {
     /// process that ends inside the worker's store commit leaves a hot journal that no read-only
     /// open can roll back (#6235).
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    running: Mutex<Running>,
     /// Set by [`SummaryCache::close`]: no fold starts, and a running one stops before its next page.
     closing: AtomicBool,
+}
+#[derive(Default)]
+struct Running {
+    active: bool,
+    after_write: Option<crate::page::save::SourceOpener>,
 }
 impl SummaryCache {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, CachedSummary>> {
@@ -279,22 +304,68 @@ impl SummaryCache {
     /// stack) or the cache is closing. Never blocks the caller; a thread that cannot start leaves
     /// no worker, so a later read tries again.
     fn spawn(self: &Arc<Self>, fold: impl FnOnce(&SummaryCache) + Send + 'static) {
+        self.spawn_inner(fold, None);
+    }
+    /// A write arriving during a refresh requests one additional drain, rather than losing it.
+    fn after_write(self: &Arc<Self>, open: crate::page::save::SourceOpener) {
+        let next = Arc::clone(&open);
+        self.spawn_inner(move |cache| drain_now(cache, &open), Some(next));
+    }
+    fn spawn_inner(
+        self: &Arc<Self>,
+        fold: impl FnOnce(&SummaryCache) + Send + 'static,
+        after_write: Option<crate::page::save::SourceOpener>,
+    ) {
         let mut worker = self
             .worker
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if self.closing()
-            || worker
-                .as_ref()
-                .is_some_and(|running| !running.is_finished())
-        {
+        let mut running = self
+            .running
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if self.closing() {
             return;
         }
+        if running.active && worker.as_ref().is_some_and(|handle| handle.is_finished()) {
+            running.active = false;
+            running.after_write = None;
+        }
+        if running.active {
+            if after_write.is_some() {
+                running.after_write = after_write;
+            }
+            return;
+        }
+        running.active = true;
         let cache = Arc::clone(self);
-        *worker = std::thread::Builder::new()
+        let started = std::thread::Builder::new()
             .name("colab-summary".into())
-            .spawn(move || fold(&cache))
-            .ok();
+            .spawn(move || {
+                fold(&cache);
+                loop {
+                    let mut running = cache
+                        .running
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let next = if cache.closing() {
+                        None
+                    } else {
+                        running.after_write.take()
+                    };
+                    if let Some(open) = next {
+                        drop(running);
+                        drain_now(&cache, &open);
+                    } else {
+                        running.active = false;
+                        break;
+                    }
+                }
+            });
+        match started {
+            Ok(handle) => *worker = Some(handle),
+            Err(_) => running.active = false,
+        }
     }
     fn closing(&self) -> bool {
         self.closing.load(Ordering::Acquire)
@@ -426,27 +497,34 @@ fn drain_with(
 /// unless a worker is already running. Never blocks the caller.
 pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
     let open = Arc::clone(open);
-    cache.spawn(move |cache| {
-        let Ok(mut source) = open() else { return };
-        let space = source.keyring.space_id.clone();
-        let owner = source.keyring.owner_public();
-        let order = |source: &Source| -> Result<Vec<(String, String)>> {
-            let (catalog, fingerprints) = source.store.owner_read(&space, &owner, |tx| {
-                Ok((tx.page_list()?, tx.page_fingerprints()?))
-            })?;
-            Ok(recent_first(&catalog, &fingerprints))
-        };
-        let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
-        // The fold needs the source mutably and the order reads it, so each pass takes turns.
-        let source = std::cell::RefCell::new(&mut source);
-        drain_with(
-            cache,
-            || order(&source.borrow()),
-            |page, fingerprint| {
-                summarize_current(&mut source.borrow_mut(), &mut titles, page, fingerprint)
-            },
-        );
-    });
+    cache.spawn(move |cache| drain_now(cache, &open));
+}
+
+/// Refresh after a committed write, preserving one pending drain while another is running.
+pub fn after_write(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
+    cache.after_write(Arc::clone(open));
+}
+
+fn drain_now(cache: &SummaryCache, open: &page::save::SourceOpener) {
+    let Ok(mut source) = open() else { return };
+    let space = source.keyring.space_id.clone();
+    let owner = source.keyring.owner_public();
+    let order = |source: &Source| -> Result<Vec<(String, String)>> {
+        let (catalog, fingerprints) = source.store.owner_read(&space, &owner, |tx| {
+            Ok((tx.page_list()?, tx.page_fingerprints()?))
+        })?;
+        Ok(recent_first(&catalog, &fingerprints))
+    };
+    let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
+    // The fold needs the source mutably and the order reads it, so each pass takes turns.
+    let source = std::cell::RefCell::new(&mut source);
+    drain_with(
+        cache,
+        || order(&source.borrow()),
+        |page, fingerprint| {
+            summarize_current(&mut source.borrow_mut(), &mut titles, page, fingerprint)
+        },
+    );
 }
 
 #[cfg(test)]
@@ -912,6 +990,30 @@ mod tests {
             ran.load(Ordering::Acquire),
             "a worker starts after the last one ended"
         );
+    }
+
+    #[test]
+    fn a_write_during_a_refresh_schedules_a_followup_drain() {
+        use std::sync::mpsc::channel;
+        let cache = Arc::new(SummaryCache::default());
+        let (started, first) = channel();
+        let (release, held) = channel::<()>();
+        cache.spawn(move |_| {
+            started.send(()).unwrap();
+            held.recv().unwrap();
+        });
+        first.recv().unwrap();
+        let (called, followup) = channel();
+        let open: crate::page::save::SourceOpener = Arc::new(move || {
+            called.send(()).unwrap();
+            Err(crate::page::Fault::Unavailable.into())
+        });
+        cache.after_write(open);
+        release.send(()).unwrap();
+        followup
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        cache.close();
     }
 
     /// The serve closes the cache before it closes the store and exits: close returns only after

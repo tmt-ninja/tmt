@@ -24,6 +24,7 @@ import type { MentionPages } from './mention-pages.js';
  */
 export function LiveStructuredPage({
   blocks,
+  todoNumbers,
   seq,
   binding,
   onLink,
@@ -42,6 +43,7 @@ export function LiveStructuredPage({
   onOpenAnnotation,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
+  todoNumbers?: Readonly<Record<string, string>>;
   /** The view's local order (`PageView.seq`). */
   seq?: number;
   binding?: PageBinding;
@@ -159,6 +161,7 @@ export function LiveStructuredPage({
   return (
     <StructuredPage
       tree={tree}
+      todoNumbers={todoNumbers}
       annotationMode={annotationMode}
       onAnnotateBlock={onAnnotateBlock}
       annotations={annotations}

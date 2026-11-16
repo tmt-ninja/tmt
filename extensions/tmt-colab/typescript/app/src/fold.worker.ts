@@ -234,6 +234,10 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'shell' &&
         key !== 'work' &&
         key !== 'pageState' &&
+        key !== 'owner' &&
+        key !== 'priority' &&
+        key !== 'next' &&
+        key !== 'blocked' &&
         key !== 'attachments' &&
         key !== 'convertedAt' &&
         key !== 'legacyLayout',
@@ -259,6 +263,10 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
     ...(meta.has('work') ? { work: meta.get('work') } : {}),
     ...(meta.has('pageState') ? { pageState: meta.get('pageState') } : {}),
+    ...(meta.has('owner') ? { owner: meta.get('owner') } : {}),
+    ...(meta.has('priority') ? { priority: meta.get('priority') } : {}),
+    ...(meta.has('next') ? { next: meta.get('next') } : {}),
+    ...(meta.has('blocked') ? { blocked: meta.get('blocked') } : {}),
     ...(meta.has('convertedAt') ? { convertedAt: meta.get('convertedAt') } : {}),
     ...(meta.has('legacyLayout') ? { legacyLayout: meta.get('legacyLayout') } : {}),
   };

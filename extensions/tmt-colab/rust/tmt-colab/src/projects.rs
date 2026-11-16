@@ -23,6 +23,11 @@ pub enum Change {
     },
     /// Removes the grouping only; no page is deleted.
     Delete(String),
+    /// Change the prefix used by future allocations; issued numbers do not move.
+    Prefix {
+        name: String,
+        prefix: String,
+    },
     /// Replaces the owner's whole pinned-project list: ordered, no repeats, each an existing project.
     Pins(Vec<String>),
 }

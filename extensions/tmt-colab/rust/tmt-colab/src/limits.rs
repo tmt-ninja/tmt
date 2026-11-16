@@ -54,6 +54,8 @@ pub const LOCAL_MANAGEMENT_BODY_BYTES: usize = LOCAL_CREATE_PAYLOAD_BYTES.div_ce
 pub fn http_body_bytes(path: &str) -> usize {
     if path == crate::page::ipc::PATH {
         crate::publication::LOCAL_WRITE_BYTES
+    } else if path == crate::registration::WORK_NUMBERS_PATH {
+        192 * 1024
     } else if path == crate::management::LOCAL_PATH {
         LOCAL_MANAGEMENT_BODY_BYTES
     } else {

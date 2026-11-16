@@ -562,6 +562,17 @@ impl OwnerTransaction<'_> {
         }
         for (id, page) in pages.iter_mut() {
             page["projects"] = serde_json::json!(projects.remove(id).unwrap_or_default());
+            let number: Option<(String, i64)> = self
+                .tx
+                .query_row(
+                    "SELECT prefix,n FROM work_numbers WHERE item=?",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if let Some((prefix, n)) = number {
+                page["workNumber"] = serde_json::json!(format!("{prefix}-{n}"));
+            }
         }
         if let Some(space) = space {
             for (id, page) in pages.iter_mut() {

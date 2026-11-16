@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
 import {
   useEffect,
   useId,
@@ -20,6 +21,8 @@ type RowSlots = Pick<
 >;
 export interface WorkBandProps {
   onSize?(height: number): void;
+  priority?: 'high' | 'normal' | 'low';
+  owner?: { id: string; name: string };
   pageState?: PageState | null;
   /** This page's own state chip; the owner's is a menu of its own, which never toggles the band. */
   stateControl?: ReactNode;
@@ -42,11 +45,15 @@ export interface WorkBandProps {
 /** On phones the page title and work controls scroll together as one content block. */
 export function MobileWorkTitle({
   title,
+  workNumber,
   onSize,
+  parent,
   children,
 }: {
   title: string;
+  workNumber?: string;
   onSize(height: number): void;
+  parent?: ReactNode;
   children: ReactNode;
 }) {
   const element = useRef<HTMLDivElement>(null);
@@ -64,8 +71,16 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
-      <h1>{title}</h1>
-      {children}
+      {parent}
+      <h1>
+        {workNumber && (
+          <>
+            <span className="colab-work-number">{workNumber}</span>{' '}
+          </>
+        )}
+        {title}
+      </h1>
+      <div className="page-mobile-title-chips">{children}</div>
     </div>
   );
 }
@@ -82,6 +97,8 @@ function StateChip({ state }: { state?: PageState | null }) {
 /** Title-row state and sub-page count; the count opens the editable sub-page tree. */
 export function WorkBand({
   onSize,
+  priority,
+  owner,
   pageState,
   stateControl,
   subpages,
@@ -144,6 +161,26 @@ export function WorkBand({
     <section ref={section} className="work-band" aria-label={t.label}>
       <div className="work-head" data-empty={empty}>
         <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
+        {priority && priority !== 'normal' && (
+          <span
+            className={`${ui.countChip} work-field-chip`}
+            aria-label={priority === 'high' ? t.priorityHigh : t.priorityLow}
+          >
+            {priority === 'high' ? t.priorityHighChip : t.priorityLowChip}
+          </span>
+        )}
+        {owner && (
+          <span
+            className={`${ui.countChip} work-field-chip work-owner-chip`}
+            aria-label={owner.name}
+            title={owner.name}
+          >
+            <BrowserAvatar name={owner.name} kind="agent" size="s" decorative />
+            <span className="work-owner-name" title={owner.name}>
+              {owner.name}
+            </span>
+          </span>
+        )}
         {!empty && (
           <button
             type="button"

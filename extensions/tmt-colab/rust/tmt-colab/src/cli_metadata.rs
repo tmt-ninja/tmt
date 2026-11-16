@@ -70,6 +70,40 @@ pub fn state_command() -> Command {
     .arg(revision())
 }
 
+pub fn set_command() -> Command {
+    let mut command = crate::cli_work::spec(
+        "set",
+        "Change a page's work fields",
+        "Only named fields change; explicit clear flags remove optional values.",
+        &[Example {
+            command: "tmt colab page set 01234567 --priority high --next 'Review the result' --json",
+            note: "Update two work fields in one revision",
+        }],
+    )
+    .arg(crate::cli_grammar::page())
+    .arg(revision());
+    for name in ["owner", "priority", "next", "blocked"] {
+        let mut arg = Arg::new(name).long(name).value_name("VALUE");
+        if name == "priority" {
+            arg = arg.value_parser(["high", "normal", "low"]);
+        }
+        command = command.arg(arg);
+    }
+    for (name, field) in [
+        ("clear-owner", "owner"),
+        ("clear-next", "next"),
+        ("clear-blocked", "blocked"),
+    ] {
+        command = command.arg(
+            Arg::new(name)
+                .long(name)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(field),
+        );
+    }
+    command
+}
+
 pub fn question_command() -> Command {
     let mut command = spec("question", "Register and handle a page's questions",
         "Question registration and handling are editor-owned content. Answered state comes from verified answers, independently of Ask delivery. Changes use the current verified revision and never open a browser.")
@@ -379,7 +413,36 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     }
     let mut body = json!({});
     let mut identity_verified = None;
-    let (kind, action) = if name == "state" {
+    let (kind, action) = if name == "set" {
+        for field in ["priority", "next", "blocked"] {
+            if let Some(value) = args.get_one::<String>(field) {
+                body[field] = json!(value);
+            }
+        }
+        for (flag, field) in [
+            ("clear-owner", "owner"),
+            ("clear-next", "next"),
+            ("clear-blocked", "blocked"),
+        ] {
+            if args.get_flag(flag) {
+                body[field] = Value::Null;
+            }
+        }
+        if let Some(selector) = args.get_one::<String>("owner") {
+            let selected = select_agent(
+                selector,
+                &[],
+                &format!(
+                    "tmt colab page set {page_id} {}",
+                    tmt_colab::repair::option("owner", selector)
+                ),
+                &format!("tmt colab page set {page_id} --owner UUID"),
+            )?;
+            body["owner"] = selected.agent;
+            identity_verified = Some(!selected.unverified);
+        }
+        (StructuredKind::WorkFields, "page.set")
+    } else if name == "state" {
         body["state"] = json!(args.get_one::<String>("state").expect("state"));
         (StructuredKind::PageState, "page.state")
     } else if name == "creator" {
@@ -395,7 +458,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             },
         )
     };
-    if name != "creator" && name != "state" {
+    if name != "creator" && name != "state" && name != "set" {
         body["id"] = json!(args.get_one::<String>("id").expect("id"));
         for field in if name == "add" {
             &["title", "group"][..]

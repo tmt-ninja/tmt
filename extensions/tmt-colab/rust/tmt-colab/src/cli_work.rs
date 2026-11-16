@@ -368,27 +368,39 @@ pub(crate) fn migrate_space(
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let legacy: Result<Vec<(String, Value)>> = tmt_colab::inspection::all_page_ids(&store, &key)
-        .map(|pages| {
-            pages
-                .into_iter()
-                .filter_map(|page| {
-                    // A page whose work cannot be read is said, never skipped silently (#5853).
-                    match page::read_work(&store, &key, &page, &mut decoder) {
-                        Ok(work) => Some((page, work.legacy?)),
-                        Err(error) => {
-                            report(&format!(
-                                "Page {page}: its work could not be read, so it was not checked for task-era work ({error})."
-                            ));
-                            None
-                        }
+    let mut legacy = Vec::new();
+    let mut missing_todos = Vec::new();
+    for page in tmt_colab::inspection::all_page_ids(&store, &key)? {
+        // A page whose work cannot be read is said, never skipped silently (#5853).
+        match page::read_work(&store, &key, &page, &mut decoder) {
+            Ok(work) => {
+                let mut missing = Vec::new();
+                for id in work.todo_ids {
+                    if store.work_number(&format!("{page}:{id}"))?.is_none() {
+                        missing.push(id);
                     }
-                })
-                .collect()
-        });
+                }
+                if !missing.is_empty() {
+                    missing_todos.push((page.clone(), missing));
+                }
+                if let Some(value) = work.legacy {
+                    legacy.push((page, value));
+                }
+            }
+            Err(error) => report(&format!(
+                "Page {page}: its work could not be read, so it was not checked for task-era work ({error})."
+            )),
+        }
+    }
     let closed = store.close();
-    let legacy = legacy?;
     closed?;
+    if !missing_todos.is_empty() {
+        let mut writer = Store::write_existing(&layout)?;
+        for (page, ids) in missing_todos {
+            writer.backfill_todo_numbers(&key, &page, &ids)?;
+        }
+        writer.close()?;
+    }
     let mut rewritten = Vec::new();
     for (page, value) in legacy {
         let exported = match export_legacy(&layout.directory, &page, &value) {

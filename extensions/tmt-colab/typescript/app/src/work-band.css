@@ -42,12 +42,61 @@
 .work-page-state {
   white-space: nowrap;
 }
-.work-quiet {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--tmt-ui-color-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.work-field-chip {
+  cursor: default;
+}
+.work-field-chip:hover {
+  background: var(--tmt-ui-surface-command);
+}
+@media (min-width: 901px) {
+  .tmt-ui-topbar-title:has(.work-field-chip) {
+    container: colab-work-title / inline-size;
+  }
+  .tmt-ui-topbar-title:has(.work-field-chip) .tmt-ui-topbar-title-current {
+    min-width: 24ch;
+  }
+  .tmt-ui-topbar-title:has(.work-field-chip) h1 {
+    min-width: 27ch;
+  }
+  .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
+    min-width: 6ch;
+  }
+}
+@container colab-work-title (max-width: 1100px) {
+  .page-header-project-add > .page-project-group {
+    display: none;
+  }
+}
+@container colab-work-title (max-width: 1000px) {
+  .work-owner-name {
+    display: none;
+  }
+}
+@container colab-work-title (max-width: 800px) {
+  h1:has(.page-hierarchy-parent):has(.tmt-ui-topbar-title-current) {
+    min-width: 24ch;
+  }
+  .work-head {
+    gap: 0;
+  }
+  .work-band {
+    margin-inline-end: var(--tmt-ui-space-s);
+  }
+  .page-hierarchy-count,
+  .page-hierarchy-icon,
+  .page-hierarchy-name,
+  .page-hierarchy-separator,
+  .page-header-pin {
+    display: none;
+  }
+  .work-field-chip,
+  .work-toggle {
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+  .work-state-control .tmt-ui-menu-trigger {
+    gap: 0;
+    padding-inline: var(--tmt-ui-space-xs);
+  }
 }
 .work-segments {
   display: flex;
@@ -261,19 +310,6 @@ a.work-row-title:hover {
   .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.work-band) {
     display: contents;
   }
-  .work-count-wide {
-    display: none;
-  }
-  .work-count-compact {
-    display: inline;
-  }
-  .work-head .work-state-control .tmt-ui-menu-value {
-    display: block;
-    max-width: 2.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .work-head .work-state-control .tmt-ui-menu-trigger {
     gap: 0;
     padding-inline: var(--tmt-ui-space-xs);
@@ -287,14 +323,26 @@ a.work-row-title:hover {
   .work-toggle {
     padding-inline: var(--tmt-ui-space-xs);
   }
-  .work-toggle .work-chevron {
-    display: none;
-  }
 }
-@media (max-width: 640px) {
+@media (max-width: 900px) {
+  .work-band {
+    max-width: 100%;
+  }
+  .work-head {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   .page-mobile-title {
     box-sizing: border-box;
     padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);
+  }
+  .page-mobile-title .page-hierarchy-name {
+    display: inline-block;
+    max-width: 100%;
+  }
+  .page-mobile-title .page-hierarchy-count,
+  .page-mobile-title .page-hierarchy-separator {
+    display: none;
   }
   .page-mobile-title h1 {
     margin: 0 0 var(--tmt-ui-space-s);
@@ -302,18 +350,26 @@ a.work-row-title:hover {
     line-height: 1.3;
     overflow-wrap: anywhere;
   }
+  .page-mobile-title-chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--tmt-ui-space-s);
+  }
   body:has(.page-mobile-title) .tmt-ui-topbar-title h1,
   body:has(.page-mobile-title) .tmt-ui-header h1 {
-    display: none;
-  }
-  .page-hierarchy-parent .page-hierarchy-count,
-  .page-hierarchy-parent .page-hierarchy-separator {
     display: none;
   }
   .page-mobile-title .work-body-transition {
     left: 0;
     right: auto;
     width: min(36rem, calc(100vw - 2 * var(--tmt-ui-header-padding-inline)));
+  }
+}
+@media (max-width: 640px) {
+  .page-hierarchy-parent .page-hierarchy-count,
+  .page-hierarchy-parent .page-hierarchy-separator {
+    display: none;
   }
   .work-wide {
     display: none;

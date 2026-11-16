@@ -52,6 +52,7 @@ pub enum OwnerAction<'a> {
     CreateBlocks {
         page: &'a str,
         title: &'a str,
+        project: Option<&'a str>,
         publisher_agent: Option<&'a str>,
         creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
     },
@@ -62,6 +63,7 @@ pub enum OwnerAction<'a> {
         template_page: Option<&'a str>,
         page: &'a str,
         title: &'a str,
+        project: Option<&'a str>,
         source: &'a str,
         publisher_agent: Option<&'a str>,
         creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
@@ -207,6 +209,7 @@ impl Engine {
                 template_page,
                 page,
                 title,
+                project,
                 source,
                 publisher_agent,
                 creation_recipient,
@@ -221,6 +224,7 @@ impl Engine {
                     template_page,
                     page,
                     title,
+                    project,
                     source,
                     publisher_agent,
                     creation_recipient,
@@ -242,6 +246,7 @@ impl Engine {
                 super::create::Selection {
                     page,
                     title,
+                    project: None,
                     source: "",
                     creator: None,
                     template: None,
@@ -257,6 +262,7 @@ impl Engine {
             OwnerAction::CreateBlocks {
                 page,
                 title,
+                project,
                 publisher_agent,
                 creation_recipient,
             } => self.create_page(
@@ -266,6 +272,7 @@ impl Engine {
                 super::create::Selection {
                     page,
                     title,
+                    project,
                     source: "",
                     creator: None,
                     template: None,

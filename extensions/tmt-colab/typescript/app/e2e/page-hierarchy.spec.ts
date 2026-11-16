@@ -6,7 +6,11 @@ import { capturePath } from './captures.js';
 const id = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const PAGE = { remote: id(1), launch: id(53), elsewhere: id(54) };
 
-async function mount(page: Page, scenario: 'tree' | 'empty' | 'filled' = 'tree', owner = true) {
+async function mount(
+  page: Page,
+  scenario: 'tree' | 'empty' | 'filled' | 'work-fields' = 'tree',
+  owner = true,
+) {
   await page.goto('/');
   await page.evaluate(
     async ([owner, scenario]) => {
@@ -16,9 +20,39 @@ async function mount(page: Page, scenario: 'tree' | 'empty' | 'filled' = 'tree',
     [owner, scenario] as const,
   );
   const bar = page.locator('.tmt-ui-topbar:visible');
-  await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText(/^Release plan/);
+  await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText(
+    /^(?:COLAB-128\s+)?Release plan/,
+  );
   return bar;
 }
+
+for (const width of [1440, 1100, 800, 390])
+  test(`work fields remain readable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, 'work-fields');
+    const work = page.getByRole('region', { name: 'Work on this page' });
+    await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
+    await expect(work.getByLabel('Priority high')).toBeVisible();
+    await expect(work.locator('.work-owner-chip')).toBeVisible();
+    await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
+    await expect(work.locator('.work-count-wide')).toBeVisible();
+    const state = work.locator('.work-head .tmt-ui-menu-value');
+    await expect(state).toHaveText('In progress');
+    expect(await state.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const box = await work.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    if (width === 1100) {
+      const controls = page.locator('.tmt-ui-topbar-controls:visible');
+      const controlsBox = await controls.boundingBox();
+      expect(box!.x + box!.width).toBeLessThanOrEqual(controlsBox!.x);
+    }
+    const title =
+      width <= 900
+        ? page.locator('.page-mobile-title:visible h1')
+        : page.locator('.tmt-ui-topbar:visible .tmt-ui-topbar-title-current');
+    expect((await title.boundingBox())!.width).toBeGreaterThan(40);
+  });
 
 test('Mock P1: the direct parent and its progress lead the title, its menu goes up or across', async ({
   page,

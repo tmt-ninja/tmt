@@ -3529,6 +3529,17 @@ consume the shared `shell-v1.json` vectors.
 
 ### Page state and progress (#5504)
 
+An ordinary page may also carry `meta.owner` (a validated agent ID and name), `meta.priority`
+(`high`, `normal`, or `low`), `meta.next` and `meta.blocked` (non-empty text of at most 200
+Unicode code points, without control characters). These values are signed content, not authority.
+The owner-device `page.set` action changes only the named fields in one expected-revision write;
+null clears a field. The CLI resolves owner names through the existing identity lookup. Invalid
+values or a stale revision refuse the write. Native and browser decoders validate these fields,
+and epoch baselines retain them. A shell cannot carry them.
+`tmt colab page set PAGE` accepts `--owner`, `--priority`, `--next`, and `--blocked`; the
+`--clear-owner`, `--clear-next`, and `--clear-blocked` flags remove those optional fields. The
+owner's `ls --json` and `show --json` include the available fields and `workNumber`.
+
 An ordinary page has an independent manual state: `todo`, `in-progress`, or `done`. It is the optional `meta.pageState` string in the encrypted content document; an absent value reads as `todo`. Invalid values are refused by native and browser decoders. A dashboard shell is not a ticket: it cannot carry this field and its state and progress read as `null`. Only an explicit owner-device structured `page.state` action `{state}` changes the field; its revision and operation follow the existing structured publication path. The owner's CLI, agents and paired browser use that admission; a share or non-owner writer gains no authority. Other devices and admitted readers observe the encrypted page state through normal sync. Source edits and epoch baselines retain it.
 
 Page progress is derived at read time and never stored in the page or used to change its manual state. It is `progress: {done,inProgress,todo,unknown,total}`, all nonnegative integers, where `total` is the sum of the four buckets. It counts the page's direct [sub-pages](#sub-pages-5825), each once, by its own manual state; it is never recursive. A sub-page whose current state is unavailable or stale counts as unknown, never done. Archived sub-pages count normally. If the page's own current projection cannot be read, state and progress are null with an unavailable reason rather than invented counts.
@@ -3539,8 +3550,8 @@ Page progress is derived at read time and never stored in the page or used to ch
 
 An ordinary HTML page or a [page of blocks](#structured-pages-6004) may carry work: its direct
 sub-pages in order and a two-line summary, in the content document's `meta.work` beside its HTML or
-blocks. A page with sub-pages is just a page; there is no
-task, assignee or other tracker concept. A dashboard never carries work (it keeps its own
+blocks. A page with sub-pages is just a page, not a separate task type. Its optional owner and
+priority are the page metadata defined above. A dashboard never carries work (it keeps its own
 summary), and a page with `meta.work` is not a dashboard (`pageType` is absent or `blocks`). The
 isolated native decoder and the
 browser fold validate the value on every incoming state and prepared action, so raw Yjs cannot
@@ -6388,6 +6399,36 @@ Reads never convert or reclaim the file; per-prune reclaim failures stay silent.
 
 ### Projects (#3747)
 
+The owner assigns an ordinary page a permanent `workNumber` once, as a prefix and positive
+number. An initial project selects its current prefix; a page without one uses `W`. Later changes
+to a page's projects never renumber it. `project_meta` holds each current project's prefix,
+`work_counters` retains the next number for every prefix even after deletion, and `work_numbers`
+retains issued pairs, which are unique and never reused. Rename keeps the prefix; merge uses the
+target's prefix for future pages. Changing a prefix uses that prefix's retained counter. A derived
+prefix uses up to six uppercase ASCII letters from the project name, or `P` when none or `W`;
+collisions use at most five letters and append `A`, `B`, and so on in canonical project-name
+order. An explicit prefix already used by another current project is refused. On migration the
+owner allocates existing pages in the order readable admitted log rows first name them; unreadable
+rows are skipped. For an old multi-project page it uses the canonical first project. Pages with no
+readable page-scoped creation statement follow in page-ID order. The number is owner-local
+display data, not authority.
+`tmt colab page create --project NAME` sets the initial project before allocating the page number;
+`tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
+
+A structured to-do block also receives an owner-local number, keyed by its page and stable block
+ID; delete and restore keep that number. After a new content publication commits, the owner queues
+its existing background summary refresh, which uses the admitted page view to best-effort allocate
+missing numbers separately from the publication and its reply. The owner startup scan retries
+missing numbers, without changing page content; a reader
+never allocates them. The paired owner browser can POST `{pageId,blocks}` to `/api/work-numbers`
+for at most 2,048 distinct block IDs and receives `{pageId,numbers}`, where `numbers` maps only
+known requested IDs to labels. The body and reply are bounded to 192 KiB; invalid IDs, non-owner
+contexts, and unknown pages are refused. Share readers have no number lookup.
+After an acknowledged owner block publication, a browser with missing labels retries the lookup at
+most three times, approximately 0.5, 1.5 and 4 seconds after the acknowledgement. It cancels those
+retries when the page closes, the shown to-do set changes, all labels arrive or a newer acknowledgement
+starts a fresh sequence; no retry timer runs when all shown to-dos have labels.
+
 Projects are display-only names the owner uses to organize the page list; a page can be in
 several. They carry no authority and are **not signed**: a project never changes who can read
 or write a page, is never an owner-log statement and never enters a page's content or any
@@ -6433,7 +6474,8 @@ gate beyond the paired owner device or local CLI that every management write alr
   one page, so this request names the space scope page
   `00000000-0000-4000-8000-000000000000` in `page` and no other request may; any other value is
   `INVALID`. Its payload is exactly `{action, name}` with `action` `"create"` or `"delete"`, or
-  `{action:"rename", name, to}`; `to` is present for a rename and for nothing else, and `null`
+  `{action:"rename", name, to}`, or `{action:"prefix", name, prefix}`. `to` is present for a
+  rename and for nothing else; `prefix` is present only for a prefix change, and `null`
   is not an absent `to`. `create` is idempotent. `rename` moves every page that is in `name`
   (archived pages included) to `to`; if `to` already exists the two merge and a page in both
   keeps one entry, and no page is deleted. `delete` removes the project and its assignments
@@ -7463,7 +7505,8 @@ reject explicit null for optional `nativeEvidence`. IDs/counters/hashes reuse th
 canonical UUIDv4, space ID, positive-u64 decimal, lowercase hex32 and base64url rules.
 The manifest is `{version:1,operationId,spaceId,pageId,epoch,streamId,kind:"content"|"own",
 membershipHead:{revision,statementHash},baseRevision,entries,packetBytes,packetHash}` plus
-optional `{sourceSha256,memoryLimit,chainHash}` native evidence. `baseRevision` is `v1:` plus
+optional `{sourceSha256,memoryLimit,chainHash}` native evidence.
+`baseRevision` is `v1:` plus
 lowercase hex32. Each entry is `{namespace,seq,envelopeHash,envelopeBytes}` with
 `namespace` equal to the manifest `kind`; a job never mixes namespaces;
 byte/count fields are positive unsigned JSON integers. `SignedJob` is `{manifest,signature}`.

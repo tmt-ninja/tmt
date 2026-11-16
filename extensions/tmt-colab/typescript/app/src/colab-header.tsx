@@ -80,6 +80,7 @@ export function ColabHeader({
   crumb,
   lead,
   headingSuffix,
+  workNumber,
   embedded = false,
   reader = false,
   brandOnly = false,
@@ -106,6 +107,7 @@ export function ColabHeader({
   lead?: ReactNode;
   /** A crumb or control after the title, supplied with its own separator. */
   headingSuffix?: ReactNode;
+  workNumber?: string;
   /** The page is hosted inside another surface that already names it: only its actions and status
    * remain, in place, never in the host's header slot. */
   embedded?: boolean;
@@ -143,20 +145,23 @@ export function ColabHeader({
       productLabel={bar ? (identity ?? text.product) : text.product}
       inShell={bar !== null}
       headingPrefix={
-        bar !== null ? (
-          remote !== undefined && lead !== undefined ? (
-            lead
-          ) : remote !== undefined && crumb !== undefined ? (
-            <CrumbGroup>{crumb}</CrumbGroup>
-          ) : undefined
-        ) : remote === undefined ? undefined : (
-          <>
-            <span className="colab-title-divider" aria-hidden="true">
-              /
-            </span>
-            {lead ?? (crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>)}
-          </>
-        )
+        <>
+          {bar !== null ? (
+            remote !== undefined && lead !== undefined ? (
+              lead
+            ) : remote !== undefined && crumb !== undefined ? (
+              <CrumbGroup>{crumb}</CrumbGroup>
+            ) : undefined
+          ) : remote === undefined ? undefined : (
+            <>
+              <span className="colab-title-divider" aria-hidden="true">
+                /
+              </span>
+              {lead ?? (crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>)}
+            </>
+          )}
+          {workNumber && <span className="colab-work-number">{workNumber}</span>}
+        </>
       }
       headingSuffix={headingSuffix}
       title={title}
@@ -227,6 +232,11 @@ export function ColabHeader({
                 )
               )}
               <span className="tmt-ui-topbar-title-current" title={title}>
+                {workNumber && (
+                  <>
+                    <span className="colab-work-number">{workNumber}</span>{' '}
+                  </>
+                )}
                 {title}
               </span>
             </h1>
