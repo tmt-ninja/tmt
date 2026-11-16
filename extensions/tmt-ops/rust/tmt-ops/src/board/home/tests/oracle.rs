@@ -758,6 +758,7 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
             member.activity.phase = crate::board::activity::Phase::Working;
             member.activity.since_ms = Some(NOW - 192_000);
             if state == "activity-row-flash" {
+                app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
                 workspace.roster.squads[0]
                     .member_states
                     .get_mut(MEMBER)

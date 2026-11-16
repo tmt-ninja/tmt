@@ -926,6 +926,39 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 },
                 look,
             );
+            if matches!(row.target, OpsTarget::Member { .. }) {
+                let waiting = row
+                    .activity
+                    .as_ref()
+                    .is_some_and(|activity| activity.waiting);
+                let blocked = row.state.as_deref() == Some("blocked");
+                let stage = app.agents_live.row_flash(
+                    format!("{:?}", row.target),
+                    waiting,
+                    blocked,
+                    app.unread_target(&row.target).total as u64,
+                    !reduced,
+                    now,
+                );
+                if stage > 0 && look.depth != tmt_cli_style::Depth::None {
+                    let role = if stage == 2 {
+                        Role::Selection
+                    } else {
+                        Role::Track
+                    };
+                    let fill = tmt_cli_style::theme::screen::fill(
+                        &look.theme,
+                        role,
+                        look.depth,
+                        tmt_cli_style::theme::screen::Fill::Solid,
+                    );
+                    if let Some(background) = fill.bg {
+                        for x in stripe.x..stripe.right() {
+                            frame.buffer_mut()[(x, stripe.y)].set_bg(background);
+                        }
+                    }
+                }
+            }
             if matches!(row.target, OpsTarget::Member { .. } | OpsTarget::Squad(_))
                 && let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Activity)
             {
@@ -979,39 +1012,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         &look.theme,
                         look.depth,
                     );
-                }
-            }
-            if matches!(row.target, OpsTarget::Member { .. }) {
-                let waiting = row
-                    .activity
-                    .as_ref()
-                    .is_some_and(|activity| activity.waiting);
-                let blocked = row.state.as_deref() == Some("blocked");
-                let stage = app.agents_live.row_flash(
-                    format!("{:?}", row.target),
-                    waiting,
-                    blocked,
-                    app.unread_target(&row.target).total as u64,
-                    !reduced,
-                    now,
-                );
-                if stage > 0 && look.depth != tmt_cli_style::Depth::None {
-                    let role = if stage == 2 {
-                        Role::Selection
-                    } else {
-                        Role::Track
-                    };
-                    let fill = tmt_cli_style::theme::screen::fill(
-                        &look.theme,
-                        role,
-                        look.depth,
-                        tmt_cli_style::theme::screen::Fill::Solid,
-                    );
-                    if let Some(background) = fill.bg {
-                        for x in stripe.x..stripe.right() {
-                            frame.buffer_mut()[(x, stripe.y)].set_bg(background);
-                        }
-                    }
                 }
             }
             if let Some(hit) = checklist_hit {

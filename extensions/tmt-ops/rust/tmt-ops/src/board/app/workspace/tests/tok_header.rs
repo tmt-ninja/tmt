@@ -199,6 +199,73 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
 const LISTS: [&str; 1] = ["squads"];
 
 #[test]
+fn row_flash_preserves_the_activity_cells_grey_scale() {
+    use crate::board::{agents_live::AgentsLiveUsage, workspace::OpsTarget};
+    use std::time::Duration;
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    frame(&app, 160);
+    let mut values = [Some(0.0); 12];
+    for (index, value) in values.iter_mut().enumerate() {
+        *value = Some(index as f64 * 100.0);
+    }
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: values,
+        },
+    );
+    let before = frame(&app, 160);
+    let header = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+    let y = (0..before.area.height)
+        .find(|y| {
+            (0..before.area.width)
+                .map(|x| before[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    let key = format!(
+        "{:?}",
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into()
+        }
+    );
+    let future = Instant::now() + Duration::from_secs(60);
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, future);
+    app.agents_live.row_flash(key, true, false, 0, true, future);
+    let after = frame(&app, 160);
+    for x in header.x..header.right() {
+        assert_eq!(
+            before[(x, y)].bg,
+            after[(x, y)].bg,
+            "activity background at x={x}"
+        );
+    }
+    assert_ne!(
+        before[(0, y)].bg,
+        after[(0, y)].bg,
+        "row background must flash"
+    );
+}
+
+#[test]
 fn working_turn_timer_and_spinner_respect_motion_preference() {
     use crate::board::{activity::Phase, view::ClockSurface};
     let now_ms = 1_800_000_000_000;
