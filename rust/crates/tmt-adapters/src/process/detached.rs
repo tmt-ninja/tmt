@@ -7,6 +7,7 @@ use std::{
     io::{self, Read, Write},
     os::{fd::AsFd, unix::fs::MetadataExt},
     path::Path,
+    thread,
     time::{Duration, Instant},
 };
 use subprocess::{Exec, JobExt, Redirection};
@@ -196,6 +197,18 @@ fn start_acknowledged(
             }
         }
     })();
+    let started = started.and_then(|acknowledgment| {
+        // Keep the same child handle until exit even when the invoking process
+        // stays alive (for example an API session). The original job still owns
+        // cleanup if creating the waiter fails; dropping that clone cannot wait.
+        let child = job.processes[0].clone();
+        thread::Builder::new()
+            .name("tmt-detached-wait".into())
+            .spawn(move || {
+                let _ = child.wait();
+            })?;
+        Ok(acknowledgment)
+    });
     let acknowledgment = match started {
         Ok(acknowledgment) => acknowledgment,
         Err(error) => {
@@ -213,8 +226,8 @@ fn start_acknowledged(
         }
     };
     job.stdout.take();
-    // Detaching never restarts the process. Its stored request deadline owns
-    // its lifetime; the short-lived talk caller may now exit independently.
+    // Only the waiter waits: returning or exiting never joins it, so the worker
+    // can outlive its caller. Explicit wait still reaps this detached handle.
     job.detach();
     Ok(acknowledgment)
 }

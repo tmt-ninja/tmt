@@ -93,6 +93,9 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
   wrapper TERM/HUP are forwarded to the owned child only, and a notification failure degrades
   supervision instead of killing a live agent. Abandonment terminates, then kills and reaps
   that child, never the shared process group.
+- `process::detached` validates startup before handing the same child to one blocking
+  waiter thread. Returning or exiting never joins it; the worker may outlive its caller.
+  Waiter-start failure retains the original bounded kill/reap ownership.
 - tmux deadline, I/O, spawn, output-limit and signal failures during target resolution stay
   `RECONCILIATION_FAILED` (exit 1), not `PANE_NOT_FOUND`; a completed lookup with no valid
   pane ID is "no target". Socket denial is `TMUX_PERMISSION_DENIED`, confirmed from the
