@@ -514,6 +514,11 @@ marks a lead. `b` or a click on the ACTIVITY header cycles 1m, 5m, 10m and 1h;
 the header names the saved window and the twelve grey cells run oldest to newest.
 TOK/min is a smoothed token rate, including in cost mode; the TOK range column
 switches between tokens and cost. Workspace settings can turn motion off.
+A member waiting on a reported provider form has a `◆ form` mark and a read-only
+form in its Talk pane. The pane shows the reported question and choices, plan or
+permission, and marks truncated content. Use the existing jump action to answer
+in the member's terminal; the board does not answer provider forms. If the form
+read fails, a retained form is marked unavailable until a fresh read succeeds.
 Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
 Narrow tables drop HOST, ACTIVITY and TOK/min in that order. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime

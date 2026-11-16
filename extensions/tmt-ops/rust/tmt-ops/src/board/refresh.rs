@@ -1345,6 +1345,10 @@ fn load(
         .flatten();
     if let Ok(view) = &mut view {
         view.history_pending = history.is_some();
+        if let Some(home) = &mut view.home {
+            // One worker-owned read; cursor-triggered reloads refresh this snapshot.
+            home.workspace.forms = read_provider_forms(core);
+        }
     }
     Loaded {
         snapshot: Snapshot {
@@ -1365,6 +1369,12 @@ fn load(
         cron,
         history,
     }
+}
+
+fn read_provider_forms(core: &Core) -> Option<Vec<super::workspace::observe::ProviderForm>> {
+    core.api("forms.list", serde_json::json!({}))
+        .ok()
+        .and_then(|document| super::workspace::observe::provider_forms(&document))
 }
 
 /// A squad tab's publishable view, its attention and its deferred reads.
@@ -1822,6 +1832,34 @@ printf '%s\n' '{{}}'
             ),
         );
         (Core::at(fake), calls)
+    }
+
+    #[test]
+    fn provider_form_read_distinguishes_empty_failed_and_unsupported() {
+        for (index, reply) in [
+            json!({"forms":[]}),
+            json!({"error":{"code":"API_INPUT_INVALID","message":"unknown operation"}}),
+            json!({"error":{"code":"UNAVAILABLE","message":"failed"}}),
+            json!({"forms":"invalid"}),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let dir = crate::test_support::Scratch::new(&format!("forms-read-{index}"));
+            let (core, calls) = account_core(&dir, json!({}), reply);
+            let observed = read_provider_forms(&core);
+            if index == 0 {
+                assert!(observed.unwrap().is_empty());
+            } else {
+                assert!(observed.is_none());
+            }
+            let request: Value =
+                serde_json::from_str(std::fs::read_to_string(calls).unwrap().trim()).unwrap();
+            assert_eq!(
+                request,
+                json!({"version":1,"operation":"forms.list","input":{}})
+            );
+        }
     }
 
     fn account_listing(now: u64) -> Value {
@@ -4024,6 +4062,65 @@ esac
                 loads.get()
             );
         }
+    }
+
+    #[test]
+    fn changed_cursor_reloads_closed_provider_forms() {
+        let (sender, pending) = mpsc::channel();
+        sender
+            .send(Work::Reload(Reload {
+                preview_panes: false,
+                squad: Some(ALL.into()),
+                generation: 0,
+                demand: None,
+            }))
+            .unwrap();
+        let cursor = std::cell::Cell::new(0);
+        let mut app = super::super::app::workspace::tests::board();
+        let mut published = 0;
+        let mut counts = Vec::new();
+        serve(
+            &pending,
+            |snapshot, _| {
+                app.apply(snapshot);
+                counts.push(
+                    app.workspace_snapshot()
+                        .unwrap()
+                        .forms
+                        .as_ref()
+                        .unwrap()
+                        .len(),
+                );
+                published += 1;
+                published < 2
+            },
+            Duration::from_millis(1),
+            &AtomicU64::new(0),
+            |_, _| {
+                cursor.set(cursor.get() + 1);
+                Stamp::cursor(cursor.get())
+            },
+            |_, _, _, _| {
+                let mut source = super::super::app::workspace::tests::board();
+                let view = source.view.as_mut().unwrap();
+                view.refresh = Some(Duration::from_secs(3600));
+                view.home.as_mut().unwrap().workspace.forms = Some(if cursor.get() <= 1 {
+                    super::super::app::workspace::tests::provider_form_fixture()
+                } else {
+                    Vec::new()
+                });
+                let mut snapshot = super::super::app::tests::snapshot(ALL, json!([]));
+                snapshot.tabs.push(ALL.into());
+                snapshot.view = Ok(source.view.take().unwrap());
+                Loaded::only(snapshot)
+            },
+            |_, _| true,
+        );
+        assert_eq!(published, 2);
+        assert_eq!(counts, [1, 0], "cursor movement closes the observed form");
+        let workspace = app.workspace_snapshot().unwrap();
+        assert!(!workspace.forms_stale);
+        assert!(workspace.forms.as_ref().unwrap().is_empty());
     }
 
     #[test]

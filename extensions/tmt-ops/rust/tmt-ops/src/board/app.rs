@@ -1864,6 +1864,41 @@ impl App {
         self.loading_since = None;
         match snapshot.view {
             Ok(mut view) => {
+                // A failed or unsupported forms read is not evidence that forms closed.
+                if let Some(home) = &mut view.home {
+                    home.workspace.forms_stale = home.workspace.forms.is_none();
+                    if home.workspace.forms_stale {
+                        home.workspace.forms = self
+                            .view
+                            .as_ref()
+                            .and_then(|previous| previous.home.as_ref())
+                            .and_then(|previous| previous.workspace.forms.clone());
+                    }
+                }
+                // Open a newly observed form at its first line, independent of the
+                // previous conversation's scroll position.
+                if let Some(super::workspace::OpsTarget::Member { identity_id, .. }) =
+                    &self.workspace.selected
+                    && let Some(home) = &view.home
+                {
+                    let ids = |forms: Option<&Vec<super::workspace::observe::ProviderForm>>| {
+                        forms
+                            .into_iter()
+                            .flatten()
+                            .filter(|form| &form.identity_id == identity_id)
+                            .map(|form| form.form_id.clone())
+                            .collect::<Vec<_>>()
+                    };
+                    let next = ids(home.workspace.forms.as_ref());
+                    let previous = ids(self
+                        .view
+                        .as_ref()
+                        .and_then(|old| old.home.as_ref())
+                        .and_then(|old| old.workspace.forms.as_ref()));
+                    if !next.is_empty() && next != previous {
+                        self.scrolls.scroll(Pane::Replies, Step::Top);
+                    }
+                }
                 let now = Instant::now();
                 self.home_leads.set_sender(view.me_id.as_deref());
                 if let Some(home) = &view.home {

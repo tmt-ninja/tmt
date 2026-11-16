@@ -772,6 +772,32 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 }
                 (state, Some(used), Vec::new())
             };
+            let (state, state_primary_width, state_attention) = match &row.target {
+                OpsTarget::Member { identity_id, .. } => snapshot
+                    .forms
+                    .as_ref()
+                    .and_then(|forms| forms.iter().find(|form| &form.identity_id == identity_id))
+                    .map_or(
+                        (state.clone(), state_primary_width, state_attention.clone()),
+                        |form| {
+                            let marker = if snapshot.forms_stale {
+                                "◆ form?"
+                            } else {
+                                "◆ form"
+                            };
+                            let summary = crate::board::notes::single_line(&form.summary());
+                            (
+                                Line::from(vec![
+                                    Span::styled(marker, look.role(Role::Waiting)),
+                                    Span::styled(format!(" {summary}"), look.role(Role::Text)),
+                                ]),
+                                Some(unicode_width::UnicodeWidthStr::width(marker)),
+                                vec![true, false],
+                            )
+                        },
+                    ),
+                _ => (state, state_primary_width, state_attention),
+            };
             let expanded = rows
                 .get(index + 1)
                 .is_some_and(|next| next.depth > row.depth)

@@ -4051,6 +4051,62 @@ print(json.dumps(out))
                 .all(|value| *value == crate::attention::Attention::default())
         );
     }
+    #[test]
+    fn cancelled_form_snapshot_cannot_close_a_current_form() {
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = None;
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .forms = Some(app::workspace::tests::provider_form_fixture());
+        let mut stale = app::workspace::tests::board();
+        stale
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .forms = Some(Vec::new());
+        let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+        snapshot.view = Ok(stale.view.take().unwrap());
+        let cancelled = crate::runner::Cancellation::default();
+        cancelled.cancel();
+        let (events, input) = channel();
+        events
+            .send(BoardEvent::Snapshot {
+                cancellation: cancelled,
+                snapshot: Box::new(snapshot),
+            })
+            .unwrap();
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(
+            app.workspace_snapshot()
+                .unwrap()
+                .forms
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
     /// A quiet product board whose installed binary was just replaced.
     fn replaced_board(name: &str) -> (App, std::path::PathBuf) {
         let root = std::env::temp_dir().join(format!("ops-session-{name}-{}", std::process::id()));

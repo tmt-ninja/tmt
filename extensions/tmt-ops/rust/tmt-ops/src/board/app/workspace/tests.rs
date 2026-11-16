@@ -5938,3 +5938,99 @@ pub(in crate::board) fn assert_list_input_owner(app: &App) {
         crate::board::shell::OpsInputOwner::List
     );
 }
+
+pub(in crate::board) fn provider_form_fixture()
+-> Vec<crate::board::workspace::observe::ProviderForm> {
+    crate::board::workspace::observe::provider_forms(&json!({"forms":[{
+        "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "identityId":MEMBER,
+        "openedMs":123, "kind":"question", "truncated":false,
+        "answerable":false, "answerIn":"terminal",
+        "questions":[{"text":"Which?", "choice":"single", "options":[{"label":"One"}], "freeText":false}]
+    }]})).unwrap()
+}
+
+#[test]
+fn forms_failed_read_retains_stale_observation_and_successful_empty_closes_it() {
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms = Some(provider_form_fixture());
+    let mut failed = board();
+    failed
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms = None;
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs.push(crate::board::ALL.into());
+    snapshot.view = Ok(failed.view.take().unwrap());
+    app.apply(snapshot);
+    let held = &app.workspace_snapshot().unwrap();
+    assert!(held.forms_stale);
+    assert_eq!(held.forms.as_ref().unwrap().len(), 1);
+    let mut fresh = board();
+    fresh
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms = Some(Vec::new());
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs.push(crate::board::ALL.into());
+    snapshot.view = Ok(fresh.view.take().unwrap());
+    app.apply(snapshot);
+    let closed = app.workspace_snapshot().unwrap();
+    assert!(!closed.forms_stale);
+    assert!(closed.forms.as_ref().unwrap().is_empty());
+}
+
+#[test]
+fn provider_form_paint_is_read_only_and_jump_uses_existing_target() {
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms = Some(provider_form_fixture());
+    let no_commands = crate::runner::forbid_commands();
+    paint(&app, 160, 36);
+    drop(no_commands);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('z')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        })
+        .unwrap()["pane"] = serde_json::Value::Null;
+    assert_eq!(key(&mut app, KeyCode::Char('z')), Effect::None);
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("unavailable"))
+    );
+}

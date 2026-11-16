@@ -920,6 +920,62 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+/// Five provider-form scenes; answers are always taken in the member's terminal.
+fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "form-question",
+            "form-plan",
+            "form-permission",
+            "form-truncated",
+            "form-two",
+        ],
+        |_| grid(&[160, 100], &[36]),
+        |state, look, _, _| {
+            let mut app = capture_case("overview", look);
+            let question = json!({
+                "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "identityId":MEMBER,
+                "openedMs":NOW - 1000, "kind":"question", "truncated":state == "form-truncated",
+                "answerable":state != "form-truncated", "answerIn":if state == "form-truncated" {"terminal"} else {"client"},
+                "questions":[{"text":"Which approach?", "choice":"single", "options":[{"label":"First"},{"label":"Second"}], "freeText":false}]
+            });
+            let plan = json!({"formId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "identityId":MEMBER,
+                "openedMs":NOW - 500, "kind":"planApproval", "plan":"Review the plan before proceeding.",
+                "truncated":false, "answerable":true, "answerIn":"client"});
+            let permission = json!({"formId":"cccccccc-cccc-4ccc-8ccc-cccccccccccc", "identityId":MEMBER,
+                "openedMs":NOW - 500, "kind":"permission", "tool":{"name":"Shell", "summary":"Run the requested command?"},
+                "truncated":false, "answerable":false, "answerIn":"terminal"});
+            let forms = match state {
+                "form-plan" => vec![plan.clone()],
+                "form-permission" => vec![permission],
+                "form-two" => vec![question, plan],
+                _ => vec![question],
+            };
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .forms = crate::board::workspace::observe::provider_forms(&json!({"forms":forms}));
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .forms_stale = false;
+            app
+        },
+        |captured, app| {
+            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+        },
+    )
+}
+
 /// Paste attachments and forms share their scene owner with decoded review.
 fn paste_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1448,6 +1504,7 @@ macro_rules! oracle_groups {
         $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
         $group!(7, 180, agents_activity_frames($styles));
+        $group!(7, 40, provider_form_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));

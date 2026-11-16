@@ -305,6 +305,11 @@ The shared HOUR observations supply member values and room totals, deduplicated
 once per member (~ when any member is missing/partial, — when none is observed).
 Each mini-trend uses the same admitted meter observation and bounded buckets;
 no new history is acquired. Common-pool group tokens remain unavailable.
+A reported open provider form replaces the member's STATE text with `◆ form` and a
+clipped summary. The selected member's Talk pane shows the retained form in a
+scrollable read-only view, including truncation and terminal-jump availability.
+Only a user can invoke the existing jump; the board never calls `forms.answer`.
+
 The tree keeps STATE, TOK 1h, `◷` and the lead marker; Digest/model/runtime belong
 in focus. Supplied savings keep their shared tokens/cost/percent choice: one
 whole compact estimate in the member DIGEST detail, or in the squad Usage rule

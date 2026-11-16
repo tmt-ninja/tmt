@@ -35,6 +35,10 @@
   Nonempty history, status expiry, digest countdowns, configuration, notebooks, Ops stores,
   live presence and usage keep their independent reads. The action lane, selected reads
   and cron clock have no retained-read handle; effect admission always runs fresh.
+- Provider forms: the workspace load asks Core `forms.list` once and retains its bounded
+  read-only projection with the view. A `changes.cursor` advance reloads it; failed,
+  unsupported or malformed reads retain the last observation as unavailable rather than
+  closing forms. A successful empty list closes them. Paint performs no form reads or answers.
 - Providers: the board hands each load's members to one fetcher thread that runs due provider
   work off the paint path and again at the shortest `every`.
 - Startup: `board::run` consumes an ephemeral reload handoff and resolves cold launch
