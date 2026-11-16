@@ -17,7 +17,7 @@ import { readCompleteJsonLines } from './harness.js';
 import { waitForFileContent } from './wait-for-file.js';
 import { storedDocument } from '../support/ops-state.js';
 import { withE2EFixture, processState, type E2EFixture, type MockEvent } from './harness.js';
-import { savedMemberLifetime } from './ops-saved-member-lifetime.js';
+import { savedMemberExited, savedMemberLifetime } from './ops-saved-member-lifetime.js';
 
 /** One shell word, single-quoted, for commands typed into a private-world pane. */
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -668,7 +668,7 @@ renameSync(output+'.tmp',output);
         owned.push(...pids);
         expect(pids).toContain(launcher.pid);
         expect(pids).toContain(provider.pid);
-        for (const pid of pids) expect(fixture.mockProcessIsRunning(pid)).toBe(false);
+        for (const pid of pids) expect(savedMemberExited(pid)).toBe(true);
       } catch (error) {
         failure = { error };
       } finally {
