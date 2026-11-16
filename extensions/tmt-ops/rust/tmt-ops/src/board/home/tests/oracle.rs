@@ -805,7 +805,11 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                         complete: !gap,
                         gap,
                         discontinuous: false,
-                        by_driver: Vec::new(),
+                        by_driver: if gap {
+                            Vec::new()
+                        } else {
+                            vec![("codex".to_owned(), tokens)]
+                        },
                     }
                 })
                 .collect();
