@@ -42,12 +42,24 @@
 .work-page-state {
   white-space: nowrap;
 }
-.work-quiet {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--tmt-ui-color-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.work-field-chip {
+  cursor: default;
+}
+.work-field-chip:hover {
+  background: var(--tmt-ui-surface-command);
+}
+@media (min-width: 901px) {
+  .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
+    min-width: 5rem;
+  }
+  .tmt-ui-topbar-title:has(.work-field-chip) .tmt-ui-topbar-title-current {
+    min-width: 8rem;
+  }
+  .work-owner-name {
+    max-width: 13ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 .work-segments {
   display: flex;
@@ -275,7 +287,7 @@ a.work-row-title:hover {
     padding-inline: var(--tmt-ui-space-xs);
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .work-band {
     max-width: 100%;
   }
@@ -287,24 +299,40 @@ a.work-row-title:hover {
     box-sizing: border-box;
     padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);
   }
+  .page-mobile-title .page-hierarchy-name {
+    display: inline-block;
+    max-width: 100%;
+  }
+  .page-mobile-title .page-hierarchy-count,
+  .page-mobile-title .page-hierarchy-separator {
+    display: none;
+  }
   .page-mobile-title h1 {
     margin: 0 0 var(--tmt-ui-space-s);
     font-size: 1.375rem;
     line-height: 1.3;
     overflow-wrap: anywhere;
   }
+  .page-mobile-title-chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--tmt-ui-space-s);
+  }
   body:has(.page-mobile-title) .tmt-ui-topbar-title h1,
   body:has(.page-mobile-title) .tmt-ui-header h1 {
-    display: none;
-  }
-  .page-hierarchy-parent .page-hierarchy-count,
-  .page-hierarchy-parent .page-hierarchy-separator {
     display: none;
   }
   .page-mobile-title .work-body-transition {
     left: 0;
     right: auto;
     width: min(36rem, calc(100vw - 2 * var(--tmt-ui-header-padding-inline)));
+  }
+}
+@media (max-width: 640px) {
+  .page-hierarchy-parent .page-hierarchy-count,
+  .page-hierarchy-parent .page-hierarchy-separator {
+    display: none;
   }
   .work-wide {
     display: none;

@@ -32,7 +32,7 @@ for (const width of [1440, 800, 390])
     await mount(page, 'work-fields');
     const work = page.getByRole('region', { name: 'Work on this page' });
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
-    await expect(work.getByText('↑ Priority high')).toBeVisible();
+    await expect(work.getByLabel('↑ Priority high')).toBeVisible();
     await expect(work.getByText('gui-3')).toBeVisible();
     await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
     await expect(work.locator('.work-count-wide')).toBeVisible();
@@ -43,7 +43,7 @@ for (const width of [1440, 800, 390])
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(width);
     const title =
-      width === 390
+      width <= 900
         ? page.locator('.page-mobile-title:visible h1')
         : page.locator('.tmt-ui-topbar:visible .tmt-ui-topbar-title-current');
     expect((await title.boundingBox())!.width).toBeGreaterThan(40);

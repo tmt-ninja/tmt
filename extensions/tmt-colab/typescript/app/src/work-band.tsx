@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
 import {
   useEffect,
   useId,
@@ -46,11 +47,13 @@ export function MobileWorkTitle({
   title,
   workNumber,
   onSize,
+  parent,
   children,
 }: {
   title: string;
   workNumber?: string;
   onSize(height: number): void;
+  parent?: ReactNode;
   children: ReactNode;
 }) {
   const element = useRef<HTMLDivElement>(null);
@@ -68,6 +71,7 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
+      {parent}
       <h1>
         {workNumber && (
           <>
@@ -76,7 +80,7 @@ export function MobileWorkTitle({
         )}
         {title}
       </h1>
-      {children}
+      <div className="page-mobile-title-chips">{children}</div>
     </div>
   );
 }
@@ -158,9 +162,21 @@ export function WorkBand({
       <div className="work-head" data-empty={empty}>
         <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
         {priority && priority !== 'normal' && (
-          <span className="work-quiet">{priority === 'high' ? t.priorityHigh : t.priorityLow}</span>
+          <span
+            className={`${ui.countChip} work-field-chip`}
+            aria-label={priority === 'high' ? t.priorityHigh : t.priorityLow}
+          >
+            {priority === 'high' ? '↑ High' : 'Low'}
+          </span>
         )}
-        {owner && <span className="work-quiet">{owner.name}</span>}
+        {owner && (
+          <span className={`${ui.countChip} work-field-chip`}>
+            <BrowserAvatar name={owner.name} kind="agent" size="s" decorative />
+            <span className="work-owner-name" title={owner.name}>
+              {owner.name}
+            </span>
+          </span>
+        )}
         {!empty && (
           <button
             type="button"
