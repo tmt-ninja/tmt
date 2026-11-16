@@ -742,11 +742,11 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
             "activity-motion-off",
             "activity-partial",
         ],
-        |_| grid(&[160, 80], &[36]),
+        |_| grid(&[160, 100, 80], &[36]),
         |state, look, width, height| {
             let mut app = metered(look);
             let window = match state {
-                "activity-1m" => ActivityWindow::Minute,
+                "activity-1m" | "activity-partial" => ActivityWindow::Minute,
                 "activity-5m" => ActivityWindow::FiveMinutes,
                 "activity-10m" => ActivityWindow::TenMinutes,
                 _ => ActivityWindow::Hour,
@@ -766,9 +766,49 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
             }
             if state == "activity-squad" {
                 app.workspace.expanded.clear();
+                app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
             }
             app.overview_rows.borrow_mut().clear();
             let now = Instant::now();
+            // A full synthetic hour exposes the existing grey scale at every
+            // selected resolution; partial evidence remains explicit.
+            let mut seed = crate::board::rate::tests::fixture_seeds(
+                &crate::board::rate::tests::history_fixture(),
+            )
+            .remove("a")
+            .unwrap()
+            .unwrap();
+            seed.from = NOW - 3_600_000;
+            seed.through = NOW;
+            seed.available = Some(seed.from);
+            seed.sampled = Some(NOW - 5_000);
+            seed.buckets = (0..720)
+                .map(|i| {
+                    let from = seed.from + i * 5_000;
+                    let gap = state == "activity-partial" && i % 17 == 0;
+                    crate::board::rate::history::Slice {
+                        from_ms: from,
+                        to_ms: from + 5_000,
+                        input_tokens: if gap { 0 } else { (i / 60) % 5 },
+                        output_tokens: 0,
+                        cached_input_tokens: 0,
+                        covered_ms: if gap { 0 } else { 5_000 },
+                        complete: !gap,
+                        gap,
+                        discontinuous: false,
+                        by_driver: Vec::new(),
+                    }
+                })
+                .collect();
+            let input = app.view.as_ref().unwrap().home_rate["product"]
+                .input
+                .clone();
+            let seeds = std::collections::BTreeMap::from([(MEMBER.into(), Some(seed))]);
+            app.meters
+                .get_mut("product")
+                .unwrap()
+                .seed(&input, &seeds, now, false);
+
             let rate = match state {
                 "activity-heat-zero" => 0,
                 "activity-heat-low" => 500,
@@ -1348,7 +1388,7 @@ macro_rules! oracle_groups {
         $group!(7, 16, measure_frames($styles));
         $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
-        $group!(7, 120, agents_activity_frames($styles));
+        $group!(7, 180, agents_activity_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));
