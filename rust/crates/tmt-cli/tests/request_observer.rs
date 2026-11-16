@@ -1,4 +1,4 @@
-//! Detached observer exit status, durable request state and owned log lifetime.
+//! Detached child reaping, observer status, durable state and owned log lifetime.
 #![cfg(unix)]
 
 mod support;
@@ -6,8 +6,9 @@ mod support;
 use nix::poll::{PollFd, PollFlags, poll};
 use rusqlite::Connection;
 use std::{
+    ffi::OsString,
     fs::{self, File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
     os::{
         fd::AsFd,
         unix::fs::{MetadataExt, OpenOptionsExt},
@@ -15,9 +16,11 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 use tmt_adapters::{
+    process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
     request_runtime::{request_ids, wall_time_ms},
     storage::Storage,
 };
@@ -35,6 +38,7 @@ struct Fixture {
     recipient_id: String,
     deadline_ms: u64,
     child: Option<Child>,
+    workers: Vec<u32>,
 }
 
 impl Fixture {
@@ -52,6 +56,7 @@ impl Fixture {
             recipient_id: String::new(),
             deadline_ms: 0,
             child: None,
+            workers: Vec::new(),
         };
         let created = |fixture: &mut Fixture, name: &str| -> String {
             let output = fixture.run(&["identity", "create", name, "--json"]);
@@ -179,6 +184,9 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         support::stop(&mut self.child);
+        for pid in &self.workers {
+            wait_reaped(*pid);
+        }
         assert_eq!(fs::read_dir(self.root.join("tmux")).unwrap().count(), 0);
         fs::remove_dir_all(&self.root).unwrap();
     }
@@ -278,4 +286,181 @@ fn a_timeout_exits_cleanly_and_keeps_the_request_queued() {
         })
         .unwrap();
     assert_eq!(finals, 0);
+}
+
+fn api_request(
+    fixture: &mut Fixture,
+    operation: &str,
+    input: serde_json::Value,
+) -> serde_json::Value {
+    let child = fixture.child.as_mut().unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({"version": 1, "operation": operation, "input": input})
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    let stdout = child.stdout.as_ref().unwrap();
+    let mut readiness = [PollFd::new(stdout.as_fd(), PollFlags::POLLIN)];
+    assert_eq!(poll(&mut readiness, 5000u16).unwrap(), 1, "API response");
+    let frame = tmt_adapters::framed_stdio::Reader::new(stdout, 65_536)
+        .read_frame()
+        .unwrap()
+        .expect("API session closed before response");
+    let response: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+    assert!(response.get("error").is_none(), "{response}");
+    response
+}
+
+fn process_row(pid: u32) -> Option<String> {
+    let args = [
+        OsString::from("-p"),
+        pid.to_string().into(),
+        "-o".into(),
+        "pid=,ppid=,stat=,args=".into(),
+    ];
+    match UnixCommandRunner.execute_leaf(CommandRequest {
+        program: "/bin/ps".as_ref(),
+        args: &args,
+        input: &[],
+        deadline: Instant::now() + Duration::from_secs(2),
+        max_output_bytes: 4096,
+    }) {
+        Ok(output) => Some(String::from_utf8(output.stdout).unwrap()),
+        Err(error)
+            if error.kind
+                == (CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None,
+                })
+                && error
+                    .output
+                    .as_ref()
+                    .is_some_and(|output| output.stdout.is_empty() && output.stderr.is_empty()) =>
+        {
+            None
+        }
+        other => panic!("could not inspect owned worker {pid}: {other:?}"),
+    }
+}
+
+fn wait_reaped(pid: u32) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while let Some(row) = process_row(pid) {
+        assert!(Instant::now() < deadline, "worker was not reaped: {row}");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn held_flusher(fixture: &mut Fixture) -> u32 {
+    let logs: Vec<_> = fs::read_dir(support::state_dir(&fixture.root))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("hook-flush-")
+        })
+        .collect();
+    assert_eq!(logs.len(), 1, "one acknowledged worker");
+    let text = fs::read_to_string(logs[0].path()).unwrap();
+    let pid = text
+        .trim()
+        .strip_prefix("flusher_pid=")
+        .unwrap()
+        .parse()
+        .unwrap();
+    fixture.workers.push(pid);
+    let row = process_row(pid).expect("queue writer keeps worker alive");
+    let fields: Vec<_> = row.split_whitespace().collect();
+    assert_eq!(fields[1], fixture.child.as_ref().unwrap().id().to_string());
+    assert!(!fields[2].starts_with('Z'), "worker must still be running");
+    assert!(fields.contains(&"__flush"), "actual hook worker: {row}");
+    pid
+}
+
+#[test]
+fn api_session_reaps_completed_flushers_without_waiting_for_live_workers() {
+    let mut fixture = Fixture::new(120_000);
+    fixture.child = Some(
+        fixture
+            .command(&["api", "--session"])
+            .env("TMT_HOME", support::state_dir(&fixture.root))
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let queue = Connection::open(fixture.database.with_file_name("hook-writes.db")).unwrap();
+    let identity = fixture.recipient_id.clone();
+    // A malformed persisted capture exercises the real recovery worker and leaves
+    // a durable quarantine receipt, without launching a provider or reading its data.
+    let enqueue = |id: &str| {
+        queue.execute("INSERT INTO hook_writes(event_id,identity_id,kind,payload,enqueued_ms) VALUES(?,?,'capture','{}',0)", (id, &identity)).unwrap();
+        // Startup acknowledges before SQLite waits. This holds the child alive
+        // long enough to prove its command/parent; it is not a timing assumption.
+        queue.execute_batch("BEGIN IMMEDIATE").unwrap();
+    };
+    enqueue("reap-session-child");
+    let renamed = api_request(
+        &mut fixture,
+        "identity.rename",
+        serde_json::json!({
+            "identityId": identity, "expectedName": "Receiver", "name": "Renamed"
+        }),
+    );
+    assert_eq!(renamed["outcome"], "applied");
+    let completed = held_flusher(&mut fixture);
+    queue.execute_batch("ROLLBACK").unwrap();
+    wait_reaped(completed);
+    assert_eq!(
+        queue
+            .query_row(
+                "SELECT count(*) FROM invalid_hook_writes WHERE event_id='reap-session-child'",
+                [],
+                |r| r.get::<_, u32>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        api_request(&mut fixture, "capabilities", serde_json::json!({}))["version"],
+        1
+    );
+
+    enqueue("outlive-session");
+    let renamed = api_request(
+        &mut fixture,
+        "identity.rename",
+        serde_json::json!({
+            "identityId": identity, "expectedName": "Renamed", "name": "Receiver"
+        }),
+    );
+    assert_eq!(renamed["outcome"], "applied");
+    let survivor = held_flusher(&mut fixture);
+    fixture.child.as_mut().unwrap().stdin.take();
+    assert!(
+        fixture.wait().status.success(),
+        "session must not join a live worker"
+    );
+    let row = process_row(survivor).expect("detached worker outlives session");
+    assert!(
+        !row.split_whitespace().nth(2).unwrap().starts_with('Z'),
+        "{row}"
+    );
+    queue.execute_batch("ROLLBACK").unwrap();
+    wait_reaped(survivor);
+    assert_eq!(
+        queue
+            .query_row(
+                "SELECT count(*) FROM invalid_hook_writes WHERE event_id='outlive-session'",
+                [],
+                |r| r.get::<_, u32>(0)
+            )
+            .unwrap(),
+        1
+    );
 }
