@@ -6,7 +6,9 @@ from `--tmt-ui-*` semantic roles. Blog-only tone uses the shared accent role
 for the ninja accent and highlighter, and a blend of text/secondary for summaries.
 Fonts, the type ramp, prose, tables, figures, code and tags come from
 `@tmt/browser-ui/static.css` and `@tmt/browser-ui/editorial.css`; no Colab application
-code is imported. The original template's source references below record its origin.
+code is imported. Blog-only post title/body metrics retain the larger reading tone
+listed in the site README where the shared ramp has no exact match. The original
+template's source references below record its origin.
 
 Source repository: https://github.com/pj-tmt/tmt
 
@@ -61,7 +63,8 @@ site README); build-time validation does not query host activity.
 
 The landing loads canonical design tokens but uses its own layout CSS. Shared
 site chrome exposes its own prefixed CSS tokens with site-color fallbacks; blog
-article typography now follows the shared editorial layer with its dark scheme pinned.
+article typography uses the shared editorial layer with its dark scheme pinned and
+the documented larger post title/body reading tone.
 These are committed local adaptations; builds never fetch the product repository.
 
 Upstream TMT source is MIT licensed. See LICENSE for the retained notice.

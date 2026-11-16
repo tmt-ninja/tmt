@@ -319,10 +319,14 @@ main {
   padding-bottom: 35px;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
+/* Blog-only reading tone: retain the pre-migration post title. The shared type ramp
+   has no matching responsive size, weight, tracking or line-height; its display font is reused. */
 .post-heading h1 {
-  font: var(--tmt-ui-type-display-weight) var(--tmt-ui-type-display-size) /
-    var(--tmt-ui-type-display-line-height) var(--tmt-ui-font-display);
-  letter-spacing: var(--tmt-ui-type-display-tracking);
+  font-family: var(--tmt-ui-font-display);
+  font-size: clamp(38px, 5vw, 64px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
   margin: 0 0 24px;
 }
 .post-heading > .post-summary {
@@ -349,6 +353,12 @@ main {
 }
 .post-heading .eyebrow span {
   padding: 0 12px;
+}
+/* Blog-only reading tone: the shared body ramp has no 17px/1.8 setting. Keep the
+   previous reading size at both widths; editorial still owns font family and element styles. */
+.post-shell .tmt-ui-prose {
+  font-size: 17px;
+  line-height: 1.8;
 }
 /* The article's prose column is separate from its wide media column. Author CSS wins within it. */
 #blog-article > :is(p, h1, h2, h3, h4, ul, ol, blockquote, pre, details) {

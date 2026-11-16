@@ -95,7 +95,12 @@ preference. Editorial owns the type ramp, prose rhythm, tables, figures, code an
 rewriting its stored bytes. `blog.css` owns the journal grids, page spacing, shared
 chrome token mapping and blog-only tone: the shared accent role, its translucent
 highlighter and the blended summary foreground. It contains no private design imports
-or independent font stacks. Typography follows the shared ramp; authored article CSS
+or independent font stacks. The post title and body retain the larger pre-migration
+reading tone: title `clamp(38px, 5vw, 64px)`, weight `800`, tracking `-0.035em`,
+line-height `1.08`; body `17px` with line-height `1.8` on desktop and phone.
+These documented blog-only values have no exact counterpart in the shared type ramp.
+Font families, the matching `19px` summary (`--tmt-ui-type-h3-size`), index typography
+and editorial element styles continue to use the shared layer. Authored article CSS
 retains precedence. Colab drafts resolve the same CSS imports into a self-contained
 style block, with no package URLs or network stylesheet dependency.
 
