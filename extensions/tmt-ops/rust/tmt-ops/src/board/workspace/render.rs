@@ -772,6 +772,51 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 }
                 (state, Some(used), Vec::new())
             };
+            let (state, state_primary_width, state_attention) = match &row.target {
+                OpsTarget::Member { identity_id, .. } => snapshot
+                    .forms
+                    .as_ref()
+                    .and_then(|forms| {
+                        let mut matching =
+                            forms.iter().filter(|form| &form.identity_id == identity_id);
+                        matching.next().map(|form| (form, 1 + matching.count()))
+                    })
+                    .map_or(
+                        (state.clone(), state_primary_width, state_attention.clone()),
+                        |(form, count)| {
+                            let (marker, role) = if snapshot.forms_stale {
+                                ("◆ stale form".to_owned(), Role::Muted)
+                            } else if count > 1 {
+                                (format!("◆ {count} forms"), Role::Waiting)
+                            } else {
+                                ("◆ form".to_owned(), Role::Waiting)
+                            };
+                            let summary = if count > 1 && !snapshot.forms_stale {
+                                String::new()
+                            } else {
+                                format!(" {}", crate::board::notes::single_line(&form.summary()))
+                            };
+                            let marker_width =
+                                unicode_width::UnicodeWidthStr::width(marker.as_str());
+                            (
+                                Line::from(vec![
+                                    Span::styled(marker, look.role(role)),
+                                    Span::styled(
+                                        summary,
+                                        look.role(if snapshot.forms_stale {
+                                            Role::Muted
+                                        } else {
+                                            Role::Text
+                                        }),
+                                    ),
+                                ]),
+                                Some(marker_width),
+                                vec![true, snapshot.forms_stale],
+                            )
+                        },
+                    ),
+                _ => (state, state_primary_width, state_attention),
+            };
             let expanded = rows
                 .get(index + 1)
                 .is_some_and(|next| next.depth > row.depth)

@@ -235,6 +235,102 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.focused() == Pane::Replies,
         app.look(),
     );
+    if app.right_tab == crate::board::shell::RightTab::Talk
+        && app.input.is_none()
+        && let OpsTarget::Member { identity_id, .. } = selected
+        && let Some(forms) = snapshot.forms.as_ref()
+        && forms.iter().any(|form| &form.identity_id == identity_id)
+    {
+        let mut lines = Vec::new();
+        let mut push = |text: &str| {
+            let text = super::notes::sanitize(text);
+            for wrapped in super::notes::wrap(&text, usize::from(area.width.saturating_sub(2))) {
+                lines.push(neutral(format!(" {wrapped}"), app.look()));
+            }
+        };
+        for form in forms.iter().filter(|form| &form.identity_id == identity_id) {
+            push(match (snapshot.forms_stale, form.kind.as_str()) {
+                (true, "question") => "◆ Question form · stale",
+                (true, "permission") => "◆ Permission form · stale",
+                (true, _) => "◆ Plan approval · stale",
+                (false, "question") => "◆ Question form",
+                (false, "permission") => "◆ Permission form",
+                (false, _) => "◆ Plan approval",
+            });
+            if snapshot.forms_stale {
+                push(if form.truncated {
+                    "Last observed · current status unavailable · truncated, read-only"
+                } else {
+                    "Last observed · current status unavailable"
+                });
+            }
+            if form.truncated && !snapshot.forms_stale {
+                push("Truncated · read-only");
+            }
+            let jump_key = super::view::footer::effective_key(
+                app,
+                &app.workspace_bindings(),
+                crate::action::Verb::Jump,
+                "z",
+            );
+            let terminal_available = raw.is_some_and(|row| {
+                (row["pane"]["location"]["host"] == super::new_member::model::BUILT_IN_HOST
+                    && row["presence"] == "active")
+                    || super::overview::actions::host(row, app.invoker_tmux).is_ok()
+            });
+            let hint = match (snapshot.forms_stale, jump_key, terminal_available) {
+                (true, Some(key), true) => format!(
+                    "{} jump · check the terminal",
+                    super::view::footer::key_label(&key)
+                ),
+                (true, _, _) => "Check the terminal · jump unavailable.".into(),
+                (false, Some(key), true) => format!(
+                    "{} jump · answer in terminal",
+                    super::view::footer::key_label(&key)
+                ),
+                (false, _, _) => "Answer in terminal · jump unavailable.".into(),
+            };
+            push(&hint);
+            for question in &form.questions {
+                if let Some(header) = &question.header {
+                    push(header);
+                }
+                push(&question.text);
+                for option in &question.options {
+                    let description = option
+                        .description
+                        .as_ref()
+                        .map_or_else(String::new, |description| format!(" · {description}"));
+                    push(&format!("  • {}{description}", option.label));
+                }
+                push(&format!(
+                    "{} choice{}",
+                    question.choice,
+                    if question.free_text {
+                        " · Other text allowed"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+            if let Some(tool) = &form.tool {
+                push(&format!("{} · {}", tool.name, tool.summary));
+            }
+            if let Some(plan) = &form.plan {
+                push(plan);
+            }
+        }
+        app.conversation.borrow_mut().active = None;
+        let body = Rect::new(
+            area.x,
+            area.y.saturating_add(1),
+            area.width,
+            area.height.saturating_sub(1),
+        );
+        app.scrolls
+            .show(frame, Pane::Replies, body, &lines, app.look());
+        return;
+    }
     if app.right_tab == crate::board::shell::RightTab::Checklist
         && let Some(controller) = &app.notes_overlay
         && let Some(row) = raw
