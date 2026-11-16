@@ -65,8 +65,9 @@ tick/exit/degraded cleanup; history and API tests consume the shared vector
 that each five-minute rollup bucket equals the sum of its fine buckets and measures the tier
 with `dbstat` on 32 identities x 30 days against its size ceiling. Public history reads must
 not renew retention or touch provider files.
-Verify schema 46 against the independent native storage fixture and its change-cursor
-triggers. `usage-hooks.e2e.test.ts` verifies admitted hooks, unchanged context usage and
+Verify the schema named by `EXPECTED_NATIVE_SCHEMA_VERSION` in the maintained
+[independent native storage fixture](../../../../typescript/test/native/storage-fixture.ts)
+and its change-cursor triggers. `usage-hooks.e2e.test.ts` verifies admitted hooks, unchanged context usage and
 compaction; foreground sampling scenarios hold a deterministic mock turn open, observe
 advancing public counters before Stop, prove no sample/Stop double count and assert cleanup
 and the original nonzero child status. Run one focused selection of affected Docker scenarios in the

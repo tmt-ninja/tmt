@@ -1,6 +1,6 @@
 ---
 name: tmt-tui
-description: Verify the internal TUI markup crate (`rust/crates/tmt-tui`) - XML admission, utilities, geometry, paint and components - and the Squad board parity baseline. Load when changing tmt-tui or board output. Owner - tmt-ux.
+description: Verify the internal TUI markup crate (`rust/crates/tmt-tui`) - XML admission, utilities, geometry, paint and components - and the Squad board parity baseline. Load when changing tmt-tui or board output. Owner - tmt-tui.
 ---
 
 # Internal TUI markup (`tmt-tui`)
