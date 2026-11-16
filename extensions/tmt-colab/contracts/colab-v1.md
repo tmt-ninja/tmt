@@ -3002,8 +3002,18 @@ The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
 renderId. Highlight requests/results use that bound port; selections use the
 bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
-messages. Allow only bounded selection/rectangle/anchor-result inbound,
-known-thread view actions and narrow highlight/scroll/theme outbound. No secrets, signing/send capabilities or bridge actions cross it.
+messages. Allow only bounded selection/rectangle/anchor-result/outline inbound,
+known-thread view actions and narrow highlight/scroll/outline-jump/theme outbound. No secrets, signing/send capabilities or bridge actions cross it.
+A frame may push the cosmetic `colab.render.outline` on that port, with exactly `renderId`, a
+monotonically increasing safe-integer `snapshot`, and `entries` in document order. At most 200
+rendered h2/h3 headings outside `tmt-question` are reported; each entry has exactly `level` (2 or
+3), nonempty `text` (at most 256 Unicode code points and 1,024 UTF-8 bytes), and finite `top` in
+frame viewport coordinates (absolute value at most 1,000,000). Parent admits only the current
+render and a newer valid snapshot, renders its untrusted text as text rather than HTML, and drops
+the snapshot on teardown. It may send exactly `colab.render.outline-jump`, `renderId`, `snapshot`,
+and a nonnegative in-range integer `index`; the frame ignores a stale snapshot or missing heading.
+The resulting scroll is cosmetic and uses the current frame and trusted header inset. These claims
+carry no page, navigation, send or signing authority.
 A trusted plain click or tap inside a current resolved highlight requests the same
 known-thread view action as its keyboard-reachable marker. The shortest matching quote
 wins, with stable thread-ID ordering for equal lengths. Hover uses a pointer-inert outline.

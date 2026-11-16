@@ -406,7 +406,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage {
   box-sizing: border-box;
   max-width: 1280px;
-  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+  margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
   padding-block-start: 16px;
 }
 .structured-layout[data-outline] {
@@ -414,7 +414,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   grid-template-columns: 188px minmax(0, 1fr);
   align-items: start;
   gap: 40px;
-  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+  margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
 }
 .structured-layout[data-outline] .structured-page-stage {
   margin-inline: 0;
@@ -499,9 +499,123 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-outline :is(button):focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+/* HTML owns the full frame width: the outline overlays the gutter or the page, never a grid column. */
+.html-outline {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 2;
+  width: 188px;
+  pointer-events: none;
+}
+.html-outline .page-outline {
+  pointer-events: auto;
+  background: var(--tmt-ui-surface-sheet);
+}
+.html-outline[data-compact] .page-outline {
+  width: max-content;
+  max-width: 188px;
+  padding: var(--tmt-ui-space-s);
+  background: var(--tmt-ui-surface-sheet);
+}
+@media (min-width: 641px) {
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) {
+    display: block;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) .page-outline {
+    position: sticky;
+    top: calc((var(--page-bar-size) - 34px) / 2);
+    z-index: 52;
+    width: 34px;
+    height: 0;
+    margin-inline-start: calc(-1 * var(--tmt-ui-header-padding-inline));
+    margin-block: calc(-1 * (var(--page-bar-size) + 34px) / 2)
+      calc((var(--page-bar-size) + 34px) / 2);
+    padding: 0;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    .page-outline-toggle {
+    width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    background: var(--tmt-ui-surface-sheet);
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    :is(.page-outline-desktop, .page-outline-chevron) {
+    display: none;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    .page-outline-icon {
+    display: block;
+  }
+  body:has(.tmt-ui-panel:not([hidden])) .structured-layout .page-outline {
+    z-index: 2;
+  }
+  .html-outline {
+    z-index: 52;
+  }
+  body:has(.tmt-ui-panel:not([hidden])) .html-outline {
+    z-index: 2;
+  }
+  .html-outline[data-compact] .page-outline {
+    top: calc((var(--page-bar-size) - 34px) / 2);
+    margin-block-start: calc(-1 * (var(--page-bar-size) + 34px) / 2);
+    padding: 0;
+    background: transparent;
+    pointer-events: none;
+  }
+  .html-outline[data-compact] .page-outline-toggle {
+    width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    background: var(--tmt-ui-surface-sheet);
+    pointer-events: auto;
+  }
+  .html-outline[data-compact] .page-outline-list {
+    position: absolute;
+    top: calc(34px + (var(--page-bar-size) - 34px) / 2 + var(--tmt-ui-space-xs));
+    width: 188px;
+    max-height: calc(100dvh - var(--page-bar-size) - 2 * var(--tmt-ui-space-l));
+    box-sizing: border-box;
+    overflow-y: auto;
+    margin: 0;
+    padding: var(--tmt-ui-space-xs);
+    border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+    border-radius: var(--tmt-ui-radius-l);
+    background: var(--tmt-ui-surface-sheet);
+    box-shadow: var(--tmt-ui-shadow-overlay);
+    pointer-events: auto;
+  }
+  .html-outline[data-compact] .page-outline-desktop,
+  .html-outline[data-compact] .page-outline-chevron {
+    display: none;
+  }
+  .html-outline[data-compact] .page-outline-icon {
+    display: block;
+  }
+}
 @media (max-width: 640px) {
+  .canvas:has(.html-outline) .inline-block-layer {
+    transform: translateY(var(--html-outline-height, 0px));
+  }
+  .html-outline {
+    position: sticky;
+    inset: auto;
+    top: var(--page-bar-size);
+    width: 100%;
+  }
+  .html-outline .page-outline {
+    position: static;
+  }
+  .html-outline[data-compact] .page-outline {
+    width: auto;
+    max-width: none;
+    padding: 0 var(--tmt-ui-header-padding-inline);
+  }
   .structured-page-stage [data-block-id] {
     scroll-margin-top: calc(var(--page-bar-size) + 64px);
+  }
+  .structured-page-stage {
+    margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   }
   .structured-layout[data-outline] {
     display: block;

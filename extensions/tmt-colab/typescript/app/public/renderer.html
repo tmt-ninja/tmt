@@ -878,6 +878,61 @@
             if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
             scheduleScheme();
           };
+          // A cosmetic snapshot only: the parent admits the bounded claims, never their authority.
+          let outlineFrame;
+          let outlineVersion = 0;
+          let outlineKey = '';
+          let outlineNodes = [];
+          const headingText = (heading) => {
+            const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
+            let node;
+            let visited = 0;
+            let text = '';
+            while ((node = walker.nextNode()) && ++visited <= 512 && text.length < 2048) {
+              const parent = node.parentElement;
+              if (!parent) continue;
+              const style = getComputedStyle(parent);
+              if (
+                (!parent.getClientRects().length && style.display !== 'contents') ||
+                style.visibility !== 'visible'
+              )
+                continue;
+              text += node.data.slice(0, 2048 - text.length);
+            }
+            return Array.from(text.trim().replace(/\s+/gu, ' ')).slice(0, 256).join('');
+          };
+          const scheduleOutline = () => {
+            if (stopped || outlineFrame !== undefined) return;
+            outlineFrame = requestAnimationFrame(() => {
+              outlineFrame = undefined;
+              if (stopped || !document.body) return;
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+              const entries = [];
+              const nodes = [];
+              let node;
+              let visited = 0;
+              while ((node = walker.nextNode()) && ++visited <= 10000 && entries.length < 200) {
+                if (!node.matches('h2,h3') || node.closest('tmt-question')) continue;
+                const rect = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
+                if (!rect.width || !rect.height || style.visibility !== 'visible') continue;
+                const text = headingText(node);
+                if (!text || !Number.isFinite(rect.top) || Math.abs(rect.top) > 1000000) continue;
+                entries.push({ level: node.tagName === 'H2' ? 2 : 3, text, top: rect.top });
+                nodes.push(node);
+              }
+              const key = JSON.stringify(entries);
+              outlineNodes = nodes;
+              if (key === outlineKey) return;
+              outlineKey = key;
+              port.postMessage({
+                type: 'colab.render.outline',
+                renderId,
+                snapshot: ++outlineVersion,
+                entries,
+              });
+            });
+          };
           let updateGeometryFrame;
           const scheduleUpdateGeometry = () => {
             if (stopped || updateGeometryFrame !== undefined) return;
@@ -894,6 +949,7 @@
             scheduleHeight();
             schedule();
             capture();
+            scheduleOutline();
           });
           function anchor(event) {
             if (
@@ -2608,6 +2664,35 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.outline-jump' &&
+              v.renderId === renderId &&
+              v.snapshot === outlineVersion &&
+              Number.isSafeInteger(v.index) &&
+              v.index >= 0 &&
+              v.index < outlineNodes.length
+            ) {
+              const heading = outlineNodes[v.index];
+              if (!heading?.isConnected) return;
+              if (innerScroll) {
+                const phoneOutlineScrollGap = 48;
+                heading.scrollIntoView({ block: 'start' });
+                if (innerWidth <= 640) scrollBy(0, -phoneOutlineScrollGap);
+              }
+              parent.postMessage(
+                {
+                  type: 'colab.render.anchor',
+                  renderId,
+                  top: Math.max(0, heading.getBoundingClientRect().top + scrollY),
+                },
+                '*',
+              );
+              return;
+            }
+            if (
               v?.type === 'colab.render.design-style' &&
               Object.keys(v).length === 3 &&
               typeof v.requestId === 'string' &&
@@ -3200,6 +3285,7 @@
             )
               schedule();
             scheduleHeight();
+            scheduleOutline();
           });
           addEventListener(
             'load',
@@ -3213,6 +3299,7 @@
               });
               rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
+              scheduleOutline();
               // Design-system parts paint over several frames; say once they all have, so the
               // parent does not read their arrival as viewport-coupled growth (#5981). A page that
               // never settles stops asking after about 3 s; the parent bounds its wait the same.
@@ -3365,6 +3452,8 @@
           addEventListener('scroll', scheduleLocks, { passive: true });
           addEventListener('resize', schedule);
           addEventListener('resize', scheduleHeight);
+          addEventListener('resize', scheduleOutline);
+          addEventListener('scroll', scheduleOutline, { passive: true });
           addEventListener(
             'pagehide',
             () => {
@@ -3374,6 +3463,7 @@
               clearTimeout(schemeTimer);
               cancelAnimationFrame(selectionFrame);
               cancelAnimationFrame(updateGeometryFrame);
+              cancelAnimationFrame(outlineFrame);
               sizeObserver.disconnect();
               paintObserver.disconnect();
               observer.disconnect();
@@ -3404,6 +3494,8 @@
               CSS.highlights?.delete('colab-edit-locks');
               removeEventListener('resize', schedule);
               removeEventListener('resize', scheduleHeight);
+              removeEventListener('resize', scheduleOutline);
+              removeEventListener('scroll', scheduleOutline);
             },
             { once: true },
           );
