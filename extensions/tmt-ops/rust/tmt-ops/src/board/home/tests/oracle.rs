@@ -748,7 +748,10 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
             "activity-10m" => 600_000,
             _ => 3_600_000,
         };
-        let scene_now = NOW + window_ms / 12 * 3 / 5;
+        // Keep the spinner at its original phase while placing the capture
+        // about 60% through the current activity interval.
+        let offset_ms: u64 = window_ms / 12 * 3 / 5;
+        let scene_now = NOW + offset_ms.div_ceil(800) * 800;
         frames.extend(crate::status::with_now_ms(scene_now, || {
             scene_group(
                 styles,
