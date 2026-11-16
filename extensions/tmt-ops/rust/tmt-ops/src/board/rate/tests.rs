@@ -567,6 +567,11 @@ fn rolled_history_is_not_prorated_at_a_short_window_boundary() {
     );
     assert!(reading.partial);
     assert_eq!(
+        rate.member_activity::<12>("a", 55_000, TokenWindow::MINUTE),
+        [None; 12],
+        "thirty-second source intervals cannot invent five-second cells"
+    );
+    assert_eq!(
         rate.trend(75_000, TokenWindow::MINUTE)
             .into_iter()
             .flatten()
@@ -805,4 +810,17 @@ fn member_trends_share_admitted_buckets_without_other_identity_tokens() {
         [None; 12]
     );
     assert_eq!(rate.trend(10_000, TokenWindow::HOUR)[7], Some(450.0));
+}
+
+#[test]
+fn one_minute_activity_shifts_closed_cells_left_without_relabeling_history() {
+    let mut rate = Rate::default();
+    rate.sample(&input(100), 60_000);
+    rate.sample(&input(200), 65_000);
+    rate.sample(&input(300), 70_000);
+    let before = rate.member_activity::<12>("a", 65_000, TokenWindow::MINUTE);
+    let after = rate.member_activity::<12>("a", 70_000, TokenWindow::MINUTE);
+    assert_eq!(&before[1..], &after[..11]);
+    assert_eq!(before[11], Some(150.0));
+    assert_eq!(after[11], Some(150.0));
 }

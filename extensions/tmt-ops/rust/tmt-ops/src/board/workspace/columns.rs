@@ -304,6 +304,12 @@ impl TokHeading {
     }
 }
 
+#[derive(Default)]
+pub struct AgentsHeading {
+    pub tok: TokHeading,
+    pub activity: crate::config::ActivityWindow,
+}
+
 /// Paints the Agents column header and returns the hit areas of its controls:
 /// the TOK unit and window words when the TOK column is present, and the sortable words.
 pub fn paint_agents_header(
@@ -312,10 +318,11 @@ pub fn paint_agents_header(
     slots: &[(AgentsField, Rect)],
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
-    tok: TokHeading,
+    heading: AgentsHeading,
     marks: &crate::board::header_sort::Marks,
 ) -> AgentsHeaderHits {
     use crate::board::header_sort::{Header, word_hit};
+    let AgentsHeading { tok, activity } = heading;
     let mut hits = AgentsHeaderHits::default();
     if area.height == 0 {
         return hits;
@@ -329,7 +336,10 @@ pub fn paint_agents_header(
         let base = look.role(Role::Muted);
         let mut word = field.caption(glyphs);
         let mut style = base;
-        let caption = if *field == AgentsField::Tokens {
+        let caption = if *field == AgentsField::Activity {
+            hits.activity = Some(*slot);
+            format!("ACTIVITY {}", activity.argument())
+        } else if *field == AgentsField::Tokens {
             if let Some(cell) = marks.tokens(None, tok, slot.width, base, look) {
                 for (from, size, control) in cell.parts {
                     let hit =
@@ -387,6 +397,7 @@ pub fn paint_agents_header(
 pub struct AgentsHeaderHits {
     /// The unit and window words of `TOK 1h`.
     pub tok: Vec<(Rect, crate::board::header_sort::Control)>,
+    pub activity: Option<Rect>,
     pub sorts: Vec<(Rect, crate::board::header_sort::Header)>,
 }
 
@@ -1021,7 +1032,7 @@ mod tests {
             &[(AgentsField::Cron, slot)],
             look,
             Default::default(),
-            Default::default(),
+            AgentsHeading::default(),
             &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
         );
         let x = (0..slot.width)
@@ -1055,7 +1066,7 @@ mod tests {
                     &slots,
                     look,
                     Default::default(),
-                    Default::default(),
+                    AgentsHeading::default(),
                     &crate::board::header_sort::Marks::new(
                         Default::default(),
                         None,

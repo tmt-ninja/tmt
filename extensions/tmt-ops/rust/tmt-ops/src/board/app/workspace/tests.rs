@@ -14,6 +14,19 @@ pub(in crate::board) const ROOM: &str = "11111111-1111-4111-8111-111111111111";
 pub(in crate::board) const CODEX_MEMBER: &str = "55555555-5555-4555-8555-555555555555";
 pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
 
+/// Static colour, clipping and time-age tests do not exercise animation.
+pub(in crate::board) fn disable_motion(app: &mut App) {
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .motion_off = true;
+}
+
 /// Literal attention evidence and the agent-list mode for member-action scenarios.
 pub(in crate::board) fn observe_waiting_member(app: &mut App) {
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -657,6 +670,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
 fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
     use crate::labels::{Label, Supplied};
     let mut app = board();
+    disable_motion(&mut app);
     app.right_tab = crate::board::shell::RightTab::Measure;
     app.labels = Supplied::from_rows(vec![(
         "digest".into(),
@@ -2295,7 +2309,8 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
-        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");
+        key(&mut app, KeyCode::Char('b')); // It also owns the activity shortcut.
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2b");
         assert_eq!(app.shell.tab, OpsTab::Agents);
     }
 }
@@ -3428,6 +3443,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                             depth,
                         };
                         let mut app = board();
+                        disable_motion(&mut app);
                         crate::board::conversation_checklist::tests::admit_empty(&mut app);
                         app.view.as_mut().unwrap().look = look;
                         let snapshot =
@@ -3709,6 +3725,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
         ] {
             for selected in [false, true] {
                 let mut app = board();
+                disable_motion(&mut app);
                 crate::board::conversation_checklist::tests::admit_empty(&mut app);
                 app.view.as_mut().unwrap().look = look;
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -4351,8 +4368,10 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                     depth,
                 };
                 let mut default = capture_case("agents", look);
+                disable_motion(&mut default);
                 crate::board::conversation_checklist::tests::admit_empty(&mut default);
                 let mut named = capture_case("agents", look);
+                disable_motion(&mut named);
                 crate::board::conversation_checklist::tests::admit_empty(&mut named);
                 named.view_layer = crate::board::ViewLayer::parse("popup").unwrap();
                 let draw = |app: &App| {
@@ -5085,7 +5104,8 @@ fn snapshots_shortcut_yields_to_search_and_the_existing_composer() {
     key(&mut app, KeyCode::Char('/'));
     assert!(app.searching);
     assert_eq!(key(&mut app, KeyCode::Char('w')), Effect::None);
-    assert_eq!(app.search, "w");
+    assert_eq!(key(&mut app, KeyCode::Char('b')), Effect::None);
+    assert_eq!(app.search, "wb");
     assert!(!app.recovery_shown());
     key(&mut app, KeyCode::Down);
     let selected = app.workspace.selected.clone();
@@ -5234,6 +5254,7 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
     use std::time::{Duration, Instant};
     let read = Instant::now();
     let mut app = board();
+    disable_motion(&mut app);
     app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.read_at = Some(read);
@@ -5309,6 +5330,7 @@ fn counters_state_and_status_turn_stale_together() {
         snapshot.roster.observation = observation;
     };
     let mut app = board();
+    disable_motion(&mut app);
     app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
     let overview = |app: &mut App| {
         app.shell.tab = OpsTab::Agents;
@@ -5392,6 +5414,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
 /// or without a request waiting on the user.
 fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
     let mut app = board();
+    disable_motion(&mut app);
     crate::board::conversation_checklist::tests::admit_empty(&mut app);
     app.view.as_mut().unwrap().look = look;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;

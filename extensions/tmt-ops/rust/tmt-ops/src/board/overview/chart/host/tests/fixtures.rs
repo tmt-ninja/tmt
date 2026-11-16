@@ -290,6 +290,7 @@ pub(super) fn retained(app: &App, selection: Selection) -> crate::board::refresh
             .map(|(name, rate)| (name.clone(), (rate.settings, rate.input.clone())))
             .collect(),
         seeds,
+        reseed_recent: true,
         retained: Some((request, retained)),
         quota: app.quota_history_visible().then(Default::default),
         observed: Ok(observed),
@@ -391,6 +392,7 @@ pub(super) fn quota(app: &mut App, scenario: &str) {
             owner: crate::board::ALL.into(),
             targets,
             seeds: fine,
+            reseed_recent: true,
             retained: None,
             quota: Some(quota),
             observed: Ok(observed)

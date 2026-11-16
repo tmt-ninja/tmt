@@ -150,6 +150,48 @@ impl TokRange {
     }
 }
 
+/// Time represented by the twelve Agents activity cells.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityWindow {
+    Minute,
+    FiveMinutes,
+    TenMinutes,
+    #[default]
+    Hour,
+}
+
+impl ActivityWindow {
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Minute => "1m",
+            Self::FiveMinutes => "5m",
+            Self::TenMinutes => "10m",
+            Self::Hour => "1h",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        [
+            Self::Minute,
+            Self::FiveMinutes,
+            Self::TenMinutes,
+            Self::Hour,
+        ]
+        .into_iter()
+        .find(|window| window.argument() == value)
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Minute => Self::FiveMinutes,
+            Self::FiveMinutes => Self::TenMinutes,
+            Self::TenMinutes => Self::Hour,
+            Self::Hour => Self::Minute,
+        }
+    }
+    pub fn token_window(self) -> super::TokenWindow {
+        super::TokenWindow::parse(self.argument()).expect("admitted activity window")
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub hidden: BTreeSet<String>,
@@ -157,6 +199,8 @@ pub struct OpsPreferences {
     pub reversed: bool,
     pub layout: OpsLayout,
     pub tok_range: TokRange,
+    pub activity_window: ActivityWindow,
+    pub motion_off: bool,
     pub savings_unit: super::SavingsUnit,
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
     pub digest_panels: Option<PanelSetting<DigestPanel>>,
@@ -878,6 +922,19 @@ impl Config {
                             invalid("`workspace.tok_range` must be 1h, 3h, 6h, 1d or 7d.")
                         })?;
                 }
+                "activity_window" => {
+                    result.activity_window = item
+                        .as_str()
+                        .and_then(ActivityWindow::parse)
+                        .ok_or_else(|| {
+                            invalid("`workspace.activity_window` must be 1m, 5m, 10m or 1h.")
+                        })?;
+                }
+                "motion" => {
+                    result.motion_off = !item
+                        .as_bool()
+                        .ok_or_else(|| invalid("`workspace.motion` must be true or false."))?;
+                }
                 // The Digest window is view state now; an older file still loads.
                 "digest_window" => {}
                 "savings_unit" => {
@@ -959,6 +1016,8 @@ impl Config {
             });
             document["workspace"]["reverse"] = value(next.reversed);
             document["workspace"]["tok_range"] = value(next.tok_range.argument());
+            document["workspace"]["activity_window"] = value(next.activity_window.argument());
+            document["workspace"]["motion"] = value(!next.motion_off);
             document["workspace"]["savings_unit"] = value(next.savings_unit.argument());
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",
@@ -2242,6 +2301,8 @@ mod tests {
             reversed: true,
             layout: OpsLayout::Stack,
             tok_range: TokRange::default(),
+            activity_window: ActivityWindow::default(),
+            motion_off: false,
             savings_unit: super::super::SavingsUnit::Cost,
             overview_panels: None,
             digest_panels: None,
@@ -2361,6 +2422,54 @@ mod tests {
                 .unwrap()
                 .contains("digest_window")
         );
+    }
+
+    #[test]
+    fn motion_preference_uses_compare_and_swap_and_preserves_other_settings() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        let expected = config.workspace_preferences().unwrap();
+        assert!(!expected.motion_off);
+        let mut next = expected.clone();
+        next.motion_off = true;
+        config.save_workspace_preferences(&expected, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        assert!(
+            config
+                .save_workspace_preferences(&expected, &expected)
+                .is_err()
+        );
+        assert!(
+            self::config("[workspace]\nmotion='off'\n")
+                .workspace_preferences()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn activity_window_round_trips_and_rejects_invalid_values() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        assert_eq!(
+            config.workspace_preferences().unwrap().activity_window,
+            ActivityWindow::Hour
+        );
+        for window in [
+            ActivityWindow::Minute,
+            ActivityWindow::FiveMinutes,
+            ActivityWindow::TenMinutes,
+            ActivityWindow::Hour,
+        ] {
+            let expected = config.workspace_preferences().unwrap();
+            let mut next = expected.clone();
+            next.activity_window = window;
+            config.save_workspace_preferences(&expected, &next).unwrap();
+            config = fixture.config();
+            assert_eq!(config.workspace_preferences().unwrap(), next);
+        }
+        let invalid = self::config("[workspace]\nactivity_window='2m'\n");
+        assert!(invalid.workspace_preferences().is_err());
+        assert_eq!(ActivityWindow::Hour.next(), ActivityWindow::Minute);
     }
 
     #[test]

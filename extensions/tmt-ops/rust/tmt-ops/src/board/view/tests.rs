@@ -763,7 +763,11 @@ fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_to
                             "a task that does not fit is dropped whole: {row_text}"
                         );
                     }
-                    assert!(row_text.contains("● working"), "{row_text}");
+                    assert!(row_text.contains(" working"), "{row_text}");
+                    assert!(
+                        row_text.chars().any(|ch| "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".contains(ch)),
+                        "{row_text}"
+                    );
                     let state_area = app
                         .workspace_state_cells
                         .borrow()
@@ -905,6 +909,15 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
 fn only_visible_label_text_invalidates_the_clock() {
     crate::status::with_now_ms(1_000, || {
         let mut app = workspace_board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .motion_off = true;
         app.right_tab = crate::board::shell::RightTab::Measure;
         app.view.as_mut().unwrap().replies = vec![json!({
             "recipientId": crate::board::app::workspace::tests::MEMBER,

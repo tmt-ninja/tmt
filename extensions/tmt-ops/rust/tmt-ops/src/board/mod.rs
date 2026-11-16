@@ -804,6 +804,8 @@ fn session(
     // The labels reader was started with the window the app opens with.
     let mut labels_published = app.digest_window();
     let mut history_demand = None;
+    let mut activity_window =
+        (app.shell.tab == shell::OpsTab::Agents).then(|| app.activity_window());
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         let job = match job {
@@ -923,6 +925,8 @@ fn session(
         }
         dirty |= app.meter.as_mut().is_some_and(|meter| meter.tick(now));
         dirty |= app.home_counters.borrow_mut().tick(now);
+        dirty |= app.agents_live.tick_rates(now);
+        dirty |= app.agents_live.tick_flashes(now);
         let next_spinner = view::spinner_frame(app, now);
         let next_marks = view::time_marks(app, crate::status::now_ms());
         dirty |= next_spinner != spinner || next_marks != marks;
@@ -956,19 +960,31 @@ fn session(
                 crate::status::now_ms() / rate::history::rollup::RESOLUTION_MS,
             )
         });
-        if demand != history_demand {
+        let next_activity_window =
+            (app.shell.tab == shell::OpsTab::Agents).then(|| app.activity_window());
+        let activity_changed = activity_window.is_some()
+            && next_activity_window.is_some()
+            && activity_window != next_activity_window;
+        if demand != history_demand || activity_changed {
             // A chart/window change reads history for the published workspace;
             // it neither reloads that workspace nor fences its selected lane.
-            let job = refresh::HistoryJob::requested(app, history);
+            let mut job = refresh::HistoryJob::requested(app, history);
+            if activity_changed && let Some(job) = job.as_mut() {
+                job.refresh_recent();
+            }
             // A loading view cannot supply a job yet: leave the demand pending
             // so the next loop retries it after the workspace is published.
             if job.is_some() || !app.loading() {
                 history_demand = demand;
+                activity_window = next_activity_window;
                 dirty = true;
             }
             if let Some(job) = job {
                 history_read(job);
             }
+        }
+        if !activity_changed {
+            activity_window = next_activity_window;
         }
         if dirty {
             observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
@@ -1015,6 +1031,12 @@ fn session(
             .as_ref()
             .and_then(|meter| meter.wait(Instant::now()))
         {
+            wait = wait.min(motion);
+        }
+        if let Some(motion) = app.agents_live.flash_wait() {
+            wait = wait.min(motion);
+        }
+        if let Some(motion) = app.agents_live.rate_wait(Instant::now()) {
             wait = wait.min(motion);
         }
         if let Some(motion) = app.home_counters.borrow().wait(Instant::now()) {
@@ -2272,6 +2294,48 @@ mod tests {
     }
 
     #[test]
+    fn activity_window_change_requests_one_fresh_history_read() {
+        use std::cell::{Cell, RefCell};
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = None;
+        add_history_source(&mut app);
+        let (events, input) = channel();
+        let first = Cell::new(true);
+        let reads = RefCell::new(Vec::new());
+        session_with_history(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |app| {
+                if first.replace(false) {
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .preferences
+                        .activity_window = crate::config::ActivityWindow::Minute;
+                    events.send(key(KeyCode::Down)).unwrap();
+                } else {
+                    events.send(key(KeyCode::Char('q'))).unwrap();
+                }
+                Ok(())
+            },
+            |job| {
+                reads.borrow_mut().push(job.test_fresh_recent());
+            },
+        )
+        .unwrap();
+        assert_eq!(reads.borrow().iter().filter(|fresh| **fresh).count(), 1);
+    }
+
+    #[test]
     fn history_demand_does_not_fence_the_selected_conversation() {
         use std::cell::Cell;
         let mut app = app::workspace::tests::board();
@@ -3195,9 +3259,9 @@ print(json.dumps(out))
     fn a_chosen_digest_window_wakes_the_existing_reader_once() {
         use crate::config::DigestWindow;
         let mut app = app::workspace::tests::board();
-        // Workspace settings: three layouts, then the Digest windows 1d and 7d.
+        // Three layouts, motion, then the Digest windows 1d and 7d.
         let mut events = vec![window_snapshot(), key(KeyCode::Char(','))];
-        events.extend(std::iter::repeat_with(|| key(KeyCode::Down)).take(4));
+        events.extend(std::iter::repeat_with(|| key(KeyCode::Down)).take(5));
         events.extend([key(KeyCode::Enter), window_snapshot()]);
         assert_eq!(published_windows(&mut app, events), [DigestWindow::Week]);
         assert_eq!(app.digest_window(), DigestWindow::Week);

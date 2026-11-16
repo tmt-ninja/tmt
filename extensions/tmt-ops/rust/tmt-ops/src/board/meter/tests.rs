@@ -274,3 +274,37 @@ fn uncovered_known_seed_displays_approximate_tokens_for_members_and_home() {
     }
     assert!(meter.sparkline().contains('█'));
 }
+
+#[test]
+fn activity_shows_open_cell_and_shifts_it_on_each_window_boundary() {
+    let now = Instant::now();
+    for window in [
+        TokenWindow::MINUTE,
+        TokenWindow::parse("5m").unwrap(),
+        TokenWindow::parse("10m").unwrap(),
+        TokenWindow::HOUR,
+    ] {
+        let mut meter =
+            crate::status::with_now_ms(0, || Meter::new(TokenRate::default(), &input(100), now));
+        meter.sample(Ok(&input(200)), now + Duration::from_secs(1));
+        let cell_ms = window.milliseconds() / 12;
+        let open =
+            meter.member_trend_window::<12>("a", now + Duration::from_millis(cell_ms - 1), window);
+        assert_eq!(open[11], Some(150.0), "{window:?} open cell");
+        let next =
+            meter.member_trend_window::<12>("a", now + Duration::from_millis(cell_ms), window);
+        assert_eq!(&open[1..], &next[..11], "{window:?} shift");
+        assert_eq!(
+            next[11],
+            Some(0.0),
+            "{window:?} connected new cell is known empty"
+        );
+        meter.suspend(now + Duration::from_millis(cell_ms));
+        let disconnected =
+            meter.member_trend_window::<12>("a", now + Duration::from_millis(cell_ms), window);
+        assert_eq!(
+            disconnected[11], None,
+            "{window:?} disconnected cell is unknown"
+        );
+    }
+}

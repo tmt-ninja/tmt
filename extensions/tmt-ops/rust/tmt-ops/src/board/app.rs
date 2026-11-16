@@ -412,6 +412,8 @@ pub enum Choice {
     /// A Details tab chip on the Digest tab.
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
+    ActivityWindow,
+    Motion,
     /// A click on an Agents column header: sort by it, or reverse it.
     SortBy(super::header_sort::Header),
     /// A click on an exchange matrix cell: Talk opens with the row's agent.
@@ -1635,6 +1637,9 @@ impl App {
             }
         }
         if sampled {
+            if let Ok(rows) = resumes {
+                self.agents_live.observe_rates(rows, now);
+            }
             self.usage_chart.get_mut().invalidate_data();
             self.agents_live.invalidate();
         }
@@ -1763,7 +1768,9 @@ impl App {
             else {
                 continue;
             };
-            meter.seed(&current.input, &read.seeds, now, false);
+            if read.reseed_recent {
+                meter.seed(&current.input, &read.seeds, now, false);
+            }
             if let Some((_, seeds)) = &read.retained {
                 meter.seed_retained(&current.input, seeds, now);
             }
@@ -3395,6 +3402,8 @@ impl App {
             Choice::DigestWindowMenu => self.digest_window_menu(),
             Choice::DigestBasis => super::digest_dashboard::open_basis(self),
             Choice::TokRange(range) => self.select_tok_range(range),
+            Choice::ActivityWindow => self.cycle_activity_window(),
+            Choice::Motion => self.toggle_motion(),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
                 self.open_exchange_pair(&sender, &recipient)
@@ -6440,7 +6449,16 @@ mod token_window_tests {
         let current = app.meters["product"]
             .observation("a", TokenWindow::MINUTE, soon)
             .map(|(reading, _)| reading);
-        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, current);
+        assert_eq!(current.unwrap().tokens, 450);
+        assert_eq!(
+            app.agents_live
+                .member(&app, "a")
+                .unwrap()
+                .minute
+                .unwrap()
+                .tokens,
+            9_000
+        );
     }
 
     #[test]
@@ -6457,6 +6475,7 @@ mod token_window_tests {
             owner: super::super::ALL.into(),
             targets: [("product".into(), (rate.settings, rate.input.clone()))].into(),
             seeds: BTreeMap::new(),
+            reseed_recent: true,
             observed: Ok(super::super::rate::tests::input(400).resumes),
             retained: None,
             quota: app.quota_history_visible().then(Default::default),
@@ -6537,6 +6556,7 @@ mod token_window_tests {
                 owner,
                 targets: [("product".into(), (settings, input))].into(),
                 seeds: BTreeMap::new(),
+                reseed_recent: true,
                 observed: Err(()),
                 retained: None,
                 quota: app.quota_history_visible().then(Default::default),
@@ -6616,7 +6636,18 @@ mod token_window_tests {
         app.agents_live.begin(&app, at);
         let reading = app.agents_live.member(&app, "a").expect("sampled identity");
         assert_eq!(reading.minute.unwrap().tokens, 150);
-        assert!(reading.activity.iter().flatten().any(|value| *value > 0.0));
+        assert_eq!(
+            reading.activity[11],
+            Some(150.0),
+            "the open cell shows observed tokens immediately"
+        );
+        let closed = now + Duration::from_secs(300);
+        app.agents_live.begin(&app, closed);
+        let reading = app.agents_live.member(&app, "a").unwrap();
+        assert!(
+            reading.activity[10] == Some(150.0),
+            "the completed cell moves left at its boundary"
+        );
         assert_eq!(
             app.view.as_ref().unwrap().document,
             before,

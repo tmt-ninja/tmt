@@ -207,6 +207,41 @@ impl App {
         self.select_tok_range(self.tok_range().next())
     }
 
+    pub(in crate::board) fn activity_window(&self) -> crate::config::ActivityWindow {
+        self.workspace_snapshot()
+            .map_or(crate::config::ActivityWindow::default(), |snapshot| {
+                snapshot.preferences.activity_window
+            })
+    }
+
+    pub(in crate::board) fn motion_off(&self) -> bool {
+        self.workspace_snapshot()
+            .is_some_and(|snapshot| snapshot.preferences.motion_off)
+            || self
+                .view
+                .as_ref()
+                .and_then(|view| view.home.as_ref())
+                .is_some_and(|home| home.reduced_motion)
+    }
+
+    pub(in crate::board) fn toggle_motion(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.motion_off = !next.motion_off;
+        self.workspace_save(next)
+    }
+
+    pub(in crate::board) fn cycle_activity_window(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.activity_window = next.activity_window.next();
+        self.workspace_save(next)
+    }
+
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.digest_window
     }
@@ -800,7 +835,8 @@ impl App {
                     && (source.is_some_and(|source| source == "workspace default")
                         || ((matches!(event.as_str(), "e" | "i" | "z")
                             || (self.shell.tab == OpsTab::Digest
-                                && matches!(event.as_str(), "u" | "[")))
+                                && matches!(event.as_str(), "u" | "["))
+                            || (self.shell.tab == OpsTab::Agents && event == "b"))
                             && source.is_none()))
                 {
                     keys.insert(event, action);
@@ -819,6 +855,12 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
+        if self.shell.tab == OpsTab::Agents {
+            keys.insert(
+                "b".into(),
+                Action::parse("cycle-activity-window").expect("factory activity action"),
+            );
+        }
         if self.shell.tab == OpsTab::Digest {
             for (key, action) in [
                 ("o", "digest"),
@@ -1107,6 +1149,7 @@ impl App {
             QuotaDetails => return self.open_quota_details(),
             SavingsUnit => return self.cycle_savings_unit(),
             CycleTokRange => return self.cycle_tok_range(),
+            CycleActivityWindow => return self.cycle_activity_window(),
             DigestPreviousWindow => {
                 let windows = crate::config::DigestWindow::ALL;
                 let at = windows
@@ -1339,8 +1382,9 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
-            | UsageControls | CycleTokRange | DigestPreviousWindow | Unread | Help | Quit
-            | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            | UsageControls | CycleTokRange | CycleActivityWindow | DigestPreviousWindow
+            | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown
+            | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
@@ -1589,6 +1633,20 @@ impl App {
             choice: Choice::WorkspaceLayout(layout),
         })
         .collect();
+        entries.push(MenuEntry {
+            chip: None,
+            separator: false,
+            key: String::new(),
+            label: format!(
+                "Motion: {}",
+                if snapshot.preferences.motion_off {
+                    "off"
+                } else {
+                    "on"
+                }
+            ),
+            choice: Choice::Motion,
+        });
         for window in crate::config::DigestWindow::ALL {
             entries.push(MenuEntry {
                 chip: None,

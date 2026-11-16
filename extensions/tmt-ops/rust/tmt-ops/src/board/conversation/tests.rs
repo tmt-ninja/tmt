@@ -1785,6 +1785,15 @@ fn pending_history_never_hides_or_sits_beside_held_messages() {
 fn the_loading_line_is_scheduled_for_its_instant_and_not_before() {
     const START: u64 = 1_791_600_000_000;
     let mut app = empty_workspace_fixture();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .motion_off = true;
     empty_conversation_at(&mut app, START);
     let marks = |app: &App, now| crate::board::view::time_marks(app, now);
     assert_ne!(
@@ -1963,6 +1972,15 @@ const SPINNER_GLYPHS: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '�
 /// A workspace whose conversation is shown, read once, and not due for any read.
 fn settled_workspace() -> App {
     let mut app = loading_workspace();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .motion_off = true;
     workspace_frame(&app);
     let plan = app.conversation_read().unwrap();
     app.apply_conversation(

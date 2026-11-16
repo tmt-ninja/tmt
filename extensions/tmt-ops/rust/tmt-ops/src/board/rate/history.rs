@@ -36,10 +36,46 @@ pub struct Seed {
 }
 
 impl Seed {
+    fn replace_recent(&mut self, fine: Seed) -> Option<()> {
+        if fine.through != self.through
+            || self
+                .buckets
+                .iter()
+                .any(|slice| slice.from_ms < fine.from && slice.to_ms > fine.from)
+        {
+            return None;
+        }
+        self.buckets.retain(|slice| slice.to_ms <= fine.from);
+        self.buckets.extend(fine.buckets);
+        self.latest = fine.latest;
+        self.sampled = fine.sampled;
+        self.reporting = fine.reporting;
+        Some(())
+    }
+
     pub fn read(response: &Value, row: &Value, window: u64) -> Option<Self> {
+        Self::read_at(response, row, window, 120, None)
+    }
+
+    fn read_at(
+        response: &Value,
+        row: &Value,
+        window: u64,
+        maximum: usize,
+        pinned: Option<u64>,
+    ) -> Option<Self> {
         let as_of = response["asOfMs"].as_u64().filter(|n| *n <= SAFE)?;
         let through = response["throughMs"].as_u64()?;
-        if response["resolutionMs"] != SLOT_MS || through != as_of / SLOT_MS * SLOT_MS {
+        let valid_cut = match pinned {
+            Some(cut) => {
+                through == cut
+                    && cut.is_multiple_of(SLOT_MS)
+                    && cut <= as_of
+                    && as_of - cut <= 60_000
+            }
+            None => through == as_of / SLOT_MS * SLOT_MS,
+        };
+        if response["resolutionMs"] != SLOT_MS || !valid_cut {
             return None;
         }
         let retained = response["retainedFromMs"].as_u64()?;
@@ -52,11 +88,11 @@ impl Seed {
         let bucket_ms = reading["bucketMs"].as_u64()?;
         if from != through.saturating_sub(window)
             || reading["toMs"] != through
-            || bucket_ms != (window / SLOT_MS).div_ceil(120) * SLOT_MS
+            || bucket_ms != (window / SLOT_MS).div_ceil(maximum as u64) * SLOT_MS
         {
             return None;
         }
-        let buckets = read_slices(reading, from, through, bucket_ms, 120)?;
+        let buckets = read_slices(reading, from, through, bucket_ms, maximum)?;
         let timestamp = |key: &str| {
             if row[key].is_null() {
                 Some(None)
@@ -186,6 +222,11 @@ pub(in crate::board) struct Cache {
 }
 
 impl Cache {
+    pub fn invalidate_recent(&mut self) {
+        self.key = None;
+        self.seeds.clear();
+    }
+
     pub fn retained(
         &mut self,
         core: &Core,
@@ -356,12 +397,81 @@ impl RetainedCache {
     }
 }
 
-/// Acquire only one longest window; overlapping shorter windows are never added.
+/// Acquire the longest window, replacing its recent coarse slices with finer
+/// evidence at the same cut; overlapping windows are never added.
 pub fn load(core: &Core, ids: BTreeSet<String>, longest: TokenWindow) -> Seeds {
     let window = longest.milliseconds().min(3_600_000);
-    read_window(core, ids, window, 120, |response, row| {
-        Seed::read(response, row, window)
-    })
+    let mut seeds = read_recent(core, ids, window);
+    if window != 3_600_000 {
+        return seeds;
+    }
+    // Fine history replaces, never adds to, the last minute of the hour seed.
+    // Group by the original cut so both reads use identical closed boundaries.
+    let mut cuts: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
+    for (id, seed) in &seeds {
+        if let Some(seed) = seed {
+            cuts.entry(seed.through).or_default().insert(id.clone());
+        }
+    }
+    for (cut, ids) in cuts {
+        // Five-second evidence covers 1m, 5m and 10m activity cells without
+        // splitting the hour seed's thirty-second buckets.
+        let fine = read_window_at(core, ids, 600_000, 120, Some(cut), |response, row| {
+            Seed::read_at(response, row, 600_000, 120, Some(cut))
+        });
+        for (id, fine) in fine {
+            if let (Some(seed), Some(fine)) = (seeds.get_mut(&id).and_then(Option::as_mut), fine) {
+                // Failed or unaligned fine history leaves the known coarse
+                // seed intact; the activity projection rejects split evidence.
+                let _ = seed.replace_recent(fine);
+            }
+        }
+    }
+    seeds
+}
+
+/// Pin every later roster batch to the first valid five-second cut.
+fn read_recent(core: &Core, ids: BTreeSet<String>, window: u64) -> Seeds {
+    let ids: Vec<_> = ids.into_iter().collect();
+    let mut seeds = BTreeMap::new();
+    let mut cut = None;
+    for batch in ids.chunks(32) {
+        let requested = cut;
+        let mut input = json!({"identityIds": batch, "windowsMs": [window], "maxBuckets": 120});
+        if let Some(through) = requested {
+            input["throughMs"] = json!(through);
+        }
+        let response = core.api("consumption.history", input);
+        if cut.is_none()
+            && let Ok(value) = &response
+            && let (Some(as_of), Some(through)) =
+                (value["asOfMs"].as_u64(), value["throughMs"].as_u64())
+            && as_of <= SAFE
+            && value["resolutionMs"] == SLOT_MS
+            && through == as_of / SLOT_MS * SLOT_MS
+        {
+            cut = Some(through);
+        }
+        for id in batch {
+            let seed = response.as_ref().ok().and_then(|value| {
+                let mut matching = value["identities"]
+                    .as_array()?
+                    .iter()
+                    .filter(|row| row["id"] == *id);
+                let row = matching.next()?;
+                if matching.next().is_some() {
+                    return None;
+                }
+                if requested.is_some() {
+                    Seed::read_at(value, row, window, 120, requested)
+                } else {
+                    Seed::read(value, row, window)
+                }
+            });
+            seeds.insert(id.clone(), seed);
+        }
+    }
+    seeds
 }
 
 /// Both resolutions use this one bounded public-API reader. Each window keeps
@@ -373,13 +483,25 @@ fn read_window<T>(
     maximum: usize,
     decode: impl Fn(&Value, &Value) -> Option<T>,
 ) -> BTreeMap<String, Option<T>> {
+    read_window_at(core, ids, window, maximum, None, decode)
+}
+
+fn read_window_at<T>(
+    core: &Core,
+    ids: BTreeSet<String>,
+    window: u64,
+    maximum: usize,
+    through: Option<u64>,
+    decode: impl Fn(&Value, &Value) -> Option<T>,
+) -> BTreeMap<String, Option<T>> {
     let ids: Vec<_> = ids.into_iter().collect();
     let mut seeds = BTreeMap::new();
     for batch in ids.chunks(32) {
-        let response = core.api(
-            "consumption.history",
-            json!({"identityIds": batch, "windowsMs": [window], "maxBuckets": maximum}),
-        );
+        let mut input = json!({"identityIds": batch, "windowsMs": [window], "maxBuckets": maximum});
+        if let Some(through) = through {
+            input["throughMs"] = json!(through);
+        }
+        let response = core.api("consumption.history", input);
         for id in batch {
             let seed = response.as_ref().ok().and_then(|response| {
                 let rows = response["identities"].as_array()?;
@@ -399,6 +521,134 @@ fn read_window<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fine_seed_replaces_overlapping_coarse_tokens_and_advances_watermark() {
+        let slice = |from, to, tokens| Slice {
+            from_ms: from,
+            to_ms: to,
+            input_tokens: tokens,
+            output_tokens: 0,
+            cached_input_tokens: 0,
+            covered_ms: to - from,
+            complete: true,
+            gap: false,
+            discontinuous: false,
+            by_driver: Vec::new(),
+        };
+        let seed = |from, through, buckets, latest| Seed {
+            from,
+            through,
+            available: Some(0),
+            sampled: Some(through - 1),
+            latest: json!(latest),
+            reporting: true,
+            buckets,
+        };
+        let mut hour = seed(
+            0,
+            90_000,
+            vec![
+                slice(0, 30_000, 10),
+                slice(30_000, 60_000, 20),
+                slice(60_000, 90_000, 30),
+            ],
+            1,
+        );
+        let fine = seed(
+            30_000,
+            90_000,
+            (0..12)
+                .map(|i| slice(30_000 + i * 5_000, 35_000 + i * 5_000, 2))
+                .collect(),
+            2,
+        );
+        hour.replace_recent(fine).unwrap();
+        assert_eq!(hour.buckets.len(), 13);
+        assert_eq!(hour.buckets.iter().map(|b| b.input_tokens).sum::<u64>(), 34);
+        assert_eq!(hour.latest, json!(2));
+        assert_eq!(hour.buckets.last().unwrap().to_ms, 90_000);
+        let crossing = seed(35_000, 90_000, Vec::new(), 3);
+        assert!(hour.replace_recent(crossing).is_some());
+        let mut coarse = seed(
+            0,
+            90_000,
+            vec![slice(0, 60_000, 10), slice(60_000, 90_000, 20)],
+            1,
+        );
+        assert!(
+            coarse
+                .replace_recent(seed(30_000, 90_000, Vec::new(), 2))
+                .is_none()
+        );
+        assert_eq!(coarse.buckets.len(), 2);
+    }
+
+    #[test]
+    fn recent_activity_reads_use_one_pinned_cut_and_replace_without_double_counting() {
+        let dir =
+            std::env::temp_dir().join(format!("ops-fine-history-{}", crate::id::new_v4().unwrap()));
+        std::fs::create_dir(&dir).unwrap();
+        let through = 3_600_000_u64;
+        let window = |span: u64, bucket: u64, tokens: u64| {
+            let from = through - span;
+            let buckets: Vec<_> = (0..span / bucket)
+                .map(|i| {
+                    json!({
+                        "fromMs":from + i * bucket, "toMs":from + (i + 1) * bucket,
+                        "inputTokens":tokens, "outputTokens":0, "cachedInputTokens":0,
+                        "coveredMs":bucket, "complete":true, "gap":false, "discontinuous":false
+                    })
+                })
+                .collect();
+            json!({"windowMs":span,"fromMs":from,"toMs":through,"bucketMs":bucket,"buckets":buckets})
+        };
+        let response = json!({"asOfMs":through,"throughMs":through,"resolutionMs":5_000,
+        "retainedFromMs":0,"identities":[{"id":"a","found":true,"availableFromMs":null,
+        "lastSampleAtMs":null,"latest":null,"reporting":true,"windows":[
+            window(3_600_000,30_000,6), window(600_000,5_000,1), window(60_000,5_000,1)
+        ]}]});
+        let response_path = dir.join("response");
+        let calls = dir.join("calls");
+        let fake = dir.join("tmt");
+        std::fs::write(&response_path, response.to_string()).unwrap();
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = api ] || exit 2\ncat >> '{}'\nprintf '\n' >> '{}'\ncat '{}'\n",
+                calls.display(),
+                calls.display(),
+                response_path.display()
+            ),
+        );
+        let ids = std::iter::once("a".to_owned())
+            .chain((0..32).map(|n| format!("z{n:02}")))
+            .collect();
+        let seeds = load(&Core::at(fake), ids, TokenWindow::HOUR);
+        let seed = seeds["a"].as_ref().unwrap();
+        assert_eq!(seed.buckets.len(), 220);
+        assert_eq!(
+            seed.buckets
+                .iter()
+                .map(|slice| slice.input_tokens)
+                .sum::<u64>(),
+            720
+        );
+        let requests: Vec<Value> = std::fs::read_to_string(&calls)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0]["input"]["windowsMs"], json!([3_600_000]));
+        assert_eq!(requests[1]["input"]["windowsMs"], json!([3_600_000]));
+        assert_eq!(requests[2]["input"]["windowsMs"], json!([600_000]));
+        assert_eq!(requests[2]["input"]["maxBuckets"], 120);
+        for request in &requests[1..] {
+            assert_eq!(request["input"]["throughMs"], through);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn retained_cache_requires_cursor_closed_five_minute_range_and_exact_selection() {

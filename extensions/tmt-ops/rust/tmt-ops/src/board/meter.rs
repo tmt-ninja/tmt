@@ -18,11 +18,13 @@ struct Animation {
     to: f64,
     start: Instant,
     next: Instant,
+    duration: Duration,
 }
 
 impl Animation {
     fn value(&self, now: Instant) -> f64 {
-        let t = now.saturating_duration_since(self.start).as_secs_f64() / DURATION.as_secs_f64();
+        let t =
+            now.saturating_duration_since(self.start).as_secs_f64() / self.duration.as_secs_f64();
         self.from + (self.to - self.from) * (1.0 - (1.0 - t.min(1.0)).powi(3))
     }
 }
@@ -44,6 +46,7 @@ impl Counter {
         immediate: bool,
         animate_initial: bool,
         now: Instant,
+        duration: Duration,
     ) {
         let Some(tokens) = target else {
             self.target = None;
@@ -62,6 +65,7 @@ impl Counter {
                 to,
                 start: now,
                 next: now + FRAME,
+                duration,
             });
         }
         self.target = Some(tokens);
@@ -82,7 +86,7 @@ impl Counter {
             && now >= animation.next
         {
             self.displayed = animation.value(now);
-            let end = animation.start + DURATION;
+            let end = animation.start + animation.duration;
             if now >= end {
                 self.displayed = animation.to;
                 self.animation = None;
@@ -267,6 +271,7 @@ impl Meter {
             self.settings.reduced_motion,
             true,
             now,
+            DURATION,
         );
         self.reading = reading;
         self.trend = self.rate.trend(ms, self.window);
@@ -348,6 +353,28 @@ impl Meter {
     ) -> [Option<f64>; N] {
         self.rate
             .member_trend(id, self.milliseconds(now), TokenWindow::HOUR)
+    }
+
+    pub(in crate::board) fn member_trend_window<const N: usize>(
+        &self,
+        id: &str,
+        now: Instant,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        // Keep the cells aligned to their interval boundaries while including
+        // observed activity in the open rightmost cell. At the next boundary,
+        // that cell moves left and a new, initially unknown cell enters.
+        let cell_ms = window.milliseconds() / N as u64;
+        let at = self.milliseconds(now);
+        let open_start = at / cell_ms * cell_ms;
+        let open_end = open_start
+            .saturating_add(cell_ms)
+            .saturating_sub(super::rate::SLOT_MS);
+        let mut cells = self.rate.member_activity(id, open_end, window);
+        if cells[N - 1].is_none() && self.rate.member_open_known(id, open_start, at) {
+            cells[N - 1] = Some(0.0);
+        }
+        cells
     }
 
     pub(in crate::board) fn history(&self) -> &Rate {

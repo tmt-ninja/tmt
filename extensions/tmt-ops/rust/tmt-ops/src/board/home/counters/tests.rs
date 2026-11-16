@@ -393,3 +393,67 @@ fn live_cost_rolls_and_keeps_the_two_second_change_emphasis() {
         ("≈$1.80".into(), true)
     );
 }
+
+#[test]
+fn agent_totals_sum_the_same_displayed_members_and_decreases_snap() {
+    let start = Instant::now();
+    let mut state = Counters::default();
+    let a = "agents:member:a:range:1h";
+    let b = "agents:member:b:range:1h";
+    let area = Rect::new(0, 0, 7, 1);
+    state.begin();
+    assert_eq!(
+        state.live_value(a.into(), reading(100, false), false, start),
+        Some(100)
+    );
+    assert_eq!(
+        state.live_value(b.into(), reading(200, false), false, start),
+        Some(200)
+    );
+    for key in [a, b] {
+        state.visible(key, area, String::new(), Align::Right, true);
+    }
+    state.finish(None, false);
+    let changed = start + Duration::from_secs(1);
+    state.begin();
+    assert_eq!(
+        state.live_value(a.into(), reading(200, false), false, changed),
+        Some(100)
+    );
+    assert_eq!(
+        state.live_value(b.into(), reading(400, false), false, changed),
+        Some(200)
+    );
+    for key in [a, b] {
+        state.visible(key, area, String::new(), Align::Right, true);
+    }
+    state.finish(None, false);
+    assert!(state.tick(changed + Duration::from_millis(250)));
+    let first = state
+        .live_value(
+            a.into(),
+            reading(200, false),
+            false,
+            changed + Duration::from_millis(250),
+        )
+        .unwrap();
+    let second = state
+        .live_value(
+            b.into(),
+            reading(400, false),
+            false,
+            changed + Duration::from_millis(250),
+        )
+        .unwrap();
+    assert!(first > 100 && first < 200);
+    assert!(second > 200 && second < 400);
+    assert_eq!(
+        state.live_value(
+            a.into(),
+            reading(10, false),
+            false,
+            changed + Duration::from_millis(300)
+        ),
+        Some(10)
+    );
+}

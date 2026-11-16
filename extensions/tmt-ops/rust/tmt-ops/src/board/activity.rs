@@ -159,6 +159,16 @@ impl Label {
     }
 }
 
+/// Elapsed time in a working turn, with seconds retained after the first minute.
+pub fn turn_age(now_ms: u64, since_ms: u64) -> String {
+    let seconds = now_ms.saturating_sub(since_ms) / 1000;
+    if seconds >= 60 {
+        format!("{}m{:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
+}
+
 /// How old the board's core read may be before its activity is stale:
 /// `max(refresh interval, 5 s) + 10 s`. Refresh off uses the 5 s floor.
 pub fn stale_after(refresh: Option<std::time::Duration>) -> std::time::Duration {
@@ -200,6 +210,13 @@ mod tests {
 
     fn of(activity: Value) -> ObservedActivity {
         ObservedActivity::of(&json!({"id": "a", "session": {"activity": activity}}))
+    }
+
+    #[test]
+    fn working_turn_age_keeps_seconds() {
+        assert_eq!(turn_age(192_000, 0), "3m12s");
+        assert_eq!(turn_age(9_000, 0), "9s");
+        assert_eq!(turn_age(0, 1_000), "0s");
     }
 
     #[test]

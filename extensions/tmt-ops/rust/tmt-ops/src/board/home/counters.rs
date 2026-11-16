@@ -82,6 +82,17 @@ impl Counters {
         reduced: bool,
         now: Instant,
     ) -> String {
+        self.digits_timed(key, reading, reduced, now, Duration::from_millis(600))
+    }
+
+    fn digits_timed(
+        &mut self,
+        key: String,
+        reading: Option<Reading>,
+        reduced: bool,
+        now: Instant,
+        duration: Duration,
+    ) -> String {
         let field = self.fields.entry(key).or_insert_with(|| Field {
             counter: Counter::default(),
             partial: false,
@@ -99,6 +110,7 @@ impl Counters {
             reduced || field.visible.is_none(),
             false,
             now,
+            duration,
         );
         field.counter.digits(field.partial)
     }
@@ -117,18 +129,43 @@ impl Counters {
             .get(&key)
             .is_some_and(|field| field.visible.is_some());
         let current = reading.map(|reading| (reading.tokens, reading.partial));
-        let digits = self.digits(key.clone(), reading, reduced, now);
+        let agent = key.starts_with("agents:");
+        let decrease = agent
+            && prior
+                .zip(current)
+                .is_some_and(|(before, after)| after.0 < before.0);
+        let digits = self.digits_timed(
+            key.clone(),
+            reading,
+            reduced || decrease,
+            now,
+            Duration::from_millis(if agent { 800 } else { 600 }),
+        );
         let field = self.fields.get_mut(&key).expect("requested counter cell");
-        if reduced || !visible || current.is_none() {
+        if reduced || !visible || current.is_none() || (agent && !key.ends_with(":minute")) {
             field.emphasis_until = None;
-        } else if prior.is_some() && prior != current {
-            field.emphasis_until = Some(now + Duration::from_secs(2));
+        } else if prior.is_some() && prior != current && (!agent || !decrease) {
+            field.emphasis_until =
+                Some(now + Duration::from_millis(if agent { 800 } else { 2_000 }));
         }
         field.live_last = current;
         (
             digits,
             field.emphasis_until.is_some_and(|until| now < until),
         )
+    }
+
+    /// The number behind a live cell, for a squad total built from the same
+    /// displayed member counters. The caller registers its visible area.
+    pub(crate) fn live_value(
+        &mut self,
+        key: String,
+        reading: Option<Reading>,
+        reduced: bool,
+        now: Instant,
+    ) -> Option<u128> {
+        self.live_digits(key.clone(), reading, reduced, now);
+        self.fields.get(&key)?.counter.displayed()
     }
 
     /// Price remains based on the held report; only its displayed digits move.

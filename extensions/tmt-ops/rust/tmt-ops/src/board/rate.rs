@@ -68,7 +68,7 @@ impl Input {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Counter {
+pub(super) struct Counter {
     key: (String, String, String),
     input: u64,
     output: u64,
@@ -96,7 +96,7 @@ pub(in crate::board) fn resume_model(resume: &Value) -> Option<&str> {
 }
 
 impl Counter {
-    fn read(resume: &Value) -> Option<Self> {
+    pub(super) fn read(resume: &Value) -> Option<Self> {
         let value = &resume["consumption"];
         let number = |key: &str| value[key].as_u64().filter(|n| *n <= SAFE);
         let counter = Self {
@@ -128,6 +128,23 @@ impl Counter {
             && counter.input + counter.output <= SAFE
             && !(complete && gap))
             .then_some(counter)
+    }
+
+    /// A continuous, monotonic counter pair. None means rebaseline.
+    pub(super) fn delta(&self, previous: &Self) -> Option<u64> {
+        if !self.usable
+            || !previous.usable
+            || self.key != previous.key
+            || self.sequence < previous.sequence
+            || self.observed < previous.observed
+            || (self.sequence == previous.sequence && self != previous)
+        {
+            return None;
+        }
+        let input = self.input.checked_sub(previous.input)?;
+        let output = self.output.checked_sub(previous.output)?;
+        self.cached.checked_sub(previous.cached)?;
+        input.checked_add(output)
     }
 }
 
@@ -833,7 +850,7 @@ impl Rate {
             .saturating_mul(SLOT_MS)
     }
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
-        Self::trend_of(self.members.values(), now, window)
+        Self::trend_of(self.members.values(), now, window, false)
     }
 
     /// Member focus and squad rows use the same admitted buckets and bounds.
@@ -843,13 +860,44 @@ impl Rate {
         now: u64,
         window: TokenWindow,
     ) -> [Option<f64>; N] {
-        Self::trend_of(self.members.get(id).into_iter(), now, window)
+        Self::trend_of(self.members.get(id).into_iter(), now, window, false)
+    }
+
+    /// A continuously observed member has a known empty open interval even
+    /// before a receipt lands in its first five-second bucket.
+    pub fn member_open_known(&self, id: &str, from: u64, now: u64) -> bool {
+        self.members.get(id).is_some_and(|member| {
+            member.reporter
+                && !member.blocked
+                && member
+                    .previous
+                    .as_ref()
+                    .is_some_and(|counter| counter.usable)
+                && member.began.is_some_and(|began| began <= from)
+                && member.sampled.is_some()
+                && !member.buckets.iter().any(|bucket| {
+                    bucket.gap
+                        && bucket
+                            .slot
+                            .is_some_and(|slot| (from / SLOT_MS..=now / SLOT_MS).contains(&slot))
+                })
+        })
+    }
+
+    pub fn member_activity<const N: usize>(
+        &self,
+        id: &str,
+        now: u64,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        Self::trend_of(self.members.get(id).into_iter(), now, window, true)
     }
 
     fn trend_of<'a, const N: usize>(
         members: impl Iterator<Item = &'a Member> + Clone,
         now: u64,
         window: TokenWindow,
+        whole_cells: bool,
     ) -> [Option<f64>; N] {
         assert!(N > 0, "trend requires a nonempty bucket grid");
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(N as u64);
@@ -864,6 +912,16 @@ impl Rate {
                     .slot
                     .is_some_and(|slot| (first..=last).contains(&slot))
                 {
+                    // History padding is not independently measured. Only its
+                    // final slot owns the whole source interval and its tokens.
+                    if whole_cells
+                        && matches!(bucket.origin, BucketOrigin::History { .. })
+                        && bucket
+                            .source_from
+                            .is_none_or(|from| from < first.saturating_mul(SLOT_MS))
+                    {
+                        continue;
+                    }
                     if bucket
                         .source_from
                         .is_none_or(|from| from >= now.saturating_sub(window.milliseconds()))

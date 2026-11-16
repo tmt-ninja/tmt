@@ -189,6 +189,7 @@ pub(in crate::board) fn feedback_wait(app: &App, now_ms: u64) -> Option<std::tim
         .any(|surface| match surface {
             ClockSurface::OutgoingFeedback(clock) => clock.animates(now_ms),
             ClockSurface::RefreshSpinner => true,
+            ClockSurface::WorkingTurn { motion: true, .. } => true,
             _ => false,
         })
         .then(|| {
@@ -248,6 +249,11 @@ pub(in crate::board) enum ClockSurface {
     ActivityStale(std::time::Instant),
     /// A painted activity age counts from this core time.
     ActivityAge(u64),
+    WorkingTurn {
+        at: u64,
+        motion: bool,
+    },
+    SquadBreath,
     OutgoingFeedback(crate::board::conversation::FeedbackClock),
     /// The retained conversation's refresh glyph turns on the shared tick.
     RefreshSpinner,
@@ -306,6 +312,16 @@ impl ClockSurface {
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
             Self::ActivityStale(deadline) => (std::time::Instant::now() > *deadline).to_string(),
             Self::ActivityAge(at) => crate::requests::age(now, *at),
+            Self::SquadBreath => ((now / 600) % 2).to_string(),
+            Self::WorkingTurn { at, motion } => format!(
+                "{}:{}",
+                now.saturating_sub(*at) / 1000,
+                if *motion {
+                    feedback_glyph(now, true)
+                } else {
+                    ""
+                }
+            ),
             Self::DigestDetails {
                 target,
                 width,

@@ -199,6 +199,212 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
 const LISTS: [&str; 1] = ["squads"];
 
 #[test]
+fn row_flash_preserves_the_activity_cells_grey_scale() {
+    use crate::board::{agents_live::AgentsLiveUsage, workspace::OpsTarget};
+    use std::time::Duration;
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    frame(&app, 160);
+    let mut values = [Some(0.0); 12];
+    for (index, value) in values.iter_mut().enumerate() {
+        *value = Some(index as f64 * 100.0);
+    }
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: values,
+        },
+    );
+    let before = frame(&app, 160);
+    let header = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+    let y = (0..before.area.height)
+        .find(|y| {
+            (0..before.area.width)
+                .map(|x| before[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    let key = format!(
+        "{:?}",
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into()
+        }
+    );
+    let future = Instant::now() + Duration::from_secs(60);
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, future);
+    app.agents_live.row_flash(key, true, false, 0, true, future);
+    let after = frame(&app, 160);
+    for x in header.x..header.right() {
+        assert_eq!(
+            before[(x, y)].bg,
+            after[(x, y)].bg,
+            "activity background at x={x}"
+        );
+    }
+    let state_x = (0..before.area.height)
+        .find_map(|row| {
+            (0..before.area.width.saturating_sub(4)).find(|x| {
+                (0..5)
+                    .map(|offset| before[(x + offset, row)].symbol())
+                    .collect::<String>()
+                    == "STATE"
+            })
+        })
+        .expect("state column");
+    assert_ne!(before[(state_x, y)].symbol(), " ", "state mark is visible");
+    let (before_mark, after_mark) = (&before[(state_x, y)], &after[(state_x, y)]);
+    assert_eq!(before_mark.fg, after_mark.fg, "state mark foreground");
+    assert_eq!(before_mark.bg, after_mark.bg, "state mark background");
+    assert_eq!(
+        before_mark.modifier, after_mark.modifier,
+        "state mark modifiers"
+    );
+    assert_ne!(
+        before[(0, y)].bg,
+        after[(0, y)].bg,
+        "row background must flash"
+    );
+}
+
+#[test]
+fn working_turn_timer_and_spinner_respect_motion_preference() {
+    use crate::board::{activity::Phase, view::ClockSurface};
+    let now_ms = 1_800_000_000_000;
+    crate::status::with_now_ms(now_ms, || {
+        let mut app = open(SavingsUnit::Tokens);
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let member = workspace.roster.members.get_mut(MEMBER).unwrap();
+        member.activity.phase = Phase::Working;
+        member.activity.since_ms = Some(now_ms - 192_000);
+        let buffer = frame(&app, 160);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("working 3m12s"), "{text}");
+        assert!(
+            app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::WorkingTurn { motion: true, .. }))
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .motion_off = true;
+        frame(&app, 160);
+        assert!(
+            app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::WorkingTurn { motion: false, .. }))
+        );
+        assert!(
+            !app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::SquadBreath))
+        );
+    });
+}
+
+#[test]
+fn squad_activity_sums_known_members_and_preserves_unknown_cells() {
+    use crate::board::agents_live::AgentsLiveUsage;
+    let mut app = open(SavingsUnit::Tokens);
+    let room = app.workspace_snapshot().unwrap().roster.squads[0]
+        .room_id
+        .clone();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .members
+        .push("second".into());
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: [Some(2.0); 12],
+        },
+    );
+    let mut second = [Some(3.0); 12];
+    second[4] = None;
+    app.agents_live.usage.borrow_mut().insert(
+        "second".into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: second,
+        },
+    );
+    let total = app.agents_live.squad_activity(&app, &room);
+    assert_eq!(total[0], Some(5.0));
+    assert_eq!(total[4], None);
+}
+
+#[test]
+fn activity_header_and_b_cycle_the_same_saved_window() {
+    use crate::config::ActivityWindow;
+    for (current, next_window) in [
+        (ActivityWindow::Minute, ActivityWindow::FiveMinutes),
+        (ActivityWindow::FiveMinutes, ActivityWindow::TenMinutes),
+        (ActivityWindow::TenMinutes, ActivityWindow::Hour),
+        (ActivityWindow::Hour, ActivityWindow::Minute),
+    ] {
+        let mut app = open(SavingsUnit::Tokens);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .activity_window = current;
+        let buffer = frame(&app, 160);
+        let area = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+        assert!(text(&buffer, area).starts_with(&format!("ACTIVITY {}", current.argument())));
+        let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), area)
+        else {
+            panic!("click must save the next window")
+        };
+        assert_eq!(next.activity_window, next_window);
+        let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+            key(&mut app, KeyCode::Char('b'))
+        else {
+            panic!("b must save the next window")
+        };
+        assert_eq!(next.activity_window, next_window);
+    }
+}
+
+#[test]
 fn a_click_on_the_unit_word_switches_every_row_and_selects_nothing() {
     for name in LISTS {
         for (held, wanted) in [
@@ -358,7 +564,7 @@ fn sampled_member_minute_is_painted_in_the_live_column() {
 fn sampled_member_activity_is_painted_oldest_to_newest() {
     let row = sampled_member_row();
     assert!(
-        row.contains("···········█"),
+        row.contains("▁▁▁▁▁▁▁▁▁▁▁█"),
         "the oldest-to-newest activity cells: {row}"
     );
 }
@@ -692,7 +898,7 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
             activity: [Some(0.0); 12],
         },
     );
-    assert_eq!(activity_text(&app), "············");
+    assert_eq!(activity_text(&app), "▁▁▁▁▁▁▁▁▁▁▁▁");
     let mut partial = [None; 12];
     partial[9] = Some(0.0);
     partial[11] = Some(120.0);
@@ -702,5 +908,128 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
         .get_mut(MEMBER)
         .unwrap()
         .activity = partial;
-    assert_eq!(activity_text(&app), "         · █");
+    assert_eq!(activity_text(&app), "·········▁·█");
+}
+
+#[test]
+fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
+    use crate::board::{activity::Phase, workspace::OpsTarget};
+    use std::time::Duration;
+
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.squad_looks.clear();
+    workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .phase = Phase::Idle;
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.overview_rows.borrow_mut().clear();
+    frame(&app, 160);
+    let key = format!(
+        "{:?}",
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        }
+    );
+    let now = Instant::now();
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, now);
+    app.agents_live
+        .row_flash(key.clone(), true, false, 0, true, now);
+    let first = frame(&app, 160);
+    let row = (0..first.area.height)
+        .find(|y| {
+            (0..first.area.width)
+                .map(|x| first[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    let row_end = (0..first.area.width)
+        .find(|x| first[(*x, row)].symbol() == "│")
+        .expect("workspace divider");
+    let later_start = Instant::now() - Duration::from_millis(600);
+    app.agents_live
+        .row_flash(key.clone(), false, false, 0, true, later_start);
+    app.agents_live
+        .row_flash(key, true, false, 0, true, later_start);
+    let second = frame(&app, 160);
+    let changes = first.diff(&second);
+    assert!(
+        !changes.is_empty(),
+        "the flash must change at its next stage"
+    );
+    for (x, y, cell) in changes {
+        assert_eq!(y, row, "only the flashing row should change at x={x}");
+        assert!(x < row_end, "only the flashing row should change at x={x}");
+        let previous = &first[(x, y)];
+        assert_eq!(previous.symbol(), cell.symbol(), "glyph at x={x}");
+        assert_ne!(previous, cell, "changed cell at x={x}");
+    }
+}
+
+#[test]
+fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
+    use crate::board::agents_live::AgentsLiveUsage;
+    let mut app = open(SavingsUnit::Tokens);
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    frame(&app, 160);
+    let mut activity = [Some(0.0); 12];
+    activity[1] = None;
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity,
+        },
+    );
+    let actual = frame(&app, 160);
+    let area = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
+    let y = (0..actual.area.height)
+        .find(|y| {
+            (0..actual.area.width)
+                .map(|x| actual[(x, *y)].symbol())
+                .collect::<String>()
+                .contains("└ worker")
+        })
+        .unwrap();
+    assert_eq!(
+        actual[(area.x, y)].bg,
+        ratatui::style::Color::Rgb(56, 56, 56)
+    );
+    assert_eq!(actual[(area.x + 1, y)].symbol(), "·");
+    assert_ne!(actual[(area.x + 1, y)].bg, actual[(area.x, y)].bg);
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: [None; 12],
+        },
+    );
+    let unknown = frame(&app, 160);
+    assert!(
+        (area.x..area.right()).all(|x| unknown[(x, y)].symbol() == " "),
+        "a wholly unknown window stays blank"
+    );
 }

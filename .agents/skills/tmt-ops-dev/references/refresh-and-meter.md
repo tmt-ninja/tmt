@@ -313,10 +313,12 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
 - Acquisition: `board::rate::Input` captures roster UUIDs and public `resume`
   values before section shaping. On named/HOME entry, the existing cancellable
   worker publishes the usable roster before acquiring history. It batches
-  `consumption.history` for at most 32 UUIDs per call, requesting one longest
-  fine-resolution window capped at 1 h. The aggregate workspace requests that
-  whole hour even when summary windows are shorter, for its independent chart
-  controls; board meters retain at least one hour in their existing rings.
+  `consumption.history` for at most 32 UUIDs per call, requesting a longest
+  window capped at 1 h. The aggregate workspace requests that whole hour even
+  when summary windows are shorter, for its independent chart controls; board
+  meters retain at least one hour in their existing rings. An hour seed also
+  requests one pinned ten-minute (120 buckets) slice on load, reconnect and
+  activity-window changes; it replaces overlapping whole coarse slices at the same cut.
   The worker may reuse validated seeds
   only with the same successful core change cursor, closed five-second range
   and requested window; missing UUIDs are fetched, failures are not cached, and
