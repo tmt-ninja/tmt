@@ -2400,6 +2400,21 @@ function OpenPage({
       })),
     [frameOutline],
   );
+  const hasHtmlOutline = htmlHeadings.length >= 3;
+  const htmlOutline = useRef<HTMLDivElement>(null);
+  const [htmlOutlineHeight, setHtmlOutlineHeight] = useState(0);
+  useEffect(() => {
+    const node = htmlOutline.current;
+    if (!node) {
+      setHtmlOutlineHeight(0);
+      return;
+    }
+    const measure = () => setHtmlOutlineHeight(node.offsetHeight);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => observer.disconnect();
+  }, [hasHtmlOutline, view.pageType, design]);
   const locateHtmlHeading = useCallback(
     (id: string) => {
       const index = Number(id);
@@ -3161,6 +3176,7 @@ function OpenPage({
         <div
           className={view.pageType === 'blocks' ? 'canvas canvas-structured' : 'canvas'}
           data-layout={framedLayout(view.layout) ? view.layout : undefined}
+          style={{ '--html-outline-height': `${htmlOutlineHeight}px` } as React.CSSProperties}
         >
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -3233,8 +3249,8 @@ function OpenPage({
               ))}
             </ul>
           )}
-          {view.pageType !== 'blocks' && htmlHeadings.length >= 3 && (
-            <div className="html-outline" data-compact={!htmlGutter || undefined}>
+          {!design && view.pageType !== 'blocks' && hasHtmlOutline && (
+            <div ref={htmlOutline} className="html-outline" data-compact={!htmlGutter || undefined}>
               <PageOutline
                 headings={htmlHeadings}
                 locate={locateHtmlHeading}

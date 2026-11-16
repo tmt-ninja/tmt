@@ -503,7 +503,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .html-outline {
   position: absolute;
   inset: 0 auto 0 0;
-  z-index: 52;
+  z-index: 2;
   width: 188px;
   pointer-events: none;
 }
@@ -518,6 +518,12 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   background: var(--tmt-ui-surface-sheet);
 }
 @media (min-width: 641px) {
+  .html-outline {
+    z-index: 52;
+  }
+  body:has(.tmt-ui-panel:not([hidden])) .html-outline {
+    z-index: 2;
+  }
   .html-outline[data-compact] .page-outline {
     top: calc(var(--page-bar-size) - 34px);
     margin-block-start: -34px;
@@ -546,6 +552,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
 }
 @media (max-width: 640px) {
+  .canvas:has(.html-outline) .inline-block-layer {
+    transform: translateY(var(--html-outline-height, 0px));
+  }
   .html-outline {
     position: sticky;
     inset: auto;
