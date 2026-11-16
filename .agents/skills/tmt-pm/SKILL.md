@@ -97,9 +97,9 @@ in `Now` when a tracker is parked, and keep its release gates under `Blocked`.
      as unknown usage, and leave per-model cost for them empty. Core has no compaction data: print the compaction
      table as `unavailable (no Core source)`.
    - _Sessions outside the seats._ A Codex seat's totals include the sessions it started
-     (subagents and `codex-auto-review`), counted from Core's first scan after #3832
-     shipped. Usage before that scan leaves them out, so a window that spans it is a
-     lower bound for those seats. Sessions that no seat started are not read: print
+     (subagents and `codex-auto-review`); unobserved coverage makes the totals a
+     lower bound. Follow the [usage report contract](../../../extensions/tmt-digest/contracts/usage-v1.md).
+     Sessions that no seat started are not read: print
      `usage.otherSessions` (`no_source`) as `other sessions: unavailable (no Core source)`
      beside the seat ranking, never as zero, and do not reconcile with provider files or
      a second store.

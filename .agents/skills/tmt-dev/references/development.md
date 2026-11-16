@@ -309,18 +309,13 @@ The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the scr
 header documents its final states, bounds, log and exit codes. Logs record launch,
 waiter startup and exit status/phase, including caught HUP, INT and TERM signals.
 
-For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](../../../../scripts/hooks/codex-wait-guard.mjs) is an
-optional `PreToolUse` hook that asks a model to judge calls inside this repository that hold a
-wait primitive (`sleep`, a loop, `watch`, `tail -f`, a background job and the like). It denies
-waits and polls by default, and the deny names the fix: start the tracked
-`sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground` of any worktree of this
-repository, never a copy, in a provider-native retained background task and end the turn, or run `host-health.sh --gate` once for host capacity. `TMT_WAIT_HOOK=off` turns it off
-for one seat; the rollback is shadow mode (`ENFORCE` false in the script), which only logs
-denies. Every other call, including a short
-allowlist and the known waiter and test-runner starts, skips the model. Every judged call's redacted input leaves the machine; its header owns the checks,
-what is sent and redacted, the key cache, the log, `stats` and the switch. It sees a wait only when it starts: Codex
-gives hooks no event for a `write_stdin` re-poll of a running session or for code-mode
-`functions.wait`, so this rule and the waker remain the fix.
+For Codex seats, the [wait guard](../../../../scripts/hooks/codex-wait-guard.mjs)
+denies waits and polls by default. Start the tracked
+`sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground`
+from a worktree of this repository, never a copy, in a provider-native retained
+background task, then end the turn. Never disable or bypass the guard, or wait,
+sleep or poll from the main session. Use `host-health.sh --gate` once only for
+host capacity. The guard's header owns implementation and provider details.
 
 ## Review and evidence
 
