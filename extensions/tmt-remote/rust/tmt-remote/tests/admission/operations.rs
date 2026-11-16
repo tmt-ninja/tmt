@@ -2611,11 +2611,12 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
         ]
     );
     let room = uuid_v4().unwrap();
-    let payload_room = json!({"version":1,"operation":"requests.list","input":{"roomId":room}});
+    let payload_room = json!({"version":1,"operation":"requests.list","input":{"roomId":room,"since":"r1_opaque"}});
     let room_item = json!({"requestId":"req_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","roomId":room,
         "recipientId":member,"sender":{"kind":"unknown","identityId":null},"kind":"announcement",
         "origin":"person","preparedAtMs":1,"delivery":"queued","messageState":message_state(false),
         "final":{"status":"not_required"},"preview":"room post",
+        "responsePreview":null,"previewTruncated":false,"parentRequestId":null,"replyCount":0,
         "urgent":false,"digestKind":"request","mode":"request","recipientAcknowledged":false});
     let mut projected_room_item = room_item.clone();
     for field in ["urgent", "digestKind", "mode", "recipientAcknowledged"] {
@@ -2623,7 +2624,7 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
     }
     fs::write(
         core.root.join("conversation"),
-        json!({"items":[room_item],"nextBefore":null}).to_string(),
+        json!({"items":[room_item],"nextBefore":null,"changePosition":"room_current","changedSince":{"count":0,"more":false}}).to_string(),
     )
     .unwrap();
     let room_wire = owner.wire(
@@ -2634,11 +2635,11 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
     );
     assert_eq!(
         append(&owner, Arc::clone(&operations), &room_wire),
-        json!({"roomId":room,"items":[projected_room_item],"nextBefore":null,"changes":"unknown"})
+        json!({"roomId":room,"items":[projected_room_item],"nextBefore":null,"changePosition":"room_current","changedSince":{"count":0,"more":false}})
     );
     assert_eq!(
         core.calls()[1],
-        json!({"version":1,"operation":"requests.list","input":{"roomId":room,"limit":20}})
+        json!({"version":1,"operation":"requests.list","input":{"roomId":room,"limit":20,"since":"r1_opaque"}})
     );
     fs::write(core.root.join("conversation"), page.to_string()).unwrap();
     let mut bad = page.clone();
@@ -2773,6 +2774,16 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
         read.clone(),
     );
     assert_eq!(reply["echo"], read, "{reply}");
+    assert_eq!(reply["personId"], Core::PERSON);
+    assert_eq!(
+        core.calls()[1],
+        json!({"version":1,"operation":"user.person","input":{}})
+    );
+    assert!(
+        core.calls()
+            .iter()
+            .all(|call| call["operation"] != "user.identity")
+    );
     let write = json!({"phase":"preview","mutation":{"kind":"route.allow","fromId":ORCH_MEMBER,"toId":ORCH_MEMBER,"untilMs":2}});
     let reply = orchestrate(
         &owner,
@@ -2783,6 +2794,7 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
         write.clone(),
     );
     assert_eq!(reply["echo"], write, "{reply}");
+    assert!(reply.get("personId").is_none());
     // Apply carries Core's own preview fields and the person's consent, unchanged.
     let apply = json!({"phase":"apply","mutation":{"kind":"focus.clear","identityId":ORCH_MEMBER},
         "expectedConfigurationRevision":3,"previewAtMs":4,"previewDigest":"d","consent":true});
@@ -2864,6 +2876,41 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
             .count(),
         7
     );
+    // Unknown, malformed and unavailable person observations preserve the Core view.
+    let person_session = owner.open();
+    for (offset, person) in [
+        json!({"person":null}),
+        json!({"person":{"identityId":"bad"}}),
+        json!({"person":{"name":"unknown"}}),
+    ]
+    .iter()
+    .enumerate()
+    {
+        fs::write(core.root.join("person"), person.to_string()).unwrap();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &person_session,
+            1 + offset,
+            "orchestration.read",
+            read.clone(),
+        );
+        assert_eq!(reply["echo"], read);
+        assert_eq!(reply.get("personId"), Some(&Value::Null));
+    }
+    fs::write(core.root.join("person-error"), "unavailable").unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &person_session,
+        4,
+        "orchestration.read",
+        read.clone(),
+    );
+    assert_eq!(reply["echo"], read);
+    assert_eq!(reply.get("personId"), Some(&Value::Null));
+    fs::remove_file(core.root.join("person-error")).unwrap();
+    fs::remove_file(core.root.join("person")).unwrap();
     // The browser mirrors the TUI: clone the complete current plan and change only enabled.
     let mut plan = json!({"id":ORCH_MEMBER,"name":"Quiet","revision":2,"priority":1,"enabled":true,
         "targets":[{"kind":"all"}],"schedule":{"kind":"always"},"fields":{"sending":"paused"},"members":[]});

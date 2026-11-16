@@ -49,22 +49,22 @@ export interface ConversationPage {
   changePosition: string;
   changedSince?: ConversationChanges;
 }
-export interface RoomInput {
-  limit?: number;
-  before?: ConversationCursor;
-}
+export type RoomInput = ConversationInput;
 export type RoomItem = Omit<
   ConversationItem,
-  'direction' | 'changePosition' | 'responsePreview' | 'previewTruncated' | 'responseId' | 'sender'
+  'direction' | 'changePosition' | 'responseId' | 'sender'
 > & {
   roomId: string;
+  parentRequestId: string | null;
+  replyCount: number;
   sender: ConversationItem['sender'] | { kind: 'unknown'; identityId: null };
 };
 export interface RoomPage {
   roomId: string;
   items: RoomItem[];
   nextBefore: ConversationCursor | null;
-  changes: 'unknown';
+  changePosition: string;
+  changedSince?: ConversationChanges;
 }
 export interface RemoteConversations {
   readonly machineId: string;
@@ -166,16 +166,15 @@ function parsePage(
   keys(
     row,
     room
-      ? ['roomId', 'items', 'nextBefore', 'changes']
+      ? ['roomId', 'items', 'nextBefore', 'changePosition']
       : ['viewerId', 'member', 'items', 'nextBefore', 'changePosition'],
     input.since === undefined ? [] : ['changedSince'],
   );
   valid(
     (room
-      ? row.roomId === scopeId && row.changes === 'unknown'
-      : coreId(row.viewerId) &&
-        ['active', 'unknown', 'retired'].includes(row.member as string) &&
-        conversationPosition(row.changePosition)) &&
+      ? row.roomId === scopeId
+      : coreId(row.viewerId) && ['active', 'unknown', 'retired'].includes(row.member as string)) &&
+      conversationPosition(row.changePosition) &&
       Array.isArray(row.items) &&
       row.items.length <= (input.limit ?? 20),
   );
@@ -201,12 +200,8 @@ function parsePage(
         'direction',
         'changePosition',
       ]
-        .filter(
-          (key) =>
-            !room ||
-            !['direction', 'changePosition', 'responsePreview', 'previewTruncated'].includes(key),
-        )
-        .concat(room ? ['roomId'] : []),
+        .filter((key) => !room || !['direction', 'changePosition'].includes(key))
+        .concat(room ? ['roomId', 'parentRequestId', 'replyCount'] : []),
       room ? [] : ['responseId'],
     );
     const sender = object(item.sender);
@@ -224,11 +219,13 @@ function parsePage(
         ) &&
         integer(item.preparedAtMs) &&
         preview(item.preview) &&
+        preview(item.responsePreview) &&
+        typeof item.previewTruncated === 'boolean' &&
         (room
-          ? item.roomId === scopeId
-          : preview(item.responsePreview) &&
-            typeof item.previewTruncated === 'boolean' &&
-            conversationPosition(item.changePosition)),
+          ? item.roomId === scopeId &&
+            (item.parentRequestId === null || requestId(item.parentRequestId)) &&
+            integer(item.replyCount)
+          : conversationPosition(item.changePosition)),
     );
     ids.add(item.requestId);
     valid(
@@ -241,8 +238,7 @@ function parsePage(
     );
     const settled = final(item.final);
     valid(
-      room ||
-        settled.status === 'retained' ||
+      settled.status === 'retained' ||
         (item.responsePreview === null && item.previewTruncated === false),
     );
     if (item.responseId !== undefined)
@@ -277,7 +273,8 @@ function parsePage(
       roomId: scopeId,
       items: items as RoomItem[],
       nextBefore: row.nextBefore === null ? null : cursor(row.nextBefore),
-      changes: 'unknown',
+      changePosition: row.changePosition as string,
+      ...(changedSince === undefined ? {} : { changedSince }),
     };
   return {
     viewerId: row.viewerId as string,
@@ -296,7 +293,7 @@ export function conversations(
   if (!channel) throw new TypeError('Use a verified Session.');
   const call = verifiedSessionRequest(session, options);
   function readScope(scopeId: string, value: ConversationInput, room: boolean) {
-    const allowed = room ? ['limit', 'before'] : ['limit', 'before', 'since'];
+    const allowed = ['limit', 'before', 'since'];
     if (
       !coreId(scopeId) ||
       Object.keys(value).some((key) => !allowed.includes(key)) ||

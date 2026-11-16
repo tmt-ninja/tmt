@@ -19,7 +19,7 @@ import type {
   SendState,
 } from '../src/operations.js';
 import type { ChannelPort } from '../src/channel-stream.js';
-import type { RoomPage } from '../src/conversations.js';
+import type { RoomPage, RoomInput } from '../src/conversations.js';
 
 declare global {
   interface Window {
@@ -35,6 +35,7 @@ declare global {
     dmObserved: number;
     roomPage: RoomPage;
     roomReads: number;
+    roomCalls: RoomInput[];
     roomSends: RoomSendInput[];
     roomSendState: SendState | null;
     roomResults: Record<string, ResultState>;
@@ -117,9 +118,10 @@ window.roomPage = {
   roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
   items: [],
   nextBefore: null,
-  changes: 'unknown',
+  changePosition: 'room_1',
 };
 window.roomReads = 0;
+window.roomCalls = [];
 window.roomSends = [];
 window.roomSendState = null;
 window.roomResults = {};
@@ -542,9 +544,13 @@ async function sendNow(requestId: string): Promise<SendNowState> {
 }
 const room: ChannelPort = {
   sendNow,
-  async readRoom() {
+  async readRoom(_roomId, input) {
     window.roomReads++;
-    return structuredClone(window.roomPage);
+    window.roomCalls.push(structuredClone(input));
+    return {
+      ...structuredClone(window.roomPage),
+      ...(input.since ? { changedSince: { count: 0, more: false } } : {}),
+    };
   },
   async result(requestId) {
     return window.roomResults[requestId] ?? { state: 'pending', requestId };

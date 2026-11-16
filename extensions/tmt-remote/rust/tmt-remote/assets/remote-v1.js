@@ -10399,7 +10399,7 @@ function parsePage(value, scopeId, input, room) {
 		"roomId",
 		"items",
 		"nextBefore",
-		"changes"
+		"changePosition"
 	] : [
 		"viewerId",
 		"member",
@@ -10407,11 +10407,11 @@ function parsePage(value, scopeId, input, room) {
 		"nextBefore",
 		"changePosition"
 	], input.since === void 0 ? [] : ["changedSince"]);
-	valid((room ? row.roomId === scopeId && row.changes === "unknown" : coreId(row.viewerId) && [
+	valid((room ? row.roomId === scopeId : coreId(row.viewerId) && [
 		"active",
 		"unknown",
 		"retired"
-	].includes(row.member) && conversationPosition(row.changePosition)) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
+	].includes(row.member)) && conversationPosition(row.changePosition) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
 	valid(room || row.member === "active" || row.items.length === 0);
 	const ids = /* @__PURE__ */ new Set();
 	const items = row.items.map((value) => {
@@ -10431,12 +10431,11 @@ function parsePage(value, scopeId, input, room) {
 			"previewTruncated",
 			"direction",
 			"changePosition"
-		].filter((key) => !room || ![
-			"direction",
-			"changePosition",
-			"responsePreview",
-			"previewTruncated"
-		].includes(key)).concat(room ? ["roomId"] : []), room ? [] : ["responseId"]);
+		].filter((key) => !room || !["direction", "changePosition"].includes(key)).concat(room ? [
+			"roomId",
+			"parentRequestId",
+			"replyCount"
+		] : []), room ? [] : ["responseId"]);
 		const sender = object(item.sender);
 		keys(sender, ["kind", "identityId"]);
 		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && (coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) || room && sender.kind === "unknown" && sender.identityId === null) && ["request", "announcement"].includes(item.kind) && [
@@ -10450,11 +10449,11 @@ function parsePage(value, scopeId, input, room) {
 			"queued",
 			"uncertain",
 			"definitely_failed"
-		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && (room ? item.roomId === scopeId : preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition)));
+		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && (room ? item.roomId === scopeId && (item.parentRequestId === null || requestId(item.parentRequestId)) && integer(item.replyCount) : conversationPosition(item.changePosition)));
 		ids.add(item.requestId);
 		valid(room || (item.direction === "toMember" ? item.recipientId === scopeId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === scopeId));
 		const settled = final(item.final);
-		valid(room || settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
+		valid(settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
 		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
 		const { messageState: state } = messageState(item);
 		const { messageState: _rawState, ...rest } = item;
@@ -10483,7 +10482,8 @@ function parsePage(value, scopeId, input, room) {
 		roomId: scopeId,
 		items,
 		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
-		changes: "unknown"
+		changePosition: row.changePosition,
+		...changedSince === void 0 ? {} : { changedSince }
 	};
 	return {
 		viewerId: row.viewerId,
@@ -10499,7 +10499,7 @@ function conversations(session, options = {}) {
 	if (!channel) throw new TypeError("Use a verified Session.");
 	const call = verifiedSessionRequest(session, options);
 	function readScope(scopeId, value, room) {
-		const allowed = room ? ["limit", "before"] : [
+		const allowed = [
 			"limit",
 			"before",
 			"since"
@@ -11496,8 +11496,8 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 * recipients' replies under it, and the box that posts to the room. A post goes to the squad lead,
 * or to each member it @mentions; it carries the room exactly as the board names it, so a stale
 * roster revision comes back refused with Core's reason and the person sends again after the board
-* refreshes. The room read has no change positions yet, so the channel shows no unread count and
-* refreshes by rereading its newest page. */
+* refreshes. Room refreshes carry Core's last observed position; unknown change coverage still
+* uses the returned newest page, without inventing an unread count. */
 /** The channel's calls on the owner's signed Session. */
 function sessionChannel(shell) {
 	return {
@@ -11558,6 +11558,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	let channel;
 	let roomId;
 	let olderCursor;
+	let changePosition;
 	let generation = 0, running = false, wanted = false, visible = false, refused = false, known = "";
 	const box = outbox(port, (value) => {
 		if (value.state === "refused" && value.reason === "ROOM_ROSTER_CHANGED") rereadBoard();
@@ -11809,9 +11810,10 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 		try {
 			const page = await port.readRoom(reading, {
 				limit: 20,
-				...before ? { before } : {}
+				...before ? { before } : changePosition ? { since: changePosition } : {}
 			});
 			if (ticket !== generation || reading !== roomId) return true;
+			if (!before) changePosition = page.changePosition;
 			for (const item of page.items) items.set(item.requestId, item);
 			if (before || olderCursor === void 0) olderCursor = page.nextBefore;
 			emptyTitle.textContent = "No channel messages yet";
@@ -11887,6 +11889,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				threadKey = void 0;
 				drawThread([]);
 				olderCursor = void 0;
+				changePosition = void 0;
 				stream.reset();
 				olderButton.hidden = true;
 				emptyTitle.textContent = "No channel messages yet";

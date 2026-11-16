@@ -558,8 +558,12 @@ owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.
 Room posts use `operations(session).send({operationId, message, room: {roomId, revision},
 recipientIds, kind: "request"})`; persist the operation UUID before sending. An accepted
 room post includes `requestIds` in recipient order and the first as `requestId`.
-`conversations(session).readRoom(roomId, {limit, before})` returns
-`{roomId, items, nextBefore, changes: "unknown"}`. Refresh by reading the newest page;
-room reads have no `since` or change position. Read a reply with `result(requestId)`.
+`conversations(session).readRoom(roomId, {limit, before, since})` returns
+`{roomId, items, nextBefore, changePosition, changedSince?}`. Carry Core's opaque page
+position into the next `since`; `changedSince` is `{count, more}` or `"unknown"`
+only when `since` was sent. Unknown coverage requires a full read, never an inferred
+zero. Room items carry `responsePreview`, `previewTruncated`, `parentRequestId` and
+`replyCount`, without DM direction or per-item positions. Read a full reply with
+`result(requestId)`.
 See the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 for owner-browser authority, room fields and original-only recovery.

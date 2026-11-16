@@ -17,7 +17,7 @@ pub(super) fn request(input: &Value) -> Result<Value, RemoteError> {
         return Err(invalid());
     }
     let room = fields.contains_key("roomId");
-    if room && (fields.contains_key("memberId") || fields.contains_key("since")) {
+    if room && fields.contains_key("memberId") {
         return Err(invalid());
     }
     let scope = fields
@@ -112,11 +112,10 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
             <= limits::CONVERSATION_RESPONSE_BYTES,
     )?;
     let room = query["input"].get("roomId");
+    require(position(&value["changePosition"]))?;
     if room.is_none() {
         require(
-            id(&value["viewerId"])
-                && position(&value["changePosition"])
-                && word(&value["member"], &["active", "unknown", "retired"]),
+            id(&value["viewerId"]) && word(&value["member"], &["active", "unknown", "retired"]),
         )?;
     }
     let viewer = &value["viewerId"];
@@ -162,9 +161,8 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
                     ],
                 )
                 && row.get("preview").is_some_and(preview)
-                && (room.is_some()
-                    || row.get("responsePreview").is_some_and(preview)
-                        && row["previewTruncated"].is_boolean())
+                && row.get("responsePreview").is_some_and(preview)
+                && row["previewTruncated"].is_boolean()
                 && room.is_none_or(|room| &row["roomId"] == room),
         )?;
         let in_pair = match row["direction"].as_str() {
@@ -179,7 +177,7 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
         require(room.is_some() || in_pair)?;
         let message = super::message_state(row, true).ok_or_else(super::invalid)?;
         let final_value = final_state(&row["final"])?;
-        if room.is_none() && row["final"]["status"] != "retained" {
+        if row["final"]["status"] != "retained" {
             require(row["responsePreview"].is_null() && row["previewTruncated"] == false)?;
         }
         let mut item = json!({"requestId":row["requestId"],"recipientId":row["recipientId"],
@@ -190,15 +188,17 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
             "direction":row["direction"],"changePosition":row["changePosition"]});
         if let Some(room) = room {
             let fields = item.as_object_mut().expect("projected item");
-            for field in [
-                "direction",
-                "changePosition",
-                "responsePreview",
-                "previewTruncated",
-            ] {
+            for field in ["direction", "changePosition"] {
                 fields.remove(field);
             }
+            require(
+                row.get("parentRequestId")
+                    .is_some_and(|parent| parent.is_null() || request_id(parent))
+                    && millis(&row["replyCount"]),
+            )?;
             fields.insert("roomId".into(), room.clone());
+            fields.insert("parentRequestId".into(), row["parentRequestId"].clone());
+            fields.insert("replyCount".into(), row["replyCount"].clone());
         }
         if let Some(response_id) = row.get("responseId").filter(|_| room.is_none()) {
             require(response_id.as_str().is_some_and(|id| {
@@ -220,7 +220,7 @@ fn project(value: &Value, query: &Value) -> Result<Value, RemoteError> {
         json!({"preparedAtMs":cursor["preparedAtMs"],"requestId":cursor["requestId"]})
     };
     let mut result = if let Some(room) = room {
-        json!({"roomId":room,"items":items,"nextBefore":next,"changes":"unknown"})
+        json!({"roomId":room,"items":items,"nextBefore":next,"changePosition":value["changePosition"]})
     } else {
         json!({"viewerId":viewer,"member":value["member"],"items":items,
         "nextBefore":next,"changePosition":value["changePosition"]})

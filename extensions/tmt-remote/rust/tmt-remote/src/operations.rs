@@ -869,10 +869,38 @@ impl Operations {
                 }
                 "orchestration.read" => {
                     let request = orchestration.as_ref().expect("admitted orchestration read");
-                    orchestration::outcome(self.api_with_limit(
-                        request.to_string().as_bytes(),
-                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-                    ))
+                    orchestration::outcome((|| {
+                        let mut answer = self.api_with_limit(
+                            request.to_string().as_bytes(),
+                            crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+                        )?;
+                        // This second observation is read-only: unlike user.identity it never
+                        // creates or marks the configured person. Refuse lost authority before
+                        // asking again; the outer post-check also covers this lookup.
+                        permit.revalidate()?;
+                        let person = self
+                            .api(br#"{"version":1,"operation":"user.person","input":{}}"#)
+                            .ok()
+                            .and_then(|value| {
+                                value["person"]["identityId"]
+                                    .as_str()
+                                    .filter(|id| canonical::is_core_id(id))
+                                    .map(str::to_owned)
+                            });
+                        answer
+                            .as_object_mut()
+                            .ok_or_else(invalid)?
+                            .insert("personId".into(), json!(person));
+                        if serde_json::to_vec(&answer).map_err(|_| invalid())?.len()
+                            > crate::limits::ORCHESTRATION_RESPONSE_BYTES
+                        {
+                            return Err(RemoteError::new(
+                                "REMOTE_CORE_UNAVAILABLE",
+                                "Orchestration is unavailable.",
+                            ));
+                        }
+                        Ok(answer)
+                    })())
                 }
                 "identities.status" => self.api(&permit.message.payload),
                 "requests.show" => self.api(&permit.message.payload).map(|mut detail| {

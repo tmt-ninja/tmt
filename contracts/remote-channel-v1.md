@@ -1630,7 +1630,11 @@ applies its published public Core mapping after narrowing supported operations a
 
 **Owner-browser orchestration.** Signed `orchestration.read` and `orchestration.write` (#4894) take
 Core's own input (`{version:1,operation,input}`, [Orchestration v1](orchestration-v1.md)) and
-return Core's answer, bounded at 1 MiB. Core's own `ORCH_*` refusal (such as `ORCH_CONFLICT`) is
+return Core's answer, bounded at 1 MiB. Each successful read adds top-level
+`personId`: the configured owner's canonical identity UUID from Core's read-only
+`user.person`, or `null` when unknown or unavailable. This lookup never creates or
+marks an identity and remains inside the existing permit revalidation window;
+it does not change the Core view's rows or a write/refusal answer. Core's own `ORCH_*` refusal (such as `ORCH_CONFLICT`) is
 returned as `{refused:{code,message?}}`, its sentence only when it is one bounded line. Only
 this machine's own-origin owner browser whose grant permits every agent is admitted: a cli, add-on
 or foreign-origin browser grant, or one limited to some agents, is refused `REMOTE_SCOPE_DENIED`
@@ -1673,26 +1677,36 @@ operation ID, frozen room/revision/audience, original lookup and single dispatch
 recovery never partially resends to a recipient.
 
 **Owner-browser room history.** Signed `requests.list` also takes
-`{version:1,operation:"requests.list",input:{roomId,limit?,before?}}`. It requires the
+`{version:1,operation:"requests.list",input:{roomId,limit?,before?,since?}}`. It requires the
 same own-origin owner browser and `results.read`, with an every-agent grant because
 a room can include any member. A refusal is `REMOTE_SCOPE_DENIED` with
 `scope:"results.read"` and a closed `reason`: `owner_browser_required` or
 `all_agents_required`. An absent `results.read` returns `code:"REMOTE_SCOPE_DENIED"`,
 `scope:"results.read"` and no `reason`; the SDK exposes that code and scope with
 `RefusalError.reason` undefined. The SDK retains these fields so
-the browser can explain the missing authority. It maps only to Core's public `{roomId,limit,before?}`
-history scope, excluding unscoped DM traffic. Page default, maximum, response byte
-bound and prepared-time `before` cursor match the DM page. `since` is not admitted.
-The result is `{roomId,items,nextBefore,changes:"unknown"}`. There is no invented
-change position or change count; refresh re-reads the newest page. Room items allow
-only `roomId`, `requestId`, `recipientId`, `sender`, `kind`, `origin`, `preparedAtMs`,
-`delivery`, `messageState`, `final` and `preview`. Core's anonymous sender remains
-`{kind:"unknown",identityId:null}`. Final metadata is projected without nested body;
-there is no `direction`, `changePosition`, `responsePreview`, `previewTruncated` or
-`responseId`. Read replies through the existing `result(requestId)` operation.
+the browser can explain the missing authority. It maps only to Core's public
+`{roomId,limit,before?,since?}` history scope, excluding unscoped DM traffic. Page
+default, maximum, response byte bound and prepared-time `before` cursor match the
+DM page. The result is `{roomId,items,nextBefore,changePosition,changedSince?}`.
+`changePosition` is Core's opaque room-scoped page position; carry it only within
+the same Core data root. `changedSince` is present exactly when `since` was sent:
+Core's `{count,more}` with the DM count/more bounds, or `"unknown"` for foreign,
+ahead-of-store or pruned positions. Unknown coverage calls for a full read, never
+an inferred zero. Remote never reconstructs positions or change counts.
+Room items allow only `roomId`, `requestId`, `recipientId`, `sender`, `kind`, `origin`,
+`preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
+`previewTruncated`, `parentRequestId` and `replyCount`. Core's anonymous sender remains
+`{kind:"unknown",identityId:null}`. `parentRequestId` is Core's root request ID or
+`null`; `replyCount` is Core's nonnegative safe integer count. Response previews and
+final metadata use the same validation as DMs, without nested full response bodies.
+Room items have no `direction`, `changePosition` or `responseId`: Core's room
+position belongs to the page. Read full replies through `result(requestId)`.
 The SDK exposes `send({operationId,message,room:{roomId,revision},recipientIds,kind?})`
-and `conversations(session).readRoom(roomId,{limit?,before?})`. It uses the same signed
-Session lane and original operation recovery as DMs, without new state or authority.
+and `conversations(session).readRoom(roomId,{limit?,before?,since?})`. It uses the same
+signed Session lane and original operation recovery as DMs, without new state or
+authority. Channel refreshes carry the last newest-page position; older pagination
+does not move that baseline. The channel still renders the returned newest page,
+including when coverage is unknown; this adds no inferred unread count.
 
 **Owner-browser DM history.** Signed `requests.list` takes
 `{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
