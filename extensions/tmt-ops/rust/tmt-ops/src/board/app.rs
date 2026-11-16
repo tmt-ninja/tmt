@@ -6636,16 +6636,17 @@ mod token_window_tests {
         app.agents_live.begin(&app, at);
         let reading = app.agents_live.member(&app, "a").expect("sampled identity");
         assert_eq!(reading.minute.unwrap().tokens, 150);
-        assert!(
-            reading.activity.iter().flatten().all(|value| *value == 0.0),
-            "the open five-minute cell is not displayed before it closes"
+        assert_eq!(
+            reading.activity[11],
+            Some(150.0),
+            "the open cell shows observed tokens immediately"
         );
         let closed = now + Duration::from_secs(300);
         app.agents_live.begin(&app, closed);
         let reading = app.agents_live.member(&app, "a").unwrap();
         assert!(
-            reading.activity.iter().flatten().any(|value| *value > 0.0),
-            "the observed tokens appear after the cell closes"
+            reading.activity[10] == Some(150.0),
+            "the completed cell moves left at its boundary"
         );
         assert_eq!(
             app.view.as_ref().unwrap().document,

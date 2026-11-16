@@ -361,12 +361,14 @@ impl Meter {
         now: Instant,
         window: TokenWindow,
     ) -> [Option<f64>; N] {
-        // Keep the twelve cells aligned to closed intervals, so they shift
-        // once per cell rather than on every underlying five-second sample.
+        // Keep the cells aligned to their interval boundaries while including
+        // observed activity in the open rightmost cell. At the next boundary,
+        // that cell moves left and a new, initially unknown cell enters.
         let cell_ms = window.milliseconds() / N as u64;
-        let closed = self.milliseconds(now) / cell_ms * cell_ms;
-        self.rate
-            .member_activity(id, closed.saturating_sub(super::rate::SLOT_MS), window)
+        let open_end = (self.milliseconds(now) / cell_ms * cell_ms)
+            .saturating_add(cell_ms)
+            .saturating_sub(super::rate::SLOT_MS);
+        self.rate.member_activity(id, open_end, window)
     }
 
     pub(in crate::board) fn history(&self) -> &Rate {
