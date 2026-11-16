@@ -1192,7 +1192,11 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     // Three cells per route leave a consistent chip and hit target.
     let widths: Vec<u16> = members.iter().map(|_| 3).collect();
     // Column names, the selected-route detail and up to two legend lines.
-    let rows = usize::from(area.height.saturating_sub(4).max(area.height.min(1)));
+    let rows = usize::from(
+        area.height
+            .saturating_sub(4)
+            .max(area.height.saturating_sub(1).min(1)),
+    );
     let room = area.width.saturating_sub(name_cells + 15);
     let index = |id: &Option<String>| {
         members
@@ -2027,34 +2031,32 @@ fn inspector_lines(app: &App, snapshot: Option<&Snapshot>, width: u16) -> Vec<In
             ));
         }
         let (blocked, held) = app.orchestration.cell_actions();
+        let mut actions = Vec::new();
         if blocked && snapshot.writes {
-            let until = member.next_change_at_ms.map_or_else(
-                || "for up to 24 hours".to_owned(),
-                |end| format!("until {}", snapshot.clock(end)),
-            );
-            lines.push(InspectorLine::Button(
+            actions.push((
                 super::super::keycap::key(app, Ui::AllowOnce, "a"),
-                format!("Allow once {until}"),
+                "Allow once",
                 Control::Allow,
             ));
         }
+        actions.push((
+            super::super::keycap::key(app, Ui::Why, "w"),
+            "Why",
+            Control::Why,
+        ));
+        if snapshot.writes {
+            actions.push((
+                super::super::keycap::key(app, Ui::FocusHour, "f"),
+                "Focus sender",
+                Control::Focus(true),
+            ));
+        }
+        lines.push(InspectorLine::Buttons(actions));
         if held && snapshot.writes {
             lines.push(InspectorLine::Button(
                 super::super::keycap::key(app, Ui::ReleaseHeld, "r"),
                 "Release held".into(),
                 Control::Resume,
-            ));
-        }
-        lines.push(InspectorLine::Button(
-            super::super::keycap::key(app, Ui::Why, "w"),
-            "Why".into(),
-            Control::Why,
-        ));
-        if snapshot.writes {
-            lines.push(InspectorLine::Button(
-                super::super::keycap::key(app, Ui::FocusHour, "f"),
-                "Focus sender".into(),
-                Control::Focus(true),
             ));
         }
         lines.push(InspectorLine::Blank);
