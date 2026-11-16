@@ -3259,9 +3259,9 @@ print(json.dumps(out))
     fn a_chosen_digest_window_wakes_the_existing_reader_once() {
         use crate::config::DigestWindow;
         let mut app = app::workspace::tests::board();
-        // Workspace settings: three layouts, then the Digest windows 1d and 7d.
+        // Three layouts, motion, then the Digest windows 1d and 7d.
         let mut events = vec![window_snapshot(), key(KeyCode::Char(','))];
-        events.extend(std::iter::repeat_with(|| key(KeyCode::Down)).take(4));
+        events.extend(std::iter::repeat_with(|| key(KeyCode::Down)).take(5));
         events.extend([key(KeyCode::Enter), window_snapshot()]);
         assert_eq!(published_windows(&mut app, events), [DigestWindow::Week]);
         assert_eq!(app.digest_window(), DigestWindow::Week);

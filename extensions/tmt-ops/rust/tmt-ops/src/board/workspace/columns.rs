@@ -304,6 +304,12 @@ impl TokHeading {
     }
 }
 
+#[derive(Default)]
+pub struct AgentsHeading {
+    pub tok: TokHeading,
+    pub activity: crate::config::ActivityWindow,
+}
+
 /// Paints the Agents column header and returns the hit areas of its controls:
 /// the TOK unit and window words when the TOK column is present, and the sortable words.
 pub fn paint_agents_header(
@@ -312,11 +318,11 @@ pub fn paint_agents_header(
     slots: &[(AgentsField, Rect)],
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
-    windows: (TokHeading, crate::config::ActivityWindow),
+    heading: AgentsHeading,
     marks: &crate::board::header_sort::Marks,
 ) -> AgentsHeaderHits {
     use crate::board::header_sort::{Header, word_hit};
-    let (tok, activity) = windows;
+    let AgentsHeading { tok, activity } = heading;
     let mut hits = AgentsHeaderHits::default();
     if area.height == 0 {
         return hits;
@@ -1026,7 +1032,7 @@ mod tests {
             &[(AgentsField::Cron, slot)],
             look,
             Default::default(),
-            (Default::default(), Default::default()),
+            AgentsHeading::default(),
             &crate::board::header_sort::Marks::new(Default::default(), None, Default::default()),
         );
         let x = (0..slot.width)
@@ -1060,7 +1066,7 @@ mod tests {
                     &slots,
                     look,
                     Default::default(),
-                    (Default::default(), Default::default()),
+                    AgentsHeading::default(),
                     &crate::board::header_sort::Marks::new(
                         Default::default(),
                         None,

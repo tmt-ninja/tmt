@@ -6449,7 +6449,16 @@ mod token_window_tests {
         let current = app.meters["product"]
             .observation("a", TokenWindow::MINUTE, soon)
             .map(|(reading, _)| reading);
-        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, current);
+        assert_eq!(current.unwrap().tokens, 450);
+        assert_eq!(
+            app.agents_live
+                .member(&app, "a")
+                .unwrap()
+                .minute
+                .unwrap()
+                .tokens,
+            9_000
+        );
     }
 
     #[test]
@@ -6627,7 +6636,17 @@ mod token_window_tests {
         app.agents_live.begin(&app, at);
         let reading = app.agents_live.member(&app, "a").expect("sampled identity");
         assert_eq!(reading.minute.unwrap().tokens, 150);
-        assert!(reading.activity.iter().flatten().any(|value| *value > 0.0));
+        assert!(
+            reading.activity.iter().flatten().all(|value| *value == 0.0),
+            "the open five-minute cell is not displayed before it closes"
+        );
+        let closed = now + Duration::from_secs(300);
+        app.agents_live.begin(&app, closed);
+        let reading = app.agents_live.member(&app, "a").unwrap();
+        assert!(
+            reading.activity.iter().flatten().any(|value| *value > 0.0),
+            "the observed tokens appear after the cell closes"
+        );
         assert_eq!(
             app.view.as_ref().unwrap().document,
             before,

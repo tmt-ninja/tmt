@@ -97,6 +97,15 @@ fn real_overlay_paints_and_owns_keys_while_closed_frames_are_unchanged() {
         for width in [60, 100, 160] {
             let mut app = board();
             app.shell.tab = tab;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .motion_off = true;
             let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))

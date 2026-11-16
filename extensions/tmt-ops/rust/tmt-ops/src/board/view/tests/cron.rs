@@ -556,22 +556,24 @@ mod controls {
 }
 
 fn snapshots() -> Value {
-    let mut frames = Vec::new();
-    for (scenario, focused) in [("workspace tree", false), ("scoped Timers", true)] {
-        for (width, height) in [(160u16, 24u16), (100, 24), (80, 24)] {
-            let mut app = squad_tab();
-            draw(&app, width, height);
-            if focused {
-                open_timers(&mut app);
+    crate::status::with_now_ms(1_792_238_400_000, || {
+        let mut frames = Vec::new();
+        for (scenario, focused) in [("workspace tree", false), ("scoped Timers", true)] {
+            for (width, height) in [(160u16, 24u16), (100, 24), (80, 24)] {
+                let mut app = squad_tab();
+                draw(&app, width, height);
+                if focused {
+                    open_timers(&mut app);
+                }
+                frames.push(json!({
+                    "scenario": scenario, "width": width, "height": height,
+                    "lines": draw(&app, width, height),
+                    "hits": format!("{:?}", app.hits.borrow()),
+                }));
             }
-            frames.push(json!({
-                "scenario": scenario, "width": width, "height": height,
-                "lines": draw(&app, width, height),
-                "hits": format!("{:?}", app.hits.borrow()),
-            }));
         }
-    }
-    json!(frames)
+        json!(frames)
+    })
 }
 
 #[test]

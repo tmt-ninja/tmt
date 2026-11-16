@@ -412,7 +412,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         &slots,
         look,
         app.cron_glyphs,
-        (app.tok_heading(), app.activity_window()),
+        columns::AgentsHeading {
+            tok: app.tok_heading(),
+            activity: app.activity_window(),
+        },
         &marks,
     );
     let mut strip_hits = app.workspace_strip_hits.borrow_mut();

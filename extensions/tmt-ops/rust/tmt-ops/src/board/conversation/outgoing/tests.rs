@@ -864,7 +864,7 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
             );
             assert!(!screen.contains("worker is working"), "{source}: {screen}");
             assert!(feedback_marks(&app, SENT).is_empty());
-            assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+            assert_eq!(outgoing_feedback_wait(&app, SENT), None);
             let state = app.conversation.borrow();
             let session = state.sessions.values().next().unwrap();
             assert!(
@@ -1099,6 +1099,19 @@ fn board_frame(app: &App, width: u16, height: u16) -> String {
         .collect()
 }
 
+// Isolate the outgoing clock: visible Agents rows may independently animate.
+fn outgoing_feedback_wait(app: &App, now_ms: u64) -> Option<std::time::Duration> {
+    let active = app.frame_clocks.borrow().iter().any(|surface| {
+        matches!(
+            surface,
+            crate::board::view::ClockSurface::OutgoingFeedback(clock) if clock.animates(now_ms)
+        )
+    });
+    active.then(|| {
+        crate::board::view::feedback_wait(app, now_ms).expect("outgoing feedback schedules a frame")
+    })
+}
+
 fn feedback_marks(app: &App, now_ms: u64) -> Vec<String> {
     app.frame_clocks
         .borrow()
@@ -1138,7 +1151,7 @@ fn only_painted_feedback_animates_and_covered_or_scrolled_out_feedback_stops() {
         let first = feedback_marks(&app, SENT);
         assert_eq!(first.len(), 1, "wrapped status admits one clock");
         assert_ne!(first, feedback_marks(&app, SENT + 80));
-        assert!(crate::board::view::feedback_wait(&app, SENT).is_some());
+        assert!(outgoing_feedback_wait(&app, SENT).is_some());
         let animated = crate::status::with_now_ms(SENT + 80, || board_frame(&app, 148, 51));
         assert!(
             animated.contains("⠙ worker is working · 0:00"),
@@ -1149,7 +1162,7 @@ fn only_painted_feedback_animates_and_covered_or_scrolled_out_feedback_stops() {
         app.help = true;
         board_frame(&app, 148, 51);
         assert!(feedback_marks(&app, SENT).is_empty());
-        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        assert_eq!(outgoing_feedback_wait(&app, SENT), None);
         app.help = false;
         app.scroll_pane(
             crate::config::Pane::Replies,
@@ -1159,7 +1172,7 @@ fn only_painted_feedback_animates_and_covered_or_scrolled_out_feedback_stops() {
         assert!(screen.contains("outgoing line 0"), "{screen}");
         assert!(!screen.contains("worker is working"), "{screen}");
         assert!(feedback_marks(&app, SENT).is_empty());
-        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        assert_eq!(outgoing_feedback_wait(&app, SENT), None);
         app.scroll_pane(
             crate::config::Pane::Replies,
             crate::board::scroll::Step::Bottom,
@@ -1197,7 +1210,7 @@ fn reduced_motion_and_no_color_keep_static_glyph_and_live_elapsed_text() {
             assert_eq!(first.len(), 1);
             assert_eq!(first, feedback_marks(&app, SENT + 80));
             assert_ne!(first, feedback_marks(&app, SENT + 1_000));
-            assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+            assert_eq!(outgoing_feedback_wait(&app, SENT), None);
             let screen = crate::status::with_now_ms(SENT + 1_000, || board_frame(&app, 148, 51));
             assert!(screen.contains("⠹ worker is working · 0:01"), "{screen}");
         }
@@ -1309,7 +1322,7 @@ fn unknown_and_correlated_replies_never_admit_a_feedback_clock() {
             "{screen}"
         );
         assert!(feedback_marks(&app, SENT).is_empty());
-        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        assert_eq!(outgoing_feedback_wait(&app, SENT), None);
         provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
         board_frame(&app, 148, 51);
         assert_eq!(feedback_marks(&app, SENT).len(), 1);
@@ -1324,7 +1337,7 @@ fn unknown_and_correlated_replies_never_admit_a_feedback_clock() {
         );
         assert!(!screen.contains("worker is working"), "{screen}");
         assert!(feedback_marks(&app, SENT).is_empty());
-        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        assert_eq!(outgoing_feedback_wait(&app, SENT), None);
     });
 }
 
@@ -1383,10 +1396,10 @@ fn a_visible_wrapped_continuation_keeps_elapsed_text_without_a_hidden_spinner_wa
         assert_eq!(first.len(), 1);
         assert_eq!(first, feedback_marks(&app, SENT + 80));
         assert_ne!(first, feedback_marks(&app, SENT + 1000));
-        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        assert_eq!(outgoing_feedback_wait(&app, SENT), None);
         let wide = paint(80, 8);
         assert!(wide.contains("⠋ worker is working · 0:00"), "{wide}");
-        assert!(crate::board::view::feedback_wait(&app, SENT).is_some());
+        assert!(outgoing_feedback_wait(&app, SENT).is_some());
         assert_eq!(feedback_marks(&app, SENT).len(), 1);
     });
 }
