@@ -258,6 +258,24 @@ fn row_flash_preserves_the_activity_cells_grey_scale() {
             "activity background at x={x}"
         );
     }
+    let state_x = (0..before.area.height)
+        .find_map(|row| {
+            (0..before.area.width.saturating_sub(4)).find(|x| {
+                (0..5)
+                    .map(|offset| before[(x + offset, row)].symbol())
+                    .collect::<String>()
+                    == "STATE"
+            })
+        })
+        .expect("state column");
+    assert_ne!(before[(state_x, y)].symbol(), " ", "state mark is visible");
+    let (before_mark, after_mark) = (&before[(state_x, y)], &after[(state_x, y)]);
+    assert_eq!(before_mark.fg, after_mark.fg, "state mark foreground");
+    assert_eq!(before_mark.bg, after_mark.bg, "state mark background");
+    assert_eq!(
+        before_mark.modifier, after_mark.modifier,
+        "state mark modifiers"
+    );
     assert_ne!(
         before[(0, y)].bg,
         after[(0, y)].bg,

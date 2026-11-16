@@ -954,6 +954,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     );
                     if let Some(background) = fill.bg {
                         for x in stripe.x..stripe.right() {
+                            // Keep the state mark's original style while tinting the row.
+                            if painted.state.is_some_and(|state| x == state.x) {
+                                continue;
+                            }
                             frame.buffer_mut()[(x, stripe.y)].set_bg(background);
                         }
                     }
