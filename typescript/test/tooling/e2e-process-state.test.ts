@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createInterface } from 'node:readline';
+import { savedMemberExited } from '../e2e/ops-saved-member-lifetime.js';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { processState, type ProcessState } from '../e2e/harness/cleanup.js';
 import {
@@ -76,6 +78,61 @@ describe('E2E process state probe', () => {
       expect(processState(child.pid!)).toBe('absent');
     } finally {
       child.kill('SIGKILL');
+    }
+  });
+
+  it('distinguishes a running process, an unreaped zombie, and its reaped child', async () => {
+    const parent = spawn(
+      'python3',
+      [
+        '-u',
+        '-c',
+        `
+import os, sys
+child = os.fork()
+if child == 0:
+    os._exit(0)
+print(child, flush=True)
+sys.stdin.readline()
+os.waitpid(child, 0)
+print("reaped", flush=True)
+sys.stdin.readline()
+`,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    const lines = createInterface({ input: parent.stdout });
+    const lineOrExit = () =>
+      Promise.race([
+        once(lines, 'line').then(([line]) => String(line)),
+        once(parent, 'close').then(([code]) => {
+          throw new Error(`process fixture exited before its next line: ${code}`);
+        }),
+      ]);
+    try {
+      const line = await lineOrExit();
+      const zombie = Number(line);
+      expect(zombie).toBeGreaterThan(1);
+      expect(savedMemberExited(parent.pid!)).toBe(false);
+      await vi.waitFor(
+        () => {
+          expect(processState(zombie)).toBe('running');
+          expect(savedMemberExited(zombie)).toBe(true);
+        },
+        { timeout: 5_000 }
+      );
+      const reaped = lineOrExit();
+      parent.stdin.write('reap\n');
+      expect(await reaped).toBe('reaped');
+      expect(processState(zombie)).toBe('absent');
+      expect(savedMemberExited(zombie)).toBe(true);
+    } finally {
+      if (parent.exitCode === null && parent.signalCode === null) {
+        const closed = once(parent, 'close');
+        parent.stdin.end('exit\n');
+        await closed;
+      }
+      lines.close();
     }
   });
 });

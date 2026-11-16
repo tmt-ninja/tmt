@@ -1,14 +1,32 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
-import type { E2EFixture } from './harness.js';
+import { processState, type E2EFixture } from './harness.js';
 
 /** Teardown waits on process exit, a state. The bound only stops a hung run; a loaded runner
  * can take seconds to reap a killed process, and that is not what the scenario tests. Four
  * waits in a row still fit the 60 s scenario timeout. */
 const TEARDOWN_MS = 10_000;
+
+/** A zombie has exited and cannot write; the fixture still requires actual PID absence after teardown. */
+export function savedMemberExited(pid: number): boolean {
+  const before = processState(pid);
+  if (before === 'absent') return true;
+  if (before !== 'running') return false;
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'stat='], {
+    encoding: 'utf8',
+    timeout: 1_000,
+    maxBuffer: 4_096,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  // The process may be reaped during ps; only a fresh ESRCH proves absence.
+  const after = processState(pid);
+  if (after === 'absent') return true;
+  if (after !== 'running' || result.error || result.status !== 0) return false;
+  return /^Z\S*$/.test(result.stdout.trim());
+}
 
 /** Owns the public-template child's lifetime before the fixture removes its stores. */
 export function savedMemberLifetime(fixture: E2EFixture, shim: string) {
@@ -81,32 +99,37 @@ IFS= read -r release < ${word(gate)}
     }
     return value;
   };
-  const gone = (pids: number[]) => pids.every((pid) => !fixture.mockProcessIsRunning(pid));
-  // Failure reports only: the owned processes and their parents as `ps` sees them, so a
-  // report shows a zombie (`Z`) and who should reap it, or what a live process waits on.
+  const gone = (pids: number[]) => pids.every(savedMemberExited);
+  // Bounded snapshots are diagnostic, never signalling authority.
   const table = (pids: number[]) => {
-    const list = (ids: number[]) => {
-      try {
-        return execFileSync(
-          'ps',
-          ['-o', 'pid=,ppid=,stat=,etime=,wchan=,args=', '-p', ids.join(',')],
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
-        ).trimEnd();
-      } catch (error) {
-        // `ps` exits 1 when none of the PIDs exists.
-        if (error instanceof Error && 'status' in error && error.status === 1) return '';
-        return `ps failed: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    };
     if (pids.length === 0) return '  (no owned process recorded)';
+    const list = (ids: number[]) => {
+      const result = spawnSync(
+        'ps',
+        ['-p', ids.join(','), '-o', 'pid=,ppid=,stat=,etime=,wchan=,comm=,args='],
+        { encoding: 'utf8', timeout: 1_000, maxBuffer: 16_384, stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+      return {
+        rows: (result.stdout ?? '').trimEnd(),
+        failure: result.error?.message ?? (result.status === 0 ? '' : `ps exit ${result.status}`),
+      };
+    };
     const owned = list(pids);
     const parents = [
-      ...new Set(owned.split('\n').map((row) => Number(row.trim().split(/\s+/)[1]))),
+      ...new Set(owned.rows.split('\n').map((row) => Number(row.trim().split(/\s+/)[1]))),
     ].filter((pid) => Number.isSafeInteger(pid) && pid > 1 && !pids.includes(pid));
+    const parent = parents.length ? list(parents) : undefined;
     return [
-      `  owned ${pids.join(',')} (PID PPID STAT ELAPSED WCHAN ARGS):`,
-      owned || '  none running',
-      ...(parents.length > 0 ? ['  their parents:', list(parents) || '  none running'] : []),
+      `  owned ${pids.join(',')} (PID PPID STAT ELAPSED WCHAN COMM ARGS):`,
+      owned.rows || '  no rows',
+      ...(owned.failure ? [`  ${owned.failure}`] : []),
+      ...(parent
+        ? [
+            '  their parents:',
+            parent.rows || '  no rows',
+            ...(parent.failure ? [`  ${parent.failure}`] : []),
+          ]
+        : []),
     ].join('\n');
   };
   let released = false;
@@ -173,22 +196,23 @@ IFS= read -r release < ${word(gate)}
           );
         } catch (error) {
           const before = table(collect());
-          // A failed scenario still owns these exact PIDs; never let fixture
-          // deletion race a late launcher write, even when graceful exit fails.
-          for (const pid of collect()) {
-            if (gone([pid])) continue;
-            try {
-              process.kill(pid, 'SIGKILL');
-            } catch (signal) {
-              if (!(signal instanceof Error && 'code' in signal && signal.code === 'ESRCH')) {
-                throw signal;
-              }
-            }
-          }
-          // The report leads with the wait that failed first; the processes it left, and a
-          // cleanup that failed too, follow as its cause.
+          // The first failure remains primary even if signalling or the cleanup wait fails.
           const first = error instanceof Error ? error : new Error(String(error));
           try {
+            // Signal only recorded processes; an unknown state never grants authority.
+            for (const pid of collect()) {
+              if (gone([pid])) continue;
+              if (processState(pid) === 'unknown') {
+                throw new Error(`The state of E2E process ${pid} is unknown.`);
+              }
+              try {
+                process.kill(pid, 'SIGKILL');
+              } catch (signal) {
+                if (!(signal instanceof Error && 'code' in signal && signal.code === 'ESRCH')) {
+                  throw signal;
+                }
+              }
+            }
             await fixture.waitFor(
               () => gone(collect()),
               TEARDOWN_MS,
