@@ -208,6 +208,11 @@ export function usePageRenderer({
       // The phone title block scrolls away; it takes viewport room but is not a fixed inset.
       viewportInset: () => toolbarInset(toolbar.current),
       frameLead: () => bandSize.current,
+      outlineInset: () =>
+        window.innerWidth <= 640
+          ? (host.current?.parentElement?.querySelector<HTMLElement>('.html-outline')
+              ?.offsetHeight ?? 0)
+          : 0,
       viewportBottom: () => reserve.current,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {

@@ -800,6 +800,10 @@ for (const width of [1440, 390])
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
       expect((await stage.boundingBox())!.width).toBeGreaterThan(expandedWidth);
+      const bar = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+      const control = (await toggle.boundingBox())!;
+      expect(control.y).toBeGreaterThanOrEqual(bar.y);
+      expect(control.y + control.height).toBeLessThanOrEqual(bar.y + bar.height);
       await page.evaluate(() => window.scrollTo(0, 500));
       await expect(toggle).toBeInViewport();
       await toggle.click();
@@ -855,7 +859,19 @@ for (const width of [1440, 390])
     const frame = page.locator('#ask-page-fixture iframe');
     const frameWidth = (await frame.boundingBox())!.width;
     const toggle = outline.locator('.page-outline-toggle');
+    if (width === 1440) {
+      const bar = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+      const control = (await toggle.boundingBox())!;
+      expect(control.y).toBeGreaterThanOrEqual(bar.y);
+      expect(control.y + control.height).toBeLessThanOrEqual(bar.y + bar.height);
+    }
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    if (width === 1440) {
+      const bar = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+      const list = outline.locator('.page-outline-list');
+      expect((await list.boundingBox())!.y).toBeGreaterThan(bar.y + bar.height);
+      await expect(list).toHaveCSS('overflow-y', 'auto');
+    }
     await expect(outline.getByRole('button', { name: /section$/ })).toHaveText([
       'First section',
       'Second section',

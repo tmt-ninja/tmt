@@ -2443,8 +2443,14 @@ function OpenPage({
   useEffect(() => {
     const node = host.current;
     if (!node) return;
+    const markerLane = 28;
+    const authorColumn = 1280;
+    const outlineAndGap = 228;
     const measure = () =>
-      setHtmlGutter(view.layout === 'column' && (node.clientWidth - 28 - 1280) / 2 >= 228);
+      setHtmlGutter(
+        view.layout === 'column' &&
+          (node.clientWidth - markerLane - authorColumn) / 2 >= outlineAndGap,
+      );
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     measure();

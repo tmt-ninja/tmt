@@ -523,11 +523,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
   .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) .page-outline {
     position: sticky;
-    top: calc(var(--page-bar-size) - 34px);
+    top: calc((var(--page-bar-size) - 34px) / 2);
     z-index: 52;
     width: 34px;
     height: 0;
-    margin-block: -34px 34px;
+    margin-inline-start: calc(-1 * var(--tmt-ui-header-padding-inline));
+    margin-block: calc(-1 * (var(--page-bar-size) + 34px) / 2)
+      calc((var(--page-bar-size) + 34px) / 2);
     padding: 0;
   }
   .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
@@ -555,8 +557,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     z-index: 2;
   }
   .html-outline[data-compact] .page-outline {
-    top: calc(var(--page-bar-size) - 34px);
-    margin-block-start: -34px;
+    top: calc((var(--page-bar-size) - 34px) / 2);
+    margin-block-start: calc(-1 * (var(--page-bar-size) + 34px) / 2);
     padding: 0;
     background: transparent;
     pointer-events: none;
@@ -569,8 +571,18 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     pointer-events: auto;
   }
   .html-outline[data-compact] .page-outline-list {
-    margin-block-start: 0;
+    position: absolute;
+    top: calc(34px + (var(--page-bar-size) - 34px) / 2 + var(--tmt-ui-space-xs));
+    width: 188px;
+    max-height: calc(100dvh - var(--page-bar-size) - 2 * var(--tmt-ui-space-l));
+    box-sizing: border-box;
+    overflow-y: auto;
+    margin: 0;
+    padding: var(--tmt-ui-space-xs);
+    border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+    border-radius: var(--tmt-ui-radius-l);
     background: var(--tmt-ui-surface-sheet);
+    box-shadow: var(--tmt-ui-shadow-overlay);
     pointer-events: auto;
   }
   .html-outline[data-compact] .page-outline-desktop,

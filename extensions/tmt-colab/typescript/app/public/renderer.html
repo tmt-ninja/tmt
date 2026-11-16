@@ -2678,8 +2678,9 @@
               const heading = outlineNodes[v.index];
               if (!heading?.isConnected) return;
               if (innerScroll) {
+                const phoneOutlineScrollGap = 48;
                 heading.scrollIntoView({ block: 'start' });
-                if (innerWidth <= 640) scrollBy(0, -48);
+                if (innerWidth <= 640) scrollBy(0, -phoneOutlineScrollGap);
               }
               parent.postMessage(
                 {

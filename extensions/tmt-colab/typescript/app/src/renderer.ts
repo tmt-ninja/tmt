@@ -298,6 +298,8 @@ export async function mountRenderer(
      * note). It takes room from a frame that fills the viewport, but not from where a revealed
      * element lands: that content has scrolled away by then. Absent is none. */
     frameLead?(): number;
+    /** Height of the trusted phone outline that stays above a revealed heading. */
+    outlineInset?(): number;
     /** Window space at the bottom that trusted chrome covers (the Chat FAB group), so a page's
      * modal keeps its buttons above it (#6090). Absent is none. */
     viewportBottom?(): number;
@@ -743,8 +745,10 @@ export async function mountRenderer(
           box.scrollTo({ top: Math.max(0, within), behavior: 'instant' });
           return;
         }
-        const outlineInset =
-          options.onOutline && outline.entries.length >= 3 && window.innerWidth <= 640 ? 48 : 0;
+        const outlineInset = Math.max(
+          0,
+          Math.min(window.innerHeight, options.outlineInset?.() ?? 0),
+        );
         const top =
           frame.getBoundingClientRect().top +
           window.scrollY +
