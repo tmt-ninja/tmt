@@ -53,8 +53,8 @@ pub(in crate::board) fn role_chip(glyph: &str, role: Role, look: Look) -> Span<'
 
 pub(in crate::board) struct Row<'a> {
     pub source: &'a OpsTreeRow,
-    /// None means no slot; Some(None) reserves an empty slot.
-    pub label: Option<Option<&'a crate::config::BoardLabel>>,
+    /// Only a labeled member reserves space for its chip.
+    pub label: Option<&'a crate::config::BoardLabel>,
     pub expanded: bool,
     pub last: bool,
     /// A member that owns terminals folds them: `▾`/`▸` before its name.
@@ -285,14 +285,13 @@ pub(in crate::board) fn paint(
                     Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
                     Span::raw(match row.label {
-                        Some(Some(label)) if show_label => {
+                        Some(label) if show_label => {
                             if label.glyph.width() == 1 {
                                 format!(" {} ", label.glyph)
                             } else {
                                 format!("{} ", label.glyph)
                             }
                         }
-                        Some(None) if show_label => "   ".into(),
                         _ => String::new(),
                     }),
                     Span::raw(if show_label { " " } else { "" }),
@@ -378,7 +377,7 @@ pub(in crate::board) fn paint(
             span.style = style(look, row, span.style, attention);
         }
         if matches!(field, AgentsField::Agent)
-            && let Some(Some(label)) = row.label
+            && let Some(label) = row.label
             && let Some(span) = line.spans.get_mut(2)
         {
             span.style = label_chip(label, look).style;
@@ -599,7 +598,7 @@ mod tests {
             .remove(0);
         let row = Row {
             source,
-            label: Some(Some(&label)),
+            label: Some(&label),
             expanded: false,
             last: true,
             folds: false,

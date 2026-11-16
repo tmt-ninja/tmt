@@ -184,7 +184,7 @@ fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
 }
 
 #[test]
-fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
+fn host_editor_projects_the_same_factory_z_as_dispatch_in_each_pane() {
     // The tree follows the recipient in either pane.
     for reader in [false, true] {
         let mut app = configured_member(
@@ -197,7 +197,7 @@ fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
             key(&mut app, KeyCode::Tab);
         }
         let expected = "jump";
-        assert_eq!(app.bindings()["j"].text, expected);
+        assert_eq!(app.bindings()["z"].text, expected);
         let selection = app.host_action_selection();
         let path = std::path::PathBuf::from(&app.workspace_snapshot().unwrap().config_path);
         assert!(

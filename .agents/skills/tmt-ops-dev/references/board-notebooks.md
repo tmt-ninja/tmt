@@ -273,7 +273,7 @@ attention-revision checks. Both placements use the same provenance helper.
 Headings, separators and live screens grant no acknowledgment; legacy provider
 observations without published frozen keys grant none either.
 Loading, hidden, modal-covered, unfocused or failed draws admit nothing; moving the
-list selection or jumping with `j` does not mark unseen answers read.
+list selection or jumping with `z` does not mark unseen answers read.
 
 The existing ordered action lane batches 1–50 distinct request/revision pairs through
 public `requests.ack`, with at most one batch in flight until its result is adopted.

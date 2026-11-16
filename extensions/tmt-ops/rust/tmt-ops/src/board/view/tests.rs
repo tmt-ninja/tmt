@@ -244,7 +244,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
         );
         let help = help_lines(&app);
         assert!(help.iter().any(|line| line.starts_with("enter  ")));
-        assert!(help.iter().any(|line| line.starts_with("j  ")));
+        assert!(help.iter().any(|line| line.starts_with("z  ")));
         for list in [text] {
             let line = super::footer::hint_line(&list, app.look());
             let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 1));
@@ -579,7 +579,7 @@ L = "jump lead"
     );
     let help = help_lines(&app);
     assert!(help.iter().any(|line| line == "T  pick a theme"));
-    assert!(help.iter().any(|line| line == "j  focus the member's pane"));
+    assert!(help.iter().any(|line| line == "z  focus the member's pane"));
     assert!(!app.bindings().contains_key("L"));
     assert_eq!(
         app.bindings()["l"].verb,

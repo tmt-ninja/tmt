@@ -37,7 +37,7 @@ fn bindings_inventory_shows_the_measure_default_the_terminal_t_and_preserves_aut
 
 #[test]
 fn preset_preview_cancel_save_and_reopen_use_one_config_owner() {
-    let mut f = fixture("host-preset", "[bind]\nj='jump'\no='open {pr_link}'\n");
+    let mut f = fixture("host-preset", "[bind]\nz='jump'\no='open {pr_link}'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     assert_eq!(overlay.picks[0].value, "(current)");
@@ -82,7 +82,7 @@ fn preset_preview_cancel_save_and_reopen_use_one_config_owner() {
         Config::read(f.path.clone())
             .unwrap()
             .configured_bindings()
-            .unwrap()["j"]
+            .unwrap()["z"]
             .text,
         "swap right"
     );
@@ -103,7 +103,7 @@ fn preset_preview_cancel_save_and_reopen_use_one_config_owner() {
 
 #[test]
 fn custom_command_keeps_s_as_text_and_enter_as_save() {
-    let mut f = fixture("host-custom-letter", "[bind]\nj='run echo value'\n");
+    let mut f = fixture("host-custom-letter", "[bind]\nz='run echo value'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     overlay.surface.borrow_mut().select("pick:host-custom");
@@ -122,7 +122,7 @@ fn custom_command_keeps_s_as_text_and_enter_as_save() {
 
 #[test]
 fn focus_preview_uses_the_existing_host_guard_and_names_local_conversation() {
-    let mut f = fixture("host-focus-preview", "[bind]\nj='jump'\n");
+    let mut f = fixture("host-focus-preview", "[bind]\nz='jump'\n");
     open(&mut f, Some("%9"));
     let host = f
         .app
@@ -147,7 +147,7 @@ fn focus_preview_uses_the_existing_host_guard_and_names_local_conversation() {
 
 #[test]
 fn custom_preview_keeps_unknown_context_unknown_and_conflict_keeps_the_draft() {
-    let mut f = fixture("host-custom", "[bind]\nj='run echo {board_pane} {name}'\n");
+    let mut f = fixture("host-custom", "[bind]\nz='run echo {board_pane} {name}'\n");
     open(&mut f, None);
     let overlay = f.app.settings.as_mut().unwrap();
     overlay.surface.borrow_mut().select("pick:host-custom");
@@ -175,7 +175,7 @@ fn custom_preview_keeps_unknown_context_unknown_and_conflict_keeps_the_draft() {
 
 #[test]
 fn host_action_presets_and_preview_render_in_terminal_rows_at_each_width() {
-    let mut f = fixture("host-render", "[bind]\nj='run echo {board_pane} {name}'\n");
+    let mut f = fixture("host-render", "[bind]\nz='run echo {board_pane} {name}'\n");
     for (width, height) in [(103, 51), (148, 51), (160, 36), (100, 24), (80, 24)] {
         for look in picker_surface::evidence::looks() {
             open(&mut f, Some("%9"));
@@ -216,7 +216,7 @@ fn host_action_presets_and_preview_render_in_terminal_rows_at_each_width() {
 
 #[test]
 fn custom_command_is_not_started_by_preview_save_or_cancel() {
-    let mut f = fixture("host-no-program", "[bind]\nj='run touch {marker}'\n");
+    let mut f = fixture("host-no-program", "[bind]\nz='run touch {marker}'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     overlay.surface.borrow_mut().select("pick:host-custom");
@@ -234,7 +234,7 @@ fn custom_command_is_not_started_by_preview_save_or_cancel() {
 
 #[test]
 fn host_action_survives_same_tab_acquisition_before_and_after_save() {
-    let mut f = fixture("host-refresh", "[bind]\nj='jump'\n");
+    let mut f = fixture("host-refresh", "[bind]\nz='jump'\n");
     open(&mut f, Some("%9"));
     let refresh = |f: &mut Fixture| {
         f.app.apply(crate::board::app::tests::snapshot(
@@ -282,7 +282,7 @@ fn host_action_survives_same_tab_acquisition_before_and_after_save() {
 
 #[test]
 fn squad_editor_previews_the_lead_and_saves_its_host_binding_without_a_member_section() {
-    let text = "[bind]\nj='jump'\n[bind.tmux]\nj='swap left'\n[[squad.product.section]]\ntitle='All'\n[squad.product.section.bind]\nj='swap down'\n";
+    let text = "[bind]\nz='jump'\n[bind.tmux]\nz='swap left'\n[[squad.product.section]]\ntitle='All'\n[squad.product.section.bind]\nz='swap down'\n";
     let mut f = fixture("squad-host-owner", text);
     let context = json!({"kind":"squad","name":"product","roomId":"room"});
     let recipient = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha","presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}});
@@ -302,7 +302,7 @@ fn squad_editor_previews_the_lead_and_saves_its_host_binding_without_a_member_se
         )
         .unwrap();
     let overlay = f.app.settings.as_mut().unwrap();
-    assert_eq!(overlay.settings.entries[0].source, "bind.tmux.j");
+    assert_eq!(overlay.settings.entries[0].source, "bind.tmux.z");
     assert_eq!(overlay.settings.entries[0].value, "swap left");
     assert_eq!(
         overlay
@@ -320,17 +320,17 @@ fn squad_editor_previews_the_lead_and_saves_its_host_binding_without_a_member_se
         .unwrap()
         .parse::<toml_edit::DocumentMut>()
         .unwrap();
-    assert_eq!(saved["bind"]["tmux"]["j"].as_str(), Some("swap right"));
-    assert_eq!(saved["bind"]["j"].as_str(), Some("jump"));
+    assert_eq!(saved["bind"]["tmux"]["z"].as_str(), Some("swap right"));
+    assert_eq!(saved["bind"]["z"].as_str(), Some("jump"));
     assert_eq!(
-        saved["squad"]["product"]["section"][0]["bind"]["j"].as_str(),
+        saved["squad"]["product"]["section"][0]["bind"]["z"].as_str(),
         Some("swap down")
     );
 }
 
 #[test]
 fn a_retired_lead_binding_uses_the_effective_default_without_rewriting_the_file() {
-    let mut f = fixture("host-lead-binding", "[bind]\nj='jump lead'\n");
+    let mut f = fixture("host-lead-binding", "[bind]\nz='jump lead'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     assert_eq!(overlay.settings.entries[0].value, "jump");
@@ -353,7 +353,7 @@ fn a_retired_lead_binding_uses_the_effective_default_without_rewriting_the_file(
             .unwrap()
             .preview_binding(
                 &crate::config::BindingLocation::Global,
-                "j",
+                "z",
                 Some("jump lead")
             )
             .is_err(),
@@ -373,12 +373,12 @@ fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner
     {
         let mut f = fixture(
             &format!("host-retired-{index}"),
-            &format!("[bind]\no='open {{pr_link}}'\n[bind.tmux]\nj='{retired}'\n"),
+            &format!("[bind]\no='open {{pr_link}}'\n[bind.tmux]\nz='{retired}'\n"),
         );
         open(&mut f, Some("%9"));
         let overlay = f.app.settings.as_mut().unwrap();
         assert_eq!(overlay.settings.entries[0].value, json!(effective));
-        assert_eq!(overlay.settings.entries[0].source, "bind.tmux.j");
+        assert_eq!(overlay.settings.entries[0].source, "bind.tmux.z");
         assert_eq!(
             overlay.picks[0].value,
             if effective.is_some() { "(current)" } else { "" }
@@ -394,8 +394,8 @@ fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner
             .unwrap()
             .parse::<toml_edit::DocumentMut>()
             .unwrap();
-        assert_eq!(saved["bind"]["tmux"]["j"].as_str(), Some("swap left"));
-        assert!(saved["bind"].get("j").is_none());
+        assert_eq!(saved["bind"]["tmux"]["z"].as_str(), Some("swap left"));
+        assert!(saved["bind"].get("z").is_none());
         assert_eq!(saved["bind"]["o"].as_str(), Some("open {pr_link}"));
         assert_eq!(overlay.settings.entries[0].value, "swap left");
         assert_eq!(overlay.picks[1].value, "(current)");
@@ -404,7 +404,7 @@ fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner
                 .unwrap()
                 .workspace_keys(OpsKeyScope::Reader, Some("tmux"), None)
                 .unwrap()
-                .bindings["j"]
+                .bindings["z"]
                 .text,
             "swap left"
         );
@@ -413,10 +413,10 @@ fn a_retired_host_binding_keeps_its_effective_value_and_repairs_that_exact_owner
 
 #[test]
 fn the_shared_binding_editor_lists_authored_default_and_unassigned_events() {
-    let mut f = fixture("all-bindings", "[bind]\nj='jump'\no='open {pr_link}'\n");
+    let mut f = fixture("all-bindings", "[bind]\nz='jump'\no='open {pr_link}'\n");
     open(&mut f, Some("%9"));
     let entries = &f.app.settings.as_ref().unwrap().settings.entries;
-    for key in ["bind.j", "bind.o", "bind.f12", "bind./", "bind.."] {
+    for key in ["bind.z", "bind.o", "bind.f12", "bind./", "bind.."] {
         assert!(
             entries
                 .iter()
@@ -553,7 +553,7 @@ fn typed_destination_keeps_host_masking_visible_and_conflict_keeps_the_draft() {
 fn preview_inventory_pages_and_wheels_without_changing_command_text() {
     let mut f = fixture(
         "binding-scroll",
-        "[bind]\nj='run echo {board_pane} {name}'\n",
+        "[bind]\nz='run echo {board_pane} {name}'\n",
     );
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
@@ -611,7 +611,7 @@ pub(in crate::board) fn capture_case(
     // that app would be constructed and opened only to be discarded.
     let (root, path, _) = fixture_file(
         &format!("binding-capture-{}", crate::id::new_v4().unwrap()),
-        "[bind]\nj='jump'\n\".\"='copy {row:/fields/task}'\n[bind.tmux]\n\".\"='copy {name}'\n",
+        "[bind]\nz='jump'\n\".\"='copy {row:/fields/task}'\n[bind.tmux]\n\".\"='copy {name}'\n",
     );
     let mut app = crate::board::app::workspace::tests::board();
     app.workspace.selected = Some(OpsTarget::Member {
@@ -691,7 +691,7 @@ pub(in crate::board) fn capture_case(
 
 #[test]
 fn binding_command_arrows_move_the_caret_without_changing_scope() {
-    let mut f = fixture("binding-caret", "[bind]\nj='run echo abc'\n");
+    let mut f = fixture("binding-caret", "[bind]\nz='run echo abc'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     overlay.surface.borrow_mut().select("pick:host-custom");
@@ -714,7 +714,7 @@ fn binding_command_arrows_move_the_caret_without_changing_scope() {
 
 #[test]
 fn binding_scope_row_owns_scope_arrows_and_returns_to_the_command() {
-    let mut f = fixture("binding-scope-row", "[bind]\nj='run echo abc'\n");
+    let mut f = fixture("binding-scope-row", "[bind]\nz='run echo abc'\n");
     open(&mut f, Some("%9"));
     let overlay = f.app.settings.as_mut().unwrap();
     overlay.surface.borrow_mut().select("pick:host-custom");

@@ -55,8 +55,8 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     }
     app.terminal = tab().0;
     app.focus = 0;
-    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    assert!(app.framed(), "j opens the frame");
+    app.key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(app.framed(), "z opens the frame");
     let term = MemberTerm {
         paused: scene == "frame-paused",
         ended: matches!(scene, "frame-ended" | "frame-ended-dismissed")

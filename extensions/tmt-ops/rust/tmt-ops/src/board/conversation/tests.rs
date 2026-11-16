@@ -1080,7 +1080,7 @@ fn compact_identity_hides_uuid_and_selected_host_action_survives_pane_focus() {
         assert!(shown.contains("tmux"));
         assert!(!shown.contains(crate::board::app::workspace::tests::MEMBER));
         assert_eq!(
-            app.workspace_bindings()["j"].verb,
+            app.workspace_bindings()["z"].verb,
             crate::action::Verb::Jump
         );
         assert_eq!(
@@ -1092,7 +1092,7 @@ fn compact_identity_hides_uuid_and_selected_host_action_survives_pane_focus() {
             }
         );
         if !focused {
-            assert!(crate::board::app::workspace::tests::help_lists(&app, "j"));
+            assert!(crate::board::app::workspace::tests::help_lists(&app, "z"));
         }
     }
 }

@@ -472,7 +472,7 @@ mod board {
     }
 
     #[test]
-    fn enter_types_into_the_panel_until_the_back_key_and_j_shows_it_full_screen() {
+    fn enter_types_into_the_panel_until_the_back_key_and_z_shows_it_full_screen() {
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);
         assert!(app.terminal_sync(), "the selected terminal's stream opens");
@@ -486,7 +486,7 @@ mod board {
         assert!(!app.modal_open());
         app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
         assert_eq!(app.terminals.typing(), None);
-        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Char('z'));
         assert!(app.framed());
         assert_eq!(app.terminal_member_name(), "Terminal 1");
         assert_eq!(
@@ -571,7 +571,7 @@ mod board {
         select(&mut app, &member, 1);
         assert_eq!(
             crate::board::view::footer::agents_hints(&app, 200).as_deref(),
-            Some("t New terminal  ⏎ Type  j Full screen  x Close  ctrl-g Back to list  ? Help")
+            Some("t New terminal  ⏎ Type  z Full screen  x Close  ctrl-g Back to list  ? Help")
         );
     }
 }

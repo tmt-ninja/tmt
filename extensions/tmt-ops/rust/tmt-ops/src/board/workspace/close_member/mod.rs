@@ -267,7 +267,7 @@ impl App {
             })
             .collect();
         let jump_slot = acts.iter().position(|act| *act == surface::Act::Jump);
-        let jump = matches!(event, Event::Key(key) if key.code == KeyCode::Char('j') && key.modifiers.is_empty())
+        let jump = matches!(event, Event::Key(key) if key.code == KeyCode::Char('z') && key.modifiers.is_empty())
             && jump_slot.is_some_and(|slot| buttons[slot].is_enabled());
         let draft = self.workspace_form.as_mut()?;
         let input = if jump {

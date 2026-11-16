@@ -404,7 +404,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Squad => entries.extend([
             ("e", "edit"),
             ("r", "rename"),
-            ("j", "jump"),
+            ("z", "jump"),
             ("o", "open"),
             ("D", "digest"),
             ("m", "manage"),
@@ -416,7 +416,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("e", "edit"),
             ("r", "rename"),
             ("enter", "talk"),
-            ("j", "jump"),
+            ("z", "jump"),
             ("o", "open"),
             ("x", "remove-member"),
             ("C", "member-checklist"),
@@ -428,7 +428,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("t", "terminal-new"),
             ("enter", "terminal-type"),
             ("double-click", "terminal-type"),
-            ("j", "terminal-full-screen"),
+            ("z", "terminal-full-screen"),
             ("x", "terminal-close"),
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("N", "create-squad")]),
@@ -1264,7 +1264,7 @@ mod tests {
             .unwrap();
         assert_eq!(selected.sources["o"], "selected squad section.bind");
         assert_eq!(selected.bindings["o"].text, "open {link}");
-        assert_eq!(selected.sources["j"], "workspace default");
+        assert_eq!(selected.sources["z"], "workspace default");
     }
     fn config(text: &str) -> Config {
         Config {
@@ -1432,7 +1432,7 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            // `t` opens an extra terminal under a member (#5991), and only there; `j` fills the
+            // `t` opens an extra terminal under a member (#5991), and only there; `z` fills the
             // board with a built-in member's terminal (#5989).
             assert_eq!(
                 factory.bindings.get("t").map(|action| action.text.as_str()),
@@ -1705,7 +1705,9 @@ mod tests {
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
             assert_eq!(factory.bindings["ctrl-g"].text, "member-back", "{scope:?}");
-            assert!(!factory.bindings.contains_key("z"), "{scope:?}");
+            if matches!(scope, OpsKeyScope::Squad | OpsKeyScope::Member) {
+                assert_eq!(factory.bindings["z"].text, "jump", "{scope:?}");
+            }
         }
         for (key, warns) in [("x", true), ("ctrl-x", false), ("alt-x", false)] {
             let keys = config(&format!("[bind]\n{key}='member-back'\n"))

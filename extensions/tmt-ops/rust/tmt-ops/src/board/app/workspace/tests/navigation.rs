@@ -46,6 +46,10 @@ pub(super) fn label_capture(scene: &str, look: crate::look::Look) -> App {
                 .members
                 .insert(format!("66666666-6666-4666-8666-{index:012}"), id.into());
         }
+        if scene == "agents-label-mixed" {
+            // Keep only the first member labeled so the same squad shows both alignments.
+            preferences.labels.members.retain(|id, _| id == first);
+        }
         if scene == "agents-label-stack" {
             preferences.layout = crate::config::OpsLayout::Stack;
         }
@@ -260,7 +264,7 @@ fn editor_picks_an_unused_id_at_the_definition_limit() {
 }
 
 #[test]
-fn assigned_labels_reserve_aligned_chips_for_member_rows_only() {
+fn labels_take_space_only_on_their_own_member_row() {
     let mut app = populated_board(1, 2);
     let before = paint(&app, 160, 36);
     let member = "66666666-6666-4666-8666-000000000000";
@@ -289,7 +293,7 @@ fn assigned_labels_reserve_aligned_chips_for_member_rows_only() {
     );
     assert_eq!(
         after_plain.find("agent-00001").unwrap(),
-        before_plain.find("agent-00001").unwrap() + 4
+        before_plain.find("agent-00001").unwrap()
     );
     let before_squad = line(&before, "squad-00");
     let after_squad = line(&after, "squad-00");

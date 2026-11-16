@@ -505,14 +505,14 @@ impl App {
             OpsKeyScope::Member,
             row["pane"]["location"]["host"].as_str(),
         );
-        let action = keys.get("j").ok_or("No j action configured")?;
-        crate::config::admit_workspace_action(action, "member mention j")
+        let action = keys.get("z").ok_or("No z action configured")?;
+        crate::config::admit_workspace_action(action, "member mention z")
             .map_err(|error| error.message)?;
         if !matches!(
             action.verb,
             crate::action::Verb::Jump | crate::action::Verb::Run
         ) {
-            return Err("j is not a host action".into());
+            return Err("z is not a host action".into());
         }
         if action.verb == crate::action::Verb::Run {
             action.argv(row)?;
@@ -615,7 +615,7 @@ impl App {
             entries.push(MenuEntry {
                 chip: None,
                 separator: false,
-                key: "j".into(),
+                key: "z".into(),
                 label: "Jump to host".into(),
                 choice: Choice::MemberLink {
                     target: target.clone(),

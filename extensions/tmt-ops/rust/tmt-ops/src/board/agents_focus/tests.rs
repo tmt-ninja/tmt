@@ -151,7 +151,7 @@ fn squad_actions_follow_only_the_verified_current_lead_from_either_pane() {
         }
         assert!(app.composer_start().is_some());
         assert_eq!(
-            app.workspace_bindings()["j"].verb,
+            app.workspace_bindings()["z"].verb,
             crate::action::Verb::Jump
         );
         assert_eq!(

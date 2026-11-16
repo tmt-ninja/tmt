@@ -366,7 +366,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
         let keys = [
             (Ui::TerminalNew, "t", "New terminal"),
             (Ui::TerminalType, "enter", "Type"),
-            (Ui::TerminalFullScreen, "j", "Full screen"),
+            (Ui::TerminalFullScreen, "z", "Full screen"),
             (Ui::TerminalClose, "x", "Close"),
         ]
         .into_iter()
@@ -1261,6 +1261,7 @@ mod tests {
                 ", settings",
                 "c timers",
                 "j host",
+                "z host",
                 "p pin",
                 "@ names",
                 "←→ fold",

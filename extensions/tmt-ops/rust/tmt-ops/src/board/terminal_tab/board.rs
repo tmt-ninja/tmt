@@ -1,4 +1,4 @@
-//! What the board does for the member frame (#5989): `j` on a built-in member fills the board with
+//! What the board does for the member frame (#5989): `z` on a built-in member fills the board with
 //! its terminal under one TMT header row. Every key but the back key is the program's; the header,
 //! its menus and the paused and ended dialogs answer the mouse, and the dialogs their own keys. The
 //! state itself is [`Tab`](super::tab::Tab).
@@ -243,14 +243,14 @@ impl App {
         })
     }
 
-    /// The selected row is a built-in-host member, which `j` opens full screen.
+    /// The selected row is a built-in-host member, which `z` opens full screen.
     pub(in crate::board) fn selected_built_in(&self) -> bool {
         self.selected_row().is_some_and(|row| {
             row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST
         })
     }
 
-    /// `j` on a built-in member fills the board with its terminal. `None` for any other member,
+    /// `z` on a built-in member fills the board with its terminal. `None` for any other member,
     /// which keeps the host jump.
     pub(in crate::board) fn jump_to_terminal(&mut self, row: &serde_json::Value) -> Option<Effect> {
         if row["pane"]["location"]["host"] != crate::board::new_member::model::BUILT_IN_HOST {

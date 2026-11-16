@@ -392,7 +392,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     if app.member_link_hint().is_some() {
         sections.push(section("member-links", "member links", &[
             ("#tmt:name / #tmt:UUID", "Known member links open an anchored action menu. Unknown references stay literal; copy and annotation keep exact markup."),
-            ("arrows / Enter", "In conversation read focus, left/right select a visible mention; Enter opens its actions. Tab and BackTab switch panes; authored bindings take precedence. j uses its configured host action; Enter shows the member in Agents and keeps the draft."),
+            ("arrows / Enter", "In conversation read focus, left/right select a visible mention; Enter opens its actions. Tab and BackTab switch panes; authored bindings take precedence. z uses its configured host action; Enter shows the member in Agents and keeps the draft."),
             ("Esc / click outside", "Close the mention menu without acting. Links never broadcast or change the message recipient."),
         ]));
     }

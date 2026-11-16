@@ -280,7 +280,7 @@ its special meaning. Plain programs do not show the skills menu.
 
 Click a link, or use left/right in the conversation's read focus and press Enter,
 to open its adjacent menu. The first arrow selects the first visible mention. Tab
-and BackTab keep switching panes; authored bindings take precedence. `j` uses that
+and BackTab keep switching panes; authored bindings take precedence. `z` uses that
 member's configured host action; unavailable bindings explain why it is disabled. Enter shows the member in Agents,
 expanding its squad and keeping the current draft. This explicit navigation clears
 session search/scope and reveals hidden squads without changing shared preferences.
@@ -481,7 +481,7 @@ keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Only answer body rows
 actually visible in the focused conversation are acknowledged in Core. Opening a
-conversation or jumping with `j` does not mark offscreen answers read. Clicking any
+conversation or jumping with `z` does not mark offscreen answers read. Clicking any
 `● N unread` (the top bar's, an Agents row's STATE, the conversation header's or the
 composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
@@ -547,7 +547,7 @@ or failed reads never prove that an identity belongs in the pool.
 
 With tree focus, ↑/↓ move, Right expands and Left collapses. From either pane,
 factory Enter replies to an observed question or messages the selected member or
-squad's observed current lead; `j` uses that recipient's guarded host action.
+squad's observed current lead; `z` uses that recipient's guarded host action.
 A missing lead or Common pool grants no substitute recipient. The focus shows
 member identity/stat tiles or squad Board/Usage/Timers, then `Conversation`.
 Captured inputs, finals and submitted replies follow Core's committed order;
@@ -589,7 +589,7 @@ confirmation starts on Cancel. Confirm stops the agent through Core and closes
 only a pane TMT opened, then deletes the identity after Core proves it stopped.
 Conversation history and notes are kept. A kept pane's reason remains in the result.
 A stop refusal deletes nothing automatically: the dialog shows Core's reason and
-whether a stop was requested, with Cancel, Jump to pane (`j`) and Delete identity.
+whether a stop was requested, with Cancel, Jump to pane (`z`) and Delete identity.
 Explicit Delete asks Core to check and remove the identity without retrying stop;
 a hand-bound pane with no recorded agent may remove. If Core reports still running
 or unproven, quit it in its pane, then Delete. Missing or changed identities require
@@ -675,10 +675,10 @@ names the command to run (`tmt extension install remote`, or the one Remote
 suggests); Ops never installs, starts or pairs anything itself. `T` and `M` select
 Talk and Measure directly. An authored `overview`, `overview-view` or `overview-filter` binding gets a
 located retirement notice and is not applied.
-Default `j` jumps through the observed tmux binding only from a tmux invoker; on a
-built-in member it opens that member full screen instead, and Ctrl-g leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
+Default `z` jumps through the observed tmux binding only from a tmux invoker; on a
+built-in member it opens that member full screen instead, and Ctrl-g leads back. Herdr focus is unavailable. Standalone `z` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
-actual argv. `j` is not tree navigation.
+actual argv. `z` is not tree navigation.
 New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
 (Saved/Temporary); Effort appears only when the tool's driver lists efforts, and
 Session only on tmux. ↑↓ move through the fields and the Cancel/Create buttons, ←→
@@ -700,21 +700,21 @@ The first AI tool choice, "None · plain shell (no AI)", starts a plain CLI: Mod
 and Effort hide, a Command row takes the program and its arguments (split like a
 shell, never through `sh -c`; blank runs your `$SHELL`), and the preview shows
 `tmt run [--host pty] NAME PROGRAM…`. Such a member reads `▪ shell` with `—` for TOK
-and Digest and its program in Model; it has no chat (Enter and `j` open its terminal)
+and Digest and its program in Model; it has no chat (Enter and `z` open its terminal)
 and receives no messages until an AI agent starts and binds in that terminal.
 A clean start on the built-in host closes the form and opens the member full screen.
-`j` on any built-in-host member does the same: its terminal fills the board under one
+`z` on any built-in-host member does the same: its terminal fills the board under one
 header row (state, Digest, members, sessions, Checklist, Colab) and every key goes to the
 program except Ctrl-g (the `member-back` action), which returns to the board. A paused
 member or an agent that ended shows a dialog to resume, start a new session or open a
 shell there; Esc hides it. After a reboot, the board asks once per run to resume the
 offline members the built-in capture names: `⏎` resumes the selected one, `n` starts a new
 session, `a` resumes all that can be, and Esc is Not now. A member with no folder, or that Core
-refuses, shows the reason on its row. `j` on a listed offline member that can still start
+refuses, shows the reason on its row. `z` on a listed offline member that can still start
 reopens the ask.
 On a member on any host, `t` opens an extra terminal (a login
 shell in its working directory, at most 8) listed under it as "Terminal N"; select one to see
-it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `j` for full screen and
+it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `z` for full screen and
 `x` to close it, which asks first while a program runs there and names that program when Core
 reports it. The panel's status line names the shell Core reports. An ended terminal stays greyed
 until `x` removes it or the board restarts. Every other member opens on its chat, where Enter composes as
@@ -738,12 +738,12 @@ check. A host with no template stays copy-only: Create becomes Copy commands and
 and, for Saved in a squad, a separately labelled add command to run after creation.
 Temporary copies only the launch line. Copy never creates an identity or membership.
 
-The `?` panel's **Bindings · j presets** row lists every admitted key, including unassigned
+The `?` panel's **Bindings · z presets** row lists every admitted key, including unassigned
 keys, its effective command and winning global/host/section source. Enter edits the
 command; ←→ move the caret in the command field. ↓ reaches the Scope row below it,
 where ←→ choose the write scope; ↑ returns to the command (Tab does nothing). A masked lower-scope edit names the
 binding that still wins. Save publishes through Config; Esc keeps the file unchanged;
-`r` removes only the selected authored override and reveals inheritance. The `j`
+`r` removes only the selected authored override and reveals inheritance. The `z`
 presets offer Focus agent, directional Swap beside board, or Custom command. A swap keeps the board focused and exchanges the
 neighbour into the selected agent's old slot; select the displaced agent to
 reverse it. An agent already beside the board stays put. Swap refuses unsupported
@@ -1621,7 +1621,7 @@ A collapsed squad shows its worst observed state. Display names never provide
 operation authority.
 
 Enter focuses the selected agent's composer in the shared conversation; the
-configured Inspect action remains available. Factory `t` is unassigned, and `j`
+configured Inspect action remains available. Factory `t` is unassigned, and `z`
 jumps to the available host. Source-provided labels retain their semantic roles
 and choice actions; a choice click opens that exact control rather than sending.
 Digest uses the same UUID context and existing Core authorization. Refresh and

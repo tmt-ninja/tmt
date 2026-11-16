@@ -2829,7 +2829,7 @@ child.stdout.pipe(process.stdout);
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'j']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'z']);
       await fixture.waitForCapture((screen) => screen.includes('BOARD_EXIT=0'), shell.pane);
       expect(clientPlace(fixture)).toBe(`crew/${member}`);
 
@@ -2845,7 +2845,7 @@ child.stdout.pipe(process.stdout);
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'j']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'z']);
       await fixture.waitFor(() => clientPlace(fixture) === `crew/${member}`, 5_000, 'jumped');
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(fixture.capture(40, shell.pane)).toContain('auth-fix');

@@ -262,10 +262,7 @@ f8 = "menu"
             .any(|entry| ["click", "double-click", "f8"].contains(&entry.key.as_str()))
     );
     assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
-    assert!(
-        app.menu.is_some(),
-        "the menu owns j rather than the Host action"
-    );
+    assert!(app.menu.is_some(), "an unbound j leaves the menu open");
     assert_eq!(key(&mut app, KeyCode::F(2)), copy);
     assert!(app.menu.is_none());
     key(&mut app, KeyCode::F(8));
@@ -1301,10 +1298,11 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
     let target = app.workspace.selected.clone();
-    assert_eq!(app.bindings()["j"].text, "jump");
+    assert_eq!(app.bindings()["z"].text, "jump");
+    assert_eq!(app.bindings()["j"].text, "scroll-down");
     assert_eq!(app.bindings()["1"].text, "agents");
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     assert_eq!(app.workspace.selected, target);
@@ -1338,6 +1336,33 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
 }
 
 #[test]
+fn clicking_the_visible_member_host_jumps_to_that_member() {
+    let mut app = board();
+    let screen = paint(&app, 160, 36);
+    let (y, line) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("product · member") && line.contains("tmux"))
+        .expect("member metadata");
+    let x = unicode_width::UnicodeWidthStr::width(&line[..line.find("tmux").unwrap()]);
+    let click = ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: x as u16,
+        row: y as u16,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert_eq!(
+        app.mouse(click, std::time::Instant::now()),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
+    assert!(app.notice.as_deref().unwrap().contains("target changed"));
+}
+
+#[test]
 fn refresh_preserves_pane_focus_and_selected_factory_host_action() {
     let mut app = board();
     paint(&app, 160, 36);
@@ -1358,7 +1383,7 @@ fn refresh_preserves_pane_focus_and_selected_factory_host_action() {
     paint(&app, 160, 36);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     assert_eq!(app.workspace.selected, selected);
@@ -1610,7 +1635,7 @@ fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions
     app.shell.tab = OpsTab::Agents;
 
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
@@ -2289,12 +2314,12 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     app.set_body_width(160);
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(app.bindings()["j"].text, "jump");
+    assert_eq!(app.bindings()["z"].text, "jump");
     app.set_body_width(80);
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     paint(&app, 80, 36);
-    assert_eq!(app.bindings()["j"].text, "jump");
+    assert_eq!(app.bindings()["z"].text, "jump");
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -2424,9 +2449,9 @@ fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_prec
 fn the_default_host_action_is_listed_in_help_and_left_out_of_the_one_line_footer() {
     let app = board();
     let lines = paint(&app, 160, 36);
-    assert!(!lines.last().unwrap().contains("j host"));
-    assert!(!lines.last().unwrap().contains("j open"));
-    assert!(help_lists(&app, "j"));
+    assert!(!lines.last().unwrap().contains("z host"));
+    assert!(!lines.last().unwrap().contains("z open"));
+    assert!(help_lists(&app, "z"));
 }
 
 #[test]
@@ -2454,7 +2479,7 @@ fn workspace_settings_cancel_returns_to_the_exact_reader_without_factory_actions
         assert_eq!(app.workspace.selected, selected);
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
-            key(&mut app, KeyCode::Char('j')),
+            key(&mut app, KeyCode::Char('z')),
             Effect::Act(Request::Jump(MEMBER.into())),
             "restoring Reader preserves the selected factory host action"
         );
@@ -3347,13 +3372,13 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     paint(&app, 160, 36);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     assert_eq!(
-        key(&mut app, KeyCode::Char('j')),
+        key(&mut app, KeyCode::Char('z')),
         Effect::Act(Request::Jump(MEMBER.into()))
     );
     let original = app.workspace.selected.clone();
@@ -4857,6 +4882,13 @@ fn committed_search_releases_list_shortcuts_and_clear_invalidates_pointer_hits()
 fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = workspace.preferences.clone();
+    preferences
+        .labels
+        .members
+        .insert(MEMBER.into(), "pr".into());
+    workspace.set_preferences(preferences);
     app.search = "worker".into();
     app.workspace_reconcile();
     let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
@@ -4891,6 +4923,11 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         })
         .expect("matching member remains actionable");
     let row = &lines[usize::from(name_row)];
+    assert!(
+        row.contains(" P  worker"),
+        "label and matching name stay together: {row}"
+    );
+    assert!(app.workspace_strip_hits.borrow().iter().any(|(_, choice)| matches!(choice, Choice::LabelTarget(OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER)));
     let name_x = row.find("worker").expect("painted matching name");
     // All preceding cells in this fixture are single-column ASCII/box glyphs.
     let x = row[..name_x].chars().count() as u16;
