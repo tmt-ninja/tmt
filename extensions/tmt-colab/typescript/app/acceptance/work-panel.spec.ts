@@ -61,7 +61,11 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     const page = await openPage(door, browser, created);
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-1');
     await expect(page.getByLabel('↑ Priority high', { exact: true })).toBeVisible();
-    await expect(page.getByText('release-coordination-agent', { exact: true })).toBeVisible();
+    await expect(page.locator('.work-owner-chip')).toBeVisible();
+    await expect(page.locator('.work-owner-chip')).toHaveAttribute(
+      'aria-label',
+      'release-coordination-agent',
+    );
     await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
@@ -80,7 +84,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     const captures = process.env.COLAB_WORK_FIELDS_CAPTURE_DIR;
     if (captures) {
       mkdirSync(captures, { recursive: true });
-      for (const width of [1440, 800, 390])
+      for (const width of [1440, 1100, 800, 390])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 });
           await page.reload();
@@ -99,9 +103,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     }
     colab(['page', 'set', created.pageId, '--clear-owner', '--priority', 'low']);
     await expect(page.getByLabel('Priority low', { exact: true })).toBeVisible();
-    await expect(page.getByText('release-coordination-agent', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.work-owner-chip')).toHaveCount(0);
     if (captures) {
-      for (const width of [1440, 800, 390])
+      for (const width of [1440, 1100, 800, 390])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 });
           await page.reload();
@@ -131,9 +135,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
     const reader = await openReaderLink(world, door, link.readerPath, 'work-fields-reader');
     await expect(reader.page.getByLabel('↑ Priority high', { exact: true })).toBeVisible();
-    await expect(
-      reader.page.getByText('release-coordination-agent', { exact: true }),
-    ).toBeVisible();
+    await expect(reader.page.locator('.work-owner-chip')).toBeVisible();
     await expect(reader.page.locator('.colab-work-number:visible')).toHaveCount(0);
   });
 });

@@ -170,7 +170,11 @@ export function WorkBand({
           </span>
         )}
         {owner && (
-          <span className={`${ui.countChip} work-field-chip`}>
+          <span
+            className={`${ui.countChip} work-field-chip work-owner-chip`}
+            aria-label={owner.name}
+            title={owner.name}
+          >
             <BrowserAvatar name={owner.name} kind="agent" size="s" decorative />
             <span className="work-owner-name" title={owner.name}>
               {owner.name}

@@ -49,16 +49,42 @@
   background: var(--tmt-ui-surface-command);
 }
 @media (min-width: 901px) {
-  .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
-    min-width: 5rem;
+  .tmt-ui-topbar-title:has(.work-field-chip) {
+    container: colab-work-title / inline-size;
   }
   .tmt-ui-topbar-title:has(.work-field-chip) .tmt-ui-topbar-title-current {
-    min-width: 8rem;
+    min-width: 24ch;
   }
+  .tmt-ui-topbar-title:has(.work-field-chip) h1 {
+    min-width: 27ch;
+  }
+  .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
+    min-width: 3ch;
+  }
+}
+@container colab-work-title (max-width: 1100px) {
+  .page-header-project-add > .page-project-group {
+    display: none;
+  }
+}
+@container colab-work-title (max-width: 1000px) {
   .work-owner-name {
-    max-width: 13ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: none;
+  }
+}
+@container colab-work-title (max-width: 800px) {
+  .work-head {
+    gap: var(--tmt-ui-space-xs);
+  }
+  .page-hierarchy-count,
+  .page-hierarchy-icon,
+  .page-hierarchy-separator,
+  .page-header-pin {
+    display: none;
+  }
+  .work-field-chip,
+  .work-toggle {
+    padding-inline: var(--tmt-ui-space-xs);
   }
 }
 .work-segments {

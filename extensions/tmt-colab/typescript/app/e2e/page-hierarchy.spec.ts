@@ -26,14 +26,14 @@ async function mount(
   return bar;
 }
 
-for (const width of [1440, 800, 390])
+for (const width of [1440, 1100, 800, 390])
   test(`work fields remain readable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page, 'work-fields');
     const work = page.getByRole('region', { name: 'Work on this page' });
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
     await expect(work.getByLabel('↑ Priority high')).toBeVisible();
-    await expect(work.getByText('gui-3')).toBeVisible();
+    await expect(work.locator('.work-owner-chip')).toBeVisible();
     await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
     await expect(work.locator('.work-count-wide')).toBeVisible();
     const state = work.locator('.work-head .tmt-ui-menu-value');
@@ -42,6 +42,11 @@ for (const width of [1440, 800, 390])
     const box = await work.boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    if (width === 1100) {
+      const controls = page.locator('.tmt-ui-topbar-controls:visible');
+      const controlsBox = await controls.boundingBox();
+      expect(box!.x + box!.width).toBeLessThanOrEqual(controlsBox!.x);
+    }
     const title =
       width <= 900
         ? page.locator('.page-mobile-title:visible h1')
