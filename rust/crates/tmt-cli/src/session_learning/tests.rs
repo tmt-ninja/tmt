@@ -149,6 +149,7 @@ pub(crate) fn launch(host: HostKind, provider: &str) -> Launch {
             identity_id: identity.id.clone(),
             binding_id: binding.id.clone(),
             owner_pid: owner.pid(),
+            startup_input: false,
             owner_start: owner.start_identity().into(),
         },
         driver: driver.clone(),
@@ -180,9 +181,10 @@ fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: boo
         binding,
         owner,
         driver,
-        learning,
+        mut learning,
         deadline,
     } = launch(host, provider);
+    learning.launch.startup_input = true;
     let root = directory.0.as_path();
     if preference_edit {
         learning
@@ -380,6 +382,22 @@ fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: boo
             .as_ref()
             .expect("the first event survives admission");
         assert_eq!(remembered.provider_session.as_str(), session);
+        let activity = remembered
+            .state
+            .as_ref()
+            .and_then(tmt_adapters::runtime::driver_state::state_activity);
+        assert_eq!(
+            activity.is_some(),
+            provider == "claude",
+            "only Claude has pre-input evidence here"
+        );
+        if let Some(activity) = activity {
+            assert_eq!(
+                activity.phase,
+                tmt_core::binding::session::activity::ActivityPhase::Idle
+            );
+            assert_eq!(activity.process, process);
+        }
         let observed = storage
             .with_binding_transaction(|records| records.launch_observation(&binding.id, &owner))
             .unwrap()

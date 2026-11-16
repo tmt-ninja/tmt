@@ -52,6 +52,7 @@ pub struct ClaudeObservation {
     pub context_tokens: Option<u64>,
     pub transition: SessionTransition,
     pub starting: bool,
+    pub startup_ready: bool,
 }
 
 impl ClaudeObservation {
@@ -142,6 +143,10 @@ impl ClaudeObservation {
 #[derive(Deserialize)]
 struct Payload {
     hook_event_name: String,
+    #[serde(default, deserialize_with = "crate::runtime::hook_protocol::present")]
+    prompt_id: bool,
+    #[serde(default, deserialize_with = "crate::runtime::hook_protocol::present")]
+    agent_id: bool,
     session_id: String,
     /// Documented provider field: the active model slug.
     model: Option<String>,
@@ -195,7 +200,12 @@ pub fn decode_hook(bytes: &[u8]) -> Result<ClaudeObservation, HookInputError> {
         ),
         _ => return Err(HookInputError::Unsupported),
     };
+    let startup_ready = payload.hook_event_name == "SessionStart"
+        && matches!(payload.source.as_deref(), Some("startup" | "resume"))
+        && !payload.prompt_id
+        && !payload.agent_id;
     Ok(ClaudeObservation {
+        startup_ready,
         session,
         model: payload.model,
         context_tokens: payload
@@ -386,6 +396,29 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn startup_input(&self, command: &crate::runtime::RuntimeCommand) -> bool {
+        crate::runtime::launch_preset::empty_prompt(
+            &command.args,
+            &[
+                "--session-id",
+                "--resume",
+                "-r",
+                "--model",
+                "--effort",
+                "--permission-mode",
+                "--add-dir",
+                "--agent",
+            ],
+            &[
+                "--continue",
+                "-c",
+                "--dangerously-skip-permissions",
+                "--allow-dangerously-skip-permissions",
+                "--verbose",
+            ],
+        )
+    }
+
     fn launch_settings(
         &self,
         args: &[std::ffi::OsString],
@@ -444,6 +477,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             context_tokens: None,
 
             transition: SessionTransition::Started,
+            startup_ready: false,
             starting: true,
         }))
     }
@@ -840,6 +874,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
 }
 
 impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
+    fn startup_ready(&self) -> bool {
+        self.startup_ready
+    }
     fn session(&self) -> &ProviderSessionId {
         &self.session
     }

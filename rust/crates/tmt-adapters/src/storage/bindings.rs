@@ -184,6 +184,34 @@ impl BindingRecords for BindingRows<'_> {
     ) -> Result<bool, Self::Error> {
         super::launch_observations::preferences_match(self.0, observation)
     }
+    fn set_launch_preferences(
+        &mut self,
+        expected: &tmt_core::binding::session::launch::LaunchObservation,
+        identity: &str,
+        next: &tmt_core::binding::session::SessionPreferences,
+    ) -> Result<bool, Self::Error> {
+        let binding = self.entry_by_id(identity)?.and_then(|entry| entry.binding);
+        if expected.status != tmt_core::binding::session::launch::LaunchStatus::Intent
+            || binding.as_ref().is_none_or(|binding| {
+                binding.id != expected.binding_id
+                    || binding.session.launch_owner.as_ref() != Some(&expected.owner)
+            })
+            || self
+                .launch_observation(&expected.binding_id, &expected.owner)?
+                .as_ref()
+                != Some(expected)
+            || !self.launch_preferences_match(expected)?
+        {
+            return Ok(false);
+        }
+        let mut owned = self.session_preferences(identity)?;
+        owned.launched(&expected.driver);
+        owned.channel = next.channel;
+        if owned != *next || !self.set_session_preferences(identity, next)? {
+            return Ok(false);
+        }
+        super::launch_observations::advance_preferences(self.0, expected)
+    }
     fn launch_observation(
         &self,
         binding_id: &str,

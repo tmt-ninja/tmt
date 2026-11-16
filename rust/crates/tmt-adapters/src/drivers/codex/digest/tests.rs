@@ -10,6 +10,7 @@ fn launch(id: &str) -> HookLaunch {
         identity_id: id.into(),
         binding_id: "22222222-2222-4222-8222-222222222222".into(),
         owner_pid: 42,
+        startup_input: false,
         owner_start: "start".into(),
     }
 }

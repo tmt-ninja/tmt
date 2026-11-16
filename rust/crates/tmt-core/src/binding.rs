@@ -204,6 +204,14 @@ pub trait BindingRecords: IdentityReader {
         &self,
         observation: &session::launch::LaunchObservation,
     ) -> Result<bool, Self::Error>;
+    /// CAS the launch's own preference update and its intent fingerprint together.
+    /// A changed intent or preferences must leave both untouched.
+    fn set_launch_preferences(
+        &mut self,
+        expected: &session::launch::LaunchObservation,
+        identity: &str,
+        next: &session::SessionPreferences,
+    ) -> Result<bool, Self::Error>;
     fn launch_observation(
         &self,
         binding_id: &str,

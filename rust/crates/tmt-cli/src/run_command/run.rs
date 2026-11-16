@@ -594,12 +594,16 @@ pub(super) fn run_bound(
             .is_some_and(start_hook_installed),
         None => false,
     };
+    // Channel enrollment has its own transport readiness; this contract is
+    // only for an empty interactive terminal launch.
+    let startup_input = channel.channel.is_none() && lifecycle.startup_input(&launch.command);
     let hook_command = match prepare_launch_hooks(
         lifecycle,
         &launch.command,
         binding,
         owner.as_ref(),
         &paths.global_dir,
+        startup_input,
     ) {
         Ok(command) => command,
         Err(error) => {
@@ -720,6 +724,7 @@ pub(super) fn run_bound(
             identity_id: binding.identity_id.clone(),
             binding_id: binding.id.clone(),
             owner_pid: owner.pid(),
+            startup_input,
             owner_start: owner.start_identity().into(),
         })
     } else {
@@ -1245,6 +1250,7 @@ fn prepare_launch_hooks(
     binding: &Binding,
     owner: Option<&ProcessIncarnation>,
     state_directory: &std::path::Path,
+    startup_input: bool,
 ) -> std::io::Result<Option<tmt_adapters::runtime::RuntimeCommand>> {
     let Some(owner) = owner else {
         return Ok(None);
@@ -1255,6 +1261,7 @@ fn prepare_launch_hooks(
         identity_id: binding.identity_id.clone(),
         binding_id: binding.id.clone(),
         owner_pid: owner.pid(),
+        startup_input,
         owner_start: owner.start_identity().to_owned(),
     };
     lifecycle.prepare_launch_hooks(&tmt_adapters::runtime::hook_protocol::LaunchHooks {

@@ -73,6 +73,29 @@ pub trait LifecycleObservation {
     fn driver_state(&self, _previous: Option<&DriverState>, _now_ms: u64) -> Option<DriverState> {
         None
     }
+    /// A provider-defined start that can accept input before the first turn.
+    fn startup_ready(&self) -> bool {
+        false
+    }
+    /// Applied only after native managed-launch verification. Preserve any later
+    /// activity in this exact session/incarnation, including duplicate starts.
+    fn launch_state(
+        &self,
+        previous: Option<&DriverState>,
+        process: &ProcessIncarnation,
+        ready: bool,
+        now_ms: u64,
+    ) -> Option<DriverState> {
+        let next = self.driver_state(previous, now_ms);
+        super::driver_state::after_launch_start(
+            next,
+            previous,
+            self.session(),
+            process,
+            ready && self.startup_ready(),
+            now_ms,
+        )
+    }
     fn propose(
         &self,
         current: &BindingSessionState,
@@ -134,6 +157,11 @@ impl CallerSessionRefusal {
 }
 
 pub trait RuntimeLifecycle {
+    /// Conservative launch grammar: unknown arguments never prove an empty prompt.
+    fn startup_input(&self, _command: &super::RuntimeCommand) -> bool {
+        false
+    }
+
     /// Select the driver-owned runtime inside the original observation budget.
     /// The default is the directly owned process; no process control transfers.
     fn observe_foreground(

@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 fn event(starting: bool, transition: SessionTransition, session: &str) -> ClaudeObservation {
     ClaudeObservation {
+        startup_ready: false,
         starting,
         transition,
         session: ProviderSessionId::new(session).unwrap(),
@@ -610,6 +611,57 @@ fn a_present_claude_pid_must_be_a_nonzero_decimal_u32() {
         assert!(
             hook_runtime_pid(Some(OsStr::from_bytes(value))).is_err(),
             "{value:?}"
+        );
+    }
+}
+
+#[test]
+fn startup_input_needs_a_main_pre_prompt_start_and_an_empty_interactive_launch() {
+    use crate::runtime::lifecycle::LifecycleObservation;
+    let start =
+        serde_json::json!({"hook_event_name":"SessionStart","session_id":"s","source":"startup"});
+    assert!(
+        decode_hook(start.to_string().as_bytes())
+            .unwrap()
+            .startup_ready()
+    );
+    for field in ["prompt_id", "agent_id"] {
+        for value in [serde_json::Value::Null, serde_json::json!("present")] {
+            let mut payload = start.clone();
+            payload[field] = value;
+            assert!(
+                !decode_hook(payload.to_string().as_bytes())
+                    .unwrap()
+                    .startup_ready()
+            );
+        }
+    }
+    for source in ["clear", "compact", "fork"] {
+        let mut payload = start.clone();
+        payload["source"] = source.into();
+        assert!(
+            !decode_hook(payload.to_string().as_bytes())
+                .unwrap()
+                .startup_ready()
+        );
+    }
+    let lifecycle = crate::runtime::RuntimeRegistry::first_party();
+    let driver = lifecycle
+        .lifecycle(&tmt_core::binding::session::HarnessId::new("claude").unwrap())
+        .unwrap();
+    for (args, expected) in [
+        (vec![], true),
+        (vec!["--resume", "session", "--model", "model"], true),
+        (vec!["hello"], false),
+        (vec!["-p", "hello"], false),
+        (vec!["--future-option", "hello"], false),
+    ] {
+        assert_eq!(
+            driver.startup_input(&crate::runtime::RuntimeCommand {
+                executable: "claude".into(),
+                args: args.into_iter().map(Into::into).collect()
+            }),
+            expected
         );
     }
 }

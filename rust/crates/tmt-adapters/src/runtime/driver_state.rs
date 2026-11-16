@@ -318,6 +318,38 @@ pub fn after_start(
     started(reported, usage, previous, None, None, now_ms)
 }
 
+/// A verified launch may start idle. Existing activity is stronger evidence:
+/// replayed starts cannot erase a turn or renew its timestamps.
+pub fn after_launch_start(
+    next: Option<DriverState>,
+    previous: Option<&DriverState>,
+    session: &ProviderSessionId,
+    process: &ProcessIncarnation,
+    ready: bool,
+    now_ms: u64,
+) -> Option<DriverState> {
+    let activity = previous
+        .and_then(state_activity)
+        .filter(|activity| activity.process == *process);
+    let activity = activity.or_else(|| {
+        (ready && now_ms > 0 && is_valid_js_safe_integer(now_ms)).then(|| Activity {
+            session: session.clone(),
+            process: process.clone(),
+            phase: ActivityPhase::Idle,
+            turn: None,
+            since_ms: now_ms,
+            last_activity_ms: now_ms,
+        })
+    });
+    if let Some(activity) = activity {
+        let mut document = next.as_ref().and_then(Document::read).unwrap_or_default();
+        document.activity = Some(activity);
+        document.write()
+    } else {
+        next
+    }
+}
+
 /// The state after a compaction start. Unlike any other start, it keeps the
 /// consumption counter: the provider goes on appending to the same source, so
 /// an idle agent stays observed rather than starting a gap (#5122). It also

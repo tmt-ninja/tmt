@@ -1140,6 +1140,7 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
                 identity_id: binding.identity_id.clone(),
                 binding_id: binding.id.clone(),
                 owner_pid: owner.pid(),
+                startup_input: false,
                 owner_start: owner.start_identity().to_owned(),
             }
         }
@@ -1565,6 +1566,7 @@ fn observe_lifecycle_event(
             event: event.as_ref(),
             harness: &harness,
             mode: &mode,
+            launch: learning.map(|learning| &learning.launch),
             fence_preferences: event.starting() || owned_resume,
         },
     )
@@ -1853,6 +1855,7 @@ pub(super) struct SessionCommit<'a> {
     pub harness: &'a HarnessId,
     pub mode: &'a tmt_core::binding::session::RuntimeMode,
     pub fence_preferences: bool,
+    pub launch: Option<&'a tmt_adapters::runtime::hook_protocol::HookLaunch>,
 }
 
 /// Both starting hooks and optional caller discovery share this exact commit.
@@ -2024,10 +2027,38 @@ pub(super) fn commit_session(
                     proposed.event.session().clone(),
                 );
                 if let Some(remembered) = preferences.remembered.as_mut() {
-                    remembered.state = proposed.event.driver_state(
-                        remembered.state.as_ref(),
-                        tmt_adapters::request_runtime::wall_time_ms(),
-                    );
+                    let now = tmt_adapters::request_runtime::wall_time_ms();
+                    let fresh = if let (Some(launch), Some(owner), Some(key)) = (
+                        proposed.launch,
+                        proposed.next.launch_owner.as_ref(),
+                        proposed.next.key.as_ref(),
+                    ) {
+                        let observed = records.launch_observation(&binding.id, owner)?;
+                        let current_launch =
+                            match observed {
+                                Some(observed) => observed.driver == *proposed.harness
+                                    && now < observed.expires_at_ms
+                                    && matches!(observed.status,
+                                        tmt_core::binding::session::launch::LaunchStatus::Intent
+                                        | tmt_core::binding::session::launch::LaunchStatus::Admitted)
+                                    && records.launch_preferences_match(&observed)?,
+                                None => false,
+                            };
+                        launch.startup_input
+                            && launch.binding_id == binding.id
+                            && launch.identity_id == binding.identity_id
+                            && launch.owner().as_ref() == Some(owner)
+                            && key.provider_session.as_ref() == Some(proposed.event.session())
+                            && current_launch
+                    } else {
+                        false
+                    };
+                    remembered.state = match proposed.next.key.as_ref() {
+                        Some(key) if proposed.next.launch_owner.is_some() => proposed
+                            .event
+                            .launch_state(remembered.state.as_ref(), &key.incarnation, fresh, now),
+                        _ => proposed.event.driver_state(remembered.state.as_ref(), now),
+                    };
                 }
                 if !records.set_session_preferences(&binding.identity_id, &preferences)? {
                     return Ok(false);

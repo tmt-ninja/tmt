@@ -246,6 +246,7 @@ child.on('exit', (code, signal) => { if (signal) process.kill(process.pid, signa
                         event: event.as_ref(),
                         harness: &driver,
                         mode: &lifecycle.mode(host).unwrap(),
+                        launch: None,
                         fence_preferences: true
                     }
                 )

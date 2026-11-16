@@ -14,6 +14,28 @@ use tmt_core::{
     },
 };
 
+/// Admit only known interactive flags and their values, never positional input
+/// or an unknown option whose arity could hide a prompt.
+pub(crate) fn empty_prompt(args: &[OsString], values: &[&str], switches: &[&str]) -> bool {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let Some(word) = word.to_str() else {
+            return false;
+        };
+        let (name, value) = word
+            .split_once('=')
+            .map_or((word, None), |(n, v)| (n, Some(v)));
+        if values.contains(&name) {
+            if value.is_none() && words.next().is_none() {
+                return false;
+            }
+        } else if value.is_some() || !switches.contains(&name) {
+            return false;
+        }
+    }
+    true
+}
+
 pub const KEY: &str = "resume.launch";
 pub const ENV_KEYS: [&str; 2] = ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "CLAUDE_MINI_PCT"];
 
