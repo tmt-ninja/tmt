@@ -362,7 +362,12 @@ fn an_ambiguous_short_reference_is_left_untouched_but_the_full_reference_is_repa
     let flow = Flow::new();
     let old = flow.attached();
     let mut another = old.clone();
-    another.attachment_id.replace_range(9..13, "abcd");
+    let different = if &old.attachment_id[9..13] == "abcd" {
+        "abce"
+    } else {
+        "abcd"
+    };
+    another.attachment_id.replace_range(9..13, different);
     let html = format!(
         "<img src='colab-attachment:{}'><img src='colab-attachment:{}'>",
         old.attachment_id,
