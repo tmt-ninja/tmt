@@ -45,7 +45,12 @@ import type { ThreadBinding } from './thread-store.js';
 import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
 import { captureConversation } from './thread-store.js';
 import { PendingMessageContext } from './draft-store.js';
-import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
+import {
+  anchorContext,
+  type DiscussionRef,
+  type ThreadAnchor,
+  type ThreadView,
+} from './thread-records.js';
 
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 export type { MessageSendFailure } from './comment-send.js';
@@ -81,7 +86,7 @@ export function AnnotationInput({
 }: {
   binding?: AskBinding;
   discussion?: ThreadBinding;
-  anchor: QuoteSelector | null;
+  anchor: ThreadAnchor | null;
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
@@ -277,7 +282,7 @@ export function AnnotationInput({
         agents?.find((agent) => sameKey(agent, mention.key))?.agentName ??
         value.slice(mention.range.start + 1, mention.range.end),
     }));
-  const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
+  const quote = anchorContext(thread?.anchor ?? anchor);
   const audience = decision.agents.length > 0 && (
     <>
       {decision.agents.map((agent, index) => (

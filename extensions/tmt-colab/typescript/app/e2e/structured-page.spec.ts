@@ -54,13 +54,19 @@ test('an empty writer starts the first paragraph with one insert; a reader sees 
 test('the empty page insert control opens the normal block menu', async ({ page }) => {
   const host = await mountFixture(page, 'empty');
   await host.getByRole('button', { name: 'Insert block' }).click();
+  const menu = host.getByRole('listbox', { name: 'Insert a block' });
+  await expect(menu).toBeVisible();
+  expect(await page.evaluate(() => window.sent)).toHaveLength(0);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  expect(await page.evaluate(() => window.sent)).toHaveLength(0);
+  await host.getByRole('button', { name: 'Insert block' }).click();
+  await menu.getByRole('option', { name: /Heading/ }).click();
   await expect.poll(() => page.evaluate(() => window.sent.length)).toBe(1);
   expect((await page.evaluate(() => window.sent))[0]).toMatchObject({
     op: 'insert',
-    type: 'paragraph',
-    text: '/',
+    type: 'heading',
   });
-  await expect(host.getByRole('listbox')).toBeVisible();
 });
 
 test('a refused first insert keeps the text for retry', async ({ page }) => {
@@ -494,16 +500,14 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
     .toHaveLength(3);
 });
 
-test('＋ on the handle opens the insert menu in a new block after it', async ({ page }) => {
+test('＋ on the handle chooses a type before inserting a block after it', async ({ page }) => {
   const host = await mountFixture(page);
   await host.locator('[data-block-id="h"]').hover();
   await host.getByRole('button', { name: 'Insert block' }).click();
   const menu = page.getByRole('listbox', { name: 'Insert a block' });
   await expect(menu).toBeVisible();
-  const editor = host.locator('[contenteditable="true"]');
-  await editor.pressSequentially('to', { delay: 20 });
-  await expect(menu.getByRole('option')).toHaveText([/To-do/]);
-  await editor.press('Enter');
+  expect(await page.evaluate(() => window.sent)).toHaveLength(0);
+  await menu.getByRole('option', { name: /To-do/ }).click();
   await expect(host.locator('[data-block-id]').nth(1).locator('[data-slot="todo"]')).toHaveCount(1);
 });
 

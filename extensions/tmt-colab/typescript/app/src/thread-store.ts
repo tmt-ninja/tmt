@@ -21,6 +21,7 @@ import {
   type OwnState,
 } from './fold-protocol.js';
 import {
+  anchorContext,
   discussionKey,
   nextSequence,
   readThreads,
@@ -32,6 +33,7 @@ import {
   type DiscussionRef,
   type DiscussionScope,
   type QuoteSelector,
+  type ThreadAnchor,
   type ThreadView,
 } from './thread-records.js';
 import {
@@ -85,7 +87,7 @@ export interface ThreadBinding {
   readonly attachments?: AttachmentBinding;
   create(
     body: string,
-    anchor: QuoteSelector | null,
+    anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
   ): Promise<CommentContext>;
@@ -133,6 +135,8 @@ export interface ThreadStoreOptions extends DiscussionScope {
   reopen?(from: Connection): Promise<Connection>;
   publish(records: OwnRecord[]): Promise<void>;
   available(): boolean;
+  /** Block anchors are accepted only while the admitted page is structured. */
+  blockAnchors?(): boolean;
   sharing: string;
   scope?(): string;
 }
@@ -266,10 +270,11 @@ export class ThreadStore implements ThreadBinding {
   }
   async create(
     body: string,
-    anchor: QuoteSelector | null,
+    anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
   ) {
+    if (anchor && 'block' in anchor) requireValue(this.options.blockAnchors?.() === true);
     const threadId = crypto.randomUUID();
     requireValue(threadId !== this.deviceId);
     return this.#create(body, anchor, threadId, attach, questionId);
@@ -299,7 +304,7 @@ export class ThreadStore implements ThreadBinding {
   }
   async #create(
     body: string,
-    anchor: QuoteSelector | null,
+    anchor: ThreadAnchor | null,
     threadId: string,
     attach?: MessageAttachments,
     questionId?: string,
@@ -307,6 +312,7 @@ export class ThreadStore implements ThreadBinding {
     const captured = structuredClone(anchor),
       messageId = attach?.messageId ?? crypto.randomUUID();
     await this.#exclusive(async (c) => {
+      if (captured && 'block' in captured) requireValue(this.options.blockAnchors?.() === true);
       const attached = await this.#attached(attach);
       requireValue(
         !this.#views(c).some(
@@ -657,8 +663,8 @@ export function commentForAsk(threads: ThreadView[], context: CommentContext) {
   return {
     thread: thread.threadId,
     messageIds: [comment.messageId],
-    quote: thread.anchor?.exact ?? '',
-    comment: messageText(comment, thread.anchor?.exact ?? '', true),
+    quote: anchorContext(thread.anchor),
+    comment: messageText(comment, anchorContext(thread.anchor), true),
   };
 }
 
@@ -749,7 +755,7 @@ export function conversationForAsk(
       thread.threadId,
       current.comment,
       replies,
-      thread.anchor?.exact ?? '',
+      anchorContext(thread.anchor),
     ),
   };
 }

@@ -1180,6 +1180,14 @@
       "valid": false
     }
   ],
+  "blockAnchorCases": [
+    { "name": "block", "anchor": { "block": "00000000-0000-4000-8000-000000000010" }, "valid": true },
+    { "name": "block with selection", "anchor": { "block": "00000000-0000-4000-8000-000000000010", "quote": { "exact": "selected", "prefix": "", "suffix": "" } }, "valid": true },
+    { "name": "non-UUID block", "anchor": { "block": "not-a-uuid" }, "valid": false },
+    { "name": "null quote", "anchor": { "block": "00000000-0000-4000-8000-000000000010", "quote": null }, "valid": false },
+    { "name": "empty selection", "anchor": { "block": "00000000-0000-4000-8000-000000000010", "quote": { "exact": "", "prefix": "", "suffix": "" } }, "valid": false },
+    { "name": "extra field", "anchor": { "block": "00000000-0000-4000-8000-000000000010", "other": true }, "valid": false }
+  ],
   "sequenceCases": {
     "valid": [
       "1",

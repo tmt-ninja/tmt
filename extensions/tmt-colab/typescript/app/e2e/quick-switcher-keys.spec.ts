@@ -115,7 +115,9 @@ for (const width of [1440, 390]) {
     await page.keyboard.press('Enter');
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Alpha brief');
-    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
+    await expect(
+      page.locator(width <= 640 ? '.page-mobile-title h1' : '.tmt-ui-topbar-title h1'),
+    ).toBeFocused();
     expect((await reads(page)).pageReads).toEqual(['c0000001-1111-4111-8111-000000000001']);
   });
 }

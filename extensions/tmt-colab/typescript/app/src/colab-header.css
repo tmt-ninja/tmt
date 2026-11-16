@@ -169,6 +169,7 @@ body:not(:has(.tmt-ui-shell)) {
   min-width: 0;
 }
 @media (max-width: 900px) {
+  .colab-topbar-identity .tmt-ui-caption,
   .tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-caption {
     display: none;
   }

@@ -3,6 +3,8 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { MobileWorkTitle } from './work-band.js';
+import { useMedia } from './use-media.js';
 import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
 import { pageLocation, parentRefusal } from './work-tree.js';
@@ -50,10 +52,12 @@ import {
 import {
   ArrowUpRight,
   Archive,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   CopyPlus,
+  List,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -135,7 +139,12 @@ import { presentationOf } from './thread-status-presentation.js';
 import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-view.js';
 import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
-import type { DiscussionRef, QuoteSelector } from './thread-records.js';
+import {
+  anchorQuote,
+  type DiscussionRef,
+  type QuoteSelector,
+  type ThreadAnchor,
+} from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
 import { ColdPageList } from './home-cold.js';
@@ -436,6 +445,108 @@ function PageFloatingActions({
         )}
       </div>
     </div>
+  );
+}
+
+/** A structured page's visible headings, kept in the trusted parent alongside the blocks. */
+function PageOutline({
+  headings,
+  stage,
+}: {
+  headings: readonly { id: string; title: string; level: number }[];
+  stage: React.RefObject<HTMLDivElement | null>;
+}) {
+  const phone = useMedia('(max-width: 640px)');
+  const [preference, setPreference] = useState<boolean | undefined>(() => {
+    try {
+      const saved = localStorage.getItem('tmt:colab:outline');
+      return saved === null ? undefined : saved === 'open';
+    } catch {
+      return undefined;
+    }
+  });
+  const expanded = preference ?? !phone;
+  const [current, setCurrent] = useState(0);
+  useEffect(() => {
+    if (headings.length < 3) return;
+    const update = () => {
+      const bar = document.querySelector<HTMLElement>('.tmt-ui-shell-bar, .tmt-ui-header');
+      const edge = (bar?.getBoundingClientRect().bottom ?? 0) + (innerWidth <= 640 ? 64 : 24);
+      let active = 0;
+      headings.forEach((heading, index) => {
+        const node = stage.current?.querySelector<HTMLElement>(
+          `[data-block-id="${CSS.escape(heading.id)}"]`,
+        );
+        if (node && node.getBoundingClientRect().top <= edge) active = index;
+      });
+      setCurrent(active);
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [headings, stage]);
+  if (headings.length < 3) return null;
+  return (
+    <nav className="page-outline" aria-label={text.pageOutline}>
+      <button
+        type="button"
+        className="page-outline-toggle"
+        aria-expanded={expanded}
+        onClick={() => {
+          const next = !expanded;
+          setPreference(next);
+          try {
+            localStorage.setItem('tmt:colab:outline', next ? 'open' : 'closed');
+          } catch {
+            /* The page stays usable without storage. */
+          }
+        }}
+      >
+        <List className="page-outline-icon" aria-hidden="true" />
+        <span className="page-outline-desktop">{text.outline}</span>
+        <span className="page-outline-phone">{headings[current]?.title}</span>
+        <span className="page-outline-count">
+          {current + 1} / {headings.length}
+        </span>
+        <ChevronDown className="page-outline-chevron" data-expanded={expanded} aria-hidden="true" />
+      </button>
+      {expanded && (
+        <ol className="page-outline-list">
+          {headings.map((heading, index) => (
+            <li key={heading.id} data-level={heading.level}>
+              <button
+                type="button"
+                aria-current={index === current ? 'location' : undefined}
+                onClick={() => {
+                  const target = stage.current?.querySelector<HTMLElement>(
+                    `[data-block-id="${CSS.escape(heading.id)}"]`,
+                  );
+                  setCurrent(index);
+                  if (innerWidth <= 640) {
+                    setPreference(false);
+                    try {
+                      localStorage.setItem('tmt:colab:outline', 'closed');
+                    } catch {
+                      /* Optional preference. */
+                    }
+                    // Closing the phone list changes the target's position in the page.
+                    requestAnimationFrame(() =>
+                      target?.scrollIntoView({ block: 'start', behavior: 'instant' }),
+                    );
+                  } else target?.scrollIntoView({ block: 'start', behavior: 'instant' });
+                }}
+              >
+                {heading.title}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </nav>
   );
 }
 
@@ -1538,6 +1649,9 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
+  const phone = useMedia('(max-width: 640px)');
+  const [addingSubpage, setAddingSubpage] = useState(false);
+  const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1850,6 +1964,7 @@ function OpenPage({
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
+  const structuredStage = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!design) return;
     const bar = host.current
@@ -2287,7 +2402,7 @@ function OpenPage({
   highlights.current = shareView(
     highlights.current,
     (view.threads ?? []).flatMap((thread) =>
-      isStatusThread(thread) && !thread.resolved && thread.anchor
+      isStatusThread(thread) && !thread.resolved && thread.anchor && !('block' in thread.anchor)
         ? [
             {
               id: `${thread.ref.writer}:${thread.threadId}`,
@@ -2306,6 +2421,15 @@ function OpenPage({
     () => (view.pageType === 'blocks' && view.blocks ? blockTree(view.blocks).tree.flat() : []),
     [view.pageType, view.blocks],
   );
+  const outlineHeadings = useMemo(
+    () =>
+      structuredBlocks.flatMap((block) =>
+        block.type === 'heading' && block.text?.trim()
+          ? [{ id: block.id, title: block.text.trim(), level: block.props.level === 3 ? 3 : 2 }]
+          : [],
+      ),
+    [structuredBlocks],
+  );
   const locateBlockQuote = (quote: QuoteSelector) => {
     const candidates = structuredBlocks.filter((block) => {
       const value = block.text?.replace(/\s+/gu, ' ').trim() ?? '';
@@ -2319,12 +2443,17 @@ function OpenPage({
     });
     return candidates.length === 1 ? candidates[0]!.id : undefined;
   };
+  const locateBlockAnchor = (anchor: ThreadAnchor) => {
+    if (!('block' in anchor)) return locateBlockQuote(anchor);
+    const block = structuredBlocks.find((candidate) => candidate.id === anchor.block);
+    return block?.id;
+  };
   const blockAnchors = (() => {
     const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
     if (view.pageType !== 'blocks' || !view.blocks) return found;
     for (const thread of view.threads ?? []) {
       if (thread.deleted || isChatThread(thread) || !thread.anchor) continue;
-      const blockId = locateBlockQuote(thread.anchor);
+      const blockId = locateBlockAnchor(thread.anchor);
       if (!blockId) continue;
       const id = `${thread.ref.writer}:${thread.threadId}`;
       const ordinal = numbers.get(id);
@@ -2353,7 +2482,11 @@ function OpenPage({
             {
               id,
               number,
-              excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()].slice(0, 80).join(''),
+              excerpt: [
+                ...(anchorQuote(thread.anchor)?.exact ?? text.block).replace(/\s+/gu, ' ').trim(),
+              ]
+                .slice(0, 80)
+                .join(''),
             },
           ];
     }),
@@ -2385,14 +2518,16 @@ function OpenPage({
   const quietRef = useRef<{ id: string; selector: QuoteSelector } | undefined>(undefined);
   quietRef.current = shareView(
     quietRef.current,
-    quietCandidate?.anchor ? { id: activeThread!, selector: quietCandidate.anchor } : undefined,
+    quietCandidate?.anchor && !('block' in quietCandidate.anchor)
+      ? { id: activeThread!, selector: quietCandidate.anchor }
+      : undefined,
   );
   const quietThread = quietRef.current;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
       anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
-      annotation?.selector ?? undefined,
+      anchorQuote(annotation?.selector),
       threadTotal,
       quietThread,
       unsentHighlights,
@@ -2530,6 +2665,25 @@ function OpenPage({
     work: view.work,
     pageHref: (pageId) => routing.pageHref(pageId),
   });
+  const workControls = !design ? (
+    <PageWorkBand
+      work={view.work}
+      pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+      binding={archived || liveError ? undefined : snapshot.binding}
+      transport={transport}
+      space={space}
+      pageId={snapshot.id}
+      title={view.title}
+      pageHref={routing.pageHref}
+      openPage={(id) => routing.open(`/pages/${id}`)}
+      adding={addingSubpage}
+      addDraft={addSubpageDraft}
+      onAddingChange={(open) => {
+        if (!open) addSubpageDraft.current = undefined;
+        setAddingSubpage(open);
+      }}
+    />
+  ) : undefined;
   const content = (
     <section
       className="page"
@@ -2560,7 +2714,7 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {hierarchy.subpages}
+              {!phone && workControls}
               <PageProjects
                 transport={transport}
                 space={space}
@@ -2698,6 +2852,15 @@ function OpenPage({
                   !archived &&
                   !liveError
                 }
+                canAddSubpage={
+                  !design &&
+                  !hierarchy.hasSubpages &&
+                  !!snapshot.binding?.work &&
+                  !!snapshot.binding.canWork?.() &&
+                  !archived &&
+                  !liveError
+                }
+                parentTitle={hierarchy.parentPage?.title}
                 pin={pin}
                 creatorLabel={creatorName(view)}
                 showSource={view.pageType !== 'blocks'}
@@ -2722,7 +2885,11 @@ function OpenPage({
                     : undefined
                 }
                 onSelect={(action) => {
-                  if (action === 'put-under') {
+                  if (action === 'open-parent' && hierarchy.parentPage) {
+                    routing.open(`/pages/${hierarchy.parentPage.id}`);
+                  } else if (action === 'add-subpage') {
+                    setAddingSubpage(true);
+                  } else if (action === 'put-under') {
                     setChoosingParent(true);
                   } else if (action === 'archive') {
                     setPageOperation('page.archive');
@@ -2942,22 +3109,13 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
+        {phone && workControls && (
+          <MobileWorkTitle title={view.title || snapshot.title} onSize={setWorkBandSize}>
+            {workControls}
+          </MobileWorkTitle>
+        )}
         {!design && pageLinkBar}
         {attachmentDownload.bar}
-        {!design && (
-          <PageWorkBand
-            onSize={setWorkBandSize}
-            work={view.work}
-            pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-            binding={archived ? undefined : snapshot.binding}
-            transport={transport}
-            space={space}
-            pageId={snapshot.id}
-            title={view.title}
-            pageHref={routing.pageHref}
-            openPage={(id) => routing.open(`/pages/${id}`)}
-          />
-        )}
         <div
           className={view.pageType === 'blocks' ? 'canvas canvas-structured' : 'canvas'}
           data-layout={framedLayout(view.layout) ? view.layout : undefined}
@@ -3016,7 +3174,11 @@ function OpenPage({
               {unsentAnnotations.map((item) => (
                 <li key={item.key}>
                   <X aria-hidden="true" className="page-unsent-mark" />
-                  <span>{text.annotationUnsent(quoteExcerpt(item.selector?.exact ?? ''))}</span>
+                  <span>
+                    {text.annotationUnsent(
+                      quoteExcerpt(anchorQuote(item.selector)?.exact ?? text.block),
+                    )}
+                  </span>
                   <BrowserAction
                     type="button"
                     variant="text"
@@ -3032,73 +3194,86 @@ function OpenPage({
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (
             <div
-              className="structured-page-stage"
-              data-annotation-mode={(canSelect && selectionMode) || undefined}
+              className="structured-layout"
+              data-outline={outlineHeadings.length >= 3 || undefined}
             >
               <Suspense fallback={null}>
-                <LazyStructuredPage
-                  onSettle={setBlockSettler}
-                  blocks={view.blocks}
-                  seq={view.seq}
-                  annotationMode={canSelect && selectionMode}
-                  annotations={blockAnchors}
-                  onOpenAnnotation={(id) => {
-                    const thread = latest.current.threads?.find(
-                      (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
-                    );
-                    if (thread) openThread(thread.ref, { revealInPage: false });
-                  }}
-                  onAnnotateBlock={(value, block) => {
-                    const surface = host.current?.parentElement;
-                    const exact = [...value.replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
-                    if (!surface || !exact) return;
-                    const bounds = surface.getBoundingClientRect();
-                    const rect = block.getBoundingClientRect();
-                    onSelection(
-                      { exact, prefix: '', suffix: '' },
-                      {
-                        x: rect.left - bounds.left,
-                        y: rect.top - bounds.top,
-                        width: rect.width,
-                        height: rect.height,
-                      },
-                    );
-                    annotate();
-                  }}
-                  binding={liveError || archived ? undefined : snapshot.binding}
-                  workSource={workSource}
-                  mentionPages={atPages}
-                  blockPageHref={(page, block) =>
-                    `${new URL(routing.pageHref(page), window.location.href).href}#block-${block}`
-                  }
-                  pageViewSource={pageViewSource}
-                  mountMockup={mountMockup}
-                  imageSource={blockImageSource}
-                  onDownloadFile={(id) => attachmentDownload.request(id)}
-                  questionPage={{
-                    title: view.title || snapshot.title,
-                    questions: view.questions,
-                    threads: view.threads,
-                    discussionPending: view.discussionPending,
-                    creator: view.creator,
-                    creationRecipient: view.creationRecipient,
-                    originalAuthor: view.originalAuthor,
-                    asks: view.asks,
-                    discussion: snapshot.binding?.discussion,
-                    ask: snapshot.binding?.ask,
-                    blocked: !!(liveError || archived),
-                    metadata:
-                      snapshot.binding && !liveError && !archived
-                        ? { view, binding: snapshot.binding }
-                        : undefined,
-                  }}
-                  onLink={(href, newTab) =>
-                    requestPageLink(
-                      { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
-                      true,
-                    )
-                  }
-                />
+                <PageOutline headings={outlineHeadings} stage={structuredStage} />
+                <div
+                  className="structured-page-stage"
+                  ref={structuredStage}
+                  data-annotation-mode={(canSelect && selectionMode) || undefined}
+                >
+                  <LazyStructuredPage
+                    onSettle={setBlockSettler}
+                    blocks={view.blocks}
+                    seq={view.seq}
+                    annotationMode={canSelect && selectionMode}
+                    annotations={blockAnchors}
+                    onOpenAnnotation={(id) => {
+                      const thread = latest.current.threads?.find(
+                        (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
+                      );
+                      if (thread) openThread(thread.ref, { revealInPage: false });
+                    }}
+                    onAnnotateBlock={(value, block) => {
+                      const surface = host.current?.parentElement;
+                      const id = block.dataset.blockId;
+                      const exact = [...(value ?? '').replace(/\s+/gu, ' ').trim()]
+                        .slice(0, 512)
+                        .join('');
+                      if (!surface || !id) return;
+                      const bounds = surface.getBoundingClientRect();
+                      const rect = block.getBoundingClientRect();
+                      onSelection(
+                        {
+                          block: id,
+                          ...(exact ? { quote: { exact, prefix: '', suffix: '' } } : {}),
+                        },
+                        {
+                          x: rect.left - bounds.left,
+                          y: rect.top - bounds.top,
+                          width: rect.width,
+                          height: rect.height,
+                        },
+                      );
+                      annotate();
+                    }}
+                    binding={liveError || archived ? undefined : snapshot.binding}
+                    workSource={workSource}
+                    mentionPages={atPages}
+                    blockPageHref={(page, block) =>
+                      `${new URL(routing.pageHref(page), window.location.href).href}#block-${block}`
+                    }
+                    pageViewSource={pageViewSource}
+                    mountMockup={mountMockup}
+                    imageSource={blockImageSource}
+                    onDownloadFile={(id) => attachmentDownload.request(id)}
+                    questionPage={{
+                      title: view.title || snapshot.title,
+                      questions: view.questions,
+                      threads: view.threads,
+                      discussionPending: view.discussionPending,
+                      creator: view.creator,
+                      creationRecipient: view.creationRecipient,
+                      originalAuthor: view.originalAuthor,
+                      asks: view.asks,
+                      discussion: snapshot.binding?.discussion,
+                      ask: snapshot.binding?.ask,
+                      blocked: !!(liveError || archived),
+                      metadata:
+                        snapshot.binding && !liveError && !archived
+                          ? { view, binding: snapshot.binding }
+                          : undefined,
+                    }}
+                    onLink={(href, newTab) =>
+                      requestPageLink(
+                        { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
+                        true,
+                      )
+                    }
+                  />
+                </div>
               </Suspense>
             </div>
           )}
@@ -3234,7 +3409,7 @@ function OpenPage({
                 threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
                 resolved={resolved}
                 anchorsChecked={anchorsChecked}
-                selection={selector}
+                selection={anchorQuote(selector) ?? null}
                 binding={
                   liveError?.message === managementChanged
                     ? undefined
@@ -3251,7 +3426,15 @@ function OpenPage({
                 }
                 showInPage={(ref) => {
                   // The panel stays: it is beside or over the page, not a modal that hides it.
-                  renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+                  const thread = view.threads?.find(
+                    (item) => item.ref.writer === ref.writer && item.ref.id === ref.id,
+                  );
+                  const block = thread?.anchor && locateBlockAnchor(thread.anchor);
+                  if (block)
+                    structuredStage.current
+                      ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(block)}"]`)
+                      ?.scrollIntoView({ block: 'start' });
+                  else renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
                 }}
                 presentations={view.threadPresentations}
                 onStatusChange={
@@ -3391,13 +3574,13 @@ function OpenPage({
                   layout="anchored"
                   attached={
                     view.pageType === 'blocks' && !item.thread
-                      ? !!item.selector && !!locateBlockQuote(item.selector)
+                      ? !!item.selector && !!locateBlockAnchor(item.selector)
                       : resolved.includes(
                           item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
                         )
                   }
                   anchorsChecked={anchorsChecked}
-                  selection={selector}
+                  selection={anchorQuote(selector) ?? null}
                   binding={pageBinding.discussion}
                   ask={pageBinding.ask}
                   asks={view.asks ?? []}

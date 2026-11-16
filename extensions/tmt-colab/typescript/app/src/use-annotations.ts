@@ -5,14 +5,14 @@ import { usePageEnvironment } from './page-environment.js';
 import type { mountRenderer } from './renderer.js';
 import type { SelectionRect, UnsentHighlight } from './renderer.js';
 import { shareView } from './share-view.js';
-import type { DiscussionRef, QuoteSelector } from './thread-records.js';
+import { anchorQuote, type DiscussionRef, type ThreadAnchor } from './thread-records.js';
 import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 /** One annotation window: a new one on a selection, or one on a thread. */
 export interface Annotation {
   key: string;
-  selector: QuoteSelector | null;
+  selector: ThreadAnchor | null;
   rectangle: SelectionRect;
   thread?: DiscussionRef;
   /** Text kept from an earlier close of this selection or thread. */
@@ -61,8 +61,8 @@ export function useAnnotations({
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selector, setSelector] = useState<QuoteSelector | null>(null);
-  const currentSelector = useRef<QuoteSelector | null>(null);
+  const [selector, setSelector] = useState<ThreadAnchor | null>(null);
+  const currentSelector = useRef<ThreadAnchor | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
   const currentRectangle = useRef<SelectionRect | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -302,7 +302,7 @@ export function useAnnotations({
   }
   /** The renderer reports the selection (or that it cleared). */
   function onSelection(
-    quote: QuoteSelector | null | undefined,
+    quote: ThreadAnchor | null | undefined,
     rect: SelectionRect | null | undefined,
   ) {
     setSelector(quote ?? null);
@@ -366,13 +366,14 @@ export function projectUnsentHighlights(
   recorded: ReadonlySet<string>,
 ): UnsentHighlight[] {
   const candidates = annotations.flatMap((value) => {
-    if (value.thread || !value.selector || recorded.has(value.key)) return [];
+    const quote = anchorQuote(value.selector);
+    if (value.thread || !quote || recorded.has(value.key)) return [];
     const state = failed.has(value.key)
       ? ('failed' as const)
       : sending.has(value.key)
         ? ('sending' as const)
         : undefined;
-    return state ? [{ selector: value.selector, state }] : [];
+    return state ? [{ selector: quote, state }] : [];
   });
   return [
     ...candidates.filter((value) => value.state === 'failed'),

@@ -120,7 +120,11 @@ fn project_until(
     let mut matches = Vec::new();
     for thread in threads.iter().filter(|thread| !thread.deleted) {
         check()?;
-        let Some(selector) = &thread.anchor else {
+        let Some(selector) = thread
+            .anchor
+            .as_ref()
+            .and_then(|anchor| anchor.html_quote())
+        else {
             continue;
         };
         let mut selected = Vec::new();
@@ -241,6 +245,7 @@ fn project_until(
                         || thread
                             .anchor
                             .as_ref()
+                            .and_then(|anchor| anchor.html_quote())
                             .is_some_and(|quote| quote.exact == *title))
             })
             .map(|(thread, _, _)| format!("{}:{}", thread.writer, thread.id))

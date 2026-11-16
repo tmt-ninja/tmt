@@ -4,7 +4,7 @@ import { mount as mountPage, notificationSources, discussionProof } from './ask-
 export { proof, agentResolves, seenProof, discussionProof } from './ask-page-browser.js';
 import { id, selection } from './ask-fixtures.js';
 import type { PageAsk } from '../src/ask-panel.js';
-import type { ThreadView } from '../src/thread-records.js';
+import { anchorQuote, type ThreadView } from '../src/thread-records.js';
 import type { ManagementPort } from '../src/management.js';
 
 let threads: ThreadView[];
@@ -114,8 +114,8 @@ export function arrive(options: {
     options.destination === 'Chat'
       ? value.anchor === null
       : options.destination === 'Answer'
-        ? value.anchor?.exact === 'Question for you?'
-        : value.anchor?.exact === 'Exact selected text',
+        ? anchorQuote(value.anchor)?.exact === 'Question for you?'
+        : anchorQuote(value.anchor)?.exact === 'Exact selected text',
   )!;
   const index = next++;
   const body = options.body ?? `${options.destination} reply ${index}\nSecond reply line`;
@@ -227,7 +227,7 @@ export async function mountBlocks(
 }
 export function withdrawBlock(_destination: 'Answer') {
   threads = [...(discussionProof() ?? [])].map((t) =>
-    t.anchor?.exact === 'Question for you?' ? { ...t, deleted: true } : t,
+    anchorQuote(t.anchor)?.exact === 'Question for you?' ? { ...t, deleted: true } : t,
   );
   publish();
 }

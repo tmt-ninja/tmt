@@ -218,7 +218,7 @@ for (const width of [1440, 390])
 
 /**
  * The shared top bar (#4841, #5237): Search first at the left, then the page's actions, then Theme and
- * the Remote link. The page's title is in the bar's title slot; its status band is pinned under it.
+ * the Remote link. The page title and work controls share the bar on desktop and scroll together on phones.
  */
 test.describe('the shell bar', () => {
   async function mountPage(page: Page, options: { subpage?: boolean } = {}) {
@@ -262,44 +262,46 @@ test.describe('the shell bar', () => {
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     };
 
-    test(`the bar's title slot names the page and the status band stays pinned under it at ${width} ${scheme}`, async ({
+    test(`the page title and work controls stay reachable at ${width} ${scheme}`, async ({
       page,
     }) => {
       await look(page);
       await mountPage(page, { subpage: true });
-      // The page's one heading is in the bar's left group; no title row or brand repeats it.
+      // The page has one visible heading, in the bar on desktop and in the title block on phones.
       const title = bar(page).locator('.tmt-ui-topbar-title');
-      await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
       await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveText('Live shared page');
       await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+      const visibleTitle =
+        width <= 640
+          ? page.locator('.page-mobile-title:visible h1')
+          : title.getByRole('heading', { level: 1 });
+      await expect(visibleTitle).toBeVisible();
+      await expect(visibleTitle).toHaveText('Live shared page');
       await expect(page.locator('.colab-title-row')).toHaveCount(0);
       await expect(bar(page).locator('.tmt-ui-brand, .tmt-ui-wordmark, .tmt-ui-mark')).toHaveCount(
         0,
       );
-      // The status band follows the bar with no phone tab strip, and stays at its bottom
-      // after scrolling, collapsed and expanded.
-      const band = page.locator('.page-main .work-band:visible');
-      const gap = async () =>
-        (await band.boundingBox())!.y -
-        ((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height);
+      // The controls belong to the title: inline in the bar on desktop, below it on phones.
+      const band = page.locator('#ask-page-fixture .work-band:visible');
       if (width <= 900)
         await expect(page.locator('#ask-page-fixture .tmt-ui-module-menu')).toBeHidden();
-      await expect.poll(gap).toBeCloseTo(0, 0);
+      await expect(band).toBeVisible();
+      const toggle = band.locator('.work-toggle');
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      const beforeScroll = (await band.boundingBox())!.y;
       await page.evaluate(() => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
           '3000px';
         window.scrollTo(0, 400);
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
-      await expect.poll(gap).toBeCloseTo(0, 0);
-      const toggle = band.locator('.work-toggle');
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      await expect.poll(gap).toBeCloseTo(0, 0);
-      const room = await page.evaluate(() => window.innerHeight);
-      expect(
-        (await band.boundingBox())!.y + (await band.boundingBox())!.height,
-      ).toBeLessThanOrEqual(room + 1);
+      if (width <= 640)
+        await expect.poll(async () => (await band.boundingBox())!.y).toBeLessThan(beforeScroll);
+      else
+        await expect.poll(async () => (await band.boundingBox())!.y).toBeCloseTo(beforeScroll, 0);
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({

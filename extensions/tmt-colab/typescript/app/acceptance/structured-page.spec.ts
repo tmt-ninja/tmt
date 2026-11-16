@@ -7,6 +7,7 @@ import { recordBlocksResults } from './harness/blocks-results.js';
 import { freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
+import { commentsClose } from '../test/comments-region.js';
 
 test.afterEach(disposeActiveWorlds);
 
@@ -97,16 +98,26 @@ test('a comment on a structured block survives reopening', async () => {
     world.linkExtensions();
     const colab = world.binaries.colab;
     const created = JSON.parse(
-      run(world, colab, [
-        'page',
-        'create',
-        '--title',
-        'Review notes',
-        '--structured',
-        '--json',
-        '--no-open',
-      ]),
+      run(
+        world,
+        colab,
+        [
+          'page',
+          'create',
+          '--title',
+          'Review notes',
+          '--html',
+          '--layout',
+          'column',
+          '--file',
+          '-',
+          '--json',
+          '--no-open',
+        ],
+        '<p>Legacy review page.</p>',
+      ),
     ) as { pageId: string; path: string };
+    run(world, colab, ['page', 'convert', created.pageId, '--yes', '--json']);
     const paragraph = (
       JSON.parse(
         run(world, colab, [
@@ -121,6 +132,36 @@ test('a comment on a structured block survives reopening', async () => {
         ]),
       ) as { blockIds: string[] }
     ).blockIds[0]!;
+    const duplicate = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Review this release before launch.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const mockup = crypto.randomUUID();
+    run(
+      world,
+      colab,
+      ['block', 'batch', created.pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        {
+          op: 'insert',
+          id: mockup,
+          type: 'mockup',
+          parent: 'root',
+          after: duplicate,
+          props: { markup: '<p>Mockup</p>' },
+        },
+      ]),
+    );
     const page = await browser.context.newPage();
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
@@ -132,10 +173,54 @@ test('a comment on a structured block survives reopening', async () => {
     await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
     // The composer echoes immediately; wait for the admitted thread before navigating away.
-    await expect(page.getByRole('button', { name: 'Open comment 1' })).toBeAttached();
+    await expect(block.getByRole('button', { name: 'Open comment 1' })).toBeAttached();
+    await expect(
+      page
+        .locator(`[data-block-id="${duplicate}"]`)
+        .getByRole('button', { name: 'Open comment 1' }),
+    ).toHaveCount(0);
     await page.reload();
-    await page.getByRole('button', { name: 'Open comment 1' }).click();
+    await block.getByRole('button', { name: 'Open comment 1' }).click();
     await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
+    await commentsClose(page, 'discussion').click();
+    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+    const preview = page.locator(`[data-block-id="${mockup}"]`);
+    await preview.locator('.tmt-block-mockup-viewport').click();
+    const mockupComment = page.locator('.annotation-popover');
+    await mockupComment.getByRole('combobox', { name: 'Message' }).fill('Review this mockup.');
+    await mockupComment.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(preview.getByRole('button', { name: 'Open comment 2' })).toBeAttached();
+    await page.reload();
+    await preview.getByRole('button', { name: 'Open comment 2' }).click();
+    await expect(page.getByText('Review this mockup.', { exact: true })).toBeVisible();
+    const threads = JSON.parse(run(world, colab, ['threads', created.pageId, '--json']))
+      .threads as {
+      id: string;
+      anchor: { block?: string } | null;
+    }[];
+    expect(threads.map((thread) => thread.anchor?.block).sort()).toEqual(
+      [paragraph, mockup].sort(),
+    );
+    const target = threads.find((thread) => thread.anchor?.block === mockup)!;
+    run(world, colab, ['page', 'convert', created.pageId, '--revert', '--yes', '--json']);
+    await page.reload();
+    await expect(page.locator('iframe')).toBeVisible();
+    await page.getByRole('button', { name: /^Comments/ }).click();
+    await expect(page.getByText('Review this mockup.', { exact: true })).toBeVisible();
+    const after = JSON.parse(run(world, colab, ['threads', created.pageId, '--json'])) as {
+      threads: { id: string; anchor: { block?: string } | null; resolved: boolean }[];
+    };
+    expect(after.threads.find((thread) => thread.id === target.id)?.anchor?.block).toBe(mockup);
+    run(world, colab, ['threads', 'resolve', created.pageId, target.id, '--json']);
+    const resolved = JSON.parse(run(world, colab, ['threads', created.pageId, '--json'])) as {
+      threads: { id: string; resolved: boolean }[];
+    };
+    expect(resolved.threads.find((thread) => thread.id === target.id)?.resolved).toBe(true);
+    run(world, colab, ['threads', 'reopen', created.pageId, target.id, '--json']);
+    const reopened = JSON.parse(run(world, colab, ['threads', created.pageId, '--json'])) as {
+      threads: { id: string; resolved: boolean }[];
+    };
+    expect(reopened.threads.find((thread) => thread.id === target.id)?.resolved).toBe(false);
   });
 });
 

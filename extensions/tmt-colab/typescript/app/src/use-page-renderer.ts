@@ -202,8 +202,9 @@ export function usePageRenderer({
       onEditLocks,
       onQuestions,
       onReadings,
-      // The status band is sticky under the bar: it covers the page like the bar does.
-      viewportInset: () => toolbarInset(toolbar.current) + bandSize.current,
+      // The phone title block scrolls away; it takes viewport room but is not a fixed inset.
+      viewportInset: () => toolbarInset(toolbar.current),
+      frameLead: () => bandSize.current,
       viewportBottom: () => reserve.current,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {

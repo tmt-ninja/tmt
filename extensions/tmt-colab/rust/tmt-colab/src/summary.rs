@@ -452,7 +452,7 @@ pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::conversations::{Anchor, Comment, Conversations, Head, Thread};
+    use crate::export::conversations::{Anchor, Comment, Conversations, Head, Quote, Thread};
 
     fn count(view: &Conversations, author: Option<&str>) -> Summary {
         let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
@@ -501,10 +501,12 @@ mod tests {
             writer: "w".into(),
             id: id.into(),
             revision: "1".into(),
-            anchor: anchored.then(|| Anchor {
-                exact: "quote".into(),
-                prefix: String::new(),
-                suffix: String::new(),
+            anchor: anchored.then(|| {
+                Anchor::Quote(Quote {
+                    exact: "quote".into(),
+                    prefix: String::new(),
+                    suffix: String::new(),
+                })
             }),
             resolved: false,
             deleted: false,

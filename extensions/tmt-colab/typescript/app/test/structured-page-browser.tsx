@@ -890,6 +890,7 @@ export function mount(
       openBlockMenu,
       insertAfter,
       insertFirst,
+      openFirstPicker,
       failedFirstText,
       closeBlockMenu,
       hoverBlockMenu,
@@ -975,6 +976,7 @@ export function mount(
           onOpenBlockMenu={openBlockMenu}
           onInsertAfter={insertAfter}
           onInsertFirst={insertFirst}
+          onOpenFirstPicker={openFirstPicker}
           failedFirstText={failedFirstText}
           readonly={content === 'empty-reader'}
           onMove={move}

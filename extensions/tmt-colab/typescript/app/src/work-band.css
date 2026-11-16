@@ -1,15 +1,11 @@
 /* The page's work panel (#5820): a head row pinned under the nav and one list of sub-pages that
    opens below it. Spacing and sizes are design-system roles; the Night page mock owns the layout. */
-.page-main .work-band {
-  position: sticky;
-  top: var(--page-bar-size);
-  z-index: 2;
-}
 .work-band {
-  --work-gutter: var(--tmt-ui-header-padding-inline);
+  --work-gutter: var(--tmt-ui-space-s);
+  position: relative;
+  display: inline-flex;
+  flex: none;
   box-sizing: border-box;
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-paper);
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
 }
@@ -19,40 +15,20 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--tmt-ui-space-m);
-  height: var(--tmt-ui-subheader-height);
-  padding-inline: var(--work-gutter);
-  transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
+  gap: var(--tmt-ui-space-s);
 }
 .work-head {
   position: relative;
 }
-.work-head:has(> .work-toggle:hover) {
-  background: var(--tmt-ui-surface-hover);
-}
-/* The toggle sits at the row's end; its hit area covers the whole row under the chip and Add. */
 .work-toggle {
-  display: grid;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
   flex: none;
-  place-items: center;
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--tmt-ui-color-secondary);
   cursor: pointer;
 }
-.work-toggle::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-}
-.work-toggle:focus-visible {
-  outline: none;
-}
-.work-toggle:focus-visible::after {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+.work-count-compact {
+  display: none;
 }
 .work-head-chip,
 .work-head .work-add-text {
@@ -136,6 +112,14 @@
 /* The list opens and closes with the motion tokens, which are 0ms under reduced motion. Taller than
    the room under the nav and head, only the list scrolls; the head stays put. */
 .work-body-transition {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + var(--tmt-ui-space-s));
+  right: 0;
+  width: min(36rem, calc(100vw - 2 * var(--tmt-ui-space-m)));
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
@@ -146,6 +130,8 @@
     visibility 0s linear var(--tmt-ui-motion-base);
 }
 .work-body-transition[data-open='true'] {
+  left: var(--work-popover-shift, 0px);
+  right: auto;
   grid-template-rows: 1fr;
   opacity: 1;
   visibility: visible;
@@ -270,8 +256,65 @@ a.work-row-title:hover {
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 
-/* Mock 6: a phone keeps title, state and ⋯ (always shown: there is no hover), and a short count. */
+/* Intermediate widths keep the title and compact controls in the bar. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.work-band) {
+    display: contents;
+  }
+  .work-count-wide {
+    display: none;
+  }
+  .work-count-compact {
+    display: inline;
+  }
+  .work-head .work-state-control .tmt-ui-menu-value {
+    display: block;
+    max-width: 2.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .work-head .work-state-control .tmt-ui-menu-trigger {
+    gap: 0;
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+  .work-head .work-state-control .tmt-ui-menu-trigger > svg {
+    display: none;
+  }
+  .work-head {
+    gap: var(--tmt-ui-space-xs);
+  }
+  .work-toggle {
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+  .work-toggle .work-chevron {
+    display: none;
+  }
+}
 @media (max-width: 640px) {
+  .page-mobile-title {
+    box-sizing: border-box;
+    padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);
+  }
+  .page-mobile-title h1 {
+    margin: 0 0 var(--tmt-ui-space-s);
+    font-size: 1.375rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  body:has(.page-mobile-title) .tmt-ui-topbar-title h1,
+  body:has(.page-mobile-title) .tmt-ui-header h1 {
+    display: none;
+  }
+  .page-hierarchy-parent .page-hierarchy-count,
+  .page-hierarchy-parent .page-hierarchy-separator {
+    display: none;
+  }
+  .page-mobile-title .work-body-transition {
+    left: 0;
+    right: auto;
+    width: min(36rem, calc(100vw - 2 * var(--tmt-ui-header-padding-inline)));
+  }
   .work-wide {
     display: none;
   }

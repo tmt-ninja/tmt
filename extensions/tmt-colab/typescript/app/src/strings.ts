@@ -28,6 +28,9 @@ const frameLimit =
   'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  pageOutline: 'Page outline',
+  outline: 'Outline',
+  block: 'Block',
   metadata: {
     questions: 'Questions',
     questionsItem: 'Questions…',
@@ -321,6 +324,7 @@ export const text = {
   selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotateSelection: 'Annotate the selection',
+  annotateBlock: 'Annotate the block',
   threadHeading: 'Thread',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',

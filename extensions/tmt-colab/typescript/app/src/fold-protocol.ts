@@ -239,6 +239,7 @@ export function validateOwn(value: unknown): asserts value is OwnState {
   requireValue(threads <= 1000);
   validateEditLockLimits(value as OwnState);
 }
+
 export interface FoldResult extends Projection {
   own: OwnState;
   update: Uint8Array;

@@ -32,8 +32,8 @@ test('the mounted owner creates a structured sub-page', async () => {
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'structured-subpage-owner');
     const page = await openPage(door, browser, parent);
-    const band = page.getByRole('region', { name: 'Work on this page' });
-    await band.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Add a sub-page' }).click();
     const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Parent”' });
     await dialog.getByRole('combobox').fill('Structured child');
     await page.keyboard.press('Enter');

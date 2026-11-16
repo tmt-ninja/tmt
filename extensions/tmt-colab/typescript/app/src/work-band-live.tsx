@@ -4,7 +4,16 @@ import { MoreHorizontal } from 'lucide-react';
 import { text } from './strings.js';
 import { SaveNotApplied, SaveRefused, saveMessage, type MetadataAction } from './save.js';
 import type { PageState } from './bootstrap.js';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import type { SearchEdit } from './page-list-search.js';
 import { WorkBand, type WorkBandProps } from './work-band.js';
 import { AddSubpageDialog, type AddChoice } from './work-add-dialog.js';
 import type { PageBinding, PageTransport } from './transport.js';
@@ -43,8 +52,7 @@ async function writeState(binding: PageBinding, shown: PageState | null | undefi
   await binding.metadata('page.state' satisfies MetadataAction, { state: next }, revision);
 }
 
-/** The page's band with the owner's controls, where this device may change the work; anywhere
- * else it is the read-only band. */
+/** The title-row work controls; without owner authority the state and tree are read-only. */
 export function PageWorkBand({
   binding,
   transport,
@@ -53,6 +61,9 @@ export function PageWorkBand({
   work,
   title,
   openPage,
+  adding,
+  onAddingChange,
+  addDraft,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
   /** Absent for a page that never had work. */
@@ -66,6 +77,9 @@ export function PageWorkBand({
   transport: PageTransport;
   space?: string;
   pageId: string;
+  adding: boolean;
+  onAddingChange(open: boolean): void;
+  addDraft?: RefObject<SearchEdit | undefined>;
 }): ReactNode {
   const { observed, pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -85,7 +99,6 @@ export function PageWorkBand({
     }
   }, [transport, space]);
   const owner = binding?.work !== undefined && binding.canWork?.() === true;
-  const [adding, setAdding] = useState(false);
   const stateControl = <PageStateMenu binding={binding} state={band.pageState} />;
   const shared = {
     ...band,
@@ -123,7 +136,7 @@ export function PageWorkBand({
     <>
       <WorkBand
         {...shared}
-        onAdd={() => setAdding(true)}
+        onAdd={() => onAddingChange(true)}
         rowState={(row) => (
           <RowStateMenu
             row={row}
@@ -143,10 +156,11 @@ export function PageWorkBand({
       />
       {adding && (
         <AddSubpageDialog
+          draft={addDraft}
           title={title}
           pages={pages}
           refusal={tree.refusal}
-          onClose={() => setAdding(false)}
+          onClose={() => onAddingChange(false)}
           onChoose={add}
         />
       )}

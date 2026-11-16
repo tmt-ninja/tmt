@@ -1471,7 +1471,7 @@ order for browser and native.
 
 | Root/key                                       | Additional fields                                                                                                                                                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
+| `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null`, `{exact,prefix,suffix}` or `{block,quote?}`, `resolved:boolean`                                                                                                                     |
 | `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence` and immutable `questionId` ([question metadata](#question-metadata-5052))                                                               |
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
@@ -3017,7 +3017,17 @@ port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently
 change the preview or sign anything.
 
-Anchors use the W3C Web Annotation TextQuoteSelector fields
+A structured-page discussion anchor may instead be `{block,quote?}`, where `block` is a
+canonical generated UUID and optional `quote` is a TextQuoteSelector. The trusted page resolves
+it only against that page's admitted block tree. A missing or deleted block leaves an orphaned
+thread in Discussion with no marker; it is never retargeted by matching text. A block's marker
+remains on that block when its text changes; the optional quote is context, not a placement test.
+An HTML page refuses creating block anchors but reads existing ones as orphaned threads, including
+after a structured page is reverted. A block reference is cosmetic placement, never authority. The decoder admits only
+these exact fields; an explicit null quote is invalid. `vectors/discussion-v1.json`
+(`blockAnchorCases`) pins browser/native admission.
+
+Quote anchors use the W3C Web Annotation TextQuoteSelector fields
 [`exact`, `prefix`, `suffix`](https://www.w3.org/TR/annotation-model/#text-quote-selector).
 The trusted bootstrap installs selection capture and cosmetic resolution before
 author HTML. Both walk rendered text in document order, exclude head,
@@ -8107,7 +8117,7 @@ newline):
 ```text
 {format:"tmt-colab-conversations", version:1, spaceId, pageId, title, epoch,
  membershipHead:{revision, statementHash},
- threads:[{writer, id, revision, anchor:null|{exact,prefix,suffix}, resolved, deleted,
+ threads:[{writer, id, revision, anchor:null|{exact,prefix,suffix}|{block,quote?}, resolved, deleted,
            deviceName, at,
            comments:[{writer, id, revision, sequence, deleted, body, deviceName, at[, attachments]}]}],
  asks:[{writer, operationId, deviceName, agentName, agent, machine, thread, messageIds,

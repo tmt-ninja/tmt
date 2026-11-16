@@ -317,6 +317,12 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
     .frameLocator('iframe')
     .locator(selector)
     .evaluate((node) => {
+      node.scrollIntoView({ block: 'center', behavior: 'instant' });
+    });
+  await page
+    .frameLocator('iframe')
+    .locator(selector)
+    .evaluate((node) => {
       const range = document.createRange();
       range.selectNodeContents(node);
       const selection = node.ownerDocument.getSelection()!;

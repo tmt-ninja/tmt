@@ -1836,7 +1836,12 @@ for (const width of [1440, 390, 320])
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
         if (width > 900) await expect(crumb).toBeVisible();
         else await expect(crumb).toBeHidden();
-        await expect(app(page).locator('.tmt-ui-topbar-title-current')).toBeVisible();
+        const pageTitle =
+          width <= 640
+            ? app(page).locator('.page-mobile-title h1')
+            : app(page).locator('.tmt-ui-topbar-title-current');
+        await expect(pageTitle).toBeVisible();
+        await expect(pageTitle).toHaveText('Long names');
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

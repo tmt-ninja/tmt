@@ -1,3 +1,4 @@
+import { anchorQuote } from '../src/thread-records.js';
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
 import { readThreads, discussionKey, type DiscussionRecord } from '../src/thread-records.js';
@@ -48,7 +49,7 @@ it('readmits a committed person Resolve and exact frozen discussion without inve
     thread: x.thread.threadId,
     messageIds: [],
     operationId: x.context.recipient.operationId,
-    quote: x.thread.anchor?.exact,
+    quote: anchorQuote(x.thread.anchor)?.exact,
   });
   expect(origin.comment).toContain('Thread resolved by');
   expect(origin.comment).toContain(x.thread.comments[0].body);

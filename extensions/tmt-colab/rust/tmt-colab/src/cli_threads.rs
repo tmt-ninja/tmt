@@ -158,8 +158,8 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 let quote = thread
                     .anchor
                     .as_ref()
-                    .map(|a| a.exact.as_str())
-                    .unwrap_or("Page comment");
+                    .map(|a| a.label())
+                    .unwrap_or_else(|| "Page comment".into());
                 rows.push((
                     "thread",
                     format!("{} · {state} · {actor} · {quote}", thread.id),

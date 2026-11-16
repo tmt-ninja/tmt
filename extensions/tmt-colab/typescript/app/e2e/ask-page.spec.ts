@@ -780,6 +780,49 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
+for (const width of [1440, 390])
+  test(`structured page outline navigates headings and remembers collapse at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount', { structuredOutline: true });
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    await expect(outline).toBeVisible();
+    const toggle = outline.locator('.page-outline-toggle');
+    if (width === 1440) {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    }
+    if (width === 390) await toggle.click();
+    await expect(outline.getByRole('button', { name: 'Details' })).toBeVisible();
+    await outline.getByRole('button', { name: 'Details' }).click();
+    if (width === 390) {
+      await expect(toggle).toContainText('Details');
+      const heading = page
+        .locator('.structured-page-stage')
+        .getByRole('heading', { name: 'Details' });
+      await expect(heading).toBeInViewport();
+      const headingBox = (await heading.boundingBox())!;
+      const outlineBox = (await outline.boundingBox())!;
+      expect(headingBox.y).toBeGreaterThanOrEqual(outlineBox.y + outlineBox.height - 1);
+    } else
+      await expect(outline.getByRole('button', { name: 'Details' })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+    if (width !== 390) await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await run(page, 'mount', { structuredOutline: true });
+    await expect(
+      page.getByRole('navigation', { name: 'Page outline' }).locator('.page-outline-toggle'),
+    ).toHaveAttribute('aria-expanded', 'false');
+    await run(page, 'mount', { structured: true });
+    await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
+  });
+
 test('a structured block opens the normal annotation and sends its quoted comment', async ({
   page,
 }) => {
@@ -801,9 +844,8 @@ test('a structured block opens the normal annotation and sends its quoted commen
   await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
   expect((await run(page, 'discussionProof'))[0].anchor).toEqual({
-    exact: 'Exact selected text',
-    prefix: '',
-    suffix: '',
+    block: id(98),
+    quote: { exact: 'Exact selected text', prefix: '', suffix: '' },
   });
   await annotation.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   const marker = page.getByRole('button', { name: 'Open comment 1' });
@@ -837,9 +879,44 @@ test('a structured text selection can ask an agent with the selected quote', asy
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   const thread = (await run(page, 'discussionProof'))[0];
-  expect(thread.anchor.exact).toContain('selected');
+  expect(thread.anchor.block).toBe(id(98));
+  expect(thread.anchor.quote.exact).toContain('selected');
   expect((await run(page, 'proof')).sends[0].message).toContain('Review this passage');
+  expect((await run(page, 'proof')).sends[0].message).toContain(id(98));
 });
+
+for (const kind of ['duplicate', 'image', 'mockup'] as const)
+  test(`a ${kind} block comment stays on the chosen block`, async ({ page }) => {
+    await page.goto('/');
+    await run(page, 'mount', { structured: true, structuredKind: kind, commentOnly: true });
+    const chosen = page.locator(`[data-block-id="${id(99)}"]`);
+    const other = page.locator(`[data-block-id="${id(98)}"]`);
+    await expect(chosen).toBeVisible();
+    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+    await chosen.click({ position: { x: 4, y: 4 } });
+    const annotation = page.locator('.annotation-popover');
+    await annotation.getByRole('combobox', { name: 'Message' }).fill('Review this block');
+    await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
+    const thread = (await run(page, 'discussionProof'))[0];
+    expect(thread.anchor.block).toBe(id(99));
+    if (kind === 'duplicate') expect(thread.anchor.quote.exact).toBe('Exact selected text');
+    else expect(thread.anchor.quote).toBeUndefined();
+    await annotation.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+    await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
+    await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
+    if (kind === 'duplicate') {
+      await run(page, 'changeStructuredBlock', id(99));
+      await expect(chosen).toContainText('Edited block text');
+      await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
+      await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
+      await run(page, 'removeStructuredBlock', id(99));
+      await expect(chosen).toHaveCount(0);
+      await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
+      await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+      await expect(page.getByText('Review this block', { exact: true })).toBeVisible();
+    }
+  });
 
 test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
   page,

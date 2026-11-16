@@ -179,6 +179,7 @@ export class Live implements PageBinding {
       sharing: page.sharing,
       deviceId: () => this.registration.deviceId,
       deviceName: () => this.registration.deviceName ?? '',
+      blockAnchors: () => this.#admitted.pageType === 'blocks',
       own: () => this.#admitted.own ?? {},
       views: (connection) =>
         connection === this.#threadProjection?.connection &&

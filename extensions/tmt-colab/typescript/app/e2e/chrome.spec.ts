@@ -228,7 +228,7 @@ for (const width of [1440, 390, 320])
             await expect(heading).toHaveCount(1);
             await expect(heading).toHaveCSS('font-size', tokens.header['title-size']);
             await expect(page.locator('.colab-title-row')).toHaveCount(0);
-            await expect(page.locator('#chrome-fixture h1')).toHaveCount(1);
+            await expect(page.locator('#chrome-fixture h1:visible')).toHaveCount(1);
             await expect(page.locator('.tmt-ui-topbar:visible .tmt-ui-wordmark')).toHaveCount(0);
           } else {
             expect(title?.size).toBe(tokens.header['title-size']);
@@ -443,7 +443,12 @@ for (const width of [1440, 390, 320])
       ).toBeVisible();
       await expect(header.locator('.tmt-ui-brand, .tmt-ui-wordmark')).toHaveCount(0);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
-      const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
+      const heading =
+        width <= 640
+          ? page
+              .locator('#chrome-fixture .page-mobile-title')
+              .getByRole('heading', { name: 'Release notes', exact: true })
+          : header.getByRole('heading', { name: 'Release notes', exact: true });
       expect(
         await bar
           .locator('.tmt-ui-topbar-title')

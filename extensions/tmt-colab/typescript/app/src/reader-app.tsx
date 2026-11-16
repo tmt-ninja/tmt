@@ -1,4 +1,5 @@
-import { WorkBand } from './work-band.js';
+import { MobileWorkTitle, WorkBand } from './work-band.js';
+import { useMedia } from './use-media.js';
 import { subpageTree } from './work-tree.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
@@ -57,6 +58,7 @@ export function ReaderApp({
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const shell = state.kind === 'ready' && state.view.pageType === 'shell';
+  const phone = useMedia('(max-width: 640px)');
   const mode = canEdit && !shell ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' && !shell ? state.view.source : null;
@@ -162,9 +164,9 @@ export function ReaderApp({
       onAttachmentDownload: (id) => downloadRequest.current(id),
       onImageDownload: (image) => imageRequest.current(image),
       onEditLocks: editLockLayer.onEditLocks,
-      // The band is pinned under the bar like the signed-in route's, so it insets the viewport.
-      viewportInset: () => toolbarInset(bar.current) + bandSize.current,
-      frameLead: () => noteHeight(),
+      // The phone title and reader note scroll away; only the bar is fixed.
+      viewportInset: () => toolbarInset(bar.current),
+      frameLead: () => noteHeight() + bandSize.current,
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -188,6 +190,17 @@ export function ReaderApp({
       {attachmentDownload.bar}
       <ColabHeader
         reader
+        headingSuffix={
+          state.kind === 'ready' && !shell && !phone ? (
+            <WorkBand
+              onSize={setWorkBandSize}
+              subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
+              pageState={
+                state.view.state === undefined ? (state.view.pageState ?? 'todo') : state.view.state
+              }
+            />
+          ) : undefined
+        }
         brandOnly={state.kind !== 'ready'}
         headerRef={bar}
         caption={
@@ -297,15 +310,18 @@ export function ReaderApp({
         ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">
-              <WorkBand
-                onSize={setWorkBandSize}
-                subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
-                pageState={
-                  state.view.state === undefined
-                    ? (state.view.pageState ?? 'todo')
-                    : state.view.state
-                }
-              />
+              {phone && (
+                <MobileWorkTitle title={title || text.unknownPageTitle} onSize={setWorkBandSize}>
+                  <WorkBand
+                    subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
+                    pageState={
+                      state.view.state === undefined
+                        ? (state.view.pageState ?? 'todo')
+                        : state.view.state
+                    }
+                  />
+                </MobileWorkTitle>
+              )}
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}

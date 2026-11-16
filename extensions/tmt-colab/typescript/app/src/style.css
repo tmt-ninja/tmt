@@ -409,11 +409,147 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   padding-block-start: 16px;
 }
+.structured-layout[data-outline] {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  align-items: start;
+  gap: 40px;
+  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+}
+.structured-layout[data-outline] .structured-page-stage {
+  margin-inline: 0;
+}
+.structured-page-stage [data-block-id] {
+  scroll-margin-top: calc(var(--page-bar-size) + 24px);
+}
+.page-outline {
+  position: sticky;
+  top: calc(var(--page-bar-size) + var(--tmt-ui-space-l));
+  z-index: 2;
+  min-width: 0;
+  padding-block-start: var(--tmt-ui-space-l);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-command-size)/1.4 var(--tmt-ui-font-body);
+}
+.page-outline-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-xs);
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+.page-outline-toggle > :last-child {
+  margin-inline-start: auto;
+}
+.page-outline-chevron,
+.page-outline-icon {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+  flex: none;
+}
+.page-outline-chevron[data-expanded='true'] {
+  transform: rotate(180deg);
+}
+.page-outline-icon {
+  display: none;
+}
+.page-outline-phone,
+.page-outline-count {
+  display: none;
+}
+.page-outline-list {
+  max-height: calc(100dvh - var(--page-bar-size) - 6rem);
+  overflow-y: auto;
+  margin: var(--tmt-ui-space-s) 0 0;
+  padding: 0;
+  border-inline-start: 1px solid var(--tmt-ui-surface-rule);
+  list-style: none;
+}
+.page-outline-list button {
+  display: block;
+  width: 100%;
+  padding: 5px 8px 5px 12px;
+  border: 0;
+  border-inline-start: 2px solid transparent;
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.page-outline-list [data-level='3'] button {
+  padding-inline-start: 26px;
+}
+.page-outline-list button[aria-current] {
+  border-inline-start-color: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-color-text);
+  font-weight: 600;
+}
+.page-outline :is(button):hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.page-outline :is(button):focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+@media (max-width: 640px) {
+  .structured-page-stage [data-block-id] {
+    scroll-margin-top: calc(var(--page-bar-size) + 64px);
+  }
+  .structured-layout[data-outline] {
+    display: block;
+    margin-inline: 0;
+  }
+  .structured-layout[data-outline] .structured-page-stage {
+    margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+  }
+  .page-outline {
+    top: var(--page-bar-size);
+    padding: 0 var(--tmt-ui-header-padding-inline);
+    border-block: 1px solid var(--tmt-ui-surface-rule);
+    background: var(--tmt-ui-surface-sheet);
+  }
+  .page-outline-toggle {
+    min-height: 40px;
+  }
+  .page-outline-icon {
+    display: block;
+  }
+  .page-outline-desktop {
+    display: none;
+  }
+  .page-outline-phone,
+  .page-outline-count {
+    display: inline;
+  }
+  .page-outline-phone {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .page-outline-count {
+    color: var(--tmt-ui-color-secondary);
+    white-space: nowrap;
+  }
+  .page-outline-list {
+    margin-block: 0 var(--tmt-ui-space-s);
+  }
+}
 .structured-page-stage .tmt-block-doc-body {
   --tmt-block-gutter: var(--colab-block-inset);
 }
 .structured-page-stage[data-annotation-mode] .tmt-block {
   cursor: crosshair;
+}
+.structured-page-stage[data-annotation-mode] .tmt-block iframe {
+  pointer-events: none;
 }
 .structured-annotation-markers {
   position: absolute;
@@ -425,9 +561,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .structured-annotation-markers button {
   cursor: pointer;
-}
-.page-main:has(.structured-page-stage) .work-head {
-  padding-inline-start: calc(var(--work-gutter) + var(--colab-block-inset));
 }
 @media (min-width: 901px) {
   .tmt-ui-shell:has(.structured-page-stage) .tmt-ui-topbar-navigation {

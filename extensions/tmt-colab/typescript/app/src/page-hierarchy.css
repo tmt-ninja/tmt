@@ -22,7 +22,6 @@
   white-space: nowrap;
 }
 .page-hierarchy-count,
-.page-hierarchy-subpages,
 .page-hierarchy-separator {
   flex: none;
 }
@@ -35,12 +34,6 @@
 }
 .page-hierarchy-separator {
   color: var(--tmt-ui-color-secondary);
-}
-.page-hierarchy-subpages {
-  cursor: pointer;
-}
-.page-hierarchy-narrow {
-  display: none;
 }
 .page-hierarchy-menu {
   min-width: calc(10 * var(--tmt-ui-space-xl));
@@ -66,21 +59,13 @@
   flex: none;
 }
 
-/* A phone bar keeps the parent progress chip and the title only (#5506): the chip's menu goes back
-   to the parent or across to a sibling, and the work band below lists the sub-pages. */
+/* Compact bars hide the parent's name; the title controls own sub-page navigation. */
 @media (max-width: 900px) {
   .tmt-ui-topbar-title-prefix:has(> .page-hierarchy-parent) {
     display: contents;
   }
   .page-hierarchy-icon,
-  .page-hierarchy-name,
-  .page-hierarchy-subpages {
+  .page-hierarchy-name {
     display: none;
-  }
-  .page-hierarchy-wide {
-    display: none;
-  }
-  .page-hierarchy-narrow {
-    display: inline;
   }
 }
