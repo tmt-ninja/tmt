@@ -59,7 +59,7 @@
     min-width: 27ch;
   }
   .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
-    min-width: 3ch;
+    min-width: 6ch;
   }
 }
 @container colab-work-title (max-width: 1100px) {
@@ -73,11 +73,18 @@
   }
 }
 @container colab-work-title (max-width: 800px) {
+  h1:has(.page-hierarchy-parent):has(.tmt-ui-topbar-title-current) {
+    min-width: 24ch;
+  }
   .work-head {
     gap: 0;
   }
+  .work-band {
+    margin-inline-end: var(--tmt-ui-space-s);
+  }
   .page-hierarchy-count,
   .page-hierarchy-icon,
+  .page-hierarchy-name,
   .page-hierarchy-separator,
   .page-header-pin {
     display: none;

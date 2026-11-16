@@ -114,7 +114,6 @@ export function PageHeaderActions({
   const remoteAvailable = useRemoteHeaderSource() && !sharedBar;
   // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
   const compact = useMedia('(max-width: 900px)');
-  const phone = useMedia('(max-width: 640px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
   // After Pin and before About, set apart (#5077).
   const templateItems: BrowserMenuItem[] =
@@ -206,7 +205,7 @@ export function PageHeaderActions({
               },
             ]
           : []),
-        ...(phone && parentTitle
+        ...(parentTitle
           ? [
               {
                 key: 'open-parent',

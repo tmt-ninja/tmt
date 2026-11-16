@@ -91,7 +91,27 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          if (width === 1100) {
+            await expect(page.locator('.page-hierarchy-name')).toBeHidden();
+            await page.getByRole('button', { name: 'More', exact: true }).click();
+            await expect(
+              page.getByRole('menuitem', { name: 'Back to Release coordination' }),
+            ).toBeVisible();
+            await page.keyboard.press('Escape');
+            const pin = page.locator('.page-header-pin:visible');
+            const controls = page.locator('.tmt-ui-topbar-controls:visible');
+            if (await pin.count()) {
+              const pinBox = await pin.boundingBox();
+              const controlsBox = await controls.boundingBox();
+              expect(pinBox!.x + pinBox!.width).toBeLessThan(controlsBox!.x);
+            } else {
+              await page.getByRole('button', { name: 'More', exact: true }).click();
+              await expect(page.getByRole('menuitem', { name: 'Pin to top' })).toBeVisible();
+              await page.keyboard.press('Escape');
+            }
+          } else {
+            await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          }
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
@@ -112,7 +132,8 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          if (width === 1100) await expect(page.locator('.page-hierarchy-name')).toBeHidden();
+          else await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
