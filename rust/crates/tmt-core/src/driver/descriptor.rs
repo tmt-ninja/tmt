@@ -29,6 +29,11 @@ impl HookFormat {
     pub const fn is_installed(self) -> bool {
         matches!(self, Self::SessionHooksJson | Self::NamedHooksJson)
     }
+
+    /// True when lifecycle hooks are loaded automatically per launch without `tmt setup`.
+    pub const fn is_per_launch(self) -> bool {
+        matches!(self, Self::PerLaunch)
+    }
 }
 
 /// Turn-end context and consumption collection. Default setup installs it

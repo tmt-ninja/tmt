@@ -464,6 +464,10 @@ const MIGRATIONS: &[Migration] = &[
         "record the provider version of a form and when a client sent its answer",
         "schema/095.sql"
     ),
+    migration!(
+        "admit PerLaunch runtimes (pi) in retained finals",
+        "schema/096.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

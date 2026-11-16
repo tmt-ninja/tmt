@@ -886,3 +886,129 @@ fn blocking_digest(
         );
     }
 }
+
+#[test]
+fn pi_captures_prompt_and_settled_reply_without_usage_consent() {
+    register();
+    let fixture = Fixture::delivering("capture-pi-per-launch");
+    bind(&fixture, fixture.approve());
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let person = fixture.json(&["identity", "create", "ben", "--json"])["identity"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fixture.json(&[
+        "identity",
+        "meta",
+        "set",
+        "user",
+        "true",
+        "--identity",
+        "ben",
+        "--json",
+    ]);
+    let session = "33333333-3333-4333-8333-333333333333";
+    let mut provider = SteppedProvider::start(&fixture, "pi", "pi-capture-steps");
+    ok(provider.hook(serde_json::json!({
+        "event": "session_start",
+        "session_id": session,
+        "reason": "startup",
+        "model": "unknown"
+    })));
+    let listed = fixture.json(&["ls", "--json"]);
+    assert_eq!(
+        worker(&listed)["resume"]["session"],
+        session,
+        "session_start must admit session: {listed:#}"
+    );
+    assert!(
+        worker(&listed)["resume"]
+            .get("model")
+            .is_none_or(Value::is_null),
+        "unknown model must not be recorded for resume: {listed:#}"
+    );
+    let sent = fixture.json(&[
+        "talk",
+        "worker",
+        "Pi question",
+        "--passthrough",
+        "--identity",
+        "ben",
+        "--detach",
+        "--json",
+    ]);
+    let request = sent["requestId"].as_str().unwrap();
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "prompt": "Pi question"
+    })));
+    let after_prompt = fixture.json(&["ls", "--json"]);
+    assert_eq!(
+        worker(&after_prompt)["session"]["activity"]["state"],
+        "working",
+        "after prompt: {after_prompt:#}"
+    );
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "aborted": false,
+        "final_text": "Pi answer"
+    })));
+    // Turn-end capture enqueues into HookQueue and flushes asynchronously via `__hook-flush`.
+    let wait_until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let timeline = loop {
+        let timeline = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId": agent}),
+        );
+        let settled = worker(&fixture.json(&["ls", "--json"]))["session"]["activity"]["state"]
+            == "idle"
+            && timeline["entries"]
+                .as_array()
+                .is_some_and(|entries| entries.len() == 2);
+        if settled || std::time::Instant::now() >= wait_until {
+            break timeline;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    let after_settled = fixture.json(&["ls", "--json"]);
+    assert_eq!(
+        worker(&after_settled)["session"]["activity"]["state"],
+        "idle",
+        "after settled: {after_settled:#}"
+    );
+    assert_eq!(timeline["capture"], serde_json::json!({"enabled": true}));
+    let entries = timeline["entries"].as_array().unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|e| e["kind"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["input", "final"],
+        "{timeline:#}"
+    );
+    assert_eq!(entries[0]["requestId"], request);
+    assert_eq!(entries[1]["acknowledgements"][0]["identityId"], person);
+    assert_eq!(entries[1]["acknowledgements"][0]["requestId"], request);
+    let responses = timeline["responses"].as_array().unwrap();
+    assert_eq!(responses.len(), 1, "{timeline:#}");
+    assert_eq!(responses[0]["provider"], "pi");
+    assert_eq!(responses[0]["text"], "Pi answer");
+    assert_eq!(responses[0]["requestId"], request);
+    let shown = passthrough::api(
+        &fixture,
+        "ok",
+        "requests.show",
+        serde_json::json!({"requestId": request}),
+    );
+    assert_eq!(
+        shown["passthrough"]["answer"]["text"], "Pi answer",
+        "{shown:#}"
+    );
+}

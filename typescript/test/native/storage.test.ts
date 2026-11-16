@@ -177,6 +177,7 @@ function expectNativeSchema(
       version: 95,
       name: 'record the provider version of a form and when a client sent its answer',
     },
+    { version: 96, name: 'admit PerLaunch runtimes (pi) in retained finals' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
