@@ -1005,6 +1005,63 @@ mod tests {
     }
 
     #[test]
+    fn only_a_session_start_can_name_an_already_launched_process() {
+        let process = ProcessIncarnation::new(42, "pi").unwrap();
+        let owner = ProcessIncarnation::new(41, "launcher").unwrap();
+        let session = ProviderSessionId::new("bound").unwrap();
+        for previous_session in [None, Some(session.clone())] {
+            let current = BindingSessionState::default()
+                .admit_launched(
+                    ObservedSessionKey {
+                        incarnation: process.clone(),
+                        provider_session: previous_session,
+                    },
+                    owner.clone(),
+                    SessionTransition::Started,
+                    RuntimeLiveness::Alive,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            for event in [
+                "before_agent_start",
+                "agent_settled",
+                "ui_prompt_start",
+                "ui_prompt_end",
+                "model_select",
+            ] {
+                for reported_session in ["bound", "other"] {
+                    let payload = json!({"event":event,"session_id":reported_session});
+                    let observation = decode_hook(payload.to_string().as_bytes()).unwrap();
+                    assert!(!observation.starting);
+                    assert_eq!(observation.transition, SessionTransition::Started);
+                    assert!(
+                        observation
+                            .propose(&current, &process, RuntimeLiveness::Alive)
+                            .is_none(),
+                        "{event} cannot admit {reported_session} over {current:?}"
+                    );
+                }
+            }
+            let start = json!({"event":"session_start","reason":"startup","session_id":"bound"});
+            let observation = decode_hook(start.to_string().as_bytes()).unwrap();
+            let named = observation
+                .propose(&current, &process, RuntimeLiveness::Alive)
+                .unwrap();
+            assert_eq!(named.key.unwrap().provider_session, Some(session.clone()));
+            assert_eq!(named.launch_owner, Some(owner.clone()));
+            let other = json!({"event":"session_start","reason":"startup","session_id":"other"});
+            let observation = decode_hook(other.to_string().as_bytes()).unwrap();
+            if current.key.as_ref().unwrap().provider_session.is_some() {
+                assert!(
+                    observation
+                        .propose(&current, &process, RuntimeLiveness::Alive)
+                        .is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn hooks_decode_lifecycle_and_activity_and_transcript_usage() {
         let lifecycle = PiLifecycle;
         let session = "33333333-3333-4333-8333-333333333333";
