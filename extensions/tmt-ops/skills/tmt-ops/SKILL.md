@@ -1145,8 +1145,11 @@ inside it and stops following now. `[` and `]` step to the previous or next poli
 change; past the range they read the next range once and, when nothing changes there,
 stay and say `no earlier change` or `no later change`. `N` returns to now, `P` lists
 plans and `/` filters members. When Core reports routes, the **Who may message whom** section
-holds a **From ↓ To →** matrix (`✕` blocked, `◆` needs a person, otherwise the
-recipient's receiving mode) with its legend, and **Talks this hour** lists each pair
+holds a **From ↓ To →** matrix: numbered rows and columns share the same member order.
+Tiles show `●` direct, `▲` urgent only, `◷` batch, `✕` blocked, `◆` needs a person
+and `?` unknown; self is blank. The legend repeats these marks, and the selected route
+names the actual batch interval when known. REACH counts direct, urgent and batch
+routes over known routes; `*` marks an incomplete count. **Talks this hour** lists each pair
 with its count, limit, last message and whether it is held; arrows move the selected
 cell, whose sender row and route stay highlighted. An older Core without those views
 shows a **Members** table instead, without talks. At 110 columns and wider, the
