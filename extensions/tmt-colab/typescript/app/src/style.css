@@ -518,6 +518,36 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   background: var(--tmt-ui-surface-sheet);
 }
 @media (min-width: 641px) {
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) {
+    display: block;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) .page-outline {
+    position: sticky;
+    top: calc(var(--page-bar-size) - 34px);
+    z-index: 52;
+    width: 34px;
+    height: 0;
+    margin-block: -34px 34px;
+    padding: 0;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    .page-outline-toggle {
+    width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    background: var(--tmt-ui-surface-sheet);
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    :is(.page-outline-desktop, .page-outline-chevron) {
+    display: none;
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
+    .page-outline-icon {
+    display: block;
+  }
+  body:has(.tmt-ui-panel:not([hidden])) .structured-layout .page-outline {
+    z-index: 2;
+  }
   .html-outline {
     z-index: 52;
   }

@@ -795,6 +795,16 @@ for (const width of [1440, 390])
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const stage = page.locator('.structured-page-stage');
+      const expandedWidth = (await stage.boundingBox())!.width;
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect((await stage.boundingBox())!.width).toBeGreaterThan(expandedWidth);
+      await page.evaluate(() => window.scrollTo(0, 500));
+      await expect(toggle).toBeInViewport();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect((await stage.boundingBox())!.width).toBe(expandedWidth);
     }
     if (width === 390) await toggle.click();
     await expect(outline.getByRole('button', { name: 'Details' })).toBeVisible();

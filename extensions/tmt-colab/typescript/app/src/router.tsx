@@ -495,7 +495,7 @@ function PageOutline({
       <button
         type="button"
         className="page-outline-toggle"
-        aria-label={compact && !phone ? text.outline : undefined}
+        aria-label={(compact || !expanded) && !phone ? text.outline : undefined}
         aria-expanded={expanded}
         onClick={() => {
           const next = !expanded;
