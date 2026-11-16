@@ -190,6 +190,8 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
     const x = index % width;
     const y = Math.floor(index / width);
     const wide = x + 1 < width && grid.cells[index + 1]?.continuation;
+    // Wide fallback glyphs normally have a 1em advance, which can be narrower than two mono cells.
+    // Scale only the ink: the painted cell, grid geometry and hit rectangles keep their native spans.
     return [
       React.createElement(
         'span',
@@ -198,10 +200,27 @@ export function TerminalFrame({ component, width, height, look = 'tmt', onHit, .
           style: {
             gridColumn: `${x + 1} / span ${wide ? 2 : 1}`,
             gridRow: y + 1,
+            textAlign: wide ? 'center' : undefined,
             ...paintCell(cell, look),
           },
         },
-        cell.heat_level !== undefined && look !== 'NO_COLOR' ? ' ' : cell.glyph || ' ',
+        wide &&
+          cell.glyph &&
+          !cell.glyph.includes(' ') &&
+          (cell.heat_level === undefined || look === 'NO_COLOR')
+          ? React.createElement(
+              'span',
+              {
+                style: {
+                  display: 'inline-block',
+                  transform: 'scaleX(calc(2ch / 1em))',
+                },
+              },
+              cell.glyph,
+            )
+          : cell.heat_level !== undefined && look !== 'NO_COLOR'
+            ? ' '
+            : cell.glyph || ' ',
       ),
     ];
   });

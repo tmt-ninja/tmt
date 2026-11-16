@@ -30,7 +30,7 @@ test('verified TerminalFrame renders live and in the offline copy, and changed r
         },
       ],
       css: '',
-      code: `return ({React,ui}) => () => React.createElement('div', {id:'stacked-frames'}, ...[0,1].map(() => React.createElement(ui.TerminalFrame, {component:'section-rule',width:40,height:1,title:'Saved · 1d',note:'0.9% of input',note_role:'muted',focused:false})));`,
+      code: `return ({React,ui}) => () => React.createElement(React.Fragment, null, React.createElement('div', {id:'stacked-frames'}, ...[0,1].map(() => React.createElement(ui.TerminalFrame, {component:'section-rule',width:40,height:1,title:'Saved · 1d',note:'0.9% of input',note_role:'muted',focused:false}))), React.createElement('div', {id:'wide-frame'}, React.createElement(ui.TerminalFrame, {component:'text',width:8,height:1,spans:[{text:'請在A',role:'text'}]})));`,
     },
   ];
   const hash = `sha256-${createHash('sha256').update(JSON.stringify(body)).digest('hex')}`;
@@ -97,6 +97,19 @@ test('verified TerminalFrame renders live and in the offline copy, and changed r
     }
   }
   expect(covered).toBe(40);
+  // A wide glyph fills its native two-cell span; the adjacent ASCII cell keeps its column.
+  const wide = await live.locator('#wide-frame > span > span').evaluateAll((cells) =>
+    cells.slice(0, 3).map((cell) => ({
+      text: cell.textContent,
+      cell: cell.getBoundingClientRect().width,
+      glyph: (cell.firstElementChild ?? cell).getBoundingClientRect().width,
+      column: getComputedStyle(cell).gridColumn,
+    })),
+  );
+  expect(wide.map((cell) => cell.text)).toEqual(['請', '在', 'A']);
+  expect(wide[0]!.glyph).toBeCloseTo(wide[0]!.cell, 0);
+  expect(wide[1]!.glyph).toBeCloseTo(wide[1]!.cell, 0);
+  expect(wide[2]!.column).toContain('5');
   const edges = await live.locator('#stacked-frames > span').evaluateAll((frames) =>
     frames.map((frame) => {
       const { top, bottom } = frame.getBoundingClientRect();
