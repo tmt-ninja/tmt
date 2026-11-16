@@ -734,6 +734,19 @@ impl Registration {
             chain,
             now,
         )?;
+        if matches!(
+            job.manifest.kind,
+            crate::publication::PublicationKind::Content
+        ) && matches!(
+            committed.record.outcome,
+            crate::publication::Outcome::Committed { .. }
+        ) {
+            let page = &job.manifest.page_id;
+            // Display numbers are best effort after the durable write; startup retries missing ones.
+            let _ = self.engine.decoder(page).and_then(|decoder| {
+                crate::page::backfill_page_todos(&mut self.store, &self.keyring, page, decoder)
+            });
+        }
         let mut combined = None;
         if committed.accepted == crate::store::Accepted::New
             && matches!(

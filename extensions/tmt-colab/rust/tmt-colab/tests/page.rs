@@ -3839,7 +3839,6 @@ mod native_publication {
             packet_bytes: packet.len(),
             packet_hash: values::encode_binary(&crypto::digest(&packet)),
             native_evidence: Some(NativeEvidence {
-                todo_blocks: vec![],
                 source_sha256: hex(&crypto::digest(b"fixture opaque content")),
                 memory_limit: tmt_colab::decoder::MemoryLimit::Unavailable,
                 chain_hash: values::encode_binary(&crypto::digest(&chain)),

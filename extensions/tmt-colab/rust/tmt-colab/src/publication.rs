@@ -124,19 +124,11 @@ pub struct NativeEvidence {
     pub source_sha256: String,
     pub memory_limit: decoder::MemoryLimit,
     pub chain_hash: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub todo_blocks: Vec<String>,
 }
 impl NativeEvidence {
     fn validate(&self) -> Result<()> {
         values::object_id(&self.source_sha256)?;
         binary::<32>(&self.chain_hash)?;
-        require(self.todo_blocks.len() <= limits::BLOCK_BATCH_OPS)?;
-        let mut seen = std::collections::BTreeSet::new();
-        for id in &self.todo_blocks {
-            values::generated_id(id)?;
-            require(seen.insert(id))?;
-        }
         Ok(())
     }
     fn frame(&self) -> Result<Vec<u8>> {
@@ -145,16 +137,12 @@ impl NativeEvidence {
             decoder::MemoryLimit::Enforced => "512 MiB address-space limit",
             decoder::MemoryLimit::Unavailable => "memory limit unavailable",
         };
-        let mut out = vec![if self.todo_blocks.is_empty() { 1 } else { 2 }];
+        let mut out = vec![1];
         out.extend(frame(&[
             self.source_sha256.as_bytes(),
             memory.as_bytes(),
             &binary::<32>(&self.chain_hash)?,
         ])?);
-        if !self.todo_blocks.is_empty() {
-            let items: Vec<&[u8]> = self.todo_blocks.iter().map(|id| id.as_bytes()).collect();
-            out.extend(frame(&items)?);
-        }
         Ok(out)
     }
 }

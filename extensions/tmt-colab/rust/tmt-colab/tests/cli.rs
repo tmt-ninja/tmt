@@ -13474,6 +13474,44 @@ fn structured_todo_keeps_its_number_after_edit_delete_and_restore() {
 }
 
 #[test]
+fn a_numbering_failure_does_not_refuse_a_committed_todo() {
+    let pilot = Pilot::new(None);
+    let made = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Work",
+        "--project",
+        "Colab",
+        "--no-open",
+        "--json",
+    ]);
+    let page = made["pageId"].as_str().unwrap();
+    let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER refuse_number BEFORE INSERT ON work_numbers BEGIN SELECT RAISE(ABORT, 'number unavailable'); END;").unwrap();
+    let inserted = pilot.call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "todo",
+        "--text",
+        "Still saved",
+        "--json",
+    ]);
+    let block = inserted["blockIds"][0].as_str().unwrap();
+    let listing = pilot.call(&["block", "ls", page, "--json"]);
+    assert!(
+        listing["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == block && row["text"]["s"] == "Still saved")
+    );
+    db.execute_batch("DROP TRIGGER refuse_number").unwrap();
+}
+
+#[test]
 fn migration_numbers_existing_pages_in_creation_order() {
     let mut pilot = Pilot::new(None);
     let make = |title: &str| {
@@ -13527,6 +13565,40 @@ fn migration_numbers_existing_pages_in_creation_order() {
         Some("COLAB-3")
     );
     pilot.stop();
+}
+
+#[test]
+fn migration_numbers_pages_even_when_a_log_row_cannot_be_read() {
+    let pilot = Pilot::new(None);
+    let make = |title: &str| {
+        pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            title,
+            "--project",
+            "Colab",
+            "--no-open",
+            "--json",
+        ])["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let pages = [make("First"), make("Second")];
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    db.execute_batch("UPDATE membership_log SET envelope=X'00' WHERE revision=(SELECT MIN(revision) FROM membership_log); DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    drop(db);
+    let store = tmt_colab::store::Store::open(&layout).unwrap();
+    let numbers: Vec<_> = pages
+        .iter()
+        .map(|page| store.work_number(page).unwrap().unwrap())
+        .collect();
+    assert!(numbers.iter().all(|number| number.starts_with("COLAB-")));
+    assert_ne!(numbers[0], numbers[1]);
 }
 
 #[test]

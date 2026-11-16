@@ -69,6 +69,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Verify live numbering']);
+    await expect(page.getByRole('checkbox', { name: 'Verify live numbering' })).toBeVisible();
+    await expect(page.getByText('COLAB-5', { exact: true })).toBeVisible();
     const todo = page.getByRole('checkbox', { name: 'Ship the fix' });
     await todo.check();
     await expect(todo).toBeChecked();

@@ -193,7 +193,7 @@ impl super::Store {
     }
 }
 
-/// Backfill in the order the verified owner log first names each retained page.
+/// Backfill from admitted log rows in revision order; unreadable rows do not block migration.
 pub(super) fn backfill(connection: &Connection) -> StoreResult<()> {
     ensure_project(connection, SPACE)?;
     let projects: Vec<String> = {
@@ -205,28 +205,24 @@ pub(super) fn backfill(connection: &Connection) -> StoreResult<()> {
     for project in projects {
         ensure_project(connection, &project)?;
     }
-    let owner: Option<(String, Vec<u8>, String, Vec<u8>)> = connection
-        .query_row(
-            "SELECT space,root,revision,hash FROM owner_state WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?;
-    if let Some((space, root, revision, hash)) = owner {
-        let root: [u8; 32] = root.try_into().map_err(|_| Fault::Invalid)?;
-        let mut head = None;
+    let owner: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM owner_state WHERE singleton=1)",
+        [],
+        |row| row.get(0),
+    )?;
+    if owner {
         let mut seen = std::collections::BTreeSet::new();
         let mut query =
             connection.prepare("SELECT envelope FROM membership_log ORDER BY revision")?;
         let mut rows = query.query([])?;
         while let Some(row) = rows.next()? {
-            let bytes: Vec<u8> = row.get(0)?;
-            let envelope = tmt_colab_model::statement::Envelope::from_json(&bytes)
-                .map_err(|_| Fault::Invalid)?;
-            let verified = envelope
-                .verify_next(&space, &root, head.as_ref())
-                .map_err(|_| Fault::Invalid)?;
-            if let Some(page) = verified.payload.page()
+            let Ok(bytes) = row.get::<_, Vec<u8>>(0) else {
+                continue;
+            };
+            let Ok(payload) = super::owner::epoch::decoded_payload(&bytes) else {
+                continue;
+            };
+            if let Some(page) = payload.page()
                 && seen.insert(page.to_owned())
             {
                 let exists: bool = connection.query_row(
@@ -239,17 +235,9 @@ pub(super) fn backfill(connection: &Connection) -> StoreResult<()> {
                     allocate(connection, page, project.as_deref())?;
                 }
             }
-            head = Some(verified.head);
-        }
-        let revision = revision.parse::<u64>().map_err(|_| Fault::Invalid)?;
-        if !head
-            .as_ref()
-            .is_some_and(|head| head.revision == revision && head.hash.as_slice() == hash)
-        {
-            return Err(Fault::Invalid);
         }
         // Older imported pages can lack a page-scoped creation statement. Their relative creation
-        // order is not retained; give them deterministic numbers after the verified history.
+        // order is not retained; give them deterministic numbers after the readable history.
         let mut query = connection.prepare("SELECT p.page,(SELECT project FROM page_projects WHERE page=p.page ORDER BY project LIMIT 1) FROM pages p WHERE EXISTS(SELECT 1 FROM epoch_secrets e WHERE e.page=p.page) AND NOT EXISTS(SELECT 1 FROM work_numbers n WHERE n.item=p.page) ORDER BY p.page")?;
         let rows: Vec<(String, Option<String>)> = query
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?

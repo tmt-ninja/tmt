@@ -751,6 +751,28 @@ pub fn read_work(
     read_work_or_shell(store, key, page, decoder)?.ok_or_else(|| Fault::Invalid.into())
 }
 
+/// Number missing to-dos from the owner's admitted page after its publication is durable.
+pub fn backfill_page_todos(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<()> {
+    let Some(work) = read_work_or_shell(store, key, page, decoder)? else {
+        return Ok(());
+    };
+    let mut missing = Vec::new();
+    for id in work.todo_ids {
+        if store.work_number(&format!("{page}:{id}"))?.is_none() {
+            missing.push(id);
+        }
+    }
+    if !missing.is_empty() {
+        store.backfill_todo_numbers(key, page, &missing)?;
+    }
+    Ok(())
+}
+
 /// Unlike `read_work`, distinguishes a verified shell from an unreadable page.
 pub(crate) fn read_work_or_shell(
     store: &Store,
@@ -945,7 +967,6 @@ pub fn prepare_publication_with_clock<'a>(
         author,
         Sealing {
             kind: PublicationKind::Content,
-            todo_blocks: &[],
             updates: &updates,
             revision,
             source: edit.source,
@@ -1064,21 +1085,6 @@ fn prepare_structured(
             receipt,
         ));
     };
-    let mut seen_todos = std::collections::BTreeSet::new();
-    let todo_blocks: Vec<String> = if action.kind == crate::decoder::StructuredKind::Blocks {
-        receipt
-            .as_ref()
-            .and_then(|receipt| receipt["ops"].as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|op| op["id"].as_str())
-            .filter(|id| prepared.projection["blocks"][*id]["type"] == "todo")
-            .filter(|id| seen_todos.insert((*id).to_owned()))
-            .map(str::to_owned)
-            .collect()
-    } else {
-        Vec::new()
-    };
     let frozen = freeze(
         key,
         page,
@@ -1086,7 +1092,6 @@ fn prepare_structured(
         author,
         Sealing {
             kind: PublicationKind::Content,
-            todo_blocks: &todo_blocks,
             updates: &updates,
             revision,
             // The page's own source: an action never changes it (a shell's is empty).
@@ -1122,7 +1127,6 @@ pub(crate) fn prepare_own_publication(
         author,
         Sealing {
             kind: PublicationKind::Own,
-            todo_blocks: &[],
             updates: &[update.to_vec()],
             revision,
             source,
@@ -1236,7 +1240,6 @@ impl Author {
 }
 struct Sealing<'a> {
     kind: crate::publication::PublicationKind,
-    todo_blocks: &'a [String],
     updates: &'a [Vec<u8>],
     revision: String,
     source: &'a str,
@@ -1256,7 +1259,6 @@ fn freeze(
     use crate::publication::{Manifest, MembershipHead, NativeEvidence, PublicationEntry};
     let Sealing {
         kind,
-        todo_blocks,
         updates,
         revision,
         source,
@@ -1343,7 +1345,6 @@ fn freeze(
         packet_bytes: packet.len(),
         packet_hash: values::encode_binary(&crypto::digest(&packet)),
         native_evidence: Some(NativeEvidence {
-            todo_blocks: todo_blocks.to_vec(),
             source_sha256: hex(&crypto::digest(source.as_bytes())),
             memory_limit,
             chain_hash: values::encode_binary(&crypto::digest(&chain)),
@@ -1556,7 +1557,6 @@ pub fn commit_publication(
                     return Err(crate::store::Fault::Gap.into());
                 }
             }
-            tx.allocate_todo_numbers(&original.page_id, &evidence.todo_blocks)?;
             let last = entries.last().ok_or(Fault::Invalid)?;
             Ok(Ok(Outcome::Committed {
                 key: original.clone(),

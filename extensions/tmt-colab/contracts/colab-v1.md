@@ -6408,18 +6408,17 @@ target's prefix for future pages. Changing a prefix uses that prefix's retained 
 prefix uses up to six uppercase ASCII letters from the project name, or `P` when none or `W`;
 collisions use at most five letters and append `A`, `B`, and so on in canonical project-name
 order. An explicit prefix already used by another current project is refused. On migration the
-owner allocates existing pages in verified creation order; for an old multi-project page it uses
-the canonical first project. Imported pages with no retained page-scoped creation statement follow
-in page-ID order, because their creation order cannot be recovered. The number is owner-local
+owner allocates existing pages in the order readable admitted log rows first name them; unreadable
+rows are skipped. For an old multi-project page it uses the canonical first project. Pages with no
+readable page-scoped creation statement follow in page-ID order. The number is owner-local
 display data, not authority.
 `tmt colab page create --project NAME` sets the initial project before allocating the page number;
 `tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
-ID; delete and restore keep that number. For an owner block batch, the native publication evidence
-names the affected to-do IDs and is covered by the publication signature. The owner allocates their
-numbers in the same transaction as the accepted content update and retained receipt. The owner
-startup scan assigns missing numbers for older to-dos, without changing page content; a reader
+ID; delete and restore keep that number. After a content publication commits, the owner reads its
+admitted page view and best-effort allocates missing numbers separately from the publication. The
+owner startup scan retries missing numbers, without changing page content; a reader
 never allocates them. The paired owner browser can POST `{pageId,blocks}` to `/api/work-numbers`
 for at most 2,048 distinct block IDs and receives `{pageId,numbers}`, where `numbers` maps only
 known requested IDs to labels. The body and reply are bounded to 192 KiB; invalid IDs, non-owner
@@ -7501,8 +7500,7 @@ reject explicit null for optional `nativeEvidence`. IDs/counters/hashes reuse th
 canonical UUIDv4, space ID, positive-u64 decimal, lowercase hex32 and base64url rules.
 The manifest is `{version:1,operationId,spaceId,pageId,epoch,streamId,kind:"content"|"own",
 membershipHead:{revision,statementHash},baseRevision,entries,packetBytes,packetHash}` plus
-optional `{sourceSha256,memoryLimit,chainHash[,todoBlocks]}` native evidence. `todoBlocks`, when
-present, holds at most 256 distinct canonical block UUIDs from the native-validated block batch.
+optional `{sourceSha256,memoryLimit,chainHash}` native evidence.
 `baseRevision` is `v1:` plus
 lowercase hex32. Each entry is `{namespace,seq,envelopeHash,envelopeBytes}` with
 `namespace` equal to the manifest `kind`; a job never mixes namespaces;
@@ -7523,9 +7521,6 @@ packetBytes decimal ASCII, decoded packetHash32, native evidence blob. Entries b
 with u32-BE count then concatenates each entry's LP `[namespace (equal to `kind`),seq,decoded envelopeHash32,
 envelopeBytes decimal ASCII]`. Native blob is byte0 when absent, or byte1 followed by LP
 `[sourceSha256 ASCII,exact decoder memoryLimit spelling,decoded chainHash32]` when present.
-For a nonempty `todoBlocks`, the native blob instead starts with byte2, then the same LP frame,
-then a second LP frame containing the block IDs as ASCII in batch order. An empty or absent list
-keeps the byte1 representation, preserving existing signatures.
 `jobDigest` is canonical base64url32 of SHA256(signature input). Job and every envelope
 signature are verified with the caller-supplied admitted public key using the strict model
 helpers; manifest data never selects an authority key.

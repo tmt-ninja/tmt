@@ -1172,6 +1172,16 @@ fn publish_write_owned(
                 frozen.chain(),
                 now,
             );
+            if matches!(
+                frozen.job().manifest.kind,
+                tmt_colab::publication::PublicationKind::Content
+            ) && committed
+                .as_ref()
+                .is_ok_and(|done| matches!(done.record.outcome, Outcome::Committed { .. }))
+            {
+                // The publication is already durable; the next owner scan can retry a missing label.
+                let _ = page::backfill_page_todos(&mut store, key, page_id, decoder);
+            }
             if let Ok(done) = &committed
                 && done.accepted == Accepted::New
                 && matches!(done.record.outcome, Outcome::Committed { .. })
