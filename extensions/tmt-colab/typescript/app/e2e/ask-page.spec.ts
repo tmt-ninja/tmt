@@ -906,6 +906,10 @@ for (const kind of ['duplicate', 'image', 'mockup'] as const)
     await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
     await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
     if (kind === 'duplicate') {
+      await run(page, 'changeStructuredBlock', id(99));
+      await expect(chosen).toContainText('Edited block text');
+      await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
+      await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
       await run(page, 'removeStructuredBlock', id(99));
       await expect(chosen).toHaveCount(0);
       await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);

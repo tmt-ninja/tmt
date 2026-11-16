@@ -6,7 +6,6 @@ import {
   OWN_RECORDS,
   UPDATE_BYTES,
   validateOwn,
-  validateOwnPage,
   type JsonValue,
   type OwnRecord,
   type OwnState,
@@ -62,11 +61,20 @@ it('block anchor vectors admit only the bounded shared record shape', () => {
   }
 });
 
-it('refuses a block anchor on an HTML page', () => {
+it('reads an existing block anchor as a discussion record', () => {
   const own: OwnState = {};
   put(own, { ...fixture.thread, anchor: { block: '00000000-0000-4000-8000-000000000010' } });
-  expect(() => validateOwnPage(own, 'blocks')).not.toThrow();
-  expect(() => validateOwnPage(own, undefined)).toThrow();
+  expect(() => validateOwn(own)).not.toThrow();
+  expect(
+    readThreads(
+      own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )[0].anchor,
+  ).toEqual({
+    block: '00000000-0000-4000-8000-000000000010',
+  });
 });
 it('numbers admitted creation clocks, preserving edit/status order and renumbering deletion', () => {
   const own: OwnState = {};
@@ -301,6 +309,19 @@ it('creates a block comment only for an admitted structured page', async () => {
   const structured = storeFixture({ blockAnchors: () => true });
   await structured.store.create('Review', anchor);
   expect(structured.batches[0]?.[0]?.value).toMatchObject({ anchor });
+});
+it('can resolve, reopen and delete a block comment after reverting to HTML', async () => {
+  let structured = true;
+  const f = storeFixture({ blockAnchors: () => structured });
+  const created = await f.store.create('Review', { block: '00000000-0000-4000-8000-000000000010' });
+  structured = false;
+  const resolved = await f.store.setStatus(created.thread, null, true);
+  expect(resolved.changed).toBe(true);
+  if (!resolved.changed) throw new Error('Missing status');
+  const reopened = await f.store.setStatus(created.thread, resolved.status.ref, false);
+  expect(reopened.changed).toBe(true);
+  await f.store.updateThread(created.thread, '1', { deleted: true });
+  expect(f.batches.at(-1)?.[0]?.value).toMatchObject({ deleted: true, anchor: null });
 });
 it('exports a block comment with its reference and optional quote', async () => {
   const f = storeFixture({ blockAnchors: () => true });

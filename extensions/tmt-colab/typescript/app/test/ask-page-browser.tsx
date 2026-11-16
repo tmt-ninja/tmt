@@ -1399,6 +1399,19 @@ export function removeStructuredBlock(block: string) {
   emit();
 }
 
+export function changeStructuredBlock(block: string) {
+  const previous = current.blocks?.[block];
+  if (!previous) throw new Error('Missing block');
+  current = {
+    ...current,
+    blocks: {
+      ...current.blocks,
+      [block]: { ...previous, text: { s: 'Edited block text', marks: [] } },
+    },
+  };
+  emit();
+}
+
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();

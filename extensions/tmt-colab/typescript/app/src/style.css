@@ -449,6 +449,18 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-outline-toggle > :last-child {
   margin-inline-start: auto;
 }
+.page-outline-chevron,
+.page-outline-icon {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+  flex: none;
+}
+.page-outline-chevron[data-expanded='true'] {
+  transform: rotate(180deg);
+}
+.page-outline-icon {
+  display: none;
+}
 .page-outline-phone,
 .page-outline-count {
   display: none;
@@ -506,6 +518,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
   .page-outline-toggle {
     min-height: 40px;
+  }
+  .page-outline-icon {
+    display: block;
   }
   .page-outline-desktop {
     display: none;

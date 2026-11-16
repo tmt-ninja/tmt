@@ -130,14 +130,36 @@ fn require(valid: bool) -> Result<()> {
     if valid { Ok(()) } else { Err(Invalid) }
 }
 /// A valid block anchor is usable only in the structured page that admitted it.
-pub(crate) fn validate_page_anchor(value: &Value, structured: bool) -> Result<()> {
+pub(crate) fn validate_page_anchor(value: &Value, structured: bool, retained: bool) -> Result<()> {
     require(
         structured
+            || retained
             || value
                 .get("anchor")
                 .and_then(|anchor| anchor.get("block"))
                 .is_none(),
     )
+}
+/// A later record may retain only an anchor already admitted for this writer's same thread.
+pub(crate) fn retained_anchor(
+    value: &Value,
+    previous: Option<&serde_json::Map<String, Value>>,
+) -> bool {
+    let (Some(id), Some(anchor)) = (
+        value.get("threadId").and_then(Value::as_str),
+        value.get("anchor"),
+    ) else {
+        return false;
+    };
+    if anchor.get("block").is_none() {
+        return false;
+    }
+    previous.is_some_and(|threads| {
+        threads.values().any(|thread| {
+            thread.get("threadId").and_then(Value::as_str) == Some(id)
+                && thread.get("anchor") == Some(anchor)
+        })
+    })
 }
 /// Retired proposal records remain in the own document but have no current projection.
 pub(crate) fn retired_record(root: &str, value: &Value) -> bool {
@@ -252,8 +274,17 @@ mod tests {
             );
         }
         thread["anchor"] = f["blockAnchorCases"][0]["anchor"].clone();
-        assert!(validate_page_anchor(&thread, true).is_ok());
-        assert!(validate_page_anchor(&thread, false).is_err());
+        assert!(validate_page_anchor(&thread, true, false).is_ok());
+        assert!(validate_page_anchor(&thread, false, false).is_err());
+        assert!(validate_page_anchor(&thread, false, true).is_ok());
+        let existing = serde_json::Map::from_iter([(key.clone(), thread.clone())]);
+        assert!(retained_anchor(&thread, Some(&existing)));
+        let mut other = thread.clone();
+        other["threadId"] = serde_json::json!("00000000-0000-4000-8000-000000000011");
+        assert!(!retained_anchor(&other, Some(&existing)));
+        other = thread.clone();
+        other["anchor"]["block"] = serde_json::json!("00000000-0000-4000-8000-000000000012");
+        assert!(!retained_anchor(&other, Some(&existing)));
     }
     #[test]
     fn comment_sequence_is_a_canonical_decimal_up_to_two_to_the_53_minus_1() {

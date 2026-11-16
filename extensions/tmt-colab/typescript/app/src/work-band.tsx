@@ -1,6 +1,14 @@
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { text } from './strings.js';
 import type { PageState } from './bootstrap.js';
 import type { SubpageCounts, SubpageRow } from './work-tree.js';
@@ -87,6 +95,26 @@ export function WorkBand({
   useEffect(() => {
     onSize?.(0);
   }, [onSize]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const node = section.current;
+    if (!node) return;
+    const measure = () => {
+      const root = getComputedStyle(document.documentElement);
+      const gap = Number.parseFloat(root.getPropertyValue('--tmt-ui-space-m')) || 0;
+      const maxWidth = Math.min(36 * Number.parseFloat(root.fontSize), innerWidth - 2 * gap);
+      const shift = Math.min(0, innerWidth - gap - node.getBoundingClientRect().left - maxWidth);
+      node.style.setProperty('--work-popover-shift', `${shift}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    window.addEventListener('resize', measure);
+    measure();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {

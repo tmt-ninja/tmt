@@ -115,7 +115,7 @@
   position: absolute;
   z-index: 60;
   top: calc(100% + var(--tmt-ui-space-s));
-  right: 0;
+  left: var(--work-popover-shift, 0px);
   width: min(36rem, calc(100vw - 2 * var(--tmt-ui-space-m)));
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);

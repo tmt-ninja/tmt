@@ -52,10 +52,12 @@ import {
 import {
   ArrowUpRight,
   Archive,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   CopyPlus,
+  List,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -489,7 +491,7 @@ function PageOutline({
   }, [headings, stage]);
   if (headings.length < 3) return null;
   return (
-    <nav className="page-outline" aria-label="Page outline">
+    <nav className="page-outline" aria-label={text.pageOutline}>
       <button
         type="button"
         className="page-outline-toggle"
@@ -504,12 +506,13 @@ function PageOutline({
           }
         }}
       >
-        <span className="page-outline-desktop">Outline</span>
+        <List className="page-outline-icon" aria-hidden="true" />
+        <span className="page-outline-desktop">{text.outline}</span>
         <span className="page-outline-phone">{headings[current]?.title}</span>
         <span className="page-outline-count">
           {current + 1} / {headings.length}
         </span>
-        <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+        <ChevronDown className="page-outline-chevron" data-expanded={expanded} aria-hidden="true" />
       </button>
       {expanded && (
         <ol className="page-outline-list">
@@ -2443,17 +2446,7 @@ function OpenPage({
   const locateBlockAnchor = (anchor: ThreadAnchor) => {
     if (!('block' in anchor)) return locateBlockQuote(anchor);
     const block = structuredBlocks.find((candidate) => candidate.id === anchor.block);
-    if (!block) return undefined;
-    if (!anchor.quote) return block.id;
-    const value = block.text?.replace(/\s+/gu, ' ').trim() ?? '';
-    const at = value.indexOf(anchor.quote.exact);
-    return at >= 0 &&
-      value.indexOf(anchor.quote.exact, at + 1) < 0 &&
-      (!anchor.quote.prefix || value.slice(0, at).endsWith(anchor.quote.prefix)) &&
-      (!anchor.quote.suffix ||
-        value.slice(at + anchor.quote.exact.length).startsWith(anchor.quote.suffix))
-      ? block.id
-      : undefined;
+    return block?.id;
   };
   const blockAnchors = (() => {
     const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
@@ -2490,7 +2483,7 @@ function OpenPage({
               id,
               number,
               excerpt: [
-                ...(anchorQuote(thread.anchor)?.exact ?? 'Block').replace(/\s+/gu, ' ').trim(),
+                ...(anchorQuote(thread.anchor)?.exact ?? text.block).replace(/\s+/gu, ' ').trim(),
               ]
                 .slice(0, 80)
                 .join(''),
@@ -3183,7 +3176,7 @@ function OpenPage({
                   <X aria-hidden="true" className="page-unsent-mark" />
                   <span>
                     {text.annotationUnsent(
-                      quoteExcerpt(anchorQuote(item.selector)?.exact ?? 'Block'),
+                      quoteExcerpt(anchorQuote(item.selector)?.exact ?? text.block),
                     )}
                   </span>
                   <BrowserAction

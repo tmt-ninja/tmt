@@ -231,6 +231,21 @@ test('on a phone the readable title and full work labels scroll together', async
   await expect.poll(async () => (await title.boundingBox())!.y).toBeLessThan(before);
 });
 
+for (const width of [1440, 800, 390])
+  test(`the sub-page list opens within the page column at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const band = await mount(page);
+    await expand(band);
+    const list = band.locator('.work-body-transition');
+    await expect(list).toBeVisible();
+    const box = (await list.boundingBox())!;
+    const column = (await page.locator('#work-page-fixture .tmt-ui-shell-main').boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(column.x - 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+    expect(box.width).toBeGreaterThan(280);
+    await expect(band.getByRole('link', { name: 'Remote pages v2', exact: true })).toBeVisible();
+  });
+
 test('a page without sub-pages offers Add in its page menu', async ({ page }) => {
   const band = await mount(page, true, 'empty');
   await expect(toggle(band)).toHaveCount(0);

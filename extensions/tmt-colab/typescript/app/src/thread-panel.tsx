@@ -541,7 +541,7 @@ export function ThreadWindow({
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   const quote = anchorQuote(anchor);
-  const anchorText = quote?.exact ?? (anchor && 'block' in anchor ? 'Block' : '');
+  const anchorText = quote?.exact ?? (anchor && 'block' in anchor ? text.block : '');
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
   const tracked = !!anchor && !shownResolved;

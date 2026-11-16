@@ -1574,16 +1574,6 @@ impl MaterializationInput {
             }
             other => Box::<dyn std::error::Error + Send + Sync>::from(other),
         })?;
-        let structured = folded.projection["meta"]["pageType"].as_str() == Some("blocks");
-        if own_views.values().any(|projection| {
-            projection["threads"].as_object().is_some_and(|threads| {
-                threads
-                    .values()
-                    .any(|thread| crate::threads::validate_page_anchor(thread, structured).is_err())
-            })
-        }) {
-            return Err(OwnerFault::Invalid.into());
-        }
         Ok(View {
             original_author: folded.projection["meta"]["originalAuthor"]
                 .as_str()

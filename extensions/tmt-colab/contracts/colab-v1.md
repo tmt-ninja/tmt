@@ -3020,8 +3020,10 @@ change the preview or sign anything.
 A structured-page discussion anchor may instead be `{block,quote?}`, where `block` is a
 canonical generated UUID and optional `quote` is a TextQuoteSelector. The trusted page resolves
 it only against that page's admitted block tree. A missing or deleted block leaves an orphaned
-thread in Discussion with no marker; it is never retargeted by matching text. An HTML page refuses
-block anchors. A block reference is cosmetic placement, never authority. The decoder admits only
+thread in Discussion with no marker; it is never retargeted by matching text. A block's marker
+remains on that block when its text changes; the optional quote is context, not a placement test.
+An HTML page refuses creating block anchors but reads existing ones as orphaned threads, including
+after a structured page is reverted. A block reference is cosmetic placement, never authority. The decoder admits only
 these exact fields; an explicit null quote is invalid. `vectors/discussion-v1.json`
 (`blockAnchorCases`) pins browser/native admission.
 

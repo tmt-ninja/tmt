@@ -28,6 +28,9 @@ const frameLimit =
   'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  pageOutline: 'Page outline',
+  outline: 'Outline',
+  block: 'Block',
   metadata: {
     questions: 'Questions',
     questionsItem: 'Questions…',
