@@ -539,7 +539,7 @@ fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
     assert!(text.contains("From ↓ To →"));
     assert!(text.contains("✕"));
     assert!(text.contains("◆"));
-    assert!(text.contains("needs a person"), "{text}");
+    assert!(text.contains("needs you"), "{text}");
     assert!(text.contains("✕ blocked"), "{text}");
     let look = crate::look::Look::default();
     let mut app = captures::case("orchestration-matrix", look);
@@ -582,6 +582,31 @@ fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
     });
     assert_eq!(app.orchestration.selected.as_deref(), Some(OTHER));
     assert_eq!(app.orchestration.target.as_deref(), Some(MEMBER));
+
+    let roster = captures::case("orchestration-roster", look);
+    let buffer = paint(&roster, 160, 36);
+    let (_, legend_y) = find(&buffer, "direct").expect("tile legend");
+    assert!(find_in_row(&buffer, legend_y, "needs you").is_some());
+    assert!(find_in_row(&buffer, legend_y, "unknown").is_some());
+    assert!(
+        find(
+            &buffer,
+            "5 remote-4 · night-1 → remote-4 ✕ blocked by Shift B · Night until 06:00"
+        )
+        .is_some()
+    );
+    let (_, header_y) = find(&buffer, "From ↓ To →").expect("numbered header");
+    assert_eq!(buffer[(51, header_y + 1)].symbol(), " ", "gap before REACH");
+    let format_end = super::surface::compact_route_end;
+    assert_eq!(
+        format_end("Thu 06:00".into(), 0, 24 * 60 * 60 * 1000),
+        "06:00"
+    );
+    assert_eq!(
+        format_end("Thu 06:00".into(), 0, 25 * 60 * 60 * 1000),
+        "Thu 06:00"
+    );
+    assert_eq!(format_end("1000 ms".into(), 0, 1000), "1000 ms");
 }
 fn paint(app: &super::super::app::App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let mut terminal =
@@ -1632,7 +1657,7 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
     assert!(text.contains(&expected), "expected {expected}: {text}");
     assert!(text.contains("* partial"), "{text}");
     assert!(
-        text.contains("blocked") && text.contains("needs a person"),
+        text.contains("blocked") && text.contains("needs you"),
         "{text}"
     );
     // Two different visible names never render as the same text.

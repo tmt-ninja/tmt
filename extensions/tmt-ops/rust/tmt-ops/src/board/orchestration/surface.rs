@@ -1112,6 +1112,28 @@ fn reach(tiles: impl IntoIterator<Item = RouteTile>) -> Reach {
     out
 }
 
+/// Keep the date context for distant or unrecognized times; a nearby weekday can be omitted.
+pub(super) fn compact_route_end(clock: String, at_ms: u64, end_ms: u64) -> String {
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    if end_ms >= at_ms
+        && end_ms - at_ms <= DAY_MS
+        && let Some((weekday, time)) = clock.split_once(' ')
+        && matches!(
+            weekday,
+            "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
+        )
+        && time.len() == 5
+        && time.as_bytes()[2] == b':'
+        && time
+            .bytes()
+            .enumerate()
+            .all(|(i, c)| i == 2 || c.is_ascii_digit())
+    {
+        return time.to_owned();
+    }
+    clock
+}
+
 /// The widest a matrix name column grows, in cells.
 const NAME_CAP: usize = 13;
 /// Labels no wider than `width` that never show two different names as the same text: a long
@@ -1313,7 +1335,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
         }
         let summary = reach((0..members.len()).map(|c| tile_at(r, c)));
         partial |= summary.partial;
-        let x = area.x + name_cells + columns as u16 * 3;
+        let x = area.x + name_cells + columns as u16 * 3 + 1;
         let filled = (summary.reachable * 6 + summary.known / 2)
             .checked_div(summary.known)
             .unwrap_or(0);
@@ -1350,14 +1372,31 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
         let provenance = sending
             .route(&from.identity_id, &to.identity_id)
             .map_or_else(String::new, |route| match &route.source {
-                RouteSource::Grant { until_ms } => {
-                    format!(" · allow once until {}", snapshot.clock(*until_ms))
-                }
+                RouteSource::Grant { until_ms } => format!(
+                    " · allow once until {}",
+                    compact_route_end(
+                        snapshot.clock(*until_ms),
+                        snapshot.document.at_ms,
+                        *until_ms
+                    )
+                ),
                 RouteSource::Policy(source) => {
                     let until = source.slot.as_ref().map_or_else(String::new, |slot| {
-                        format!(" until {}", snapshot.clock(slot.end_ms))
+                        format!(
+                            " until {}",
+                            compact_route_end(
+                                snapshot.clock(slot.end_ms),
+                                snapshot.document.at_ms,
+                                slot.end_ms
+                            )
+                        )
                     });
-                    format!(" · {}{until}", snapshot.document.source_label(source))
+                    let join = if route.verdict == Verdict::Blocked {
+                        " by "
+                    } else {
+                        " · "
+                    };
+                    format!("{join}{}{until}", snapshot.document.source_label(source))
                 }
             });
         (
@@ -1374,10 +1413,10 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     // The legend uses the same three-cell paint as the matrix; wrap only at item boundaries.
     let legend = [
         (RouteTile::Direct, "direct"),
-        (RouteTile::Urgent, "urgent only"),
+        (RouteTile::Urgent, "urgent"),
         (RouteTile::Batch, "batch"),
         (RouteTile::Blocked, "blocked"),
-        (RouteTile::NeedsPerson, "needs a person"),
+        (RouteTile::NeedsPerson, "needs you"),
         (RouteTile::Unknown, "unknown"),
     ];
     let mut x = area.x;
