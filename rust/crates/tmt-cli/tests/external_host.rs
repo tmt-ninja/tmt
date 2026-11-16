@@ -462,6 +462,7 @@ fn record_admitted_launch(
         identity_id: agent.into(),
         binding_id: binding.id,
         owner_pid: owner.pid(),
+        startup_input: false,
         owner_start: owner.start_identity().into(),
     }
 }
@@ -2181,6 +2182,90 @@ struct SteppedProvider {
 }
 
 impl SteppedProvider {
+    fn script() -> &'static str {
+        "echo $$ > \"$1/provider.pid\"
+                 if [ -e \"$1/ignore-term\" ]; then trap 'printf \"TERM\\n\" >> \"$1/terms\"' TERM; fi
+                 if [ -e \"$1/hang\" ]; then trap '' HUP
+                   i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 0; fi
+                 i=0; while :; do w=0
+                   while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
+                   if [ -e \"$1/$i.json\" ]; then
+                     (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
+                      if [ -e \"$1/$i.digest\" ]; then
+                        exec \"$0\" __digest-hook \"$2\" --discover-launch < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      elif [ -e \"$1/$i.activity\" ]; then
+                        exec \"$0\" __hook \"$2\" --activity-only < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      else
+                        exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      fi); echo $? > \"$1/$i.status\"
+                   elif [ -e \"$1/$i.args\" ]; then
+                     (t=\"$0\"; s=\"$1/$i\"; set --
+                      while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
+                      while IFS= read -r v; do export \"$v\"; done < \"$s.env\"
+                      exec \"$t\" \"$@\" > \"$s.out\" 2> \"$s.err\"); echo $? > \"$1/$i.status\"
+                   else exit 0; fi
+                   touch \"$1/$i.done\"; i=$((i+1))
+                 done"
+    }
+
+    /// Own a real tmt run, with the same stepped fake provider below it.
+    fn start_managed(fixture: &Fixture, provider: &'static str, name: &str, resume: bool) -> Self {
+        use std::os::unix::process::CommandExt;
+        let steps = fixture.root.join(name);
+        fs::create_dir_all(&steps).unwrap();
+        let bin = fixture.root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join(provider);
+        let tmt = fixture.command_in(Some("f1"), &[]);
+        let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+        let native = bin.join("native");
+        fs::create_dir_all(&native).unwrap();
+        let peer = native.join(provider);
+        std::os::unix::fs::symlink("/bin/sh", &peer).unwrap();
+        // Exec the same named native shell stand-in as start_below. A shebang
+        // shell alone has no provider comm name for independent-hook ancestry.
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.5.2; exit 0; fi\nprintf '%s' \"$TMT_LAUNCH_OBSERVATION\" > {}/launch\nexec {} -c {} {} {} {}\n",
+            quote(steps.to_str().unwrap()),
+            quote(peer.to_str().unwrap()),
+            quote(Self::script()),
+            quote(tmt.get_program().to_str().unwrap()),
+            quote(steps.to_str().unwrap()),
+            quote(provider)
+        );
+        tmt_test_support::write_executable(&executable, script.as_bytes(), 0o700).unwrap();
+        let args = if resume {
+            vec!["resume", "--no-channel", "worker"]
+        } else {
+            vec![
+                "run",
+                "--no-channel",
+                "worker",
+                executable.to_str().unwrap(),
+            ]
+        };
+        let mut command = fixture.command_in(Some("f1"), &args);
+        command.env(
+            "PATH",
+            format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
+        );
+        let child = command
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(fs::File::create(steps.join("run.out")).unwrap())
+            .stderr(fs::File::create(steps.join("run.err")).unwrap())
+            .spawn()
+            .unwrap();
+        Self {
+            child,
+            provider,
+            steps,
+            next: 0,
+            shell: true,
+            launch: None,
+        }
+    }
+
     fn start(fixture: &Fixture, provider: &'static str, name: &str) -> Self {
         Self::start_in(fixture, provider, name, "f1", false)
     }
@@ -2269,29 +2354,7 @@ impl SteppedProvider {
         // or a command (`<i>.args`, one argument a line), with the
         // `NAME=value` lines of `<i>.env` exported. With `hang`, it ignores
         // its stop file and SIGHUP, for a cleanup test.
-        let script = "echo $$ > \"$1/provider.pid\"
-                 if [ -e \"$1/ignore-term\" ]; then trap 'printf \"TERM\\n\" >> \"$1/terms\"' TERM; fi
-                 if [ -e \"$1/hang\" ]; then trap '' HUP
-                   i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 0; fi
-                 i=0; while :; do w=0
-                   while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
-                   if [ -e \"$1/$i.json\" ]; then
-                     (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
-                      if [ -e \"$1/$i.digest\" ]; then
-                        exec \"$0\" __digest-hook \"$2\" --discover-launch < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
-                      elif [ -e \"$1/$i.activity\" ]; then
-                        exec \"$0\" __hook \"$2\" --activity-only < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
-                      else
-                        exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
-                      fi); echo $? > \"$1/$i.status\"
-                   elif [ -e \"$1/$i.args\" ]; then
-                     (t=\"$0\"; s=\"$1/$i\"; set --
-                      while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
-                      while IFS= read -r v; do export \"$v\"; done < \"$s.env\"
-                      exec \"$t\" \"$@\" > \"$s.out\" 2> \"$s.err\"); echo $? > \"$1/$i.status\"
-                   else exit 0; fi
-                   touch \"$1/$i.done\"; i=$((i+1))
-                 done";
+        let script = Self::script();
         let mut command = if let Some((outermost, inner)) = ancestors.split_first() {
             // Each ancestor waits for the next (`; :` keeps it from replacing
             // itself with it). The outermost leads a group the test owns.

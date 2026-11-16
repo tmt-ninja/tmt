@@ -13,6 +13,9 @@ pub struct HookLaunch {
     pub binding_id: String,
     pub owner_pid: u64,
     pub owner_start: String,
+    /// The managed command has no initial prompt and uses interactive input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub startup_input: bool,
 }
 
 impl HookLaunch {
@@ -217,6 +220,6 @@ pub fn decode_activity_session(
 }
 
 /// Whether a payload field is present, an explicit null included.
-fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+pub(crate) fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
     serde::de::Deserialize::deserialize(deserializer).map(|_: serde::de::IgnoredAny| true)
 }

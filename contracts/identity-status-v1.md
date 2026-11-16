@@ -420,3 +420,33 @@ tells the user to exit the agent in that pane, then run `tmt resume -- <name>`.
 Without remembered coordinates, it names `tmt setup` and the next prompt needed
 to learn a session through installed hooks. No hook installation, process
 signal, automatic relaunch or guessed session is implied.
+
+### Initial activity of managed launches
+
+A verified main-agent Claude Code `SessionStart` (`startup`, or resume at launch),
+without `prompt_id`, can establish initial Idle in its exact managed launch before
+any turn. Pi's interactive `session_start` can do so only from the bridge prepared
+for Pi >= 1.5.2; older Pi stays Unknown. The launcher must have selected a
+plain interactive command with no initial prompt. Unknown arguments do not qualify;
+channel enrollment retains its own transport readiness.
+The optional internal launch coordinate `startup_input` records that selection;
+it is not authority without the existing native launch-owner, child, binding,
+provider-session and preferences verification/CAS. A hook before foreground
+admission carries the observation through the same pending-start transaction.
+Foreground admission records its selected driver/channel and advances the intent's
+preference fingerprint together, only while the old intent, owner and complete
+preferences still match. A concurrent edit cannot renew that fence.
+
+The driver state owns this initial activity. Replayed starts retain activity and
+timestamps already observed in that process incarnation; they cannot overwrite
+Working/Waiting or a later turn. Exit, rebinding or a changed session invalidates
+readiness. Pi's synchronous UI prompt events use this same activity owner,
+including a prompt before the first model turn; its explicit idle report on UI
+close restores Idle. A UI opening cannot leave startup readiness active.
+This adds no Digest exception: delivery still uses its usual live,
+activity, approval, channel and checklist guards. A process seen without a hook
+remains Unknown. Codex and agy starts remain Unknown: Codex 0.169 dispatches its
+start inside the first turn; agy documents only a pre-model boundary.
+Provider evidence and audited pins: [#6447 evidence table](https://github.com/tmt-ninja/tmt/issues/6447#issuecomment-6910558066),
+[Claude contract](https://code.claude.com/docs/en/hooks#sessionstart), and
+[Pi input queue](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L3512-L3523).

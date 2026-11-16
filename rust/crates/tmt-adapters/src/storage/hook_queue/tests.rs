@@ -1363,6 +1363,7 @@ fn a_diagnostic_only_stop_cannot_restore_a_warning_after_a_new_prompt() {
             identity_id: w.agent.clone(),
             binding_id: binding.id.clone(),
             owner_pid: w.process.pid(),
+            startup_input: false,
             owner_start: w.process.start_identity().into(),
         };
         // Diagnostic admission reads a WAL snapshot while the main writer is held.

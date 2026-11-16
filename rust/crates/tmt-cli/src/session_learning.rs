@@ -533,7 +533,7 @@ impl Learning {
             transition: event.transition().ok_or(())?,
             session: event.session().clone(),
             mode,
-            state: event.driver_state(previous, now),
+            state: event.launch_state(previous, process, self.launch.startup_input, now),
             observed_at_ms: now,
         };
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;

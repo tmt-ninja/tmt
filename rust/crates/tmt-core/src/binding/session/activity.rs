@@ -28,6 +28,10 @@ impl ActivityPhase {
 pub enum EventKind {
     TurnStarted,
     ApprovalPrompt,
+    /// A synchronous provider UI prompt can open before any model turn.
+    InputPrompt {
+        initial: bool,
+    },
     ToolFinished,
     TurnEnded,
     /// The end of a turn that an earlier end already closed and a provider
@@ -39,7 +43,7 @@ impl EventKind {
     pub fn phase(self) -> ActivityPhase {
         match self {
             Self::TurnStarted | Self::ToolFinished => ActivityPhase::Working,
-            Self::ApprovalPrompt => ActivityPhase::Waiting,
+            Self::ApprovalPrompt | Self::InputPrompt { .. } => ActivityPhase::Waiting,
             Self::TurnEnded | Self::ContinuationEnded => ActivityPhase::Idle,
         }
     }
@@ -101,14 +105,20 @@ impl Activity {
                     && (event.kind.phase() == previous.phase
                         || (event.kind == EventKind::TurnStarted && event.turn.is_some())
                         || (previous.phase == ActivityPhase::Idle
-                            && event.kind != EventKind::TurnStarted))
+                            && !matches!(
+                                event.kind,
+                                EventKind::TurnStarted | EventKind::InputPrompt { .. }
+                            )))
                 {
                     return None;
                 }
             } else if event.kind != EventKind::TurnStarted {
                 return None;
             }
-        } else if event.kind != EventKind::TurnStarted {
+        } else if !matches!(
+            event.kind,
+            EventKind::TurnStarted | EventKind::InputPrompt { initial: true }
+        ) {
             // An end needs an admitted start in this exact session/incarnation.
             return None;
         }
@@ -136,6 +146,60 @@ mod tests {
             turn: turn.map(|id| ProviderSessionId::new(id).unwrap()),
         }
     }
+    #[test]
+    fn a_synchronous_ui_can_wait_before_the_first_turn_then_report_idle() {
+        let session = ProviderSessionId::new("startup").unwrap();
+        let process = ProcessIncarnation::new(1, "process").unwrap();
+        let signal = |kind| Event { kind, turn: None };
+        assert!(
+            Activity::observe(
+                None,
+                &session,
+                &process,
+                &signal(EventKind::ApprovalPrompt),
+                1
+            )
+            .is_none()
+        );
+        assert!(
+            Activity::observe(
+                None,
+                &session,
+                &process,
+                &signal(EventKind::InputPrompt { initial: false }),
+                1
+            )
+            .is_none()
+        );
+        let waiting = Activity::observe(
+            None,
+            &session,
+            &process,
+            &signal(EventKind::InputPrompt { initial: true }),
+            1,
+        )
+        .unwrap();
+        assert_eq!(waiting.phase, ActivityPhase::Waiting);
+        let idle = Activity::observe(
+            Some(&waiting),
+            &session,
+            &process,
+            &signal(EventKind::TurnEnded),
+            2,
+        )
+        .unwrap();
+        assert_eq!(idle.phase, ActivityPhase::Idle);
+        let waiting = Activity::observe(
+            Some(&idle),
+            &session,
+            &process,
+            &signal(EventKind::InputPrompt { initial: true }),
+            3,
+        )
+        .unwrap();
+        assert_eq!(waiting.phase, ActivityPhase::Waiting);
+    }
+
     #[test]
     fn a_continued_turn_ends_again_once_while_ordinary_duplicates_stay_refused() {
         let session = ProviderSessionId::new("session").unwrap();

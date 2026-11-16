@@ -20,6 +20,8 @@ use tmt_core::endpoint::ProcessIncarnation;
 
 const NAME: &str = tmt_core::driver::descriptor::PI.name;
 const MIN_VERSION: (u64, u64, u64) = (1, 3, 0);
+// Audited normal-input buffering before session_start (#6447).
+const STARTUP_IDLE_VERSION: (u64, u64, u64) = (1, 5, 2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 const EXTENSION_FILE_NAME: &str = "tmt-pi-extension.mjs";
 const EMBEDDED_EXTENSION: &str = include_str!("pi/tmt-pi-extension.mjs");
@@ -73,6 +75,7 @@ pub struct PiObservation {
     pub model: Option<String>,
     pub transition: SessionTransition,
     pub starting: bool,
+    pub startup_ready: bool,
 }
 
 impl PiObservation {
@@ -113,6 +116,9 @@ impl PiObservation {
                 {
                     return current.admit(key, self.transition, RuntimeLiveness::Alive);
                 }
+                if self.transition == SessionTransition::Started {
+                    return current.admit(key, self.transition, RuntimeLiveness::Alive);
+                }
                 let mut next = current.transition(&key, self.transition, None)?;
                 if matches!(
                     self.transition,
@@ -130,6 +136,9 @@ impl PiObservation {
 }
 
 impl crate::runtime::lifecycle::LifecycleObservation for PiObservation {
+    fn startup_ready(&self) -> bool {
+        self.startup_ready
+    }
     fn session(&self) -> &ProviderSessionId {
         &self.session
     }
@@ -179,6 +188,10 @@ struct Payload {
     reason: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    startup_ready: bool,
+    #[serde(default)]
+    idle: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,7 +234,10 @@ pub fn decode_hook(bytes: &[u8]) -> Result<PiObservation, HookInputError> {
         | "model_select" => (SessionTransition::Started, false),
         _ => return Err(HookInputError::Invalid),
     };
+    let startup_ready =
+        starting && payload.reason.as_deref() == Some("startup") && payload.startup_ready;
     Ok(PiObservation {
+        startup_ready,
         session,
         model,
         transition,
@@ -242,7 +258,7 @@ fn parse_semver(output: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-fn check_version(runner: &dyn CommandRunner, executable: &OsString) -> io::Result<()> {
+fn check_version(runner: &dyn CommandRunner, executable: &OsString) -> io::Result<bool> {
     let args = [OsString::from("--version")];
     let output = runner
         .execute(crate::process::CommandRequest {
@@ -270,7 +286,11 @@ fn check_version(runner: &dyn CommandRunner, executable: &OsString) -> io::Resul
             version.0, version.1, version.2
         )));
     }
-    Ok(())
+    let stable_floor = stdout
+        .split_whitespace()
+        .find(|word| word.bytes().any(|byte| byte.is_ascii_digit()))
+        .is_some_and(|word| !word.split('+').next().unwrap_or(word).contains('-'));
+    Ok(version > STARTUP_IDLE_VERSION || (version == STARTUP_IDLE_VERSION && stable_floor))
 }
 
 fn extension_up_to_date(path: &Path, expected: &[u8]) -> bool {
@@ -286,16 +306,31 @@ fn extension_up_to_date(path: &Path, expected: &[u8]) -> bool {
     fs::read(path).is_ok_and(|bytes| bytes == expected)
 }
 
-fn render_extension(launcher: &str) -> io::Result<String> {
+fn render_extension(launcher: &str, startup_ready: bool) -> io::Result<String> {
     let quoted = serde_json::to_string(launcher).map_err(io::Error::other)?;
-    Ok(EMBEDDED_EXTENSION.replace("__TMT_HOOK_BIN__", &quoted))
+    Ok(EMBEDDED_EXTENSION
+        .replace("__TMT_HOOK_BIN__", &quoted)
+        .replace(
+            "__TMT_STARTUP_READY__",
+            if startup_ready { "true" } else { "false" },
+        ))
 }
 
-fn materialize_extension(state_directory: &Path, launcher: &str) -> io::Result<PathBuf> {
+fn materialize_extension(
+    state_directory: &Path,
+    launcher: &str,
+    startup_ready: bool,
+) -> io::Result<PathBuf> {
     let pi_dir = state_directory.join(NAME);
     crate::private_file::ensure_private_directory(&pi_dir)?;
-    let path = pi_dir.join(EXTENSION_FILE_NAME);
-    let content = render_extension(launcher)?;
+    // Keep both immutable capability variants: an older concurrent launch must
+    // not replace the bridge a newer process has yet to load.
+    let path = pi_dir.join(if startup_ready {
+        "tmt-pi-extension-ready.mjs"
+    } else {
+        EXTENSION_FILE_NAME
+    });
+    let content = render_extension(launcher, startup_ready)?;
     if !extension_up_to_date(&path, content.as_bytes()) {
         crate::private_file::replace(&path, content.as_bytes())?;
     }
@@ -317,8 +352,9 @@ fn prepare_launch_with_runner(
     let state_directory = plan
         .state_directory
         .ok_or_else(|| io::Error::other("Missing state directory for pi extension."))?;
-    check_version(runner, &plan.command.executable)?;
-    let extension_path = materialize_extension(state_directory, launcher)?;
+    let startup_ready =
+        check_version(runner, &plan.command.executable)? && plan.launch.startup_input;
+    let extension_path = materialize_extension(state_directory, launcher, startup_ready)?;
     let mut command = plan.command.clone();
     let boundary = command
         .args
@@ -485,6 +521,30 @@ impl tmt_core::driver::Driver for PiRuntime {
 pub struct PiLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
+    fn startup_input(&self, command: &crate::runtime::RuntimeCommand) -> bool {
+        crate::runtime::launch_preset::empty_prompt(
+            &command.args,
+            &[
+                "--session",
+                "--model",
+                "--thinking",
+                "--provider",
+                "--tools",
+                "--extension",
+                "-e",
+                "--agent-dir",
+            ],
+            &[
+                "--continue",
+                "-c",
+                "--resume",
+                "-r",
+                "--no-skills",
+                "--no-extensions",
+            ],
+        )
+    }
+
     fn launch_settings(&self, args: &[OsString]) -> crate::runtime::launch_preset::LaunchSettings {
         crate::runtime::launch_preset::flags(args, &["--model"], &["--thinking"], false)
     }
@@ -581,7 +641,10 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         let (payload, _) = parse_payload(bytes).ok()?;
         let kind = match payload.event.as_str() {
             "before_agent_start" => EventKind::TurnStarted,
-            "ui_prompt_start" => EventKind::ApprovalPrompt,
+            "ui_prompt_start" => EventKind::InputPrompt {
+                initial: payload.startup_ready,
+            },
+            "ui_prompt_end" if payload.idle => EventKind::TurnEnded,
             "ui_prompt_end" => EventKind::ToolFinished,
             "agent_settled" => EventKind::TurnEnded,
             _ => return None,
@@ -590,6 +653,11 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
             event: Event { kind, turn: None },
             model: concrete_model(payload.model.as_deref()),
         })
+    }
+
+    fn decode_activity_session(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        let (payload, session) = parse_payload(bytes).ok()?;
+        matches!(payload.event.as_str(), "ui_prompt_start" | "ui_prompt_end").then_some(session)
     }
 
     fn activity_state(
@@ -826,6 +894,7 @@ mod tests {
             identity_id: "11111111-1111-4111-8111-111111111111".into(),
             binding_id: "22222222-2222-4222-8222-222222222222".into(),
             owner_pid: 42,
+            startup_input: true,
             owner_start: "100".into(),
         }
     }
@@ -881,10 +950,39 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(&ext_path).unwrap(),
-            render_extension("/usr/local/bin/tmt").unwrap()
+            render_extension("/usr/local/bin/tmt", false).unwrap()
         );
-        let quoted_ext = render_extension("/a b/tm\"t\\x").unwrap();
+        let quoted_ext = render_extension("/a b/tm\"t\\x", false).unwrap();
         assert!(quoted_ext.contains("const HOOK_BIN = \"/a b/tm\\\"t\\\\x\";"));
+
+        // Old and audited-capability bridges coexist for concurrent launches.
+        let ready = prepare_launch_with_runner(&plan, &StubRunner("1.5.2\n")).unwrap();
+        assert_ne!(ready.args, prepared.args);
+        let ready_path = Path::new(&ready.args[1]);
+        assert!(
+            fs::read_to_string(ready_path)
+                .unwrap()
+                .contains("const STARTUP_READY = true;")
+        );
+        assert!(
+            fs::read_to_string(&ext_path)
+                .unwrap()
+                .contains("const STARTUP_READY = false;")
+        );
+        let mut prompted_launch = plan.launch.clone();
+        prompted_launch.startup_input = false;
+        let prompted_plan = crate::runtime::hook_protocol::LaunchHooks {
+            launch: &prompted_launch,
+            ..plan
+        };
+        let prompted = prepare_launch_with_runner(&prompted_plan, &StubRunner("1.5.2\n")).unwrap();
+        assert_eq!(
+            prompted.args, prepared.args,
+            "an initial prompt is not ready"
+        );
+        assert!(!check_version(&StubRunner("1.5.1\n"), &cmd.executable).unwrap());
+        assert!(check_version(&StubRunner("1.5.2\n"), &cmd.executable).unwrap());
+        assert!(!check_version(&StubRunner("1.5.2-rc.1\n"), &cmd.executable).unwrap());
 
         // Tampered bytes or wrong permissions are rewritten atomically.
         fs::write(&ext_path, b"tampered").unwrap();
@@ -900,9 +998,9 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(&ext_path).unwrap(),
-            render_extension("/usr/local/bin/tmt").unwrap()
+            render_extension("/usr/local/bin/tmt", false).unwrap()
         );
-        let quoted_ext = render_extension("/a b/tm\"t\\x").unwrap();
+        let quoted_ext = render_extension("/a b/tm\"t\\x", false).unwrap();
         assert!(quoted_ext.contains("const HOOK_BIN = \"/a b/tm\\\"t\\\\x\";"));
     }
 
@@ -921,6 +1019,22 @@ mod tests {
         assert!(obs.starting);
         assert_eq!(obs.transition, SessionTransition::Started);
         assert_eq!(obs.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert!(!obs.startup_ready);
+        let mut ready = start.clone();
+        ready["startup_ready"] = true.into();
+        assert!(
+            decode_hook(ready.to_string().as_bytes())
+                .unwrap()
+                .startup_ready
+        );
+        for reason in ["reload", "resume", "new", "fork", "future"] {
+            ready["reason"] = reason.into();
+            assert!(
+                !decode_hook(ready.to_string().as_bytes())
+                    .unwrap()
+                    .startup_ready
+            );
+        }
 
         let future_start = json!({
             "event": "session_start",
@@ -933,7 +1047,7 @@ mod tests {
 
         for (ev, expected_kind) in [
             ("before_agent_start", EventKind::TurnStarted),
-            ("ui_prompt_start", EventKind::ApprovalPrompt),
+            ("ui_prompt_start", EventKind::InputPrompt { initial: false }),
             ("ui_prompt_end", EventKind::ToolFinished),
             ("agent_settled", EventKind::TurnEnded),
         ] {

@@ -275,6 +275,7 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
             session: ProviderSessionId::new("new").unwrap(),
             model: None,
             context_tokens: None,
+            startup_ready: false,
             starting: true,
             transition: SessionTransition::Started,
         };
@@ -328,6 +329,7 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
                     event: &event,
                     harness: &harness,
                     mode: &mode,
+                    launch: None,
                     fence_preferences: true,
                 },
             )
@@ -345,6 +347,7 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
                 event: &event,
                 harness: &harness,
                 mode: &mode,
+                launch: None,
                 fence_preferences: true,
             },
         )

@@ -128,6 +128,23 @@ pub(super) fn begin(
         .map(|n|n==1).map_err(|e|classify(e,"Record launch intent"))
 }
 
+/// Called by set_launch_preferences after its old-intent/preferences CAS and
+/// preference write, within the same binding writer transaction. Never an idle grant.
+pub(super) fn advance_preferences(
+    db: &Connection,
+    expected: &LaunchObservation,
+) -> Result<bool, StorageError> {
+    if expected.status != LaunchStatus::Intent
+        || read(db, &expected.binding_id, &expected.owner)?.as_ref() != Some(expected)
+    {
+        return Ok(false);
+    }
+    let fingerprint = preferences_fingerprint(db, &expected.binding_id)?;
+    db.execute("UPDATE launch_observations SET preferences_fingerprint=? WHERE binding_id=? AND owner_pid=? AND owner_start=? AND preferences_fingerprint=? AND status='intent'",
+        params![fingerprint,expected.binding_id,expected.owner.pid() as i64,expected.owner.start_identity(),expected.preferences_fingerprint])
+        .map(|count| count == 1).map_err(|error|classify(error,"Advance owned launch preference fence"))
+}
+
 pub(super) fn replace(
     db: &Connection,
     expected: &LaunchObservation,
@@ -297,6 +314,8 @@ mod tests {
             .identity;
         let binding = storage
             .with_binding_transaction(|records| {
+                // Keep a canonical stored baseline for the edit/restore controls below.
+                assert!(records.set_session_preferences(&identity.id, &Default::default())?);
                 records.insert_binding(
                     &identity,
                     &ServerEvidence {
@@ -339,6 +358,58 @@ mod tests {
             storage
                 .with_binding_transaction(|records| records.launch_preferences_match(&intent))
                 .unwrap()
+        );
+        let advanced = storage.with_binding_transaction::<_, StorageError>(|records| {
+            let current = records.entry_by_id(&identity.id)?.unwrap().binding.unwrap();
+            let session = current
+                .session
+                .admit_launched(
+                    tmt_core::binding::session::ObservedSessionKey {
+                        incarnation: ProcessIncarnation::new(71, "provider").unwrap(),
+                        provider_session: None,
+                    },
+                    owner.clone(),
+                    SessionTransition::Started,
+                    tmt_core::binding::session::RuntimeLiveness::Alive,
+                    tmt_core::binding::session::RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            assert!(records.set_session_state(&current.id, &current.session, &session)?);
+            let original = records.session_preferences(&identity.id)?;
+            let mut selected = original.clone();
+            selected.launched(&driver);
+            selected.channel = Some(false);
+            let mut concurrent = original.clone();
+            concurrent.launched(&driver);
+            concurrent.channel = Some(true);
+            assert!(records.set_session_preferences(&identity.id, &concurrent)?);
+            assert!(
+                !records.set_launch_preferences(&intent, &identity.id, &selected)?,
+                "a concurrent edit cannot be blessed as the launch's update"
+            );
+            assert_eq!(records.session_preferences(&identity.id)?, concurrent);
+            assert_eq!(
+                records.launch_observation(&binding.id, &owner)?.unwrap(),
+                intent
+            );
+            assert!(records.set_session_preferences(&identity.id, &original)?);
+            assert!(records.set_launch_preferences(&intent, &identity.id, &selected)?);
+            let updated = records.launch_observation(&binding.id, &owner)?.unwrap();
+            assert!(records.launch_preferences_match(&updated)?);
+            assert!(!records.launch_preferences_match(&intent)?);
+            assert!(
+                !records.set_launch_preferences(&intent, &identity.id, &selected)?,
+                "an old intent cannot renew the preference fence"
+            );
+            assert_eq!(records.session_preferences(&identity.id)?, selected);
+            Err::<(), _>(StorageError::new(
+                StorageErrorCode::Unknown,
+                "roll back owned preference control",
+            ))
+        });
+        assert_eq!(
+            advanced.unwrap_err().message,
+            "roll back owned preference control"
         );
         let changed = storage.with_binding_transaction::<_, StorageError>(|records| {
             let mut preferences = records.session_preferences(&identity.id)?;

@@ -311,7 +311,9 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
     provider sets it from its own valid reported model, and clears it otherwise. The kept
     resume model is not evidence, and caller discovery clears it. A compaction start also keeps
     the stored activity (a provider compacts inside a running turn, and the turn's end must
-    still find its start, #5268); every other start clears it.
+    still find its start, #5268). Verified managed starts preserve later activity in their
+    incarnation. Initial Claude/Pi readiness and the Codex/agy Unknown boundary belong to
+    [initial activity](../../../../contracts/identity-status-v1.md#initial-activity-of-managed-launches).
 - One identity has one current binding/runtime and one exact resume record per driver.
   `SessionPreferences::retained` holds inactive records and their own channel choice;
   selecting a driver does not assert liveness. Storage schema 62 keeps inactive records in

@@ -197,7 +197,28 @@ pub(crate) fn admit_foreground(
             }
             return Ok(None);
         }
-        remember_driver(records, &binding.identity_id, claim.as_ref())?;
+        if let (Some(observed), Some(driver)) = (&learning, &claim)
+            && observed.status == tmt_core::binding::session::launch::LaunchStatus::Intent
+            && !already_exited
+            && !already_stopped
+        {
+            let mut owned_preferences = records.session_preferences(&binding.identity_id)?;
+            owned_preferences.launched(driver);
+            if let Some(channel) = input.channel {
+                owned_preferences.channel = Some(channel);
+            }
+            // Keep the old-intent preference CAS. Only this launch's own selected
+            // driver/channel write advances its fingerprint atomically.
+            if !records.set_launch_preferences(
+                observed,
+                &binding.identity_id,
+                &owned_preferences,
+            )? {
+                remember_driver(records, &binding.identity_id, claim.as_ref())?;
+            }
+        } else {
+            remember_driver(records, &binding.identity_id, claim.as_ref())?;
+        }
         if let (Some(pending), Some(driver)) = (&pending, &claim) {
             let mut preferences = records.session_preferences(&binding.identity_id)?;
             preferences.remember(
@@ -213,6 +234,11 @@ pub(crate) fn admit_foreground(
             }
         }
         if let Some(observed) = &learning {
+            // The owned preference write may have advanced the intent's fence.
+            // Settle that exact row under this same writer, not its old fingerprint.
+            let observed = records
+                .launch_observation(&binding.id, &observed.owner)?
+                .ok_or_else(conflict)?;
             use tmt_core::binding::session::launch::{
                 LaunchStatus, SessionLearningDiagnostic, SessionLearningReason, SessionLearningStep,
             };
@@ -222,11 +248,11 @@ pub(crate) fn admit_foreground(
                 .and_then(|key| key.provider_session.as_ref())
                 .is_some();
             if learned {
-                crate::session_learning::settle(records, observed, LaunchStatus::Admitted, None)?;
+                crate::session_learning::settle(records, &observed, LaunchStatus::Admitted, None)?;
             } else if already_exited || already_stopped || observed.pending.is_some() {
                 crate::session_learning::settle(
                     records,
-                    observed,
+                    &observed,
                     LaunchStatus::Settled,
                     Some(SessionLearningDiagnostic::new(
                         SessionLearningStep::Storage,

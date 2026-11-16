@@ -423,6 +423,7 @@ fn verified_observation(
             event: event.as_ref(),
             harness: &harness,
             mode: &mode,
+            launch: None,
             fence_preferences: true,
         },
     );

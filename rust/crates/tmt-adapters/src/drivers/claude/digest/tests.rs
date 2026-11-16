@@ -22,6 +22,7 @@ fn fixture(
         identity_id: "11111111-1111-4111-8111-111111111111".into(),
         binding_id: "22222222-2222-4222-8222-222222222222".into(),
         owner_pid: 42,
+        startup_input: false,
         owner_start: "start' token".into(),
     };
     let prepared = prepare(&LaunchHooks {
@@ -71,6 +72,7 @@ fn explicit_regular_file_is_read_without_rewriting_it() {
         identity_id: "11111111-1111-4111-8111-111111111111".into(),
         binding_id: "22222222-2222-4222-8222-222222222222".into(),
         owner_pid: 42,
+        startup_input: false,
         owner_start: "start".into(),
     };
     let command = RuntimeCommand {
@@ -185,6 +187,7 @@ fn disabled_ambiguous_and_edited_settings_refuse_composition() {
         identity_id: "11111111-1111-4111-8111-111111111111".into(),
         binding_id: "22222222-2222-4222-8222-222222222222".into(),
         owner_pid: 42,
+        startup_input: false,
         owner_start: "start".into(),
     };
     for args in [
