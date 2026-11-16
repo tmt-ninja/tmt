@@ -70,8 +70,10 @@ if args[0]=='check':
 wire=json.load(sys.stdin)
 receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
-if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show'):
-    observation_gate()
+if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show','user.person'):
+    selected=root/'observation-operation'
+    if (not selected.exists() and wire['operation']!='user.person') or (selected.exists() and selected.read_text()==wire['operation']):
+        observation_gate()
 if wire['operation']=='storage.root':
     print(json.dumps({'dataRoot':(root/'storage-root').read_text()}));sys.exit(0)
 if wire['operation']=='dispatch.show':
@@ -101,6 +103,10 @@ elif wire['operation']=='user.identity':
     person={'identityId':'22222222-2222-4222-8222-222222222222','name':'owner','created':False}
     if (root/'identity-renamed').exists(): person.update({'name':'owner-user','renamedFrom':'owner'})
     print(json.dumps(person))
+elif wire['operation']=='user.person':
+    if (root/'person-error').exists():
+        print(json.dumps({'error':{'code':'API_UNAVAILABLE','message':'person unavailable'}}));sys.exit(1)
+    print((root/'person').read_text() if (root/'person').exists() else json.dumps({'person':{'identityId':'22222222-2222-4222-8222-222222222222','name':'owner'}}))
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
 elif wire['operation']=='requests.list':

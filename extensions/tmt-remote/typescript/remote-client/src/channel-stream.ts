@@ -2,8 +2,8 @@
  * recipients' replies under it, and the box that posts to the room. A post goes to the squad lead,
  * or to each member it @mentions; it carries the room exactly as the board names it, so a stale
  * roster revision comes back refused with Core's reason and the person sends again after the board
- * refreshes. The room read has no change positions yet, so the channel shows no unread count and
- * refreshes by rereading its newest page. */
+ * refreshes. Room refreshes carry Core's last observed position; unknown change coverage still
+ * uses the returned newest page, without inventing an unread count. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
 import { el } from './ops-parts.js';
 import { opsHref } from './ops-menu.js';
@@ -126,6 +126,7 @@ export function channelStream(
   let channel: ChannelRoom | undefined;
   let roomId: string | undefined;
   let olderCursor: ConversationCursor | null | undefined;
+  let changePosition: string | undefined;
   let generation = 0,
     running = false,
     wanted = false,
@@ -467,8 +468,13 @@ export function channelStream(
       reading = roomId,
       mark = now.mark();
     try {
-      const page = await port.readRoom(reading, { limit: 20, ...(before ? { before } : {}) });
+      const page = await port.readRoom(reading, {
+        limit: 20,
+        ...(before ? { before } : changePosition ? { since: changePosition } : {}),
+      });
       if (ticket !== generation || reading !== roomId) return true;
+      // Older pagination never moves the newest-page observation baseline.
+      if (!before) changePosition = page.changePosition;
       for (const item of page.items) items.set(item.requestId, item);
       if (before || olderCursor === undefined) olderCursor = page.nextBefore;
       emptyTitle.textContent = 'No channel messages yet';
@@ -554,6 +560,7 @@ export function channelStream(
         threadKey = undefined;
         drawThread([]);
         olderCursor = undefined;
+        changePosition = undefined;
         stream.reset();
         olderButton.hidden = true;
         emptyTitle.textContent = 'No channel messages yet';

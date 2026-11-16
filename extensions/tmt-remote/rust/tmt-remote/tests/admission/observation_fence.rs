@@ -74,6 +74,14 @@ fn overlap(operation: &str, change: During) {
     assert!(owner.sessions.current(&binding));
     let id = uuid_v4().unwrap();
     let request = format!("req_{id}");
+    let envelope_operation = if operation == "orchestration.person" {
+        "orchestration.read"
+    } else {
+        operation
+    };
+    if operation == "orchestration.person" {
+        fs::write(core.root.join("observation-operation"), "user.person").unwrap();
+    }
     let payload = match operation {
         "agents.list" => json!({}),
         "identities.status" => {
@@ -82,12 +90,17 @@ fn overlap(operation: &str, change: During) {
         "check" => json!({"agentId":id,"lines":1}),
         "requests.show" => json!({"version":1,"operation":operation,"input":{"requestId":request}}),
         "result" => json!({"requestId":request}),
-        "orchestration.read" => {
-            json!({"version":1,"operation":operation,"input":{"view":"routes","limit":256}})
+        "orchestration.read" | "orchestration.person" => {
+            json!({"version":1,"operation":envelope_operation,"input":{"view":"routes","limit":256}})
         }
         _ => unreachable!(),
     };
-    let wire = owner.wire(&session, "1", operation, payload.to_string().as_bytes());
+    let wire = owner.wire(
+        &session,
+        "1",
+        envelope_operation,
+        payload.to_string().as_bytes(),
+    );
     // An independent connection detects a retained SQLite observation transaction.
     let mut revoker = Store::open(&owner._serving).unwrap();
     let listener = UnixListener::bind(core.root.join("observation.sock")).unwrap();
@@ -139,17 +152,24 @@ fn overlap(operation: &str, change: During) {
     });
     assert_eq!(
         core.calls().len(),
-        1,
-        "one Core observation only: {operation}"
+        if operation == "orchestration.person"
+            || operation == "orchestration.read" && change == During::Currency
+        {
+            2
+        } else {
+            1
+        },
+        "only the admitted Core observations: {operation}"
     );
 }
-const READS: [&str; 6] = [
+const READS: [&str; 7] = [
     "agents.list",
     "identities.status",
     "check",
     "requests.show",
     "result",
     "orchestration.read",
+    "orchestration.person",
 ];
 #[test]
 fn object_currency_succeeds_while_core_observations_are_held() {

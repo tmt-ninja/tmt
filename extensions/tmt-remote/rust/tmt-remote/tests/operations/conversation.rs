@@ -23,7 +23,10 @@ fn conversation_scope_is_fixed_and_positions_are_not_reconstructed() {
         request(&json!({"roomId":MEMBER,"before":before})).unwrap(),
         json!({"version":1,"operation":"requests.list","input":{"roomId":MEMBER,"limit":20,"before":before}})
     );
-    assert!(request(&json!({"roomId":MEMBER,"since":"opaque"})).is_err());
+    assert_eq!(
+        request(&json!({"roomId":MEMBER,"since":"opaque"})).unwrap()["input"],
+        json!({"roomId":MEMBER,"limit":20,"since":"opaque"})
+    );
     assert!(request(&json!({"roomId":MEMBER,"memberId":MEMBER})).is_err());
     for since in [
         json!(null),
@@ -108,24 +111,60 @@ fn conversation_projection_keeps_only_the_viewer_pair_and_published_fields() {
         projected,
         "room rows never enter the DM stream or make its valid rows unavailable"
     );
-    let room_query = request(&json!({"roomId":MEMBER})).unwrap();
-    let room_raw = json!({"items":[raw["items"][1]],"nextBefore":null});
+    let room_query = request(&json!({"roomId":MEMBER,"since":"room_baseline"})).unwrap();
+    let mut room_raw = json!({"items":[raw["items"][1]],"nextBefore":null,"changePosition":"room_newer","changedSince":{"count":1,"more":false}});
+    room_raw["items"][0]["parentRequestId"] = json!(REQUEST);
+    room_raw["items"][0]["replyCount"] = json!(2);
+    // Room items have no per-item position in Core; do not invent one.
+    room_raw["items"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("changePosition");
     let room = super::response(&room_raw, &room_query).unwrap();
     assert_eq!(room["roomId"], MEMBER);
-    assert_eq!(room["changes"], "unknown");
-    for field in [
-        "direction",
-        "changePosition",
-        "responsePreview",
-        "previewTruncated",
-        "responseId",
-    ] {
+    assert_eq!(room["changePosition"], "room_newer");
+    assert_eq!(room["changedSince"], json!({"count":1,"more":false}));
+    assert_eq!(room["items"][0]["responsePreview"], "answer");
+    assert_eq!(room["items"][0]["parentRequestId"], REQUEST);
+    assert_eq!(room["items"][0]["replyCount"], 2);
+    for field in ["direction", "changePosition", "responseId"] {
         assert!(room["items"][0].get(field).is_none(), "{field}");
     }
-    assert!(room.get("changePosition").is_none());
+    assert!(room.get("changes").is_none());
+    for changed in [
+        json!("unknown"),
+        json!({"count":50,"more":true}),
+        json!({"count":0,"more":false}),
+    ] {
+        room_raw["changedSince"] = changed.clone();
+        assert_eq!(
+            super::response(&room_raw, &room_query).unwrap()["changedSince"],
+            changed
+        );
+    }
+    for (field, bad) in [
+        ("parentRequestId", json!("bad")),
+        ("replyCount", json!(-1)),
+        ("replyCount", json!(9007199254740992u64)),
+        ("responsePreview", json!("x".repeat(161))),
+        ("previewTruncated", json!(null)),
+    ] {
+        let mut malformed = room_raw.clone();
+        malformed["items"][0][field] = bad;
+        assert!(super::response(&malformed, &room_query).is_err(), "{field}");
+    }
+    let mut malformed = room_raw.clone();
+    malformed["changedSince"] = json!({"count":1,"more":true});
+    assert!(super::response(&malformed, &room_query).is_err());
+    let no_since = request(&json!({"roomId":MEMBER})).unwrap();
+    assert!(super::response(&room_raw, &no_since).is_err());
+    room_raw.as_object_mut().unwrap().remove("changedSince");
+    room_raw["items"][0]["parentRequestId"] = json!(null);
+    assert!(super::response(&room_raw, &no_since).is_ok());
+    assert!(super::response(&room_raw, &room_query).is_err());
     let mut wrong = room_raw.clone();
     wrong["items"][0]["roomId"] = json!("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-    assert!(super::response(&wrong, &room_query).is_err());
+    assert!(super::response(&wrong, &no_since).is_err());
 }
 #[test]
 fn malformed_or_cross_pair_conversations_are_unavailable_not_partial() {

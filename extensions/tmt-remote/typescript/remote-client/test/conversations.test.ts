@@ -94,15 +94,13 @@ test('conversation read freezes the exact scoped input and shares the existing s
     direction: _direction,
     changePosition: _position,
     responseId: _response,
-    responsePreview: _preview,
-    previewTruncated: _truncated,
     ...roomItem
   } = page().items[0]!;
   const roomPage = {
     roomId,
-    changes: 'unknown' as const,
+    changePosition: 'room_Position',
     nextBefore: null,
-    items: [{ ...roomItem, roomId }],
+    items: [{ ...roomItem, roomId, parentRequestId: null, replyCount: 2 }],
   };
   door.conversationReply = () => roomPage;
   assert.deepEqual(await client.readRoom(roomId, { limit: 20 }), roomPage);
@@ -111,8 +109,47 @@ test('conversation read freezes the exact scoped input and shares the existing s
     operation: 'requests.list',
     input: { roomId, limit: 20 },
   });
-  assert.throws(() => client.readRoom(roomId, { since: 'fake' } as never), TypeError);
-  assert.throws(() => parseRoom({ ...roomPage, changePosition: 'fake' }, roomId, {}));
+  for (const changedSince of [
+    'unknown',
+    { count: 0, more: false },
+    { count: 50, more: true },
+  ] as const) {
+    door.conversationReply = () => ({ ...roomPage, changedSince });
+    const changed = await client.readRoom(roomId, { since: 'previous_Position' });
+    assert.deepEqual(changed.changedSince, changedSince);
+    assert.equal(changed.changePosition, 'room_Position');
+    assert.deepEqual(door.calls.at(-1)!.payload, {
+      version: 1,
+      operation: 'requests.list',
+      input: { roomId, limit: 20, since: 'previous_Position' },
+    });
+  }
+  for (const changedSince of [{ count: 1, more: true }, { count: 51, more: false }, null]) {
+    assert.throws(() => parseRoom({ ...roomPage, changedSince }, roomId, { since: 'old' }));
+  }
+  assert.throws(() => parseRoom(roomPage, roomId, { since: 'old' }));
+  assert.throws(() => parseRoom({ ...roomPage, changedSince: 'unknown' }, roomId, {}));
+  assert.throws(() => parseRoom({ ...roomPage, changePosition: 'bad!' }, roomId, {}));
+  assert.throws(() => parseRoom({ ...roomPage, changes: 'unknown' }, roomId, {}));
+  for (const [field, bad] of [
+    ['parentRequestId', 'bad'],
+    ['replyCount', -1],
+    ['replyCount', Number.MAX_SAFE_INTEGER + 1],
+    ['responsePreview', 'x'.repeat(161)],
+    ['previewTruncated', null],
+  ] as const) {
+    assert.throws(() =>
+      parseRoom({ ...roomPage, items: [{ ...roomPage.items[0], [field]: bad }] }, roomId, {}),
+    );
+  }
+  assert.equal(
+    parseRoom(
+      { ...roomPage, items: [{ ...roomPage.items[0], parentRequestId: before.requestId }] },
+      roomId,
+      {},
+    ).items[0]!.parentRequestId,
+    before.requestId,
+  );
   for (const reason of ['owner_browser_required', 'all_agents_required'] as const) {
     door.conversationReply = () => ({
       error: { code: 'REMOTE_SCOPE_DENIED', message: 'Refused', scope: 'results.read', reason },

@@ -664,6 +664,10 @@ test('channel posts to the lead or each mention with the board room, and shows r
         requestId: 'req_00000011-cccc-4ccc-8ccc-cccccccccccc',
         recipientId: '00000000-0000-4000-8000-000000000001',
         roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        parentRequestId: null,
+        replyCount: 0,
+        responsePreview: null,
+        previewTruncated: false,
         sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
         kind: 'request',
         origin: 'person',
@@ -682,6 +686,10 @@ test('channel posts to the lead or each mention with the board room, and shows r
         requestId: 'req_00000012-cccc-4ccc-8ccc-cccccccccccc',
         recipientId: '00000000-0000-4000-8000-000000000001',
         roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        parentRequestId: null,
+        replyCount: 0,
+        responsePreview: null,
+        previewTruncated: false,
         sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
         kind: 'request',
         origin: 'person',
@@ -694,6 +702,10 @@ test('channel posts to the lead or each mention with the board room, and shows r
         requestId: 'req_00000013-cccc-4ccc-8ccc-cccccccccccc',
         recipientId: '00000000-0000-4000-8000-000000000001',
         roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+        parentRequestId: null,
+        replyCount: 0,
+        responsePreview: null,
+        previewTruncated: false,
         sender: { kind: 'verified', identityId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
         kind: 'announcement',
         origin: 'automation',
@@ -779,6 +791,9 @@ test('channel posts to the lead or each mention with the board room, and shows r
     '00000000-0000-4000-8000-000000000003',
   ]);
   expect(mentioned!.operationId).not.toBe(lead!.operationId);
+  expect(
+    await page.evaluate(() => window.roomCalls.some((input) => input.since === 'room_1')),
+  ).toBe(true);
   await expect(box).toHaveText('');
   // A post Core holds for two members: Send now asks for each one's request once, and a refusal
   // shows Core's sentence.
