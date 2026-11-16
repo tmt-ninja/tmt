@@ -3909,6 +3909,14 @@ fn scoped_hidden_squad_is_visible_and_escape_clear_is_carried_across_reload() {
         "clear has no neighbor recipient authority"
     );
     assert!(!app.workspace_selection_visible());
+    app.search = "pool".into();
+    app.workspace_reconcile();
+    let expected_rows: Vec<_> = app
+        .workspace_rows()
+        .iter()
+        .map(|row| row.target.clone())
+        .collect();
+    assert!(expected_rows.contains(&OpsTarget::Pool));
     let cleared = app.resume().unwrap();
     let mut reloaded = board();
     reloaded.workspace_startup = Some(crate::board::app::WorkspaceStartup {
@@ -3921,6 +3929,15 @@ fn scoped_hidden_squad_is_visible_and_escape_clear_is_carried_across_reload() {
     reloaded.workspace_reconcile();
     assert!(reloaded.workspace.visibility.scope.is_empty());
     assert!(reloaded.workspace_startup.is_none());
+    assert_eq!(reloaded.search, "pool");
+    assert_eq!(
+        reloaded
+            .workspace_rows()
+            .iter()
+            .map(|row| row.target.clone())
+            .collect::<Vec<_>>(),
+        expected_rows
+    );
 }
 
 #[test]

@@ -641,6 +641,15 @@ fn wide_glyph_occupies_three_chip_cells_and_one_plain_space() {
 #[test]
 fn an_assignment_outside_the_roster_does_not_reserve_a_slot() {
     let mut app = populated_board(1, 2);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .motion_off = true;
     let before = paint(&app, 160, 36);
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let mut preferences = workspace.preferences.clone();
