@@ -1020,4 +1020,16 @@ fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
     );
     assert_eq!(actual[(area.x + 1, y)].symbol(), "·");
     assert_ne!(actual[(area.x + 1, y)].bg, actual[(area.x, y)].bg);
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: [None; 12],
+        },
+    );
+    let unknown = frame(&app, 160);
+    assert!(
+        (area.x..area.right()).all(|x| unknown[(x, y)].symbol() == " "),
+        "a wholly unknown window stays blank"
+    );
 }

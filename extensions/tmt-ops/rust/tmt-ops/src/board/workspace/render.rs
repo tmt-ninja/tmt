@@ -979,6 +979,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         OpsTarget::Squad(room) => app.agents_live.squad_activity(app, room),
                         _ => [None; 12],
                     };
+                    let has_known = values
+                        .iter()
+                        .flatten()
+                        .any(|value| value.is_finite() && *value >= 0.0);
                     let empty_cells = values.map(|value| value == Some(0.0));
                     let values = values
                         .into_iter()
@@ -987,7 +991,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                                 Some((value.round() as u64).max(1))
                             }
                             Some(0.0) => Some(1), // Known empty uses the lowest grey level.
-                            _ => None,            // Missing evidence retains the unknown dot.
+                            _ if !has_known => Some(0), // A wholly unknown row stays blank.
+                            _ => None,            // Partial coverage retains the unknown dot.
                         })
                         .collect();
                     let mut grid = ds::CellGrid::new(ds::Size {
