@@ -10,10 +10,10 @@
   "chunks": [
     {
       "name": "base",
-      "path": "assets/colab-runtime-base-c1affc936f2ec7de.js",
-      "sha256": "c1affc936f2ec7de0c1705d0a40669edf831fa300b4efbe9d6549c16e29ddde8",
-      "length": 302930,
-      "gzip": 81007
+      "path": "assets/colab-runtime-base-f0e20756cbafac7e.js",
+      "sha256": "f0e20756cbafac7eab097b2208b7244f7c1ddba6d01ab6d00e7a9f7b1ddd1586",
+      "length": 303735,
+      "gzip": 81228
     },
     {
       "name": "react",
@@ -60,10 +60,10 @@
     {
       "name": "terminal-frame",
       "kind": "wasm",
-      "path": "assets/colab-runtime-terminal-59cad55f8a59d74f.wasm",
-      "sha256": "59cad55f8a59d74fb26a8a4ac3bb026398b4f7c42de0015121a45dcc60007aea",
-      "length": 478547,
-      "gzip": 144010,
+      "path": "assets/colab-runtime-terminal-db8f661deeca3ff0.wasm",
+      "sha256": "db8f661deeca3ff0235bf64041bf7954e9c6e6cf9c30faa0ef2d5d82196a94dd",
+      "length": 478188,
+      "gzip": 143999,
       "glue": {
         "sha256": "51bdfaaed1b6a47565545e9ff2ef2897ee21acfa0e08c8bf165262aeb9be7044",
         "length": 9454,
@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "b0c34acf580e87a37e928aaf22ee217da4989be1725788fa71bc908c969bbdd3",
+    "sha256": "5f0d5fbac35a1b995d6cf786137cd39974dfbd969db8dcfd494e464eae3decb0",
     "length": 70379
   }
 }

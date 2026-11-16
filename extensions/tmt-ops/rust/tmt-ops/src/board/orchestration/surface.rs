@@ -215,7 +215,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     // Column names and one row per plan; with none, the two commands.
                     1 + (snapshot.plan_rows.len() as u16).max(2)
                 } else if routes {
-                    members + 3
+                    members + 4
                 } else {
                     members + 1
                 },
@@ -1018,20 +1018,124 @@ fn sending_word(value: &str) -> &str {
         other => other,
     }
 }
-/// The short cell word for a recipient's receiving: what a message to it does now.
-fn receiving_cell(receiving: Option<&Receiving>) -> String {
-    match receiving {
-        None => "?".into(),
-        Some(Receiving::Direct) => "Dir".into(),
-        Some(Receiving::Auto) => "Auto".into(),
-        Some(Receiving::Urgent) => "Urg".into(),
-        Some(Receiving::Hold) => "Hold".into(),
-        Some(batch @ Receiving::Batch { .. }) => batch.label().replace("batch ", "B"),
+/// One matrix result, independent of its presentation and selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RouteTile {
+    SelfCell,
+    Unknown,
+    Direct,
+    Urgent,
+    Batch,
+    Blocked,
+    NeedsPerson,
+}
+impl RouteTile {
+    fn appearance(self) -> (&'static str, Role) {
+        match self {
+            Self::SelfCell => (" ", Role::Dim),
+            Self::Unknown => ("?", Role::Text),
+            Self::Direct => ("●", Role::Working),
+            Self::Urgent => ("▲", Role::MatrixUrgent),
+            Self::Batch => ("◷", Role::MatrixBatch),
+            Self::Blocked => ("✕", Role::Blocked),
+            Self::NeedsPerson => ("◆", Role::Waiting),
+        }
     }
 }
-/// The widest a matrix name column or recipient column grows, in cells.
+
+fn tile_style(look: Look, tile: RouteTile, selected: bool) -> Style {
+    let (_, role) = tile.appearance();
+    let value = tmt_cli_style::theme::screen::matrix_tile(&look.theme, role, look.depth);
+    if selected {
+        crosshair(look, value)
+    } else {
+        value
+    }
+}
+
+fn route_tile(
+    same: bool,
+    verdict: Option<&Verdict>,
+    receiving: Option<&Receiving>,
+    held: bool,
+) -> RouteTile {
+    if same {
+        return RouteTile::SelfCell;
+    }
+    match verdict {
+        None => RouteTile::Unknown,
+        Some(Verdict::Blocked) => RouteTile::Blocked,
+        Some(Verdict::NeedsPerson) => RouteTile::NeedsPerson,
+        Some(Verdict::Allowed) if held => RouteTile::NeedsPerson,
+        Some(Verdict::Allowed) => match receiving {
+            Some(Receiving::Direct) => RouteTile::Direct,
+            Some(Receiving::Urgent) => RouteTile::Urgent,
+            Some(Receiving::Batch { .. }) => RouteTile::Batch,
+            Some(Receiving::Hold) => RouteTile::NeedsPerson,
+            Some(Receiving::Auto) | None => RouteTile::Unknown,
+        },
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Reach {
+    reachable: usize,
+    known: usize,
+    partial: bool,
+}
+impl Reach {
+    fn role(&self) -> Role {
+        if self.known == 0 {
+            Role::Text
+        } else if self.reachable == self.known {
+            Role::Working
+        } else if self.reachable * 4 <= self.known {
+            Role::Blocked
+        } else {
+            Role::Text
+        }
+    }
+}
+fn reach(tiles: impl IntoIterator<Item = RouteTile>) -> Reach {
+    let mut out = Reach::default();
+    for tile in tiles {
+        match tile {
+            RouteTile::SelfCell => {}
+            RouteTile::Unknown => out.partial = true,
+            RouteTile::Direct | RouteTile::Urgent | RouteTile::Batch => {
+                out.reachable += 1;
+                out.known += 1;
+            }
+            RouteTile::Blocked | RouteTile::NeedsPerson => out.known += 1,
+        }
+    }
+    out
+}
+
+/// Keep the date context for distant or unrecognized times; a nearby weekday can be omitted.
+pub(super) fn compact_route_end(clock: String, at_ms: u64, end_ms: u64) -> String {
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    if end_ms >= at_ms
+        && end_ms - at_ms <= DAY_MS
+        && let Some((weekday, time)) = clock.split_once(' ')
+        && matches!(
+            weekday,
+            "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
+        )
+        && time.len() == 5
+        && time.as_bytes()[2] == b':'
+        && time
+            .bytes()
+            .enumerate()
+            .all(|(i, c)| i == 2 || c.is_ascii_digit())
+    {
+        return time.to_owned();
+    }
+    clock
+}
+
+/// The widest a matrix name column grows, in cells.
 const NAME_CAP: usize = 13;
-const COLUMN_CAP: usize = 12;
 /// Labels no wider than `width` that never show two different names as the same text: a long
 /// name keeps both ends, then its tail, then its position.
 fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
@@ -1091,8 +1195,8 @@ fn distinct_labels(names: &[&str], width: usize) -> Vec<String> {
     }
     labels
 }
-/// The route matrix: one row per sender, one column per recipient, each column as wide as its
-/// own name or receiving word (capped). The selected sender's row carries the selection, the selected route the
+/// The route matrix: one row per sender and one numbered column per recipient.
+/// The selected sender's row carries the selection, the selected route the
 /// crosshair and its recipient a bold name. Every cell is Core's verdict (`✕` blocked, `◆` needs a
 /// person) or, when allowed, the recipient's receiving. Nothing is inferred here. Returns the
 /// section rule's note (how many senders and recipients lie outside the view) and the rows used.
@@ -1105,24 +1209,17 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     let widest = names.iter().map(|n| safe(n).width()).max().unwrap_or(0);
     // The column header label sets the name column's floor.
     let name_width = widest.clamp("From ↓ To →".width(), NAME_CAP);
-    let (rows_labels, column_labels) = (
-        distinct_labels(&names, name_width),
-        distinct_labels(&names, COLUMN_CAP),
-    );
+    let rows_labels = distinct_labels(&names, name_width);
     let name_cells = (name_width + 2) as u16;
-    // Each recipient column is as wide as its own label or the receiving word its cells show,
-    // whichever is wider, plus a one-cell gutter.
-    let widths: Vec<u16> = members
-        .iter()
-        .zip(&column_labels)
-        .map(|(to, label)| {
-            let word = receiving_cell(to.effective.receiving.value.as_ref()).width();
-            (label.width().max(word).max(1) + 1) as u16
-        })
-        .collect();
-    // Column names and up to two legend lines take three rows.
-    let rows = usize::from(area.height.saturating_sub(3).max(area.height.min(1)));
-    let room = area.width.saturating_sub(name_cells + 1);
+    // Three cells per route leave a consistent chip and hit target.
+    let widths: Vec<u16> = members.iter().map(|_| 3).collect();
+    // Column names, the selected-route detail and up to two legend lines.
+    let rows = usize::from(
+        area.height
+            .saturating_sub(4)
+            .max(area.height.saturating_sub(1).min(1)),
+    );
+    let room = area.width.saturating_sub(name_cells + 15);
     let index = |id: &Option<String>| {
         members
             .iter()
@@ -1170,7 +1267,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
     )];
     for c in (first_column..members.len()).take(columns) {
         header.push(Span::styled(
-            pad(&column_labels[c], usize::from(widths[c])),
+            format!("{:^3}", c + 1),
             if c == column {
                 look.role(Role::Text).add_modifier(Modifier::BOLD)
             } else {
@@ -1178,104 +1275,184 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
             },
         ));
     }
+    header.push(Span::styled(" REACH", look.role(Role::Muted)));
     strip::paint_left(frame.buffer_mut(), line(area, area.y), Line::from(header));
-    let mut words: Vec<String> = Vec::new();
+    let held_pairs: std::collections::HashSet<(&str, &str)> = sending
+        .talks
+        .iter()
+        .flatten()
+        .filter(|pair| pair.held)
+        .flat_map(|pair| {
+            let (a, b) = (pair.ids.0.as_str(), pair.ids.1.as_str());
+            [(a, b), (b, a)]
+        })
+        .collect();
+    let tile_at = |r: usize, c: usize| {
+        let from = &members[r];
+        let to = &members[c];
+        let route = sending.route(&from.identity_id, &to.identity_id);
+        let held = held_pairs.contains(&(from.identity_id.as_str(), to.identity_id.as_str()));
+        let receiving = to
+            .effective
+            .receiving
+            .available
+            .then_some(to.effective.receiving.value.as_ref())
+            .flatten();
+        route_tile(r == c, route.map(|route| &route.verdict), receiving, held)
+    };
     let mut y = area.y + 1;
-    for (r, from) in members.iter().enumerate().skip(first_row).take(rows) {
+    let mut partial = false;
+    for r in (first_row..members.len()).take(rows) {
         let selected = r == row;
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, y, area.width, 1),
             Line::styled(
-                format!(" {} ", pad(&rows_labels[r], name_width)),
+                format!(
+                    "{:>2} {}",
+                    r + 1,
+                    pad(&rows_labels[r], name_width.saturating_sub(1))
+                ),
                 look.selected(selected, look.role(Role::Text)),
             ),
         );
-        for (c, to) in members.iter().enumerate().skip(first_column).take(columns) {
-            let (word, role) = if r == c {
-                ("—".to_owned(), Role::Dim)
-            } else {
-                match sending.route(&from.identity_id, &to.identity_id) {
-                    None => ("·".into(), Role::Dim),
-                    Some(route) => match route.verdict {
-                        Verdict::Blocked => ("✕".into(), Role::Blocked),
-                        Verdict::NeedsPerson => ("◆".into(), Role::Waiting),
-                        Verdict::Allowed => {
-                            let word = receiving_cell(to.effective.receiving.value.as_ref());
-                            if !words.contains(&word) {
-                                words.push(word.clone());
-                            }
-                            (word, Role::Text)
-                        }
-                    },
-                }
-            };
+        for c in (first_column..members.len()).take(columns) {
+            let tile = tile_at(r, c);
+            let (word, _) = tile.appearance();
             let x = area.x + name_cells + starts[c - first_column];
             let rect = Rect::new(x, y, widths[c], 1);
-            let style = if selected && c == column {
-                crosshair(look, look.role(role))
-            } else {
-                look.selected(selected, look.role(role))
-            };
+            let style = tile_style(look, tile, selected && c == column);
             strip::paint_left(
                 frame.buffer_mut(),
                 rect,
-                Line::styled(pad(&word, usize::from(widths[c])), style),
+                Line::styled(format!(" {word} "), style),
             );
-            if selected && matches!(role, Role::Blocked | Role::Waiting) {
-                // A verdict keeps its colour on the selection: the frame pass's state-cell contract.
-                app.workspace_state_cells
-                    .borrow_mut()
-                    .push(Rect::new(x, y, 1, 1));
+            if selected {
+                // Matrix tiles own their foreground and fill even on the selected row.
+                app.workspace_state_cells.borrow_mut().push(rect);
             }
             state.hits.borrow_mut().push((rect, Control::Cell(r, c)));
         }
+        let summary = reach((0..members.len()).map(|c| tile_at(r, c)));
+        partial |= summary.partial;
+        let x = area.x + name_cells + columns as u16 * 3 + 1;
+        let filled = (summary.reachable * 6 + summary.known / 2)
+            .checked_div(summary.known)
+            .unwrap_or(0);
+        let label = format!(
+            " {}/{}{}",
+            summary.reachable,
+            summary.known,
+            if summary.partial { "*" } else { "" }
+        );
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(x, y, area.right().saturating_sub(x), 1),
+            Line::from(vec![
+                Span::styled("▰".repeat(filled), look.role(summary.role())),
+                Span::styled("▱".repeat(6 - filled), look.role(Role::Dim)),
+                Span::styled(label, look.role(Role::Muted)),
+            ]),
+        );
         y += 1;
     }
-    // The legend explains the words exactly as the cells write them.
-    let mut legend: Vec<String> = [
-        ("Dir", "direct"),
-        ("Auto", "auto"),
-        ("Urg", "urgent only"),
-        ("Hold", "hold all"),
-    ]
-    .into_iter()
-    .filter(|(word, _)| words.iter().any(|w| w == word))
-    .map(|(word, meaning)| format!("{word} {meaning}"))
-    .collect();
-    legend.extend(words.iter().filter_map(|w| {
-        w.strip_prefix('B')
-            .map(|interval| format!("{w} batch {interval}"))
-    }));
-    legend.extend(["✕ sender rule".to_owned(), "◆ needs a person".to_owned()]);
-    // Whole items per line: the legend wraps between items rather than cutting one.
-    let room = usize::from(area.width).saturating_sub(2);
-    let mut lines: Vec<String> = Vec::new();
-    for item in legend {
-        match lines.last_mut() {
-            Some(last) if last.width() + 3 + item.width() <= room => {
-                last.push_str(" · ");
-                last.push_str(&item);
-            }
-            _ => lines.push(item),
+    let detail = {
+        let from = &members[row];
+        let to = &members[column];
+        let tile = tile_at(row, column);
+        let (description, role) = match tile {
+            RouteTile::SelfCell => ("self".to_owned(), Role::Muted),
+            RouteTile::Unknown => ("? unknown".to_owned(), Role::Text),
+            RouteTile::Direct => ("● direct".to_owned(), Role::Working),
+            RouteTile::Urgent => ("▲ urgent only".to_owned(), Role::MatrixUrgent),
+            RouteTile::Batch => (format!("◷ {}", receiving_label(to)), Role::MatrixBatch),
+            RouteTile::Blocked => ("✕ blocked".to_owned(), Role::Blocked),
+            RouteTile::NeedsPerson => ("◆ needs a person".to_owned(), Role::Waiting),
+        };
+        let provenance = sending
+            .route(&from.identity_id, &to.identity_id)
+            .map_or_else(String::new, |route| match &route.source {
+                RouteSource::Grant { until_ms } => format!(
+                    " · allow once until {}",
+                    compact_route_end(
+                        snapshot.clock(*until_ms),
+                        snapshot.document.at_ms,
+                        *until_ms
+                    )
+                ),
+                RouteSource::Policy(source) => {
+                    let until = source.slot.as_ref().map_or_else(String::new, |slot| {
+                        format!(
+                            " until {}",
+                            compact_route_end(
+                                snapshot.clock(slot.end_ms),
+                                snapshot.document.at_ms,
+                                slot.end_ms
+                            )
+                        )
+                    });
+                    let join = if route.verdict == Verdict::Blocked {
+                        " by "
+                    } else {
+                        " · "
+                    };
+                    format!("{join}{}{until}", snapshot.document.source_label(source))
+                }
+            });
+        (
+            format!(
+                " {} {} · {} → {} {description}{provenance}",
+                column + 1,
+                to.name,
+                from.name,
+                to.name
+            ),
+            role,
+        )
+    };
+    // The legend uses the same three-cell paint as the matrix; wrap only at item boundaries.
+    let legend = [
+        (RouteTile::Direct, "direct"),
+        (RouteTile::Urgent, "urgent"),
+        (RouteTile::Batch, "batch"),
+        (RouteTile::Blocked, "blocked"),
+        (RouteTile::NeedsPerson, "needs you"),
+        (RouteTile::Unknown, "unknown"),
+    ];
+    let mut x = area.x;
+    for (tile, label) in legend {
+        let needed = 4 + label.width() as u16;
+        if x > area.x && x.saturating_add(needed) > area.right() {
+            x = area.x;
+            y += 1;
         }
-    }
-    for legend in lines {
         if y >= area.bottom() {
             break;
         }
-        text(
-            frame,
-            app,
-            line(area, y),
-            &format!(" {legend}"),
-            Role::Muted,
+        let (mark, _) = tile.appearance();
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(x, y, area.right().saturating_sub(x), 1),
+            Line::from(vec![
+                Span::styled(format!(" {mark} "), tile_style(look, tile, false)),
+                Span::styled(format!(" {label}"), look.role(Role::Muted)),
+            ]),
         );
+        x = x.saturating_add(needed + 1);
+    }
+    if x > area.x && y < area.bottom() {
+        y += 1;
+    }
+    if y < area.bottom() {
+        text(frame, app, line(area, y), &detail.0, detail.1);
         y += 1;
     }
     let hidden_rows = members.len().saturating_sub(first_row + rows);
     let hidden_columns = members.len().saturating_sub(first_column + columns);
     let mut note: Vec<String> = Vec::new();
+    if partial {
+        note.push("* partial".into());
+    }
     if sending.truncated {
         note.push("too many to read · filter with /".into());
     }
@@ -1792,25 +1969,34 @@ fn inspector_lines(app: &App, snapshot: Option<&Snapshot>, width: u16) -> Vec<In
         .filter(|_| !app.orchestration.plans);
     if let (Some(to), Some(_)) = (target, &snapshot.sending.routes) {
         let route = snapshot.sending.route(&member.identity_id, &to.identity_id);
-        let (note, role) = match route.map(|r| &r.verdict) {
-            None => ("not read", Role::Muted),
-            Some(Verdict::Allowed) => ("● allowed", Role::Working),
-            Some(Verdict::Blocked) => ("✕ not sent", Role::Blocked),
-            Some(Verdict::NeedsPerson) => ("◆ held", Role::Waiting),
+        let held = snapshot
+            .sending
+            .pair(&member.identity_id, &to.identity_id)
+            .is_some_and(|pair| pair.held);
+        let receiving = to
+            .effective
+            .receiving
+            .available
+            .then_some(to.effective.receiving.value.as_ref())
+            .flatten();
+        let tile = route_tile(false, route.map(|r| &r.verdict), receiving, held);
+        let (note, role) = match tile {
+            RouteTile::SelfCell | RouteTile::Unknown => ("? unknown", Role::Text),
+            RouteTile::Direct => ("● direct", Role::Working),
+            RouteTile::Urgent => ("▲ urgent only", Role::MatrixUrgent),
+            RouteTile::Batch => ("◷ batch", Role::MatrixBatch),
+            RouteTile::Blocked => ("✕ blocked", Role::Blocked),
+            RouteTile::NeedsPerson => ("◆ needs a person", Role::Waiting),
         };
         lines.push(InspectorLine::Rule(
             format!("{} → {}", member.name, to.name),
             Line::styled(note, look.role(role)),
         ));
         lines.push(InspectorLine::Row(
-            "Sending",
-            sending_word(&member.effective.sending.value).to_owned(),
-            Role::Text,
-            Some(
-                snapshot
-                    .document
-                    .source_label(&member.effective.sending.source),
-            ),
+            "Why",
+            "Recorded decisions".to_owned(),
+            Role::Muted,
+            None,
         ));
         match route {
             None => lines.push(InspectorLine::Row(
@@ -1819,37 +2005,51 @@ fn inspector_lines(app: &App, snapshot: Option<&Snapshot>, width: u16) -> Vec<In
                 Role::Muted,
                 None,
             )),
-            Some(route) => {
-                let (result, role) = match route.verdict {
-                    Verdict::Allowed => {
-                        (format!("delivered · {}", receiving_label(to)), Role::Text)
-                    }
-                    Verdict::Blocked => ("✕ not sent, explained".to_owned(), Role::Blocked),
-                    Verdict::NeedsPerson => ("◆ held · needs a person".to_owned(), Role::Waiting),
-                };
-                lines.push(InspectorLine::Row("Result", result, role, None));
-                match &route.source {
-                    RouteSource::Grant { until_ms } => lines.push(InspectorLine::Row(
+            Some(route) => match &route.source {
+                RouteSource::Grant { until_ms } => {
+                    lines.push(InspectorLine::Row(
+                        "Rule",
+                        "Allow once".into(),
+                        Role::Text,
+                        None,
+                    ));
+                    lines.push(InspectorLine::Row(
                         "Until",
                         snapshot.clock(*until_ms),
                         Role::Text,
-                        Some("allow once".into()),
-                    )),
-                    RouteSource::Policy(source) => {
-                        if let Some(slot) = &source.slot {
-                            lines.push(InspectorLine::Row(
-                                "Until",
-                                snapshot.clock(slot.end_ms),
-                                Role::Text,
-                                Some(format!(
-                                    "when {} ends",
-                                    snapshot.document.source_label(source)
-                                )),
-                            ));
-                        }
+                        None,
+                    ));
+                }
+                RouteSource::Policy(source) => {
+                    lines.push(InspectorLine::Row(
+                        "Rule",
+                        snapshot.document.source_label(source),
+                        Role::Text,
+                        None,
+                    ));
+                    if let Some(slot) = &source.slot {
+                        let length = slot.end_ms.saturating_sub(slot.start_ms);
+                        let remaining = slot
+                            .end_ms
+                            .saturating_sub(snapshot.document.at_ms)
+                            .min(length);
+                        let filled = (u128::from(remaining) * 12)
+                            .checked_div(u128::from(length))
+                            .unwrap_or(0) as usize;
+                        lines.push(InspectorLine::Row(
+                            "Until",
+                            format!(
+                                "{}{} {}",
+                                "▰".repeat(filled),
+                                "▱".repeat(12 - filled),
+                                snapshot.clock(slot.end_ms)
+                            ),
+                            Role::Text,
+                            None,
+                        ));
                     }
                 }
-            }
+            },
         }
         if let Some(pair) = snapshot.sending.pair(&member.identity_id, &to.identity_id) {
             lines.push(InspectorLine::Row(
@@ -1870,17 +2070,27 @@ fn inspector_lines(app: &App, snapshot: Option<&Snapshot>, width: u16) -> Vec<In
             ));
         }
         let (blocked, held) = app.orchestration.cell_actions();
+        let mut actions = Vec::new();
         if blocked && snapshot.writes {
-            let until = member.next_change_at_ms.map_or_else(
-                || "for up to 24 hours".to_owned(),
-                |end| format!("until {}", snapshot.clock(end)),
-            );
-            lines.push(InspectorLine::Button(
+            actions.push((
                 super::super::keycap::key(app, Ui::AllowOnce, "a"),
-                format!("Allow once {until}"),
+                "Allow once",
                 Control::Allow,
             ));
         }
+        actions.push((
+            super::super::keycap::key(app, Ui::Why, "w"),
+            "Why",
+            Control::Why,
+        ));
+        if snapshot.writes {
+            actions.push((
+                super::super::keycap::key(app, Ui::FocusHour, "f"),
+                "Focus sender",
+                Control::Focus(true),
+            ));
+        }
+        lines.push(InspectorLine::Buttons(actions));
         if held && snapshot.writes {
             lines.push(InspectorLine::Button(
                 super::super::keycap::key(app, Ui::ReleaseHeld, "r"),
@@ -2518,5 +2728,127 @@ impl InspectorLine {
             ),
             Self::Blank => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tile_tests {
+    use super::*;
+
+    #[test]
+    fn route_verdict_and_receiving_determine_the_tile() {
+        assert_eq!(route_tile(true, None, None, false), RouteTile::SelfCell);
+        assert_eq!(
+            route_tile(false, None, Some(&Receiving::Direct), false),
+            RouteTile::Unknown
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Blocked),
+                Some(&Receiving::Direct),
+                true
+            ),
+            RouteTile::Blocked
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::NeedsPerson),
+                Some(&Receiving::Direct),
+                false
+            ),
+            RouteTile::NeedsPerson
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Direct),
+                true
+            ),
+            RouteTile::NeedsPerson
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Hold),
+                false
+            ),
+            RouteTile::NeedsPerson
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Direct),
+                false
+            ),
+            RouteTile::Direct
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Urgent),
+                false
+            ),
+            RouteTile::Urgent
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Batch {
+                    interval_ms: 1_800_000
+                }),
+                false
+            ),
+            RouteTile::Batch
+        );
+        assert_eq!(
+            route_tile(
+                false,
+                Some(&Verdict::Allowed),
+                Some(&Receiving::Auto),
+                false
+            ),
+            RouteTile::Unknown
+        );
+        assert_eq!(
+            route_tile(false, Some(&Verdict::Allowed), None, false),
+            RouteTile::Unknown
+        );
+    }
+
+    #[test]
+    fn reach_counts_known_routes_without_treating_unknown_as_blocked() {
+        let count = reach([
+            RouteTile::SelfCell,
+            RouteTile::Direct,
+            RouteTile::Urgent,
+            RouteTile::Batch,
+            RouteTile::Blocked,
+            RouteTile::NeedsPerson,
+            RouteTile::Unknown,
+        ]);
+        assert_eq!((count.reachable, count.known, count.partial), (3, 5, true));
+        assert_eq!(count.role(), Role::Text);
+        assert_eq!(
+            reach([RouteTile::Direct, RouteTile::Batch]).role(),
+            Role::Working
+        );
+        assert_eq!(
+            reach([
+                RouteTile::Direct,
+                RouteTile::Blocked,
+                RouteTile::Blocked,
+                RouteTile::NeedsPerson
+            ])
+            .role(),
+            Role::Blocked
+        );
+        assert_eq!(reach([RouteTile::Unknown]).role(), Role::Text);
     }
 }

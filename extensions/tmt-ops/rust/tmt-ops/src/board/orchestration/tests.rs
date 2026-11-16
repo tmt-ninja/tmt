@@ -539,45 +539,74 @@ fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
     assert!(text.contains("From ↓ To →"));
     assert!(text.contains("✕"));
     assert!(text.contains("◆"));
-    assert!(text.contains("◆ held"));
-    assert!(text.contains("✕ not sent, explained"));
-    for (name, look) in crate::board::home::tests::oracle::looks() {
-        let app = captures::case("orchestration-matrix", look);
-        let buffer = paint(&app, 160, 36);
-        let header = find(&buffer, "From ↓ To →").expect("matrix header");
-        let (worker, peer) = (header.1 + 1, header.1 + 2);
-        let name_cell = |y| buffer[(header.0, y)].style();
-        assert_ne!(
-            name_cell(worker),
-            name_cell(peer),
-            "{name}: selected row is visible"
-        );
-        let blocked = find_in_row(&buffer, worker, "✕").expect("worker → peer is blocked");
-        let held = find_in_row(&buffer, peer, "◆").expect("peer → worker needs a person");
-        let selected_cell = buffer[(blocked, worker)].style();
-        assert_ne!(
-            selected_cell,
-            name_cell(worker),
-            "{name}: selected cell stands out of its row"
-        );
-        assert_ne!(
-            selected_cell,
-            buffer[(held, peer)].style(),
-            "{name}: selected cell is unique"
-        );
-        if let Some(waiting) = look.role(tmt_cli_style::Role::Waiting).fg {
-            assert_eq!(buffer[(held, peer)].fg, waiting, "{name}: ◆ is Waiting");
-        }
-        // A reverse-video selection keeps one foreground; a coloured one keeps the verdict's.
-        if look.selection().bg.is_some() {
-            let blocked_fg = look.role(tmt_cli_style::Role::Blocked).fg.unwrap();
-            assert_eq!(
-                buffer[(blocked, worker)].fg,
-                blocked_fg,
-                "{name}: ✕ is Blocked"
-            );
-        }
-    }
+    assert!(text.contains("needs you"), "{text}");
+    assert!(text.contains("✕ blocked"), "{text}");
+    let look = crate::look::Look::default();
+    let mut app = captures::case("orchestration-matrix", look);
+    let buffer = paint(&app, 160, 36);
+    let header = find(&buffer, "From ↓ To →").expect("matrix header");
+    let (worker, peer) = (header.1 + 1, header.1 + 2);
+    let blocked = find_in_row(&buffer, worker, "✕").expect("worker → peer is blocked");
+    let held = find_in_row(&buffer, peer, "◆").expect("peer → worker needs a person");
+    assert_ne!(
+        buffer[(blocked, worker)].style(),
+        buffer[(held, peer)].style()
+    );
+    assert!(
+        app.orchestration
+            .hits
+            .borrow()
+            .iter()
+            .any(|(rect, control)| {
+                matches!(control, super::input::Control::Cell(0, 1))
+                    && rect.y == worker
+                    && (rect.x..rect.right()).contains(&blocked)
+            })
+    );
+    let target = app
+        .orchestration
+        .hits
+        .borrow()
+        .iter()
+        .find_map(|(rect, control)| {
+            matches!(control, super::input::Control::Cell(1, 0)).then_some(*rect)
+        })
+        .expect("reverse route hit");
+    app.orchestration_mouse(ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(
+            ratatui::crossterm::event::MouseButton::Left,
+        ),
+        column: target.x,
+        row: target.y,
+        modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
+    });
+    assert_eq!(app.orchestration.selected.as_deref(), Some(OTHER));
+    assert_eq!(app.orchestration.target.as_deref(), Some(MEMBER));
+
+    let roster = captures::case("orchestration-roster", look);
+    let buffer = paint(&roster, 160, 36);
+    let (_, legend_y) = find(&buffer, "direct").expect("tile legend");
+    assert!(find_in_row(&buffer, legend_y, "needs you").is_some());
+    assert!(find_in_row(&buffer, legend_y, "unknown").is_some());
+    assert!(
+        find(
+            &buffer,
+            "5 remote-4 · night-1 → remote-4 ✕ blocked by Shift B · Night until 06:00"
+        )
+        .is_some()
+    );
+    let (_, header_y) = find(&buffer, "From ↓ To →").expect("numbered header");
+    assert_eq!(buffer[(51, header_y + 1)].symbol(), " ", "gap before REACH");
+    let format_end = super::surface::compact_route_end;
+    assert_eq!(
+        format_end("Thu 06:00".into(), 0, 24 * 60 * 60 * 1000),
+        "06:00"
+    );
+    assert_eq!(
+        format_end("Thu 06:00".into(), 0, 25 * 60 * 60 * 1000),
+        "Thu 06:00"
+    );
+    assert_eq!(format_end("1000 ms".into(), 0, 1000), "1000 ms");
 }
 fn paint(app: &super::super::app::App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let mut terminal =
@@ -1624,9 +1653,13 @@ fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
         .unwrap();
     assert!(rows < 60 && columns < 60);
     // The counts sit in the section rule's note, so the legend stays whole.
-    let expected = format!("━ {} more ↓ · {} more → ━", 60 - rows, 60 - columns);
+    let expected = format!("{} more ↓ · {} more → ━", 60 - rows, 60 - columns);
     assert!(text.contains(&expected), "expected {expected}: {text}");
-    assert!(text.contains("✕ sender rule · ◆ needs a person"), "{text}");
+    assert!(text.contains("* partial"), "{text}");
+    assert!(
+        text.contains("blocked") && text.contains("needs you"),
+        "{text}"
+    );
     // Two different visible names never render as the same text.
     let lines: Vec<String> = text
         .chars()

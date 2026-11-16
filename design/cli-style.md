@@ -50,7 +50,7 @@ design tokens, and this crate stays the only place that names them.
 
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
-`waiting`, `working`, `review`, `blocked`, `link`, `unread`, `selection`, `track`,
+`waiting`, `working`, `review`, `blocked`, `link`, `unread`, `matrix-batch`, `matrix-urgent`, `selection`, `track`,
 `keycap`, `keycap-selected`, `code`, `attachment`, `attachment-ink` and `conversation`
 (`selection`, `track`, `conversation` and the keycaps are backgrounds, `conversation` being the faint accent tint of the agent row whose conversation has focus (rows only, never code), reverse video with a bold name where there is no background colour; `code` is a calm cool grey-blue foreground, `white` on 16 colors, for rendered Markdown code, always drawn on `track`, and a Markdown link is `accent` and underlined, so the two never share a colour; `track` is the empty part of a meter and sits one step
 above the terminal background, so it is weaker than `selection`). Truecolor
@@ -61,6 +61,7 @@ and with `NO_COLOR` the theme adds no style, so a meter marks its own track.
 The `unread` role marks an unopened submitted reply; only its glyph is blue, and its
 count/word stay neutral. Terminal16, `mono`, `NO_COLOR` and explicit overrides keep
 their existing behavior.
+`matrix-batch` and `matrix-urgent` are glyph colours for the Ops delivery matrix and its legend only; the matching `surface.matrix-*-soft` tokens are tile fills. Needs-person tiles use `surface.waiting-soft`. Their terminal colours are bright blue and bright yellow; the marks retain meaning in mono and `NO_COLOR`.
 Chips resolve through `screen::chip`: neutral Track/Selection surfaces or primary Accent solid/lighter, Dim-on-Track when disabled, always Bold for Ansi16 Hot, and explicit reverse/bold/underline states without color; they add no role or token.
 Keycaps resolve through `screen::keycap`: a neutral mid-grey background, bold contrast-tested label and one padding cell on each side. A selected control uses the brighter `keycap-selected` surface. Without color, keycaps use bold reverse video. Hosts show the effective configured key before its label and omit the cap when the action is unbound.
 
